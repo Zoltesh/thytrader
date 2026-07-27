@@ -1,0 +1,25 @@
+# ThyTrader local development infrastructure.
+# PostgreSQL is bound to loopback only; credentials are read from the host
+# environment so no secret is ever committed.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: thytrader-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: ${THYTRADER_PG_USER:-thytrader}
+      POSTGRES_PASSWORD: ${THYTRADER_PG_PASSWORD:?Set THYTRADER_PG_PASSWORD}
+      POSTGRES_DB: ${THYTRADER_PG_DB:-thytrader}
+    volumes:
+      - thytrader_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${THYTRADER_PG_USER:-thytrader} -d ${THYTRADER_PG_DB:-thytrader}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  thytrader_pg_data:

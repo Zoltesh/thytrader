@@ -10,8 +10,12 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, field_serializer
 
-from thytrader.portfolio.models import Portfolio  # noqa: TC001 - used by Pydantic mapping.
-from thytrader.portfolio.service import PortfolioService
+from thytrader.api.dependencies import get_history_store, get_portfolio_service
+from thytrader.persistence.portfolio_history import PortfolioHistoryUnavailableError
+from thytrader.portfolio.models import Portfolio  # noqa: TC001 - resolved by Pydantic at runtime.
+from thytrader.portfolio.service import (
+    PortfolioService,  # noqa: TC001 - resolved by FastAPI Depends at runtime.
+)
 
 router = APIRouter(prefix="/api/v1", tags=["portfolio"])
 _logger = logging.getLogger(__name__)
@@ -70,7 +74,7 @@ class PortfolioResponse(BaseModel):
 class ErrorDetail(BaseModel):
     """Stable redacted API failure body."""
 
-    code: Literal["coinbase_unavailable"]
+    code: Literal["coinbase_unavailable", "persistence_unavailable"]
     message: str
 
 
@@ -80,21 +84,16 @@ class ErrorResponse(BaseModel):
     detail: ErrorDetail
 
 
-def get_portfolio_service(request: Request) -> PortfolioService:
-    """Return the configured portfolio service from application state."""
-    service = getattr(request.app.state, "portfolio_service", None)
-    if not isinstance(service, PortfolioService):
-        message = "Portfolio service is unavailable."
-        raise TypeError(message)
-    return service
-
-
 @router.get(
     "/portfolio",
     response_model=PortfolioResponse,
-    responses={status.HTTP_502_BAD_GATEWAY: {"model": ErrorResponse}},
+    responses={
+        status.HTTP_502_BAD_GATEWAY: {"model": ErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse},
+    },
 )
 async def get_portfolio(
+    request: Request,
     service: Annotated[PortfolioService, Depends(get_portfolio_service)],
 ) -> PortfolioResponse:
     """Return the configured Coinbase or demo portfolio without exposing credentials."""
@@ -109,6 +108,27 @@ async def get_portfolio(
                 "message": (
                     "Coinbase is temporarily unavailable. Check your credentials and try again."
                 ),
+            },
+        ) from None
+
+    store = get_history_store(request)
+    try:
+        await store.record(portfolio)
+    except PortfolioHistoryUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "persistence_unavailable",
+                "message": "Portfolio history is unavailable.",
+            },
+        ) from None
+    except Exception as error:  # noqa: BLE001
+        _logger.warning("Portfolio history record failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "persistence_unavailable",
+                "message": "Portfolio history is unavailable.",
             },
         ) from None
     return _to_response(portfolio)
