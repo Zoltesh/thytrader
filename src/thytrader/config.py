@@ -31,13 +31,14 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8200, ge=1, le=65535)
     allow_remote_access: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
+    database_url: SecretStr | None = None
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
 
-    @field_validator("coinbase_api_key_name", mode="before")
+    @field_validator("database_url", "coinbase_api_key_name", mode="before")
     @classmethod
-    def normalize_api_key_name(cls, value: object) -> object:
-        """Treat an empty environment placeholder as an absent API key name."""
+    def normalize_optional_secret(cls, value: object) -> object:
+        """Treat empty environment placeholders as absent optional secrets."""
         if isinstance(value, str) and not value.strip():
             return None
         return value

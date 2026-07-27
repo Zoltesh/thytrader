@@ -20,6 +20,24 @@ def test_settings_default_to_safe_local_development() -> None:
     assert settings.api_port == 8200
     assert settings.allow_remote_access is False
     assert settings.log_level == "INFO"
+    assert settings.database_url is None
+
+
+def test_settings_treats_an_empty_database_url_as_disabled() -> None:
+    """An empty placeholder should preserve the stateless local workflow."""
+    settings = Settings(database_url="   ", _env_file=None)
+
+    assert settings.database_url is None
+
+
+def test_settings_redacts_a_configured_database_url() -> None:
+    """A database URL must not appear in Settings representations."""
+    database_url = "postgresql+asyncpg://thytrader:synthetic-password@127.0.0.1:5433/thytrader"
+    settings = Settings(database_url=database_url, _env_file=None)
+
+    assert settings.database_url is not None
+    assert settings.database_url.get_secret_value() == database_url
+    assert database_url not in repr(settings)
 
 
 def test_settings_reject_non_loopback_binding_without_explicit_opt_in() -> None:
