@@ -17,6 +17,9 @@ npm ci
 npm run dev
 ```
 
+The development server uses `http://127.0.0.1:5175`; ports `5173` and `5174` are intentionally
+avoided. Vite fails explicitly rather than silently selecting another port if `5175` is occupied.
+
 Run all frontend quality gates with:
 
 ```bash

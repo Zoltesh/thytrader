@@ -43,7 +43,7 @@ npm ci
 npm run dev -- --open
 ```
 
-The UI opens at `http://127.0.0.1:5173` and proxies `/api` requests to the local FastAPI process.
+The UI opens at `http://127.0.0.1:5175` and proxies `/api` requests to the local FastAPI process.
 Run frontend verification with:
 
 ```bash
