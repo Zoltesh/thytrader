@@ -7,10 +7,12 @@ services:
     image: postgres:17-alpine
     container_name: thytrader-postgres
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: ${THYTRADER_PG_USER:-thytrader}
-      POSTGRES_PASSWORD: ${THYTRADER_PG_PASSWORD:?Set THYTRADER_PG_PASSWORD}
+      # This is a local-development fallback only. Set THYTRADER_PG_PASSWORD
+      # through .env or the bootstrap helper for a different local credential.
+      POSTGRES_PASSWORD: ${THYTRADER_PG_PASSWORD:-thytrader-local-development-only}
       POSTGRES_DB: ${THYTRADER_PG_DB:-thytrader}
     volumes:
       - thytrader_pg_data:/var/lib/postgresql/data

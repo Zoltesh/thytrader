@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
-import os
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+from thytrader.config import Settings
 from thytrader.persistence.schema import metadata
 
 config = context.config
@@ -17,9 +17,14 @@ if config.config_file_name is not None:
 
 target_metadata = metadata
 
-_database_url_env = os.environ.get("THYTRADER_DATABASE_URL", "")
-if _database_url_env.strip():
-    config.set_main_option("sqlalchemy.url", _database_url_env)
+_database_settings = Settings()
+if _database_settings.database_url is None:
+    message = "THYTRADER_DATABASE_URL must be configured before running migrations."
+    raise RuntimeError(message)
+config.set_main_option(
+    "sqlalchemy.url",
+    _database_settings.database_url.get_secret_value(),
+)
 
 
 def run_migrations_offline() -> None:

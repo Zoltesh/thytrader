@@ -25,6 +25,36 @@ uv run thytrader-api
 uv run thytrader-worker
 ```
 
+### Optional local portfolio history database
+
+Portfolio history is opt-in: without PostgreSQL, the demo and live Coinbase portfolio screen
+continues to work normally, but historical snapshots are unavailable. For a fresh clone on a
+machine with Docker Desktop or Docker Engine plus the Compose plugin, run this **single command**
+from the repository root after `uv sync`:
+
+```bash
+uv run python scripts/setup_local_postgres.py
+```
+
+The helper preserves unrelated settings in an existing ignored `.env`, creates matching
+local-only database configuration when needed, starts the repository's PostgreSQL container on
+`127.0.0.1:5433`, waits for it to become healthy, and explicitly runs `alembic upgrade head`.
+It does not print the generated configuration. Start the API normally afterward:
+
+```bash
+uv run thytrader-api
+```
+
+To confirm persistence, refresh the portfolio and request
+`http://127.0.0.1:8200/api/v1/portfolio/history`. The database data survives a normal
+`docker compose down`; only `docker compose down -v` destroys local history and is intentionally
+destructive. For a user-managed PostgreSQL instance, set `THYTRADER_DATABASE_URL` in `.env` and
+run the explicit migration command:
+
+```bash
+uv run alembic upgrade head
+```
+
 The API exposes liveness at `http://127.0.0.1:8200/health/live`, startup readiness at
 `http://127.0.0.1:8200/health/ready`, and the portfolio at
 `http://127.0.0.1:8200/api/v1/portfolio`. If you copied an earlier `.env.example`, update

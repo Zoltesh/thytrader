@@ -115,5 +115,5 @@ def test_compose_yaml_binds_postgres_to_loopback_only() -> None:
     compose_path = Path("compose.yaml")
     assert compose_path.exists()
     content = compose_path.read_text(encoding="utf-8")
-    assert "127.0.0.1:5432" in content
+    assert "127.0.0.1:5433:5432" in content
     assert "POSTGRES_PASSWORD" in content
