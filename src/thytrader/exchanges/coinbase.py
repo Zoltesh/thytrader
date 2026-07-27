@@ -11,6 +11,11 @@ from requests import HTTPError
 from thytrader.exchanges.models import ExchangeBalance
 
 _ACCOUNT_PAGE_SIZE = 250
+_MAX_ACCOUNT_PAGES = 100
+
+
+class CoinbasePaginationError(RuntimeError):
+    """Signal malformed Coinbase account pagination without returning partial balances."""
 
 
 class CoinbaseResponse(Protocol):
@@ -49,7 +54,7 @@ class CoinbaseAccount:
         cursor: str | None = None
         seen_cursors: set[str] = set()
         balances: list[ExchangeBalance] = []
-        while True:
+        for _page_number in range(_MAX_ACCOUNT_PAGES):
             response = await asyncio.to_thread(
                 self._client.get_accounts,
                 limit=_ACCOUNT_PAGE_SIZE,
@@ -61,15 +66,18 @@ class CoinbaseAccount:
                 if balance is not None and balance.total != 0:
                     balances.append(balance)
             if not payload.get("has_next"):
-                break
+                return tuple(balances)
             next_cursor = payload.get("cursor")
             if not isinstance(next_cursor, str) or not next_cursor:
-                break
+                message = "Coinbase account pagination declared a next page with a missing cursor."
+                raise CoinbasePaginationError(message)
             if next_cursor in seen_cursors:
-                break
+                message = "Coinbase account pagination returned a repeated cursor."
+                raise CoinbasePaginationError(message)
             seen_cursors.add(next_cursor)
             cursor = next_cursor
-        return tuple(balances)
+        message = f"Coinbase account pagination exceeded the {_MAX_ACCOUNT_PAGES}-page limit."
+        raise CoinbasePaginationError(message)
 
     async def get_permissions(self) -> tuple[str, ...]:
         """Report every enabled permission without rejecting additional capabilities."""

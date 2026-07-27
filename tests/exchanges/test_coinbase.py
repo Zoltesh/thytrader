@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from requests import HTTPError, Response
 
-from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase import CoinbaseAccount, CoinbasePaginationError
 
 
 class StubCoinbaseClient:
@@ -129,8 +129,8 @@ def test_coinbase_adapter_propagates_non_not_found_price_failures() -> None:
         asyncio.run(CoinbaseAccount(UnavailableClient()).get_usd_price("BTC"))
 
 
-def test_coinbase_adapter_stops_on_a_repeated_pagination_cursor() -> None:
-    """A malformed repeated cursor must not create an infinite account loop."""
+def test_coinbase_adapter_rejects_a_repeated_pagination_cursor() -> None:
+    """A malformed repeated cursor must not return an incomplete portfolio."""
 
     class RepeatedCursorClient(StubCoinbaseClient):
         """Return the same cursor forever to emulate a malformed upstream page."""
@@ -143,7 +143,45 @@ def test_coinbase_adapter_stops_on_a_repeated_pagination_cursor() -> None:
 
     client = RepeatedCursorClient()
 
-    balances = asyncio.run(CoinbaseAccount(client).list_balances())
+    with pytest.raises(CoinbasePaginationError, match="repeated cursor"):
+        asyncio.run(CoinbaseAccount(client).list_balances())
 
-    assert balances == ()
     assert client.account_cursors == [None, "repeat"]
+
+
+def test_coinbase_adapter_rejects_a_missing_pagination_cursor() -> None:
+    """A continuation flag without a cursor must not silently truncate balances."""
+
+    class MissingCursorClient(StubCoinbaseClient):
+        """Return malformed continuation metadata after a valid account page."""
+
+        def get_accounts(self, *, limit: int, cursor: str | None = None) -> Any:
+            """Return an invalid next-page response."""
+            assert limit == 250
+            self.account_cursors.append(cursor)
+            return StubResponse({"accounts": [], "has_next": True})
+
+    with pytest.raises(CoinbasePaginationError, match="missing cursor"):
+        asyncio.run(CoinbaseAccount(MissingCursorClient()).list_balances())
+
+
+def test_coinbase_adapter_rejects_an_unbounded_unique_cursor_stream() -> None:
+    """A malformed stream of unique cursors must stop at the hard page cap."""
+
+    class EndlessCursorClient(StubCoinbaseClient):
+        """Return one unique continuation cursor for every request."""
+
+        def get_accounts(self, *, limit: int, cursor: str | None = None) -> Any:
+            """Produce a continuation stream that cannot terminate naturally."""
+            assert limit == 250
+            self.account_cursors.append(cursor)
+            return StubResponse(
+                {"accounts": [], "has_next": True, "cursor": f"cursor-{len(self.account_cursors)}"}
+            )
+
+    client = EndlessCursorClient()
+
+    with pytest.raises(CoinbasePaginationError, match="page limit"):
+        asyncio.run(CoinbaseAccount(client).list_balances())
+
+    assert len(client.account_cursors) == 100
