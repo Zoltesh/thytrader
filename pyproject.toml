@@ -1,20 +1,41 @@
 [project]
 name = "thytrader"
 version = "0.1.0"
-description = "Add your description here"
+description = "A trustworthy, local-first trading workstation."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.140.0",
     "matplotlib>=3.11.1",
     "numpy>=2.5.1",
     "polars>=1.43.0",
+    "pydantic-settings>=2.14.2",
+    "uvicorn[standard]>=0.51.0",
 ]
+
+[project.scripts]
+thytrader-api = "thytrader.api.cli:main"
+thytrader-worker = "thytrader.worker.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.9.1",
+    "pytest>=9.1.1",
     "ruff>=0.16.0",
     "ty>=0.0.63",
 ]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "-ra",
+]
+testpaths = ["tests"]
 
 [tool.ruff]
 required-version = ">=0.16.0"

@@ -54,7 +54,8 @@ If GitNexus and source disagree, source plus executed tests are authoritative; r
 - Keep Coinbase models inside the exchange adapter boundary.
 - Depend on provider-neutral exchange, market-data, and broker contracts.
 - Avoid premature microservices, speculative abstractions, and drive-by refactors.
-- Do not commit, push, rebase, or rewrite history unless the user explicitly asks.
+- After meaningful verified work, commit and push to the current branch by default unless the
+  user says not to. Do not rebase or rewrite history unless the user explicitly asks.
 
 ### 4. Verify before reporting completion
 

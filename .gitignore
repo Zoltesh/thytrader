@@ -1,0 +1,28 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local semantic index
+.gitnexus/
+
+# Frontend dependencies and build output
+node_modules/
+.svelte-kit/
+
+# Local runtime data
+/data/
+/logs/
