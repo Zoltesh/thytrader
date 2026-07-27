@@ -8,7 +8,8 @@ export default defineConfig({
 		{
 			command: 'uv run thytrader-api',
 			cwd: '..',
-			url: 'http://127.0.0.1:8000/health/ready',
+			url: 'http://127.0.0.1:8200/health/ready',
+			env: { THYTRADER_API_PORT: '8200' },
 			reuseExistingServer: true
 		},
 		{

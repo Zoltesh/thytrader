@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     environment: Environment = Environment.DEVELOPMENT
     api_host: IPv4Address | IPv6Address = IPv4Address("127.0.0.1")
-    api_port: int = Field(default=8000, ge=1, le=65535)
+    api_port: int = Field(default=8200, ge=1, le=65535)
     allow_remote_access: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     coinbase_api_key_name: SecretStr | None = None

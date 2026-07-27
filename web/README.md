@@ -1,7 +1,7 @@
 # ThyTrader Web
 
 The SvelteKit/Svelte 5 frontend for ThyTrader. It uses strict TypeScript and proxies `/api`
-requests to the local FastAPI process at `127.0.0.1:8000` during development.
+requests to the local FastAPI process at `127.0.0.1:8200` during development.
 
 From the repository root, start the API first:
 

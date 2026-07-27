@@ -17,7 +17,7 @@ def test_settings_default_to_safe_local_development() -> None:
 
     assert settings.environment is Environment.DEVELOPMENT
     assert str(settings.api_host) == "127.0.0.1"
-    assert settings.api_port == 8000
+    assert settings.api_port == 8200
     assert settings.allow_remote_access is False
     assert settings.log_level == "INFO"
 

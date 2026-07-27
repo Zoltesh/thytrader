@@ -25,9 +25,10 @@ uv run thytrader-api
 uv run thytrader-worker
 ```
 
-The API exposes liveness at `http://127.0.0.1:8000/health/live`, startup readiness at
-`http://127.0.0.1:8000/health/ready`, and the portfolio at
-`http://127.0.0.1:8000/api/v1/portfolio`.
+The API exposes liveness at `http://127.0.0.1:8200/health/live`, startup readiness at
+`http://127.0.0.1:8200/health/ready`, and the portfolio at
+`http://127.0.0.1:8200/api/v1/portfolio`. If you copied an earlier `.env.example`, update
+`THYTRADER_API_PORT` to `8200` before starting the API.
 
 ## Portfolio UI
 
