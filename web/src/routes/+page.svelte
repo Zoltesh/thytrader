@@ -1,11 +1,40 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { formatUsd, permissionLabel, type ApiError, type Portfolio } from '$lib/portfolio';
+	import PortfolioChart from '$lib/PortfolioChart.svelte';
+	import {
+		formatUsd,
+		permissionLabel,
+		type ApiError,
+		type HistoryEntry,
+		type Portfolio,
+		type PortfolioHistory
+	} from '$lib/portfolio';
 
 	let portfolio: Portfolio | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let history: HistoryEntry[] = $state([]);
+	let historyLoading = $state(true);
+
+	async function loadHistory(): Promise<void> {
+		historyLoading = true;
+		try {
+			const response = await fetch('/api/v1/portfolio/history?limit=200', {
+				headers: { Accept: 'application/json' }
+			});
+			if (response.ok) {
+				const body = (await response.json()) as PortfolioHistory;
+				history = body.entries;
+			} else {
+				history = [];
+			}
+		} catch {
+			history = [];
+		} finally {
+			historyLoading = false;
+		}
+	}
 
 	async function loadPortfolio(): Promise<void> {
 		loading = true;
@@ -19,6 +48,7 @@
 				throw new Error(body.detail?.message ?? 'Portfolio data is unavailable.');
 			}
 			portfolio = (await response.json()) as Portfolio;
+			await loadHistory();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Portfolio data is unavailable.';
 		} finally {
@@ -26,7 +56,10 @@
 		}
 	}
 
-	onMount(loadPortfolio);
+	onMount(() => {
+		loadPortfolio();
+		loadHistory();
+	});
 </script>
 
 <svelte:head><title>Your portfolio · ThyTrader</title></svelte:head>
@@ -61,7 +94,7 @@
 		{#if error}
 			<div class="error-banner" role="alert">
 				<div>
-					<strong>Couldn’t refresh Coinbase</strong>
+					<strong>Couldn't refresh Coinbase</strong>
 					<p>{error}</p>
 				</div>
 				<button type="button" onclick={loadPortfolio}>Try again</button>
@@ -110,6 +143,8 @@
 					<small>Additional permissions do not block connection.</small>
 				</article>
 			</section>
+
+			<PortfolioChart entries={history} loading={historyLoading} />
 
 			<section class="asset-panel">
 				<div class="panel-heading">
