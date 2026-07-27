@@ -21,13 +21,13 @@ This roadmap sequences capabilities and safety gates. It is not a promise of dat
 
 - Provider-neutral exchange interfaces.
 - Coinbase Advanced Trade authentication and permission validation.
-- Reject or block Transfer-enabled keys.
+- Display detected credential permissions without rejecting additional permissions.
 - Account balances, product metadata, fee tier, and portfolio valuation.
 - Market/user WebSocket lifecycle and heartbeat handling.
 - Desktop dashboard with connection and freshness indicators.
 - Redacted diagnostics and audit events.
 
-**Exit gate:** a user can safely connect a least-privilege key and observe an accurate, reconcilable portfolio without enabling order submission.
+**Exit gate:** a user can connect an operator-selected key and observe an accurate, reconcilable portfolio without enabling order submission.
 
 ## Phase 2: Historical data and strategy definitions
 

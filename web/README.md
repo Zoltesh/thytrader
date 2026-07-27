@@ -1,0 +1,29 @@
+# ThyTrader Web
+
+The SvelteKit/Svelte 5 frontend for ThyTrader. It uses strict TypeScript and proxies `/api`
+requests to the local FastAPI process at `127.0.0.1:8000` during development.
+
+From the repository root, start the API first:
+
+```bash
+uv run thytrader-api
+```
+
+Then start the web application:
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Run all frontend quality gates with:
+
+```bash
+npm run lint
+npm run check
+npm run test
+npm run build
+```
+
+Playwright starts real FastAPI and SvelteKit processes for the unmocked demo integration test.

@@ -7,9 +7,12 @@ ThyTrader can place irreversible financial orders. Security and execution safety
 - Coinbase credentials remain server-side.
 - `.env.example` contains variable names and placeholders only.
 - Logs, exceptions, diagnostics, tests, fixtures, and agent output must redact secrets.
-- V1 keys should have Coinbase **View + Trade** permissions only.
-- Transfer permission is unnecessary and should cause a blocking error or prominent refusal during setup.
-- Validate key permissions through Coinbase when supported.
+- View + Trade is sufficient for planned trading features, but ThyTrader accepts operator-selected
+  keys with additional permissions.
+- Inspect and report key permissions when Coinbase supports it; additional permissions never block
+  connection by themselves.
+- Enforce safety at application capabilities, live-arming, risk, and confirmation boundaries rather
+  than inferring operator intent from the key's permission set.
 - Never persist a private key in browser storage or send it over the UI API.
 
 For the initial local deployment, `.env` is acceptable. A future hosted or multi-user product requires encrypted per-user secret storage and a new threat model.

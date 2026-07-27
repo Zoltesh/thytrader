@@ -24,8 +24,18 @@ def test_settings_default_to_safe_local_development() -> None:
 
 def test_settings_reject_non_loopback_binding_without_explicit_opt_in() -> None:
     """Settings should block accidental network exposure."""
-    with pytest.raises(ValidationError, match="requires THYTRADER_ALLOW_REMOTE_ACCESS=true"):
+    with pytest.raises(ValidationError, match="Protected remote access is not implemented"):
         Settings(api_host=_UNSAFE_BIND_ADDRESS, _env_file=None)
+
+
+def test_settings_reject_non_loopback_binding_even_with_legacy_opt_in() -> None:
+    """A boolean opt-in alone must not expose portfolio data without authentication."""
+    with pytest.raises(ValidationError, match="Protected remote access is not implemented"):
+        Settings(
+            api_host=_UNSAFE_BIND_ADDRESS,
+            allow_remote_access=True,
+            _env_file=None,
+        )
 
 
 def test_settings_wrap_coinbase_credentials_as_secrets(monkeypatch: pytest.MonkeyPatch) -> None:

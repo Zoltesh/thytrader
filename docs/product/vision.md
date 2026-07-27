@@ -83,4 +83,4 @@ Coinbase's static sandbox is suitable for API contract tests, not realistic pape
 
 ## Success criteria for the first complete vertical slice
 
-A user can install ThyTrader, configure a least-privilege Coinbase key, inspect portfolio data, load validated market history, configure the reference strategy, run a reproducible backtest, paper-run the same definition, explicitly arm it with conservative limits, execute/reconcile orders, survive a process restart, and review every relevant decision in the audit trail.
+A user can install ThyTrader, configure an operator-selected Coinbase key, inspect portfolio data, load validated market history, configure the reference strategy, run a reproducible backtest, paper-run the same definition, explicitly arm it with conservative limits, execute/reconcile orders, survive a process restart, and review every relevant decision in the audit trail.

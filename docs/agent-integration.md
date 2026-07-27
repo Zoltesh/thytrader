@@ -12,7 +12,7 @@ A user's agent should be able to answer questions such as:
 
 - Is the API, worker, database, and exchange connection healthy?
 - Is market data current, complete, and free of known gaps?
-- Are configured credentials present and least-privileged, without revealing them?
+- Are configured credentials present and usable, and what permissions were detected, without revealing them?
 - Which strategies are running, paused, degraded, or blocked by risk controls?
 - How has a strategy performed over a selected period?
 - How much did fees, spread, and slippage contribute?

@@ -5,6 +5,7 @@ description = "A trustworthy, local-first trading workstation."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "coinbase-advanced-py>=1.8.4",
     "fastapi>=0.140.0",
     "matplotlib>=3.11.1",
     "numpy>=2.5.1",

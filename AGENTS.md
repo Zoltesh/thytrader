@@ -115,8 +115,9 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 
 ## Security and privacy
 
-- Coinbase keys stay server-side and require only View + Trade permissions.
-- Transfer-enabled keys must be rejected or blocked during setup.
+- Coinbase keys stay server-side. View + Trade is sufficient, but operator-selected keys with
+  additional permissions must be accepted.
+- Report detected permissions without treating extra permissions as implicit consent for actions.
 - Never expose secrets through browser payloads, logs, exceptions, fixtures, support bundles, agent tools, or Git.
 - `.env.example` contains names/placeholders only; `.env` must remain ignored.
 - Bind to loopback by default. Do not weaken startup safety to make remote access convenient.

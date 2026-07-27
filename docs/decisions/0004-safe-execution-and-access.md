@@ -1,6 +1,6 @@
 # 0004: Safe execution and local access defaults
 
-- Status: Accepted
+- Status: Superseded by [0006](0006-credential-permission-acceptance.md)
 - Date: 2026-07-26
 
 ## Context
@@ -15,7 +15,7 @@ The user wants low-fee maker trading, early live execution, portable VM installa
 - Bind to loopback by default.
 - Use SSH port forwarding as the initial secure VM-access path.
 - Refuse unsafe non-loopback startup unless a protected access mode is explicitly configured.
-- Require View + Trade Coinbase permissions and reject or block unnecessary Transfer permission.
+- Initially require View + Trade Coinbase permissions and reject or block unnecessary Transfer permission.
 
 ## Consequences
 

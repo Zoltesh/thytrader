@@ -25,8 +25,35 @@ uv run thytrader-api
 uv run thytrader-worker
 ```
 
-The API exposes liveness at `http://127.0.0.1:8000/health/live` and startup readiness at
-`http://127.0.0.1:8000/health/ready`.
+The API exposes liveness at `http://127.0.0.1:8000/health/live`, startup readiness at
+`http://127.0.0.1:8000/health/ready`, and the portfolio at
+`http://127.0.0.1:8000/api/v1/portfolio`.
+
+## Portfolio UI
+
+The first usable vertical slice displays deterministic demo balances when Coinbase credentials are
+empty and live balances when both Coinbase variables are configured. ThyTrader accepts View + Trade
+keys and keys with additional permissions; this read-only screen never submits an order.
+
+In a second terminal, install and start the SvelteKit application:
+
+```bash
+cd web
+npm ci
+npm run dev -- --open
+```
+
+The UI opens at `http://127.0.0.1:5173` and proxies `/api` requests to the local FastAPI process.
+Run frontend verification with:
+
+```bash
+cd web
+npx playwright install chromium  # first run on a new machine only
+npm run lint
+npm run check
+npm run test
+npm run build
+```
 
 Run the canonical backend quality gates with:
 
