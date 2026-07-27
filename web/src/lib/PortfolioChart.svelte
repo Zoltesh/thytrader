@@ -36,7 +36,9 @@
 	<div class="panel-heading">
 		<div>
 			<h2>Portfolio history</h2>
-			<p>{entries.length} saved {entries.length === 1 ? 'snapshot' : 'snapshots'}</p>
+			<p>
+				{entries.length} saved {entries.length === 1 ? 'snapshot' : 'snapshots'} · sampling every 5 min
+			</p>
 		</div>
 		{#if entries.length >= 2}
 			<div class="stats">

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     allow_remote_access: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     database_url: SecretStr | None = None
+    snapshot_interval_seconds: int = Field(default=300, ge=60, le=86_400)
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
 

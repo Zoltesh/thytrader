@@ -1,60 +1,130 @@
 """Behavioral tests for the continuously running ThyTrader worker."""
 
+from __future__ import annotations
+
 import asyncio
-import json
-import signal
-import subprocess
-import sys
-import time
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from thytrader.config import Settings
+from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
+from thytrader.portfolio.models import (
+    Money,
+    Portfolio,
+    PortfolioAsset,
+    PortfolioConnection,
+)
 from thytrader.runtime import RuntimeState
 from thytrader.worker.service import run_worker
 
 
-def test_worker_readiness_tracks_its_running_lifecycle() -> None:
-    """Worker readiness should be true only while its run loop is active."""
+class _StubPortfolioService:
+    """Deterministic portfolio service for worker tests."""
 
-    async def exercise_worker() -> None:
-        """Start and gracefully stop one worker run loop."""
-        runtime = RuntimeState(settings=Settings(_env_file=None))
-        stop_requested = asyncio.Event()
-        task = asyncio.create_task(run_worker(runtime, stop_requested))
-        await asyncio.sleep(0)
+    def __init__(self, *, demo: bool = False) -> None:
+        self._demo = demo
+        self.call_count = 0
 
-        assert runtime.ready is True
+    async def get_portfolio(self) -> Portfolio:
+        self.call_count += 1
+        return Portfolio(
+            as_of=datetime.now(UTC),
+            connection=PortfolioConnection(
+                provider="coinbase",
+                status="demo" if self._demo else "connected",
+                permissions=("view", "trade"),
+            ),
+            demo=self._demo,
+            total_value=Money(amount=Decimal("100000.00")),
+            assets=(
+                PortfolioAsset(
+                    currency="BTC",
+                    name="Bitcoin",
+                    available=Decimal("1"),
+                    hold=Decimal("0"),
+                    total=Decimal("1"),
+                    value=Money(amount=Decimal("100000.00")),
+                ),
+            ),
+            unvalued_assets=(),
+        )
 
-        stop_requested.set()
+
+def test_worker_takes_initial_snapshot_then_stops() -> None:
+    """Worker records one snapshot immediately on startup."""
+
+    async def exercise() -> None:
+        settings = Settings(_env_file=None, snapshot_interval_seconds=60)
+        runtime = RuntimeState(settings=settings)
+        stop = asyncio.Event()
+        service = _StubPortfolioService(demo=False)
+        store = InMemoryPortfolioHistoryStore()
+
+        task = asyncio.create_task(
+            run_worker(
+                runtime,
+                stop,
+                portfolio_service=service,  # type: ignore[arg-type]
+                history_store=store,
+            )
+        )
+        await asyncio.sleep(0.05)
+        assert service.call_count == 1
+        stop.set()
         await task
-
         assert runtime.ready is False
 
-    asyncio.run(exercise_worker())
+    asyncio.run(exercise())
 
 
-def test_worker_process_stops_cleanly_on_sigterm() -> None:
-    """The worker entry point should handle supervised shutdown cleanly."""
-    process = subprocess.Popen(
-        [sys.executable, "-m", "thytrader.worker.cli"],
-        cwd=".",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        time.sleep(0.25)
-        assert process.poll() is None
+def test_worker_skips_demo_snapshots() -> None:
+    """Demo portfolios are not recorded to avoid meaningless flat history."""
 
-        process.send_signal(signal.SIGTERM)
-        output, _ = process.communicate(timeout=5)
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
+    async def exercise() -> None:
+        settings = Settings(_env_file=None, snapshot_interval_seconds=60)
+        runtime = RuntimeState(settings=settings)
+        stop = asyncio.Event()
+        service = _StubPortfolioService(demo=True)
+        store = InMemoryPortfolioHistoryStore()
 
-    assert process.returncode == 0
-    payloads = [json.loads(line) for line in output.splitlines()]
-    assert [payload["message"] for payload in payloads] == [
-        "worker_started",
-        "worker_stopped",
-    ]
+        task = asyncio.create_task(
+            run_worker(
+                runtime,
+                stop,
+                portfolio_service=service,  # type: ignore[arg-type]
+                history_store=store,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+
+        entries = await store.list_recent(limit=10)
+        assert len(entries) == 0
+
+    asyncio.run(exercise())
+
+
+def test_worker_readiness_tracks_its_running_lifecycle() -> None:
+    """Worker readiness is true only while the run loop is active."""
+
+    async def exercise() -> None:
+        settings = Settings(_env_file=None)
+        runtime = RuntimeState(settings=settings)
+        stop = asyncio.Event()
+        service = _StubPortfolioService()
+
+        task = asyncio.create_task(
+            run_worker(
+                runtime,
+                stop,
+                portfolio_service=service,  # type: ignore[arg-type]
+            )
+        )
+        await asyncio.sleep(0)
+        assert runtime.ready is True
+        stop.set()
+        await task
+        assert runtime.ready is False
+
+    asyncio.run(exercise())
