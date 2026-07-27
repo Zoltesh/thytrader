@@ -32,6 +32,9 @@ The API exposes liveness at `http://127.0.0.1:8200/health/live`, startup readine
 
 ## Portfolio UI
 
+The web workspace is pinned to Node `22.23.1` in `.nvmrc`. From the repository root, run
+`nvm use` before installing or starting the frontend.
+
 The first usable vertical slice displays deterministic demo balances when Coinbase credentials are
 empty and live balances when both Coinbase variables are configured. ThyTrader accepts View + Trade
 keys and keys with additional permissions; this read-only screen never submits an order.

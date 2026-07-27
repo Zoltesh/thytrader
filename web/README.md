@@ -3,6 +3,9 @@
 The SvelteKit/Svelte 5 frontend for ThyTrader. It uses strict TypeScript and proxies `/api`
 requests to the local FastAPI process at `127.0.0.1:8200` during development.
 
+Use Node `22.23.1` via `nvm use` from the repository root. Node 24 is not currently supported:
+its Rolldown native binding has produced `SIGBUS` failures on Linux/WSL2 during Vite startup.
+
 From the repository root, start the API first:
 
 ```bash
