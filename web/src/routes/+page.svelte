@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
+	import MarketDataPanel from '$lib/MarketDataPanel.svelte';
 	import PortfolioChart from '$lib/PortfolioChart.svelte';
 	import {
 		formatUsd,
@@ -8,6 +9,7 @@
 		type ApiError,
 		type HistoryEntry,
 		type HistoryRange,
+		type MarketDataPreview,
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
@@ -20,6 +22,9 @@
 	let historyAvailability: 'ready' | 'unavailable' | 'failed' = $state('ready');
 	let historyRange: HistoryRange = $state('24h');
 	let samplingIntervalSeconds = $state(300);
+	let marketDataPreview: MarketDataPreview | null = $state(null);
+	let marketDataLoading = $state(true);
+	let marketDataAvailability: 'ready' | 'failed' = $state('ready');
 
 	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
@@ -45,6 +50,27 @@
 		}
 	}
 
+	async function loadMarketData(): Promise<void> {
+		marketDataLoading = true;
+		marketDataAvailability = 'ready';
+		try {
+			const response = await fetch('/api/v1/market-data/preview', {
+				headers: { Accept: 'application/json' }
+			});
+			if (!response.ok) {
+				marketDataPreview = null;
+				marketDataAvailability = 'failed';
+				return;
+			}
+			marketDataPreview = (await response.json()) as MarketDataPreview;
+		} catch {
+			marketDataPreview = null;
+			marketDataAvailability = 'failed';
+		} finally {
+			marketDataLoading = false;
+		}
+	}
+
 	async function loadPortfolio(): Promise<void> {
 		loading = true;
 		error = null;
@@ -57,7 +83,7 @@
 				throw new Error(body.detail?.message ?? 'Portfolio data is unavailable.');
 			}
 			portfolio = (await response.json()) as Portfolio;
-			await loadHistory();
+			await Promise.all([loadHistory(), loadMarketData()]);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Portfolio data is unavailable.';
 		} finally {
@@ -159,6 +185,12 @@
 				selectedRange={historyRange}
 				{samplingIntervalSeconds}
 				onRangeChange={(range) => void loadHistory(range)}
+			/>
+
+			<MarketDataPanel
+				preview={marketDataPreview}
+				loading={marketDataLoading}
+				availability={marketDataAvailability}
 			/>
 
 			<section class="asset-panel">

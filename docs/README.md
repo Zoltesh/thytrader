@@ -6,7 +6,9 @@ This directory is the source of truth for ThyTrader's product direction, archite
 
 - [Product vision and scope](product/vision.md)
 - [Architecture overview](architecture/overview.md)
+- [Market-data pipeline](architecture/market-data.md)
 - [Strategy and backtesting design](architecture/strategy-and-backtesting.md)
+- [Canonical strategy schema](architecture/canonical-strategy-schema.md)
 - [Security and trading-risk baseline](security-and-risk.md)
 - [Delivery roadmap](roadmap.md)
 - [Agent/operator integration](agent-integration.md)

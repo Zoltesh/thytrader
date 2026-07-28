@@ -36,6 +36,11 @@ displayed observation, exposes exact point timestamps and values to pointer and 
 marks snapshot cadence as behind when the latest persisted observation is more than two configured
 sampling intervals old. Gaps remain visible rather than being interpolated.
 
+The dashboard also contains a read-only `BTC-USD` hourly market-data preview. It validates closed
+candles, venue constraints, gaps, and freshness using either Coinbase data (when credentials are
+configured) or deterministic demo data. It is not persisted historical ingestion and no strategy or
+trading path uses it yet; see the [market-data pipeline](docs/architecture/market-data.md) for scope.
+
 Inspect or stop the stack with:
 
 ```bash

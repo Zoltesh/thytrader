@@ -1,0 +1,149 @@
+"""Behavioral tests for the read-only market-data preview endpoint."""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+
+from fastapi.testclient import TestClient
+
+from thytrader.api.app import create_app
+from thytrader.config import Settings
+from thytrader.market_data.models import (
+    Candle,
+    CandleInterval,
+    CandleQualityReport,
+    MarketDataPreview,
+    MarketProduct,
+)
+from thytrader.market_data.service import MarketDataService
+
+
+class StaticMarketDataProvider:
+    """Provider boundary returning a deterministic validated preview."""
+
+    async def get_recent_preview(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        now: datetime,
+    ) -> MarketDataPreview:
+        """Return one fresh preview and assert the supported dashboard selection."""
+        assert product_id == "BTC-USD"
+        assert interval is CandleInterval.ONE_HOUR
+        starts_at = datetime(2026, 7, 28, 4, tzinfo=UTC)
+        candle = Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        )
+        return MarketDataPreview(
+            product=MarketProduct(
+                product_id=product_id,
+                base_currency="BTC",
+                quote_currency="USD",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.00000001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.0001"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=True,
+            ),
+            interval=interval,
+            as_of=now,
+            quality=CandleQualityReport(
+                candles=(candle,),
+                candle_count=1,
+                gap_count=0,
+                missing_intervals=0,
+                latest_completed_at=datetime(2026, 7, 28, 5, tzinfo=UTC),
+                is_stale=False,
+            ),
+        )
+
+
+class FailingMarketDataProvider:
+    """Provider boundary that fails with an upstream detail unsafe for browser output."""
+
+    async def get_recent_preview(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        now: datetime,
+    ) -> MarketDataPreview:
+        """Raise one synthetic sensitive provider failure."""
+        del product_id, interval, now
+        raise RuntimeError("synthetic market-data secret detail")
+
+
+def test_market_data_preview_returns_exact_constraints_and_quality_metadata() -> None:
+    """The dashboard contract should expose only validated, browser-safe market-data facts."""
+    app = create_app(
+        Settings(_env_file=None),
+        market_data_service=MarketDataService(StaticMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/preview")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "as_of": response.json()["as_of"],
+        "product": {
+            "product_id": "BTC-USD",
+            "base_currency": "BTC",
+            "quote_currency": "USD",
+            "price_increment": "0.01",
+            "base_increment": "0.00000001",
+            "quote_increment": "0.01",
+            "base_min_size": "0.0001",
+            "quote_min_size": "1",
+            "trading_enabled": True,
+        },
+        "timeframe": "1h",
+        "quality": {
+            "candle_count": 1,
+            "gap_count": 0,
+            "missing_intervals": 0,
+            "latest_completed_at": "2026-07-28T05:00:00Z",
+            "stale": False,
+        },
+    }
+
+
+def test_market_data_preview_uses_demo_data_without_coinbase_credentials() -> None:
+    """A clean install should render the market-data panel without making network calls."""
+    app = create_app(Settings(_env_file=None))
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/preview")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["product"]["product_id"] == "BTC-USD"
+    assert payload["timeframe"] == "1h"
+    assert payload["quality"]["candle_count"] == 24
+    assert payload["quality"]["gap_count"] == 0
+    assert payload["quality"]["missing_intervals"] == 0
+    assert payload["quality"]["stale"] is False
+
+
+def test_market_data_preview_redacts_upstream_failures() -> None:
+    """A provider failure must preserve a stable error contract without unsafe detail."""
+    app = create_app(
+        Settings(_env_file=None),
+        market_data_service=MarketDataService(FailingMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/preview")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {
+            "code": "market_data_unavailable",
+            "message": "Market data is temporarily unavailable. Try again shortly.",
+        }
+    }
+    assert "synthetic market-data secret detail" not in response.text

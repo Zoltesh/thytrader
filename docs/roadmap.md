@@ -51,6 +51,18 @@ This is the next active milestone. It has two parallel tracks that converge befo
 
 ### Phase 2A: Market-data pipeline
 
+#### Completed first increment
+
+- Read-only BTC-USD/1h preview using provider-neutral exact-decimal models.
+- Coinbase product-constraint and recent-candle adapter through the official SDK.
+- Closed-candle validation, gap/missing-interval detection, and freshness facts.
+- Deterministic demo preview plus a visible dashboard quality panel.
+
+This is deliberately not durable ingestion, a complete catalog, or a backtest input. See the
+[market-data pipeline](architecture/market-data.md) for its explicit contract and limits.
+
+#### Remaining
+
 - Product/instrument catalog (product IDs, trading status, base/quote, price/size increments, minimum sizes).
 - Historical OHLCV ingestion for 5m, 15m, 30m, 1h, 6h, and 1d.
 - Pagination, deduplication, gap detection, and completeness metadata.

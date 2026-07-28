@@ -11,10 +11,14 @@ from fastapi import FastAPI
 
 from thytrader import __version__
 from thytrader.api.routes.health import router as health_router
+from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.market_data.demo import DemoMarketData
+from thytrader.market_data.service import MarketDataService
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
@@ -36,6 +40,7 @@ _logger = logging.getLogger(__name__)
 def create_app(
     settings: Settings | None = None,
     portfolio_service: PortfolioService | None = None,
+    market_data_service: MarketDataService | None = None,
     history_store: PortfolioHistoryStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
@@ -79,7 +84,11 @@ def create_app(
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
     app.state.portfolio_service = portfolio_service or _build_portfolio_service(resolved_settings)
+    app.state.market_data_service = market_data_service or _build_market_data_service(
+        resolved_settings
+    )
     app.include_router(health_router)
+    app.include_router(market_data_router)
     app.include_router(portfolio_router)
     app.include_router(portfolio_history_router)
     return app
@@ -96,3 +105,15 @@ def _build_portfolio_service(settings: Settings) -> PortfolioService:
         timeout=10,
     )
     return PortfolioService(CoinbaseAccount(client))
+
+
+def _build_market_data_service(settings: Settings) -> MarketDataService:
+    """Build a live preview with credentials or a deterministic local demo otherwise."""
+    if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
+        return MarketDataService(DemoMarketData())
+    client = RESTClient(
+        api_key=settings.coinbase_api_key_name.get_secret_value(),
+        api_secret=settings.coinbase_api_private_key.get_secret_value(),
+        timeout=10,
+    )
+    return MarketDataService(CoinbaseMarketData(client))

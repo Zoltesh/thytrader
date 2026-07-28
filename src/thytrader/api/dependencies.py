@@ -3,6 +3,7 @@
 # FastAPI resolves these dependency annotations at runtime.
 from fastapi import Request  # noqa: TC002
 
+from thytrader.market_data.service import MarketDataService
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -22,6 +23,15 @@ def get_portfolio_service(request: Request) -> PortfolioService:
     service = getattr(request.app.state, "portfolio_service", None)
     if not isinstance(service, PortfolioService):
         message = "Portfolio service is unavailable."
+        raise TypeError(message)
+    return service
+
+
+def get_market_data_service(request: Request) -> MarketDataService:
+    """Return the configured read-only market-data service from application state."""
+    service = getattr(request.app.state, "market_data_service", None)
+    if not isinstance(service, MarketDataService):
+        message = "Market-data service is unavailable."
         raise TypeError(message)
     return service
 
