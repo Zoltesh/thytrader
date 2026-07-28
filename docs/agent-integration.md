@@ -104,3 +104,14 @@ The future skill should tell agents to:
 - Compatibility tests between the skill's documented schema and current CLI/API.
 - Failure-mode tests for database, worker, Coinbase, and market-data outages.
 - Tests proving read-only commands cannot mutate orders, strategies, or runtime state.
+## Skill evolution by phase
+
+| Phase | Supported agent authority |
+|---|---|
+| Current (Phases 0–1) | Read-only health, configuration validity, snapshot/history freshness, redacted diagnostics |
+| Phase 2 | Read-only market-data quality and strategy-schema validation/reporting |
+| Phase 3 | Read-only backtest inspection and reproducibility reports |
+| Phase 4 | Read-only paper-session health and performance |
+| Phase 5+ | Separate mutation tools only if justified; arming, cancellation, configuration changes, and kill switches always explicit confirmation-gated |
+
+The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**

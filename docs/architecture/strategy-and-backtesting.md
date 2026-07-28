@@ -2,21 +2,9 @@
 
 ## Canonical strategy definition
 
-A strategy is an immutable, versioned document validated by backend-owned schemas. UI forms, templates, backtests, paper execution, and live execution all use this definition.
+A strategy is an immutable, versioned document validated by backend-owned schemas. UI forms, templates, backtests, paper execution, and live execution all use this definition. Published strategy versions are never mutated in place; editing creates a new version so results and live decisions remain reproducible.
 
-A definition should describe, without embedding UI concerns:
-
-- metadata and schema version;
-- product universe and timeframe;
-- indicators and parameters;
-- nested entry and exit condition groups;
-- sizing policy;
-- execution policy;
-- SL/TP and trailing behavior;
-- applicable risk-policy configuration;
-- warm-up and data requirements.
-
-Published strategy versions are never mutated in place. Editing creates a new version so results and live decisions remain reproducible.
+The complete V1 field-level contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](canonical-strategy-schema.md). That document is the implementation-facing specification; this document covers the runtime and simulation design.
 
 ## V1 authoring experience
 

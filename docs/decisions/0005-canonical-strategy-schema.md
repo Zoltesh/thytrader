@@ -13,6 +13,8 @@ Define one backend-validated, immutable, versioned declarative strategy schema. 
 
 V1 uses a structured rule builder with nested AND/OR groups. Templates produce the same schema. Backtest, paper, and live runtimes interpret the same published version. Editing creates a new version.
 
+The complete field-level V1 contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](../architecture/canonical-strategy-schema.md). That document is the implementation-facing specification; this ADR records the decision.
+
 ## Consequences
 
 - Results and live actions can point to the exact strategy version used.
