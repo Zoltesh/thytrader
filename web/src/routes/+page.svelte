@@ -7,6 +7,7 @@
 		permissionLabel,
 		type ApiError,
 		type HistoryEntry,
+		type HistoryRange,
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
@@ -16,21 +17,29 @@
 	let error = $state<string | null>(null);
 	let history: HistoryEntry[] = $state([]);
 	let historyLoading = $state(true);
+	let historyAvailability: 'ready' | 'unavailable' | 'failed' = $state('ready');
+	let historyRange: HistoryRange = $state('24h');
+	let samplingIntervalSeconds = $state(300);
 
-	async function loadHistory(): Promise<void> {
+	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
+		historyAvailability = 'ready';
 		try {
-			const response = await fetch('/api/v1/portfolio/history?limit=200', {
+			const response = await fetch(`/api/v1/portfolio/history?range=${range}`, {
 				headers: { Accept: 'application/json' }
 			});
 			if (response.ok) {
 				const body = (await response.json()) as PortfolioHistory;
 				history = body.entries;
+				historyRange = body.range;
+				samplingIntervalSeconds = body.sampling_interval_seconds;
 			} else {
 				history = [];
+				historyAvailability = response.status === 503 ? 'unavailable' : 'failed';
 			}
 		} catch {
 			history = [];
+			historyAvailability = 'failed';
 		} finally {
 			historyLoading = false;
 		}
@@ -57,8 +66,7 @@
 	}
 
 	onMount(() => {
-		loadPortfolio();
-		loadHistory();
+		void loadPortfolio();
 	});
 </script>
 
@@ -144,7 +152,14 @@
 				</article>
 			</section>
 
-			<PortfolioChart entries={history} loading={historyLoading} />
+			<PortfolioChart
+				entries={history}
+				loading={historyLoading}
+				availability={historyAvailability}
+				selectedRange={historyRange}
+				{samplingIntervalSeconds}
+				onRangeChange={(range) => void loadHistory(range)}
+			/>
 
 			<section class="asset-panel">
 				<div class="panel-heading">

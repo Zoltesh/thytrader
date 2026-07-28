@@ -29,6 +29,13 @@ The worker takes a snapshot at startup and then every five minutes by default. C
 between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ignored `.env`.
 The dashboard Refresh button is read-only; it never creates history points.
 
+The portfolio-history panel offers `24H`, `7D`, `30D`, and `All` ranges. The API performs the
+range query and bounds the response to representative observations, preserving the range endpoints
+without returning an unbounded browser payload. The panel compares the latest value with the oldest
+displayed observation, exposes exact point timestamps and values to pointer and keyboard users, and
+marks snapshot cadence as behind when the latest persisted observation is more than two configured
+sampling intervals old. Gaps remain visible rather than being interpolated.
+
 Inspect or stop the stack with:
 
 ```bash

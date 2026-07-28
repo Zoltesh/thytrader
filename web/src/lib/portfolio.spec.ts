@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { chartData, formatUsd, permissionLabel, type HistoryEntry } from './portfolio';
+import {
+	chartData,
+	chartSegments,
+	formatUsd,
+	isHistoryStale,
+	permissionLabel,
+	portfolioChange,
+	type HistoryEntry
+} from './portfolio';
 
 describe('portfolio presentation', () => {
 	it('formats exact decimal strings as USD', () => {
@@ -55,5 +63,41 @@ describe('chartData', () => {
 		expect(result.min).toBeCloseTo(12345.678901);
 		expect(result.max).toBeCloseTo(98765.432109);
 		expect(result.points.split(' ')).toHaveLength(2);
+	});
+
+	it('splits visual segments when snapshots have a worker-downtime gap', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T10:05:00Z'),
+			entry('120', '2026-07-27T11:00:00Z'),
+			entry('130', '2026-07-27T11:05:00Z')
+		];
+
+		const segments = chartSegments(chartData(entries, 760, 220, 40, 600));
+
+		expect(segments).toHaveLength(2);
+		expect(segments.every((segment) => segment.split(' ').length === 2)).toBe(true);
+	});
+});
+
+describe('history presentation', () => {
+	function entry(amount: string, asOf: string): HistoryEntry {
+		return { as_of: asOf, total_value: { amount, currency: 'USD' } };
+	}
+
+	it('calculates the gain and percent against the oldest selected observation', () => {
+		const change = portfolioChange([
+			entry('125', '2026-07-27T12:00:00Z'),
+			entry('100', '2026-07-27T10:00:00Z')
+		]);
+
+		expect(change).toEqual({ amount: 25, percent: 25, direction: 'gain' });
+	});
+
+	it('marks a worker stale after two configured sampling intervals', () => {
+		const now = Date.parse('2026-07-27T12:11:00Z');
+		const entries = [entry('100', '2026-07-27T12:00:00Z')];
+
+		expect(isHistoryStale(entries, 300, now)).toBe(true);
 	});
 });

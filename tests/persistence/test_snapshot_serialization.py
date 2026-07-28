@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
+    InMemoryPortfolioHistoryStore,
+    PortfolioHistoryEntry,
     PortfolioHistoryUnavailableError,
 )
 from thytrader.persistence.postgres_history import _portfolio_to_snapshot
@@ -57,10 +59,32 @@ def test_disabled_store_list_raises_typed_error() -> None:
     """Disabled persistence must not be indistinguishable from empty history."""
     store = DisabledPortfolioHistoryStore()
     try:
-        asyncio.run(store.list_recent(limit=5))
+        asyncio.run(store.list_range(start=None, max_entries=5))
     except PortfolioHistoryUnavailableError:
         return
     raise AssertionError("Expected PortfolioHistoryUnavailableError")
+
+
+def test_in_memory_store_samples_a_time_range_without_losing_endpoints() -> None:
+    """Presentation sampling preserves the oldest and newest range observations."""
+    store = InMemoryPortfolioHistoryStore()
+    start = datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+    store._entries = [
+        PortfolioHistoryEntry(as_of=start - timedelta(hours=1), total_value=Decimal("90")),
+        PortfolioHistoryEntry(as_of=start, total_value=Decimal("100")),
+        PortfolioHistoryEntry(as_of=start.replace(hour=1), total_value=Decimal("110")),
+        PortfolioHistoryEntry(as_of=start.replace(hour=2), total_value=Decimal("120")),
+        PortfolioHistoryEntry(as_of=start.replace(hour=3), total_value=Decimal("130")),
+        PortfolioHistoryEntry(as_of=start.replace(hour=4), total_value=Decimal("140")),
+    ]
+
+    entries = asyncio.run(store.list_range(start=start, max_entries=3))
+
+    assert [entry.total_value for entry in entries] == [
+        Decimal("140"),
+        Decimal("120"),
+        Decimal("100"),
+    ]
 
 
 def test_snapshot_preserves_exact_decimal_strings() -> None:

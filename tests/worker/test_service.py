@@ -99,7 +99,7 @@ def test_worker_skips_demo_snapshots() -> None:
         stop.set()
         await task
 
-        entries = await store.list_recent(limit=10)
+        entries = await store.list_range(start=None, max_entries=10)
         assert len(entries) == 0
 
     asyncio.run(exercise())

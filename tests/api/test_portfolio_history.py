@@ -36,28 +36,20 @@ def test_history_returns_entries_when_store_is_configured() -> None:
     app = create_app(Settings(_env_file=None), history_store=store)
 
     with TestClient(app) as client:
-        history = client.get("/api/v1/portfolio/history?limit=5")
+        history = client.get("/api/v1/portfolio/history?range=7d")
 
     assert history.status_code == 200
     assert "entries" in history.json()
+    assert history.json()["range"] == "7d"
+    assert history.json()["sampling_interval_seconds"] == 300
 
 
-def test_history_limit_is_bounded() -> None:
-    """History requests reject unbounded resource use."""
+def test_history_range_is_validated() -> None:
+    """History requests reject unknown range filters."""
     app = create_app(Settings(_env_file=None), history_store=InMemoryPortfolioHistoryStore())
 
     with TestClient(app) as client:
-        response = client.get("/api/v1/portfolio/history?limit=201")
-
-    assert response.status_code == 422
-
-
-def test_history_limit_minimum_is_enforced() -> None:
-    """A zero or negative limit must be rejected by validation."""
-    app = create_app(Settings(_env_file=None), history_store=InMemoryPortfolioHistoryStore())
-
-    with TestClient(app) as client:
-        response = client.get("/api/v1/portfolio/history?limit=0")
+        response = client.get("/api/v1/portfolio/history?range=forever")
 
     assert response.status_code == 422
 
@@ -69,7 +61,7 @@ def test_portfolio_refresh_does_not_record_snapshots() -> None:
 
     with TestClient(app) as client:
         client.get("/api/v1/portfolio")
-        history = client.get("/api/v1/portfolio/history?limit=10")
+        history = client.get("/api/v1/portfolio/history?range=24h")
 
     assert history.status_code == 200
     assert len(history.json()["entries"]) == 0

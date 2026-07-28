@@ -32,8 +32,13 @@ class PortfolioHistoryStore(Protocol):
         """Persist one successful complete portfolio snapshot."""
         ...
 
-    async def list_recent(self, *, limit: int) -> tuple[PortfolioHistoryEntry, ...]:
-        """Return newest-first valuation history with a validated maximum size."""
+    async def list_range(
+        self,
+        *,
+        start: datetime | None,
+        max_entries: int,
+    ) -> tuple[PortfolioHistoryEntry, ...]:
+        """Return newest-first range samples bounded for interactive presentation."""
         ...
 
 
@@ -44,9 +49,14 @@ class DisabledPortfolioHistoryStore:
         """Deliberately skip recording when durable storage is disabled."""
         del portfolio
 
-    async def list_recent(self, *, limit: int) -> tuple[PortfolioHistoryEntry, ...]:
+    async def list_range(
+        self,
+        *,
+        start: datetime | None,
+        max_entries: int,
+    ) -> tuple[PortfolioHistoryEntry, ...]:
         """Reject reads so disabled persistence never looks like empty history."""
-        del limit
+        del start, max_entries
         raise PortfolioHistoryUnavailableError("Portfolio history is unavailable.")
 
 
@@ -63,6 +73,34 @@ class InMemoryPortfolioHistoryStore:
             PortfolioHistoryEntry(as_of=portfolio.as_of, total_value=portfolio.total_value.amount)
         )
 
-    async def list_recent(self, *, limit: int) -> tuple[PortfolioHistoryEntry, ...]:
-        """Return entries newest first within a caller-validated bound."""
-        return tuple(reversed(self._entries[-limit:]))
+    async def list_range(
+        self,
+        *,
+        start: datetime | None,
+        max_entries: int,
+    ) -> tuple[PortfolioHistoryEntry, ...]:
+        """Return bounded newest-first range samples for deterministic tests."""
+        filtered_entries = [
+            entry for entry in self._entries if start is None or entry.as_of >= start
+        ]
+        return _sample_entries(filtered_entries, max_entries)
+
+
+def _sample_entries(
+    entries: list[PortfolioHistoryEntry],
+    max_entries: int,
+) -> tuple[PortfolioHistoryEntry, ...]:
+    """Keep the range endpoints plus evenly distributed latest bucket observations."""
+    if max_entries < 1:
+        message = "max_entries must be positive."
+        raise ValueError(message)
+    if len(entries) <= max_entries:
+        return tuple(reversed(entries))
+    if max_entries == 1:
+        return (entries[-1],)
+
+    bucket_count = max_entries - 1
+    selected_indices = {0}
+    for bucket in range(1, bucket_count + 1):
+        selected_indices.add((bucket * len(entries) + bucket_count - 1) // bucket_count - 1)
+    return tuple(entries[index] for index in sorted(selected_indices, reverse=True))

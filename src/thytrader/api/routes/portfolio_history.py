@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 - Pydantic resolves this model field at runtime.
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from thytrader.api.dependencies import get_history_store
+from thytrader.api.dependencies import get_history_store, get_runtime_state
 from thytrader.api.routes.portfolio import MoneyResponse
 from thytrader.persistence.portfolio_history import (
     PortfolioHistoryEntry,
     PortfolioHistoryStore,
     PortfolioHistoryUnavailableError,
 )
+from thytrader.runtime import (
+    RuntimeState,  # noqa: TC001 - FastAPI resolves this dependency annotation at runtime.
+)
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
 _logger = logging.getLogger(__name__)
+HistoryRange = Literal["24h", "7d", "30d", "all"]
+_MAX_HISTORY_ENTRIES = 300
 
 
 class PortfolioHistoryEntryResponse(BaseModel):
@@ -29,9 +34,11 @@ class PortfolioHistoryEntryResponse(BaseModel):
 
 
 class PortfolioHistoryResponse(BaseModel):
-    """Newest-first portfolio valuation history response."""
+    """Bounded newest-first portfolio valuation history response."""
 
     entries: tuple[PortfolioHistoryEntryResponse, ...]
+    range: HistoryRange
+    sampling_interval_seconds: int
 
 
 class PersistenceErrorDetail(BaseModel):
@@ -54,11 +61,13 @@ class PersistenceErrorResponse(BaseModel):
 )
 async def get_portfolio_history(
     store: Annotated[PortfolioHistoryStore, Depends(get_history_store)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    history_range: Annotated[HistoryRange, Query(alias="range")] = "24h",
 ) -> PortfolioHistoryResponse:
-    """Return persisted portfolio valuations or a redacted unavailable response."""
+    """Return bounded persisted valuations for one selected presentation range."""
+    start = _range_start(history_range, now=datetime.now(UTC))
     try:
-        entries = await store.list_recent(limit=limit)
+        entries = await store.list_range(start=start, max_entries=_MAX_HISTORY_ENTRIES)
     except PortfolioHistoryUnavailableError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -76,7 +85,11 @@ async def get_portfolio_history(
                 "message": "Portfolio history is unavailable.",
             },
         ) from None
-    return PortfolioHistoryResponse(entries=tuple(_to_response(entry) for entry in entries))
+    return PortfolioHistoryResponse(
+        entries=tuple(_to_response(entry) for entry in entries),
+        range=history_range,
+        sampling_interval_seconds=runtime.settings.snapshot_interval_seconds,
+    )
 
 
 def _to_response(entry: PortfolioHistoryEntry) -> PortfolioHistoryEntryResponse:
@@ -85,3 +98,14 @@ def _to_response(entry: PortfolioHistoryEntry) -> PortfolioHistoryEntryResponse:
         as_of=entry.as_of,
         total_value=MoneyResponse(amount=entry.total_value, currency="USD"),
     )
+
+
+def _range_start(history_range: HistoryRange, *, now: datetime) -> datetime | None:
+    """Translate a browser range into an explicit UTC lower bound for storage."""
+    duration_by_range = {
+        "24h": timedelta(hours=24),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+    }
+    duration = duration_by_range.get(history_range)
+    return now - duration if duration is not None else None

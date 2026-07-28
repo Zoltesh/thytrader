@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from sqlalchemy import desc, insert, select
+from sqlalchemy import Select, desc, func, insert, or_, select
 
 from thytrader.persistence.portfolio_history import PortfolioHistoryEntry
 from thytrader.persistence.schema import portfolio_snapshots
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from decimal import Decimal
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.portfolio.models import Portfolio
@@ -42,19 +45,14 @@ class PostgresPortfolioHistoryStore:
                 )
             )
 
-    async def list_recent(self, *, limit: int) -> tuple[PortfolioHistoryEntry, ...]:
-        """Return newest-first valuation entries with exact decimal totals."""
-        stmt = (
-            select(
-                portfolio_snapshots.c.as_of,
-                portfolio_snapshots.c.total_usd_value,
-            )
-            .order_by(
-                desc(portfolio_snapshots.c.as_of),
-                desc(portfolio_snapshots.c.id),
-            )
-            .limit(limit)
-        )
+    async def list_range(
+        self,
+        *,
+        start: datetime | None,
+        max_entries: int,
+    ) -> tuple[PortfolioHistoryEntry, ...]:
+        """Return bounded newest-first range samples with exact decimal totals."""
+        stmt = _range_sample_statement(start=start, max_entries=max_entries)
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt)).all()
         return tuple(
@@ -64,6 +62,55 @@ class PostgresPortfolioHistoryStore:
             )
             for row in rows
         )
+
+
+def _range_sample_statement(
+    *,
+    start: datetime | None,
+    max_entries: int,
+) -> Select[tuple[datetime, Decimal]]:
+    """Build a PostgreSQL window query that avoids returning oversized chart payloads."""
+    if max_entries < 1:
+        message = "max_entries must be positive."
+        raise ValueError(message)
+
+    ordering = (portfolio_snapshots.c.as_of.asc(), portfolio_snapshots.c.id.asc())
+    conditions = [portfolio_snapshots.c.as_of >= start] if start is not None else []
+    if max_entries == 1:
+        return (
+            select(portfolio_snapshots.c.as_of, portfolio_snapshots.c.total_usd_value)
+            .where(*conditions)
+            .order_by(desc(portfolio_snapshots.c.as_of), desc(portfolio_snapshots.c.id))
+            .limit(1)
+        )
+
+    bucketed = (
+        select(
+            portfolio_snapshots.c.id,
+            portfolio_snapshots.c.as_of,
+            portfolio_snapshots.c.total_usd_value,
+            func.ntile(max_entries - 1).over(order_by=ordering).label("bucket"),
+            func.row_number().over(order_by=ordering).label("oldest_rank"),
+        )
+        .where(*conditions)
+        .subquery()
+    )
+    ranked = select(
+        bucketed.c.as_of,
+        bucketed.c.total_usd_value,
+        bucketed.c.oldest_rank,
+        func.row_number()
+        .over(
+            partition_by=bucketed.c.bucket,
+            order_by=(bucketed.c.as_of.desc(), bucketed.c.id.desc()),
+        )
+        .label("bucket_latest_rank"),
+    ).subquery()
+    return (
+        select(ranked.c.as_of, ranked.c.total_usd_value)
+        .where(or_(ranked.c.oldest_rank == 1, ranked.c.bucket_latest_rank == 1))
+        .order_by(desc(ranked.c.as_of))
+    )
 
 
 def _portfolio_to_snapshot(portfolio: Portfolio) -> dict[str, object]:
