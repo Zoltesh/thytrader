@@ -12,12 +12,12 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-_SCRIPT_PATH = Path("scripts/setup_local_postgres.py")
+_SCRIPT_PATH = Path("scripts/setup_local_stack.py")
 
 
 def _load_script() -> ModuleType:
     """Load the standalone bootstrap helper without executing its CLI entrypoint."""
-    specification = importlib.util.spec_from_file_location("setup_local_postgres", _SCRIPT_PATH)
+    specification = importlib.util.spec_from_file_location("setup_local_stack", _SCRIPT_PATH)
     if specification is None or specification.loader is None:
         message = "Could not load the local PostgreSQL bootstrap helper."
         raise AssertionError(message)
@@ -38,6 +38,7 @@ def test_configure_local_database_creates_matching_ignored_environment(
     content = environment_path.read_text(encoding="utf-8")
     assert "THYTRADER_PG_PASSWORD=test-password" in content
     assert "THYTRADER_DATABASE_URL=" in content
+    assert "THYTRADER_COMPOSE_DATABASE_URL=" in content
     assert "test-password" in content
 
 
@@ -70,3 +71,16 @@ def test_configure_local_database_refuses_to_replace_a_custom_database_url(
 
     with pytest.raises(ValueError, match="refuse to overwrite"):
         module.configure_local_database(environment_path)
+
+
+def test_stack_commands_migrate_before_starting_long_running_services() -> None:
+    """The one-command path must make migration a gate before API and worker startup."""
+    module = _load_script()
+
+    commands = module._stack_commands()
+
+    assert commands == (
+        ["docker", "compose", "version"],
+        ["docker", "compose", "up", "--build", "migrate"],
+        ["docker", "compose", "up", "-d", "--build", "--wait", "api", "worker", "web"],
+    )

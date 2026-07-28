@@ -105,6 +105,35 @@ def test_worker_skips_demo_snapshots() -> None:
     asyncio.run(exercise())
 
 
+def test_worker_runs_readiness_callback_before_snapshot_collection() -> None:
+    """Supervisors can observe readiness before the worker enters its wait loop."""
+
+    async def exercise() -> None:
+        runtime = RuntimeState(settings=Settings(_env_file=None))
+        stop = asyncio.Event()
+        started = False
+
+        def mark_started() -> None:
+            """Record that the worker's run loop is available."""
+            nonlocal started
+            started = True
+
+        task = asyncio.create_task(
+            run_worker(
+                runtime,
+                stop,
+                portfolio_service=_StubPortfolioService(),  # type: ignore[arg-type]
+                on_started=mark_started,
+            )
+        )
+        await asyncio.sleep(0)
+        assert started is True
+        stop.set()
+        await task
+
+    asyncio.run(exercise())
+
+
 def test_worker_readiness_tracks_its_running_lifecycle() -> None:
     """Worker readiness is true only while the run loop is active."""
 

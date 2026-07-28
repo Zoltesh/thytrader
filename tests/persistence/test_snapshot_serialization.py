@@ -117,3 +117,18 @@ def test_compose_yaml_binds_postgres_to_loopback_only() -> None:
     content = compose_path.read_text(encoding="utf-8")
     assert "127.0.0.1:5433:5432" in content
     assert "POSTGRES_PASSWORD" in content
+
+
+def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
+    """Compose must start API, worker, and web only after safe prerequisites."""
+    content = Path("compose.yaml").read_text(encoding="utf-8")
+
+    assert "  migrate:" in content
+    assert "  api:" in content
+    assert "  worker:" in content
+    assert "  web:" in content
+    assert "condition: service_healthy" in content
+    assert "condition: service_completed_successfully" in content
+    assert "127.0.0.1:8200:8200" in content
+    assert "127.0.0.1:5175:5175" in content
+    assert "THYTRADER_WORKER_READINESS_FILE" in content

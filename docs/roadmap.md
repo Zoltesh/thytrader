@@ -10,12 +10,13 @@ This roadmap sequences capabilities and safety gates. It is not a promise of dat
 - Python package layout and FastAPI application skeleton.
 - SvelteKit/Svelte 5 strict-TypeScript application.
 - Formatting, linting, type checking, tests, and CI.
-- Docker Compose development/install baseline.
+- Docker Compose clone-and-run stack for PostgreSQL, migration, API, worker, and web.
 - PostgreSQL migrations and configuration validation.
 - `.env.example` with placeholders only.
 - Structured logging and secret redaction.
 
-**Exit gate:** one documented command starts healthy web, API, worker, and database services; quality checks pass on a clean checkout.
+**Exit gate:** one documented command starts healthy web, API, worker, and database services,
+applies migrations before long-running services, and passes quality checks on a clean checkout.
 
 ## Phase 1: Read-only Coinbase and portfolio visibility
 

@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv6Address
+from pathlib import Path  # noqa: TC003 - Pydantic resolves this field annotation at runtime.
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -14,6 +15,9 @@ class Environment(StrEnum):
     DEVELOPMENT = "development"
     TEST = "test"
     PRODUCTION = "production"
+
+
+_COMPOSE_ANY_INTERFACE = IPv4Address("0.0.0.0")  # noqa: S104 - restricted to the Docker network.
 
 
 class Settings(BaseSettings):
@@ -29,10 +33,12 @@ class Settings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     api_host: IPv4Address | IPv6Address = IPv4Address("127.0.0.1")
     api_port: int = Field(default=8200, ge=1, le=65535)
+    containerized: bool = False
     allow_remote_access: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     database_url: SecretStr | None = None
     snapshot_interval_seconds: int = Field(default=300, ge=60, le=86_400)
+    worker_readiness_file: Path | None = None
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
 
@@ -57,9 +63,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_network_binding(self) -> Self:
         """Reject unsafe network exposure and incomplete Coinbase credentials."""
-        if not self.api_host.is_loopback:
+        container_listener = self.containerized and self.api_host == _COMPOSE_ANY_INTERFACE
+        if not self.api_host.is_loopback and not container_listener:
             message = (
-                "Protected remote access is not implemented; THYTRADER_API_HOST must be loopback."
+                "Protected remote access is not implemented; THYTRADER_API_HOST must be loopback "
+                "unless the process runs in the Compose network."
             )
             raise ValueError(message)
         credentials = (self.coinbase_api_key_name, self.coinbase_api_private_key)

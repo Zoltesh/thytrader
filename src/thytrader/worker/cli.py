@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 from typing import TYPE_CHECKING
@@ -22,6 +23,8 @@ from thytrader.runtime import RuntimeState
 from thytrader.worker.service import run_worker
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
@@ -40,17 +43,37 @@ async def run() -> None:
     portfolio_service = _build_portfolio_service(settings)
     history_store, engine = await _build_history_store(settings)
 
-    logger.info("worker_started")
-    await run_worker(
-        runtime,
-        stop_requested,
-        portfolio_service=portfolio_service,
-        history_store=history_store,
-    )
-    logger.info("worker_stopped")
+    readiness_file = settings.worker_readiness_file
+    try:
+        logger.info("worker_started")
+        await run_worker(
+            runtime,
+            stop_requested,
+            portfolio_service=portfolio_service,
+            history_store=history_store,
+            on_started=lambda: _mark_ready(readiness_file),
+        )
+        logger.info("worker_stopped")
+    finally:
+        _clear_ready(readiness_file)
+        if engine is not None:
+            await dispose(engine)
 
-    if engine is not None:
-        await dispose(engine)
+
+def _mark_ready(readiness_file: Path | None) -> None:
+    """Create the optional supervisor-facing readiness marker."""
+    if readiness_file is None:
+        return
+    readiness_file.parent.mkdir(parents=True, exist_ok=True)
+    readiness_file.touch()
+
+
+def _clear_ready(readiness_file: Path | None) -> None:
+    """Remove the optional readiness marker during shutdown."""
+    if readiness_file is None:
+        return
+    with contextlib.suppress(FileNotFoundError):
+        readiness_file.unlink()
 
 
 def _build_portfolio_service(settings: Settings) -> PortfolioService:

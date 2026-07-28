@@ -56,6 +56,18 @@ def test_settings_reject_non_loopback_binding_even_with_legacy_opt_in() -> None:
         )
 
 
+def test_settings_allow_compose_internal_listener() -> None:
+    """The container network may use all interfaces when host publishing stays loopback-only."""
+    settings = Settings(
+        api_host=_UNSAFE_BIND_ADDRESS,
+        containerized=True,
+        _env_file=None,
+    )
+
+    assert settings.api_host == _UNSAFE_BIND_ADDRESS
+    assert settings.containerized is True
+
+
 def test_settings_wrap_coinbase_credentials_as_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Coinbase environment credentials should not appear in settings representations."""
     api_key_name = "organizations/example/apiKeys/example"

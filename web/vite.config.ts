@@ -3,12 +3,14 @@ import { playwright } from '@vitest/browser-playwright';
 import adapter from '@sveltejs/adapter-auto';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+const apiProxyTarget = process.env.THYTRADER_API_PROXY_TARGET ?? 'http://127.0.0.1:8200';
+
 export default defineConfig({
 	server: {
 		port: 5175,
 		strictPort: true,
 		proxy: {
-			'/api': 'http://127.0.0.1:8200'
+			'/api': apiProxyTarget
 		}
 	},
 	plugins: [
