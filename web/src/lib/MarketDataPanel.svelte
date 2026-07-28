@@ -35,11 +35,11 @@
 	}
 </script>
 
-<section class="market-data-panel" aria-label="Market data preview">
+<section class="market-data-panel" aria-label="Data-source diagnostics">
 	<div class="panel-heading">
 		<div>
-			<h2>Market data preview</h2>
-			<p>Validated closed candles only · data is not persisted yet</p>
+			<h2>Data-source diagnostics</h2>
+			<p>Connection and candle-integrity check · not a chart, signal, or historical dataset</p>
 		</div>
 		<label class="product-select">
 			<span>USD spot product</span>
@@ -62,8 +62,10 @@
 		<div class="market-loading" aria-label="Loading market data"><div class="skeleton"></div></div>
 	{:else if availability === 'failed'}
 		<div class="market-empty">
-			<p>Market data could not be loaded.</p>
-			<small>Portfolio data remains separate; refresh to try the read-only preview again.</small>
+			<p>Data-source diagnostics could not be loaded.</p>
+			<small
+				>Portfolio data remains separate; refresh to retry this read-only connection check.</small
+			>
 		</div>
 	{:else if preview}
 		<div class="market-summary">

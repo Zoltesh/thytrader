@@ -36,11 +36,12 @@ displayed observation, exposes exact point timestamps and values to pointer and 
 marks snapshot cadence as behind when the latest persisted observation is more than two configured
 sampling intervals old. Gaps remain visible rather than being interpolated.
 
-The dashboard also contains a read-only USD-spot market-data preview with a product selector. It
-validates closed candles, venue constraints, gaps, and freshness using Coinbase data (when
-credentials are configured) or deterministic BTC-USD, ETH-USD, and SOL-USD demo data. It is not
-persisted historical ingestion and no strategy or trading path uses it yet; see the
-[market-data pipeline](docs/architecture/market-data.md) for scope.
+The dashboard includes **Data-source diagnostics**: a read-only connection and candle-integrity
+check for a selected USD spot product. It proves that product constraints and a small recent closed-
+candle window can be fetched and validated; it is **not** a price chart, trading signal, historical
+dataset, or strategy input. It uses Coinbase data when credentials are configured, or deterministic
+demo data otherwise. See the [market-data pipeline](docs/architecture/market-data.md) for the
+implemented boundary and next milestone.
 
 Inspect or stop the stack with:
 

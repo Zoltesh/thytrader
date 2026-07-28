@@ -51,24 +51,24 @@ This is the next active milestone. It has two parallel tracks that converge befo
 
 ### Phase 2A: Market-data pipeline
 
-#### Completed first increment
+#### Completed diagnostic increment
 
-- Read-only BTC-USD/1h preview using provider-neutral exact-decimal models.
-- Coinbase product-constraint and recent-candle adapter through the official SDK.
+- Read-only USD spot-product catalog plus selectable 1h data-source diagnostics.
+- Coinbase product-constraint and bounded recent-candle adapter through the official SDK.
 - Closed-candle validation, gap/missing-interval detection, and freshness facts.
-- Deterministic demo preview plus a visible dashboard quality panel.
+- Deterministic demo diagnostics plus a visible dashboard connection/integrity panel.
 
-This is deliberately not durable ingestion, a complete catalog, or a backtest input. See the
+This proves the read-only provider and validation path. It is deliberately **not** historical range
+ingestion, durable storage, a chart, a market signal, or a backtest input. See the
 [market-data pipeline](architecture/market-data.md) for its explicit contract and limits.
 
 #### Remaining
 
-- Product/instrument catalog (product IDs, trading status, base/quote, price/size increments, minimum sizes).
-- Historical OHLCV ingestion for 5m, 15m, 30m, 1h, 6h, and 1d.
+- Historical OHLCV range ingestion for 5m, 15m, 30m, 1h, 6h, and 1d.
 - Pagination, deduplication, gap detection, and completeness metadata.
 - Partitioned Parquet storage and dataset versioning.
 - Scheduled market-data worker (separate from the portfolio snapshot worker).
-- Data-quality status on the dashboard.
+- Dataset coverage and quality status on the dashboard.
 
 **Exit gate:** validated, gap-checked historical candles are queryable with dataset fingerprints that
 backtests can reference for reproducibility.

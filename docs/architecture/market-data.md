@@ -1,15 +1,16 @@
 # Market-Data Pipeline
 
-## Current implemented increment: read-only preview
+## Current implemented increment: data-source diagnostics
 
-ThyTrader currently exposes a narrow, read-only USD-spot catalog and hourly market-data preview at:
+ThyTrader currently exposes narrow, read-only USD-spot **data-source diagnostics**—a catalog plus a
+small recent hourly candle-validation window—at:
 
 ```text
 GET /api/v1/market-data/products
 GET /api/v1/market-data/preview?product_id=BTC-USD
 ```
 
-It is intentionally a **validation preview**, not a historical-dataset service:
+It is intentionally a **diagnostic**, not a historical-dataset service, chart, or strategy input:
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -71,17 +72,15 @@ OHLC values. Returning a partial candle set would overstate its quality.
 
 ## Next increments
 
-The preview creates a tested contract to expand rather than a side path to maintain.
+The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Product catalog** — ingest/query Coinbase spot products with tradability and venue constraints;
-   do not hard-code a single product.
-2. **Historical range ingestion** — support documented Coinbase request windows and pagination for
+1. **Historical range ingestion** — support documented Coinbase request windows and pagination for
    5m, 15m, 30m, 1h, 6h, and 1d closed candles.
-3. **Immutable Parquet datasets** — partition by provider/product/timeframe/date and record a schema
+2. **Immutable Parquet datasets** — partition by provider/product/timeframe/date and record a schema
    version, source range, completeness facts, and content/dataset fingerprint.
-4. **Market-data worker** — supervise scheduled ingestion separately from portfolio snapshots; log
+3. **Market-data worker** — supervise scheduled ingestion separately from portfolio snapshots; log
    redacted failures, retry safely, and expose durable freshness/coverage state.
-5. **Read-only diagnostics contract** — provide versioned machine-readable market-data health/data
+4. **Read-only diagnostics contract** — provide versioned machine-readable market-data health/data
    coverage reports and a CLI before adding commands to `thytrader-operator/SKILL.md`.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.
