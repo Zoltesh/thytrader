@@ -40,6 +40,20 @@ class CoinbaseResponse(Protocol):
 class CoinbaseMarketDataClient(Protocol):
     """Public Coinbase REST methods needed for the market-data preview."""
 
+    def get_products(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        product_type: str | None = None,
+        product_ids: list[str] | None = None,
+        contract_expiry_type: str | None = None,
+        expiring_contract_status: str | None = None,
+        get_tradability_status: bool | None = False,
+        get_all_products: bool | None = False,
+    ) -> CoinbaseResponse:
+        """Return a bounded or complete product catalog from the official SDK."""
+        ...
+
     def get_product(self, product_id: str) -> CoinbaseResponse:
         """Return one product's metadata and exchange constraints."""
         ...
@@ -62,6 +76,16 @@ class CoinbaseMarketData:
     def __init__(self, client: CoinbaseMarketDataClient) -> None:
         """Initialize the adapter around an official public or authenticated SDK client."""
         self._client = client
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Fetch and validate Coinbase's full tradability-aware spot product catalog."""
+        response = await asyncio.to_thread(
+            self._client.get_products,
+            product_type="SPOT",
+            get_tradability_status=True,
+            get_all_products=True,
+        )
+        return _parse_products(response.to_dict())
 
     async def get_recent_preview(
         self,
@@ -108,6 +132,27 @@ def _parse_product(payload: dict[str, Any]) -> MarketProduct:
             payload.get("is_disabled") is not True and payload.get("trading_disabled") is not True
         ),
     )
+
+
+def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
+    """Validate every product in a Coinbase catalog without silently omitting bad rows."""
+    raw_products = payload.get("products")
+    if not isinstance(raw_products, list):
+        message = "Coinbase product response did not include a product list."
+        raise CoinbaseMarketDataError(message)
+    products: list[MarketProduct] = []
+    for raw_product in raw_products:
+        if not isinstance(raw_product, dict):
+            message = "Coinbase product response included a non-object product."
+            raise CoinbaseMarketDataError(message)
+        product_payload: dict[str, object] = {}
+        for key, value in raw_product.items():
+            if not isinstance(key, str):
+                message = "Coinbase product response included a non-text field name."
+                raise CoinbaseMarketDataError(message)
+            product_payload[key] = value
+        products.append(_parse_product(product_payload))
+    return tuple(products)
 
 
 def _parse_candles(payload: dict[str, Any]) -> tuple[Candle, ...]:

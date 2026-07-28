@@ -6,7 +6,7 @@ from datetime import datetime  # noqa: TC003 - Pydantic resolves this model fiel
 from decimal import Decimal  # noqa: TC003 - Pydantic resolves this model field at runtime.
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_serializer
 
 from thytrader.api.dependencies import get_market_data_service
@@ -66,6 +66,12 @@ class MarketDataPreviewResponse(BaseModel):
     quality: MarketDataQualityResponse
 
 
+class ProductCatalogResponse(BaseModel):
+    """Browser-safe deterministic set of selectable USD spot products."""
+
+    products: tuple[ProductResponse, ...]
+
+
 class MarketDataErrorDetail(BaseModel):
     """Stable redacted market-data upstream failure detail."""
 
@@ -80,6 +86,32 @@ class MarketDataErrorResponse(BaseModel):
 
 
 @router.get(
+    "/products",
+    response_model=ProductCatalogResponse,
+    responses={
+        status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse},
+    },
+)
+async def get_market_data_products(
+    service: Annotated[MarketDataService, Depends(get_market_data_service)],
+) -> ProductCatalogResponse:
+    """Return enabled USD spot products available for the read-only preview selector."""
+    try:
+        products = await service.list_enabled_usd_spot_products()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "market_data_unavailable",
+                "message": "Market data is temporarily unavailable. Try again shortly.",
+            },
+        ) from None
+    return ProductCatalogResponse(
+        products=tuple(ProductResponse.model_validate(product) for product in products)
+    )
+
+
+@router.get(
     "/preview",
     response_model=MarketDataPreviewResponse,
     responses={
@@ -88,10 +120,14 @@ class MarketDataErrorResponse(BaseModel):
 )
 async def get_market_data_preview(
     service: Annotated[MarketDataService, Depends(get_market_data_service)],
+    product_id: Annotated[
+        str,
+        Query(pattern=r"^[A-Z0-9]{2,20}-USD$"),
+    ] = "BTC-USD",
 ) -> MarketDataPreviewResponse:
-    """Return validated BTC-USD hourly data facts without exposing upstream exceptions."""
+    """Return validated selected-USD-product hourly facts without upstream exceptions."""
     try:
-        preview = await service.get_btc_usd_hourly_preview()
+        preview = await service.get_hourly_preview(product_id)
     except Exception:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

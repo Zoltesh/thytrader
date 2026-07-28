@@ -1,14 +1,20 @@
 <script lang="ts">
-	import type { MarketDataPreview } from '$lib/portfolio';
+	import type { MarketDataPreview, MarketProduct } from '$lib/portfolio';
 
 	let {
 		preview = null as MarketDataPreview | null,
+		products = [] as MarketProduct[],
+		selectedProductId = 'BTC-USD',
 		loading = false,
-		availability = 'ready' as 'ready' | 'failed'
+		availability = 'ready' as 'ready' | 'failed',
+		onProductChange
 	}: {
 		preview?: MarketDataPreview | null;
+		products?: MarketProduct[];
+		selectedProductId?: string;
 		loading?: boolean;
 		availability?: 'ready' | 'failed';
+		onProductChange: (productId: string) => void;
 	} = $props();
 
 	const status = $derived(
@@ -23,6 +29,10 @@
 			? new Date(preview.quality.latest_completed_at).toLocaleString()
 			: 'No completed candle'
 	);
+
+	function selectProduct(event: Event): void {
+		onProductChange((event.currentTarget as HTMLSelectElement).value);
+	}
 </script>
 
 <section class="market-data-panel" aria-label="Market data preview">
@@ -31,6 +41,18 @@
 			<h2>Market data preview</h2>
 			<p>Validated closed candles only · data is not persisted yet</p>
 		</div>
+		<label class="product-select">
+			<span>USD spot product</span>
+			<select
+				value={selectedProductId}
+				onchange={selectProduct}
+				disabled={loading || !products.length}
+			>
+				{#each products as product (product.product_id)}
+					<option value={product.product_id}>{product.product_id}</option>
+				{/each}
+			</select>
+		</label>
 		{#if preview && availability === 'ready'}
 			<span class:warning={status !== 'Complete'} class="quality-status">{status}</span>
 		{/if}

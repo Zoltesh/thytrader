@@ -2,10 +2,11 @@
 
 ## Current implemented increment: read-only preview
 
-ThyTrader currently exposes a narrow, read-only BTC-USD hourly market-data preview at:
+ThyTrader currently exposes a narrow, read-only USD-spot catalog and hourly market-data preview at:
 
 ```text
-GET /api/v1/market-data/preview
+GET /api/v1/market-data/products
+GET /api/v1/market-data/preview?product_id=BTC-USD
 ```
 
 It is intentionally a **validation preview**, not a historical-dataset service:
@@ -28,18 +29,21 @@ that data is durably stored, or that the market is safe to trade.
 
 ## Current scope boundary
 
-The initial preview supports only:
+The current preview supports:
 
 | Dimension | Current support |
 |---|---|
 | Provider | Coinbase Advanced Trade |
-| Product | `BTC-USD` |
+| Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
 | Timeframe | `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | None |
 | Trading use | None |
 
-It is deliberately not yet a product catalog, a complete historical API, or an execution input.
+The catalog is presentation-only. It filters to enabled USD spot products and exposes venue
+constraints as exact decimal strings. The preview accepts the selected catalog product through a
+validated `product_id` query parameter; it is still not a complete historical API or execution
+input.
 No strategy, backtest, paper session, or live trading path may depend on the preview endpoint.
 
 ## Quality semantics

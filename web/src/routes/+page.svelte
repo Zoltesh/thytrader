@@ -10,6 +10,7 @@
 		type HistoryEntry,
 		type HistoryRange,
 		type MarketDataPreview,
+		type MarketProduct,
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
@@ -23,6 +24,8 @@
 	let historyRange: HistoryRange = $state('24h');
 	let samplingIntervalSeconds = $state(300);
 	let marketDataPreview: MarketDataPreview | null = $state(null);
+	let marketProducts: MarketProduct[] = $state([]);
+	let selectedMarketProductId = $state('BTC-USD');
 	let marketDataLoading = $state(true);
 	let marketDataAvailability: 'ready' | 'failed' = $state('ready');
 
@@ -50,18 +53,28 @@
 		}
 	}
 
-	async function loadMarketData(): Promise<void> {
+	async function loadMarketData(productId = selectedMarketProductId): Promise<void> {
 		marketDataLoading = true;
 		marketDataAvailability = 'ready';
 		try {
-			const response = await fetch('/api/v1/market-data/preview', {
-				headers: { Accept: 'application/json' }
-			});
-			if (!response.ok) {
-				marketDataPreview = null;
-				marketDataAvailability = 'failed';
-				return;
+			if (!marketProducts.length) {
+				const catalogResponse = await fetch('/api/v1/market-data/products', {
+					headers: { Accept: 'application/json' }
+				});
+				if (!catalogResponse.ok) throw new Error('Market catalog unavailable.');
+				marketProducts = ((await catalogResponse.json()) as { products: MarketProduct[] }).products;
+				if (!marketProducts.some((product) => product.product_id === productId)) {
+					productId = marketProducts[0]?.product_id ?? productId;
+				}
 			}
+			selectedMarketProductId = productId;
+			const response = await fetch(
+				`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`,
+				{
+					headers: { Accept: 'application/json' }
+				}
+			);
+			if (!response.ok) throw new Error('Market preview unavailable.');
 			marketDataPreview = (await response.json()) as MarketDataPreview;
 		} catch {
 			marketDataPreview = null;
@@ -189,8 +202,11 @@
 
 			<MarketDataPanel
 				preview={marketDataPreview}
+				products={marketProducts}
+				selectedProductId={selectedMarketProductId}
 				loading={marketDataLoading}
 				availability={marketDataAvailability}
+				onProductChange={(productId) => void loadMarketData(productId)}
 			/>
 
 			<section class="asset-panel">

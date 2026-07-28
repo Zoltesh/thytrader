@@ -26,6 +26,52 @@ class StubCoinbaseMarketClient:
     def __init__(self) -> None:
         """Track live-market calls for request-boundary verification."""
         self.candle_calls: list[tuple[str, str, str, str, int]] = []
+        self.product_catalog_calls: list[tuple[str | None, bool | None, bool | None]] = []
+
+    def get_products(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        product_type: str | None = None,
+        product_ids: list[str] | None = None,
+        contract_expiry_type: str | None = None,
+        expiring_contract_status: str | None = None,
+        get_tradability_status: bool | None = False,
+        get_all_products: bool | None = False,
+    ) -> StubResponse:
+        """Return a compact spot catalog through the official SDK-shaped call."""
+        del limit, offset, product_ids, contract_expiry_type, expiring_contract_status
+        self.product_catalog_calls.append((product_type, get_tradability_status, get_all_products))
+        return StubResponse(
+            {
+                "products": [
+                    {
+                        "product_id": "BTC-USD",
+                        "base_currency_id": "BTC",
+                        "quote_currency_id": "USD",
+                        "price_increment": "0.01",
+                        "base_increment": "0.00000001",
+                        "quote_increment": "0.01",
+                        "base_min_size": "0.0001",
+                        "quote_min_size": "1",
+                        "is_disabled": False,
+                        "trading_disabled": False,
+                    },
+                    {
+                        "product_id": "ETH-USD",
+                        "base_currency_id": "ETH",
+                        "quote_currency_id": "USD",
+                        "price_increment": "0.01",
+                        "base_increment": "0.00000001",
+                        "quote_increment": "0.01",
+                        "base_min_size": "0.001",
+                        "quote_min_size": "1",
+                        "is_disabled": True,
+                        "trading_disabled": True,
+                    },
+                ]
+            }
+        )
 
     def get_product(self, product_id: str) -> StubResponse:
         """Return a tradable Coinbase spot product payload."""
@@ -119,3 +165,14 @@ def test_coinbase_market_data_builds_exact_preview_and_reports_upstream_gaps() -
             350,
         )
     ]
+
+
+def test_coinbase_market_data_lists_normalized_spot_products() -> None:
+    """The adapter must ask Coinbase for all tradability-aware spot products once."""
+    client = StubCoinbaseMarketClient()
+
+    products = asyncio.run(CoinbaseMarketData(client).list_products())
+
+    assert [product.product_id for product in products] == ["BTC-USD", "ETH-USD"]
+    assert products[1].trading_enabled is False
+    assert client.product_catalog_calls == [("SPOT", True, True)]

@@ -45,19 +45,21 @@ export type PortfolioHistory = {
 
 export type HistoryRange = '24h' | '7d' | '30d' | 'all';
 
+export type MarketProduct = {
+	product_id: string;
+	base_currency: string;
+	quote_currency: string;
+	price_increment: string;
+	base_increment: string;
+	quote_increment: string;
+	base_min_size: string;
+	quote_min_size: string;
+	trading_enabled: boolean;
+};
+
 export type MarketDataPreview = {
 	as_of: string;
-	product: {
-		product_id: string;
-		base_currency: string;
-		quote_currency: string;
-		price_increment: string;
-		base_increment: string;
-		quote_increment: string;
-		base_min_size: string;
-		quote_min_size: string;
-		trading_enabled: boolean;
-	};
+	product: MarketProduct;
 	timeframe: '1h';
 	quality: {
 		candle_count: number;

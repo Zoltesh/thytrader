@@ -62,9 +62,63 @@ class StaticMarketDataProvider:
             ),
         )
 
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Return supported and intentionally excluded products for catalog filtering."""
+        return (
+            MarketProduct(
+                product_id="SOL-USD",
+                base_currency="SOL",
+                quote_currency="USD",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.0001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.01"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=True,
+            ),
+            MarketProduct(
+                product_id="ETH-USD",
+                base_currency="ETH",
+                quote_currency="USD",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.00000001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.001"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=False,
+            ),
+            MarketProduct(
+                product_id="BTC-USD",
+                base_currency="BTC",
+                quote_currency="USD",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.00000001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.0001"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=True,
+            ),
+            MarketProduct(
+                product_id="BTC-EUR",
+                base_currency="BTC",
+                quote_currency="EUR",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.00000001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.0001"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=True,
+            ),
+        )
+
 
 class FailingMarketDataProvider:
-    """Provider boundary that fails with an upstream detail unsafe for browser output."""
+    """Provider fake that proves upstream failures remain redacted."""
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Raise the same simulated provider failure for catalog requests."""
+        message = "upstream token should not reach the browser"
+        raise RuntimeError(message)
 
     async def get_recent_preview(
         self,
@@ -112,6 +166,45 @@ def test_market_data_preview_returns_exact_constraints_and_quality_metadata() ->
     }
 
 
+def test_market_data_products_returns_sorted_enabled_usd_spot_catalog() -> None:
+    """The browser catalog should expose only deterministic selectable USD spot products."""
+    app = create_app(
+        Settings(_env_file=None),
+        market_data_service=MarketDataService(StaticMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/products")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "products": [
+            {
+                "product_id": "BTC-USD",
+                "base_currency": "BTC",
+                "quote_currency": "USD",
+                "price_increment": "0.01",
+                "base_increment": "0.00000001",
+                "quote_increment": "0.01",
+                "base_min_size": "0.0001",
+                "quote_min_size": "1",
+                "trading_enabled": True,
+            },
+            {
+                "product_id": "SOL-USD",
+                "base_currency": "SOL",
+                "quote_currency": "USD",
+                "price_increment": "0.01",
+                "base_increment": "0.0001",
+                "quote_increment": "0.01",
+                "base_min_size": "0.01",
+                "quote_min_size": "1",
+                "trading_enabled": True,
+            },
+        ]
+    }
+
+
 def test_market_data_preview_uses_demo_data_without_coinbase_credentials() -> None:
     """A clean install should render the market-data panel without making network calls."""
     app = create_app(Settings(_env_file=None))
@@ -127,6 +220,32 @@ def test_market_data_preview_uses_demo_data_without_coinbase_credentials() -> No
     assert payload["quality"]["gap_count"] == 0
     assert payload["quality"]["missing_intervals"] == 0
     assert payload["quality"]["stale"] is False
+
+
+def test_market_data_products_uses_demo_catalog_without_coinbase_credentials() -> None:
+    """A clean install should offer multiple deterministic USD products to the dashboard."""
+    app = create_app(Settings(_env_file=None))
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/products")
+
+    assert response.status_code == 200
+    assert [product["product_id"] for product in response.json()["products"]] == [
+        "BTC-USD",
+        "ETH-USD",
+        "SOL-USD",
+    ]
+
+
+def test_market_data_preview_uses_selected_demo_product() -> None:
+    """The selected catalog product must drive the read-only preview request."""
+    app = create_app(Settings(_env_file=None))
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/preview?product_id=ETH-USD")
+
+    assert response.status_code == 200
+    assert response.json()["product"]["product_id"] == "ETH-USD"
 
 
 def test_market_data_preview_redacts_upstream_failures() -> None:
