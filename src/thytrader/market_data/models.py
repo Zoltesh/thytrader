@@ -62,6 +62,17 @@ class CandleQualityReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CandleRangeReport:
+    """Validated candle quality facts compared with one explicit half-open UTC range."""
+
+    starts_at: datetime
+    ends_at: datetime
+    requested_candle_count: int
+    quality: CandleQualityReport
+    complete: bool
+
+
+@dataclass(frozen=True, slots=True)
 class MarketDataPreview:
     """A point-in-time product and validated-candle quality observation."""
 

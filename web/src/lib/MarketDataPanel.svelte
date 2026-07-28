@@ -1,8 +1,9 @@
 <script lang="ts">
-	import type { MarketDataPreview, MarketProduct } from '$lib/portfolio';
+	import type { MarketDataPreview, MarketDataRange, MarketProduct } from '$lib/portfolio';
 
 	let {
 		preview = null as MarketDataPreview | null,
+		range = null as MarketDataRange | null,
 		products = [] as MarketProduct[],
 		selectedProductId = 'BTC-USD',
 		loading = false,
@@ -10,6 +11,7 @@
 		onProductChange
 	}: {
 		preview?: MarketDataPreview | null;
+		range?: MarketDataRange | null;
 		products?: MarketProduct[];
 		selectedProductId?: string;
 		loading?: boolean;
@@ -28,6 +30,15 @@
 		preview?.quality.latest_completed_at
 			? new Date(preview.quality.latest_completed_at).toLocaleString()
 			: 'No completed candle'
+	);
+	const rangeStatus = $derived(
+		range
+			? range.complete
+				? 'Complete'
+				: range.missing_intervals > 0
+					? 'Gaps'
+					: 'Incomplete'
+			: null
 	);
 
 	function selectProduct(event: Event): void {
@@ -86,6 +97,32 @@
 				<strong>{latestCompleted}</strong>
 			</div>
 		</div>
+		{#if range}
+			<div class="range-summary">
+				<div class="range-header">
+					<span>7-day range coverage</span>
+					<span class:warning={rangeStatus !== 'Complete'} class="range-badge">{rangeStatus}</span>
+				</div>
+				<div class="range-grid">
+					<div>
+						<small>Expected</small>
+						<strong>{range.requested_candle_count}</strong>
+					</div>
+					<div>
+						<small>Received</small>
+						<strong>{range.received_candle_count}</strong>
+					</div>
+					<div>
+						<small>Gaps</small>
+						<strong>{range.gap_count}</strong>
+					</div>
+					<div>
+						<small>Missing</small>
+						<strong>{range.missing_intervals}</strong>
+					</div>
+				</div>
+			</div>
+		{/if}
 		<div class:warning={status !== 'Complete'} class="market-detail">
 			<span class="quality-dot"></span>
 			{#if preview.quality.stale}
@@ -139,10 +176,12 @@
 		font-size: 11px;
 	}
 	.quality-status.warning,
-	.market-detail.warning {
+	.market-detail.warning,
+	.range-badge.warning {
 		color: #edbb70;
 	}
-	.quality-status.warning {
+	.quality-status.warning,
+	.range-badge.warning {
 		border-color: #76552d;
 	}
 	.market-summary {
@@ -163,6 +202,51 @@
 		text-transform: uppercase;
 	}
 	.market-summary strong {
+		color: #e8eeee;
+		font:
+			500 13px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+	}
+	.range-summary {
+		padding: 14px 24px;
+		border-top: 1px solid #232b2d;
+	}
+	.range-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+	.range-header span:first-child {
+		color: #8f9d9f;
+		font-size: 12px;
+	}
+	.range-badge {
+		border: 1px solid #315849;
+		border-radius: 999px;
+		padding: 3px 8px;
+		color: #5ce1b5;
+		font-size: 11px;
+	}
+	.range-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 16px;
+	}
+	.range-grid div {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.range-grid small {
+		color: #657174;
+		font-size: 10px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+	.range-grid strong {
 		color: #e8eeee;
 		font:
 			500 13px ui-monospace,
@@ -216,7 +300,8 @@
 			gap: 12px;
 			flex-direction: column;
 		}
-		.market-summary {
+		.market-summary,
+		.range-grid {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 	}

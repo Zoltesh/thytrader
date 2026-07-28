@@ -51,22 +51,25 @@ This is the next active milestone. It has two parallel tracks that converge befo
 
 ### Phase 2A: Market-data pipeline
 
-#### Completed diagnostic increment
+#### Completed range-ingestion increment
 
 - Read-only USD spot-product catalog plus selectable 1h data-source diagnostics.
 - Coinbase product-constraint and bounded recent-candle adapter through the official SDK.
 - Closed-candle validation, gap/missing-interval detection, and freshness facts.
+- Bounded 1h historical range ingestion with non-overlapping Coinbase pagination (350 candles/page,
+  2,160 candle / 90-day maximum).
+- Seven-day range-completeness report endpoint with expected vs received counts and binary coverage.
 - Deterministic demo diagnostics plus a visible dashboard connection/integrity panel.
 
-This proves the read-only provider and validation path. It is deliberately **not** historical range
-ingestion, durable storage, a chart, a market signal, or a backtest input. See the
+This proves the read-only provider, validation, and range-ingestion paths. It is deliberately **not**
+durable storage, a price chart, a market signal, or a backtest input. See the
 [market-data pipeline](architecture/market-data.md) for its explicit contract and limits.
 
 #### Remaining
 
-- Historical OHLCV range ingestion for 5m, 15m, 30m, 1h, 6h, and 1d.
-- Pagination, deduplication, gap detection, and completeness metadata.
-- Partitioned Parquet storage and dataset versioning.
+- Durable OHLCV ingestion for additional timeframes (5m, 15m, 30m, 6h, 1d) and persistent Parquet
+  storage with dataset versioning and fingerprints.
+- Deduplication, gap repair detection, and completeness metadata for persisted datasets.
 - Scheduled market-data worker (separate from the portfolio snapshot worker).
 - Dataset coverage and quality status on the dashboard.
 

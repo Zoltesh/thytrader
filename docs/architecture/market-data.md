@@ -1,16 +1,22 @@
 # Market-Data Pipeline
 
-## Current implemented increment: data-source diagnostics
+## Current implemented increment: historical range ingestion
 
-ThyTrader currently exposes narrow, read-only USD-spot **data-source diagnostics**—a catalog plus a
-small recent hourly candle-validation window—at:
+ThyTrader currently exposes read-only USD-spot **data-source diagnostics**—a product catalog, a
+bounded recent candle-validation window, and a seven-day 1h range-completeness report—at:
 
 ```text
 GET /api/v1/market-data/products
 GET /api/v1/market-data/preview?product_id=BTC-USD
+GET /api/v1/market-data/range?product_id=BTC-USD
 ```
 
-It is intentionally a **diagnostic**, not a historical-dataset service, chart, or strategy input:
+The range endpoint paginates through Coinbase's 350-candle limit using non-overlapping pages,
+validates every candle for UTC alignment, chronological order, OHLC consistency, and decimal
+exactness, and reports expected vs received candle counts, gaps, and a binary completeness result.
+It is bounded to 2,160 candles (90 days at 1h) and cannot request ranges ending in the future.
+
+These are intentionally **diagnostics**, not a historical-dataset service, chart, or strategy input:
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -74,13 +80,12 @@ OHLC values. Returning a partial candle set would overstate its quality.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Historical range ingestion** — support documented Coinbase request windows and pagination for
-   5m, 15m, 30m, 1h, 6h, and 1d closed candles.
-2. **Immutable Parquet datasets** — partition by provider/product/timeframe/date and record a schema
-   version, source range, completeness facts, and content/dataset fingerprint.
-3. **Market-data worker** — supervise scheduled ingestion separately from portfolio snapshots; log
+1. **Durable historical ingestion** — extend range ingestion to additional timeframes (5m, 15m, 30m,
+   6h, 1d) and persist validated ranges as immutable partitioned Parquet datasets with schema
+   versioning, source range, completeness facts, and content/dataset fingerprints.
+2. **Market-data worker** — supervise scheduled ingestion separately from portfolio snapshots; log
    redacted failures, retry safely, and expose durable freshness/coverage state.
-4. **Read-only diagnostics contract** — provide versioned machine-readable market-data health/data
-   coverage reports and a CLI before adding commands to `thytrader-operator/SKILL.md`.
+3. **Diagnostics contract** — provide versioned machine-readable market-data health/data coverage
+   reports and a CLI before adding commands to `thytrader-operator/SKILL.md`.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

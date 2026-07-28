@@ -37,11 +37,11 @@ marks snapshot cadence as behind when the latest persisted observation is more t
 sampling intervals old. Gaps remain visible rather than being interpolated.
 
 The dashboard includes **Data-source diagnostics**: a read-only connection and candle-integrity
-check for a selected USD spot product. It proves that product constraints and a small recent closed-
-candle window can be fetched and validated; it is **not** a price chart, trading signal, historical
-dataset, or strategy input. It uses Coinbase data when credentials are configured, or deterministic
-demo data otherwise. See the [market-data pipeline](docs/architecture/market-data.md) for the
-implemented boundary and next milestone.
+check for a selected USD spot product. It proves that product constraints, a recent closed-candle
+window, and a seven-day 1h range can be fetched and validated; it is **not** a price chart, trading
+signal, durable dataset, or strategy input. It uses Coinbase data when credentials are configured,
+or deterministic demo data otherwise. See the [market-data pipeline](docs/architecture/market-data.md)
+for the implemented boundary and next milestone.
 
 Inspect or stop the stack with:
 

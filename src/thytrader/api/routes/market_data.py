@@ -1,21 +1,17 @@
-"""Read-only historical market-data preview HTTP presentation."""
+"""Read-only market-data diagnostics HTTP presentation."""
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 - Pydantic resolves this model field at runtime.
-from decimal import Decimal  # noqa: TC003 - Pydantic resolves this model field at runtime.
+from datetime import datetime  # noqa: TC003
+from decimal import Decimal  # noqa: TC003
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_serializer
 
 from thytrader.api.dependencies import get_market_data_service
-from thytrader.market_data.models import (
-    MarketDataPreview,  # noqa: TC001 - Pydantic resolves this model at runtime.
-)
-from thytrader.market_data.service import (  # noqa: TC001 - FastAPI resolves Depends at runtime.
-    MarketDataService,
-)
+from thytrader.market_data.models import CandleRangeReport, MarketDataPreview  # noqa: TC001
+from thytrader.market_data.service import MarketDataService  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
 
@@ -24,7 +20,6 @@ class ProductResponse(BaseModel):
     """Browser-safe Coinbase spot-product constraints with exact decimal serialization."""
 
     model_config = ConfigDict(from_attributes=True)
-
     product_id: str
     base_currency: str
     quote_currency: str
@@ -36,11 +31,7 @@ class ProductResponse(BaseModel):
     trading_enabled: bool
 
     @field_serializer(
-        "price_increment",
-        "base_increment",
-        "quote_increment",
-        "base_min_size",
-        "quote_min_size",
+        "price_increment", "base_increment", "quote_increment", "base_min_size", "quote_min_size"
     )
     def serialize_decimal(self, value: Decimal) -> str:
         """Preserve exact venue constraints across the browser API boundary."""
@@ -48,7 +39,7 @@ class ProductResponse(BaseModel):
 
 
 class MarketDataQualityResponse(BaseModel):
-    """Observable recent-candle completeness and freshness facts."""
+    """Observable candle completeness and freshness facts."""
 
     candle_count: int
     gap_count: int
@@ -58,12 +49,25 @@ class MarketDataQualityResponse(BaseModel):
 
 
 class MarketDataPreviewResponse(BaseModel):
-    """Browser-safe current market-data preview for the supported product/timeframe."""
+    """Browser-safe current market-data diagnostic for the supported product/timeframe."""
 
     as_of: datetime
     product: ProductResponse
     timeframe: Literal["1h"]
     quality: MarketDataQualityResponse
+
+
+class MarketDataRangeResponse(BaseModel):
+    """Browser-safe seven-day 1h completeness report without candle payloads or persistence."""
+
+    starts_at: datetime
+    ends_at: datetime
+    timeframe: Literal["1h"]
+    requested_candle_count: int
+    received_candle_count: int
+    gap_count: int
+    missing_intervals: int
+    complete: bool
 
 
 class ProductCatalogResponse(BaseModel):
@@ -85,27 +89,30 @@ class MarketDataErrorResponse(BaseModel):
     detail: MarketDataErrorDetail
 
 
+def _unavailable() -> HTTPException:
+    """Build the stable redacted response for any provider failure."""
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail={
+            "code": "market_data_unavailable",
+            "message": "Market data is temporarily unavailable. Try again shortly.",
+        },
+    )
+
+
 @router.get(
     "/products",
     response_model=ProductCatalogResponse,
-    responses={
-        status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse},
-    },
+    responses={status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse}},
 )
 async def get_market_data_products(
     service: Annotated[MarketDataService, Depends(get_market_data_service)],
 ) -> ProductCatalogResponse:
-    """Return enabled USD spot products available for the read-only preview selector."""
+    """Return enabled USD spot products available for the read-only selector."""
     try:
         products = await service.list_enabled_usd_spot_products()
-    except Exception:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "market_data_unavailable",
-                "message": "Market data is temporarily unavailable. Try again shortly.",
-            },
-        ) from None
+    except Exception:  # noqa: BLE001 - provider failures are intentionally redacted at the API boundary.
+        raise _unavailable() from None
     return ProductCatalogResponse(
         products=tuple(ProductResponse.model_validate(product) for product in products)
     )
@@ -114,32 +121,38 @@ async def get_market_data_products(
 @router.get(
     "/preview",
     response_model=MarketDataPreviewResponse,
-    responses={
-        status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse},
-    },
+    responses={status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse}},
 )
 async def get_market_data_preview(
     service: Annotated[MarketDataService, Depends(get_market_data_service)],
-    product_id: Annotated[
-        str,
-        Query(pattern=r"^[A-Z0-9]{2,20}-USD$"),
-    ] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
 ) -> MarketDataPreviewResponse:
     """Return validated selected-USD-product hourly facts without upstream exceptions."""
     try:
         preview = await service.get_hourly_preview(product_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "market_data_unavailable",
-                "message": "Market data is temporarily unavailable. Try again shortly.",
-            },
-        ) from None
-    return _to_response(preview)
+    except Exception:  # noqa: BLE001 - provider failures are intentionally redacted at the API boundary.
+        raise _unavailable() from None
+    return _to_preview_response(preview)
 
 
-def _to_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:
+@router.get(
+    "/range",
+    response_model=MarketDataRangeResponse,
+    responses={status.HTTP_502_BAD_GATEWAY: {"model": MarketDataErrorResponse}},
+)
+async def get_market_data_range(
+    service: Annotated[MarketDataService, Depends(get_market_data_service)],
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+) -> MarketDataRangeResponse:
+    """Return a selected product's recent seven-day hourly completeness report."""
+    try:
+        report = await service.get_recent_hourly_range(product_id)
+    except Exception:  # noqa: BLE001 - provider failures are intentionally redacted at the API boundary.
+        raise _unavailable() from None
+    return _to_range_response(report)
+
+
+def _to_preview_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:
     """Map one validated domain preview into its compact browser representation."""
     return MarketDataPreviewResponse(
         as_of=preview.as_of,
@@ -152,4 +165,18 @@ def _to_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:
             latest_completed_at=preview.quality.latest_completed_at,
             stale=preview.quality.is_stale,
         ),
+    )
+
+
+def _to_range_response(report: CandleRangeReport) -> MarketDataRangeResponse:
+    """Map a validated range report into browser-safe completeness facts."""
+    return MarketDataRangeResponse(
+        starts_at=report.starts_at,
+        ends_at=report.ends_at,
+        timeframe="1h",
+        requested_candle_count=report.requested_candle_count,
+        received_candle_count=report.quality.candle_count,
+        gap_count=report.quality.gap_count,
+        missing_intervals=report.quality.missing_intervals,
+        complete=report.complete,
     )

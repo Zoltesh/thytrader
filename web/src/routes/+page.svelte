@@ -10,6 +10,7 @@
 		type HistoryEntry,
 		type HistoryRange,
 		type MarketDataPreview,
+		type MarketDataRange,
 		type MarketProduct,
 		type Portfolio,
 		type PortfolioHistory
@@ -24,6 +25,7 @@
 	let historyRange: HistoryRange = $state('24h');
 	let samplingIntervalSeconds = $state(300);
 	let marketDataPreview: MarketDataPreview | null = $state(null);
+	let marketDataRange: MarketDataRange | null = $state(null);
 	let marketProducts: MarketProduct[] = $state([]);
 	let selectedMarketProductId = $state('BTC-USD');
 	let marketDataLoading = $state(true);
@@ -68,16 +70,24 @@
 				}
 			}
 			selectedMarketProductId = productId;
-			const response = await fetch(
-				`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`,
-				{
+			const [previewResponse, rangeResponse] = await Promise.all([
+				fetch(`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`, {
 					headers: { Accept: 'application/json' }
-				}
-			);
-			if (!response.ok) throw new Error('Market preview unavailable.');
-			marketDataPreview = (await response.json()) as MarketDataPreview;
+				}),
+				fetch(`/api/v1/market-data/range?product_id=${encodeURIComponent(productId)}`, {
+					headers: { Accept: 'application/json' }
+				})
+			]);
+			if (!previewResponse.ok) throw new Error('Market preview unavailable.');
+			marketDataPreview = (await previewResponse.json()) as MarketDataPreview;
+			if (rangeResponse.ok) {
+				marketDataRange = (await rangeResponse.json()) as MarketDataRange;
+			} else {
+				marketDataRange = null;
+			}
 		} catch {
 			marketDataPreview = null;
+			marketDataRange = null;
 			marketDataAvailability = 'failed';
 		} finally {
 			marketDataLoading = false;
@@ -202,6 +212,7 @@
 
 			<MarketDataPanel
 				preview={marketDataPreview}
+				range={marketDataRange}
 				products={marketProducts}
 				selectedProductId={selectedMarketProductId}
 				loading={marketDataLoading}

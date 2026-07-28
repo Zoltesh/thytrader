@@ -70,6 +70,17 @@ export type MarketDataPreview = {
 	};
 };
 
+export type MarketDataRange = {
+	starts_at: string;
+	ends_at: string;
+	timeframe: '1h';
+	requested_candle_count: number;
+	received_candle_count: number;
+	gap_count: number;
+	missing_intervals: number;
+	complete: boolean;
+};
+
 export type ChartCoordinate = {
 	x: number;
 	y: number;

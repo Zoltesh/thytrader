@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
-from thytrader.market_data.models import Candle, CandleInterval, CandleQualityReport
+from thytrader.market_data.models import (
+    Candle,
+    CandleInterval,
+    CandleQualityReport,
+    CandleRangeReport,
+)
 
 
 class CandleQualityError(ValueError):
@@ -36,6 +41,40 @@ def analyze_candles(
         missing_intervals=missing_intervals,
         latest_completed_at=latest_completed_at,
         is_stale=is_stale,
+    )
+
+
+def analyze_range(
+    candles: tuple[Candle, ...],
+    interval: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+    now: datetime,
+) -> CandleRangeReport:
+    """Analyze one explicit half-open UTC range without treating missing coverage as valid data."""
+    _require_utc(starts_at)
+    _require_utc(ends_at)
+    if starts_at >= ends_at or (ends_at - starts_at) % interval.duration != timedelta(0):
+        message = "Historical ranges must be non-empty and align to the selected interval."
+        raise CandleQualityError(message)
+    if any(candle.starts_at < starts_at or candle.starts_at >= ends_at for candle in candles):
+        message = "Historical candles must fall within the requested half-open range."
+        raise CandleQualityError(message)
+    quality = analyze_candles(candles, interval, now)
+    requested_candle_count = (ends_at - starts_at) // interval.duration
+    complete = (
+        quality.candle_count == requested_candle_count
+        and quality.gap_count == 0
+        and bool(quality.candles)
+        and quality.candles[0].starts_at == starts_at
+        and quality.latest_completed_at == ends_at
+    )
+    return CandleRangeReport(
+        starts_at=starts_at,
+        ends_at=ends_at,
+        requested_candle_count=requested_candle_count,
+        quality=quality,
+        complete=complete,
     )
 
 

@@ -11,6 +11,7 @@ from thytrader.market_data.models import (
     Candle,
     CandleInterval,
     CandleQualityReport,
+    CandleRangeReport,
     MarketDataPreview,
     MarketProduct,
 )
@@ -266,3 +267,42 @@ def test_market_data_preview_redacts_upstream_failures() -> None:
         }
     }
     assert "synthetic market-data secret detail" not in response.text
+
+
+class RangeMarketDataProvider(StaticMarketDataProvider):
+    """Preview provider extended with deterministic complete range coverage."""
+
+    async def get_historical_range(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Return browser-safe complete coverage facts for the requested diagnostic range."""
+        preview = await self.get_recent_preview(product_id, interval, now)
+        return CandleRangeReport(
+            starts_at=starts_at,
+            ends_at=ends_at,
+            requested_candle_count=(ends_at - starts_at) // interval.duration,
+            quality=preview.quality,
+            complete=True,
+        )
+
+
+def test_market_data_range_returns_requested_and_received_coverage() -> None:
+    """The browser must see explicit range completeness rather than only a recent preview count."""
+    app = create_app(
+        Settings(_env_file=None),
+        market_data_service=MarketDataService(RangeMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/range")
+
+    assert response.status_code == 200
+    assert response.json()["timeframe"] == "1h"
+    assert response.json()["requested_candle_count"] == 168
+    assert response.json()["received_candle_count"] == 1
+    assert response.json()["complete"] is True

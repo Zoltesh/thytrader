@@ -142,6 +142,37 @@ class StubCoinbaseMarketClient:
         )
 
 
+class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """SDK-shaped client that generates every requested hourly candle for paging tests."""
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Return exact candles in the requested half-open epoch interval."""
+        assert limit is not None
+        self.candle_calls.append((product_id, start, end, granularity, limit))
+        return StubResponse(
+            {
+                "candles": [
+                    {
+                        "start": str(epoch),
+                        "open": "100",
+                        "high": "110",
+                        "low": "90",
+                        "close": "105",
+                        "volume": "12.5",
+                    }
+                    for epoch in range(int(start), int(end), 60 * 60)
+                ]
+            }
+        )
+
+
 def test_coinbase_market_data_builds_exact_preview_and_reports_upstream_gaps() -> None:
     """A Coinbase payload should produce validated completed candles and gap metadata."""
     client = StubCoinbaseMarketClient()
@@ -176,3 +207,40 @@ def test_coinbase_market_data_lists_normalized_spot_products() -> None:
     assert [product.product_id for product in products] == ["BTC-USD", "ETH-USD"]
     assert products[1].trading_enabled is False
     assert client.product_catalog_calls == [("SPOT", True, True)]
+
+
+def test_coinbase_market_data_pages_explicit_hourly_range_without_losing_coverage() -> None:
+    """A range larger than one Coinbase page must retain complete consecutive coverage."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 16, 1, tzinfo=UTC)
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.ONE_HOUR,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.ONE_HOUR.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 361
+    assert report.quality.candle_count == 361
+    assert report.complete is True
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.ONE_HOUR.duration * 350).timestamp())),
+            "ONE_HOUR",
+            350,
+        ),
+        (
+            "BTC-USD",
+            str(int((starts_at + CandleInterval.ONE_HOUR.duration * 350).timestamp())),
+            str(int(ends_at.timestamp())),
+            "ONE_HOUR",
+            350,
+        ),
+    ]

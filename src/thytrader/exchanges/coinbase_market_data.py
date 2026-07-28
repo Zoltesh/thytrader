@@ -10,16 +10,18 @@ from typing import TYPE_CHECKING, Any, Protocol
 from thytrader.market_data.models import (
     Candle,
     CandleInterval,
+    CandleRangeReport,
     MarketDataPreview,
     MarketProduct,
 )
-from thytrader.market_data.quality import CandleQualityError, analyze_candles
+from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 _CANDLE_PAGE_LIMIT = 350
 _RECENT_INTERVAL_COUNT = 25
+_MAX_RANGE_INTERVAL_COUNT = 2_160
 _COINBASE_GRANULARITIES: dict[CandleInterval, str] = {
     CandleInterval.ONE_HOUR: "ONE_HOUR",
 }
@@ -112,6 +114,43 @@ class CoinbaseMarketData:
         except CandleQualityError as error:
             raise CoinbaseMarketDataError(str(error)) from error
         return MarketDataPreview(product=product, interval=interval, as_of=now, quality=quality)
+
+    async def get_historical_range(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Retrieve one bounded closed-candle range through non-overlapping Coinbase pages."""
+        _require_utc(starts_at)
+        _require_utc(ends_at)
+        _require_utc(now)
+        interval_count = (ends_at - starts_at) // interval.duration
+        if starts_at >= ends_at or ends_at > now or interval_count > _MAX_RANGE_INTERVAL_COUNT:
+            message = "Historical range is outside the supported closed-candle request bounds."
+            raise CoinbaseMarketDataError(message)
+        product_response = await asyncio.to_thread(self._client.get_product, product_id)
+        _parse_product(product_response.to_dict())
+        candles: list[Candle] = []
+        page_start = starts_at
+        while page_start < ends_at:
+            page_end = min(page_start + interval.duration * _CANDLE_PAGE_LIMIT, ends_at)
+            response = await asyncio.to_thread(
+                self._client.get_candles,
+                product_id,
+                str(int(page_start.timestamp())),
+                str(int(page_end.timestamp())),
+                _COINBASE_GRANULARITIES[interval],
+                _CANDLE_PAGE_LIMIT,
+            )
+            candles.extend(_parse_candles(response.to_dict()))
+            page_start = page_end
+        try:
+            return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
+        except CandleQualityError as error:
+            raise CoinbaseMarketDataError(str(error)) from error
 
 
 def _parse_product(payload: dict[str, Any]) -> MarketProduct:
