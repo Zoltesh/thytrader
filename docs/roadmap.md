@@ -59,6 +59,8 @@ This is the next active milestone. It has two parallel tracks that converge befo
 - Bounded 1h historical range ingestion with non-overlapping Coinbase pagination (350 candles/page,
   2,160 candle / 90-day maximum).
 - Seven-day range-completeness report endpoint with expected vs received counts and binary coverage.
+- Immutable date-partitioned Parquet writer with JSON manifests, completeness facts, and SHA-256
+  content fingerprints; it remains worker-only and is not yet wired to scheduled ingestion.
 - Deterministic demo diagnostics plus a visible dashboard connection/integrity panel.
 
 This proves the read-only provider, validation, and range-ingestion paths. It is deliberately **not**

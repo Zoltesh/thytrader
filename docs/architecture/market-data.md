@@ -76,6 +76,24 @@ The adapter rejects naive/non-UTC timestamps, duplicate or off-interval timestam
 strings, non-finite values, negative volume, invalid venue increments, and internally inconsistent
 OHLC values. Returning a partial candle set would overstate its quality.
 
+## Immutable local dataset contract
+
+A complete validated 1h range can now be written through the internal `DatasetStore` as immutable,
+date-partitioned Parquet plus a JSON manifest. The writer rejects incomplete ranges before creating
+any files. It stores decimal fields as exact strings at the analytical boundary and uses canonical
+candle content to create a SHA-256 fingerprint.
+
+```text
+<dataset-root>/
+  coinbase/BTC-USD/1h/2026/07/01/part-<content-sha256>.parquet
+  manifests/<content-sha256>.json
+```
+
+The manifest records schema version, provider, product, timeframe, requested range, expected and
+received counts, gap/missing facts, completion outcome, fingerprint, and relative Parquet files.
+The internal writer is deliberately not an API mutation endpoint: a future supervised worker will be
+the only component that turns validated provider ranges into durable datasets.
+
 ## Next increments
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
