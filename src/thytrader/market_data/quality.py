@@ -57,10 +57,8 @@ def analyze_range(
     if starts_at >= ends_at or (ends_at - starts_at) % interval.duration != timedelta(0):
         message = "Historical ranges must be non-empty and align to the selected interval."
         raise CandleQualityError(message)
-    if any(candle.starts_at < starts_at or candle.starts_at >= ends_at for candle in candles):
-        message = "Historical candles must fall within the requested half-open range."
-        raise CandleQualityError(message)
-    quality = analyze_candles(candles, interval, now)
+    in_range = tuple(c for c in candles if starts_at <= c.starts_at < ends_at)
+    quality = analyze_candles(in_range, interval, now)
     requested_candle_count = (ends_at - starts_at) // interval.duration
     complete = (
         quality.candle_count == requested_candle_count
