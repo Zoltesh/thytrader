@@ -8,6 +8,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Index,
+    Integer,
     MetaData,
     Numeric,
     String,
@@ -55,10 +56,35 @@ portfolio_snapshots = Table(
     ),
 )
 
+market_data_worker_state = Table(
+    "market_data_worker_state",
+    metadata,
+    Column("provider", String(32), primary_key=True),
+    Column("product_id", String(32), primary_key=True),
+    Column("timeframe", String(8), primary_key=True),
+    Column("status", String(16), nullable=False),
+    Column("last_attempt_at", DateTime(timezone=True), nullable=False),
+    Column("last_success_at", DateTime(timezone=True), nullable=True),
+    Column("requested_starts_at", DateTime(timezone=True), nullable=False),
+    Column("requested_ends_at", DateTime(timezone=True), nullable=False),
+    Column("covered_starts_at", DateTime(timezone=True), nullable=True),
+    Column("covered_ends_at", DateTime(timezone=True), nullable=True),
+    Column("expected_candle_count", Integer(), nullable=True),
+    Column("received_candle_count", Integer(), nullable=True),
+    Column("gap_count", Integer(), nullable=True),
+    Column("missing_intervals", Integer(), nullable=True),
+    Column("complete", Boolean(), nullable=False, server_default="false"),
+    Column("content_fingerprint", String(71), nullable=True),
+    Column("failure_code", String(64), nullable=True),
+    Column("failure_message", String(256), nullable=True),
+    Column("consecutive_failures", Integer(), nullable=False, server_default="0"),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 Index(
     "ix_portfolio_snapshots_as_of_desc",
     portfolio_snapshots.c.as_of.desc(),
     portfolio_snapshots.c.id.desc(),
 )
 
-__all__ = ["metadata", "portfolio_snapshots"]
+__all__ = ["market_data_worker_state", "metadata", "portfolio_snapshots"]

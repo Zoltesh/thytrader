@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 thytrader-api = "thytrader.api.cli:main"
 thytrader-worker = "thytrader.worker.cli:main"
+thytrader-market-data-worker = "thytrader.market_data_worker.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -9,6 +9,7 @@
 		type ApiError,
 		type HistoryEntry,
 		type HistoryRange,
+		type MarketDataIngestionState,
 		type MarketDataPreview,
 		type MarketDataRange,
 		type MarketProduct,
@@ -26,6 +27,8 @@
 	let samplingIntervalSeconds = $state(300);
 	let marketDataPreview: MarketDataPreview | null = $state(null);
 	let marketDataRange: MarketDataRange | null = $state(null);
+	let marketDataIngestion: MarketDataIngestionState | null = $state(null);
+	let marketDataIngestionAvailability: 'ready' | 'unavailable' | 'failed' = $state('ready');
 	let marketDataRangeAvailability: 'ready' | 'failed' = $state('ready');
 	let marketProducts: MarketProduct[] = $state([]);
 	let selectedMarketProductId = $state('BTC-USD');
@@ -60,6 +63,7 @@
 		marketDataLoading = true;
 		marketDataAvailability = 'ready';
 		marketDataRangeAvailability = 'ready';
+		marketDataIngestionAvailability = 'ready';
 		try {
 			if (!marketProducts.length) {
 				const catalogResponse = await fetch('/api/v1/market-data/products', {
@@ -72,26 +76,44 @@
 				}
 			}
 			selectedMarketProductId = productId;
-			const [previewResponse, rangeResponse] = await Promise.all([
+			const [previewResult, rangeResult, ingestionResult] = await Promise.allSettled([
 				fetch(`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`, {
 					headers: { Accept: 'application/json' }
 				}),
 				fetch(`/api/v1/market-data/range?product_id=${encodeURIComponent(productId)}`, {
 					headers: { Accept: 'application/json' }
+				}),
+				fetch(`/api/v1/market-data/ingestion?product_id=${encodeURIComponent(productId)}`, {
+					headers: { Accept: 'application/json' }
 				})
 			]);
-			if (!previewResponse.ok) throw new Error('Market preview unavailable.');
-			marketDataPreview = (await previewResponse.json()) as MarketDataPreview;
-			if (rangeResponse.ok) {
-				marketDataRange = (await rangeResponse.json()) as MarketDataRange;
+			if (previewResult.status === 'fulfilled' && previewResult.value.ok) {
+				marketDataPreview = (await previewResult.value.json()) as MarketDataPreview;
+			} else {
+				marketDataPreview = null;
+				marketDataAvailability = 'failed';
+			}
+			if (rangeResult.status === 'fulfilled' && rangeResult.value.ok) {
+				marketDataRange = (await rangeResult.value.json()) as MarketDataRange;
 			} else {
 				marketDataRange = null;
 				marketDataRangeAvailability = 'failed';
+			}
+			if (ingestionResult.status === 'fulfilled' && ingestionResult.value.ok) {
+				marketDataIngestion = (await ingestionResult.value.json()) as MarketDataIngestionState;
+			} else {
+				marketDataIngestion = null;
+				marketDataIngestionAvailability =
+					ingestionResult.status === 'fulfilled' && ingestionResult.value.status === 503
+						? 'unavailable'
+						: 'failed';
 			}
 		} catch {
 			marketDataPreview = null;
 			marketDataRange = null;
 			marketDataRangeAvailability = 'failed';
+			marketDataIngestion = null;
+			marketDataIngestionAvailability = 'failed';
 			marketDataAvailability = 'failed';
 		} finally {
 			marketDataLoading = false;
@@ -217,6 +239,8 @@
 			<MarketDataPanel
 				preview={marketDataPreview}
 				range={marketDataRange}
+				ingestion={marketDataIngestion}
+				ingestionAvailability={marketDataIngestionAvailability}
 				rangeAvailability={marketDataRangeAvailability}
 				products={marketProducts}
 				selectedProductId={selectedMarketProductId}

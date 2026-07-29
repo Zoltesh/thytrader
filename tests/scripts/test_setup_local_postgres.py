@@ -82,5 +82,16 @@ def test_stack_commands_migrate_before_starting_long_running_services() -> None:
     assert commands == (
         ["docker", "compose", "version"],
         ["docker", "compose", "up", "--build", "migrate"],
-        ["docker", "compose", "up", "-d", "--build", "--wait", "api", "worker", "web"],
+        [
+            "docker",
+            "compose",
+            "up",
+            "-d",
+            "--build",
+            "--wait",
+            "api",
+            "worker",
+            "market-data-worker",
+            "web",
+        ],
     )

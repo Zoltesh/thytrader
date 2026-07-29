@@ -9,15 +9,13 @@ SvelteKit web UI
       |
       | REST + ThyTrader WebSocket
       v
-FastAPI API process -------- PostgreSQL
-      |                           |
-      | commands/queries          | operational state
-      v                           |
-Trading worker <-----------------+
+FastAPI API process ---------------- PostgreSQL
+      |                                  |
+Portfolio worker ------------------------+
+Market-data worker ----------------------+
       |
-      +---- Coinbase Advanced Trade REST/WebSockets
-      +---- market-data providers
-      +---- Parquet datasets <----> Polars / DuckDB
+      +---- Coinbase market-data REST
+      +---- immutable Parquet datasets <----> Polars / DuckDB
 ```
 
 ## Initial components
@@ -58,6 +56,10 @@ The continuously running worker owns:
 - health and audit events.
 
 Core automation is not implemented with cron. Containers or a service manager supervise long-lived processes.
+
+Market-data ingestion is already split into its own supervised process so its filesystem publication,
+provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational
+boundary within the modular monolith, not a microservice or trading-authority boundary.
 
 ### Storage
 

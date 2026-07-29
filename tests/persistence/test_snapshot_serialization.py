@@ -112,6 +112,26 @@ def test_schema_metadata_has_portfolio_snapshots_table() -> None:
     assert "snapshot" in table.columns
 
 
+def test_schema_metadata_has_market_data_worker_state_table() -> None:
+    """Operational metadata must define durable latest ingestion state separately."""
+    table = metadata.tables["market_data_worker_state"]
+    assert set(table.primary_key.columns.keys()) == {"provider", "product_id", "timeframe"}
+    assert "last_attempt_at" in table.columns
+    assert "last_success_at" in table.columns
+    assert "covered_ends_at" in table.columns
+    assert "content_fingerprint" in table.columns
+    assert "failure_code" in table.columns
+    assert "consecutive_failures" in table.columns
+
+
+def test_market_data_worker_migration_follows_portfolio_history() -> None:
+    """The second migration must add worker state without rewriting migration history."""
+    content = Path("alembic/versions/0002_market_data_worker_state.py").read_text(encoding="utf-8")
+    assert 'revision = "0002"' in content
+    assert 'down_revision = "0001"' in content
+    assert "market_data_worker_state" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")
@@ -150,8 +170,11 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "  migrate:" in content
     assert "  api:" in content
     assert "  worker:" in content
+    assert "  market-data-worker:" in content
     assert "  web:" in content
     assert "condition: service_healthy" in content
+    assert "thytrader_market_data:" in content
+    assert "THYTRADER_MARKET_DATA_DATASET_ROOT: /var/lib/thytrader/market-data" in content
     assert "condition: service_completed_successfully" in content
     assert "127.0.0.1:8200:8200" in content
     assert "127.0.0.1:5175:5175" in content

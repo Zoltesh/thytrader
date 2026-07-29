@@ -4,6 +4,7 @@
 from fastapi import Request  # noqa: TC002
 
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.worker_state import MarketDataWorkerStateStore
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -41,5 +42,14 @@ def get_history_store(request: Request) -> PortfolioHistoryStore:
     store = getattr(request.app.state, "history_store", None)
     if not isinstance(store, PortfolioHistoryStore):
         message = "Portfolio history store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_market_data_state_store(request: Request) -> MarketDataWorkerStateStore:
+    """Return durable market-data worker state attached during app startup."""
+    store = getattr(request.app.state, "market_data_state_store", None)
+    if not isinstance(store, MarketDataWorkerStateStore):
+        message = "Market-data worker state store is unavailable."
         raise TypeError(message)
     return store

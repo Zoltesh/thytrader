@@ -81,6 +81,33 @@ export type MarketDataRange = {
 	complete: boolean;
 };
 
+export type MarketDataIngestionState = {
+	provider: string;
+	product_id: string;
+	timeframe: '1h';
+	status: 'never_run' | 'running' | 'succeeded' | 'failed';
+	last_attempt_at: string | null;
+	last_success_at: string | null;
+	requested_starts_at: string | null;
+	requested_ends_at: string | null;
+	fresh: boolean | null;
+	coverage: {
+		starts_at: string;
+		ends_at: string;
+		expected_candle_count: number;
+		received_candle_count: number;
+		gap_count: number;
+		missing_intervals: number;
+		complete: boolean;
+		content_fingerprint: string;
+	} | null;
+	failure: {
+		code: string;
+		message: string;
+		consecutive_failures: number;
+	} | null;
+};
+
 export type ChartCoordinate = {
 	x: number;
 	y: number;

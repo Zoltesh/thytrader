@@ -120,7 +120,18 @@ def _stack_commands() -> tuple[list[str], ...]:
     return (
         ["docker", "compose", "version"],
         ["docker", "compose", "up", "--build", "migrate"],
-        ["docker", "compose", "up", "-d", "--build", "--wait", "api", "worker", "web"],
+        [
+            "docker",
+            "compose",
+            "up",
+            "-d",
+            "--build",
+            "--wait",
+            "api",
+            "worker",
+            "market-data-worker",
+            "web",
+        ],
     )
 
 

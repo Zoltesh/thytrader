@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from thytrader import __version__
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
+from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.config import Settings
@@ -19,12 +20,17 @@ from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.worker_state import (
+    DisabledMarketDataWorkerStateStore,
+    MarketDataWorkerStateStore,
+)
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     PortfolioHistoryStore,
 )
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
+from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -42,6 +48,7 @@ def create_app(
     portfolio_service: PortfolioService | None = None,
     market_data_service: MarketDataService | None = None,
     history_store: PortfolioHistoryStore | None = None,
+    market_data_state_store: MarketDataWorkerStateStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -53,6 +60,7 @@ def create_app(
     resolved_settings = settings or Settings()
     runtime = RuntimeState(settings=resolved_settings)
     external_store = history_store
+    external_market_data_state_store = market_data_state_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -61,7 +69,9 @@ def create_app(
         nonlocal engine
 
         store = external_store
-        if store is None and resolved_settings.database_url is not None:
+        worker_state_store = external_market_data_state_store
+        needs_database = store is None or worker_state_store is None
+        if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
             try:
                 await ping(engine)
@@ -69,9 +79,15 @@ def create_app(
                 await dispose(engine)
                 _logger.exception("Database connectivity check failed")
                 raise
-            store = PostgresPortfolioHistoryStore(engine)
+            if store is None:
+                store = PostgresPortfolioHistoryStore(engine)
+            if worker_state_store is None:
+                worker_state_store = PostgresMarketDataWorkerStateStore(engine)
 
         _app.state.history_store = store or DisabledPortfolioHistoryStore()
+        _app.state.market_data_state_store = (
+            worker_state_store or DisabledMarketDataWorkerStateStore()
+        )
 
         runtime.ready = True
         try:
@@ -89,6 +105,7 @@ def create_app(
     )
     app.include_router(health_router)
     app.include_router(market_data_router)
+    app.include_router(market_data_ingestion_router)
     app.include_router(portfolio_router)
     app.include_router(portfolio_history_router)
     return app

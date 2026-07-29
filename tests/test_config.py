@@ -21,6 +21,18 @@ def test_settings_default_to_safe_local_development() -> None:
     assert settings.allow_remote_access is False
     assert settings.log_level == "INFO"
     assert settings.database_url is None
+    assert settings.market_data_worker_interval_seconds == 300
+    assert settings.market_data_worker_lookback_hours == 168
+    assert settings.market_data_worker_product_id == "BTC-USD"
+    assert str(settings.market_data_dataset_root) == "data/market-data"
+
+
+def test_settings_reject_invalid_market_data_worker_bounds() -> None:
+    """Worker requests must remain within the supported bounded hourly contract."""
+    with pytest.raises(ValidationError):
+        Settings(market_data_worker_lookback_hours=2_161, _env_file=None)
+    with pytest.raises(ValidationError):
+        Settings(market_data_worker_product_id="../BTC-USD", _env_file=None)
 
 
 def test_settings_treats_an_empty_database_url_as_disabled() -> None:

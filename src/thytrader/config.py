@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv6Address
-from pathlib import Path  # noqa: TC003 - Pydantic resolves this field annotation at runtime.
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     snapshot_interval_seconds: int = Field(default=300, ge=60, le=86_400)
     worker_readiness_file: Path | None = None
+    market_data_worker_interval_seconds: int = Field(default=300, ge=60, le=86_400)
+    market_data_worker_lookback_hours: int = Field(default=168, ge=1, le=2_160)
+    market_data_worker_product_id: str = Field(default="BTC-USD", pattern=r"^[A-Z0-9]{2,20}-USD$")
+    market_data_dataset_root: Path = Path("data/market-data")
+    market_data_worker_readiness_file: Path | None = None
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
 

@@ -1,6 +1,6 @@
 # Market-Data Pipeline
 
-## Current implemented increment: historical range ingestion
+## Current implemented increment: supervised historical ingestion
 
 ThyTrader currently exposes read-only USD-spot **data-source diagnostics**—a product catalog, a
 bounded recent candle-validation window, and a seven-day 1h range-completeness report—at:
@@ -9,6 +9,7 @@ bounded recent candle-validation window, and a seven-day 1h range-completeness r
 GET /api/v1/market-data/products
 GET /api/v1/market-data/preview?product_id=BTC-USD
 GET /api/v1/market-data/range?product_id=BTC-USD
+GET /api/v1/market-data/ingestion?product_id=BTC-USD
 ```
 
 The range endpoint paginates through Coinbase's 350-candle limit using non-overlapping pages,
@@ -31,8 +32,10 @@ These are intentionally **diagnostics**, not a historical-dataset service, chart
   returning partial or repaired data.
 - The dashboard visibly distinguishes complete, gap-detected, stale, and unavailable data.
 
-The response reports observable data facts only. It does **not** assert that a worker is running,
-that data is durably stored, or that the market is safe to trade.
+The first three responses report request-time data-source facts. The ingestion endpoint separately
+reports durable evidence from the supervised worker: last attempt/success, requested and verified
+coverage, freshness, immutable fingerprint, and stable redacted failure state. None assert that the
+market is safe to trade.
 
 ## Current scope boundary
 
@@ -44,7 +47,7 @@ The current preview supports:
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
 | Timeframe | `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
-| Persistence | None |
+| Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
 
 The catalog is presentation-only. It filters to enabled USD spot products and exposes venue
@@ -103,8 +106,25 @@ returning a dataset to a future backtest or worker.
 
 The manifest records schema version, provider, product, timeframe, requested range, expected and
 received counts, gap/missing facts, completion outcome, fingerprint, and relative Parquet files.
-The internal writer is deliberately not an API mutation endpoint: a future supervised worker will be
-the only component that turns validated provider ranges into durable datasets.
+The internal writer is deliberately not an API mutation endpoint. The separately supervised
+`thytrader-market-data-worker` process is the only component that turns validated provider ranges into
+durable datasets. It is distinct from `thytrader-worker`, which records portfolio valuation history.
+
+## Worker lifecycle and durable diagnostics
+
+The market-data worker aligns each request to the last complete UTC hour, requests a configurable
+bounded 1h lookback through `MarketDataService`, and records the attempt in PostgreSQL before provider
+I/O. It calls `DatasetStore.write()` only when the returned report exactly matches the requested range
+and is complete, contiguous, and gap-free. It then calls `load_verified()` before recording success.
+
+Failures retain prior verified coverage while recording a stable redacted code/message and consecutive
+failure count. A later successful retry clears failure state. PostgreSQL is authoritative for this
+operational state; Parquet remains authoritative for immutable candle content. Compose supervises this
+process independently with its own readiness marker, restart policy, and persistent dataset volume.
+Demo ingestion is explicitly identified as provider `demo`; it never masquerades as Coinbase data.
+
+This worker has no portfolio-history, strategy, backtest, paper/live trading, broker, transfer,
+withdrawal, leverage, derivatives, or optimization authority.
 
 ## Next increments
 
@@ -113,8 +133,8 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
 1. **Durable historical ingestion** — extend range ingestion to additional timeframes (5m, 15m, 30m,
    6h, 1d) and persist validated ranges as immutable partitioned Parquet datasets with schema
    versioning, source range, completeness facts, and content/dataset fingerprints.
-2. **Market-data worker** — supervise scheduled ingestion separately from portfolio snapshots; log
-   redacted failures, retry safely, and expose durable freshness/coverage state.
+2. **Additional ingestion targets** — expand the worker from one configured 1h product/range to
+   explicitly managed products and supported timeframes without weakening complete-only publication.
 3. **Diagnostics contract** — provide versioned machine-readable market-data health/data coverage
    reports and a CLI before adding commands to `thytrader-operator/SKILL.md`.
 

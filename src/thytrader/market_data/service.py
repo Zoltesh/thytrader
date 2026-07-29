@@ -72,11 +72,23 @@ class MarketDataService:
     async def get_recent_hourly_range(self, product_id: str) -> CandleRangeReport:
         """Return a seven-day closed hourly range for dashboard completeness diagnostics."""
         ends_at = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        return await self.get_hourly_range(
+            product_id, ends_at - timedelta(days=7), ends_at, ends_at
+        )
+
+    async def get_hourly_range(
+        self,
+        product_id: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Return one provider-neutral explicit hourly range for internal ingestion."""
         provider = cast("HistoricalMarketDataProvider", self._provider)
         return await provider.get_historical_range(
             product_id,
             CandleInterval.ONE_HOUR,
-            ends_at - timedelta(days=7),
+            starts_at,
             ends_at,
-            ends_at,
+            now,
         )

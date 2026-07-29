@@ -60,8 +60,11 @@ This is the next active milestone. It has two parallel tracks that converge befo
   2,160 candle / 90-day maximum).
 - Seven-day range-completeness report endpoint with expected vs received counts and binary coverage.
 - Immutable date-partitioned Parquet writer with JSON manifests, completeness facts, and SHA-256
-  content fingerprints; it remains worker-only and is not yet wired to scheduled ingestion.
+  content fingerprints, wired only to the dedicated scheduled ingestion worker.
 - Deterministic demo diagnostics plus a visible dashboard connection/integrity panel.
+- Separately supervised market-data worker with its own readiness, restart boundary, persistent Parquet
+  volume, complete-only publication, automatic retry, and durable PostgreSQL success/failure state.
+- Read-only API and dashboard coverage/freshness/fingerprint/failure diagnostics.
 
 This proves the read-only provider, validation, and range-ingestion paths. It is deliberately **not**
 durable storage, a price chart, a market signal, or a backtest input. See the
@@ -71,9 +74,8 @@ durable storage, a price chart, a market signal, or a backtest input. See the
 
 - Durable OHLCV ingestion for additional timeframes (5m, 15m, 30m, 6h, 1d) and persistent Parquet
   storage with dataset versioning and fingerprints.
-- Deduplication, gap repair detection, and completeness metadata for persisted datasets.
-- Scheduled market-data worker (separate from the portfolio snapshot worker).
-- Dataset coverage and quality status on the dashboard.
+- Multi-product scheduling and explicit gap-repair workflows beyond idempotent exact-range retries.
+- Versioned machine-readable diagnostics and operator CLI.
 
 **Exit gate:** validated, gap-checked historical candles are queryable with dataset fingerprints that
 backtests can reference for reproducibility.

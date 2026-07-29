@@ -1,10 +1,17 @@
 <script lang="ts">
-	import type { MarketDataPreview, MarketDataRange, MarketProduct } from '$lib/portfolio';
+	import type {
+		MarketDataIngestionState,
+		MarketDataPreview,
+		MarketDataRange,
+		MarketProduct
+	} from '$lib/portfolio';
 
 	let {
 		preview = null as MarketDataPreview | null,
 		range = null as MarketDataRange | null,
 		rangeAvailability = 'ready' as 'ready' | 'failed',
+		ingestion = null as MarketDataIngestionState | null,
+		ingestionAvailability = 'ready' as 'ready' | 'unavailable' | 'failed',
 		products = [] as MarketProduct[],
 		selectedProductId = 'BTC-USD',
 		loading = false,
@@ -14,6 +21,8 @@
 		preview?: MarketDataPreview | null;
 		range?: MarketDataRange | null;
 		rangeAvailability?: 'ready' | 'failed';
+		ingestion?: MarketDataIngestionState | null;
+		ingestionAvailability?: 'ready' | 'unavailable' | 'failed';
 		products?: MarketProduct[];
 		selectedProductId?: string;
 		loading?: boolean;
@@ -148,6 +157,34 @@
 	{:else}
 		<div class="market-empty">
 			<p>No market-data preview is available.</p>
+		</div>
+	{/if}
+	{#if !loading}
+		<div class="range-summary" role="status">
+			<div class="range-header">
+				<span>Durable ingestion worker</span>
+				{#if ingestion?.provider === 'demo'}<span class="range-badge">Demo dataset</span>{/if}
+			</div>
+			{#if ingestionAvailability === 'unavailable'}
+				<span>Worker state unavailable · configure PostgreSQL and start the separate worker.</span>
+			{:else if ingestionAvailability === 'failed'}
+				<span>Worker diagnostics could not be loaded.</span>
+			{:else if !ingestion || ingestion.status === 'never_run'}
+				<span>No ingestion attempt has been recorded for this product.</span>
+			{:else if ingestion.status === 'running'}
+				<span>Retrieving and validating a bounded hourly range.</span>
+				{#if ingestion.failure}<small>Previous failure remains recorded until success.</small>{/if}
+			{:else if ingestion.status === 'failed'}
+				<strong>Last attempt failed</strong>
+				<span>{ingestion.failure?.message ?? 'A redacted ingestion failure was recorded.'}</span>
+			{:else if ingestion.coverage}
+				<strong>{ingestion.fresh ? 'Fresh · complete' : 'Stale · complete'}</strong>
+				<span
+					>{ingestion.coverage.received_candle_count} /
+					{ingestion.coverage.expected_candle_count} candles · {ingestion.coverage.gap_count} gaps</span
+				>
+				<small>Fingerprint {ingestion.coverage.content_fingerprint.slice(0, 22)}…</small>
+			{/if}
 		</div>
 	{/if}
 </section>

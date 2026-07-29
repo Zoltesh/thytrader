@@ -145,3 +145,109 @@ test('shows a visible range-coverage failure while recent candle diagnostics rem
 	await expect(page.getByText('Recent hourly candles are complete and contiguous')).toBeVisible();
 	await expect(page.getByText('7-day range coverage unavailable')).toBeVisible();
 });
+
+test('shows durable market-data worker coverage and freshness evidence', async ({ page }) => {
+	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				provider: 'demo',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				status: 'succeeded',
+				last_attempt_at: '2026-07-29T02:05:00Z',
+				last_success_at: '2026-07-29T02:05:00Z',
+				requested_starts_at: '2026-07-22T02:00:00Z',
+				requested_ends_at: '2026-07-29T02:00:00Z',
+				fresh: true,
+				coverage: {
+					starts_at: '2026-07-22T02:00:00Z',
+					ends_at: '2026-07-29T02:00:00Z',
+					expected_candle_count: 168,
+					received_candle_count: 168,
+					gap_count: 0,
+					missing_intervals: 0,
+					complete: true,
+					content_fingerprint: `sha256:${'a'.repeat(64)}`
+				},
+				failure: null
+			})
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
+	await expect(page.getByText('Fresh · complete')).toBeVisible();
+	await expect(page.getByText('168 / 168 candles')).toBeVisible();
+	await expect(page.getByText('Demo dataset')).toBeVisible();
+});
+
+test('keeps redacted market-data worker failures visible', async ({ page }) => {
+	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
+		await route.fulfill({
+			json: {
+				provider: 'demo',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				status: 'failed',
+				last_attempt_at: '2026-07-29T02:05:00Z',
+				last_success_at: null,
+				requested_starts_at: '2026-07-22T02:00:00Z',
+				requested_ends_at: '2026-07-29T02:00:00Z',
+				fresh: null,
+				coverage: null,
+				failure: {
+					code: 'provider_unavailable',
+					message: 'Historical market-data retrieval failed.',
+					consecutive_failures: 2
+				}
+			}
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Last attempt failed')).toBeVisible();
+	await expect(page.getByText('Historical market-data retrieval failed.')).toBeVisible();
+});
+
+test('keeps worker evidence visible when the recent-candle preview fails', async ({ page }) => {
+	await page.route('**/api/v1/market-data/preview*', async (route) => {
+		await route.fulfill({ status: 502, contentType: 'application/json', body: '{}' });
+	});
+	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				provider: 'demo',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				status: 'succeeded',
+				last_attempt_at: '2026-07-29T02:05:00Z',
+				last_success_at: '2026-07-29T02:05:02Z',
+				requested_starts_at: '2026-07-22T02:00:00Z',
+				requested_ends_at: '2026-07-29T02:00:00Z',
+				fresh: true,
+				coverage: {
+					starts_at: '2026-07-22T02:00:00Z',
+					ends_at: '2026-07-29T02:00:00Z',
+					expected_candle_count: 168,
+					received_candle_count: 168,
+					gap_count: 0,
+					missing_intervals: 0,
+					complete: true,
+					content_fingerprint: `sha256:${'b'.repeat(64)}`
+				},
+				failure: null
+			})
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
+	await expect(page.getByText('Fresh · complete')).toBeVisible();
+});
