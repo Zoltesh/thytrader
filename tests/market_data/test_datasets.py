@@ -212,3 +212,47 @@ def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_pa
 
     with pytest.raises(DatasetStoreError, match="verification"):
         store.load_verified(manifest.manifest_path)
+
+
+def test_dataset_store_rejects_manifest_with_duplicate_file_entries(tmp_path: Path) -> None:
+    """A manifest listing the same file twice must fail verification via duplicate candles."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["files"] = manifest_body["files"] + manifest_body["files"]
+    written.manifest_path.write_text(json.dumps(manifest_body))
+
+    with pytest.raises(DatasetStoreError, match="verification"):
+        store.load_verified(written.manifest_path)
+
+
+def test_dataset_store_write_is_idempotent_for_identical_range(tmp_path: Path) -> None:
+    """Writing the same complete range twice must return the same fingerprint and manifest path."""
+    store = DatasetStore(tmp_path)
+    first = store.write("coinbase", "BTC-USD", _complete_report())
+    second = store.write("coinbase", "BTC-USD", _complete_report())
+
+    assert first.content_fingerprint == second.content_fingerprint
+    assert first.manifest_path == second.manifest_path
+
+
+def test_dataset_store_rejects_write_when_orphan_partition_exists(tmp_path: Path) -> None:
+    """A partition from a crashed write must cause a safe failure rather than silent reuse."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    written.manifest_path.unlink()
+
+    with pytest.raises(DatasetStoreError, match="already exists without a verified"):
+        store.write("coinbase", "BTC-USD", _complete_report())
+
+
+def test_dataset_store_rejects_manifest_with_negative_counts(tmp_path: Path) -> None:
+    """Negative count facts must be rejected as inconsistent with a valid historical range."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["expected_candle_count"] = -1
+    written.manifest_path.write_text(json.dumps(manifest_body))
+
+    with pytest.raises(DatasetStoreError, match="inconsistent"):
+        store.load_verified(written.manifest_path)
