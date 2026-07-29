@@ -161,6 +161,13 @@ test('shows durable market-data worker coverage and freshness evidence', async (
 				requested_starts_at: '2026-07-22T02:00:00Z',
 				requested_ends_at: '2026-07-29T02:00:00Z',
 				fresh: true,
+				enabled: true,
+				freshness: 'current',
+				coverage_status: 'complete',
+				expected_latest_boundary: '2026-07-29T02:00:00Z',
+				next_attempt_at: '2026-07-29T02:10:00Z',
+				dataset_revision: 4,
+				maintenance_kind: 'incremental',
 				coverage: {
 					starts_at: '2026-07-22T02:00:00Z',
 					ends_at: '2026-07-29T02:00:00Z',
@@ -182,6 +189,9 @@ test('shows durable market-data worker coverage and freshness evidence', async (
 	await expect(page.getByText('Fresh · complete')).toBeVisible();
 	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 	await expect(page.getByText('Demo dataset')).toBeVisible();
+	await expect(page.getByText('Current · complete')).toBeVisible();
+	await expect(page.getByText('Revision 4 · incremental')).toBeVisible();
+	await expect(page.getByText(/Next check/)).toBeVisible();
 });
 
 test('keeps redacted market-data worker failures visible', async ({ page }) => {

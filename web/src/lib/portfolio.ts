@@ -91,6 +91,13 @@ export type MarketDataIngestionState = {
 	requested_starts_at: string | null;
 	requested_ends_at: string | null;
 	fresh: boolean | null;
+	enabled: boolean;
+	freshness: 'current' | 'delayed' | 'stale' | 'unknown';
+	coverage_status: 'complete' | 'gap_detected' | 'unavailable';
+	expected_latest_boundary: string;
+	next_attempt_at: string | null;
+	dataset_revision: number;
+	maintenance_kind: 'initial_backfill' | 'incremental' | null;
 	coverage: {
 		starts_at: string;
 		ends_at: string;

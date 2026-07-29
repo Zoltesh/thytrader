@@ -65,20 +65,23 @@ This is the next active milestone. It has two parallel tracks that converge befo
 - Separately supervised market-data worker with its own readiness, restart boundary, persistent Parquet
   volume, complete-only publication, automatic retry, and durable PostgreSQL success/failure state.
 - Read-only API and dashboard coverage/freshness/fingerprint/failure diagnostics.
+- Continuous cumulative 1h maintenance: durable planning from last verified coverage, one-candle
+  overlap, deterministic merge, no-op current cycles, immutable revisions, and fingerprint lookup.
+- Capped exponential retry scheduling with jitter and prior-revision preservation across failures.
 
-This proves the read-only provider, validation, and range-ingestion paths. It is deliberately **not**
-durable storage, a price chart, a market signal, or a backtest input. See the
+This proves the read-only provider, validation, continuous 1h maintenance, and fingerprint-addressed
+dataset paths. It is deliberately **not** a price chart, market signal, or backtest engine. See the
 [market-data pipeline](architecture/market-data.md) for its explicit contract and limits.
 
 #### Remaining
 
-- Durable OHLCV ingestion for additional timeframes (5m, 15m, 30m, 6h, 1d) and persistent Parquet
-  storage with dataset versioning and fingerprints.
+- Extend the same durable contract to additional timeframes (5m, 15m, 30m, 6h, 1d).
 - Multi-product scheduling and explicit gap-repair workflows beyond idempotent exact-range retries.
 - Versioned machine-readable diagnostics and operator CLI.
 
-**Exit gate:** validated, gap-checked historical candles are queryable with dataset fingerprints that
-backtests can reference for reproducibility.
+**1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
+fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
+multi-product expansion remain before Phase 2A is considered broadly complete.
 
 ### Phase 2B: Canonical strategy schema
 

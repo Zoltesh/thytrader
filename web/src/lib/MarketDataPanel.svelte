@@ -55,6 +55,10 @@
 	function selectProduct(event: Event): void {
 		onProductChange((event.currentTarget as HTMLSelectElement).value);
 	}
+
+	function titleCase(value: string): string {
+		return value.charAt(0).toUpperCase() + value.slice(1).replace('_', ' ');
+	}
 </script>
 
 <section class="market-data-panel" aria-label="Data-source diagnostics">
@@ -205,6 +209,28 @@
 					{ingestion.coverage.expected_candle_count} candles · {ingestion.coverage.gap_count} gaps</span
 				>
 				<small>Fingerprint {ingestion.coverage.content_fingerprint.slice(0, 22)}…</small>
+				{#if ingestion.freshness && ingestion.coverage_status}
+					<strong
+						>{titleCase(ingestion.freshness)} · {ingestion.coverage_status.replace(
+							'_',
+							' '
+						)}</strong
+					>
+					{#if ingestion.dataset_revision > 0}
+						<span
+							>Revision {ingestion.dataset_revision} · {ingestion.maintenance_kind?.replace(
+								'_',
+								' '
+							)}</span
+						>
+					{/if}
+					<small
+						>Expected through {new Date(ingestion.expected_latest_boundary).toLocaleString()}</small
+					>
+					{#if ingestion.next_attempt_at}
+						<small>Next check {new Date(ingestion.next_attempt_at).toLocaleString()}</small>
+					{/if}
+				{/if}
 			{/if}
 		</div>
 	{/if}

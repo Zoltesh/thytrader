@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.worker_state import (
+    MarketDataMaintenanceKind,
     MarketDataWorkerAttempt,
     MarketDataWorkerFailure,
     MarketDataWorkerState,
@@ -40,6 +41,8 @@ class PostgresMarketDataWorkerStateStore:
             status=MarketDataWorkerStatus.RUNNING.value,
             complete=False,
             consecutive_failures=0,
+            dataset_revision=0,
+            enabled=True,
             updated_at=attempt.attempted_at,
         )
         statement = statement.on_conflict_do_update(
@@ -49,8 +52,12 @@ class PostgresMarketDataWorkerStateStore:
                 "last_attempt_at": attempt.attempted_at,
                 "requested_starts_at": attempt.requested_starts_at,
                 "requested_ends_at": attempt.requested_ends_at,
+                "expected_ends_at": attempt.expected_ends_at or attempt.requested_ends_at,
+                "next_retry_at": None,
+                "maintenance_kind": attempt.maintenance_kind.value,
                 "updated_at": attempt.attempted_at,
             },
+            where=market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
         )
         await self._execute(statement)
 
@@ -72,6 +79,9 @@ class PostgresMarketDataWorkerStateStore:
             failure_code=None,
             failure_message=None,
             consecutive_failures=0,
+            next_retry_at=attempt.next_attempt_at,
+            dataset_revision=int(success.advances_revision),
+            enabled=True,
             updated_at=attempt.attempted_at,
         )
         statement = statement.on_conflict_do_update(
@@ -93,8 +103,27 @@ class PostgresMarketDataWorkerStateStore:
                 "failure_code": None,
                 "failure_message": None,
                 "consecutive_failures": 0,
+                "expected_ends_at": attempt.expected_ends_at or attempt.requested_ends_at,
+                "next_retry_at": attempt.next_attempt_at,
+                "dataset_revision": market_data_worker_state.c.dataset_revision
+                + int(success.advances_revision),
+                "maintenance_kind": attempt.maintenance_kind.value,
+                "enabled": True,
                 "updated_at": attempt.attempted_at,
             },
+            where=and_(
+                or_(
+                    market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+                    and_(
+                        market_data_worker_state.c.last_attempt_at == attempt.attempted_at,
+                        market_data_worker_state.c.status == MarketDataWorkerStatus.RUNNING.value,
+                    ),
+                ),
+                or_(
+                    market_data_worker_state.c.covered_ends_at.is_(None),
+                    market_data_worker_state.c.covered_ends_at <= success.covered_ends_at,
+                ),
+            ),
         )
         await self._execute(statement)
 
@@ -108,6 +137,9 @@ class PostgresMarketDataWorkerStateStore:
             failure_code=failure.code,
             failure_message=failure.message,
             consecutive_failures=1,
+            next_retry_at=failure.next_retry_at,
+            dataset_revision=0,
+            enabled=True,
             updated_at=attempt.attempted_at,
         )
         statement = statement.on_conflict_do_update(
@@ -120,8 +152,18 @@ class PostgresMarketDataWorkerStateStore:
                 "failure_code": failure.code,
                 "failure_message": failure.message,
                 "consecutive_failures": market_data_worker_state.c.consecutive_failures + 1,
+                "expected_ends_at": attempt.expected_ends_at or attempt.requested_ends_at,
+                "next_retry_at": failure.next_retry_at,
+                "maintenance_kind": attempt.maintenance_kind.value,
                 "updated_at": attempt.attempted_at,
             },
+            where=or_(
+                market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+                and_(
+                    market_data_worker_state.c.last_attempt_at == attempt.attempted_at,
+                    market_data_worker_state.c.status == MarketDataWorkerStatus.RUNNING.value,
+                ),
+            ),
         )
         await self._execute(statement)
 
@@ -156,6 +198,8 @@ def _attempt_values(attempt: MarketDataWorkerAttempt) -> dict[str, object]:
         "last_attempt_at": attempt.attempted_at,
         "requested_starts_at": attempt.requested_starts_at,
         "requested_ends_at": attempt.requested_ends_at,
+        "expected_ends_at": attempt.expected_ends_at or attempt.requested_ends_at,
+        "maintenance_kind": attempt.maintenance_kind.value,
     }
 
 
@@ -183,4 +227,9 @@ def _to_state(row: Row[tuple[object, ...]]) -> MarketDataWorkerState:
         failure_message=cast("str | None", values["failure_message"]),
         consecutive_failures=cast("int", values["consecutive_failures"]),
         updated_at=cast("datetime", values["updated_at"]),
+        expected_ends_at=cast("datetime | None", values["expected_ends_at"]),
+        next_retry_at=cast("datetime | None", values["next_retry_at"]),
+        dataset_revision=cast("int", values["dataset_revision"]),
+        maintenance_kind=MarketDataMaintenanceKind(cast("str", values["maintenance_kind"])),
+        enabled=cast("bool", values["enabled"]),
     )

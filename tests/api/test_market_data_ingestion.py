@@ -91,6 +91,12 @@ def test_ingestion_diagnostics_expose_verified_success_evidence() -> None:
     body = response.json()
     assert body["status"] == "succeeded"
     assert body["fresh"] is True
+    assert body["enabled"] is True
+    assert body["freshness"] == "current"
+    assert body["coverage_status"] == "complete"
+    assert body["expected_latest_boundary"] is not None
+    assert body["next_attempt_at"] is not None
+    assert body["dataset_revision"] == 1
     assert body["coverage"] == {
         "starts_at": body["coverage"]["starts_at"],
         "ends_at": body["coverage"]["ends_at"],

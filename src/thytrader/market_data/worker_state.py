@@ -24,6 +24,13 @@ class MarketDataWorkerStatus(StrEnum):
     FAILED = "failed"
 
 
+class MarketDataMaintenanceKind(StrEnum):
+    """Type of bounded work selected for the current maintenance cycle."""
+
+    INITIAL_BACKFILL = "initial_backfill"
+    INCREMENTAL = "incremental"
+
+
 @dataclass(frozen=True, slots=True)
 class MarketDataWorkerAttempt:
     """Requested identity and range recorded before provider retrieval begins."""
@@ -34,6 +41,9 @@ class MarketDataWorkerAttempt:
     attempted_at: datetime
     requested_starts_at: datetime
     requested_ends_at: datetime
+    maintenance_kind: MarketDataMaintenanceKind = MarketDataMaintenanceKind.INITIAL_BACKFILL
+    expected_ends_at: datetime | None = None
+    next_attempt_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +58,7 @@ class MarketDataWorkerSuccess:
     gap_count: int
     missing_intervals: int
     content_fingerprint: str
+    advances_revision: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +68,7 @@ class MarketDataWorkerFailure:
     attempt: MarketDataWorkerAttempt
     code: str
     message: str
+    next_retry_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +95,11 @@ class MarketDataWorkerState:
     failure_message: str | None
     consecutive_failures: int
     updated_at: datetime
+    expected_ends_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    dataset_revision: int = 0
+    maintenance_kind: MarketDataMaintenanceKind = MarketDataMaintenanceKind.INITIAL_BACKFILL
+    enabled: bool = True
 
 
 @runtime_checkable
@@ -148,9 +165,11 @@ class InMemoryMarketDataWorkerStateStore:
         self._states: dict[tuple[str, str, CandleInterval], MarketDataWorkerState] = {}
 
     async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> None:
-        """Record a running attempt while preserving earlier verified coverage."""
+        """Record an in-progress attempt without erasing prior verified coverage."""
         key = _key(attempt.provider, attempt.product_id, attempt.timeframe)
         prior = self._states.get(key)
+        if prior is not None and attempt.attempted_at <= prior.last_attempt_at:
+            return
         self._states[key] = MarketDataWorkerState(
             provider=attempt.provider,
             product_id=attempt.product_id,
@@ -172,34 +191,57 @@ class InMemoryMarketDataWorkerStateStore:
             failure_message=prior.failure_message if prior is not None else None,
             consecutive_failures=prior.consecutive_failures if prior is not None else 0,
             updated_at=attempt.attempted_at,
+            expected_ends_at=attempt.expected_ends_at or attempt.requested_ends_at,
+            next_retry_at=None,
+            dataset_revision=prior.dataset_revision if prior is not None else 0,
+            maintenance_kind=attempt.maintenance_kind,
+            enabled=True,
         )
 
     async def record_success(self, success: MarketDataWorkerSuccess) -> None:
         """Replace the current attempt with verified successful coverage."""
         attempt = success.attempt
-        self._states[_key(attempt.provider, attempt.product_id, attempt.timeframe)] = (
-            MarketDataWorkerState(
-                provider=attempt.provider,
-                product_id=attempt.product_id,
-                timeframe=attempt.timeframe,
-                status=MarketDataWorkerStatus.SUCCEEDED,
-                last_attempt_at=attempt.attempted_at,
-                last_success_at=attempt.attempted_at,
-                requested_starts_at=attempt.requested_starts_at,
-                requested_ends_at=attempt.requested_ends_at,
-                covered_starts_at=success.covered_starts_at,
-                covered_ends_at=success.covered_ends_at,
-                expected_candle_count=success.expected_candle_count,
-                received_candle_count=success.received_candle_count,
-                gap_count=success.gap_count,
-                missing_intervals=success.missing_intervals,
-                complete=True,
-                content_fingerprint=success.content_fingerprint,
-                failure_code=None,
-                failure_message=None,
-                consecutive_failures=0,
-                updated_at=attempt.attempted_at,
+        key = _key(attempt.provider, attempt.product_id, attempt.timeframe)
+        prior = self._states.get(key)
+        if prior is not None and (
+            attempt.attempted_at < prior.last_attempt_at
+            or (
+                attempt.attempted_at == prior.last_attempt_at
+                and prior.status is not MarketDataWorkerStatus.RUNNING
             )
+            or (
+                prior.covered_ends_at is not None
+                and success.covered_ends_at < prior.covered_ends_at
+            )
+        ):
+            return
+        self._states[key] = MarketDataWorkerState(
+            provider=attempt.provider,
+            product_id=attempt.product_id,
+            timeframe=attempt.timeframe,
+            status=MarketDataWorkerStatus.SUCCEEDED,
+            last_attempt_at=attempt.attempted_at,
+            last_success_at=attempt.attempted_at,
+            requested_starts_at=attempt.requested_starts_at,
+            requested_ends_at=attempt.requested_ends_at,
+            covered_starts_at=success.covered_starts_at,
+            covered_ends_at=success.covered_ends_at,
+            expected_candle_count=success.expected_candle_count,
+            received_candle_count=success.received_candle_count,
+            gap_count=success.gap_count,
+            missing_intervals=success.missing_intervals,
+            complete=True,
+            content_fingerprint=success.content_fingerprint,
+            failure_code=None,
+            failure_message=None,
+            consecutive_failures=0,
+            updated_at=attempt.attempted_at,
+            expected_ends_at=attempt.expected_ends_at or attempt.requested_ends_at,
+            next_retry_at=attempt.next_attempt_at,
+            dataset_revision=(prior.dataset_revision if prior is not None else 0)
+            + int(success.advances_revision),
+            maintenance_kind=attempt.maintenance_kind,
+            enabled=True,
         )
 
     async def record_failure(self, failure: MarketDataWorkerFailure) -> None:
@@ -207,6 +249,14 @@ class InMemoryMarketDataWorkerStateStore:
         attempt = failure.attempt
         key = _key(attempt.provider, attempt.product_id, attempt.timeframe)
         prior = self._states.get(key)
+        if prior is not None and (
+            attempt.attempted_at < prior.last_attempt_at
+            or (
+                attempt.attempted_at == prior.last_attempt_at
+                and prior.status is not MarketDataWorkerStatus.RUNNING
+            )
+        ):
+            return
         self._states[key] = MarketDataWorkerState(
             provider=attempt.provider,
             product_id=attempt.product_id,
@@ -228,6 +278,11 @@ class InMemoryMarketDataWorkerStateStore:
             failure_message=failure.message,
             consecutive_failures=(prior.consecutive_failures if prior is not None else 0) + 1,
             updated_at=attempt.attempted_at,
+            expected_ends_at=attempt.expected_ends_at or attempt.requested_ends_at,
+            next_retry_at=failure.next_retry_at,
+            dataset_revision=prior.dataset_revision if prior is not None else 0,
+            maintenance_kind=attempt.maintenance_kind,
+            enabled=True,
         )
 
     async def get(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -55,6 +55,13 @@ class IngestionStateResponse(BaseModel):
     fresh: bool | None
     coverage: IngestionCoverageResponse | None
     failure: IngestionFailureResponse | None
+    enabled: bool
+    freshness: Literal["current", "delayed", "stale", "unknown"]
+    coverage_status: Literal["complete", "gap_detected", "unavailable"]
+    expected_latest_boundary: datetime
+    next_attempt_at: datetime | None
+    dataset_revision: int
+    maintenance_kind: Literal["initial_backfill", "incremental"] | None
 
 
 @router.get("/ingestion", response_model=IngestionStateResponse)
@@ -72,6 +79,7 @@ async def get_ingestion_state(
     except Exception:  # noqa: BLE001 - persistence details are redacted at the API boundary.
         raise _unavailable() from None
     if state is None:
+        expected_boundary = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
         return IngestionStateResponse(
             provider=provider,
             product_id=product_id,
@@ -84,11 +92,27 @@ async def get_ingestion_state(
             fresh=None,
             coverage=None,
             failure=None,
+            enabled=True,
+            freshness="unknown",
+            coverage_status="unavailable",
+            expected_latest_boundary=expected_boundary,
+            next_attempt_at=None,
+            dataset_revision=0,
+            maintenance_kind=None,
         )
-    return _to_response(state, now=datetime.now(UTC))
+    return _to_response(
+        state,
+        now=datetime.now(UTC),
+        interval_seconds=runtime.settings.market_data_worker_interval_seconds,
+    )
 
 
-def _to_response(state: MarketDataWorkerState, *, now: datetime) -> IngestionStateResponse:
+def _to_response(
+    state: MarketDataWorkerState,
+    *,
+    now: datetime,
+    interval_seconds: int,
+) -> IngestionStateResponse:
     """Map durable state to redacted browser-safe freshness and coverage facts."""
     coverage = _coverage(state)
     failure = (
@@ -100,11 +124,18 @@ def _to_response(state: MarketDataWorkerState, *, now: datetime) -> IngestionSta
         if state.failure_code is not None and state.failure_message is not None
         else None
     )
-    fresh = (
-        state.covered_ends_at <= now
-        and now - state.covered_ends_at <= CandleInterval.ONE_HOUR.duration * 2
-        if state.covered_ends_at is not None
-        else None
+    expected_boundary = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    freshness = _freshness(state.covered_ends_at, expected_boundary)
+    fresh = freshness in {"current", "delayed"} if state.covered_ends_at is not None else None
+    coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
+        "complete"
+        if coverage is not None and state.complete
+        else "gap_detected"
+        if state.failure_code == "incomplete_range"
+        else "unavailable"
+    )
+    next_attempt_at = state.next_retry_at or state.last_attempt_at + timedelta(
+        seconds=interval_seconds
     )
     return IngestionStateResponse(
         provider=state.provider,
@@ -118,7 +149,29 @@ def _to_response(state: MarketDataWorkerState, *, now: datetime) -> IngestionSta
         fresh=fresh,
         coverage=coverage,
         failure=failure,
+        enabled=state.enabled,
+        freshness=freshness,
+        coverage_status=coverage_status,
+        expected_latest_boundary=expected_boundary,
+        next_attempt_at=next_attempt_at,
+        dataset_revision=state.dataset_revision,
+        maintenance_kind=state.maintenance_kind.value,
     )
+
+
+def _freshness(
+    covered_ends_at: datetime | None,
+    expected_boundary: datetime,
+) -> Literal["current", "delayed", "stale", "unknown"]:
+    """Classify verified coverage against the latest finalized hourly boundary."""
+    if covered_ends_at is None:
+        return "unknown"
+    lag = expected_boundary - covered_ends_at
+    if lag <= timedelta(0):
+        return "current"
+    if lag <= CandleInterval.ONE_HOUR.duration * 2:
+        return "delayed"
+    return "stale"
 
 
 def _coverage(state: MarketDataWorkerState) -> IngestionCoverageResponse | None:

@@ -6,10 +6,12 @@ import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
 import logging
+import random
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.market_data.models import CandleInterval, CandleRangeReport
 from thytrader.market_data.worker_state import (
+    MarketDataMaintenanceKind,
     MarketDataWorkerAttempt,
     MarketDataWorkerFailure,
     MarketDataWorkerStateStore,
@@ -47,10 +49,66 @@ async def ingest_once(
     product_id: str,
     lookback_hours: int,
     now: datetime,
+    retry_base_seconds: int = 300,
+    jitter_factory: Callable[[], float] = random.random,
 ) -> None:
     """Retrieve, verify, publish, and durably report one bounded hourly range."""
     ends_at = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
-    starts_at = ends_at - timedelta(hours=lookback_hours)
+    prior = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+    if prior is not None and prior.complete and prior.covered_ends_at is not None:
+        if prior.covered_ends_at >= ends_at:
+            reconciliation_attempt = MarketDataWorkerAttempt(
+                provider=provider,
+                product_id=product_id,
+                timeframe=CandleInterval.ONE_HOUR,
+                attempted_at=now.astimezone(UTC),
+                requested_starts_at=prior.covered_starts_at or prior.covered_ends_at,
+                requested_ends_at=prior.covered_ends_at,
+                maintenance_kind=MarketDataMaintenanceKind.INCREMENTAL,
+                expected_ends_at=ends_at,
+                next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
+            )
+            try:
+                verified_candles = dataset_store.load_candles(prior.content_fingerprint or "")
+            except Exception:  # noqa: BLE001 - restart reconciliation must fail closed.
+                await state_store.record_attempt(reconciliation_attempt)
+                retry_at = _next_retry_at(
+                    reconciliation_attempt.attempted_at,
+                    retry_base_seconds,
+                    prior.consecutive_failures,
+                    jitter_factory(),
+                )
+                await _record_failure(
+                    state_store,
+                    reconciliation_attempt,
+                    code="dataset_verification_failed",
+                    message="The current market-data dataset could not be verified.",
+                    next_retry_at=retry_at,
+                )
+                _logger.warning("market_data_ingestion_failed code=dataset_verification_failed")
+                return
+            await state_store.record_success(
+                MarketDataWorkerSuccess(
+                    attempt=reconciliation_attempt,
+                    covered_starts_at=verified_candles[0].starts_at,
+                    covered_ends_at=(
+                        verified_candles[-1].starts_at + CandleInterval.ONE_HOUR.duration
+                    ),
+                    expected_candle_count=len(verified_candles),
+                    received_candle_count=len(verified_candles),
+                    gap_count=0,
+                    missing_intervals=0,
+                    content_fingerprint=prior.content_fingerprint or "",
+                    advances_revision=False,
+                )
+            )
+            _logger.info("market_data_ingestion_current")
+            return
+        starts_at = prior.covered_ends_at - CandleInterval.ONE_HOUR.duration
+        maintenance_kind = MarketDataMaintenanceKind.INCREMENTAL
+    else:
+        starts_at = ends_at - timedelta(hours=lookback_hours)
+        maintenance_kind = MarketDataMaintenanceKind.INITIAL_BACKFILL
     attempt = MarketDataWorkerAttempt(
         provider=provider,
         product_id=product_id,
@@ -58,8 +116,17 @@ async def ingest_once(
         attempted_at=now.astimezone(UTC),
         requested_starts_at=starts_at,
         requested_ends_at=ends_at,
+        maintenance_kind=maintenance_kind,
+        expected_ends_at=ends_at,
+        next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
     )
     await state_store.record_attempt(attempt)
+    retry_at = _next_retry_at(
+        attempt.attempted_at,
+        retry_base_seconds,
+        prior.consecutive_failures if prior is not None else 0,
+        jitter_factory(),
+    )
 
     try:
         report = await service.get_hourly_range(product_id, starts_at, ends_at, ends_at)
@@ -69,6 +136,7 @@ async def ingest_once(
             attempt,
             code="provider_unavailable",
             message="Historical market-data retrieval failed.",
+            next_retry_at=retry_at,
         )
         _logger.warning("market_data_ingestion_failed code=provider_unavailable")
         return
@@ -79,12 +147,20 @@ async def ingest_once(
             attempt,
             code="incomplete_range",
             message="Historical market-data range was incomplete or inconsistent.",
+            next_retry_at=retry_at,
         )
         _logger.warning("market_data_ingestion_failed code=incomplete_range")
         return
 
     try:
-        published = dataset_store.write(provider, product_id, report)
+        published = (
+            dataset_store.extend(prior.content_fingerprint, report)
+            if prior is not None
+            and prior.complete
+            and prior.content_fingerprint is not None
+            and prior.covered_ends_at is not None
+            else dataset_store.write(provider, product_id, report)
+        )
         verified = dataset_store.load_verified(published.manifest_path)
     except Exception:  # noqa: BLE001 - persistence boundary is intentionally fail-closed.
         await _record_failure(
@@ -92,6 +168,7 @@ async def ingest_once(
             attempt,
             code="dataset_persistence_failed",
             message="Validated market-data publication failed.",
+            next_retry_at=retry_at,
         )
         _logger.warning("market_data_ingestion_failed code=dataset_persistence_failed")
         return
@@ -99,12 +176,12 @@ async def ingest_once(
     await state_store.record_success(
         MarketDataWorkerSuccess(
             attempt=attempt,
-            covered_starts_at=report.starts_at,
-            covered_ends_at=report.ends_at,
-            expected_candle_count=report.requested_candle_count,
-            received_candle_count=report.quality.candle_count,
-            gap_count=report.quality.gap_count,
-            missing_intervals=report.quality.missing_intervals,
+            covered_starts_at=datetime.fromisoformat(verified.starts_at.replace("Z", "+00:00")),
+            covered_ends_at=datetime.fromisoformat(verified.ends_at.replace("Z", "+00:00")),
+            expected_candle_count=verified.expected_candle_count,
+            received_candle_count=verified.received_candle_count,
+            gap_count=verified.gap_count,
+            missing_intervals=verified.missing_intervals,
             content_fingerprint=verified.content_fingerprint,
         )
     )
@@ -129,6 +206,7 @@ async def run_market_data_worker(
         on_readiness_changed(True)
     try:
         while not stop_requested.is_set():
+            cycle_now = now_factory()
             await ingest_once(
                 service=service,
                 dataset_store=dataset_store,
@@ -136,10 +214,18 @@ async def run_market_data_worker(
                 provider=provider,
                 product_id=product_id,
                 lookback_hours=lookback_hours,
-                now=now_factory(),
+                now=cycle_now,
+                retry_base_seconds=interval_seconds,
             )
+            state = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+            wait_seconds = interval_seconds
+            if state is not None and state.next_retry_at is not None:
+                wait_seconds = max(
+                    1,
+                    int((state.next_retry_at - cycle_now.astimezone(UTC)).total_seconds()),
+                )
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop_requested.wait(), timeout=interval_seconds)
+                await asyncio.wait_for(stop_requested.wait(), timeout=wait_seconds)
     finally:
         if on_readiness_changed is not None:
             on_readiness_changed(False)
@@ -166,8 +252,27 @@ async def _record_failure(
     *,
     code: str,
     message: str,
+    next_retry_at: datetime,
 ) -> None:
     """Persist one stable redacted failure outcome."""
     await state_store.record_failure(
-        MarketDataWorkerFailure(attempt=attempt, code=code, message=message)
+        MarketDataWorkerFailure(
+            attempt=attempt,
+            code=code,
+            message=message,
+            next_retry_at=next_retry_at,
+        )
     )
+
+
+def _next_retry_at(
+    attempted_at: datetime,
+    base_seconds: int,
+    prior_failures: int,
+    jitter_value: float,
+) -> datetime:
+    """Return a capped exponential retry instant with up to twenty-percent positive jitter."""
+    bounded_jitter = min(max(jitter_value, 0.0), 1.0)
+    base_delay = min(base_seconds * (2**prior_failures), 3_600)
+    delay = base_delay + int(base_delay * 0.2 * bounded_jitter)
+    return attempted_at + timedelta(seconds=delay)

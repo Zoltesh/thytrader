@@ -122,6 +122,10 @@ def test_schema_metadata_has_market_data_worker_state_table() -> None:
     assert "content_fingerprint" in table.columns
     assert "failure_code" in table.columns
     assert "consecutive_failures" in table.columns
+    assert "expected_ends_at" in table.columns
+    assert "next_retry_at" in table.columns
+    assert "dataset_revision" in table.columns
+    assert "maintenance_kind" in table.columns
 
 
 def test_market_data_worker_migration_follows_portfolio_history() -> None:
@@ -130,6 +134,17 @@ def test_market_data_worker_migration_follows_portfolio_history() -> None:
     assert 'revision = "0002"' in content
     assert 'down_revision = "0001"' in content
     assert "market_data_worker_state" in content
+
+
+def test_market_data_maintenance_migration_extends_worker_state() -> None:
+    """The third migration must add continuous-maintenance coordination facts."""
+    content = Path("alembic/versions/0003_market_data_maintenance.py").read_text(encoding="utf-8")
+    assert 'revision = "0003"' in content
+    assert 'down_revision = "0002"' in content
+    assert "expected_ends_at" in content
+    assert "next_retry_at" in content
+    assert "dataset_revision" in content
+    assert "maintenance_kind" in content
 
 
 def test_migration_file_exists_with_correct_revision() -> None:

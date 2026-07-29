@@ -64,6 +64,16 @@ def test_dataset_store_writes_complete_range_as_parquet_with_manifest(tmp_path: 
     assert frame.height == 3
 
 
+def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:
+    """Backtest callers can resolve exact typed candles from an immutable fingerprint."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+
+    candles = store.load_candles(manifest.content_fingerprint)
+
+    assert candles == _complete_report().quality.candles
+
+
 def test_dataset_store_rejects_incomplete_range(tmp_path: Path) -> None:
     """An incomplete range must never become a durable backtest candidate."""
     report = analyze_range(

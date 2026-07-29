@@ -78,6 +78,11 @@ market_data_worker_state = Table(
     Column("failure_code", String(64), nullable=True),
     Column("failure_message", String(256), nullable=True),
     Column("consecutive_failures", Integer(), nullable=False, server_default="0"),
+    Column("expected_ends_at", DateTime(timezone=True), nullable=True),
+    Column("next_retry_at", DateTime(timezone=True), nullable=True),
+    Column("dataset_revision", Integer(), nullable=False, server_default="0"),
+    Column("maintenance_kind", String(32), nullable=False, server_default="initial_backfill"),
+    Column("enabled", Boolean(), nullable=False, server_default="true"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 

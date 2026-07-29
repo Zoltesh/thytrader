@@ -17,7 +17,9 @@ validates every candle for UTC alignment, chronological order, OHLC consistency,
 exactness, and reports expected vs received candle counts, gaps, and a binary completeness result.
 It is bounded to 2,160 candles (90 days at 1h) and cannot request ranges ending in the future.
 
-These are intentionally **diagnostics**, not a historical-dataset service, chart, or strategy input:
+The request-time preview and range endpoints are diagnostics, not strategy inputs. The separate
+worker now maintains an immutable, fingerprint-addressed 1h historical dataset that future
+backtests can resolve through the internal verified reader:
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -112,21 +114,34 @@ durable datasets. It is distinct from `thytrader-worker`, which records portfoli
 
 ## Worker lifecycle and durable diagnostics
 
-The market-data worker aligns each request to the last complete UTC hour, requests a configurable
-bounded 1h lookback through `MarketDataService`, and records the attempt in PostgreSQL before provider
-I/O. It calls `DatasetStore.write()` only when the returned report exactly matches the requested range
-and is complete, contiguous, and gap-free. It then calls `load_verified()` before recording success.
+The market-data worker aligns each cycle to the last complete UTC hour. Its first cycle requests a
+configurable bounded 1h lookback. Later cycles plan from durable verified coverage, request only one
+overlap candle plus missing closed candles, and merge the validated response into a new cumulative
+immutable revision. A cycle inside an already-covered hourly boundary performs no provider or disk
+work. The overlap permits a delayed upstream revision to replace the same canonical candle
+deterministically while continuity is revalidated across the whole resulting range.
 
-Failures retain prior verified coverage while recording a stable redacted code/message and consecutive
-failure count. A later successful retry clears failure state. PostgreSQL is authoritative for this
-operational state; Parquet remains authoritative for immutable candle content. Compose supervises this
-process independently with its own readiness marker, restart policy, and persistent dataset volume.
+The worker records each attempt in PostgreSQL before provider I/O. It publishes only when the exact
+requested increment and the cumulative result are both complete, contiguous, and gap-free. It reads
+the new manifest and Parquet data back before atomically advancing PostgreSQL's authoritative
+fingerprint and revision. A failed retrieval, merge, write, or read-back leaves the prior revision
+authoritative.
+
+Failures retain prior verified coverage while recording a stable redacted code/message, consecutive
+failure count, and next retry instant. Retries use capped exponential delay with positive jitter. State
+transitions are monotonic: stale attempts and late worker completions cannot replace a newer attempt or
+regress verified coverage. A later verified success clears failure and retry state. PostgreSQL is
+authoritative for coordination;
+Parquet remains authoritative for immutable candle content. Compose supervises this process
+independently with its own readiness marker, restart policy, and persistent dataset volume.
 Demo ingestion is explicitly identified as provider `demo`; it never masquerades as Coinbase data.
 
-Whenever the aligned hourly boundary advances, the worker publishes a distinct immutable lookback
-window.
-Identical retries of the same window are idempotent, but overlapping windows with different start/end
-bounds intentionally have different fingerprints and remain independently verifiable. ThyTrader does
+Whenever the aligned hourly boundary advances, the worker publishes a distinct cumulative immutable
+revision. Unchanged daily partitions are referenced by the new manifest rather than rewritten; only
+days touched by the overlap or new candles receive new immutable Parquet files.
+`DatasetStore.load_candles(fingerprint)` validates the canonical manifest, every referenced
+Parquet file, complete coverage, and the SHA-256 fingerprint before returning exact typed candles.
+Identical retries are idempotent. ThyTrader does
 not automatically prune published manifests or Parquet partitions yet: safe retention requires a
 dataset catalog and reference tracking so an operator cannot delete data that a future reproducible
 backtest names by fingerprint. Until that contract exists, operators must size the dataset volume for
@@ -140,9 +155,8 @@ withdrawal, leverage, derivatives, or optimization authority.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Durable historical ingestion** — extend range ingestion to additional timeframes (5m, 15m, 30m,
-   6h, 1d) and persist validated ranges as immutable partitioned Parquet datasets with schema
-   versioning, source range, completeness facts, and content/dataset fingerprints.
+1. **Additional timeframes** — extend the same complete-only maintenance contract to 5m, 15m, 30m,
+   6h, and 1d without weakening boundary or fingerprint semantics.
 2. **Additional ingestion targets** — expand the worker from one configured 1h product/range to
    explicitly managed products and supported timeframes without weakening complete-only publication.
 3. **Diagnostics contract** — provide versioned machine-readable market-data health/data coverage

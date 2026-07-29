@@ -16,6 +16,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerAttempt,
     MarketDataWorkerFailure,
     MarketDataWorkerStatus,
+    MarketDataWorkerSuccess,
 )
 from thytrader.market_data_worker.service import ingest_once, run_market_data_worker
 
@@ -140,6 +141,49 @@ def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path)
     asyncio.run(exercise())
 
 
+def test_ingest_once_persists_exponential_retry_schedule(tmp_path: Path) -> None:
+    """Repeated provider failures durably increase retry delay with a bounded base."""
+
+    async def exercise() -> None:
+        first_at = datetime(2026, 7, 29, 2, 17, tzinfo=UTC)
+        service = _StubRangeService([RuntimeError("first"), RuntimeError("second")])
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=first_at,
+            retry_base_seconds=300,
+            jitter_factory=lambda: 0.0,
+        )
+        first = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert first is not None
+        assert first.next_retry_at == first_at + timedelta(seconds=300)
+
+        second_at = first_at + timedelta(minutes=5)
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=second_at,
+            retry_base_seconds=300,
+            jitter_factory=lambda: 0.0,
+        )
+        second = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert second is not None
+        assert second.next_retry_at == second_at + timedelta(seconds=600)
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_rejects_incomplete_report_without_publishing(tmp_path: Path) -> None:
     """A provider report that is not complete must never reach DatasetStore publication."""
 
@@ -207,6 +251,202 @@ def test_ingest_once_recovery_clears_failure_and_preserves_last_success(tmp_path
     asyncio.run(exercise())
 
 
+def test_ingest_once_extends_last_verified_dataset_with_one_candle_overlap(tmp_path: Path) -> None:
+    """Later cycles fetch only overlap plus missing candles and publish cumulative coverage."""
+
+    async def exercise() -> None:
+        first_end = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        initial = _report(starts_at=first_end - timedelta(hours=3), candle_count=3)
+        incremental = _report(starts_at=first_end - timedelta(hours=1), candle_count=3)
+        service = _StubRangeService([initial, incremental])
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=first_end + timedelta(minutes=5),
+        )
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=first_end + timedelta(hours=2, minutes=5),
+        )
+
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert service.requests[1][1:3] == (
+            first_end - timedelta(hours=1),
+            first_end + timedelta(hours=2),
+        )
+        assert state.covered_starts_at == initial.starts_at
+        assert state.covered_ends_at == incremental.ends_at
+        assert state.expected_candle_count == 5
+        assert state.received_candle_count == 5
+        assert state.dataset_revision == 2
+        assert state.maintenance_kind == "incremental"
+        assert state.expected_ends_at == first_end + timedelta(hours=2)
+        assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 2
+
+    asyncio.run(exercise())
+
+
+def test_incremental_revision_reuses_unchanged_day_partitions(tmp_path: Path) -> None:
+    """Cumulative hourly updates must not rewrite every historical day on each cycle."""
+
+    async def exercise() -> None:
+        first_end = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        initial = _report(starts_at=first_end - timedelta(hours=30), candle_count=30)
+        incremental = _report(starts_at=first_end - timedelta(hours=1), candle_count=3)
+        service = _StubRangeService([initial, incremental])
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=30,
+            now=first_end + timedelta(minutes=5),
+        )
+        first_state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert first_state is not None and first_state.content_fingerprint is not None
+        first_manifest = dataset_store.load_verified(
+            tmp_path
+            / "manifests"
+            / f"{first_state.content_fingerprint.removeprefix('sha256:')}.json"
+        )
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=30,
+            now=first_end + timedelta(hours=2, minutes=5),
+        )
+        second_state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert second_state is not None and second_state.content_fingerprint is not None
+        second_manifest = dataset_store.load_verified(
+            tmp_path
+            / "manifests"
+            / f"{second_state.content_fingerprint.removeprefix('sha256:')}.json"
+        )
+
+        assert len(set(first_manifest.files) & set(second_manifest.files)) == 2
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_does_not_republish_when_dataset_is_current(tmp_path: Path) -> None:
+    """A cycle inside the same closed-candle boundary performs no provider or disk work."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
+        service = _StubRangeService([report])
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=ends_at + timedelta(minutes=5),
+        )
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=ends_at + timedelta(minutes=45),
+        )
+
+        assert len(service.requests) == 1
+        assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 1
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_reconciles_current_state_with_verified_dataset(tmp_path: Path) -> None:
+    """A restart must not report current when its authoritative dataset cannot be verified."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
+        service = _StubRangeService([report])
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=ends_at + timedelta(minutes=5),
+        )
+        manifest = next((tmp_path / "manifests").glob("*.json"))
+        manifest_contents = manifest.read_bytes()
+        manifest.unlink()
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=ends_at + timedelta(minutes=45),
+            jitter_factory=lambda: 0.0,
+        )
+
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.status is MarketDataWorkerStatus.FAILED
+        assert state.failure_code == "dataset_verification_failed"
+        assert state.covered_ends_at == ends_at
+        assert len(service.requests) == 1
+
+        manifest.write_bytes(manifest_contents)
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=ends_at + timedelta(minutes=50),
+            jitter_factory=lambda: 0.0,
+        )
+
+        recovered = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert recovered is not None
+        assert recovered.status is MarketDataWorkerStatus.SUCCEEDED
+        assert recovered.failure_code is None
+        assert recovered.dataset_revision == 1
+        assert len(service.requests) == 1
+
+    asyncio.run(exercise())
+
+
 def test_new_attempt_preserves_previous_failure_until_verified_success() -> None:
     """A retry must not erase durable failure evidence before it has succeeded."""
 
@@ -263,5 +503,70 @@ def test_market_data_worker_readiness_tracks_only_its_own_run_loop(tmp_path: Pat
         stop.set()
         await task
         assert readiness == [True, False]
+
+    asyncio.run(exercise())
+
+
+def test_late_or_replayed_transitions_cannot_corrupt_authoritative_coverage() -> None:
+    """Superseded and replayed transitions cannot regress or duplicate terminal state."""
+
+    async def exercise() -> None:
+        store = InMemoryMarketDataWorkerStateStore()
+        starts_at = datetime(2026, 7, 29, tzinfo=UTC)
+        older = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=starts_at + timedelta(hours=3, minutes=5),
+            requested_starts_at=starts_at,
+            requested_ends_at=starts_at + timedelta(hours=3),
+        )
+        newer = replace(
+            older,
+            attempted_at=starts_at + timedelta(hours=4, minutes=5),
+            requested_ends_at=starts_at + timedelta(hours=4),
+        )
+        newer_success = MarketDataWorkerSuccess(
+            attempt=newer,
+            covered_starts_at=starts_at,
+            covered_ends_at=starts_at + timedelta(hours=4),
+            expected_candle_count=4,
+            received_candle_count=4,
+            gap_count=0,
+            missing_intervals=0,
+            content_fingerprint="sha256:" + "2" * 64,
+        )
+        await store.record_attempt(older)
+        await store.record_attempt(newer)
+        await store.record_success(newer_success)
+        await store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=older,
+                covered_starts_at=starts_at,
+                covered_ends_at=starts_at + timedelta(hours=3),
+                expected_candle_count=3,
+                received_candle_count=3,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "1" * 64,
+            )
+        )
+        await store.record_success(newer_success)
+        await store.record_attempt(newer)
+        await store.record_failure(
+            MarketDataWorkerFailure(
+                attempt=newer,
+                code="provider_unavailable",
+                message="Historical market-data retrieval failed.",
+            )
+        )
+
+        final = await store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert final is not None
+        assert final.covered_ends_at == starts_at + timedelta(hours=4)
+        assert final.content_fingerprint == "sha256:" + "2" * 64
+        assert final.dataset_revision == 1
+        assert final.status is MarketDataWorkerStatus.SUCCEEDED
+        assert final.consecutive_failures == 0
 
     asyncio.run(exercise())

@@ -94,6 +94,79 @@ class DatasetStore:
             manifest_path,
         )
 
+    def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
+        """Resolve and verify exact typed candles by immutable dataset fingerprint."""
+        manifest = self.load_verified(self._manifest_path(content_fingerprint))
+        rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
+        return _rows_to_candles(rows)
+
+    def extend(self, content_fingerprint: str, report: CandleRangeReport) -> DatasetManifest:
+        """Publish a cumulative revision by merging a verified dataset with one overlap range."""
+        prior = self.load_verified(self._manifest_path(content_fingerprint))
+        prior_file_rows = {file: _parquet_rows(file) for file in prior.files}
+        prior_rows = tuple(row for rows in prior_file_rows.values() for row in rows)
+        prior_candles = _rows_to_candles(prior_rows)
+        prior_start = _parse_utc_text(prior.starts_at)
+        prior_end = _parse_utc_text(prior.ends_at)
+        if report.starts_at >= prior_end or report.ends_at <= prior_end:
+            message = "Dataset extension must overlap and advance the prior verified range."
+            raise DatasetStoreError(message)
+        merged = {candle.starts_at: candle for candle in prior_candles}
+        merged.update({candle.starts_at: candle for candle in report.quality.candles})
+        combined = analyze_range(
+            tuple(merged.values()),
+            CandleInterval.ONE_HOUR,
+            prior_start,
+            report.ends_at,
+            report.ends_at,
+        )
+        if not combined.complete:
+            message = "Dataset extension did not produce complete contiguous coverage."
+            raise DatasetStoreError(message)
+
+        rows = _candle_rows(combined)
+        digest = _fingerprint(prior.provider, prior.product_id, prior.timeframe, combined, rows)
+        manifest_path = self._root / "manifests" / f"{digest}.json"
+        if manifest_path.exists():
+            return self.load_verified(manifest_path)
+
+        prior_by_day = {
+            next(iter(_partition_rows(file_rows))): file
+            for file, file_rows in prior_file_rows.items()
+            if file_rows
+        }
+        affected_days = set(_partition_rows(_candle_rows(report)))
+        files = tuple(
+            prior_by_day[day]
+            if day not in affected_days and day in prior_by_day
+            else self._write_partition(
+                prior.provider,
+                prior.product_id,
+                prior.timeframe,
+                day,
+                day_rows,
+                digest,
+            )
+            for day, day_rows in _partition_rows(rows).items()
+        )
+        return self._publish_manifest(
+            prior.provider,
+            prior.product_id,
+            prior.timeframe,
+            combined,
+            digest,
+            files,
+            manifest_path,
+        )
+
+    def _manifest_path(self, content_fingerprint: str) -> Path:
+        """Resolve a validated fingerprint to its canonical manifest path."""
+        match = _FINGERPRINT.fullmatch(content_fingerprint)
+        if match is None:
+            message = "Dataset lookup requires a valid content fingerprint."
+            raise DatasetStoreError(message)
+        return self._root / "manifests" / f"{match.group(1)}.json"
+
     def load_verified(self, manifest_path: Path) -> DatasetManifest:
         """Load one manifest and reject missing, malformed, or content-mismatched dataset files."""
         try:
