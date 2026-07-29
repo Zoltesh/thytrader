@@ -86,6 +86,7 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
                 attempted_at=failed_attempt.attempted_at + timedelta(minutes=5),
                 requested_starts_at=attempt.requested_starts_at,
                 requested_ends_at=attempt.requested_ends_at,
+                expected_consecutive_failures=1,
             )
             await store.record_attempt(second_failed_attempt)
             await store.record_failure(

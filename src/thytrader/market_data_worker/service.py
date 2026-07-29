@@ -68,7 +68,10 @@ async def ingest_once(
                 maintenance_kind=MarketDataMaintenanceKind.INCREMENTAL,
                 expected_ends_at=ends_at,
                 next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
+                expected_consecutive_failures=prior.consecutive_failures,
             )
+            if not await state_store.record_attempt(reconciliation_attempt):
+                return
             covered_starts_at = prior.covered_starts_at
             expected_candle_count = prior.expected_candle_count
             received_candle_count = prior.received_candle_count
@@ -85,7 +88,6 @@ async def ingest_once(
                 and missing_intervals is not None
                 and content_fingerprint is not None
             ):
-                await state_store.record_attempt(reconciliation_attempt)
                 await state_store.record_success(
                     MarketDataWorkerSuccess(
                         attempt=reconciliation_attempt,
@@ -104,7 +106,6 @@ async def ingest_once(
             try:
                 verified_candles = dataset_store.load_candles(prior.content_fingerprint or "")
             except Exception:  # noqa: BLE001 - restart reconciliation must fail closed.
-                await state_store.record_attempt(reconciliation_attempt)
                 retry_at = _next_retry_at(
                     reconciliation_attempt.attempted_at,
                     retry_base_seconds,
@@ -152,8 +153,10 @@ async def ingest_once(
         maintenance_kind=maintenance_kind,
         expected_ends_at=ends_at,
         next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
+        expected_consecutive_failures=prior.consecutive_failures if prior is not None else 0,
     )
-    await state_store.record_attempt(attempt)
+    if not await state_store.record_attempt(attempt):
+        return
     retry_at = _next_retry_at(
         attempt.attempted_at,
         retry_base_seconds,

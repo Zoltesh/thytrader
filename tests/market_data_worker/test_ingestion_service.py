@@ -530,7 +530,11 @@ def test_new_attempt_preserves_previous_failure_until_verified_success() -> None
         await store.record_failure(
             MarketDataWorkerFailure(first, "provider_unavailable", "Retrieval failed.")
         )
-        retry = replace(first, attempted_at=first.attempted_at + timedelta(minutes=5))
+        retry = replace(
+            first,
+            attempted_at=first.attempted_at + timedelta(minutes=5),
+            expected_consecutive_failures=1,
+        )
         await store.record_attempt(retry)
 
         state = await store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
@@ -634,5 +638,82 @@ def test_late_or_replayed_transitions_cannot_corrupt_authoritative_coverage() ->
         assert final.dataset_revision == 1
         assert final.status is MarketDataWorkerStatus.SUCCEEDED
         assert final.consecutive_failures == 0
+
+    asyncio.run(exercise())
+
+
+def test_stale_failure_snapshot_cannot_claim_a_new_attempt() -> None:
+    """A worker planned before another failure cannot double-count with stale backoff."""
+
+    async def exercise() -> None:
+        store = InMemoryMarketDataWorkerStateStore()
+        first_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        first = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=first_at,
+            requested_starts_at=first_at - timedelta(hours=3),
+            requested_ends_at=first_at,
+        )
+        stale_newer = replace(first, attempted_at=first_at + timedelta(seconds=1))
+
+        assert await store.record_attempt(first) is True
+        await store.record_failure(
+            MarketDataWorkerFailure(
+                attempt=first,
+                code="provider_unavailable",
+                message="Historical market-data retrieval failed.",
+                next_retry_at=first_at + timedelta(seconds=300),
+            )
+        )
+        assert await store.record_attempt(stale_newer) is False
+        await store.record_failure(
+            MarketDataWorkerFailure(
+                attempt=stale_newer,
+                code="provider_unavailable",
+                message="Historical market-data retrieval failed.",
+                next_retry_at=stale_newer.attempted_at + timedelta(seconds=300),
+            )
+        )
+
+        state = await store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.status is MarketDataWorkerStatus.FAILED
+        assert state.last_attempt_at == first_at
+        assert state.consecutive_failures == 1
+        assert state.next_retry_at == first_at + timedelta(seconds=300)
+
+    asyncio.run(exercise())
+
+
+def test_rejected_attempt_claim_stops_before_provider_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale worker whose claim loses compare-and-set performs no external work."""
+
+    async def exercise() -> None:
+        service = _StubRangeService([])
+        store = InMemoryMarketDataWorkerStateStore()
+
+        async def reject_attempt(attempt: MarketDataWorkerAttempt) -> bool:
+            """Simulate a concurrent durable transition invalidating the snapshot."""
+            del attempt
+            return False
+
+        monkeypatch.setattr(store, "record_attempt", reject_attempt)
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=3,
+            now=datetime(2026, 7, 29, 2, 5, tzinfo=UTC),
+        )
+
+        assert service.requests == []
+        assert not tuple((tmp_path / "manifests").glob("*.json"))
 
     asyncio.run(exercise())

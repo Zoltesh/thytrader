@@ -33,8 +33,9 @@ def test_postgres_worker_transitions_compile_idempotent_compare_and_set_guards(
         store = PostgresMarketDataWorkerStateStore(engine)
         statements: list[str] = []
 
-        async def capture(statement: ClauseElement) -> None:
+        async def capture(statement: ClauseElement) -> bool:
             statements.append(str(statement.compile(dialect=postgresql.dialect())))
+            return True
 
         monkeypatch.setattr(store, "_execute", capture)
         attempted_at = datetime(2026, 7, 29, 4, 5, tzinfo=UTC)
@@ -76,13 +77,16 @@ def test_postgres_worker_transitions_compile_idempotent_compare_and_set_guards(
             "WHERE", maxsplit=1
         )[1]
         assert "last_attempt_at <" in attempt_sql
+        assert "consecutive_failures =" in attempt_guard
         assert "status =" not in attempt_guard
         assert "last_attempt_at <" in success_sql
         assert "last_attempt_at =" in success_sql
         assert "status =" in success_sql
         assert "covered_ends_at <=" in success_sql
+        assert "consecutive_failures =" in success_sql
         assert "last_attempt_at <" in failure_sql
         assert "last_attempt_at =" in failure_sql
         assert "status =" in failure_sql
+        assert "consecutive_failures =" in failure_sql
 
     asyncio.run(exercise())

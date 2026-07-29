@@ -44,6 +44,7 @@ class MarketDataWorkerAttempt:
     maintenance_kind: MarketDataMaintenanceKind = MarketDataMaintenanceKind.INITIAL_BACKFILL
     expected_ends_at: datetime | None = None
     next_attempt_at: datetime | None = None
+    expected_consecutive_failures: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +107,8 @@ class MarketDataWorkerState:
 class MarketDataWorkerStateStore(Protocol):
     """Persist and read the latest state for each ingestion target."""
 
-    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> None:
-        """Record a running attempt before external retrieval begins."""
+    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> bool:
+        """Record a running attempt only when its planning snapshot remains current."""
         ...
 
     async def record_success(self, success: MarketDataWorkerSuccess) -> None:
@@ -131,7 +132,7 @@ class MarketDataWorkerStateStore(Protocol):
 class DisabledMarketDataWorkerStateStore:
     """Reject diagnostics when PostgreSQL worker state is not configured."""
 
-    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> None:
+    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> bool:
         """Reject writes because durable state is unavailable."""
         del attempt
         raise MarketDataWorkerUnavailableError("Market-data worker state is unavailable.")
@@ -164,12 +165,18 @@ class InMemoryMarketDataWorkerStateStore:
         """Initialize an empty target-state mapping."""
         self._states: dict[tuple[str, str, CandleInterval], MarketDataWorkerState] = {}
 
-    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> None:
+    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> bool:
         """Record an in-progress attempt without erasing prior verified coverage."""
         key = _key(attempt.provider, attempt.product_id, attempt.timeframe)
         prior = self._states.get(key)
-        if prior is not None and attempt.attempted_at <= prior.last_attempt_at:
-            return
+        if prior is None:
+            if attempt.expected_consecutive_failures != 0:
+                return False
+        elif (
+            attempt.attempted_at <= prior.last_attempt_at
+            or attempt.expected_consecutive_failures != prior.consecutive_failures
+        ):
+            return False
         self._states[key] = MarketDataWorkerState(
             provider=attempt.provider,
             product_id=attempt.product_id,
@@ -197,6 +204,7 @@ class InMemoryMarketDataWorkerStateStore:
             maintenance_kind=attempt.maintenance_kind,
             enabled=True,
         )
+        return True
 
     async def record_success(self, success: MarketDataWorkerSuccess) -> None:
         """Replace the current attempt with verified successful coverage."""
@@ -213,6 +221,7 @@ class InMemoryMarketDataWorkerStateStore:
                 prior.covered_ends_at is not None
                 and success.covered_ends_at < prior.covered_ends_at
             )
+            or attempt.expected_consecutive_failures != prior.consecutive_failures
         ):
             return
         self._states[key] = MarketDataWorkerState(
@@ -255,6 +264,7 @@ class InMemoryMarketDataWorkerStateStore:
                 attempt.attempted_at == prior.last_attempt_at
                 and prior.status is not MarketDataWorkerStatus.RUNNING
             )
+            or attempt.expected_consecutive_failures != prior.consecutive_failures
         ):
             return
         self._states[key] = MarketDataWorkerState(

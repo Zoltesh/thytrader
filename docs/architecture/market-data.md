@@ -123,7 +123,9 @@ hour update scheduling diagnostics without provider or dataset I/O. The overlap 
 upstream revision to replace the same canonical candle
 deterministically while continuity is revalidated across the whole resulting range.
 
-The worker records each attempt in PostgreSQL before provider I/O. It publishes only when the exact
+The worker claims each attempt in PostgreSQL before provider I/O. The atomic claim requires both a
+newer attempt timestamp and the consecutive-failure count used to plan its backoff; a worker whose
+snapshot lost that comparison stops before contacting the provider. It publishes only when the exact
 requested increment and the cumulative result are both complete, contiguous, and gap-free. It reads
 the new manifest and Parquet data back before atomically advancing PostgreSQL's authoritative
 fingerprint and revision. A failed retrieval, merge, write, or read-back leaves the prior revision
@@ -133,8 +135,9 @@ Failures retain prior verified coverage while recording a stable redacted code/m
 failure count, and next retry instant. Dataset-verification failures retain those historical facts but
 report coverage availability as unavailable until verification succeeds. Retries use capped
 exponential delay with positive jitter, and persisted deadlines remain effective across restarts. State
-transitions are monotonic: stale attempts and late worker completions cannot replace a newer attempt or
-regress verified coverage. A later verified success clears failure and retry state. PostgreSQL is
+transitions are monotonic: stale attempts, stale failure snapshots, and late worker completions cannot
+replace a newer attempt, double-count failures, shorten exponential backoff, or regress verified
+coverage. A later verified success clears failure and retry state. PostgreSQL is
 authoritative for coordination;
 Parquet remains authoritative for immutable candle content. Compose supervises this process
 independently with its own readiness marker, restart policy, and persistent dataset volume.

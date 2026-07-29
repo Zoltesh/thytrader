@@ -33,7 +33,7 @@ class PostgresMarketDataWorkerStateStore:
         """Bind state operations to one managed async engine."""
         self._engine = engine
 
-    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> None:
+    async def record_attempt(self, attempt: MarketDataWorkerAttempt) -> bool:
         """Upsert a running attempt while preserving prior verified coverage."""
         values = _attempt_values(attempt)
         statement = insert(market_data_worker_state).values(
@@ -57,9 +57,13 @@ class PostgresMarketDataWorkerStateStore:
                 "maintenance_kind": attempt.maintenance_kind.value,
                 "updated_at": attempt.attempted_at,
             },
-            where=market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+            where=and_(
+                market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+                market_data_worker_state.c.consecutive_failures
+                == attempt.expected_consecutive_failures,
+            ),
         )
-        await self._execute(statement)
+        return await self._execute(statement)
 
     async def record_success(self, success: MarketDataWorkerSuccess) -> None:
         """Upsert successful publication and reset consecutive failure state."""
@@ -119,6 +123,8 @@ class PostgresMarketDataWorkerStateStore:
                         market_data_worker_state.c.status == MarketDataWorkerStatus.RUNNING.value,
                     ),
                 ),
+                market_data_worker_state.c.consecutive_failures
+                == attempt.expected_consecutive_failures,
                 or_(
                     market_data_worker_state.c.covered_ends_at.is_(None),
                     market_data_worker_state.c.covered_ends_at <= success.covered_ends_at,
@@ -158,10 +164,16 @@ class PostgresMarketDataWorkerStateStore:
                 "updated_at": attempt.attempted_at,
             },
             where=or_(
-                market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+                and_(
+                    market_data_worker_state.c.last_attempt_at < attempt.attempted_at,
+                    market_data_worker_state.c.consecutive_failures
+                    == attempt.expected_consecutive_failures,
+                ),
                 and_(
                     market_data_worker_state.c.last_attempt_at == attempt.attempted_at,
                     market_data_worker_state.c.status == MarketDataWorkerStatus.RUNNING.value,
+                    market_data_worker_state.c.consecutive_failures
+                    == attempt.expected_consecutive_failures,
                 ),
             ),
         )
@@ -183,10 +195,11 @@ class PostgresMarketDataWorkerStateStore:
             row = (await connection.execute(statement)).first()
         return _to_state(row) if row is not None else None
 
-    async def _execute(self, statement: Executable) -> None:
+    async def _execute(self, statement: Executable) -> bool:
         """Commit one atomic state transition."""
         async with self._engine.begin() as connection:
-            await connection.execute(statement)
+            result = await connection.execute(statement)
+        return result.rowcount > 0
 
 
 def _attempt_values(attempt: MarketDataWorkerAttempt) -> dict[str, object]:
