@@ -26,6 +26,7 @@
 	let samplingIntervalSeconds = $state(300);
 	let marketDataPreview: MarketDataPreview | null = $state(null);
 	let marketDataRange: MarketDataRange | null = $state(null);
+	let marketDataRangeAvailability: 'ready' | 'failed' = $state('ready');
 	let marketProducts: MarketProduct[] = $state([]);
 	let selectedMarketProductId = $state('BTC-USD');
 	let marketDataLoading = $state(true);
@@ -58,6 +59,7 @@
 	async function loadMarketData(productId = selectedMarketProductId): Promise<void> {
 		marketDataLoading = true;
 		marketDataAvailability = 'ready';
+		marketDataRangeAvailability = 'ready';
 		try {
 			if (!marketProducts.length) {
 				const catalogResponse = await fetch('/api/v1/market-data/products', {
@@ -84,10 +86,12 @@
 				marketDataRange = (await rangeResponse.json()) as MarketDataRange;
 			} else {
 				marketDataRange = null;
+				marketDataRangeAvailability = 'failed';
 			}
 		} catch {
 			marketDataPreview = null;
 			marketDataRange = null;
+			marketDataRangeAvailability = 'failed';
 			marketDataAvailability = 'failed';
 		} finally {
 			marketDataLoading = false;
@@ -213,6 +217,7 @@
 			<MarketDataPanel
 				preview={marketDataPreview}
 				range={marketDataRange}
+				rangeAvailability={marketDataRangeAvailability}
 				products={marketProducts}
 				selectedProductId={selectedMarketProductId}
 				loading={marketDataLoading}

@@ -173,6 +173,35 @@ class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
         )
 
 
+class BoundaryCandleCoinbaseMarketClient(PagedCoinbaseMarketClient):
+    """SDK-shaped client that includes Coinbase's extra end-boundary candle."""
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Return requested candles plus an open candle at the exclusive range boundary."""
+        response = super().get_candles(product_id, start, end, granularity, limit)
+        payload = response.to_dict()
+        candles = payload["candles"]
+        assert isinstance(candles, list)
+        candles.append(
+            {
+                "start": end,
+                "open": "105",
+                "high": "110",
+                "low": "100",
+                "close": "108",
+                "volume": "1",
+            }
+        )
+        return StubResponse(payload)
+
+
 def test_coinbase_market_data_builds_exact_preview_and_reports_upstream_gaps() -> None:
     """A Coinbase payload should produce validated completed candles and gap metadata."""
     client = StubCoinbaseMarketClient()
@@ -244,3 +273,24 @@ def test_coinbase_market_data_pages_explicit_hourly_range_without_losing_coverag
             350,
         ),
     ]
+
+
+def test_coinbase_market_data_ignores_open_candle_at_exclusive_range_boundary() -> None:
+    """An extra Coinbase boundary candle must not make an otherwise complete range fail closed."""
+    client = BoundaryCandleCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 2, tzinfo=UTC)
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.ONE_HOUR,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.ONE_HOUR.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 24
+    assert report.quality.candle_count == 24
+    assert report.complete is True

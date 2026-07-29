@@ -4,6 +4,7 @@
 	let {
 		preview = null as MarketDataPreview | null,
 		range = null as MarketDataRange | null,
+		rangeAvailability = 'ready' as 'ready' | 'failed',
 		products = [] as MarketProduct[],
 		selectedProductId = 'BTC-USD',
 		loading = false,
@@ -12,6 +13,7 @@
 	}: {
 		preview?: MarketDataPreview | null;
 		range?: MarketDataRange | null;
+		rangeAvailability?: 'ready' | 'failed';
 		products?: MarketProduct[];
 		selectedProductId?: string;
 		loading?: boolean;
@@ -122,6 +124,13 @@
 					</div>
 				</div>
 			</div>
+		{:else if rangeAvailability === 'failed'}
+			<div class="range-summary range-unavailable" role="status">
+				<strong>7-day range coverage unavailable</strong>
+				<span
+					>The recent-candle diagnostic loaded, but the range request failed. Refresh to retry.</span
+				>
+			</div>
 		{/if}
 		<div class:warning={status !== 'Complete'} class="market-detail">
 			<span class="quality-dot"></span>
@@ -212,6 +221,17 @@
 	.range-summary {
 		padding: 14px 24px;
 		border-top: 1px solid #232b2d;
+	}
+	.range-unavailable {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		color: #edbb70;
+		font-size: 12px;
+	}
+	.range-unavailable span {
+		color: #8f9d9f;
 	}
 	.range-header {
 		display: flex;
