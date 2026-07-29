@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import os
 import re
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import polars as pl
 
-from thytrader.market_data.models import CandleInterval, CandleRangeReport
+from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
+from thytrader.market_data.quality import CandleQualityError, analyze_range
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -21,6 +24,7 @@ if TYPE_CHECKING:
 
 _DATASET_SCHEMA_VERSION = 1
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+_FINGERPRINT = re.compile(r"^sha256:([0-9a-f]{64})$")
 
 
 class DatasetStoreError(ValueError):
@@ -96,10 +100,37 @@ class DatasetStore:
             payload = json.loads(manifest_path.read_text())
             manifest = self._manifest_from_payload(payload, manifest_path)
             rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
-        except (OSError, json.JSONDecodeError, pl.exceptions.PolarsError) as error:
+            range_report = analyze_range(
+                _rows_to_candles(rows),
+                CandleInterval.ONE_HOUR,
+                _parse_utc_text(manifest.starts_at),
+                _parse_utc_text(manifest.ends_at),
+                _parse_utc_text(manifest.ends_at) + CandleInterval.ONE_HOUR.duration,
+            )
+        except DatasetStoreError:
+            raise
+        except (
+            CandleQualityError,
+            InvalidOperation,
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+            pl.exceptions.PolarsError,
+        ) as error:
             message = "Dataset verification failed while reading its manifest or Parquet files."
             raise DatasetStoreError(message) from error
 
+        if (
+            not range_report.complete
+            or range_report.requested_candle_count != manifest.expected_candle_count
+            or range_report.quality.candle_count != manifest.received_candle_count
+            or range_report.quality.gap_count != manifest.gap_count
+            or range_report.quality.missing_intervals != manifest.missing_intervals
+        ):
+            message = (
+                "Dataset verification failed because manifest facts do not match candle coverage."
+            )
+            raise DatasetStoreError(message)
         expected = _fingerprint_from_manifest(manifest, rows)
         if manifest.content_fingerprint != f"sha256:{expected}":
             message = "Dataset verification failed because its content fingerprint does not match."
@@ -134,7 +165,9 @@ class DatasetStore:
         temporary = directory / f".{path.name}.{uuid4().hex}.tmp"
         try:
             pl.DataFrame(rows).write_parquet(temporary)
+            _fsync_file(temporary)
             temporary.replace(path)
+            _fsync_directory(directory)
         except Exception:
             temporary.unlink(missing_ok=True)
             raise
@@ -171,8 +204,12 @@ class DatasetStore:
         payload = _manifest_payload(manifest)
         temporary = directory / f".{manifest_path.name}.{uuid4().hex}.tmp"
         try:
-            temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+            with temporary.open("w", encoding="utf-8") as file:
+                file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+                file.flush()
+                os.fsync(file.fileno())
             temporary.replace(manifest_path)
+            _fsync_directory(directory)
         except Exception:
             temporary.unlink(missing_ok=True)
             raise
@@ -202,11 +239,27 @@ class DatasetStore:
         provider = cast("str", manifest_payload["provider"])
         product_id = cast("str", manifest_payload["product_id"])
         timeframe = cast("str", manifest_payload["timeframe"])
+        content_fingerprint = cast("str", manifest_payload["content_fingerprint"])
         _validate_identifier(provider)
         _validate_identifier(product_id)
+        if timeframe != CandleInterval.ONE_HOUR.value:
+            message = "Dataset verification failed because the timeframe is unsupported."
+            raise DatasetStoreError(message)
+        fingerprint_match = _FINGERPRINT.fullmatch(content_fingerprint)
+        if fingerprint_match is None:
+            message = "Dataset verification failed because the content fingerprint is malformed."
+            raise DatasetStoreError(message)
+        expected_manifest_path = self._root / "manifests" / f"{fingerprint_match.group(1)}.json"
+        if manifest_path.resolve() != expected_manifest_path.resolve():
+            message = (
+                "Dataset verification failed: manifest is not at its canonical publication path."
+            )
+            raise DatasetStoreError(message)
         files_value = manifest_payload.get("files")
-        if not isinstance(files_value, list) or not all(
-            isinstance(item, str) for item in files_value
+        if (
+            not files_value
+            or not isinstance(files_value, list)
+            or not all(isinstance(item, str) for item in files_value)
         ):
             message = "Dataset verification failed because manifest files are malformed."
             raise DatasetStoreError(message)
@@ -219,27 +272,46 @@ class DatasetStore:
             "gap_count",
             "missing_intervals",
         )
-        if any(not isinstance(manifest_payload.get(key), int) for key in numeric) or not isinstance(
-            manifest_payload.get("complete"), bool
-        ):
+        if any(
+            not isinstance(manifest_payload.get(key), int)
+            or isinstance(manifest_payload.get(key), bool)
+            for key in numeric
+        ) or not isinstance(manifest_payload.get("complete"), bool):
             message = "Dataset verification failed because manifest facts are malformed."
             raise DatasetStoreError(message)
         complete = cast("bool", manifest_payload["complete"])
         if not complete:
             message = "Dataset verification failed because only complete datasets may be loaded."
             raise DatasetStoreError(message)
+        starts_at = cast("str", manifest_payload["starts_at"])
+        ends_at = cast("str", manifest_payload["ends_at"])
+        duration = _parse_utc_text(ends_at) - _parse_utc_text(starts_at)
+        expected_candle_count = cast("int", manifest_payload["expected_candle_count"])
+        received_candle_count = cast("int", manifest_payload["received_candle_count"])
+        gap_count = cast("int", manifest_payload["gap_count"])
+        missing_intervals = cast("int", manifest_payload["missing_intervals"])
+        if (
+            duration <= timedelta(0)
+            or duration % CandleInterval.ONE_HOUR.duration != timedelta(0)
+            or expected_candle_count != duration // CandleInterval.ONE_HOUR.duration
+            or received_candle_count != expected_candle_count
+            or gap_count != 0
+            or missing_intervals != 0
+        ):
+            message = "Dataset verification failed because manifest facts are inconsistent."
+            raise DatasetStoreError(message)
         return DatasetManifest(
             provider=provider,
             product_id=product_id,
             timeframe=timeframe,
-            starts_at=cast("str", manifest_payload["starts_at"]),
-            ends_at=cast("str", manifest_payload["ends_at"]),
-            expected_candle_count=cast("int", manifest_payload["expected_candle_count"]),
-            received_candle_count=cast("int", manifest_payload["received_candle_count"]),
-            gap_count=cast("int", manifest_payload["gap_count"]),
-            missing_intervals=cast("int", manifest_payload["missing_intervals"]),
+            starts_at=starts_at,
+            ends_at=ends_at,
+            expected_candle_count=expected_candle_count,
+            received_candle_count=received_candle_count,
+            gap_count=gap_count,
+            missing_intervals=missing_intervals,
             complete=complete,
-            content_fingerprint=cast("str", manifest_payload["content_fingerprint"]),
+            content_fingerprint=content_fingerprint,
             files=files,
             manifest_path=manifest_path,
         )
@@ -271,6 +343,21 @@ def _safe_dataset_path(root: Path, relative: str) -> Path:
     return candidate
 
 
+def _fsync_file(path: Path) -> None:
+    """Flush a completed temporary data file before its durable publication rename."""
+    with path.open("rb") as file:
+        os.fsync(file.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush a directory entry after atomically publishing a data or manifest file."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
     """Serialize exact candles into canonical rows suitable for hashing and Parquet storage."""
     return tuple(
@@ -298,6 +385,38 @@ def _parquet_rows(path: Path) -> tuple[dict[str, str], ...]:
         message = "Dataset verification failed because Parquet values differ from the schema."
         raise DatasetStoreError(message)
     return tuple(rows)
+
+
+def _rows_to_candles(rows: Sequence[dict[str, str]]) -> tuple[Candle, ...]:
+    """Reconstruct exact domain candles from verified canonical Parquet row values."""
+    try:
+        return tuple(
+            Candle(
+                starts_at=_parse_utc_text(row["starts_at"]),
+                open=Decimal(row["open"]),
+                high=Decimal(row["high"]),
+                low=Decimal(row["low"]),
+                close=Decimal(row["close"]),
+                volume=Decimal(row["volume"]),
+            )
+            for row in rows
+        )
+    except (InvalidOperation, KeyError, ValueError) as error:
+        message = "Dataset verification failed because Parquet rows are not valid candle values."
+        raise DatasetStoreError(message) from error
+
+
+def _parse_utc_text(value: str) -> datetime:
+    """Parse only canonical UTC RFC3339 timestamps used by manifests and Parquet rows."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        message = "Dataset verification failed because a timestamp is malformed."
+        raise DatasetStoreError(message) from error
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0) or _utc_text(parsed) != value:
+        message = "Dataset verification failed because a timestamp is not canonical UTC."
+        raise DatasetStoreError(message)
+    return parsed
 
 
 def _partition_rows(

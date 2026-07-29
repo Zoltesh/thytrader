@@ -84,13 +84,16 @@ any published dataset. It stores decimal fields as exact strings at the analytic
 a SHA-256 fingerprint over the schema, provider/product identity, requested range, completeness facts,
 and canonical candle content.
 
-Each Parquet file and the final manifest use atomic file replacement. A manifest is written last and
-is the sole publication marker: a crash can leave undiscoverable orphan files, but it cannot publish a
-partial dataset. Existing unmanifested files cause a safe failure rather than being reused.
+Each Parquet file is flushed and atomically renamed, then its directory is synchronized before the
+next publication step. The final manifest is likewise flushed, atomically renamed, and its directory
+synchronized last. A manifest at its canonical `manifests/<content-sha256>.json` path is the sole
+publication marker: a crash can leave undiscoverable orphan files, but it cannot publish a partial
+dataset. Existing unmanifested files cause a safe failure rather than being reused.
 
-`DatasetStore.load_verified()` validates manifest schema and resolved paths beneath the configured
-root, reads every referenced Parquet file, and recomputes the fingerprint before returning a complete
-dataset to a future backtest or worker.
+`DatasetStore.load_verified()` accepts only a complete 1h manifest at that canonical fingerprint path.
+It validates identifier/time/count facts, resolved paths beneath the configured root, and complete
+candle coverage after reading every referenced Parquet file; it then recomputes the fingerprint before
+returning a dataset to a future backtest or worker.
 
 ```text
 <dataset-root>/

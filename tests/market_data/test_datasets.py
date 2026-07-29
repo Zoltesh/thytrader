@@ -97,7 +97,9 @@ def test_dataset_store_rejects_path_traversal_identifiers(tmp_path: Path) -> Non
 
 def test_dataset_store_rejects_manifest_path_traversal(tmp_path: Path) -> None:
     """An untrusted manifest must not redirect the verified reader outside the dataset root."""
-    manifest_path = tmp_path / "malicious.json"
+    fingerprint = "0" * 64
+    manifest_path = tmp_path / "manifests" / f"{fingerprint}.json"
+    manifest_path.parent.mkdir()
     manifest_path.write_text(
         json.dumps(
             {
@@ -112,7 +114,7 @@ def test_dataset_store_rejects_manifest_path_traversal(tmp_path: Path) -> None:
                 "gap_count": 0,
                 "missing_intervals": 0,
                 "complete": True,
-                "content_fingerprint": "sha256:untrusted",
+                "content_fingerprint": f"sha256:{fingerprint}",
                 "files": ["../outside.parquet"],
             }
         )
@@ -127,7 +129,9 @@ def test_dataset_store_rejects_manifest_paths_that_escape_through_symlinks(tmp_p
     outside_root = tmp_path.parent / "outside-dataset-root"
     outside_root.mkdir()
     (tmp_path / "escape").symlink_to(outside_root, target_is_directory=True)
-    manifest_path = tmp_path / "symlink-escape.json"
+    fingerprint = "1" * 64
+    manifest_path = tmp_path / "manifests" / f"{fingerprint}.json"
+    manifest_path.parent.mkdir()
     manifest_path.write_text(
         json.dumps(
             {
@@ -142,7 +146,7 @@ def test_dataset_store_rejects_manifest_paths_that_escape_through_symlinks(tmp_p
                 "gap_count": 0,
                 "missing_intervals": 0,
                 "complete": True,
-                "content_fingerprint": "sha256:untrusted",
+                "content_fingerprint": f"sha256:{fingerprint}",
                 "files": ["escape/outside.parquet"],
             }
         )
@@ -163,6 +167,29 @@ def test_dataset_store_rejects_incomplete_manifest_even_when_it_is_well_formed(
     written.manifest_path.write_text(json.dumps(manifest_body))
 
     with pytest.raises(DatasetStoreError, match="complete"):
+        store.load_verified(written.manifest_path)
+
+
+def test_dataset_store_rejects_manifest_outside_canonical_publication_path(tmp_path: Path) -> None:
+    """A reader must only trust the manifest path selected by the content fingerprint."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    copied_manifest = tmp_path / "unpublished-copy.json"
+    copied_manifest.write_text(written.manifest_path.read_text())
+
+    with pytest.raises(DatasetStoreError, match="canonical publication path"):
+        store.load_verified(copied_manifest)
+
+
+def test_dataset_store_rejects_boolean_manifest_counts(tmp_path: Path) -> None:
+    """JSON booleans must not satisfy integer dataset count fields."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["expected_candle_count"] = True
+    written.manifest_path.write_text(json.dumps(manifest_body))
+
+    with pytest.raises(DatasetStoreError, match="facts are malformed"):
         store.load_verified(written.manifest_path)
 
 
