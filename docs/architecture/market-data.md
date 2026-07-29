@@ -80,8 +80,17 @@ OHLC values. Returning a partial candle set would overstate its quality.
 
 A complete validated 1h range can now be written through the internal `DatasetStore` as immutable,
 date-partitioned Parquet plus a JSON manifest. The writer rejects incomplete ranges before creating
-any files. It stores decimal fields as exact strings at the analytical boundary and uses canonical
-candle content to create a SHA-256 fingerprint.
+any published dataset. It stores decimal fields as exact strings at the analytical boundary and uses
+a SHA-256 fingerprint over the schema, provider/product identity, requested range, completeness facts,
+and canonical candle content.
+
+Each Parquet file and the final manifest use atomic file replacement. A manifest is written last and
+is the sole publication marker: a crash can leave undiscoverable orphan files, but it cannot publish a
+partial dataset. Existing unmanifested files cause a safe failure rather than being reused.
+
+`DatasetStore.load_verified()` validates manifest schema and resolved paths beneath the configured
+root, reads every referenced Parquet file, and recomputes the fingerprint before returning a complete
+dataset to a future backtest or worker.
 
 ```text
 <dataset-root>/

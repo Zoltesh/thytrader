@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
-from typing import TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING, cast
+from uuid import uuid4
 
 import polars as pl
 
@@ -18,10 +20,11 @@ if TYPE_CHECKING:
 
 
 _DATASET_SCHEMA_VERSION = 1
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
 class DatasetStoreError(ValueError):
-    """Raised when a candle range is unsafe to persist as an immutable dataset."""
+    """Raised when a candle range or on-disk dataset is not safe to use."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,10 +47,10 @@ class DatasetManifest:
 
 
 class DatasetStore:
-    """Write complete validated ranges as immutable date-partitioned Parquet datasets."""
+    """Write and verify complete validated ranges as immutable date-partitioned datasets."""
 
     def __init__(self, root: Path) -> None:
-        """Configure the local root under which immutable datasets are created."""
+        """Configure the local root under which immutable datasets are published."""
         self._root = root
 
     def write(
@@ -56,7 +59,9 @@ class DatasetStore:
         product_id: str,
         report: CandleRangeReport,
     ) -> DatasetManifest:
-        """Persist a complete range or reject it before any dataset files are created."""
+        """Write a complete range and publish its manifest only after all files are present."""
+        _validate_identifier(provider)
+        _validate_identifier(product_id)
         if not report.complete:
             message = "Only a complete historical range can be persisted as a dataset."
             raise DatasetStoreError(message)
@@ -64,22 +69,91 @@ class DatasetStore:
             message = "A complete dataset must contain at least one candle."
             raise DatasetStoreError(message)
 
-        rows = _candle_rows(report)
-        digest = _fingerprint(rows)
         timeframe = CandleInterval.ONE_HOUR.value
+        rows = _candle_rows(report)
+        digest = _fingerprint(provider, product_id, timeframe, report, rows)
+        manifest_path = self._root / "manifests" / f"{digest}.json"
+        if manifest_path.exists():
+            return self.load_verified(manifest_path)
+
         files = tuple(
             self._write_partition(provider, product_id, timeframe, day, day_rows, digest)
             for day, day_rows in _partition_rows(rows).items()
         )
-        manifest_path = self._write_manifest(
+        return self._publish_manifest(
             provider,
             product_id,
             timeframe,
             report,
             digest,
             files,
+            manifest_path,
         )
-        return DatasetManifest(
+
+    def load_verified(self, manifest_path: Path) -> DatasetManifest:
+        """Load one manifest and reject missing, malformed, or content-mismatched dataset files."""
+        try:
+            payload = json.loads(manifest_path.read_text())
+            manifest = self._manifest_from_payload(payload, manifest_path)
+            rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
+        except (OSError, json.JSONDecodeError, pl.exceptions.PolarsError) as error:
+            message = "Dataset verification failed while reading its manifest or Parquet files."
+            raise DatasetStoreError(message) from error
+
+        expected = _fingerprint_from_manifest(manifest, rows)
+        if manifest.content_fingerprint != f"sha256:{expected}":
+            message = "Dataset verification failed because its content fingerprint does not match."
+            raise DatasetStoreError(message)
+        return manifest
+
+    def _write_partition(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: str,
+        day: tuple[int, int, int],
+        rows: Sequence[dict[str, str]],
+        digest: str,
+    ) -> Path:
+        """Atomically create one immutable calendar-day file without replacing existing data."""
+        year, month, date = day
+        directory = (
+            self._root
+            / provider
+            / product_id
+            / timeframe
+            / str(year)
+            / f"{month:02}"
+            / f"{date:02}"
+        )
+        path = directory / f"part-{digest}.parquet"
+        if path.exists():
+            message = "Dataset file already exists without a verified published manifest."
+            raise DatasetStoreError(message)
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = directory / f".{path.name}.{uuid4().hex}.tmp"
+        try:
+            pl.DataFrame(rows).write_parquet(temporary)
+            temporary.replace(path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+        return path
+
+    def _publish_manifest(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: str,
+        report: CandleRangeReport,
+        digest: str,
+        files: tuple[Path, ...],
+        manifest_path: Path,
+    ) -> DatasetManifest:
+        """Atomically publish the manifest that makes fully written dataset files discoverable."""
+        directory = manifest_path.parent
+        directory.mkdir(parents=True, exist_ok=True)
+        manifest = DatasetManifest(
             provider=provider,
             product_id=product_id,
             timeframe=timeframe,
@@ -94,70 +168,107 @@ class DatasetStore:
             files=files,
             manifest_path=manifest_path,
         )
+        payload = _manifest_payload(manifest)
+        temporary = directory / f".{manifest_path.name}.{uuid4().hex}.tmp"
+        try:
+            temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+            temporary.replace(manifest_path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+        # A manifest is the sole publication marker; files created before it remain undiscoverable.
+        return manifest
 
-    def _write_partition(
-        self,
-        provider: str,
-        product_id: str,
-        timeframe: str,
-        day: tuple[int, int, int],
-        rows: Sequence[dict[str, str]],
-        digest: str,
-    ) -> Path:
-        """Atomically write one immutable calendar-day partition without replacing existing data."""
-        year, month, date = day
-        directory = (
-            self._root
-            / provider
-            / product_id
-            / timeframe
-            / str(year)
-            / f"{month:02}"
-            / f"{date:02}"
+    def _manifest_from_payload(self, payload: object, manifest_path: Path) -> DatasetManifest:
+        """Validate untrusted manifest JSON before using any referenced dataset file."""
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != _DATASET_SCHEMA_VERSION
+        ):
+            message = "Dataset verification failed because the manifest schema is unsupported."
+            raise DatasetStoreError(message)
+        manifest_payload = cast("dict[str, object]", payload)
+        required_text = (
+            "provider",
+            "product_id",
+            "timeframe",
+            "starts_at",
+            "ends_at",
+            "content_fingerprint",
         )
-        path = directory / f"part-{digest}.parquet"
-        if path.exists():
-            return path
-        directory.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".parquet.tmp")
-        pl.DataFrame(rows).write_parquet(temporary)
-        temporary.replace(path)
-        return path
+        if any(not isinstance(manifest_payload.get(key), str) for key in required_text):
+            message = "Dataset verification failed because the manifest is malformed."
+            raise DatasetStoreError(message)
+        provider = cast("str", manifest_payload["provider"])
+        product_id = cast("str", manifest_payload["product_id"])
+        timeframe = cast("str", manifest_payload["timeframe"])
+        _validate_identifier(provider)
+        _validate_identifier(product_id)
+        files_value = manifest_payload.get("files")
+        if not isinstance(files_value, list) or not all(
+            isinstance(item, str) for item in files_value
+        ):
+            message = "Dataset verification failed because manifest files are malformed."
+            raise DatasetStoreError(message)
+        files = tuple(
+            _safe_dataset_path(self._root, item) for item in cast("list[str]", files_value)
+        )
+        numeric = (
+            "expected_candle_count",
+            "received_candle_count",
+            "gap_count",
+            "missing_intervals",
+        )
+        if any(not isinstance(manifest_payload.get(key), int) for key in numeric) or not isinstance(
+            manifest_payload.get("complete"), bool
+        ):
+            message = "Dataset verification failed because manifest facts are malformed."
+            raise DatasetStoreError(message)
+        complete = cast("bool", manifest_payload["complete"])
+        if not complete:
+            message = "Dataset verification failed because only complete datasets may be loaded."
+            raise DatasetStoreError(message)
+        return DatasetManifest(
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            starts_at=cast("str", manifest_payload["starts_at"]),
+            ends_at=cast("str", manifest_payload["ends_at"]),
+            expected_candle_count=cast("int", manifest_payload["expected_candle_count"]),
+            received_candle_count=cast("int", manifest_payload["received_candle_count"]),
+            gap_count=cast("int", manifest_payload["gap_count"]),
+            missing_intervals=cast("int", manifest_payload["missing_intervals"]),
+            complete=complete,
+            content_fingerprint=cast("str", manifest_payload["content_fingerprint"]),
+            files=files,
+            manifest_path=manifest_path,
+        )
 
-    def _write_manifest(
-        self,
-        provider: str,
-        product_id: str,
-        timeframe: str,
-        report: CandleRangeReport,
-        digest: str,
-        files: tuple[Path, ...],
-    ) -> Path:
-        """Atomically write deterministic metadata adjacent to the dataset root."""
-        directory = self._root / "manifests"
-        path = directory / f"{digest}.json"
-        if path.exists():
-            return path
-        directory.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": _DATASET_SCHEMA_VERSION,
-            "provider": provider,
-            "product_id": product_id,
-            "timeframe": timeframe,
-            "starts_at": _utc_text(report.starts_at),
-            "ends_at": _utc_text(report.ends_at),
-            "expected_candle_count": report.requested_candle_count,
-            "received_candle_count": report.quality.candle_count,
-            "gap_count": report.quality.gap_count,
-            "missing_intervals": report.quality.missing_intervals,
-            "complete": report.complete,
-            "content_fingerprint": f"sha256:{digest}",
-            "files": [str(file.relative_to(self._root)) for file in files],
-        }
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
-        temporary.replace(path)
-        return path
+
+def _validate_identifier(value: str) -> None:
+    """Reject filesystem-unsafe provider and product identifier values."""
+    if not _IDENTIFIER.fullmatch(value):
+        message = "Dataset identifier contains unsafe filesystem characters."
+        raise DatasetStoreError(message)
+
+
+def _safe_dataset_path(root: Path, relative: str) -> Path:
+    """Resolve a manifest-relative path only when it remains safely beneath the dataset root."""
+    if (
+        not relative
+        or relative.startswith(("/", "\\"))
+        or "\\" in relative
+        or ".." in relative.split("/")
+    ):
+        message = "Dataset verification failed because a manifest file path escapes its root."
+        raise DatasetStoreError(message)
+    candidate = root / relative
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError as error:
+        message = "Dataset verification failed because a manifest file path escapes its root."
+        raise DatasetStoreError(message) from error
+    return candidate
 
 
 def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
@@ -175,6 +286,20 @@ def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
     )
 
 
+def _parquet_rows(path: Path) -> tuple[dict[str, str], ...]:
+    """Read canonical string rows from one persisted Parquet file for fingerprint verification."""
+    frame = pl.read_parquet(path)
+    expected_columns = ["starts_at", "open", "high", "low", "close", "volume"]
+    if frame.columns != expected_columns:
+        message = "Dataset verification failed because Parquet columns differ from the schema."
+        raise DatasetStoreError(message)
+    rows = frame.to_dicts()
+    if any(not all(isinstance(value, str) for value in row.values()) for row in rows):
+        message = "Dataset verification failed because Parquet values differ from the schema."
+        raise DatasetStoreError(message)
+    return tuple(rows)
+
+
 def _partition_rows(
     rows: Sequence[dict[str, str]],
 ) -> dict[tuple[int, int, int], list[dict[str, str]]]:
@@ -187,10 +312,69 @@ def _partition_rows(
     return partitions
 
 
-def _fingerprint(rows: Sequence[dict[str, str]]) -> str:
-    """Hash canonical serialized candle content for immutable dataset identity."""
-    encoded = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()
-    return sha256(encoded).hexdigest()
+def _fingerprint(
+    provider: str,
+    product_id: str,
+    timeframe: str,
+    report: CandleRangeReport,
+    rows: Sequence[dict[str, str]],
+) -> str:
+    """Hash complete identity and canonical candle content for immutable dataset identity."""
+    identity = {
+        "schema_version": _DATASET_SCHEMA_VERSION,
+        "provider": provider,
+        "product_id": product_id,
+        "timeframe": timeframe,
+        "starts_at": _utc_text(report.starts_at),
+        "ends_at": _utc_text(report.ends_at),
+        "expected_candle_count": report.requested_candle_count,
+        "received_candle_count": report.quality.candle_count,
+        "gap_count": report.quality.gap_count,
+        "missing_intervals": report.quality.missing_intervals,
+        "complete": report.complete,
+        "rows": rows,
+    }
+    return sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _fingerprint_from_manifest(manifest: DatasetManifest, rows: Sequence[dict[str, str]]) -> str:
+    """Reconstruct the immutable fingerprint using persisted manifest facts and Parquet content."""
+    identity = {
+        "schema_version": _DATASET_SCHEMA_VERSION,
+        "provider": manifest.provider,
+        "product_id": manifest.product_id,
+        "timeframe": manifest.timeframe,
+        "starts_at": manifest.starts_at,
+        "ends_at": manifest.ends_at,
+        "expected_candle_count": manifest.expected_candle_count,
+        "received_candle_count": manifest.received_candle_count,
+        "gap_count": manifest.gap_count,
+        "missing_intervals": manifest.missing_intervals,
+        "complete": manifest.complete,
+        "rows": rows,
+    }
+    return sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _manifest_payload(manifest: DatasetManifest) -> dict[str, object]:
+    """Serialize a manifest without host-specific absolute paths."""
+    return {
+        "schema_version": _DATASET_SCHEMA_VERSION,
+        "provider": manifest.provider,
+        "product_id": manifest.product_id,
+        "timeframe": manifest.timeframe,
+        "starts_at": manifest.starts_at,
+        "ends_at": manifest.ends_at,
+        "expected_candle_count": manifest.expected_candle_count,
+        "received_candle_count": manifest.received_candle_count,
+        "gap_count": manifest.gap_count,
+        "missing_intervals": manifest.missing_intervals,
+        "complete": manifest.complete,
+        "content_fingerprint": manifest.content_fingerprint,
+        "files": [
+            str(file.relative_to(manifest.manifest_path.parent.parent)) for file in manifest.files
+        ],
+    }
 
 
 def _utc_text(value: datetime) -> str:

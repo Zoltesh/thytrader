@@ -84,3 +84,64 @@ test('refreshes the portfolio and presents a redacted connection error', async (
 	await expect(page.getByText('$98,542.17')).toBeVisible();
 	expect(requests).toBe(2);
 });
+
+test('shows a visible range-coverage failure while recent candle diagnostics remain available', async ({
+	page
+}) => {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({ json: demoPortfolio });
+	});
+	await page.route('**/api/v1/market-data/products', async (route) => {
+		await route.fulfill({
+			json: {
+				products: [
+					{
+						product_id: 'BTC-USD',
+						base_currency: 'BTC',
+						quote_currency: 'USD',
+						price_increment: '0.01',
+						base_increment: '0.00000001',
+						quote_increment: '0.01',
+						base_min_size: '0.0001',
+						quote_min_size: '1',
+						trading_enabled: true
+					}
+				]
+			}
+		});
+	});
+	await page.route('**/api/v1/market-data/preview?product_id=BTC-USD', async (route) => {
+		await route.fulfill({
+			json: {
+				product: {
+					product_id: 'BTC-USD',
+					base_currency: 'BTC',
+					quote_currency: 'USD',
+					price_increment: '0.01',
+					base_increment: '0.00000001',
+					quote_increment: '0.01',
+					base_min_size: '0.0001',
+					quote_min_size: '1',
+					trading_enabled: true
+				},
+				timeframe: '1h',
+				as_of: '2026-07-29T00:00:00Z',
+				quality: {
+					candle_count: 24,
+					gap_count: 0,
+					missing_intervals: 0,
+					latest_completed_at: '2026-07-28T23:00:00Z',
+					stale: false
+				}
+			}
+		});
+	});
+	await page.route('**/api/v1/market-data/range?product_id=BTC-USD', async (route) => {
+		await route.fulfill({ status: 502, json: { detail: { code: 'coinbase_unavailable' } } });
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Recent hourly candles are complete and contiguous')).toBeVisible();
+	await expect(page.getByText('7-day range coverage unavailable')).toBeVisible();
+});

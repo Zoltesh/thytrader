@@ -145,7 +145,8 @@ class CoinbaseMarketData:
                 _COINBASE_GRANULARITIES[interval],
                 _CANDLE_PAGE_LIMIT,
             )
-            candles.extend(_parse_candles(response.to_dict()))
+            page_candles = _parse_candles(response.to_dict())
+            candles.extend(candle for candle in page_candles if candle.starts_at != page_end)
             page_start = page_end
         try:
             return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
