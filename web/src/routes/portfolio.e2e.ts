@@ -225,6 +225,37 @@ test('keeps redacted market-data worker failures visible', async ({ page }) => {
 	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 });
 
+test('keeps the retained failure count visible while ingestion retries', async ({ page }) => {
+	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
+		await route.fulfill({
+			json: {
+				provider: 'demo',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				status: 'running',
+				last_attempt_at: '2026-07-29T02:10:00Z',
+				last_success_at: null,
+				requested_starts_at: '2026-07-22T02:00:00Z',
+				requested_ends_at: '2026-07-29T02:00:00Z',
+				fresh: null,
+				coverage: null,
+				failure: {
+					code: 'provider_unavailable',
+					message: 'Historical market-data retrieval failed.',
+					consecutive_failures: 2
+				}
+			}
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Retrieving and validating a bounded hourly range.')).toBeVisible();
+	await expect(
+		page.getByText('2 consecutive failures remain recorded until success.')
+	).toBeVisible();
+});
+
 test('keeps worker evidence visible when the recent-candle preview fails', async ({ page }) => {
 	await page.route('**/api/v1/market-data/preview*', async (route) => {
 		await route.fulfill({ status: 502, contentType: 'application/json', body: '{}' });

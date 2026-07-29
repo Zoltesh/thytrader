@@ -173,7 +173,15 @@
 				<span>No ingestion attempt has been recorded for this product.</span>
 			{:else if ingestion.status === 'running'}
 				<span>Retrieving and validating a bounded hourly range.</span>
-				{#if ingestion.failure}<small>Previous failure remains recorded until success.</small>{/if}
+				{#if ingestion.failure}
+					<small
+						>{ingestion.failure.consecutive_failures} consecutive failure{ingestion.failure
+							.consecutive_failures === 1
+							? ''
+							: 's'}
+						{ingestion.failure.consecutive_failures === 1 ? 'remains' : 'remain'} recorded until success.</small
+					>
+				{/if}
 			{:else if ingestion.status === 'failed'}
 				<strong>Last attempt failed</strong>
 				<span>{ingestion.failure?.message ?? 'A redacted ingestion failure was recorded.'}</span>

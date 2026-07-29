@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 import os
+from uuid import uuid4
 
 from pydantic import SecretStr
 import pytest
@@ -21,7 +22,7 @@ from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.schema import market_data_worker_state
 
-_TEST_DATABASE_URL = os.environ.get("THYTRADER_TEST_DATABASE_URL")
+_TEST_DATABASE_URL = os.environ.get("THYTRADER_TEST_DATABASE_URL") or None
 pytestmark = pytest.mark.skipif(
     _TEST_DATABASE_URL is None,
     reason="THYTRADER_TEST_DATABASE_URL is required for PostgreSQL integration coverage.",
@@ -35,7 +36,7 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
         if _TEST_DATABASE_URL is None:
             raise AssertionError("PostgreSQL integration URL was not configured.")
         writer_engine = create_engine(SecretStr(_TEST_DATABASE_URL))
-        provider = "integration-review"
+        provider = f"integration-{uuid4().hex[:20]}"
         product_id = "BTC-USD"
         timeframe = CandleInterval.ONE_HOUR
         attempt = MarketDataWorkerAttempt(
@@ -49,15 +50,6 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
         store = PostgresMarketDataWorkerStateStore(writer_engine)
         write_complete = False
         try:
-            async with writer_engine.begin() as connection:
-                await connection.execute(
-                    delete(market_data_worker_state).where(
-                        market_data_worker_state.c.provider == provider,
-                        market_data_worker_state.c.product_id == product_id,
-                        market_data_worker_state.c.timeframe == timeframe.value,
-                    )
-                )
-
             await store.record_attempt(attempt)
             await store.record_success(
                 MarketDataWorkerSuccess(
