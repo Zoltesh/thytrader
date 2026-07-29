@@ -177,8 +177,21 @@
 			{:else if ingestion.status === 'failed'}
 				<strong>Last attempt failed</strong>
 				<span>{ingestion.failure?.message ?? 'A redacted ingestion failure was recorded.'}</span>
-			{:else if ingestion.coverage}
-				<strong>{ingestion.fresh ? 'Fresh · complete' : 'Stale · complete'}</strong>
+				{#if ingestion.failure}
+					<small
+						>{ingestion.failure.consecutive_failures} consecutive failure{ingestion.failure
+							.consecutive_failures === 1
+							? ''
+							: 's'}</small
+					>
+				{/if}
+			{/if}
+			{#if ingestionAvailability === 'ready' && ingestion?.coverage}
+				<strong
+					>{ingestion.status === 'succeeded' ? '' : 'Last verified coverage · '}{ingestion.fresh
+						? 'Fresh · complete'
+						: 'Stale · complete'}</strong
+				>
 				<span
 					>{ingestion.coverage.received_candle_count} /
 					{ingestion.coverage.expected_candle_count} candles · {ingestion.coverage.gap_count} gaps</span

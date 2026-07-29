@@ -3,8 +3,8 @@
 
 The helper preserves unrelated ignored ``.env`` settings, configures matching
 local-only PostgreSQL values, applies migrations as a one-shot Compose service,
-and starts PostgreSQL, API, snapshot worker, and web together. It never prints
-credentials or database URLs.
+and starts PostgreSQL, API, portfolio-history worker, market-data worker, and
+web together. It never prints credentials or database URLs.
 """
 
 from __future__ import annotations

@@ -193,11 +193,20 @@ test('keeps redacted market-data worker failures visible', async ({ page }) => {
 				timeframe: '1h',
 				status: 'failed',
 				last_attempt_at: '2026-07-29T02:05:00Z',
-				last_success_at: null,
+				last_success_at: '2026-07-29T01:05:00Z',
 				requested_starts_at: '2026-07-22T02:00:00Z',
 				requested_ends_at: '2026-07-29T02:00:00Z',
-				fresh: null,
-				coverage: null,
+				fresh: false,
+				coverage: {
+					starts_at: '2026-07-22T01:00:00Z',
+					ends_at: '2026-07-29T01:00:00Z',
+					expected_candle_count: 168,
+					received_candle_count: 168,
+					gap_count: 0,
+					missing_intervals: 0,
+					complete: true,
+					content_fingerprint: `sha256:${'b'.repeat(64)}`
+				},
 				failure: {
 					code: 'provider_unavailable',
 					message: 'Historical market-data retrieval failed.',
@@ -211,6 +220,9 @@ test('keeps redacted market-data worker failures visible', async ({ page }) => {
 
 	await expect(page.getByText('Last attempt failed')).toBeVisible();
 	await expect(page.getByText('Historical market-data retrieval failed.')).toBeVisible();
+	await expect(page.getByText('2 consecutive failures')).toBeVisible();
+	await expect(page.getByText('Last verified coverage · Stale · complete')).toBeVisible();
+	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 });
 
 test('keeps worker evidence visible when the recent-candle preview fails', async ({ page }) => {

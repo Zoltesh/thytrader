@@ -123,6 +123,15 @@ operational state; Parquet remains authoritative for immutable candle content. C
 process independently with its own readiness marker, restart policy, and persistent dataset volume.
 Demo ingestion is explicitly identified as provider `demo`; it never masquerades as Coinbase data.
 
+Each hourly cycle publishes a distinct immutable lookback window when its requested range advances.
+Identical retries of the same window are idempotent, but overlapping windows with different start/end
+bounds intentionally have different fingerprints and remain independently verifiable. ThyTrader does
+not automatically prune published manifests or Parquet partitions yet: safe retention requires a
+dataset catalog and reference tracking so an operator cannot delete data that a future reproducible
+backtest names by fingerprint. Until that contract exists, operators must size the dataset volume for
+continued accumulation and treat manual deletion as destructive maintenance performed only while all
+ThyTrader processes are stopped and after preserving any required fingerprints.
+
 This worker has no portfolio-history, strategy, backtest, paper/live trading, broker, transfer,
 withdrawal, leverage, derivatives, or optimization authority.
 

@@ -69,6 +69,12 @@ Restart and automatic retries are idempotent for an unchanged aligned range. A f
 visible until a later verified publication succeeds; neither the endpoint nor dashboard refresh starts
 ingestion.
 
+When the aligned lookback window advances, the worker publishes a new immutable dataset. Overlapping
+hourly windows therefore accumulate by design and are not automatically pruned. Size the
+`thytrader_market_data` volume accordingly; do not manually remove manifests or Parquet files while
+ThyTrader is running. Automated retention is deferred until catalog/reference tracking can prove that
+no reproducible consumer still names a fingerprint.
+
 A normal `docker compose down` preserves PostgreSQL and immutable market-data volumes. Only
 `docker compose down -v` destroys them and is intentionally destructive.
 
