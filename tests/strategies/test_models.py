@@ -31,6 +31,15 @@ def _object_list(value: object) -> list[object]:
     return cast("list[object]", value)
 
 
+def _ema_comparison_payload() -> dict[str, object]:
+    """Return one valid comparison leaf for condition-complexity fixtures."""
+    return {
+        "left": {"indicator": "ema_fast"},
+        "operator": "greater_than",
+        "right": {"indicator": "ema_slow"},
+    }
+
+
 def reference_payload() -> dict[str, object]:
     """Return the documented conservative BTC-USD reference profile."""
     return {
@@ -110,6 +119,77 @@ def reference_payload() -> dict[str, object]:
     }
 
 
+def sma_strategy_payload() -> dict[str, object]:
+    """Return a deterministic published strategy containing a close-price SMA."""
+    payload = reference_payload()
+    payload["strategy_id"] = "01985cf0-7b60-7000-8000-000000000002"
+    payload["name"] = "BTC hourly SMA profile"
+    _object_list(payload["indicators"]).append(
+        {"id": "sma_trend", "kind": "sma", "input": "close", "parameters": {"period": 30}}
+    )
+    return payload
+
+
+def volume_sma_strategy_payload() -> dict[str, object]:
+    """Return a deterministic published strategy containing a volume SMA."""
+    payload = reference_payload()
+    payload["strategy_id"] = "01985cf0-7b60-7000-8000-000000000003"
+    payload["name"] = "BTC hourly volume SMA profile"
+    _object_list(payload["indicators"]).append(
+        {
+            "id": "average_volume",
+            "kind": "volume_sma",
+            "input": "volume",
+            "parameters": {"period": 30},
+        }
+    )
+    return payload
+
+
+def nested_condition_strategy_payload() -> dict[str, object]:
+    """Return a deterministic strategy containing nested AND, OR, and NOT groups."""
+    payload = reference_payload()
+    payload["strategy_id"] = "01985cf0-7b60-7000-8000-000000000004"
+    payload["name"] = "BTC hourly nested condition profile"
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "ema_fast"},
+                "operator": "crosses_above",
+                "right": {"indicator": "ema_slow"},
+            },
+            {
+                "any": [
+                    {
+                        "left": {"indicator": "rsi"},
+                        "operator": "greater_than",
+                        "right": {"literal": "50"},
+                    },
+                    {
+                        "not": {
+                            "left": {"indicator": "ema_fast"},
+                            "operator": "less_than",
+                            "right": {"indicator": "ema_slow"},
+                        }
+                    },
+                ]
+            },
+        ]
+    }
+    return payload
+
+
+def _assert_golden_strategy(
+    payload: dict[str, object], filename: str, expected_fingerprint: str
+) -> None:
+    """Require one canonical strategy variant to match fixed bytes and identity."""
+    definition = StrategyDefinition.model_validate(payload)
+    expected_bytes = (Path(__file__).parent / "golden" / filename).read_bytes()
+    assert canonical_strategy_bytes(definition) == expected_bytes
+    assert strategy_fingerprint(definition) == expected_fingerprint
+
+
 def test_reference_strategy_has_stable_canonical_fingerprint() -> None:
     """Validated definitions serialize deterministically and hash the whole document."""
     definition = StrategyDefinition.model_validate(reference_payload())
@@ -153,6 +233,33 @@ def test_reference_strategy_has_stable_canonical_fingerprint() -> None:
     assert distinct_precise_definition.sizing.risk_fraction == "0.1234567890123456789012345679"
     assert strategy_fingerprint(distinct_precise_definition) != strategy_fingerprint(
         precise_definition
+    )
+
+
+def test_sma_strategy_has_stable_canonical_fingerprint() -> None:
+    """SMA publication semantics are locked by exact canonical bytes and digest."""
+    _assert_golden_strategy(
+        sma_strategy_payload(),
+        "sma_strategy_v1.json",
+        "sha256:7a6ae244a523f14decd096103330ce0b072315a6917adbbbb5a29453b28646d8",
+    )
+
+
+def test_volume_sma_strategy_has_stable_canonical_fingerprint() -> None:
+    """Volume-SMA publication semantics are locked by exact canonical bytes and digest."""
+    _assert_golden_strategy(
+        volume_sma_strategy_payload(),
+        "volume_sma_strategy_v1.json",
+        "sha256:d70ba699a5978b7524496b4bc4d96312a4066dd28bd3f3193b2538c0a0ad8194",
+    )
+
+
+def test_nested_condition_strategy_has_stable_canonical_fingerprint() -> None:
+    """Nested condition semantics are locked by exact canonical bytes and digest."""
+    _assert_golden_strategy(
+        nested_condition_strategy_payload(),
+        "nested_condition_strategy_v1.json",
+        "sha256:d480c48454b55ce4c412643fe35b63d7da254f4793c20f80feafc8c8659fe55e",
     )
 
 
@@ -251,3 +358,248 @@ def test_strategy_rejects_duplicate_indicators_and_insufficient_warmup() -> None
         "required_fields": ["open", "high", "low", "close", "volume"],
     }
     StrategyDefinition.model_validate(maximum_atr_period)
+
+
+def test_strategy_accepts_sma_with_close_input() -> None:
+    """The canonical indicator catalog includes close-price SMA definitions."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.append(
+        {"id": "sma_trend", "kind": "sma", "input": "close", "parameters": {"period": 30}}
+    )
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.indicators[-1].kind.value == "sma"
+    assert definition.indicators[-1].input == "close"
+
+
+def test_strategy_accepts_volume_sma_with_volume_input() -> None:
+    """The canonical indicator catalog includes volume-only SMA definitions."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.append(
+        {
+            "id": "average_volume",
+            "kind": "volume_sma",
+            "input": "volume",
+            "parameters": {"period": 30},
+        }
+    )
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.indicators[-1].kind.value == "volume_sma"
+    assert definition.indicators[-1].input == "volume"
+
+
+def test_sma_indicators_enforce_sources_bounds_and_required_fields() -> None:
+    """SMA variants reject wrong sources, out-of-range periods, and undeclared volume."""
+    wrong_sma_source = reference_payload()
+    _object_list(wrong_sma_source["indicators"]).append(
+        {"id": "sma_trend", "kind": "sma", "input": "volume", "parameters": {"period": 30}}
+    )
+    with pytest.raises(ValidationError, match="sma input must be close"):
+        StrategyDefinition.model_validate(wrong_sma_source)
+
+    wrong_volume_source = reference_payload()
+    _object_list(wrong_volume_source["indicators"]).append(
+        {
+            "id": "average_volume",
+            "kind": "volume_sma",
+            "input": "close",
+            "parameters": {"period": 30},
+        }
+    )
+    with pytest.raises(ValidationError, match="volume_sma input must be volume"):
+        StrategyDefinition.model_validate(wrong_volume_source)
+
+    excessive_period = reference_payload()
+    _object_list(excessive_period["indicators"]).append(
+        {"id": "sma_trend", "kind": "sma", "input": "close", "parameters": {"period": 501}}
+    )
+    with pytest.raises(ValidationError, match="less than or equal to 500"):
+        StrategyDefinition.model_validate(excessive_period)
+
+    missing_volume = reference_payload()
+    _object_list(missing_volume["indicators"]).append(
+        {
+            "id": "average_volume",
+            "kind": "volume_sma",
+            "input": "volume",
+            "parameters": {"period": 30},
+        }
+    )
+    missing_volume["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close"],
+    }
+    with pytest.raises(ValidationError, match="required_fields"):
+        StrategyDefinition.model_validate(missing_volume)
+
+
+def test_strategy_accepts_nested_any_condition_group() -> None:
+    """Entry conditions may nest a non-empty OR group beneath the root AND group."""
+    payload = reference_payload()
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "ema_fast"},
+                "operator": "crosses_above",
+                "right": {"indicator": "ema_slow"},
+            },
+            {
+                "any": [
+                    {
+                        "left": {"indicator": "rsi"},
+                        "operator": "greater_than",
+                        "right": {"literal": "50"},
+                    },
+                    {
+                        "left": {"indicator": "ema_fast"},
+                        "operator": "greater_than",
+                        "right": {"indicator": "ema_slow"},
+                    },
+                ]
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.entry.when.model_dump(mode="json") == entry["when"]
+
+
+def test_strategy_accepts_unary_not_condition_group() -> None:
+    """A NOT group wraps exactly one child and retains its public canonical key."""
+    payload = reference_payload()
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "any": [
+            {
+                "not": {
+                    "left": {"indicator": "rsi"},
+                    "operator": "less_than",
+                    "right": {"literal": "50"},
+                }
+            },
+            {
+                "left": {"indicator": "ema_fast"},
+                "operator": "crosses_above",
+                "right": {"indicator": "ema_slow"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert b'"not":' in canonical_strategy_bytes(definition)
+
+
+def test_strategy_limits_condition_tree_depth() -> None:
+    """Condition trees accept four levels and reject a fifth level."""
+    maximum_depth = reference_payload()
+    maximum_entry = _object_mapping(maximum_depth["entry"])
+    maximum_entry["when"] = {"all": [{"any": [{"not": _ema_comparison_payload()}]}]}
+    StrategyDefinition.model_validate(maximum_depth)
+
+    excessive_depth = reference_payload()
+    excessive_entry = _object_mapping(excessive_depth["entry"])
+    excessive_entry["when"] = {"all": [{"any": [{"not": {"not": _ema_comparison_payload()}}]}]}
+    with pytest.raises(ValidationError, match="condition tree depth"):
+        StrategyDefinition.model_validate(excessive_depth)
+
+
+def test_strategy_limits_condition_tree_node_count() -> None:
+    """Condition trees accept 64 total nodes and reject a sixty-fifth node."""
+    sixty_comparisons = [
+        {"any": [_ema_comparison_payload() for _index in range(20)]} for _group in range(3)
+    ]
+    maximum_nodes = reference_payload()
+    maximum_entry = _object_mapping(maximum_nodes["entry"])
+    maximum_entry["when"] = {"all": sixty_comparisons}
+    StrategyDefinition.model_validate(maximum_nodes)
+
+    excessive_nodes = reference_payload()
+    excessive_entry = _object_mapping(excessive_nodes["entry"])
+    excessive_entry["when"] = {"all": [*sixty_comparisons, _ema_comparison_payload()]}
+    with pytest.raises(ValidationError, match="condition tree node count"):
+        StrategyDefinition.model_validate(excessive_nodes)
+
+
+def test_nested_conditions_reject_empty_malformed_and_unknown_children() -> None:
+    """Recursive groups fail closed on empty, non-unary, and unresolved child shapes."""
+    empty_group = reference_payload()
+    _object_mapping(empty_group["entry"])["when"] = {"any": []}
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        StrategyDefinition.model_validate(empty_group)
+
+    malformed_not = reference_payload()
+    _object_mapping(malformed_not["entry"])["when"] = {
+        "not": [_ema_comparison_payload(), _ema_comparison_payload()]
+    }
+    with pytest.raises(ValidationError):
+        StrategyDefinition.model_validate(malformed_not)
+
+    unknown_nested_reference = nested_condition_strategy_payload()
+    nested_entry = _object_mapping(unknown_nested_reference["entry"])
+    nested_entry["when"] = {
+        "all": [
+            {
+                "any": [
+                    {
+                        "not": {
+                            "left": {"indicator": "missing"},
+                            "operator": "greater_than",
+                            "right": {"literal": "1"},
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    with pytest.raises(ValidationError, match="unknown indicator"):
+        StrategyDefinition.model_validate(unknown_nested_reference)
+
+
+def test_condition_fingerprint_preserves_authored_order_and_nesting() -> None:
+    """Condition ordering and grouping remain explicit parts of immutable identity."""
+    original_payload = nested_condition_strategy_payload()
+    original = StrategyDefinition.model_validate(original_payload)
+
+    reordered_payload = nested_condition_strategy_payload()
+    reordered_entry = _object_mapping(reordered_payload["entry"])
+    reordered_when = _object_mapping(reordered_entry["when"])
+    reordered_all = _object_list(reordered_when["all"])
+    reordered_any = _object_mapping(reordered_all[1])
+    reordered_children = _object_list(reordered_any["any"])
+    reordered_any["any"] = list(reversed(reordered_children))
+    reordered = StrategyDefinition.model_validate(reordered_payload)
+
+    regrouped_payload = nested_condition_strategy_payload()
+    regrouped_entry = _object_mapping(regrouped_payload["entry"])
+    regrouped_when = _object_mapping(regrouped_entry["when"])
+    regrouped_all = _object_list(regrouped_when["all"])
+    regrouped_any = _object_mapping(regrouped_all[1])
+    regrouped_all[1] = {"all": regrouped_any["any"]}
+    regrouped = StrategyDefinition.model_validate(regrouped_payload)
+
+    assert strategy_fingerprint(reordered) != strategy_fingerprint(original)
+    assert strategy_fingerprint(regrouped) != strategy_fingerprint(original)
+
+
+def test_volume_sma_period_contributes_to_required_warmup() -> None:
+    """Volume-SMA periods participate in the strategy-wide warmup requirement."""
+    payload = volume_sma_strategy_payload()
+    indicators = _object_list(payload["indicators"])
+    _object_mapping(indicators[-1])["parameters"] = {"period": 60}
+
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(payload)
+
+    payload["data_requirements"] = {
+        "warmup_bars": 60,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    StrategyDefinition.model_validate(payload)

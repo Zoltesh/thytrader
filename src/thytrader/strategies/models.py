@@ -8,7 +8,7 @@ from enum import StrEnum
 from hashlib import sha256
 import json
 import re
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, TypeAlias
 from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
 
 from pydantic import (
@@ -22,6 +22,8 @@ from pydantic import (
 )
 
 _FINGERPRINT_PREFIX = "sha256:"
+_MAX_CONDITION_DEPTH = 4
+_MAX_CONDITION_NODES = 64
 
 
 def _decimal_text(value: str) -> str:
@@ -107,8 +109,10 @@ class IndicatorKind(StrEnum):
     """Indicators supported by the first canonical reference profile."""
 
     EMA = "ema"
+    SMA = "sma"
     RSI = "rsi"
     ATR = "atr"
+    VOLUME_SMA = "volume_sma"
 
 
 class IndicatorDefinition(_FrozenModel):
@@ -117,7 +121,7 @@ class IndicatorDefinition(_FrozenModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     kind: IndicatorKind
     input: (
-        Literal["close"]
+        Literal["close", "volume"]
         | tuple[
             Literal["high"],
             Literal["low"],
@@ -135,6 +139,9 @@ class IndicatorDefinition(_FrozenModel):
         if self.kind is IndicatorKind.ATR:
             if self.input != ("high", "low", "close"):
                 raise ValueError("ATR input must be high, low, close in canonical order")
+        elif self.kind is IndicatorKind.VOLUME_SMA:
+            if self.input != "volume":
+                raise ValueError("volume_sma input must be volume")
         elif self.input != "close":
             raise ValueError(f"{self.kind.value} input must be close")
         return self
@@ -191,18 +198,76 @@ class ComparisonCondition(_FrozenModel):
 
 
 class AllCondition(_FrozenModel):
-    """Require every bounded comparison in the group to be true."""
+    """Require every bounded child condition in the group to be true."""
 
-    all: tuple[ComparisonCondition, ...] = Field(min_length=1, max_length=20)
+    all: tuple[ConditionNode, ...] = Field(min_length=1, max_length=20)
+
+
+class AnyCondition(_FrozenModel):
+    """Require at least one bounded child condition in the group to be true."""
+
+    any: tuple[ConditionNode, ...] = Field(min_length=1, max_length=20)
+
+
+class NotCondition(_FrozenModel):
+    """Negate exactly one bounded child condition."""
+
+    not_: ConditionNode = Field(alias="not", serialization_alias="not")
+
+
+ConditionNode: TypeAlias = (  # noqa: UP040 - patch tooling must parse pre-3.12 syntax.
+    ComparisonCondition | AllCondition | AnyCondition | NotCondition
+)
+ConditionGroup: TypeAlias = (  # noqa: UP040 - patch tooling must parse pre-3.12 syntax.
+    AllCondition | AnyCondition | NotCondition
+)
+AllCondition.model_rebuild()
+AnyCondition.model_rebuild()
+NotCondition.model_rebuild()
+
+
+def _comparison_conditions(condition: ConditionNode) -> tuple[ComparisonCondition, ...]:
+    """Return every comparison leaf from one bounded declarative condition tree."""
+    if isinstance(condition, ComparisonCondition):
+        return (condition,)
+    if isinstance(condition, NotCondition):
+        return _comparison_conditions(condition.not_)
+    children = condition.all if isinstance(condition, AllCondition) else condition.any
+    return tuple(comparison for child in children for comparison in _comparison_conditions(child))
+
+
+def _condition_tree_size(condition: ConditionNode) -> tuple[int, int]:
+    """Return total node count and maximum depth for one condition tree."""
+    if isinstance(condition, ComparisonCondition):
+        return (1, 1)
+    if isinstance(condition, NotCondition):
+        child_nodes, child_depth = _condition_tree_size(condition.not_)
+        return (child_nodes + 1, child_depth + 1)
+    children = condition.all if isinstance(condition, AllCondition) else condition.any
+    child_sizes = tuple(_condition_tree_size(child) for child in children)
+    return (
+        1 + sum(nodes for nodes, _depth in child_sizes),
+        1 + max(depth for _nodes, depth in child_sizes),
+    )
 
 
 class EntryDefinition(_FrozenModel):
     """Define conservative long-only entry intent and cooldown limits."""
 
     side: Literal["long"]
-    when: AllCondition
+    when: ConditionGroup
     cooldown_bars: int = Field(ge=0, le=10_000)
     max_open_positions: Literal[1]
+
+    @model_validator(mode="after")
+    def validate_condition_complexity(self) -> Self:
+        """Reject condition trees whose bounded grammar could exhaust consumers."""
+        node_count, depth = _condition_tree_size(self.when)
+        if depth > _MAX_CONDITION_DEPTH:
+            raise ValueError(f"condition tree depth exceeds {_MAX_CONDITION_DEPTH}")
+        if node_count > _MAX_CONDITION_NODES:
+            raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
+        return self
 
 
 class RiskFractionSizing(_FrozenModel):
@@ -369,7 +434,7 @@ class StrategyDefinition(_FrozenModel):
         known = set(identifiers)
         references = {
             operand.indicator
-            for condition in self.entry.when.all
+            for condition in _comparison_conditions(self.entry.when)
             for operand in (condition.left, condition.right)
             if isinstance(operand, IndicatorOperand)
         }
@@ -407,7 +472,7 @@ class StrategyDefinition(_FrozenModel):
 
 def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     """Serialize a validated strategy into deterministic canonical UTF-8 JSON."""
-    payload = definition.model_dump(mode="json")
+    payload = definition.model_dump(mode="json", by_alias=True)
     return json.dumps(
         payload,
         sort_keys=True,

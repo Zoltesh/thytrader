@@ -94,8 +94,8 @@ readiness, and graceful shutdown.
 - ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
-- 🚧 Indicator registry: EMA, RSI, and ATR implemented; SMA and volume SMA remain.
-- 🚧 Typed comparisons and bounded `all` groups implemented; nested AND/OR/NOT remains.
+- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, and volume SMA.
+- ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
 - 🚧 Reference EMA trend profile implemented as a backend contract; template/API/UI remains.
 - 🚧 Published versions are immutable; durable draft/archive lifecycle remains.
 - Human-readable strategy summaries.
@@ -103,9 +103,10 @@ readiness, and graceful shutdown.
 **Exit gate:** the same immutable strategy version can be validated and associated with a
 reproducible dataset snapshot.
 
-**Reference-profile exit gate met:** the implemented profile can be validated, published, verified
-by fingerprint, and durably associated only with a verified dataset fingerprint. Phase 2B remains
-in progress until the broader proposed V1 contract and authoring surface are implemented.
+**Declarative publication exit gate met:** the implemented indicator and recursive-condition
+language can be validated, published, verified by fingerprint, and durably associated only with a
+verified dataset fingerprint. Phase 2B remains in progress until the remaining policy variants,
+lifecycle, summaries, and authoring surface are implemented.
 
 ## Phase 3: Backtesting
 

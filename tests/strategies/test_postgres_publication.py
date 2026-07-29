@@ -67,6 +67,13 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
                     {"id": "fast", "kind": "ema", "input": "close", "parameters": {"period": 20}},
                     {"id": "slow", "kind": "ema", "input": "close", "parameters": {"period": 50}},
                     {"id": "rsi", "kind": "rsi", "input": "close", "parameters": {"period": 14}},
+                    {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 30}},
+                    {
+                        "id": "average_volume",
+                        "kind": "volume_sma",
+                        "input": "volume",
+                        "parameters": {"period": 30},
+                    },
                     {
                         "id": "atr",
                         "kind": "atr",
@@ -82,7 +89,23 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
                                 "left": {"indicator": "fast"},
                                 "operator": "crosses_above",
                                 "right": {"indicator": "slow"},
-                            }
+                            },
+                            {
+                                "any": [
+                                    {
+                                        "left": {"indicator": "rsi"},
+                                        "operator": "greater_than",
+                                        "right": {"literal": "50"},
+                                    },
+                                    {
+                                        "not": {
+                                            "left": {"indicator": "sma"},
+                                            "operator": "less_than",
+                                            "right": {"indicator": "slow"},
+                                        }
+                                    },
+                                ]
+                            },
                         ]
                     },
                     "cooldown_bars": 3,

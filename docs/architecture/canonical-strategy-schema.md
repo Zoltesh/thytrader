@@ -11,14 +11,15 @@ document defines the contract.
 
 ## Current implementation boundary
 
-The first Phase 2B slice implements a deliberately narrow, fail-closed profile:
+The implemented Phase 2B publication profile remains deliberately narrow and fail closed:
 
 - frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
-- 1h Coinbase USD spot, long only, one position, with EMA/RSI/ATR indicators;
-- a bounded `all` group of typed comparisons, risk-fraction sizing, ATR-multiple initial stop,
-  reward/risk take profit, disabled trailing stops, and conservative maker preferences;
+- 1h Coinbase USD spot, long only, one position, with EMA/SMA/RSI/ATR/volume-SMA indicators;
+- bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
+  ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
+  preferences;
 - canonical sorted compact JSON and `sha256:<hex>` identity over the entire published document;
 - immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; creation and
   loading re-verify both artifacts and require Coinbase provider, product, and timeframe compatibility.
@@ -27,9 +28,9 @@ The dataset root is a private, worker-owned local trust boundary. Verification a
 bounded verify-then-persist TOCTOU window under that assumption. A binding row records an accepted
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
-Not yet implemented: SMA/volume-SMA, nested AND/OR/NOT groups, other sizing/stop/trailing variants,
-draft persistence and lifecycle transitions, authoring API/UI, summaries, evaluation, backtesting,
-paper execution, or live execution. Unsupported shapes are rejected rather than approximated.
+Not yet implemented: other sizing/stop/trailing variants, draft persistence and lifecycle
+transitions, authoring API/UI, summaries, evaluation, backtesting, paper execution, or live
+execution. Unsupported shapes are rejected rather than approximated.
 
 ## Design principles
 
@@ -170,7 +171,13 @@ vision.
 |----------|-----------|
 | `all` | AND — every child condition must be true. |
 | `any` | OR — at least one child must be true. |
-| `not` | Negation of a single child condition (optional in V1). |
+| `not` | Negation of exactly one child condition. |
+
+The implemented grammar permits any group type at the root or beneath another group. `all` and
+`any` contain 1–20 children; `not` contains exactly one child. A condition tree is limited to 64
+total nodes and depth 4, counting the root group and comparison leaves. JSON object keys are sorted
+for canonical serialization, while child-array order is preserved as authored and remains part of
+the strategy fingerprint. No condition reordering or boolean-algebra simplification occurs.
 
 ### Operands
 

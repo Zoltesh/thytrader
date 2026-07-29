@@ -6,10 +6,11 @@ A strategy is an immutable, versioned document validated by backend-owned schema
 
 The complete V1 field-level contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](canonical-strategy-schema.md). That document is the implementation-facing specification; this document covers the runtime and simulation design.
 
-The first implemented Phase 2B slice validates and immutably publishes the conservative 1h
-EMA/RSI/ATR reference profile, verifies it by canonical SHA-256 fingerprint, and durably associates
-that exact strategy fingerprint with an independently verified immutable dataset fingerprint.
-There is no authoring endpoint, signal evaluator, backtest engine, broker, or order path yet.
+The implemented Phase 2B publication profile validates the conservative 1h indicator catalog
+(EMA, SMA, RSI, ATR, and volume SMA) and bounded recursive AND/OR/NOT conditions, publishes exact
+canonical content immutably, and durably associates that strategy fingerprint with an independently
+verified immutable dataset fingerprint. There is no authoring endpoint, signal evaluator, backtest
+engine, broker, or order path yet.
 
 ## V1 authoring experience
 
