@@ -23,6 +23,8 @@ from thytrader.market_data_worker.service import ingest_once, run_market_data_wo
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 class _StubRangeService:
     """Deterministic provider-neutral range service with controllable outcomes."""
@@ -349,8 +351,11 @@ def test_incremental_revision_reuses_unchanged_day_partitions(tmp_path: Path) ->
     asyncio.run(exercise())
 
 
-def test_ingest_once_does_not_republish_when_dataset_is_current(tmp_path: Path) -> None:
-    """A cycle inside the same closed-candle boundary performs no provider or disk work."""
+def test_ingest_once_does_not_republish_when_dataset_is_current(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A steady-state cycle performs no provider, publication, or dataset-scan work."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
@@ -368,6 +373,11 @@ def test_ingest_once_does_not_republish_when_dataset_is_current(tmp_path: Path) 
             lookback_hours=3,
             now=ends_at + timedelta(minutes=5),
         )
+
+        def fail_load(_fingerprint: str) -> tuple[Candle, ...]:
+            raise AssertionError("steady-state no-op must not scan immutable datasets")
+
+        monkeypatch.setattr(dataset_store, "load_candles", fail_load)
         await ingest_once(
             service=service,
             dataset_store=dataset_store,
@@ -376,10 +386,66 @@ def test_ingest_once_does_not_republish_when_dataset_is_current(tmp_path: Path) 
             product_id="BTC-USD",
             lookback_hours=3,
             now=ends_at + timedelta(minutes=45),
+            verify_current_dataset=False,
         )
 
         assert len(service.requests) == 1
         assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 1
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.last_attempt_at == ends_at + timedelta(minutes=45)
+        assert state.next_retry_at == ends_at + timedelta(minutes=50)
+
+    asyncio.run(exercise())
+
+
+def test_market_data_worker_honors_persisted_retry_deadline_before_first_attempt(
+    tmp_path: Path,
+) -> None:
+    """A restarted worker waits for durable backoff before contacting its provider."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 7, 29, 2, 18, tzinfo=UTC)
+        retry_at = now + timedelta(minutes=29)
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=now - timedelta(minutes=1),
+            requested_starts_at=now.replace(minute=0) - timedelta(hours=3),
+            requested_ends_at=now.replace(minute=0),
+        )
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await state_store.record_attempt(attempt)
+        await state_store.record_failure(
+            MarketDataWorkerFailure(
+                attempt=attempt,
+                code="provider_unavailable",
+                message="Historical market-data retrieval failed.",
+                next_retry_at=retry_at,
+            )
+        )
+        service = _StubRangeService(
+            [_report(starts_at=attempt.requested_starts_at, candle_count=3)]
+        )
+        stop = asyncio.Event()
+        task = asyncio.create_task(
+            run_market_data_worker(
+                stop,
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                interval_seconds=300,
+                now_factory=lambda: now,
+            )
+        )
+        await asyncio.sleep(0.05)
+        assert service.requests == []
+        stop.set()
+        await task
 
     asyncio.run(exercise())
 

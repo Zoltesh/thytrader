@@ -117,8 +117,10 @@ durable datasets. It is distinct from `thytrader-worker`, which records portfoli
 The market-data worker aligns each cycle to the last complete UTC hour. Its first cycle requests a
 configurable bounded 1h lookback. Later cycles plan from durable verified coverage, request only one
 overlap candle plus missing closed candles, and merge the validated response into a new cumulative
-immutable revision. A cycle inside an already-covered hourly boundary performs no provider or disk
-work. The overlap permits a delayed upstream revision to replace the same canonical candle
+immutable revision. After restart, the worker first honors any persisted retry deadline and verifies
+the current immutable dataset before trusting durable coverage. Later cycles inside the same covered
+hour update scheduling diagnostics without provider or dataset I/O. The overlap permits a delayed
+upstream revision to replace the same canonical candle
 deterministically while continuity is revalidated across the whole resulting range.
 
 The worker records each attempt in PostgreSQL before provider I/O. It publishes only when the exact
@@ -128,7 +130,9 @@ fingerprint and revision. A failed retrieval, merge, write, or read-back leaves 
 authoritative.
 
 Failures retain prior verified coverage while recording a stable redacted code/message, consecutive
-failure count, and next retry instant. Retries use capped exponential delay with positive jitter. State
+failure count, and next retry instant. Dataset-verification failures retain those historical facts but
+report coverage availability as unavailable until verification succeeds. Retries use capped
+exponential delay with positive jitter, and persisted deadlines remain effective across restarts. State
 transitions are monotonic: stale attempts and late worker completions cannot replace a newer attempt or
 regress verified coverage. A later verified success clears failure and retry state. PostgreSQL is
 authoritative for coordination;

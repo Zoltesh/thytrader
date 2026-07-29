@@ -147,6 +147,17 @@ def test_market_data_maintenance_migration_extends_worker_state() -> None:
     assert "maintenance_kind" in content
 
 
+def test_market_data_revision_backfill_follows_maintenance_migration() -> None:
+    """The fourth migration assigns revision one to legacy verified datasets."""
+    content = Path("alembic/versions/0004_market_data_revision_backfill.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0004"' in content
+    assert 'down_revision = "0003"' in content
+    assert "UPDATE market_data_worker_state" in content
+    assert "dataset_revision = 1" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

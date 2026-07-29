@@ -51,6 +51,7 @@ async def ingest_once(
     now: datetime,
     retry_base_seconds: int = 300,
     jitter_factory: Callable[[], float] = random.random,
+    verify_current_dataset: bool = True,
 ) -> None:
     """Retrieve, verify, publish, and durably report one bounded hourly range."""
     ends_at = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
@@ -68,6 +69,38 @@ async def ingest_once(
                 expected_ends_at=ends_at,
                 next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
             )
+            covered_starts_at = prior.covered_starts_at
+            expected_candle_count = prior.expected_candle_count
+            received_candle_count = prior.received_candle_count
+            gap_count = prior.gap_count
+            missing_intervals = prior.missing_intervals
+            content_fingerprint = prior.content_fingerprint
+            if (
+                not verify_current_dataset
+                and prior.failure_code != "dataset_verification_failed"
+                and covered_starts_at is not None
+                and expected_candle_count is not None
+                and received_candle_count is not None
+                and gap_count is not None
+                and missing_intervals is not None
+                and content_fingerprint is not None
+            ):
+                await state_store.record_attempt(reconciliation_attempt)
+                await state_store.record_success(
+                    MarketDataWorkerSuccess(
+                        attempt=reconciliation_attempt,
+                        covered_starts_at=covered_starts_at,
+                        covered_ends_at=prior.covered_ends_at,
+                        expected_candle_count=expected_candle_count,
+                        received_candle_count=received_candle_count,
+                        gap_count=gap_count,
+                        missing_intervals=missing_intervals,
+                        content_fingerprint=content_fingerprint,
+                        advances_revision=False,
+                    )
+                )
+                _logger.info("market_data_ingestion_current")
+                return
             try:
                 verified_candles = dataset_store.load_candles(prior.content_fingerprint or "")
             except Exception:  # noqa: BLE001 - restart reconciliation must fail closed.
@@ -204,9 +237,23 @@ async def run_market_data_worker(
     """Run scheduled ingestion until a supervisor requests graceful shutdown."""
     if on_readiness_changed is not None:
         on_readiness_changed(True)
+    verify_current_dataset = True
     try:
         while not stop_requested.is_set():
             cycle_now = now_factory()
+            prior = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+            if (
+                prior is not None
+                and prior.next_retry_at is not None
+                and prior.next_retry_at > cycle_now.astimezone(UTC)
+            ):
+                wait_seconds = max(
+                    1,
+                    int((prior.next_retry_at - cycle_now.astimezone(UTC)).total_seconds()),
+                )
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(stop_requested.wait(), timeout=wait_seconds)
+                continue
             await ingest_once(
                 service=service,
                 dataset_store=dataset_store,
@@ -216,7 +263,9 @@ async def run_market_data_worker(
                 lookback_hours=lookback_hours,
                 now=cycle_now,
                 retry_base_seconds=interval_seconds,
+                verify_current_dataset=verify_current_dataset,
             )
+            verify_current_dataset = False
             state = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
             wait_seconds = interval_seconds
             if state is not None and state.next_retry_at is not None:

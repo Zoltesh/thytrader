@@ -128,7 +128,9 @@ def _to_response(
     freshness = _freshness(state.covered_ends_at, expected_boundary)
     fresh = freshness in {"current", "delayed"} if state.covered_ends_at is not None else None
     coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
-        "complete"
+        "unavailable"
+        if state.failure_code == "dataset_verification_failed"
+        else "complete"
         if coverage is not None and state.complete
         else "gap_detected"
         if state.failure_code == "incomplete_range"
