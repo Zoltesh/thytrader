@@ -17,7 +17,7 @@ services:
     image: postgres:17-alpine
     container_name: thytrader-postgres
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5439:5432"
     environment:
       POSTGRES_USER: ${THYTRADER_PG_USER:-thytrader}
       # This is a local-development fallback only. The bootstrap helper creates

@@ -23,7 +23,7 @@ images, waits for services to become healthy, and does not print credentials or 
 
 - Dashboard: `http://127.0.0.1:5175`
 - API readiness: `http://127.0.0.1:8200/health/ready`
-- PostgreSQL: `127.0.0.1:5433` (loopback only)
+- PostgreSQL: `127.0.0.1:5439` (loopback only)
 
 The worker takes a snapshot at startup and then every five minutes by default. Configure a value
 between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ignored `.env`.

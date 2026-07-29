@@ -44,7 +44,7 @@ def test_settings_treats_an_empty_database_url_as_disabled() -> None:
 
 def test_settings_redacts_a_configured_database_url() -> None:
     """A database URL must not appear in Settings representations."""
-    database_url = "postgresql+asyncpg://thytrader:synthetic-password@127.0.0.1:5433/thytrader"
+    database_url = "postgresql+asyncpg://thytrader:synthetic-password@127.0.0.1:5439/thytrader"
     settings = Settings(database_url=database_url, _env_file=None)
 
     assert settings.database_url is not None

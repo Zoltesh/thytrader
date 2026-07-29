@@ -26,7 +26,7 @@ _DATABASE_NAME_KEY = "THYTRADER_PG_DB"
 _DEFAULT_DATABASE_USER = "thytrader"
 _DEFAULT_DATABASE_NAME = "thytrader"
 _DEFAULT_DATABASE_PASSWORD = "thytrader-local-development-only"  # noqa: S105 - local-only fallback.
-_DATABASE_HOST_PORT = 5433
+_DATABASE_HOST_PORT = 5439
 
 
 def _read_environment(path: Path) -> dict[str, str]:
