@@ -1,12 +1,35 @@
 # Canonical Strategy Schema
 
-> **Status: Proposed V1 contract.** This is a design specification, not an implemented trading
-> capability. It creates no order authority. It exists so that backend models, UI controls,
-> backtests, paper execution, and live execution can all be built against one unambiguous contract.
+> **Status: Partially implemented V1 contract.** The conservative reference profile described
+> below now has backend validation, immutable PostgreSQL publication, verified fingerprint loading,
+> and exact binding to a verified immutable dataset fingerprint. This creates no order authority.
+> The broader authoring contract remains proposed until the unsupported variants below are built.
 
 This document is the implementation-facing specification referenced by
 [ADR 0005](../decisions/0005-canonical-strategy-schema.md). The ADR records the decision; this
 document defines the contract.
+
+## Current implementation boundary
+
+The first Phase 2B slice implements a deliberately narrow, fail-closed profile:
+
+- frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
+  decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
+  resolution, and warmup validation;
+- 1h Coinbase USD spot, long only, one position, with EMA/RSI/ATR indicators;
+- a bounded `all` group of typed comparisons, risk-fraction sizing, ATR-multiple initial stop,
+  reward/risk take profit, disabled trailing stops, and conservative maker preferences;
+- canonical sorted compact JSON and `sha256:<hex>` identity over the entire published document;
+- immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; creation and
+  loading re-verify both artifacts and require Coinbase provider, product, and timeframe compatibility.
+
+The dataset root is a private, worker-owned local trust boundary. Verification and binding have a
+bounded verify-then-persist TOCTOU window under that assumption. A binding row records an accepted
+association, not permanent consumability; every binding load re-verifies both exact artifacts.
+
+Not yet implemented: SMA/volume-SMA, nested AND/OR/NOT groups, other sizing/stop/trailing variants,
+draft persistence and lifecycle transitions, authoring API/UI, summaries, evaluation, backtesting,
+paper execution, or live execution. Unsupported shapes are rejected rather than approximated.
 
 ## Design principles
 
@@ -70,7 +93,7 @@ document defines the contract.
 | `portfolio_limits` | object | Exposure and concurrency limits. |
 | `exits` | object | Stop-loss, take-profit, trailing, and time exits. |
 | `execution` | object | Maker/taker preference and fill-wait policy. |
-| `metadata` | object | Free-form operator notes; never affects evaluation. |
+| `metadata` | object | Typed operator tags and notes; never affects evaluation. |
 
 ### Version lifecycle
 
@@ -108,7 +131,8 @@ Indicators are named, typed definitions with stable IDs for referencing in condi
 Rules:
 
 - IDs must be unique within a strategy.
-- `input` must be one of: `open`, `high`, `low`, `close`, `volume`.
+- Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. ATR uses the
+  canonical ordered array `["high", "low", "close"]` because all three fields are required.
 - Parameters are decimal strings for monetary fields, integers for periods.
 - An indicator with insufficient warmup data produces no value (not zero, not an error); conditions
   referencing an undefined value evaluate to no-signal.
@@ -218,7 +242,7 @@ V1 constraints:
 | Kind | Parameters | Description |
 |------|-----------|-------------|
 | `fixed_quote` | `amount` | Fixed quote-currency amount per entry. |
-| `risk_fraction` | `risk_fraction` | Position size derived from entry-to-stop distance. `risk_fraction` is a fraction of total portfolio value (0–0.25). |
+| `risk_fraction` | `risk_fraction` | Position size derived from entry-to-stop distance. `risk_fraction` is a fraction of total portfolio value (greater than 0 and at most 0.25). |
 
 Rules:
 

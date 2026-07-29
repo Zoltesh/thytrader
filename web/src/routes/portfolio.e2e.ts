@@ -38,7 +38,7 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await page.goto('/');
 
 	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
-	await expect(page.getByText('Demo data')).toBeVisible();
+	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$98,542.17')).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76000000');
 	await expect(page.getByRole('row', { name: /Ethereum ETH/ })).toContainText('$7,342.17');

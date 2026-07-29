@@ -96,9 +96,13 @@ class DatasetStore:
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
         """Resolve and verify exact typed candles by immutable dataset fingerprint."""
-        manifest = self.load_verified(self._manifest_path(content_fingerprint))
+        manifest = self.load_manifest(content_fingerprint)
         rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
         return _rows_to_candles(rows)
+
+    def load_manifest(self, content_fingerprint: str) -> DatasetManifest:
+        """Resolve and verify exact dataset identity and coverage by content fingerprint."""
+        return self.load_verified(self._manifest_path(content_fingerprint))
 
     def extend(self, content_fingerprint: str, report: CandleRangeReport) -> DatasetManifest:
         """Publish a cumulative revision by merging a verified dataset with one overlap range."""

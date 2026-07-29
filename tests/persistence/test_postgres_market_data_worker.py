@@ -142,3 +142,100 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
                 await dispose(reader_engine)
 
     asyncio.run(exercise())
+
+
+@pytest.mark.skipif(
+    _TEST_DATABASE_URL is None,
+    reason="THYTRADER_TEST_DATABASE_URL is required for PostgreSQL integration coverage.",
+)
+def test_postgres_rejects_attempt_planned_from_stale_failure_snapshot() -> None:
+    """Two workers cannot commit a failure using the same durable retry-policy snapshot."""
+
+    async def exercise() -> None:
+        if _TEST_DATABASE_URL is None:
+            raise AssertionError("PostgreSQL integration URL was not configured.")
+        first_engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        second_engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        first_store = PostgresMarketDataWorkerStateStore(first_engine)
+        second_store = PostgresMarketDataWorkerStateStore(second_engine)
+        provider = f"race-{uuid4().hex[:20]}"
+        product_id = "BTC-USD"
+        timeframe = CandleInterval.ONE_HOUR
+        base_at = datetime(2026, 7, 29, 4, 5, tzinfo=UTC)
+        base_attempt = MarketDataWorkerAttempt(
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            attempted_at=base_at,
+            requested_starts_at=base_at - timedelta(hours=3, minutes=5),
+            requested_ends_at=base_at - timedelta(minutes=5),
+        )
+
+        try:
+            assert await first_store.record_attempt(base_attempt) is True
+            await first_store.record_success(
+                MarketDataWorkerSuccess(
+                    attempt=base_attempt,
+                    covered_starts_at=base_attempt.requested_starts_at,
+                    covered_ends_at=base_attempt.requested_ends_at,
+                    expected_candle_count=3,
+                    received_candle_count=3,
+                    gap_count=0,
+                    missing_intervals=0,
+                    content_fingerprint="sha256:" + "b" * 64,
+                )
+            )
+            stale_snapshot = await second_store.get(provider, product_id, timeframe)
+            assert stale_snapshot is not None
+            assert stale_snapshot.consecutive_failures == 0
+
+            accepted_attempt = MarketDataWorkerAttempt(
+                provider=provider,
+                product_id=product_id,
+                timeframe=timeframe,
+                attempted_at=base_at + timedelta(minutes=5),
+                requested_starts_at=base_attempt.requested_starts_at,
+                requested_ends_at=base_attempt.requested_ends_at,
+                expected_consecutive_failures=stale_snapshot.consecutive_failures,
+            )
+            assert await first_store.record_attempt(accepted_attempt) is True
+            accepted_retry_at = accepted_attempt.attempted_at + timedelta(seconds=300)
+            await first_store.record_failure(
+                MarketDataWorkerFailure(
+                    attempt=accepted_attempt,
+                    code="provider_unavailable",
+                    message="Historical market-data retrieval failed.",
+                    next_retry_at=accepted_retry_at,
+                )
+            )
+
+            stale_attempt = MarketDataWorkerAttempt(
+                provider=provider,
+                product_id=product_id,
+                timeframe=timeframe,
+                attempted_at=accepted_attempt.attempted_at + timedelta(seconds=1),
+                requested_starts_at=base_attempt.requested_starts_at,
+                requested_ends_at=base_attempt.requested_ends_at,
+                expected_consecutive_failures=stale_snapshot.consecutive_failures,
+            )
+            assert await second_store.record_attempt(stale_attempt) is False
+
+            final = await second_store.get(provider, product_id, timeframe)
+            assert final is not None
+            assert final.status is MarketDataWorkerStatus.FAILED
+            assert final.last_attempt_at == accepted_attempt.attempted_at
+            assert final.consecutive_failures == 1
+            assert final.next_retry_at == accepted_retry_at
+        finally:
+            async with first_engine.begin() as connection:
+                await connection.execute(
+                    delete(market_data_worker_state).where(
+                        market_data_worker_state.c.provider == provider,
+                        market_data_worker_state.c.product_id == product_id,
+                        market_data_worker_state.c.timeframe == timeframe.value,
+                    )
+                )
+            await dispose(second_engine)
+            await dispose(first_engine)
+
+    asyncio.run(exercise())

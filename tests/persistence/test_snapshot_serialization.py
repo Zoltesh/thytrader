@@ -158,6 +158,39 @@ def test_market_data_revision_backfill_follows_maintenance_migration() -> None:
     assert "dataset_revision = 1" in content
 
 
+def test_schema_metadata_has_immutable_strategy_publication_tables() -> None:
+    """Published definitions and exact dataset bindings have separate durable identities."""
+    strategies = metadata.tables["published_strategy_versions"]
+    bindings = metadata.tables["strategy_dataset_bindings"]
+
+    assert set(strategies.primary_key.columns.keys()) == {"strategy_fingerprint"}
+    assert "canonical_definition" in strategies.columns
+    assert set(bindings.primary_key.columns.keys()) == {
+        "strategy_fingerprint",
+        "dataset_fingerprint",
+    }
+    strategy_constraints = {constraint.name for constraint in strategies.constraints}
+    binding_constraints = {constraint.name for constraint in bindings.constraints}
+    assert "ck_published_strategy_version_positive" in strategy_constraints
+    assert "ck_published_strategy_fingerprint_format" in strategy_constraints
+    assert "ck_strategy_dataset_binding_strategy_fingerprint_format" in binding_constraints
+    assert "ck_strategy_dataset_binding_dataset_fingerprint_format" in binding_constraints
+
+
+def test_strategy_publication_migration_follows_market_data_backfill() -> None:
+    """The fifth migration adds immutable strategy publication without rewriting history."""
+    content = Path("alembic/versions/0005_published_strategy_versions.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0005"' in content
+    assert 'down_revision = "0004"' in content
+    assert "published_strategy_versions" in content
+    assert "strategy_dataset_bindings" in content
+    assert "ck_published_strategy_version_positive" in content
+    assert "ck_published_strategy_fingerprint_format" in content
+    assert "ck_strategy_dataset_binding_dataset_fingerprint_format" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

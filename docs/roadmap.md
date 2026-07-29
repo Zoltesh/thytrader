@@ -83,18 +83,29 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
 multi-product expansion remain before Phase 2A is considered broadly complete.
 
-### Phase 2B: Canonical strategy schema
+The gate has live PostgreSQL evidence: the full migration chain runs on PostgreSQL 18, two
+independent database engines prove stale retry-generation claims are rejected atomically, and the
+installed worker plus deterministic acceptance drill cover initial publication, no-op and
+incremental boundaries, corrupt-manifest reconciliation, provider failure, restart backoff,
+readiness, and graceful shutdown.
 
-- Backend-validated, immutable, versioned declarative strategy schema (see
+### Phase 2B: Canonical strategy schema — 🚧 In progress
+
+- ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
-- Indicator registry (EMA, RSI, ATR, SMA, volume SMA).
-- Nested AND/OR condition builder with typed operators and temporal semantics.
-- Reference EMA trend strategy template.
-- Strategy versioning: draft → published → archived; editing creates a new version.
+- ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
+- 🚧 Indicator registry: EMA, RSI, and ATR implemented; SMA and volume SMA remain.
+- 🚧 Typed comparisons and bounded `all` groups implemented; nested AND/OR/NOT remains.
+- 🚧 Reference EMA trend profile implemented as a backend contract; template/API/UI remains.
+- 🚧 Published versions are immutable; durable draft/archive lifecycle remains.
 - Human-readable strategy summaries.
 
 **Exit gate:** the same immutable strategy version can be validated and associated with a
 reproducible dataset snapshot.
+
+**Reference-profile exit gate met:** the implemented profile can be validated, published, verified
+by fingerprint, and durably associated only with a verified dataset fingerprint. Phase 2B remains
+in progress until the broader proposed V1 contract and authoring surface are implemented.
 
 ## Phase 3: Backtesting
 

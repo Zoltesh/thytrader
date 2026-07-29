@@ -5,14 +5,18 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
+    ForeignKeyConstraint,
     Index,
     Integer,
     MetaData,
     Numeric,
     String,
     Table,
+    Text,
+    UniqueConstraint,
 )
 
 metadata = MetaData()
@@ -86,10 +90,66 @@ market_data_worker_state = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+published_strategy_versions = Table(
+    "published_strategy_versions",
+    metadata,
+    Column("strategy_fingerprint", String(71), primary_key=True),
+    Column("strategy_id", String(36), nullable=False),
+    Column("version", Integer(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("canonical_definition", Text(), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "strategy_id",
+        "version",
+        name="ux_published_strategy_identity_version",
+    ),
+    CheckConstraint(
+        "version > 0",
+        name="ck_published_strategy_version_positive",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_published_strategy_fingerprint_format",
+    ),
+)
+
+strategy_dataset_bindings = Table(
+    "strategy_dataset_bindings",
+    metadata,
+    Column("strategy_fingerprint", String(71), primary_key=True),
+    Column("dataset_fingerprint", String(71), primary_key=True),
+    Column("bound_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["strategy_fingerprint"],
+        ["published_strategy_versions.strategy_fingerprint"],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_strategy_dataset_binding_strategy_fingerprint_format",
+    ),
+    CheckConstraint(
+        "dataset_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_strategy_dataset_binding_dataset_fingerprint_format",
+    ),
+)
+
 Index(
     "ix_portfolio_snapshots_as_of_desc",
     portfolio_snapshots.c.as_of.desc(),
     portfolio_snapshots.c.id.desc(),
 )
 
-__all__ = ["market_data_worker_state", "metadata", "portfolio_snapshots"]
+Index(
+    "ix_strategy_dataset_bindings_dataset_fingerprint",
+    strategy_dataset_bindings.c.dataset_fingerprint,
+)
+
+__all__ = [
+    "market_data_worker_state",
+    "metadata",
+    "portfolio_snapshots",
+    "published_strategy_versions",
+    "strategy_dataset_bindings",
+]
