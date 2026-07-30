@@ -50,7 +50,7 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 test('loads demo portfolio through the real SvelteKit and FastAPI processes', async ({ page }) => {
 	await page.goto('/');
 
-	await expect(page.getByText('Demo data')).toBeVisible();
+	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$99,792.17')).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toBeVisible();
 });

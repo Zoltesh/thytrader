@@ -110,6 +110,12 @@ lifecycle, summaries, and authoring surface are implemented.
 
 ## Phase 3: Backtesting
 
+- ✅ Strict canonical immutable research-run specifications bind exact published strategy and verified
+  dataset fingerprints to half-open evaluation/warmup ranges, exact capital/fee/slippage assumptions,
+  completed-close/next-open timing, an explicit seed, and the implemented request-contract version.
+- ✅ Append-only PostgreSQL publication requires the existing exact strategy/dataset binding and
+  reverifies canonical bytes, denormalized row identity, immutable artifacts, coverage, and final
+  next-open fill data on every load.
 - Event-driven simulation kernel with strict no-lookahead enforcement.
 - Conservative bar-level broker with fees, spread, slippage, latency, and rejection models.
 - Portfolio/risk policy integration.

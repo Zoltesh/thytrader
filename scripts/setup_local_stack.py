@@ -27,6 +27,23 @@ _DEFAULT_DATABASE_USER = "thytrader"
 _DEFAULT_DATABASE_NAME = "thytrader"
 _DEFAULT_DATABASE_PASSWORD = "thytrader-local-development-only"  # noqa: S105 - local-only fallback.
 _DATABASE_HOST_PORT = 5439
+_LEGACY_DATABASE_HOST_PORTS = (5433,)
+_MANAGED_DATABASE_KEYS = {
+    _DATABASE_URL_KEY,
+    _COMPOSE_DATABASE_URL_KEY,
+    _DATABASE_PASSWORD_KEY,
+    _DATABASE_USER_KEY,
+    _DATABASE_NAME_KEY,
+}
+
+
+def _dotenv_key(line: str) -> str | None:
+    """Return one normalized dotenv key using the bootstrap parser's grammar."""
+    stripped_line = line.strip()
+    if not stripped_line or stripped_line.startswith("#") or "=" not in line:
+        return None
+    key, _ = line.split("=", maxsplit=1)
+    return key.strip()
 
 
 def _read_environment(path: Path) -> dict[str, str]:
@@ -36,24 +53,30 @@ def _read_environment(path: Path) -> dict[str, str]:
 
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
-        stripped_line = line.strip()
-        if not stripped_line or stripped_line.startswith("#") or "=" not in line:
+        normalized_key = _dotenv_key(line)
+        if normalized_key is None:
             continue
-        key, value = line.split("=", maxsplit=1)
-        values[key.strip()] = value.strip()
+        _, value = line.split("=", maxsplit=1)
+        if normalized_key in _MANAGED_DATABASE_KEYS and normalized_key in values:
+            raise ValueError(f"duplicate {normalized_key} entries are not safe to rewrite")
+        values[normalized_key] = value.strip()
     return values
 
 
 def _replace_or_append(lines: list[str], key: str, value: str) -> list[str]:
     """Set one dotenv value while preserving comments and unrelated entries."""
     replacement = f"{key}={value}"
-    prefix = f"{key}="
     for index, line in enumerate(lines):
-        if line.startswith(prefix):
+        if _dotenv_key(line) == key:
             lines[index] = replacement
             return lines
     lines.append(replacement)
     return lines
+
+
+def _host_database_url(user: str, password: str, database_name: str, port: int) -> str:
+    """Build one local async PostgreSQL URL without logging its credentials."""
+    return f"postgresql+asyncpg://{user}:{password}@127.0.0.1:{port}/{database_name}"
 
 
 def configure_local_database(
@@ -77,16 +100,21 @@ def configure_local_database(
     encoded_user = quote(user, safe="")
     encoded_password = quote(password, safe="")
     encoded_database_name = quote(database_name, safe="")
-    database_url = (
-        "postgresql+asyncpg://"
-        f"{encoded_user}:{encoded_password}@127.0.0.1:{_DATABASE_HOST_PORT}/"
-        f"{encoded_database_name}"
+    database_url = _host_database_url(
+        encoded_user,
+        encoded_password,
+        encoded_database_name,
+        _DATABASE_HOST_PORT,
     )
     compose_database_url = (
         "postgresql+asyncpg://"
         f"{encoded_user}:{encoded_password}@postgres:5432/{encoded_database_name}"
     )
-    if existing_url and existing_url != database_url:
+    legacy_database_urls = {
+        _host_database_url(encoded_user, encoded_password, encoded_database_name, port)
+        for port in _LEGACY_DATABASE_HOST_PORTS
+    }
+    if existing_url and existing_url != database_url and existing_url not in legacy_database_urls:
         message = (
             "Existing THYTRADER_DATABASE_URL differs; refuse to overwrite "
             "local database configuration."

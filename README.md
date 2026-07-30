@@ -19,7 +19,10 @@ uv run python scripts/setup_local_stack.py
 
 The command is safe to rerun. It preserves unrelated ignored `.env` entries, creates matching
 local-only database settings when needed, refuses to replace a user-managed database URL, builds the
-images, waits for services to become healthy, and does not print credentials or connection URLs.
+images, waits for services to become healthy, and does not print credentials or connection URLs. It
+also recognizes and safely updates ThyTrader's former generated `127.0.0.1:5433` database URL while
+continuing to reject arbitrary custom URLs. Duplicate ThyTrader-managed database keys are rejected as
+ambiguous rather than partially rewritten.
 
 - Dashboard: `http://127.0.0.1:5175`
 - API readiness: `http://127.0.0.1:8200/health/ready`

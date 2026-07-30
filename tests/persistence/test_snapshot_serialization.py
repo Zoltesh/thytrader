@@ -191,6 +191,36 @@ def test_strategy_publication_migration_follows_market_data_backfill() -> None:
     assert "ck_strategy_dataset_binding_dataset_fingerprint_format" in content
 
 
+def test_schema_metadata_has_immutable_research_run_specifications() -> None:
+    """Research requests must retain exact artifact identities and canonical content."""
+    table = metadata.tables["published_research_run_specs"]
+
+    assert set(table.primary_key.columns.keys()) == {"run_fingerprint"}
+    assert "run_id" in table.columns
+    assert "strategy_fingerprint" in table.columns
+    assert "dataset_fingerprint" in table.columns
+    assert "canonical_specification" in table.columns
+    constraints = {constraint.name for constraint in table.constraints}
+    assert "ck_research_run_fingerprint_format" in constraints
+    assert "ck_research_run_strategy_fingerprint_format" in constraints
+    assert "ck_research_run_dataset_fingerprint_format" in constraints
+
+
+def test_research_run_specification_migration_follows_strategy_publication() -> None:
+    """The sixth migration must append immutable run specifications without rewriting history."""
+    content = Path("alembic/versions/0006_published_research_run_specs.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0006"' in content
+    assert 'down_revision = "0005"' in content
+    assert "published_research_run_specs" in content
+    assert "canonical_specification" in content
+    assert "ck_research_run_fingerprint_format" in content
+    assert "ck_research_run_strategy_fingerprint_format" in content
+    assert "ck_research_run_dataset_fingerprint_format" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

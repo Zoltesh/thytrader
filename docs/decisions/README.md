@@ -12,6 +12,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0004](0004-safe-execution-and-access.md) | Use maker-first execution, risk-first exits, loopback-safe deployment, and restrictive credential permissions | Superseded in part by 0006 |
 | [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted |
 | [0006](0006-credential-permission-acceptance.md) | Accept operator-selected Coinbase keys with additional permissions | Accepted |
+| [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted |
 
 ## Status values
 

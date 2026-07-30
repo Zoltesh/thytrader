@@ -73,6 +73,82 @@ def test_configure_local_database_refuses_to_replace_a_custom_database_url(
         module.configure_local_database(environment_path)
 
 
+def test_configure_local_database_migrates_the_generated_legacy_host_port(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap must safely update its own former 5433 host-port default."""
+    module = _load_script()
+    environment_path = tmp_path / ".env"
+    environment_path.write_text(
+        "THYTRADER_API_PORT=8200\n"
+        "THYTRADER_PG_USER=thytrader\n"
+        "THYTRADER_PG_PASSWORD=test-password\n"
+        "THYTRADER_PG_DB=thytrader\n"
+        "THYTRADER_DATABASE_URL="
+        "postgresql+asyncpg://thytrader:test-password@127.0.0.1:5433/thytrader\n"
+        "THYTRADER_COMPOSE_DATABASE_URL="
+        "postgresql+asyncpg://thytrader:test-password@postgres:5432/thytrader\n",
+        encoding="utf-8",
+    )
+
+    module.configure_local_database(environment_path)
+
+    content = environment_path.read_text(encoding="utf-8")
+    assert "@127.0.0.1:5439/thytrader" in content
+    assert "@127.0.0.1:5433/thytrader" not in content
+    assert "THYTRADER_API_PORT=8200" in content
+
+
+def test_configure_local_database_rejects_duplicate_database_url_keys(tmp_path: Path) -> None:
+    """Ambiguous duplicate managed keys must not be partially rewritten."""
+    module = _load_script()
+    environment_path = tmp_path / ".env"
+    original = (
+        "THYTRADER_PG_USER=thytrader\n"
+        "THYTRADER_PG_PASSWORD=test-password\n"
+        "THYTRADER_PG_DB=thytrader\n"
+        "THYTRADER_DATABASE_URL=postgresql+asyncpg://custom@db.example/portfolio\n"
+        "THYTRADER_DATABASE_URL="
+        "postgresql+asyncpg://thytrader:test-password@127.0.0.1:5433/thytrader\n"
+    )
+    environment_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate THYTRADER_DATABASE_URL"):
+        module.configure_local_database(environment_path)
+
+    assert environment_path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize(
+    "database_line",
+    (
+        " THYTRADER_DATABASE_URL=postgresql+asyncpg://thytrader:test-password@127.0.0.1:5433/thytrader",
+        " THYTRADER_DATABASE_URL =postgresql+asyncpg://thytrader:test-password@127.0.0.1:5433/thytrader",
+    ),
+)
+def test_configure_local_database_rewrites_whitespace_normalized_legacy_key(
+    tmp_path: Path,
+    database_line: str,
+) -> None:
+    """Reading and replacing managed keys must use the same normalization rules."""
+    module = _load_script()
+    environment_path = tmp_path / ".env"
+    environment_path.write_text(
+        "THYTRADER_PG_USER=thytrader\n"
+        "THYTRADER_PG_PASSWORD=test-password\n"
+        "THYTRADER_PG_DB=thytrader\n"
+        f"{database_line}\n",
+        encoding="utf-8",
+    )
+
+    module.configure_local_database(environment_path)
+
+    content = environment_path.read_text(encoding="utf-8")
+    assert content.count("THYTRADER_DATABASE_URL") == 1
+    assert "@127.0.0.1:5433/thytrader" not in content
+    assert "@127.0.0.1:5439/thytrader" in content
+
+
 def test_stack_commands_migrate_before_starting_long_running_services() -> None:
     """The one-command path must make migration a gate before API and worker startup."""
     module = _load_script()

@@ -135,6 +135,38 @@ strategy_dataset_bindings = Table(
     ),
 )
 
+published_research_run_specs = Table(
+    "published_research_run_specs",
+    metadata,
+    Column("run_fingerprint", String(71), primary_key=True),
+    Column("run_id", String(36), nullable=False, unique=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("strategy_fingerprint", String(71), nullable=False),
+    Column("dataset_fingerprint", String(71), nullable=False),
+    Column("canonical_specification", Text(), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["strategy_fingerprint", "dataset_fingerprint"],
+        [
+            "strategy_dataset_bindings.strategy_fingerprint",
+            "strategy_dataset_bindings.dataset_fingerprint",
+        ],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "run_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_run_fingerprint_format",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_run_strategy_fingerprint_format",
+    ),
+    CheckConstraint(
+        "dataset_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_run_dataset_fingerprint_format",
+    ),
+)
+
 Index(
     "ix_portfolio_snapshots_as_of_desc",
     portfolio_snapshots.c.as_of.desc(),
@@ -146,10 +178,16 @@ Index(
     strategy_dataset_bindings.c.dataset_fingerprint,
 )
 
+Index(
+    "ix_published_research_run_specs_dataset_fingerprint",
+    published_research_run_specs.c.dataset_fingerprint,
+)
+
 __all__ = [
     "market_data_worker_state",
     "metadata",
     "portfolio_snapshots",
+    "published_research_run_specs",
     "published_strategy_versions",
     "strategy_dataset_bindings",
 ]

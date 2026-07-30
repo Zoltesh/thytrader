@@ -12,6 +12,13 @@ canonical content immutably, and durably associates that strategy fingerprint wi
 verified immutable dataset fingerprint. There is no authoring endpoint, signal evaluator, backtest
 engine, broker, or order path yet.
 
+The first Phase 3 prerequisite is also implemented: an internal immutable
+[research-run specification](research-run-specification.md) binds the exact published strategy and
+verified dataset to evaluation/warmup intervals, exact USD capital, maker/taker fees, fixed slippage,
+completed-close/next-open timing, an explicit seed, and the literal `thytrader-bar-v1` request-contract
+version. PostgreSQL publication is binding-gated and every load reverifies both source artifacts. This
+is a reproducible request contract only; it does not evaluate signals or produce backtest results.
+
 ## V1 authoring experience
 
 The V1 UI uses a structured rule builder with nested AND/OR groups. It should provide:

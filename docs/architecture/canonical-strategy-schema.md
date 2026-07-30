@@ -39,8 +39,8 @@ execution. Unsupported shapes are rejected rather than approximated.
 3. **Decimal-precise.** All monetary and quantity values are strings, consistent with existing
    ThyTrader financial boundaries.
 4. **Explicit and bounded.** Every field has a type, allowed range, and defined invalid behavior.
-5. **Reproducible.** A strategy version + dataset fingerprint + engine version must fully determine
-   a backtest result.
+5. **Reproducible.** A strategy version + dataset fingerprint + canonical research-run specification
+   must disclose every implemented assumption needed to reproduce a future backtest result.
 6. **No false authority.** A validated strategy is not a profitable strategy and not a live order.
 
 ## Top-level document
