@@ -9,15 +9,19 @@ The complete V1 field-level contract — indicators, conditions, entry, sizing, 
 The implemented Phase 2B publication profile validates the conservative 1h indicator catalog
 (EMA, SMA, RSI, ATR, and volume SMA) and bounded recursive AND/OR/NOT conditions, publishes exact
 canonical content immutably, and durably associates that strategy fingerprint with an independently
-verified immutable dataset fingerprint. There is no authoring endpoint, signal evaluator, backtest
-engine, broker, or order path yet.
+verified immutable dataset fingerprint. There is no authoring endpoint, broker, or order path yet.
 
 The first Phase 3 prerequisite is also implemented: an internal immutable
 [research-run specification](research-run-specification.md) binds the exact published strategy and
 verified dataset to evaluation/warmup intervals, exact USD capital, maker/taker fees, fixed slippage,
-completed-close/next-open timing, an explicit seed, and the literal `thytrader-bar-v1` request-contract
-version. PostgreSQL publication is binding-gated and every load reverifies both source artifacts. This
-is a reproducible request contract only; it does not evaluate signals or produce backtest results.
+completed-close/next-open timing, an explicit seed, and an explicit engine-contract version.
+PostgreSQL publication is binding-gated and every load reverifies both source artifacts.
+
+The first executable [signal evaluator](signal-evaluation.md) requires
+`thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
+semantics, and emits a canonical per-candle entry-condition trace without lookahead. Historical
+`thytrader-bar-v1` requests remain request-only. No broker, position or exit state, fills, fees,
+slippage, PnL, result persistence, or complete backtest result exists yet.
 
 ## V1 authoring experience
 

@@ -7,8 +7,9 @@ simulation is allowed to consume, together with the deterministic request assump
 be inherited from ambient configuration. It is an immutable research artifact, not evidence that a
 backtest ran and not authority to place an order.
 
-The implemented contract is internal-only. There is no REST mutation endpoint, authoring UI, signal
-evaluator, simulation kernel, result record, paper broker, Coinbase order call, or live-trading path.
+Publication remains internal-only. A read-only CLI can now evaluate an existing publication that
+selects the explicit signal-engine contract. There is no REST mutation endpoint, authoring UI,
+simulation broker, result record, paper broker, Coinbase order call, or live-trading path.
 
 ## Canonical V1 document
 
@@ -29,7 +30,7 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
 | `costs` | Maker/taker fee rates from zero through `0.1`, maker no greater than taker, and fixed slippage from zero through `1000` basis points. |
 | `bar_execution` | Signals use completed candle closes; modeled fills use the next candle open. |
-| `engine_contract_version` | Exact implemented request-contract literal `thytrader-bar-v1`. It does not claim that an engine exists. |
+| `engine_contract_version` | `thytrader-bar-v1` remains request-only; `thytrader-bar-signal-v1` selects the implemented deterministic indicator and entry-condition evaluator. |
 | `random_seed` | Explicit integer from zero through signed 64-bit maximum. |
 
 Equivalent accepted decimal spellings such as `10000.00` and `10000` share canonical identity. Digits
@@ -62,7 +63,8 @@ facts. Publication proceeds fail closed:
 3. load and reverify the exact immutable dataset manifest and Parquet content;
 4. require the existing immutable strategy/dataset binding;
 5. validate strategy, provider, product, timeframe, warmup, interval, and fill-lookahead compatibility;
-6. insert idempotently by run fingerprint, rejecting a reused `run_id` with different content; and
+6. treat conflicts on either fingerprint or run identity as no-op candidates, then reject a reused
+   `run_id` with different content after the requested fingerprint fails to reload; and
 7. reload canonical content and reverify every denormalized row identity.
 
 Every load repeats canonical-byte, fingerprint, row-identity, strategy, binding, dataset, and eligibility
@@ -78,8 +80,11 @@ be made atomic, so private single-writer ownership is part of the supported loca
 
 ## Deliberate boundary
 
-`thytrader-bar-v1` currently identifies only this request contract and its completed-close/next-open
-timing convention. It does not yet define indicator calculations, signal evaluation, spread, latency,
-partial fills, rejection policy, position state, SL/TP ordering, PnL, metrics, result persistence, or a
-simulation command. Those semantics must be implemented and adversarially tested before any research
-request can become an executed backtest.
+`thytrader-bar-v1` permanently identifies only the request contract and its completed-close/next-open
+timing convention. Existing publications using it are not executable. The identity-bearing
+`thytrader-bar-signal-v1` value selects the formulas and entry-condition semantics in
+[signal-evaluation.md](signal-evaluation.md).
+
+Signal evaluation still does not define spread, latency, partial fills, rejection policy, cooldown or
+position state, SL/TP ordering, PnL, metrics, or result persistence. A deterministic condition trace is
+therefore not an executed backtest or result.

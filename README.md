@@ -127,3 +127,18 @@ uv run ruff check .
 uv run ruff format --check .
 uv run ty check
 ```
+
+## Read-only research signal evaluation
+
+An existing published research run that explicitly selects `thytrader-bar-signal-v1` can be replayed
+against its exact verified strategy and Parquet dataset:
+
+```bash
+uv run thytrader-research-evaluate <run_fingerprint> --pretty
+```
+
+The command prints a deterministic completed-candle entry-condition trace and its SHA-256 fingerprint.
+It does not publish a run, create an order intent, apply cooldown, simulate entries or exits, calculate
+PnL, persist results, or mutate trading state. There is not yet a public run-authoring workflow or
+dashboard backtest screen; see the
+[signal-evaluation contract](docs/architecture/signal-evaluation.md) for exact semantics and limits.

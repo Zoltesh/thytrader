@@ -9,7 +9,7 @@ import os
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 import pytest
 from sqlalchemy import delete, update
 
@@ -47,7 +47,7 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
         definition = StrategyDefinition.model_validate(
             {
                 "schema_version": "1.0",
-                "strategy_id": "01985cf0-7b60-7000-8000-000000000001",
+                "strategy_id": "01985cf0-7b60-7000-8000-000000000003",
                 "version": 1,
                 "name": "BTC hourly EMA trend",
                 "description": "Reference research strategy; not trading authority.",
@@ -188,18 +188,24 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
             forged = definition.model_copy(update={"version": 0})
             with pytest.raises(StrategyPublicationError, match="invalid"):
                 await store.publish(forged)
-            with pytest.raises(StrategyPublicationError, match="not found"):
-                await store.load(strategy_fingerprint(forged))
+            with pytest.raises(ValidationError):
+                strategy_fingerprint(forged)
 
-            second_engine = create_engine(SecretStr(_TEST_DATABASE_URL))
-            second_store = PostgresStrategyPublicationStore(second_engine)
+            concurrent_engines = [create_engine(SecretStr(_TEST_DATABASE_URL)) for _ in range(3)]
+            concurrent_stores = [
+                PostgresStrategyPublicationStore(concurrent_engine)
+                for concurrent_engine in concurrent_engines
+            ]
             try:
                 identical_results = await asyncio.gather(
                     store.publish(definition),
-                    second_store.publish(definition),
+                    *(
+                        concurrent_store.publish(definition)
+                        for concurrent_store in concurrent_stores
+                    ),
                 )
                 published_fingerprints.add(identical_results[0].strategy_fingerprint)
-                assert identical_results[0] == identical_results[1]
+                assert all(result == identical_results[0] for result in identical_results[1:])
 
                 conflict_identity = UUID("01985cf0-7b60-7000-8000-000000000002")
                 first_conflict = definition.model_copy(
@@ -210,7 +216,7 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
                 )
                 conflict_results = await asyncio.gather(
                     store.publish(first_conflict),
-                    second_store.publish(second_conflict),
+                    concurrent_stores[0].publish(second_conflict),
                     return_exceptions=True,
                 )
                 conflict_successes = [
@@ -226,8 +232,18 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
                 )
                 assert len(conflict_successes) == 1
                 assert len(conflict_errors) == 1
+                assert "different content" in str(conflict_errors[0])
+                sequential_conflict = definition.model_copy(
+                    update={
+                        "strategy_id": conflict_identity,
+                        "description": "sequential loser",
+                    }
+                )
+                with pytest.raises(StrategyPublicationError, match="different content"):
+                    await store.publish(sequential_conflict)
             finally:
-                await dispose(second_engine)
+                for concurrent_engine in concurrent_engines:
+                    await dispose(concurrent_engine)
 
             published = identical_results[0]
             assert published.definition == definition

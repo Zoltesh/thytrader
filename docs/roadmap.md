@@ -116,6 +116,9 @@ lifecycle, summaries, and authoring surface are implemented.
 - ✅ Append-only PostgreSQL publication requires the existing exact strategy/dataset binding and
   reverifies canonical bytes, denormalized row identity, immutable artifacts, coverage, and final
   next-open fill data on every load.
+- ✅ Versioned deterministic indicator and entry-condition evaluation for executable
+  `thytrader-bar-signal-v1` publications, with strict no-lookahead candle selection, canonical
+  fingerprinted traces, and a read-only CLI. Traces are ephemeral and are not backtest results.
 - Event-driven simulation kernel with strict no-lookahead enforcement.
 - Conservative bar-level broker with fees, spread, slippage, latency, and rejection models.
 - Portfolio/risk policy integration.

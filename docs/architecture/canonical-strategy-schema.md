@@ -21,16 +21,21 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
   preferences;
 - canonical sorted compact JSON and `sha256:<hex>` identity over the entire published document;
-- immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; creation and
-  loading re-verify both artifacts and require Coinbase provider, product, and timeframe compatibility.
+- immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; concurrent
+  conflicts on either fingerprint or strategy-version identity become no-op candidates, after which
+  reload of the requested fingerprint either succeeds for identical content or fails closed for a
+  reused identity with different content; loading re-verifies both exact artifacts and requires
+  Coinbase provider, product, and timeframe compatibility.
 
 The dataset root is a private, worker-owned local trust boundary. Verification and binding have a
 bounded verify-then-persist TOCTOU window under that assumption. A binding row records an accepted
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
 Not yet implemented: other sizing/stop/trailing variants, draft persistence and lifecycle
-transitions, authoring API/UI, summaries, evaluation, backtesting, paper execution, or live
-execution. Unsupported shapes are rejected rather than approximated.
+transitions, authoring API/UI, summaries, broker/accounting simulation, completed backtest results,
+paper execution, or live execution. Published `thytrader-bar-signal-v1` runs support read-only
+deterministic entry-condition evaluation as defined in
+[Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
 ## Design principles
 

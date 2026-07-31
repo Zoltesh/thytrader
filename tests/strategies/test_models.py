@@ -603,3 +603,14 @@ def test_volume_sma_period_contributes_to_required_warmup() -> None:
         "required_fields": ["open", "high", "low", "close", "volume"],
     }
     StrategyDefinition.model_validate(payload)
+
+
+def test_strategy_identity_helpers_revalidate_copied_models() -> None:
+    """Canonical strategy identities reject instances forged by unchecked model copies."""
+    strategy = StrategyDefinition.model_validate(reference_payload())
+    forged = strategy.model_copy(update={"name": ""})
+
+    with pytest.raises(ValidationError):
+        canonical_strategy_bytes(forged)
+    with pytest.raises(ValidationError):
+        strategy_fingerprint(forged)

@@ -40,6 +40,7 @@ from thytrader.research.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
 )
+from thytrader.research.signal_service import evaluate_published_signal_run
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -245,8 +246,19 @@ def test_postgres_publishes_and_reverifies_exact_research_run_spec(tmp_path: Pat
                 ]
                 assert len(successes) == 1
                 assert len(errors) == 1
+                assert "different content" in str(errors[0])
                 run_fingerprints.add(successes[0].run_fingerprint)
                 assert successes[0].specification.run_id == conflict_base.run_id
+                sequential_conflict = conflict_base.model_copy(
+                    update={
+                        "capital": CapitalAssumptions(
+                            quote_currency="USD",
+                            initial_quote_balance="30000",
+                        )
+                    }
+                )
+                with pytest.raises(ResearchRunPublicationError, match="different content"):
+                    await run_store.publish(sequential_conflict, dataset_store=dataset_store)
             finally:
                 await dispose(second_engine)
 
@@ -257,6 +269,26 @@ def test_postgres_publishes_and_reverifies_exact_research_run_spec(tmp_path: Pat
                 await run_store.load(published.run_fingerprint, dataset_store=dataset_store)
                 == published
             )
+
+            executable = specification.model_copy(
+                update={
+                    "run_id": UUID("019faf76-6600-7000-8000-000000000070"),
+                    "engine_contract_version": "thytrader-bar-signal-v1",
+                }
+            )
+            executable_published = await run_store.publish(
+                executable,
+                dataset_store=dataset_store,
+            )
+            run_fingerprints.add(executable_published.run_fingerprint)
+            trace = await evaluate_published_signal_run(
+                executable_published.run_fingerprint,
+                run_store=run_store,
+                strategy_store=strategy_store,
+                dataset_store=dataset_store,
+            )
+            assert len(trace.records) == 240
+            assert {record.entry_condition for record in trace.records} == {"not_matched"}
 
             async with engine.begin() as connection:
                 await connection.execute(

@@ -189,7 +189,7 @@ class ResearchRunSpecification(_FrozenModel):
     capital: CapitalAssumptions
     costs: CostAssumptions
     bar_execution: BarExecutionAssumptions
-    engine_contract_version: Literal["thytrader-bar-v1"]
+    engine_contract_version: Literal["thytrader-bar-v1", "thytrader-bar-signal-v1"]
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
     @field_validator("run_id")
@@ -235,8 +235,9 @@ class ResearchRunSpecification(_FrozenModel):
 
 
 def canonical_research_run_bytes(specification: ResearchRunSpecification) -> bytes:
-    """Serialize a validated run specification into deterministic canonical UTF-8 JSON."""
-    payload = specification.model_dump(mode="json")
+    """Revalidate and serialize a run specification into deterministic canonical UTF-8 JSON."""
+    validated = ResearchRunSpecification.model_validate(specification.model_dump(mode="python"))
+    payload = validated.model_dump(mode="json")
     return json.dumps(
         payload,
         sort_keys=True,

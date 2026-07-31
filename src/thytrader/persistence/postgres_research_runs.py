@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -65,20 +65,37 @@ class PostgresResearchRunStore:
                 canonical_specification=canonical,
                 published_at=datetime.now(UTC),
             )
-            .on_conflict_do_nothing(index_elements=["run_fingerprint"])
+            .on_conflict_do_nothing()
         )
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
-        except IntegrityError as error:
-            raise ResearchRunPublicationError(
-                "This research run identity was already published with different content."
-            ) from error
         except SQLAlchemyError as error:
             raise ResearchRunPublicationError(
                 "Research run publication storage is unavailable."
             ) from error
-        published = await self.load(fingerprint, dataset_store=dataset_store)
+        try:
+            published = await self.load(fingerprint, dataset_store=dataset_store)
+        except ResearchRunPublicationError as error:
+            if "was not found" not in str(error):
+                raise
+            identity_statement = select(published_research_run_specs.c.run_fingerprint).where(
+                published_research_run_specs.c.run_id == str(validated.run_id)
+            )
+            try:
+                async with self._engine.connect() as connection:
+                    existing_fingerprint = (
+                        await connection.execute(identity_statement)
+                    ).scalar_one_or_none()
+            except SQLAlchemyError as storage_error:
+                raise ResearchRunPublicationError(
+                    "Research run publication storage is unavailable."
+                ) from storage_error
+            if existing_fingerprint is not None:
+                raise ResearchRunPublicationError(
+                    "This research run identity was already published with different content."
+                ) from error
+            raise
         if published.specification != validated:
             raise ResearchRunPublicationError(
                 "Published research run content failed integrity verification."

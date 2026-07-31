@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.schema import published_strategy_versions, strategy_dataset_bindings
@@ -61,20 +61,39 @@ class PostgresStrategyPublicationStore:
                 canonical_definition=canonical,
                 published_at=datetime.now(UTC),
             )
-            .on_conflict_do_nothing(index_elements=["strategy_fingerprint"])
+            .on_conflict_do_nothing()
         )
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
-        except IntegrityError as error:
-            raise StrategyPublicationError(
-                "This strategy identity and version was already published with different content."
-            ) from error
         except SQLAlchemyError as error:
             raise StrategyPublicationError(
                 "Strategy publication storage is unavailable."
             ) from error
-        published = await self.load(fingerprint)
+        try:
+            published = await self.load(fingerprint)
+        except StrategyPublicationError as error:
+            if "was not found" not in str(error):
+                raise
+            identity_statement = select(published_strategy_versions.c.strategy_fingerprint).where(
+                published_strategy_versions.c.strategy_id == str(validated.strategy_id),
+                published_strategy_versions.c.version == validated.version,
+            )
+            try:
+                async with self._engine.connect() as connection:
+                    existing_fingerprint = (
+                        await connection.execute(identity_statement)
+                    ).scalar_one_or_none()
+            except SQLAlchemyError as storage_error:
+                raise StrategyPublicationError(
+                    "Strategy publication storage is unavailable."
+                ) from storage_error
+            if existing_fingerprint is not None:
+                raise StrategyPublicationError(
+                    "This strategy identity and version was already published "
+                    "with different content."
+                ) from error
+            raise
         if published.definition != validated:
             raise StrategyPublicationError(
                 "Published strategy content failed integrity verification."

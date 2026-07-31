@@ -471,8 +471,11 @@ class StrategyDefinition(_FrozenModel):
 
 
 def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
-    """Serialize a validated strategy into deterministic canonical UTF-8 JSON."""
-    payload = definition.model_dump(mode="json", by_alias=True)
+    """Revalidate and serialize a strategy into deterministic canonical UTF-8 JSON."""
+    validated = StrategyDefinition.model_validate(
+        definition.model_dump(mode="python", by_alias=True)
+    )
+    payload = validated.model_dump(mode="json", by_alias=True)
     return json.dumps(
         payload,
         sort_keys=True,
