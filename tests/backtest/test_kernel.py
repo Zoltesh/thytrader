@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
+from pydantic import ValidationError
 import pytest
 
 from thytrader.backtest.kernel import BacktestSimulationError, simulate_backtest
+from thytrader.backtest.models import canonical_backtest_result_bytes
 from thytrader.market_data.models import Candle
 from thytrader.research.models import (
     BarExecutionAssumptions,
@@ -156,6 +158,40 @@ def test_simulation_rejects_a_signal_only_research_run() -> None:
 
     with pytest.raises(BacktestSimulationError, match="backtest engine contract"):
         simulate_backtest(signal_only_run, strategy, _candles())
+
+
+def test_simulation_skips_a_zero_atr_entry_without_failing() -> None:
+    """A valid flat market produces no ATR-sized entry instead of division by zero."""
+    strategy = _strategy()
+    flat_candles = tuple(
+        Candle(
+            starts_at=datetime(2026, 8, 1, hour, tzinfo=UTC),
+            open=Decimal("14"),
+            high=Decimal("14"),
+            low=Decimal("14"),
+            close=Decimal("14"),
+            volume=Decimal("10"),
+        )
+        for hour in range(5)
+    )
+
+    result = simulate_backtest(_run(strategy), strategy, flat_candles)
+
+    assert result.trades == ()
+    assert result.summary.trade_count == 0
+
+
+@pytest.mark.parametrize("noncanonical", ["10000.0", "-0"])
+def test_result_fingerprint_rejects_noncanonical_decimal_rendering(noncanonical: str) -> None:
+    """Equivalent Decimal spellings must never create different immutable result identities."""
+    strategy = _strategy()
+    result = simulate_backtest(_run(strategy), strategy, _candles())
+    forged = result.model_copy(
+        update={"summary": result.summary.model_copy(update={"initial_equity": noncanonical})}
+    )
+
+    with pytest.raises(ValidationError, match="canonical plain decimal"):
+        canonical_backtest_result_bytes(forged)
 
 
 def test_final_fill_candle_non_open_values_do_not_affect_simulation() -> None:

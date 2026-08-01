@@ -234,6 +234,8 @@ def _open_position(
     atr = _indicator_value(pending.signal, strategy.exits.initial_stop.atr_indicator)
     entry_price = _buy_price(candle.open, slippage_bps)
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
+    if stop_distance <= 0:
+        return None, cash
     stop_price = entry_price - stop_distance
     if stop_price <= 0:
         return None, cash

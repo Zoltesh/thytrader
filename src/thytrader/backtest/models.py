@@ -41,7 +41,29 @@ def _validate_result_decimal_text(value: str) -> str:
         or parsed.adjusted() > 6144
     ):
         raise ValueError("result decimals must fit the deterministic Decimal envelope")
+    if value != _canonical_result_decimal(parsed):
+        raise ValueError("result decimals must use canonical plain decimal rendering")
     return value
+
+
+def _canonical_result_decimal(value: Decimal) -> str:
+    """Render a finite Decimal without ambient-context rounding or signed zero."""
+    if value.is_zero():
+        return "0"
+    sign, digits, exponent = value.as_tuple()
+    if not isinstance(exponent, int):
+        raise TypeError("finite Decimal must have an integer exponent")
+    coefficient = "".join(str(digit) for digit in digits)
+    if exponent >= 0:
+        text = coefficient + "0" * exponent
+    else:
+        point = len(coefficient) + exponent
+        if point > 0:
+            text = f"{coefficient[:point]}.{coefficient[point:]}"
+        else:
+            text = f"0.{('0' * -point)}{coefficient}"
+        text = text.rstrip("0").rstrip(".")
+    return f"-{'0' if text == '0' else text}" if sign else text
 
 
 ResultDecimalText = Annotated[
