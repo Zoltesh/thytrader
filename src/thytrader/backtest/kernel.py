@@ -164,7 +164,7 @@ def _simulate_backtest(
 
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-sim-v1",
+        engine_contract_version="thytrader-bar-backtest-v1",
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
@@ -189,8 +189,8 @@ def _validated_inputs(
         )
     except ValidationError as error:
         raise BacktestSimulationError("Backtest inputs are invalid.") from error
-    if validated_specification.engine_contract_version != "thytrader-bar-signal-v1":
-        raise BacktestSimulationError("Backtest requires the executable signal engine contract.")
+    if validated_specification.engine_contract_version != "thytrader-bar-backtest-v1":
+        raise BacktestSimulationError("Backtest requires the backtest engine contract.")
     if strategy_fingerprint(validated_strategy) != validated_specification.strategy_fingerprint:
         raise BacktestSimulationError("Backtest strategy identity failed verification.")
     return validated_specification, validated_strategy

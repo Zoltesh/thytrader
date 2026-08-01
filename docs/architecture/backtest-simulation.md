@@ -2,7 +2,9 @@
 
 ## Purpose and boundary
 
-`thytrader-bar-sim-v1` turns one exact published `thytrader-bar-signal-v1` research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. It is a research-only component: it cannot create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
+`thytrader-bar-backtest-v1` turns one exact published `thytrader-bar-backtest-v1` research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. It is a research-only component: it cannot create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
+
+`thytrader-bar-v1` remains request-only and `thytrader-bar-signal-v1` remains signal-trace-only. They fail closed at this simulator boundary: a backtest requires a separately published run carrying the backtest engine contract, so old immutable request bytes never acquire new fill/PnL meaning.
 
 The public command is:
 
@@ -18,9 +20,8 @@ The result stores these immutable source identities:
 
 - published research-run fingerprint;
 - published strategy fingerprint;
-- immutable dataset fingerprint;
-- canonical signal-trace fingerprint; and
-- `thytrader-bar-sim-v1` engine-contract version.
+- immutable dataset fingerprint; and
+- `thytrader-bar-backtest-v1` engine-contract version.
 
 Canonical result JSON is sorted, compact UTF-8 JSON. Its SHA-256 fingerprint is the result identity. Publication revalidates unchecked in-memory models, source-row identities, canonical bytes, and the stored fingerprint on every load. Results are append-only and idempotent by result fingerprint; multiple engine versions may derive different results from the same run without rewriting earlier evidence.
 

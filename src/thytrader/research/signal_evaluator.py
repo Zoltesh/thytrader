@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal, DecimalException
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import ValidationError
 
@@ -57,7 +57,7 @@ def evaluate_signal_trace(
         )
     except ValidationError as error:
         raise SignalEvaluationError("Signal evaluation inputs are invalid.") from error
-    _verify_contract(specification, strategy)
+    engine_contract_version = _verify_contract(specification, strategy)
     engine_candles = _required_candles(specification, candles)
     try:
         indicator_rows = calculate_indicator_rows(strategy.indicators, engine_candles)
@@ -89,7 +89,7 @@ def evaluate_signal_trace(
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
-        engine_contract_version="thytrader-bar-signal-v1",
+        engine_contract_version=engine_contract_version,
         indicator_ids=tuple(indicator.id for indicator in strategy.indicators),
         records=tuple(records),
     )
@@ -103,14 +103,21 @@ def _canonical_optional(value: Decimal | None) -> str | None:
 def _verify_contract(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
-) -> None:
-    """Require exact executable version and immutable strategy identity before calculation."""
-    if specification.engine_contract_version != "thytrader-bar-signal-v1":
+) -> Literal["thytrader-bar-signal-v1", "thytrader-bar-backtest-v1"]:
+    """Require an executable engine contract and immutable strategy identity."""
+    engine_contract_version = specification.engine_contract_version
+    if engine_contract_version == "thytrader-bar-v1":
         raise SignalEvaluationError("Research run does not select the executable signal contract.")
+    if engine_contract_version not in {
+        "thytrader-bar-signal-v1",
+        "thytrader-bar-backtest-v1",
+    }:
+        raise AssertionError("Research run engine contract literal is invalid.")
     if strategy_fingerprint(strategy) != specification.strategy_fingerprint:
         raise SignalEvaluationError("Research run strategy identity failed verification.")
     if specification.warmup.bars != strategy.data_requirements.warmup_bars:
         raise SignalEvaluationError("Research run warmup does not match the strategy requirement.")
+    return engine_contract_version
 
 
 def _required_candles(

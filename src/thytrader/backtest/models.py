@@ -151,7 +151,7 @@ class BacktestResult(_FrozenBacktestModel):
     """Canonical full result from one immutable research-run simulation."""
 
     schema_version: Literal["1.0"]
-    engine_contract_version: Literal["thytrader-bar-sim-v1"]
+    engine_contract_version: Literal["thytrader-bar-backtest-v1"]
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText

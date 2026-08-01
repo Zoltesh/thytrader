@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
-from thytrader.backtest.kernel import simulate_backtest
+import pytest
+
+from thytrader.backtest.kernel import BacktestSimulationError, simulate_backtest
 from thytrader.market_data.models import Candle
 from thytrader.research.models import (
     BarExecutionAssumptions,
@@ -95,7 +97,7 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
             signal_timing="completed_candle_close",
             fill_timing="next_candle_open",
         ),
-        engine_contract_version="thytrader-bar-signal-v1",
+        engine_contract_version="thytrader-bar-backtest-v1",
         random_seed=0,
     )
 
@@ -143,6 +145,17 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     total_return = Decimal(result.summary.total_return_fraction)
     total_net_pnl = Decimal(result.summary.total_net_pnl)
     assert total_return == total_net_pnl / Decimal("10000")
+
+
+def test_simulation_rejects_a_signal_only_research_run() -> None:
+    """A signal-only immutable run must never silently gain fill and PnL semantics."""
+    strategy = _strategy()
+    signal_only_run = _run(strategy).model_copy(
+        update={"engine_contract_version": "thytrader-bar-signal-v1"}
+    )
+
+    with pytest.raises(BacktestSimulationError, match="backtest engine contract"):
+        simulate_backtest(signal_only_run, strategy, _candles())
 
 
 def test_final_fill_candle_non_open_values_do_not_affect_simulation() -> None:

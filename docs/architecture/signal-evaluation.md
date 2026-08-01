@@ -12,18 +12,20 @@ The output is an in-memory, immutable **entry-condition trace**. A `matched` rec
 declarative entry condition matched after one completed candle close. It is not an order intent,
 cooldown-approved entry, fill, position, trade, or claim that a full backtest ran.
 
-There is no broker, order submission, REST endpoint, dashboard control, paper execution, or live execution in the signal evaluator itself. Its immutable trace is now consumed by the separate [bar-level backtest simulator](backtest-simulation.md), which owns position state, modeled fees/slippage, PnL, result persistence, and its own documented execution assumptions.
+There is no broker, order submission, REST endpoint, dashboard control, paper execution, or live execution in the signal evaluator itself. It evaluates `thytrader-bar-signal-v1` and the signal stage of `thytrader-bar-backtest-v1`; only the latter is eligible for the separate [bar-level backtest simulator](backtest-simulation.md), which owns position state, modeled fees/slippage, PnL, result persistence, and its own documented execution assumptions.
 
 ## Engine contract compatibility
 
-Research-run schema `1.0` accepts two explicit engine-contract identifiers:
+Research-run schema `1.0` accepts three explicit engine-contract identifiers:
 
 - `thytrader-bar-v1` remains the historical request-only contract. The evaluator rejects it, so an
   already-published immutable request never silently acquires executable semantics.
-- `thytrader-bar-signal-v1` selects the deterministic indicator and entry-condition semantics in this
-  document.
+- `thytrader-bar-signal-v1` selects only the deterministic indicator and entry-condition semantics in
+  this document; it is not executable by the backtest simulator.
+- `thytrader-bar-backtest-v1` selects the same deterministic signal stage plus the separately versioned
+  fill, PnL, and persistence policy in [bar-level backtest simulation](backtest-simulation.md).
 
-The engine identifier is part of canonical run identity. Selecting the executable contract therefore
+The engine identifier is part of canonical run identity. Selecting an executable contract therefore
 creates a different run fingerprint even when every other request field is unchanged.
 
 ## Candle and evaluation rules

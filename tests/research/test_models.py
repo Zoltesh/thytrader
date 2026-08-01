@@ -249,19 +249,28 @@ def test_run_spec_rejects_undefined_engine_contract_versions() -> None:
         )
 
 
-def test_signal_engine_contract_is_explicit_and_identity_bearing() -> None:
-    """Executable signal semantics require a new identity distinct from request-only V1."""
+def test_executable_engine_contracts_are_explicit_and_identity_bearing() -> None:
+    """Signal and backtest semantics require identities distinct from request-only V1."""
     request_only = _reference_run()
 
-    executable = ResearchRunSpecification.model_validate(
+    signal = ResearchRunSpecification.model_validate(
         {
             **request_only.model_dump(mode="python"),
             "engine_contract_version": "thytrader-bar-signal-v1",
         }
     )
+    backtest = ResearchRunSpecification.model_validate(
+        {
+            **request_only.model_dump(mode="python"),
+            "engine_contract_version": "thytrader-bar-backtest-v1",
+        }
+    )
 
-    assert executable.engine_contract_version == "thytrader-bar-signal-v1"
-    assert research_run_fingerprint(executable) != research_run_fingerprint(request_only)
+    assert signal.engine_contract_version == "thytrader-bar-signal-v1"
+    assert backtest.engine_contract_version == "thytrader-bar-backtest-v1"
+    assert research_run_fingerprint(signal) != research_run_fingerprint(request_only)
+    assert research_run_fingerprint(backtest) != research_run_fingerprint(request_only)
+    assert research_run_fingerprint(backtest) != research_run_fingerprint(signal)
 
 
 def test_run_spec_rejects_boolean_integers_and_numeric_timestamps() -> None:

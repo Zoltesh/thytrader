@@ -128,7 +128,7 @@ async def _assert_postgres_round_trip(
                 postgres_insert(published_research_run_specs)
                 .values(
                     run_fingerprint=result.run_fingerprint,
-                    run_id="019cae99-3e00-7000-8000-000000000001",
+                    run_id="019cae99-3e01-7000-8000-000000000001",
                     created_at=now,
                     strategy_fingerprint=result.strategy_fingerprint,
                     dataset_fingerprint=result.dataset_fingerprint,

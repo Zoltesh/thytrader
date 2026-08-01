@@ -119,7 +119,7 @@ lifecycle, summaries, and authoring surface are implemented.
 - ✅ Versioned deterministic indicator and entry-condition evaluation for executable
   `thytrader-bar-signal-v1` publications, with strict no-lookahead candle selection, canonical
   fingerprinted traces, and a read-only CLI. Traces are ephemeral and are not backtest results.
-- ✅ `thytrader-bar-sim-v1` event-driven long-only single-position simulation with private Decimal64
+- ✅ `thytrader-bar-backtest-v1` event-driven long-only single-position simulation with private Decimal64
   arithmetic, strict no-lookahead signal boundaries, next-open marketable fills, ATR sizing, adverse
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only

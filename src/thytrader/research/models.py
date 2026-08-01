@@ -189,7 +189,11 @@ class ResearchRunSpecification(_FrozenModel):
     capital: CapitalAssumptions
     costs: CostAssumptions
     bar_execution: BarExecutionAssumptions
-    engine_contract_version: Literal["thytrader-bar-v1", "thytrader-bar-signal-v1"]
+    engine_contract_version: Literal[
+        "thytrader-bar-v1",
+        "thytrader-bar-signal-v1",
+        "thytrader-bar-backtest-v1",
+    ]
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
     @field_validator("run_id")

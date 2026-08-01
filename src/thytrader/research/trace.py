@@ -111,7 +111,10 @@ class SignalTrace(_FrozenTraceModel):
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
-    engine_contract_version: Literal["thytrader-bar-signal-v1"]
+    engine_contract_version: Literal[
+        "thytrader-bar-signal-v1",
+        "thytrader-bar-backtest-v1",
+    ]
     indicator_ids: tuple[IndicatorId, ...] = Field(min_length=1)
     records: tuple[SignalTraceRecord, ...] = Field(min_length=1)
 
