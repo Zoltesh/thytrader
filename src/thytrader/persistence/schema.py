@@ -178,15 +178,58 @@ Index(
     strategy_dataset_bindings.c.dataset_fingerprint,
 )
 
+published_backtest_results = Table(
+    "published_backtest_results",
+    metadata,
+    Column("result_fingerprint", String(71), primary_key=True),
+    Column("run_fingerprint", String(71), nullable=False),
+    Column("strategy_fingerprint", String(71), nullable=False),
+    Column("dataset_fingerprint", String(71), nullable=False),
+    Column("signal_trace_fingerprint", String(71), nullable=False),
+    Column("canonical_result", Text(), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["run_fingerprint"],
+        ["published_research_run_specs.run_fingerprint"],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "result_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_backtest_result_fingerprint_format",
+    ),
+    CheckConstraint(
+        "run_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_backtest_result_run_fingerprint_format",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_backtest_result_strategy_fingerprint_format",
+    ),
+    CheckConstraint(
+        "dataset_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_backtest_result_dataset_fingerprint_format",
+    ),
+    CheckConstraint(
+        "signal_trace_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_backtest_result_signal_trace_fingerprint_format",
+    ),
+)
+
 Index(
     "ix_published_research_run_specs_dataset_fingerprint",
     published_research_run_specs.c.dataset_fingerprint,
+)
+
+Index(
+    "ix_published_backtest_results_dataset_fingerprint",
+    published_backtest_results.c.dataset_fingerprint,
 )
 
 __all__ = [
     "market_data_worker_state",
     "metadata",
     "portfolio_snapshots",
+    "published_backtest_results",
     "published_research_run_specs",
     "published_strategy_versions",
     "strategy_dataset_bindings",

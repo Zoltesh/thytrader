@@ -12,9 +12,7 @@ The output is an in-memory, immutable **entry-condition trace**. A `matched` rec
 declarative entry condition matched after one completed candle close. It is not an order intent,
 cooldown-approved entry, fill, position, trade, or claim that a full backtest ran.
 
-There is no broker, portfolio accounting, position state, exit-state machine, fee or slippage
-application, PnL, metrics, result persistence, REST endpoint, dashboard control, paper execution, or
-live execution in this slice.
+There is no broker, order submission, REST endpoint, dashboard control, paper execution, or live execution in the signal evaluator itself. Its immutable trace is now consumed by the separate [bar-level backtest simulator](backtest-simulation.md), which owns position state, modeled fees/slippage, PnL, result persistence, and its own documented execution assumptions.
 
 ## Engine contract compatibility
 

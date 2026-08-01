@@ -22,6 +22,7 @@ thytrader-api = "thytrader.api.cli:main"
 thytrader-worker = "thytrader.worker.cli:main"
 thytrader-market-data-worker = "thytrader.market_data_worker.cli:main"
 thytrader-research-evaluate = "thytrader.research.cli:main"
+thytrader-backtest = "thytrader.backtest.cli:main"
 
 [build-system]
 requires = ["hatchling"]

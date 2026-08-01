@@ -11,6 +11,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Canonical strategy schema](architecture/canonical-strategy-schema.md)
 - [Immutable research-run specification](architecture/research-run-specification.md)
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
+- [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Security and trading-risk baseline](security-and-risk.md)
 - [Delivery roadmap](roadmap.md)
 - [Agent/operator integration](agent-integration.md)

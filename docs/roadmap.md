@@ -119,11 +119,14 @@ lifecycle, summaries, and authoring surface are implemented.
 - ✅ Versioned deterministic indicator and entry-condition evaluation for executable
   `thytrader-bar-signal-v1` publications, with strict no-lookahead candle selection, canonical
   fingerprinted traces, and a read-only CLI. Traces are ephemeral and are not backtest results.
-- Event-driven simulation kernel with strict no-lookahead enforcement.
-- Conservative bar-level broker with fees, spread, slippage, latency, and rejection models.
-- Portfolio/risk policy integration.
-- SL/TP and trailing-stop state machines.
-- Reproducible results: equity/drawdown series, trade ledger, metrics, and disclosed assumptions.
+- ✅ `thytrader-bar-sim-v1` event-driven long-only single-position simulation with private Decimal64
+  arithmetic, strict no-lookahead signal boundaries, next-open marketable fills, ATR sizing, adverse
+  fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
+  ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
+  PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
+- Conservative bar-level broker with explicit spread, latency, rejection, partial-fill, and maker-limit models.
+- Multi-position and cross-strategy portfolio/risk policy integration.
+- Trailing-stop state machine when the schema and market-data resolution support it.
 - Out-of-sample and walk-forward workflow.
 - Benchmark comparison (buy-and-hold).
 
