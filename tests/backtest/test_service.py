@@ -16,6 +16,7 @@ from .test_kernel import _candles, _run, _strategy
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestResult
     from thytrader.market_data.models import Candle
+    from thytrader.research.trace import SignalTrace
 
 
 class _RunStore:
@@ -79,8 +80,9 @@ class _ResultStore:
         """Initialize an empty immutable publication capture."""
         self.published: list[BacktestResult] = []
 
-    async def publish(self, result: BacktestResult) -> BacktestResult:
+    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
         """Record and return exactly the canonical candidate result."""
+        assert trace.run_fingerprint == result.run_fingerprint
         self.published.append(result)
         return result
 

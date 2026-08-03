@@ -1,4 +1,4 @@
-"""CLI for deterministic simulation and immutable publication of a published research run."""
+"""CLI for immutable backtest simulation, discovery, and inspection."""
 
 from __future__ import annotations
 
@@ -21,47 +21,62 @@ from thytrader.persistence.postgres_strategies import PostgresStrategyPublicatio
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
     from thytrader.backtest.models import BacktestResult
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class BacktestCliError(RuntimeError):
-    """Report a safe operator-facing published-backtest command failure."""
+    """Report a safe operator-facing immutable-backtest command failure."""
 
 
-def _run_fingerprint(value: str) -> str:
-    """Require a lowercase canonical SHA-256 run fingerprint argument."""
+def _fingerprint(value: str) -> str:
+    """Require one lowercase canonical SHA-256 artifact fingerprint argument."""
     if _FINGERPRINT_PATTERN.fullmatch(value) is None:
         raise argparse.ArgumentTypeError("must be sha256: followed by 64 lowercase hex characters")
     return value
 
 
 def _parser() -> argparse.ArgumentParser:
-    """Build the immutable published-run backtest command parser."""
+    """Build read-only discovery and explicit simulation subcommands."""
     parser = argparse.ArgumentParser(
         prog="thytrader-backtest",
         description=(
-            "Simulate one exact published research run and append its immutable "
-            "deterministic result. "
+            "Inspect immutable results or simulate one exact published research run by "
+            "run_fingerprint. "
             "This command does not submit orders or grant trading authority."
         ),
     )
-    parser.add_argument(
-        "run_fingerprint",
-        type=_run_fingerprint,
-        help="Exact fingerprint of the published research run to simulate.",
+    commands = parser.add_subparsers(dest="command", required=True)
+    simulate = commands.add_parser("simulate", help="Simulate one exact published backtest run.")
+    simulate.add_argument("run_fingerprint", type=_fingerprint)
+    simulate.add_argument("--pretty", action="store_true")
+    listing = commands.add_parser(
+        "list", help="List immutable published backtest result fingerprints."
     )
-    parser.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print result JSON for human inspection instead of canonical compact bytes.",
-    )
+    filters = listing.add_mutually_exclusive_group()
+    filters.add_argument("--run-fingerprint", type=_fingerprint)
+    filters.add_argument("--strategy-fingerprint", type=_fingerprint)
+    listing.add_argument("--limit", type=int, default=50)
+    shown = commands.add_parser("show", help="Load and integrity-check one immutable result.")
+    shown.add_argument("result_fingerprint", type=_fingerprint)
+    shown.add_argument("--pretty", action="store_true")
     return parser
 
 
+async def _with_store() -> tuple[PostgresBacktestResultStore, AsyncEngine]:
+    """Build the result store and return its engine for one short-lived command."""
+    settings = Settings()
+    if settings.database_url is None:
+        raise BacktestCliError("THYTRADER_DATABASE_URL is required.")
+    engine = create_engine(settings.database_url)
+    return PostgresBacktestResultStore(engine), engine
+
+
 async def _evaluate(run_fingerprint: str) -> BacktestResult:
-    """Build authoritative stores, simulate one publication, and release database resources."""
+    """Build authoritative stores, simulate one publication, and release resources."""
     settings = Settings()
     if settings.database_url is None:
         raise BacktestCliError("THYTRADER_DATABASE_URL is required.")
@@ -87,16 +102,55 @@ def _render_result(result: BacktestResult, *, pretty: bool) -> str:
     return json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False)
 
 
+async def _list_results(
+    *, run_fingerprint: str | None, strategy_fingerprint: str | None, limit: int
+) -> tuple[str, ...]:
+    """Load deterministic result identities then always dispose the database engine."""
+    if limit < 1 or limit > 100:
+        raise BacktestCliError("limit must be between 1 and 100.")
+    store, engine = await _with_store()
+    try:
+        return await store.list_fingerprints(
+            run_fingerprint=run_fingerprint,
+            strategy_fingerprint=strategy_fingerprint,
+            limit=limit,
+        )
+    finally:
+        await dispose(engine)
+
+
+async def _show_result(result_fingerprint: str) -> BacktestResult:
+    """Load a reverified immutable result then always dispose the database engine."""
+    store, engine = await _with_store()
+    try:
+        return await store.load(result_fingerprint)
+    finally:
+        await dispose(engine)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
-    """Simulate one publication, print its result, and report its fingerprint to standard error."""
+    """Run an explicit immutable backtest operation and print only verified output."""
     arguments = _parser().parse_args(argv)
     try:
-        result = asyncio.run(_evaluate(arguments.run_fingerprint))
+        if arguments.command == "simulate":
+            result = asyncio.run(_evaluate(arguments.run_fingerprint))
+            sys.stdout.write(f"{_render_result(result, pretty=arguments.pretty)}\n")
+            sys.stderr.write(f"result_fingerprint={backtest_result_fingerprint(result)}\n")
+        elif arguments.command == "list":
+            results = asyncio.run(
+                _list_results(
+                    run_fingerprint=arguments.run_fingerprint,
+                    strategy_fingerprint=arguments.strategy_fingerprint,
+                    limit=arguments.limit,
+                )
+            )
+            sys.stdout.write(json.dumps(results, separators=(",", ":")) + "\n")
+        else:
+            result = asyncio.run(_show_result(arguments.result_fingerprint))
+            sys.stdout.write(f"{_render_result(result, pretty=arguments.pretty)}\n")
     except Exception as error:
-        message = "Backtest failed safely; source artifacts and results were not changed."
+        message = "Backtest command failed safely; immutable artifacts were not changed."
         raise SystemExit(message) from error
-    sys.stdout.write(f"{_render_result(result, pretty=arguments.pretty)}\n")
-    sys.stderr.write(f"result_fingerprint={backtest_result_fingerprint(result)}\n")
 
 
 if __name__ == "__main__":

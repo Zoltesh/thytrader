@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, NoReturn, cast
 
 from pydantic import SecretStr
 import pytest
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
 from thytrader.backtest.kernel import simulate_backtest
@@ -21,10 +22,13 @@ from thytrader.persistence.postgres_backtests import (
 )
 from thytrader.persistence.schema import (
     metadata,
+    published_backtest_results,
     published_research_run_specs,
     published_strategy_versions,
     strategy_dataset_bindings,
 )
+from thytrader.research.models import canonical_research_run_bytes
+from thytrader.research.signal_evaluator import evaluate_signal_trace
 
 from .test_kernel import _candles, _run, _strategy
 
@@ -80,7 +84,12 @@ def test_result_store_revalidates_forged_result_before_database_access() -> None
     store = PostgresBacktestResultStore(cast("AsyncEngine", _ExplodingEngine()))
 
     with pytest.raises(BacktestPublicationError, match="invalid"):
-        asyncio.run(store.publish(forged))
+        asyncio.run(
+            store.publish(
+                forged,
+                trace=evaluate_signal_trace(_run(strategy), strategy, _candles()),
+            )
+        )
 
 
 def test_postgres_store_persists_and_reloads_a_canonical_result() -> None:
@@ -101,8 +110,23 @@ async def _assert_postgres_round_trip(
     """Seed immutable source rows, append a result twice, and assert one verified load."""
     engine = create_engine(SecretStr(database_url))
     now = datetime.now(UTC)
+    specification = _run(strategy)
     try:
         async with engine.begin() as connection:
+            await connection.execute(
+                delete(published_backtest_results).where(
+                    published_backtest_results.c.run_fingerprint.in_(
+                        select(published_research_run_specs.c.run_fingerprint).where(
+                            published_research_run_specs.c.run_id == str(specification.run_id)
+                        )
+                    )
+                )
+            )
+            await connection.execute(
+                delete(published_research_run_specs).where(
+                    published_research_run_specs.c.run_id == str(specification.run_id)
+                )
+            )
             await connection.execute(
                 postgres_insert(published_strategy_versions)
                 .values(
@@ -128,18 +152,21 @@ async def _assert_postgres_round_trip(
                 postgres_insert(published_research_run_specs)
                 .values(
                     run_fingerprint=result.run_fingerprint,
-                    run_id="019cae99-3e01-7000-8000-000000000001",
-                    created_at=now,
+                    run_id=str(specification.run_id),
+                    created_at=specification.created_at,
                     strategy_fingerprint=result.strategy_fingerprint,
                     dataset_fingerprint=result.dataset_fingerprint,
-                    canonical_specification="{}",
+                    canonical_specification=canonical_research_run_bytes(specification).decode(
+                        "utf-8"
+                    ),
                     published_at=now,
                 )
                 .on_conflict_do_nothing()
             )
         store = PostgresBacktestResultStore(engine)
-        published = await store.publish(result)
-        republished = await store.publish(result)
+        trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+        published = await store.publish(result, trace=trace)
+        republished = await store.publish(result, trace=trace)
         reloaded = await store.load(backtest_result_fingerprint(result))
         assert published == result
         assert republished == result

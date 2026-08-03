@@ -18,6 +18,12 @@ from thytrader.backtest.models import (
     canonical_backtest_result_bytes,
 )
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
+from thytrader.research.models import (
+    ResearchRunSpecification,
+    canonical_research_run_bytes,
+    research_run_fingerprint,
+)
+from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -36,9 +42,10 @@ class PostgresBacktestResultStore:
         """Use one application-managed asynchronous PostgreSQL engine."""
         self._engine = engine
 
-    async def publish(self, result: BacktestResult) -> BacktestResult:
-        """Idempotently append one result after canonical and source-row identity verification."""
+    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
+        """Idempotently append one result after canonical source and trace verification."""
         validated = _validated_result(result)
+        _verify_trace_identity(validated, trace)
         await self._verify_source_identity(validated)
         canonical = canonical_backtest_result_bytes(validated).decode("utf-8")
         fingerprint = backtest_result_fingerprint(validated)
@@ -110,11 +117,51 @@ class PostgresBacktestResultStore:
         await self._verify_source_identity(result)
         return result
 
+    async def list_fingerprints(
+        self,
+        *,
+        run_fingerprint: str | None = None,
+        strategy_fingerprint: str | None = None,
+        limit: int,
+    ) -> tuple[str, ...]:
+        """List immutable result identities in stable publication order without mutation."""
+        if run_fingerprint is not None:
+            _validate_fingerprint(run_fingerprint)
+        if strategy_fingerprint is not None:
+            _validate_fingerprint(strategy_fingerprint)
+        if run_fingerprint is not None and strategy_fingerprint is not None:
+            raise BacktestPublicationError("Result discovery accepts one source filter at a time.")
+        if limit < 1 or limit > 100:
+            raise BacktestPublicationError("Result discovery limit must be between 1 and 100.")
+        statement = (
+            select(published_backtest_results.c.result_fingerprint)
+            .order_by(
+                published_backtest_results.c.published_at.desc(),
+                published_backtest_results.c.result_fingerprint.asc(),
+            )
+            .limit(limit)
+        )
+        if run_fingerprint is not None:
+            statement = statement.where(
+                published_backtest_results.c.run_fingerprint == run_fingerprint
+            )
+        if strategy_fingerprint is not None:
+            statement = statement.where(
+                published_backtest_results.c.strategy_fingerprint == strategy_fingerprint
+            )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).scalars().all()
+        except SQLAlchemyError as error:
+            raise BacktestPublicationError("Backtest result storage is unavailable.") from error
+        return tuple(cast("str", row) for row in rows)
+
     async def _verify_source_identity(self, result: BacktestResult) -> None:
         """Require source fingerprints to match their existing immutable run publication row."""
         statement = select(
             published_research_run_specs.c.strategy_fingerprint,
             published_research_run_specs.c.dataset_fingerprint,
+            published_research_run_specs.c.canonical_specification,
         ).where(published_research_run_specs.c.run_fingerprint == result.run_fingerprint)
         try:
             async with self._engine.connect() as connection:
@@ -132,6 +179,31 @@ class PostgresBacktestResultStore:
             raise BacktestPublicationError(
                 "Backtest result source identities do not match the run."
             )
+        canonical = cast("str", row["canonical_specification"])
+        try:
+            specification = ResearchRunSpecification.model_validate_json(canonical)
+        except (TypeError, ValueError, ValidationError) as error:
+            raise BacktestPublicationError("Backtest result source run is invalid.") from error
+        if (
+            specification.engine_contract_version != "thytrader-bar-backtest-v1"
+            or canonical_research_run_bytes(specification).decode("utf-8") != canonical
+            or research_run_fingerprint(specification) != result.run_fingerprint
+        ):
+            raise BacktestPublicationError(
+                "Backtest result source run is not a canonical executable backtest run."
+            )
+
+
+def _verify_trace_identity(result: BacktestResult, trace: SignalTrace) -> None:
+    """Require a trace emitted for the exact result source identities and engine contract."""
+    if (
+        signal_trace_fingerprint(trace) != result.signal_trace_fingerprint
+        or trace.run_fingerprint != result.run_fingerprint
+        or trace.strategy_fingerprint != result.strategy_fingerprint
+        or trace.dataset_fingerprint != result.dataset_fingerprint
+        or trace.engine_contract_version != "thytrader-bar-backtest-v1"
+    ):
+        raise BacktestPublicationError("Backtest result trace does not match verified sources.")
 
 
 def _validated_result(result: BacktestResult) -> BacktestResult:

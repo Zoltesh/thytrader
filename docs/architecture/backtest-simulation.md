@@ -9,10 +9,16 @@
 The public command is:
 
 ```bash
-uv run thytrader-backtest <run_fingerprint> --pretty
+uv run thytrader-research-run publish-backtest --strategy-fingerprint sha256:... \
+  --dataset-fingerprint sha256:... --evaluation-start 2026-01-01T00:00:00Z \
+  --evaluation-end 2026-03-01T00:00:00Z --initial-quote-balance 10000 \
+  --maker-fee-rate 0.001 --taker-fee-rate 0.002 --fixed-slippage-bps 1
+uv run thytrader-backtest simulate <run_fingerprint> --pretty
+uv run thytrader-backtest list --run-fingerprint <run_fingerprint>
+uv run thytrader-backtest show <result_fingerprint> --pretty
 ```
 
-It loads and reverifies the published research run, its published strategy, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL and writes the canonical result JSON to standard output; its result fingerprint is written to standard error. Failures are generic and do not expose database URLs or artifacts.
+The publication command derives warmup from the verified strategy and binds every execution-relevant assumption into a new backtest-engine run. Simulation loads and reverifies that run, its published strategy, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
 
 ## Source and result identity
 
@@ -23,7 +29,7 @@ The result stores these immutable source identities:
 - immutable dataset fingerprint; and
 - `thytrader-bar-backtest-v1` engine-contract version.
 
-Canonical result JSON is sorted, compact UTF-8 JSON. Its SHA-256 fingerprint is the result identity. Publication revalidates unchecked in-memory models, source-row identities, canonical bytes, and the stored fingerprint on every load. Results are append-only and idempotent by result fingerprint; multiple engine versions may derive different results from the same run without rewriting earlier evidence.
+Canonical result JSON is sorted, compact UTF-8 JSON. Its SHA-256 fingerprint is the result identity. The authoritative service independently re-evaluates the signal trace and result persistence rejects a trace whose identity or source identities do not match the result. Publication revalidates unchecked in-memory models, source-row identities, canonical bytes, and the stored fingerprint on every load. Results are append-only and idempotent by result fingerprint; multiple engine versions may derive different results from the same run without rewriting earlier evidence.
 
 ## Decimal contract
 

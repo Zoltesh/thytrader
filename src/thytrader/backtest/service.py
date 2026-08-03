@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from thytrader.backtest.kernel import simulate_backtest
+from thytrader.research.signal_evaluator import evaluate_signal_trace
+from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestResult
     from thytrader.market_data.models import Candle
     from thytrader.research.publication import PublishedResearchRunSpecification
+    from thytrader.research.trace import SignalTrace
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -48,8 +51,8 @@ class PublishedStrategyReader(Protocol):
 class BacktestResultWriter(Protocol):
     """Append one verified canonical simulation result."""
 
-    async def publish(self, result: BacktestResult) -> BacktestResult:
-        """Persist one result idempotently and return its reverified canonical form."""
+    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
+        """Persist one result only when the supplied canonical trace matches its identity."""
         ...
 
 
@@ -66,5 +69,10 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     specification = published_run.specification
     published_strategy = await strategy_store.load(specification.strategy_fingerprint)
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
+    trace = evaluate_signal_trace(specification, published_strategy.definition, candles)
     result = simulate_backtest(specification, published_strategy.definition, candles)
-    return await result_store.publish(result)
+    if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
+        raise RuntimeError(
+            "Backtest trace identity did not match the authoritative signal evaluation."
+        )
+    return await result_store.publish(result, trace=trace)
