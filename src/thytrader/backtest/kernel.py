@@ -299,7 +299,7 @@ def _close_if_required(
             candle,
             cash=cash,
             bar_index=bar_index,
-            raw_exit_price=position.stop_price,
+            raw_exit_price=min(candle.open, position.stop_price),
             reason="stop_loss",
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,

@@ -149,6 +149,51 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     assert total_return == total_net_pnl / Decimal("10000")
 
 
+def test_simulation_exits_a_gap_through_stop_at_the_adverse_open() -> None:
+    """A stop crossed before intrabar trading must use the worse executable opening price."""
+    strategy = _strategy()
+    gap_candles = (
+        *_candles()[:3],
+        Candle(
+            starts_at=datetime(2026, 8, 1, 3, tzinfo=UTC),
+            open=Decimal("15"),
+            high=Decimal("16"),
+            low=Decimal("14"),
+            close=Decimal("15"),
+            volume=Decimal("10"),
+        ),
+        Candle(
+            starts_at=datetime(2026, 8, 1, 4, tzinfo=UTC),
+            open=Decimal("8"),
+            high=Decimal("10"),
+            low=Decimal("7"),
+            close=Decimal("9"),
+            volume=Decimal("10"),
+        ),
+        Candle(
+            starts_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
+            open=Decimal("9"),
+            high=Decimal("10"),
+            low=Decimal("8"),
+            close=Decimal("9"),
+            volume=Decimal("10"),
+        ),
+    )
+    run = _run(strategy).model_copy(
+        update={
+            "evaluation": EvaluationWindow(
+                starts_at=datetime(2026, 8, 1, 2, tzinfo=UTC),
+                ends_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
+            )
+        }
+    )
+
+    result = simulate_backtest(run, strategy, gap_candles)
+
+    assert result.trades[0].exit.reason == "stop_loss"
+    assert result.trades[0].exit.price == "7.992"
+
+
 def test_simulation_rejects_a_signal_only_research_run() -> None:
     """A signal-only immutable run must never silently gain fill and PnL semantics."""
     strategy = _strategy()
