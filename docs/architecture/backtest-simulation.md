@@ -18,7 +18,7 @@ uv run thytrader-backtest list --run-fingerprint <run_fingerprint>
 uv run thytrader-backtest show <result_fingerprint> --pretty
 ```
 
-The publication command derives warmup from the verified strategy and binds every execution-relevant assumption into a new backtest-engine run. Simulation loads and reverifies that run, its published strategy, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
+The publication command derives warmup from the verified strategy and binds every execution-relevant assumption into a new backtest-engine run. It calculates a separate semantic execution fingerprint, so repeating the exact command reuses the previously verified immutable run rather than minting another equivalent request. Simulation loads and reverifies that run, its published strategy, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
 
 ## Source and result identity
 
