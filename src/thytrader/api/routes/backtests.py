@@ -13,8 +13,21 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 
-from thytrader.api.dependencies import get_backtest_result_store
-from thytrader.backtest.models import BacktestResult, BacktestSummary  # noqa: TC001
+from thytrader.api.dependencies import (
+    get_backtest_benchmark_reader,
+    get_backtest_result_store,
+)
+from thytrader.backtest.models import (  # noqa: TC001
+    BacktestBenchmark,
+    BacktestResult,
+    BacktestSummary,
+)
+from thytrader.persistence.backtest_benchmarks import (
+    BacktestBenchmarkIntegrityError,
+    BacktestBenchmarkNotFoundError,
+    BacktestBenchmarkReader,
+    BacktestBenchmarkUnavailableError,
+)
 from thytrader.persistence.backtest_results import (
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
@@ -57,6 +70,13 @@ class BacktestDetailResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
     result: BacktestResult
+    result_fingerprint: str
+
+
+class BacktestBenchmarkResponse(BaseModel):
+    """One deterministic buy-and-hold comparison derived from an immutable result."""
+
+    benchmark: BacktestBenchmark
     result_fingerprint: str
 
 
@@ -143,6 +163,65 @@ async def list_backtests(
         limit=limit,
         offset=offset,
         returned=len(entries),
+    )
+
+
+@router.get(
+    "/{result_fingerprint}/benchmark",
+    response_model=BacktestBenchmarkResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": BacktestErrorResponse},
+        status.HTTP_404_NOT_FOUND: {"model": BacktestErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": BacktestErrorResponse},
+    },
+)
+async def get_backtest_benchmark(
+    reader: Annotated[BacktestBenchmarkReader, Depends(get_backtest_benchmark_reader)],
+    result_fingerprint: str,
+) -> BacktestBenchmarkResponse:
+    """Return a derived comparison while leaving the canonical result immutable."""
+    if _FINGERPRINT_PATTERN.fullmatch(result_fingerprint) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "backtest_invalid", "message": "Result fingerprint is malformed."},
+        )
+    try:
+        benchmark = await reader.load(result_fingerprint)
+    except BacktestBenchmarkNotFoundError, BacktestResultNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "backtest_not_found", "message": "Backtest result was not found."},
+        ) from None
+    except (BacktestBenchmarkUnavailableError, BacktestBenchmarkIntegrityError) as error:
+        _logger.warning("Backtest benchmark failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest benchmark is unavailable.",
+            },
+        ) from None
+    except Exception as error:  # noqa: BLE001
+        _logger.warning("Backtest benchmark failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest benchmark is unavailable.",
+            },
+        ) from None
+    if benchmark.result_fingerprint != result_fingerprint:
+        _logger.warning("Backtest benchmark returned mismatched result identity")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest benchmark is unavailable.",
+            },
+        )
+    return BacktestBenchmarkResponse(
+        benchmark=benchmark,
+        result_fingerprint=result_fingerprint,
     )
 
 

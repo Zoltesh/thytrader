@@ -134,7 +134,7 @@ lifecycle, summaries, and authoring surface are implemented.
 - Multi-position and cross-strategy portfolio/risk policy integration.
 - Trailing-stop state machine when the schema and market-data resolution support it.
 - Out-of-sample and walk-forward workflow.
-- Benchmark comparison (buy-and-hold).
+- ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
 
 **Exit gate:** reference-strategy results are deterministic, disclose assumptions, resist lookahead,
 and pass adversarial fill/risk tests.

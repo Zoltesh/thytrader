@@ -72,7 +72,16 @@ async def _with_store() -> tuple[PostgresBacktestResultStore, AsyncEngine]:
     if settings.database_url is None:
         raise BacktestCliError("THYTRADER_DATABASE_URL is required.")
     engine = create_engine(settings.database_url)
-    return PostgresBacktestResultStore(engine), engine
+    return _result_store(settings, engine), engine
+
+
+def _result_store(settings: Settings, engine: AsyncEngine) -> PostgresBacktestResultStore:
+    """Build a result store with full source-artifact verification enabled."""
+    return PostgresBacktestResultStore(
+        engine,
+        research_run_store=PostgresResearchRunStore(engine),
+        dataset_store=DatasetStore(settings.market_data_dataset_root),
+    )
 
 
 async def _evaluate(run_fingerprint: str) -> BacktestResult:
@@ -82,12 +91,17 @@ async def _evaluate(run_fingerprint: str) -> BacktestResult:
         raise BacktestCliError("THYTRADER_DATABASE_URL is required.")
     engine = create_engine(settings.database_url)
     try:
+        dataset_store = DatasetStore(settings.market_data_dataset_root)
         return await evaluate_and_publish_backtest(
             run_fingerprint,
             run_store=PostgresResearchRunStore(engine),
             strategy_store=PostgresStrategyPublicationStore(engine),
-            dataset_store=DatasetStore(settings.market_data_dataset_root),
-            result_store=PostgresBacktestResultStore(engine),
+            dataset_store=dataset_store,
+            result_store=PostgresBacktestResultStore(
+                engine,
+                research_run_store=PostgresResearchRunStore(engine),
+                dataset_store=dataset_store,
+            ),
         )
     finally:
         await dispose(engine)

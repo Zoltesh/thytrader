@@ -202,6 +202,53 @@ class BacktestResult(_FrozenBacktestModel):
         return self
 
 
+class BacktestBenchmark(_FrozenBacktestModel):
+    """Derived buy-and-hold comparison using the exact verified run and dataset contract."""
+
+    benchmark_contract_version: Literal["thytrader-buy-and-hold-v1"]
+    result_fingerprint: FingerprintText
+    run_fingerprint: FingerprintText
+    dataset_fingerprint: FingerprintText
+    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]
+    broker: BrokerAssumptions | None = None
+    entry_candle_starts_at: UtcDateTime
+    exit_candle_starts_at: UtcDateTime
+    entry_price: ResultDecimalText
+    exit_price: ResultDecimalText
+    initial_equity: ResultDecimalText
+    final_equity: ResultDecimalText
+    total_net_pnl: ResultDecimalText
+    total_return_fraction: ResultDecimalText
+    total_fees: ResultDecimalText
+    total_spread_cost: ResultDecimalText | None = None
+    maximum_drawdown: ResultDecimalText
+    maximum_drawdown_fraction: ResultDecimalText
+    evaluation_bars: int = Field(ge=1)
+
+    @field_validator("entry_candle_starts_at", "exit_candle_starts_at")
+    @classmethod
+    def require_utc(cls, value: datetime) -> datetime:
+        """Require benchmark boundaries to be timezone-aware UTC timestamps."""
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("benchmark candle boundaries must be timezone-aware UTC")
+        return value
+
+    @field_serializer("entry_candle_starts_at", "exit_candle_starts_at", when_used="json")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Render benchmark boundaries with the canonical Z suffix."""
+        return value.isoformat().replace("+00:00", "Z")
+
+    @model_validator(mode="after")
+    def require_v2_broker_evidence(self) -> Self:
+        """Keep derived benchmark broker evidence aligned with its execution contract."""
+        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
+        if is_v2 and self.broker is None:
+            raise ValueError("benchmark V2 results require broker assumptions")
+        if not is_v2 and self.broker is not None:
+            raise ValueError("broker assumptions require a benchmark V2 result")
+        return self
+
+
 def canonical_backtest_result_bytes(result: BacktestResult) -> bytes:
     """Revalidate and encode a result as sorted compact canonical UTF-8 JSON."""
     validated = BacktestResult.model_validate(result.model_dump(mode="python"))

@@ -46,8 +46,43 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 			}
 		})
 	);
-	await page.route('**/api/v1/backtests/**', async (route) =>
-		route.fulfill({
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await route.fulfill({
+				json: {
+					result_fingerprint: fingerprint,
+					benchmark: {
+						benchmark_contract_version: 'thytrader-buy-and-hold-v1',
+						result_fingerprint: fingerprint,
+						run_fingerprint: runFingerprint,
+						dataset_fingerprint: datasetFingerprint,
+						engine_contract_version: 'thytrader-bar-backtest-v2',
+						broker: {
+							price_model: 'constant_spread_bps',
+							spread_bps: '10',
+							fill_policy: 'full',
+							trigger_evaluation: 'bid_side',
+							equity_marking: 'bid_close'
+						},
+						entry_candle_starts_at: '2026-08-01T02:00:00Z',
+						exit_candle_starts_at: '2026-08-01T04:00:00Z',
+						entry_price: '14.01',
+						exit_price: '26.99',
+						initial_equity: '10000',
+						final_equity: '10200',
+						total_net_pnl: '200',
+						total_return_fraction: '0.02',
+						total_fees: '0.08',
+						total_spread_cost: '0.10',
+						maximum_drawdown: '50',
+						maximum_drawdown_fraction: '0.005',
+						evaluation_bars: 2
+					}
+				}
+			});
+			return;
+		}
+		await route.fulfill({
 			json: {
 				result_fingerprint: fingerprint,
 				result: {
@@ -106,8 +141,8 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 					]
 				}
 			}
-		})
-	);
+		});
+	});
 	await page.goto('/backtests');
 	await expect(page.getByRole('heading', { name: 'Backtests', exact: true })).toBeVisible();
 	await expect(page.getByText('Published backtests')).toBeVisible();
@@ -118,6 +153,73 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByText('Total modeled spread cost: $0.10.')).toBeVisible();
 	await expect(page.getByRole('cell', { name: '$0.10' })).toBeVisible();
 	await expect(page.getByText('take profit')).toBeVisible();
+	await expect(page.getByTestId('benchmark-comparison')).toBeVisible();
+	await expect(page.getByText('Buy-and-hold comparison')).toBeVisible();
+	await expect(
+		page.getByText('Buy at 14.01 · liquidate at 26.99 · 2 evaluated bars')
+	).toBeVisible();
+});
+
+test('keeps immutable detail visible when the benchmark request fails', async ({ page }) => {
+	await page.route('**/api/v1/backtests', async (route) =>
+		route.fulfill({
+			json: {
+				entries: [
+					{
+						result_fingerprint: fingerprint,
+						run_fingerprint: runFingerprint,
+						strategy_fingerprint: strategyFingerprint,
+						dataset_fingerprint: datasetFingerprint,
+						engine_contract_version: 'thytrader-bar-backtest-v2',
+						published_at: '2026-08-03T17:25:34Z',
+						summary
+					}
+				],
+				limit: 50,
+				offset: 0,
+				returned: 1
+			}
+		})
+	);
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					detail: { code: 'backtests_unavailable', message: 'Backtest benchmark is unavailable.' }
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '10',
+						fill_policy: 'full',
+						trigger_evaluation: 'bid_side',
+						equity_marking: 'bid_close'
+					},
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [],
+					trades: []
+				}
+			}
+		});
+	});
+	await page.goto('/backtests');
+	await page.getByRole('button', { name: /Inspect/ }).click();
+	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect(page.getByTestId('benchmark-unavailable')).toBeVisible();
+	await expect(page.getByText('Backtest benchmark is unavailable.')).toBeVisible();
 });
 
 test('explains an empty result list', async ({ page }) => {
@@ -126,4 +228,66 @@ test('explains an empty result list', async ({ page }) => {
 	);
 	await page.goto('/backtests');
 	await expect(page.getByText('No backtest results are published yet.')).toBeVisible();
+});
+
+test('renders immutable detail before a slow benchmark finishes', async ({ page }) => {
+	await page.route('**/api/v1/backtests', async (route) =>
+		route.fulfill({
+			json: {
+				entries: [
+					{
+						result_fingerprint: fingerprint,
+						run_fingerprint: runFingerprint,
+						strategy_fingerprint: strategyFingerprint,
+						dataset_fingerprint: datasetFingerprint,
+						engine_contract_version: 'thytrader-bar-backtest-v2',
+						published_at: '2026-08-03T17:25:34Z',
+						summary
+					}
+				],
+				limit: 50,
+				offset: 0,
+				returned: 1
+			}
+		})
+	);
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await new Promise((resolve) => setTimeout(resolve, 1200));
+			await route.fulfill({
+				status: 503,
+				json: {
+					detail: { code: 'backtests_unavailable', message: 'Backtest benchmark is unavailable.' }
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '10',
+						fill_policy: 'full',
+						trigger_evaluation: 'bid_side',
+						equity_marking: 'bid_close'
+					},
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [],
+					trades: []
+				}
+			}
+		});
+	});
+	await page.goto('/backtests');
+	await page.getByRole('button', { name: /Inspect/ }).click();
+	await expect(page.getByText('Simulation result')).toBeVisible({ timeout: 1000 });
+	await expect(page.getByText('Loading benchmark comparison…')).toBeVisible();
 });

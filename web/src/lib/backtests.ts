@@ -93,6 +93,33 @@ export type BacktestDetail = {
 	result_fingerprint: string;
 };
 
+export type BacktestBenchmark = {
+	benchmark_contract_version: 'thytrader-buy-and-hold-v1';
+	result_fingerprint: string;
+	run_fingerprint: string;
+	dataset_fingerprint: string;
+	engine_contract_version: EngineContractVersion;
+	broker?: BrokerAssumptions | null;
+	entry_candle_starts_at: string;
+	exit_candle_starts_at: string;
+	entry_price: string;
+	exit_price: string;
+	initial_equity: string;
+	final_equity: string;
+	total_net_pnl: string;
+	total_return_fraction: string;
+	total_fees: string;
+	total_spread_cost?: string | null;
+	maximum_drawdown: string;
+	maximum_drawdown_fraction: string;
+	evaluation_bars: number;
+};
+
+export type BacktestBenchmarkResponse = {
+	benchmark: BacktestBenchmark;
+	result_fingerprint: string;
+};
+
 export type ApiError = {
 	detail?: { code?: string; message?: string };
 };
@@ -135,4 +162,22 @@ export async function fetchBacktest(
 		throw new Error(body.detail?.message ?? 'Backtest result is unavailable.');
 	}
 	return (await response.json()) as BacktestDetail;
+}
+
+export async function fetchBacktestBenchmark(
+	resultFingerprint: string,
+	signal?: AbortSignal
+): Promise<BacktestBenchmarkResponse> {
+	const response = await fetch(
+		`/api/v1/backtests/${encodeURIComponent(resultFingerprint)}/benchmark`,
+		{
+			headers: { Accept: 'application/json' },
+			signal
+		}
+	);
+	if (!response.ok) {
+		const body = (await response.json().catch(() => ({}))) as ApiError;
+		throw new Error(body.detail?.message ?? 'Backtest benchmark is unavailable.');
+	}
+	return (await response.json()) as BacktestBenchmarkResponse;
 }

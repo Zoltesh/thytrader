@@ -19,11 +19,17 @@ from thytrader.api.routes.portfolio_history import router as portfolio_history_r
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     MarketDataWorkerStateStore,
+)
+from thytrader.persistence.backtest_benchmarks import (
+    BacktestBenchmarkReader,
+    DisabledBacktestBenchmarkReader,
+    PostgresBacktestBenchmarkReader,
 )
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,
@@ -37,6 +43,7 @@ from thytrader.persistence.portfolio_history import (
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
+from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -56,6 +63,7 @@ def create_app(
     history_store: PortfolioHistoryStore | None = None,
     market_data_state_store: MarketDataWorkerStateStore | None = None,
     backtest_result_store: BacktestResultReader | None = None,
+    backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -69,6 +77,7 @@ def create_app(
     external_store = history_store
     external_market_data_state_store = market_data_state_store
     external_backtest_result_store = backtest_result_store
+    external_backtest_benchmark_reader = backtest_benchmark_reader
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -79,6 +88,8 @@ def create_app(
         store = external_store
         worker_state_store = external_market_data_state_store
         backtest_store = external_backtest_result_store
+        benchmark_reader = external_backtest_benchmark_reader
+        dataset_store: DatasetStore | None = None
         needs_database = store is None or worker_state_store is None or backtest_store is None
         if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
@@ -92,14 +103,29 @@ def create_app(
                 store = PostgresPortfolioHistoryStore(engine)
             if worker_state_store is None:
                 worker_state_store = PostgresMarketDataWorkerStateStore(engine)
+            dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
             if backtest_store is None:
-                backtest_store = PostgresBacktestResultStore(engine)
+                backtest_store = PostgresBacktestResultStore(
+                    engine,
+                    research_run_store=PostgresResearchRunStore(engine),
+                    dataset_store=dataset_store,
+                )
+        if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
+            benchmark_dataset_store = dataset_store or DatasetStore(
+                resolved_settings.market_data_dataset_root
+            )
+            benchmark_reader = PostgresBacktestBenchmarkReader(
+                result_reader=backtest_store,
+                source_reader=backtest_store,
+                dataset_store=benchmark_dataset_store,
+            )
 
         _app.state.history_store = store or DisabledPortfolioHistoryStore()
         _app.state.market_data_state_store = (
             worker_state_store or DisabledMarketDataWorkerStateStore()
         )
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
+        _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
 
         runtime.ready = True
         try:

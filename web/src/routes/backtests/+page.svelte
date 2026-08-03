@@ -5,7 +5,9 @@
 	import BacktestPanel from '$lib/BacktestPanel.svelte';
 	import {
 		fetchBacktest,
+		fetchBacktestBenchmark,
 		fetchBacktests,
+		type BacktestBenchmark,
 		type BacktestDetail as BacktestDetailData,
 		type BacktestList
 	} from '$lib/backtests';
@@ -17,6 +19,10 @@
 	let selectedFingerprint = $state<string | null>(null);
 	let detailLoading = $state(false);
 	let detailError = $state<string | null>(null);
+	let benchmark = $state<BacktestBenchmark | null>(null);
+	let benchmarkLoading = $state(false);
+	let benchmarkError = $state<string | null>(null);
+	let selectionRequest = 0;
 
 	async function loadList(): Promise<void> {
 		listingLoading = true;
@@ -34,24 +40,55 @@
 		}
 	}
 
-	async function selectBacktest(fingerprint: string): Promise<void> {
+	async function loadSelectedDetail(fingerprint: string, requestId: number): Promise<void> {
+		try {
+			const result = await fetchBacktest(fingerprint);
+			if (requestId !== selectionRequest) return;
+			selected = result;
+		} catch (caught) {
+			if (requestId !== selectionRequest) return;
+			detailError = caught instanceof Error ? caught.message : 'Backtest result is unavailable.';
+		} finally {
+			if (requestId === selectionRequest) detailLoading = false;
+		}
+	}
+
+	async function loadSelectedBenchmark(fingerprint: string, requestId: number): Promise<void> {
+		try {
+			const result = await fetchBacktestBenchmark(fingerprint);
+			if (requestId !== selectionRequest) return;
+			benchmark = result.benchmark;
+		} catch (caught) {
+			if (requestId !== selectionRequest) return;
+			benchmarkError =
+				caught instanceof Error ? caught.message : 'Backtest benchmark is unavailable.';
+		} finally {
+			if (requestId === selectionRequest) benchmarkLoading = false;
+		}
+	}
+
+	function selectBacktest(fingerprint: string): void {
+		const requestId = ++selectionRequest;
 		selectedFingerprint = fingerprint;
 		selected = null;
 		detailError = null;
 		detailLoading = true;
-		try {
-			selected = await fetchBacktest(fingerprint);
-		} catch (caught) {
-			detailError = caught instanceof Error ? caught.message : 'Backtest result is unavailable.';
-		} finally {
-			detailLoading = false;
-		}
+		benchmark = null;
+		benchmarkError = null;
+		benchmarkLoading = true;
+		void loadSelectedDetail(fingerprint, requestId);
+		void loadSelectedBenchmark(fingerprint, requestId);
 	}
 
 	function clearSelection(): void {
+		selectionRequest += 1;
 		selectedFingerprint = null;
 		selected = null;
 		detailError = null;
+		detailLoading = false;
+		benchmark = null;
+		benchmarkError = null;
+		benchmarkLoading = false;
 	}
 
 	onMount(() => void loadList());
@@ -87,6 +124,9 @@
 		</section>
 		{#if selectedFingerprint !== null}<BacktestDetail
 				detail={selected}
+				{benchmark}
+				{benchmarkLoading}
+				{benchmarkError}
 				loading={detailLoading}
 				error={detailError}
 				onBack={clearSelection}

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NoReturn, cast
 
 from pydantic import SecretStr
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
 from thytrader.backtest.kernel import simulate_backtest
@@ -189,9 +189,24 @@ async def _assert_postgres_round_trip(
         published = await store.publish(result, trace=trace)
         republished = await store.publish(result, trace=trace)
         reloaded = await store.load(backtest_result_fingerprint(result))
+        source_specification = await store.load_source_specification(result)
         assert published == result
         assert republished == result
         assert reloaded == result
+        assert source_specification == specification
+
+        async with engine.begin() as connection:
+            await connection.execute(
+                update(published_research_run_specs)
+                .where(published_research_run_specs.c.run_fingerprint == result.run_fingerprint)
+                .values(
+                    created_at=specification.created_at.replace(
+                        year=specification.created_at.year + 1
+                    )
+                )
+            )
+        with pytest.raises(BacktestPublicationError, match="canonical executable"):
+            await store.load_source_specification(result)
     finally:
         await dispose(engine)
 

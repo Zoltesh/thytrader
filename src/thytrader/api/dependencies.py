@@ -5,6 +5,7 @@ from fastapi import Request  # noqa: TC002
 
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
+from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.portfolio.service import PortfolioService
@@ -63,3 +64,12 @@ def get_backtest_result_store(request: Request) -> BacktestResultReader:
         message = "Backtest result store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_backtest_benchmark_reader(request: Request) -> BacktestBenchmarkReader:
+    """Return the read-only derived benchmark boundary attached during app startup."""
+    reader = getattr(request.app.state, "backtest_benchmark_reader", None)
+    if not isinstance(reader, BacktestBenchmarkReader):
+        message = "Backtest benchmark reader is unavailable."
+        raise TypeError(message)
+    return reader

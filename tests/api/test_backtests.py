@@ -6,16 +6,18 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
+from thytrader.backtest.benchmark import calculate_buy_and_hold_benchmark
 from thytrader.backtest.kernel import simulate_backtest
-from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
+from thytrader.backtest.models import BacktestBenchmark, BacktestResult, backtest_result_fingerprint
 from thytrader.config import Settings
 from thytrader.market_data.models import Candle
+from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkUnavailableError
 from thytrader.persistence.backtest_results import (
     BacktestResultNotFoundError,
     BacktestResultSummaryView,
@@ -31,6 +33,9 @@ from thytrader.research.models import (
     WarmupWindow,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _strategy() -> StrategyDefinition:
@@ -210,6 +215,30 @@ class InMemoryBacktestResultReader:
             raise BacktestResultNotFoundError("missing") from None
 
 
+class InMemoryBacktestBenchmarkReader:
+    """Deterministic read-only benchmark store used only by API behavior tests."""
+
+    def __init__(self, benchmarks: tuple[BacktestBenchmark, ...]) -> None:
+        """Index supplied derived comparisons by their result identity."""
+        self._benchmarks = {benchmark.result_fingerprint: benchmark for benchmark in benchmarks}
+
+    async def load(self, result_fingerprint: str) -> BacktestBenchmark:
+        """Return one derived comparison or signal a miss."""
+        try:
+            return self._benchmarks[result_fingerprint]
+        except KeyError:
+            raise BacktestResultNotFoundError("missing") from None
+
+
+class UnavailableBacktestBenchmarkReader:
+    """Benchmark reader that always reports durable source storage as unreachable."""
+
+    async def load(self, result_fingerprint: str) -> BacktestBenchmark:
+        """Raise a redacted benchmark unavailability failure."""
+        del result_fingerprint
+        raise BacktestBenchmarkUnavailableError("unavailable")
+
+
 class UnavailableBacktestResultReader:
     """Store that always reports durable storage as unreachable."""
 
@@ -232,9 +261,12 @@ class UnavailableBacktestResultReader:
         raise BacktestResultUnavailableError("unavailable")
 
 
-def test_backtests_report_unavailable_when_persistence_is_disabled() -> None:
+def test_backtests_report_unavailable_when_persistence_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Disabled durable storage must not be represented as empty results."""
-    app = create_app(Settings(_env_file=None))
+    monkeypatch.setenv("THYTRADER_DATABASE_URL", "")
+    app = create_app(Settings())
 
     with TestClient(app) as client:
         response = client.get("/api/v1/backtests")
@@ -304,6 +336,58 @@ def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
     assert payload["summary"]["total_spread_cost"] == result.summary.total_spread_cost
     assert payload["trades"][0]["entry"]["executable_side"] == "ask"
     assert payload["trades"][0]["exit"]["executable_side"] == "bid"
+
+
+def test_backtests_benchmark_returns_derived_buy_and_hold_evidence() -> None:
+    """The benchmark endpoint exposes a comparison without changing the immutable result payload."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+        backtest_benchmark_reader=InMemoryBacktestBenchmarkReader((benchmark,)),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/backtests/{fingerprint}/benchmark")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result_fingerprint"] == fingerprint
+    assert payload["benchmark"]["benchmark_contract_version"] == "thytrader-buy-and-hold-v1"
+    assert payload["benchmark"]["total_fees"] == benchmark.total_fees
+
+
+def test_backtests_benchmark_returns_404_for_unknown_result() -> None:
+    """A benchmark request for an unknown result has the same redacted identity semantics."""
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_benchmark_reader=InMemoryBacktestBenchmarkReader(()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/backtests/{'sha256:' + 'f' * 64}/benchmark")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "backtest_not_found"
+
+
+def test_backtests_benchmark_failure_is_redacted() -> None:
+    """Benchmark dependency failures must not leak source or storage details."""
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_benchmark_reader=UnavailableBacktestBenchmarkReader(),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/backtests/{'sha256:' + 'a' * 64}/benchmark")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "backtests_unavailable"
+    assert "Traceback" not in response.text
 
 
 def test_backtests_list_filters_by_strategy_fingerprint() -> None:
