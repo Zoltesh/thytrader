@@ -48,6 +48,7 @@ class PostgresResearchRunStore:
         specification: ResearchRunSpecification,
         *,
         dataset_store: DatasetStore,
+        execution_fingerprint: str | None = None,
     ) -> PublishedResearchRunSpecification:
         """Idempotently publish one canonical specification after exact artifact verification."""
         validated = _validated_specification(specification)
@@ -63,6 +64,7 @@ class PostgresResearchRunStore:
                 strategy_fingerprint=validated.strategy_fingerprint,
                 dataset_fingerprint=validated.dataset_fingerprint,
                 canonical_specification=canonical,
+                execution_fingerprint=execution_fingerprint,
                 published_at=datetime.now(UTC),
             )
             .on_conflict_do_nothing()
@@ -101,6 +103,28 @@ class PostgresResearchRunStore:
                 "Published research run content failed integrity verification."
             )
         return published
+
+    async def load_by_execution_fingerprint(
+        self,
+        execution_fingerprint: str,
+        *,
+        dataset_store: DatasetStore,
+    ) -> PublishedResearchRunSpecification | None:
+        """Return the one previously published run for exact executable semantics, if any."""
+        _validate_fingerprint(execution_fingerprint)
+        statement = select(published_research_run_specs.c.run_fingerprint).where(
+            published_research_run_specs.c.execution_fingerprint == execution_fingerprint
+        )
+        try:
+            async with self._engine.connect() as connection:
+                fingerprint = (await connection.execute(statement)).scalar_one_or_none()
+        except SQLAlchemyError as error:
+            raise ResearchRunPublicationError(
+                "Research run publication storage is unavailable."
+            ) from error
+        if fingerprint is None:
+            return None
+        return await self.load(cast("str", fingerprint), dataset_store=dataset_store)
 
     async def load(
         self,

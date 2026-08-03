@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+import json
 import re
 import secrets
 import sys
@@ -76,6 +78,33 @@ def _uuid7(created_at: datetime) -> UUID:
     return UUID(int=value)
 
 
+def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
+    """Hash the execution semantics that make repeated CLI publication idempotent."""
+    payload = {
+        "bar_execution": {
+            "fill_timing": "next_candle_open",
+            "signal_timing": "completed_candle_close",
+        },
+        "capital": {
+            "initial_quote_balance": arguments.initial_quote_balance,
+            "quote_currency": "USD",
+        },
+        "costs": {
+            "fixed_slippage_bps": arguments.fixed_slippage_bps,
+            "maker_fee_rate": arguments.maker_fee_rate,
+            "taker_fee_rate": arguments.taker_fee_rate,
+        },
+        "dataset_fingerprint": arguments.dataset_fingerprint,
+        "engine_contract_version": "thytrader-bar-backtest-v1",
+        "evaluation_end": arguments.evaluation_end.isoformat(),
+        "evaluation_start": arguments.evaluation_start.isoformat(),
+        "random_seed": arguments.random_seed,
+        "strategy_fingerprint": arguments.strategy_fingerprint,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{sha256(canonical.encode()).hexdigest()}"
+
+
 async def _publish(arguments: argparse.Namespace) -> str:
     """Load strategy requirements, derive warmup, and idempotently publish one backtest run."""
     settings = Settings()
@@ -85,6 +114,14 @@ async def _publish(arguments: argparse.Namespace) -> str:
     try:
         strategy_store = PostgresStrategyPublicationStore(engine)
         strategy = await strategy_store.load(arguments.strategy_fingerprint)
+        dataset_store = DatasetStore(settings.market_data_dataset_root)
+        run_store = PostgresResearchRunStore(engine)
+        execution_fingerprint = backtest_execution_fingerprint(arguments)
+        existing = await run_store.load_by_execution_fingerprint(
+            execution_fingerprint, dataset_store=dataset_store
+        )
+        if existing is not None:
+            return existing.run_fingerprint
         now = datetime.now(UTC)
         created_at = now.replace(microsecond=(now.microsecond // 1000) * 1000)
         specification = ResearchRunSpecification(
@@ -115,8 +152,10 @@ async def _publish(arguments: argparse.Namespace) -> str:
             engine_contract_version="thytrader-bar-backtest-v1",
             random_seed=arguments.random_seed,
         )
-        published = await PostgresResearchRunStore(engine).publish(
-            specification, dataset_store=DatasetStore(settings.market_data_dataset_root)
+        published = await run_store.publish(
+            specification,
+            dataset_store=dataset_store,
+            execution_fingerprint=execution_fingerprint,
         )
         return published.run_fingerprint
     finally:

@@ -143,6 +143,7 @@ published_research_run_specs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("strategy_fingerprint", String(71), nullable=False),
     Column("dataset_fingerprint", String(71), nullable=False),
+    Column("execution_fingerprint", String(71), nullable=True),
     Column("canonical_specification", Text(), nullable=False),
     Column("published_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
@@ -218,6 +219,27 @@ published_backtest_results = Table(
 Index(
     "ix_published_research_run_specs_dataset_fingerprint",
     published_research_run_specs.c.dataset_fingerprint,
+)
+
+Index(
+    "ux_published_research_run_specs_execution_fingerprint",
+    published_research_run_specs.c.execution_fingerprint,
+    unique=True,
+    postgresql_where=published_research_run_specs.c.execution_fingerprint.is_not(None),
+)
+
+Index(
+    "ix_published_backtest_results_run_published",
+    published_backtest_results.c.run_fingerprint,
+    published_backtest_results.c.published_at.desc(),
+    published_backtest_results.c.result_fingerprint.asc(),
+)
+
+Index(
+    "ix_published_backtest_results_strategy_published",
+    published_backtest_results.c.strategy_fingerprint,
+    published_backtest_results.c.published_at.desc(),
+    published_backtest_results.c.result_fingerprint.asc(),
 )
 
 Index(
