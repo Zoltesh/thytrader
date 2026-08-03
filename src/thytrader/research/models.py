@@ -27,6 +27,7 @@ _MAX_DECIMAL_TEXT_LENGTH = 64
 _MAX_INITIAL_QUOTE_BALANCE = Decimal("1000000000000000000")
 _MAX_FEE_RATE = Decimal("0.1")
 _MAX_SLIPPAGE_BPS = Decimal("1000")
+_MAX_SPREAD_BPS = Decimal("1000")
 
 
 def _decimal_text(value: str) -> str:
@@ -176,6 +177,24 @@ class BarExecutionAssumptions(_FrozenModel):
     fill_timing: Literal["next_candle_open"]
 
 
+class BrokerAssumptions(_FrozenModel):
+    """Fully disclosed deterministic V2 broker assumptions, independent of ambient configuration."""
+
+    price_model: Literal["constant_spread_bps"]
+    spread_bps: DecimalText
+    fill_policy: Literal["full"]
+    trigger_evaluation: Literal["bid_side"]
+    equity_marking: Literal["bid_close"]
+
+    @field_validator("spread_bps")
+    @classmethod
+    def require_bounded_spread(cls, value: str) -> str:
+        """Bound fixed quoted spread to a deliberately conservative maximum."""
+        if Decimal(value) > _MAX_SPREAD_BPS:
+            raise ValueError("spread_bps must be at most 1000")
+        return value
+
+
 class ResearchRunSpecification(_FrozenModel):
     """Immutable identity-bearing request for a future deterministic research simulation."""
 
@@ -188,11 +207,13 @@ class ResearchRunSpecification(_FrozenModel):
     warmup: WarmupWindow
     capital: CapitalAssumptions
     costs: CostAssumptions
+    broker: BrokerAssumptions | None = None
     bar_execution: BarExecutionAssumptions
     engine_contract_version: Literal[
         "thytrader-bar-v1",
         "thytrader-bar-signal-v1",
         "thytrader-bar-backtest-v1",
+        "thytrader-bar-backtest-v2",
     ]
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
@@ -237,11 +258,21 @@ class ResearchRunSpecification(_FrozenModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def require_broker_for_v2_only(self) -> Self:
+        """Require disclosed broker assumptions only for the spread-aware V2 contract."""
+        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
+        if is_v2 and self.broker is None:
+            raise ValueError("backtest V2 requires broker assumptions")
+        if not is_v2 and self.broker is not None:
+            raise ValueError("broker assumptions require the backtest V2 contract")
+        return self
+
 
 def canonical_research_run_bytes(specification: ResearchRunSpecification) -> bytes:
     """Revalidate and serialize a run specification into deterministic canonical UTF-8 JSON."""
     validated = ResearchRunSpecification.model_validate(specification.model_dump(mode="python"))
-    payload = validated.model_dump(mode="json")
+    payload = validated.model_dump(mode="json", exclude_none=True)
     return json.dumps(
         payload,
         sort_keys=True,

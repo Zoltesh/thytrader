@@ -21,7 +21,8 @@ const summary = {
 	maximum_drawdown: '0',
 	maximum_drawdown_fraction: '0',
 	exposure_bars: 1,
-	evaluation_bars: 2
+	evaluation_bars: 2,
+	total_spread_cost: '0.10'
 };
 
 test('shows a published backtest summary then its immutable detail', async ({ page }) => {
@@ -34,7 +35,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 						run_fingerprint: runFingerprint,
 						strategy_fingerprint: strategyFingerprint,
 						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v1',
+						engine_contract_version: 'thytrader-bar-backtest-v2',
 						published_at: '2026-08-03T17:25:34Z',
 						summary
 					}
@@ -51,7 +52,14 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v1',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '10',
+						fill_policy: 'full',
+						trigger_evaluation: 'bid_side',
+						equity_marking: 'bid_close'
+					},
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -74,7 +82,10 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 								quantity: '1',
 								notional: '15',
 								fee: '0.03',
-								fee_rate: '0.002'
+								fee_rate: '0.002',
+								reference_price: '15',
+								executable_side: 'ask',
+								spread_cost: '0.05'
 							},
 							exit: {
 								candle_starts_at: '2026-08-01T04:00:00Z',
@@ -83,6 +94,9 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 								notional: '27',
 								fee: '0.05',
 								fee_rate: '0.002',
+								reference_price: '27',
+								executable_side: 'bid',
+								spread_cost: '0.05',
 								reason: 'take_profit'
 							},
 							gross_pnl: '12',
@@ -100,6 +114,9 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulation result')).toBeVisible();
 	await expect(page.getByText('Modeled assumptions')).toBeVisible();
+	await expect(page.getByText('10 bps constant spread')).toBeVisible();
+	await expect(page.getByText('Total modeled spread cost: $0.10.')).toBeVisible();
+	await expect(page.getByRole('cell', { name: '$0.10' })).toBeVisible();
 	await expect(page.getByText('take profit')).toBeVisible();
 });
 

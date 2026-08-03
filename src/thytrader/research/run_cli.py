@@ -20,6 +20,7 @@ from thytrader.persistence.postgres_research_runs import PostgresResearchRunStor
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.research.models import (
     BarExecutionAssumptions,
+    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -61,6 +62,16 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("--maker-fee-rate", required=True)
     publish.add_argument("--taker-fee-rate", required=True)
     publish.add_argument("--fixed-slippage-bps", required=True)
+    publish.add_argument(
+        "--engine-contract-version",
+        choices=("thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"),
+        default="thytrader-bar-backtest-v1",
+        help="Immutable broker contract. V2 requires --spread-bps.",
+    )
+    publish.add_argument(
+        "--spread-bps",
+        help="Constant total bid-ask spread in basis points; required only for the V2 contract.",
+    )
     publish.add_argument("--random-seed", type=int, default=0)
     return parser
 
@@ -78,6 +89,27 @@ def _uuid7(created_at: datetime) -> UUID:
     return UUID(int=value)
 
 
+def _broker_from_arguments(arguments: argparse.Namespace) -> BrokerAssumptions | None:
+    """Resolve V2-only broker inputs before they become execution identity."""
+    if arguments.engine_contract_version == "thytrader-bar-backtest-v1":
+        if arguments.spread_bps is not None:
+            raise ValueError(
+                "--spread-bps requires --engine-contract-version thytrader-bar-backtest-v2"
+            )
+        return None
+    if arguments.spread_bps is None:
+        raise ValueError(
+            "--spread-bps is required for --engine-contract-version thytrader-bar-backtest-v2"
+        )
+    return BrokerAssumptions(
+        price_model="constant_spread_bps",
+        spread_bps=arguments.spread_bps,
+        fill_policy="full",
+        trigger_evaluation="bid_side",
+        equity_marking="bid_close",
+    )
+
+
 def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
     """Hash the execution semantics that make repeated CLI publication idempotent."""
     capital = CapitalAssumptions(
@@ -88,15 +120,17 @@ def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
         taker_fee_rate=arguments.taker_fee_rate,
         fixed_slippage_bps=arguments.fixed_slippage_bps,
     )
+    broker = _broker_from_arguments(arguments)
     payload = {
         "bar_execution": {
             "fill_timing": "next_candle_open",
             "signal_timing": "completed_candle_close",
         },
+        "broker": None if broker is None else broker.model_dump(mode="json"),
         "capital": capital.model_dump(mode="json"),
         "costs": costs.model_dump(mode="json"),
         "dataset_fingerprint": arguments.dataset_fingerprint,
-        "engine_contract_version": "thytrader-bar-backtest-v1",
+        "engine_contract_version": arguments.engine_contract_version,
         "evaluation_end": arguments.evaluation_end.isoformat(),
         "evaluation_start": arguments.evaluation_start.isoformat(),
         "random_seed": arguments.random_seed,
@@ -118,6 +152,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
         dataset_store = DatasetStore(settings.market_data_dataset_root)
         run_store = PostgresResearchRunStore(engine)
         execution_fingerprint = backtest_execution_fingerprint(arguments)
+        broker = _broker_from_arguments(arguments)
         existing = await run_store.load_by_execution_fingerprint(
             execution_fingerprint, dataset_store=dataset_store
         )
@@ -147,10 +182,11 @@ async def _publish(arguments: argparse.Namespace) -> str:
                 taker_fee_rate=arguments.taker_fee_rate,
                 fixed_slippage_bps=arguments.fixed_slippage_bps,
             ),
+            broker=broker,
             bar_execution=BarExecutionAssumptions(
                 signal_timing="completed_candle_close", fill_timing="next_candle_open"
             ),
-            engine_contract_version="thytrader-bar-backtest-v1",
+            engine_contract_version=arguments.engine_contract_version,
             random_seed=arguments.random_seed,
         )
         published = await run_store.publish(

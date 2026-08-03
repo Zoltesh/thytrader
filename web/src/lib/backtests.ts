@@ -15,6 +15,17 @@ export type BacktestSummary = {
 	maximum_drawdown_fraction: string;
 	exposure_bars: number;
 	evaluation_bars: number;
+	total_spread_cost?: string | null;
+};
+
+export type EngineContractVersion = 'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2';
+
+export type BrokerAssumptions = {
+	price_model: 'constant_spread_bps';
+	spread_bps: string;
+	fill_policy: 'full';
+	trigger_evaluation: 'bid_side';
+	equity_marking: 'bid_close';
 };
 
 export type BacktestSummaryEntry = {
@@ -22,7 +33,7 @@ export type BacktestSummaryEntry = {
 	run_fingerprint: string;
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
-	engine_contract_version: 'thytrader-bar-backtest-v1';
+	engine_contract_version: EngineContractVersion;
 	published_at: string;
 	summary: BacktestSummary;
 };
@@ -41,6 +52,9 @@ export type BacktestFill = {
 	notional: string;
 	fee: string;
 	fee_rate: string;
+	reference_price?: string | null;
+	executable_side?: 'ask' | 'bid' | 'mark' | null;
+	spread_cost?: string | null;
 };
 
 export type BacktestTrade = {
@@ -63,7 +77,8 @@ export type EquityPoint = {
 
 export type BacktestResult = {
 	schema_version: '1.0';
-	engine_contract_version: 'thytrader-bar-backtest-v1';
+	engine_contract_version: EngineContractVersion;
+	broker?: BrokerAssumptions | null;
 	run_fingerprint: string;
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
@@ -88,6 +103,11 @@ export function formatPercent(fraction: string): string {
 
 export function shortFingerprint(fingerprint: string): string {
 	return `${fingerprint.slice(0, 16)}…${fingerprint.slice(-8)}`;
+}
+
+export function formatBrokerAssumptions(broker?: BrokerAssumptions | null): string {
+	if (!broker) return 'Legacy V1 mark-price execution; no modeled spread evidence was recorded.';
+	return `${broker.spread_bps} bps constant spread · ${broker.fill_policy} fills · ${broker.trigger_evaluation.replace('_', '-')} exits · ${broker.equity_marking.replace('_', '-')}`;
 }
 
 export async function fetchBacktests(signal?: AbortSignal): Promise<BacktestList> {

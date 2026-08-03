@@ -29,8 +29,9 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `warmup` | `bars` plus the exact derived `starts_at`; its interval is `[starts_at, evaluation.starts_at)`. |
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
 | `costs` | Maker/taker fee rates from zero through `0.1`, maker no greater than taker, and fixed slippage from zero through `1000` basis points. |
+| `broker` | Omitted for legacy contracts. `thytrader-bar-backtest-v2` requires one fully resolved constant-spread broker block: zero through `1000` total spread basis points, full fills, bid-side triggers, and bid-close marking. |
 | `bar_execution` | Signals use completed candle closes; modeled fills use the next candle open. |
-| `engine_contract_version` | `thytrader-bar-v1` remains request-only; `thytrader-bar-signal-v1` selects the implemented deterministic indicator and entry-condition evaluator. |
+| `engine_contract_version` | `thytrader-bar-v1` remains request-only; `thytrader-bar-signal-v1` selects deterministic signal evaluation; `thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` select their separately documented simulation semantics. |
 | `random_seed` | Explicit integer from zero through signed 64-bit maximum. |
 
 Equivalent accepted decimal spellings such as `10000.00` and `10000` share canonical identity. Digits
@@ -85,6 +86,8 @@ timing convention. Existing publications using it are not executable. The identi
 `thytrader-bar-signal-v1` value selects the formulas and entry-condition semantics in
 [signal-evaluation.md](signal-evaluation.md).
 
-Signal evaluation still does not define spread, latency, partial fills, rejection policy, cooldown or
+`thytrader-bar-backtest-v2` selects the same signal stage plus the spread-aware simulator described in [backtest-simulation.md](backtest-simulation.md). It requires a canonical `broker` block, so a command-line spread value can never be ambient configuration or omitted from run identity. The constant spread is a disclosed stress assumption, not observed historical bid/ask evidence.
+
+Signal evaluation still does not define latency, partial fills, rejection policy, cooldown or
 position state, SL/TP ordering, PnL, metrics, or result persistence. A deterministic condition trace is
 therefore not an executed backtest or result.

@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { formatPercent, shortFingerprint, type BacktestDetail } from '$lib/backtests';
+	import {
+		formatBrokerAssumptions,
+		formatPercent,
+		shortFingerprint,
+		type BacktestDetail
+	} from '$lib/backtests';
 	import { formatUsd } from '$lib/portfolio';
 
 	let {
@@ -81,11 +86,19 @@
 			</article>
 		</div>
 		<div class="assumptions">
-			<strong>Modeled assumptions</strong><span
+			<strong>Modeled assumptions</strong>
+			<span>{formatBrokerAssumptions(result.broker)}</span>
+			<small
 				>Long-only, one position · completed close → next-open taker fill · adverse fixed slippage ·
 				time exit before intrabar exits · stop first if stop and target collide · terminal force
-				close.</span
+				close.</small
 			>
+			{#if result.summary.total_spread_cost !== undefined && result.summary.total_spread_cost !== null}
+				<small
+					>Total modeled spread cost: {formatUsd(result.summary.total_spread_cost)}. This is a
+					disclosed stress assumption, not observed bid/ask data.</small
+				>
+			{/if}
 		</div>
 		<div class="equity-panel">
 			<div class="panel-heading">
@@ -114,8 +127,8 @@
 						<thead
 							><tr
 								><th>Entry</th><th>Exit</th><th>Reason</th><th>Quantity</th><th>Fees</th><th
-									>Net PnL</th
-								><th>Bars</th></tr
+									>Spread</th
+								><th>Net PnL</th><th>Bars</th></tr
 							></thead
 						><tbody
 							>{#each result.trades as trade, index (index)}<tr
@@ -129,6 +142,15 @@
 										></td
 									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td
 										>{formatUsd((Number(trade.entry.fee) + Number(trade.exit.fee)).toString())}</td
+									><td
+										>{trade.entry.spread_cost && trade.exit.spread_cost
+											? formatUsd(
+													(
+														Number(trade.entry.spread_cost) * Number(trade.entry.quantity) +
+														Number(trade.exit.spread_cost) * Number(trade.exit.quantity)
+													).toString()
+												)
+											: '—'}</td
 									><td
 										class:gain={Number(trade.net_pnl) >= 0}
 										class:loss={Number(trade.net_pnl) < 0}>{formatUsd(trade.net_pnl)}</td

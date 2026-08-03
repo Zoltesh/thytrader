@@ -14,10 +14,16 @@ from decimal import (
     Overflow,
     localcontext,
 )
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from pydantic import ValidationError
 
+from thytrader.backtest.broker import (
+    ConstantSpreadFillModel,
+    FillModel,
+    FillQuote,
+    MarkFillModel,
+)
 from thytrader.backtest.models import (
     BacktestExitFill,
     BacktestFill,
@@ -69,6 +75,14 @@ class _OpenPosition:
     entered_bar_index: int
 
 
+class _FillEvidence(TypedDict, total=False):
+    """Optional V2-only fill fields omitted from legacy V1 canonical documents."""
+
+    reference_price: str
+    executable_side: Literal["ask", "bid", "mark"]
+    spread_cost: str
+
+
 def simulate_backtest(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
@@ -93,6 +107,7 @@ def _simulate_backtest(
 ) -> BacktestResult:
     """Simulate one published strategy with next-open taker fills and conservative OHLC exits."""
     specification, strategy = _validated_inputs(specification, strategy)
+    fill_model = _fill_model(specification)
     try:
         trace = evaluate_signal_trace(specification, strategy, candles)
     except SignalEvaluationError as error:
@@ -121,6 +136,7 @@ def _simulate_backtest(
                 entry_bar_index=offset,
                 taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
                 slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+                fill_model=fill_model,
             )
             pending = None
         if position is not None and offset < evaluation_hours:
@@ -132,6 +148,7 @@ def _simulate_backtest(
                 taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
                 slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
                 max_bars_held=strategy.exits.time_exit.max_bars_held,
+                fill_model=fill_model,
             )
             if trade is not None:
                 trades.append(trade)
@@ -140,8 +157,10 @@ def _simulate_backtest(
             record = evaluation_records[starts_at]
             if position is None and record.entry_condition is EntryConditionOutcome.MATCHED:
                 pending = _PendingEntry(signal=record)
-        mark_price = candle.open if offset == evaluation_hours else candle.close
-        equity_curve.append(_equity_point(candle.starts_at, cash, position, mark_price))
+        mark_reference = candle.open if offset == evaluation_hours else candle.close
+        equity_curve.append(
+            _equity_point(candle.starts_at, cash, position, fill_model.mark_price(mark_reference))
+        )
 
     if position is not None:
         forced_exit, cash = _close_position(
@@ -153,6 +172,7 @@ def _simulate_backtest(
             reason="evaluation_end",
             taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
             slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+            fill_model=fill_model,
         )
         trades.append(forced_exit)
         equity_curve[-1] = _equity_point(
@@ -162,16 +182,24 @@ def _simulate_backtest(
             Decimal(forced_exit.exit.price),
         )
 
+    engine_contract_version = _backtest_contract(specification)
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v1",
+        engine_contract_version=engine_contract_version,
+        broker=specification.broker,
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
         signal_trace_fingerprint=signal_trace_fingerprint(trace),
         trades=tuple(trades),
         equity_curve=tuple(equity_curve),
-        summary=_summary(initial_cash, cash, trades, equity_curve),
+        summary=_summary(
+            initial_cash,
+            cash,
+            trades,
+            equity_curve,
+            include_spread_cost=specification.broker is not None,
+        ),
     )
 
 
@@ -189,11 +217,42 @@ def _validated_inputs(
         )
     except ValidationError as error:
         raise BacktestSimulationError("Backtest inputs are invalid.") from error
-    if validated_specification.engine_contract_version != "thytrader-bar-backtest-v1":
-        raise BacktestSimulationError("Backtest requires the backtest engine contract.")
+    _backtest_contract(validated_specification)
     if strategy_fingerprint(validated_strategy) != validated_specification.strategy_fingerprint:
         raise BacktestSimulationError("Backtest strategy identity failed verification.")
     return validated_specification, validated_strategy
+
+
+def _backtest_contract(
+    specification: ResearchRunSpecification,
+) -> Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]:
+    """Narrow one fully validated research run to an implemented backtest contract."""
+    contract = specification.engine_contract_version
+    if contract == "thytrader-bar-backtest-v1":
+        return contract
+    if contract == "thytrader-bar-backtest-v2":
+        return contract
+    raise BacktestSimulationError("Backtest requires the backtest engine contract.")
+
+
+def _fill_model(specification: ResearchRunSpecification) -> FillModel:
+    """Construct the one immutable pricing model selected by the published run."""
+    if _backtest_contract(specification) == "thytrader-bar-backtest-v1":
+        return MarkFillModel()
+    if specification.broker is None:
+        raise BacktestSimulationError("Backtest V2 broker assumptions are missing.")
+    return ConstantSpreadFillModel(Decimal(specification.broker.spread_bps))
+
+
+def _fill_evidence(quote: FillQuote) -> _FillEvidence:
+    """Keep legacy V1 canonical bytes unchanged while recording V2 executable price evidence."""
+    if quote.executable_side == "mark":
+        return {}
+    return {
+        "reference_price": canonical_decimal(quote.reference_price),
+        "executable_side": quote.executable_side,
+        "spread_cost": canonical_decimal(quote.spread_cost),
+    }
 
 
 def _candle_map(
@@ -229,10 +288,12 @@ def _open_position(
     entry_bar_index: int,
     taker_fee_rate: Decimal,
     slippage_bps: Decimal,
+    fill_model: FillModel,
 ) -> tuple[_OpenPosition | None, Decimal]:
     """Model a next-open taker entry using ATR risk sizing and never overdraw quote cash."""
     atr = _indicator_value(pending.signal, strategy.exits.initial_stop.atr_indicator)
-    entry_price = _buy_price(candle.open, slippage_bps)
+    entry_quote = fill_model.buy(candle.open, slippage_bps)
+    entry_price = entry_quote.price
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
     if stop_distance <= 0:
         return None, cash
@@ -258,6 +319,7 @@ def _open_position(
         notional=canonical_decimal(notional),
         fee=canonical_decimal(fee),
         fee_rate=canonical_decimal(taker_fee_rate),
+        **_fill_evidence(entry_quote),
     )
     target_price = entry_price + stop_distance * Decimal(strategy.exits.take_profit.multiple)
     return (
@@ -280,6 +342,7 @@ def _close_if_required(
     taker_fee_rate: Decimal,
     slippage_bps: Decimal,
     max_bars_held: int,
+    fill_model: FillModel,
 ) -> tuple[BacktestTrade | None, Decimal]:
     """Close one position using stop-first ambiguity, then target and time-exit ordering."""
     if bar_index - position.entered_bar_index >= max_bars_held:
@@ -292,28 +355,34 @@ def _close_if_required(
             reason="time_exit",
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
+            fill_model=fill_model,
         )
-    if candle.low <= position.stop_price:
+    if fill_model.sell_trigger_price(candle.low) <= position.stop_price:
         return _close_position(
             position,
             candle,
             cash=cash,
             bar_index=bar_index,
-            raw_exit_price=min(candle.open, position.stop_price),
+            raw_exit_price=min(
+                candle.open,
+                fill_model.reference_for_sell_trigger(position.stop_price),
+            ),
             reason="stop_loss",
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
+            fill_model=fill_model,
         )
-    if candle.high >= position.target_price:
+    if fill_model.sell_trigger_price(candle.high) >= position.target_price:
         return _close_position(
             position,
             candle,
             cash=cash,
             bar_index=bar_index,
-            raw_exit_price=position.target_price,
+            raw_exit_price=fill_model.reference_for_sell_trigger(position.target_price),
             reason="take_profit",
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
+            fill_model=fill_model,
         )
     return None, cash
 
@@ -328,10 +397,12 @@ def _close_position(
     reason: Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"],
     taker_fee_rate: Decimal,
     slippage_bps: Decimal,
+    fill_model: FillModel,
 ) -> tuple[BacktestTrade, Decimal]:
     """Apply a modeled sell fill, fee, cash transition, and exact complete-trade evidence."""
     del bar_index
-    exit_price = _sell_price(raw_exit_price, slippage_bps)
+    exit_quote = fill_model.sell(raw_exit_price, slippage_bps)
+    exit_price = exit_quote.price
     quantity = Decimal(position.entry.quantity)
     exit_notional = quantity * exit_price
     exit_fee = exit_notional * taker_fee_rate
@@ -343,6 +414,7 @@ def _close_position(
         fee=canonical_decimal(exit_fee),
         fee_rate=canonical_decimal(taker_fee_rate),
         reason=reason,
+        **_fill_evidence(exit_quote),
     )
     entry_cost = Decimal(position.entry.notional) + Decimal(position.entry.fee)
     net_pnl = exit_notional - exit_fee - entry_cost
@@ -365,16 +437,6 @@ def _indicator_value(record: SignalTraceRecord, indicator_id: str) -> Decimal:
         if value.indicator_id == indicator_id and value.value is not None:
             return Decimal(value.value)
     raise BacktestSimulationError("Backtest entry signal lacks its required ATR value.")
-
-
-def _buy_price(open_price: Decimal, slippage_bps: Decimal) -> Decimal:
-    """Apply adverse fixed basis-point slippage to a marketable long entry."""
-    return open_price * (Decimal("1") + slippage_bps / Decimal("10000"))
-
-
-def _sell_price(raw_price: Decimal, slippage_bps: Decimal) -> Decimal:
-    """Apply adverse fixed basis-point slippage to a marketable long exit."""
-    return raw_price * (Decimal("1") - slippage_bps / Decimal("10000"))
 
 
 def _equity_point(
@@ -400,6 +462,8 @@ def _summary(
     final_cash: Decimal,
     trades: Sequence[BacktestTrade],
     equity_curve: Sequence[EquityPoint],
+    *,
+    include_spread_cost: bool,
 ) -> BacktestSummary:
     """Calculate only exact deterministic ledger and equity statistics in the V1 result."""
     peak = initial_cash
@@ -419,6 +483,18 @@ def _summary(
     trade_count = len(trades)
     exposure_bars = sum(max(1, trade.holding_bars) for trade in trades)
     evaluation_bars = len(equity_curve) - 1
+    total_spread_cost = (
+        sum(
+            (
+                Decimal(fill.spread_cost or "0") * Decimal(fill.quantity)
+                for trade in trades
+                for fill in (trade.entry, trade.exit)
+            ),
+            start=Decimal("0"),
+        )
+        if include_spread_cost
+        else None
+    )
     return BacktestSummary(
         initial_equity=canonical_decimal(initial_cash),
         final_equity=canonical_decimal(final_cash),
@@ -438,6 +514,9 @@ def _summary(
         maximum_drawdown_fraction=canonical_decimal(maximum_drawdown_fraction),
         exposure_bars=exposure_bars,
         evaluation_bars=evaluation_bars,
+        total_spread_cost=(
+            canonical_decimal(total_spread_cost) if total_spread_cost is not None else None
+        ),
     )
 
 

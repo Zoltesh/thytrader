@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from thytrader.research.run_cli import _parser, backtest_execution_fingerprint
 
 
@@ -75,4 +77,25 @@ def test_backtest_execution_identity_normalizes_equivalent_decimal_inputs() -> N
 
     assert backtest_execution_fingerprint(_parser().parse_args(equivalent)) == (
         backtest_execution_fingerprint(canonical)
+    )
+
+
+def test_backtest_v2_execution_identity_requires_and_hashes_spread() -> None:
+    """Spread is an explicit immutable V2 input, not ambient simulator configuration."""
+    without_spread = [
+        *_publication_arguments(),
+        "--engine-contract-version",
+        "thytrader-bar-backtest-v2",
+    ]
+    with_spread = [*without_spread, "--spread-bps", "10.00"]
+    equivalent = [*without_spread, "--spread-bps", "10"]
+    different = [*without_spread, "--spread-bps", "25"]
+
+    with pytest.raises(ValueError, match="--spread-bps is required"):
+        backtest_execution_fingerprint(_parser().parse_args(without_spread))
+    assert backtest_execution_fingerprint(_parser().parse_args(with_spread)) == (
+        backtest_execution_fingerprint(_parser().parse_args(equivalent))
+    )
+    assert backtest_execution_fingerprint(_parser().parse_args(with_spread)) != (
+        backtest_execution_fingerprint(_parser().parse_args(different))
     )

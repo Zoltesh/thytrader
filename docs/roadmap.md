@@ -125,7 +125,12 @@ lifecycle, summaries, and authoring surface are implemented.
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
   PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
 - ✅ Read-only API and dashboard inspection for immutable result summaries, full reverified trade ledgers, equity curves, provenance, and disclosed simulation assumptions. The dashboard cannot submit simulations, mutate results, or grant trading authority.
-- Conservative bar-level broker with explicit spread, latency, rejection, partial-fill, and maker-limit models.
+- ✅ `thytrader-bar-backtest-v2` uses the same deterministic single-position event ordering with a canonical,
+  disclosed constant-basis-point spread stress model: ask-side entries, bid-side exits and triggers,
+  bid-close equity marking, executable-entry sizing, immutable fill-level evidence, and zero-spread
+  economic regression to V1. V1 result bytes remain loadable/reverifiable unchanged; V2 is not
+  observed order-book data or a live-fill prediction.
+- Conservative bar-level broker with latency, rejection, partial-fill, and maker-limit models.
 - Multi-position and cross-strategy portfolio/risk policy integration.
 - Trailing-stop state machine when the schema and market-data resolution support it.
 - Out-of-sample and walk-forward workflow.

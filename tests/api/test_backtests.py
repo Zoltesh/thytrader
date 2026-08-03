@@ -23,6 +23,7 @@ from thytrader.persistence.backtest_results import (
 )
 from thytrader.research.models import (
     BarExecutionAssumptions,
+    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -134,6 +135,26 @@ def _result() -> BacktestResult:
     """Build one deterministic result from the shared simulation vector."""
     strategy = _strategy()
     return simulate_backtest(_run(strategy), strategy, _candles())
+
+
+def _v2_result() -> BacktestResult:
+    """Build a V2 result carrying immutable broker and executable-fill evidence."""
+    strategy = _strategy()
+    legacy = _run(strategy)
+    specification = ResearchRunSpecification.model_validate(
+        {
+            **legacy.model_dump(),
+            "engine_contract_version": "thytrader-bar-backtest-v2",
+            "broker": BrokerAssumptions(
+                price_model="constant_spread_bps",
+                spread_bps="10",
+                fill_policy="full",
+                trigger_evaluation="bid_side",
+                equity_marking="bid_close",
+            ).model_dump(mode="json"),
+        }
+    )
+    return simulate_backtest(specification, strategy, _candles())
 
 
 class InMemoryBacktestResultReader:
@@ -258,6 +279,31 @@ def test_backtests_list_returns_summary_without_trade_ledger() -> None:
     assert entry["summary"]["trade_count"] == result.summary.trade_count
     assert "trades" not in entry
     assert "equity_curve" not in entry
+
+
+def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
+    """V2 detail exposes canonical broker assumptions and decimal-string spread evidence."""
+    result = _v2_result()
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+    )
+
+    with TestClient(app) as client:
+        list_response = client.get("/api/v1/backtests")
+        detail_response = client.get(f"/api/v1/backtests/{fingerprint}")
+
+    assert list_response.status_code == 200
+    entry = list_response.json()["entries"][0]
+    assert entry["engine_contract_version"] == "thytrader-bar-backtest-v2"
+    assert detail_response.status_code == 200
+    payload = detail_response.json()["result"]
+    assert payload["broker"]["spread_bps"] == "10"
+    assert payload["broker"]["trigger_evaluation"] == "bid_side"
+    assert payload["summary"]["total_spread_cost"] == result.summary.total_spread_cost
+    assert payload["trades"][0]["entry"]["executable_side"] == "ask"
+    assert payload["trades"][0]["exit"]["executable_side"] == "bid"
 
 
 def test_backtests_list_filters_by_strategy_fingerprint() -> None:

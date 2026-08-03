@@ -196,6 +196,11 @@ class PostgresBacktestResultStore:
 
         table = published_backtest_results
         summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
+        engine_contract_version = (
+            sql_cast(table.c.canonical_result, JSON)["engine_contract_version"]
+            .as_string()
+            .label("engine_contract_version")
+        )
         statement = (
             select(
                 table.c.result_fingerprint,
@@ -203,6 +208,7 @@ class PostgresBacktestResultStore:
                 table.c.strategy_fingerprint,
                 table.c.dataset_fingerprint,
                 table.c.published_at,
+                engine_contract_version,
                 summary_json,
             )
             .order_by(table.c.published_at.desc(), table.c.result_fingerprint.asc())
@@ -253,7 +259,8 @@ class PostgresBacktestResultStore:
         except (TypeError, ValueError, ValidationError) as error:
             raise BacktestPublicationError("Backtest result source run is invalid.") from error
         if (
-            specification.engine_contract_version != "thytrader-bar-backtest-v1"
+            specification.engine_contract_version != result.engine_contract_version
+            or specification.broker != result.broker
             or canonical_research_run_bytes(specification).decode("utf-8") != canonical
             or research_run_fingerprint(specification) != result.run_fingerprint
         ):
@@ -269,7 +276,7 @@ def _verify_trace_identity(result: BacktestResult, trace: SignalTrace) -> None:
         or trace.run_fingerprint != result.run_fingerprint
         or trace.strategy_fingerprint != result.strategy_fingerprint
         or trace.dataset_fingerprint != result.dataset_fingerprint
-        or trace.engine_contract_version != "thytrader-bar-backtest-v1"
+        or trace.engine_contract_version != result.engine_contract_version
     ):
         raise BacktestPublicationError("Backtest result trace does not match verified sources.")
 
@@ -299,7 +306,7 @@ def _to_summary_view(row: object) -> BacktestResultSummaryView:
         run_fingerprint=cast("str", mapping["run_fingerprint"]),
         strategy_fingerprint=cast("str", mapping["strategy_fingerprint"]),
         dataset_fingerprint=cast("str", mapping["dataset_fingerprint"]),
-        engine_contract_version="thytrader-bar-backtest-v1",
+        engine_contract_version=cast("str", mapping["engine_contract_version"]),
         published_at=published_at,
         summary=summary,
     )

@@ -19,7 +19,11 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.research.models import FingerprintText, UtcDateTime  # noqa: TC001
+from thytrader.research.models import (  # noqa: TC001
+    BrokerAssumptions,
+    FingerprintText,
+    UtcDateTime,
+)
 
 _RESULT_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
@@ -88,6 +92,9 @@ class BacktestFill(_FrozenBacktestModel):
     notional: ResultDecimalText
     fee: ResultDecimalText
     fee_rate: ResultDecimalText
+    reference_price: ResultDecimalText | None = None
+    executable_side: Literal["ask", "bid", "mark"] | None = None
+    spread_cost: ResultDecimalText | None = None
 
     @field_validator("candle_starts_at")
     @classmethod
@@ -151,15 +158,16 @@ class BacktestSummary(_FrozenBacktestModel):
     gross_profit: ResultDecimalText
     gross_loss: ResultDecimalText
     win_rate: ResultDecimalText
-    profit_factor: ResultDecimalText | None
-    average_win: ResultDecimalText | None
-    average_loss: ResultDecimalText | None
+    profit_factor: ResultDecimalText | None = None
+    average_win: ResultDecimalText | None = None
+    average_loss: ResultDecimalText | None = None
     trade_count: int = Field(ge=0)
     winning_trade_count: int = Field(ge=0)
     maximum_drawdown: ResultDecimalText
     maximum_drawdown_fraction: ResultDecimalText
     exposure_bars: int = Field(ge=0)
     evaluation_bars: int = Field(ge=1)
+    total_spread_cost: ResultDecimalText | None = None
 
     @model_validator(mode="after")
     def require_wins_within_trade_count(self) -> Self:
@@ -173,7 +181,8 @@ class BacktestResult(_FrozenBacktestModel):
     """Canonical full result from one immutable research-run simulation."""
 
     schema_version: Literal["1.0"]
-    engine_contract_version: Literal["thytrader-bar-backtest-v1"]
+    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]
+    broker: BrokerAssumptions | None = None
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
@@ -182,12 +191,22 @@ class BacktestResult(_FrozenBacktestModel):
     equity_curve: tuple[EquityPoint, ...] = Field(min_length=1)
     summary: BacktestSummary
 
+    @model_validator(mode="after")
+    def require_v2_broker_evidence(self) -> Self:
+        """Require V2 output to carry the same immutable broker facts as its source run."""
+        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
+        if is_v2 and self.broker is None:
+            raise ValueError("backtest V2 results require broker assumptions")
+        if not is_v2 and self.broker is not None:
+            raise ValueError("broker assumptions require a backtest V2 result")
+        return self
+
 
 def canonical_backtest_result_bytes(result: BacktestResult) -> bytes:
     """Revalidate and encode a result as sorted compact canonical UTF-8 JSON."""
     validated = BacktestResult.model_validate(result.model_dump(mode="python"))
     return json.dumps(
-        validated.model_dump(mode="json"),
+        validated.model_dump(mode="json", exclude_none=True),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,

@@ -12,6 +12,7 @@ import pytest
 
 from thytrader.research.models import (
     BarExecutionAssumptions,
+    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -271,6 +272,40 @@ def test_executable_engine_contracts_are_explicit_and_identity_bearing() -> None
     assert research_run_fingerprint(signal) != research_run_fingerprint(request_only)
     assert research_run_fingerprint(backtest) != research_run_fingerprint(request_only)
     assert research_run_fingerprint(backtest) != research_run_fingerprint(signal)
+
+
+def test_backtest_v2_requires_immutable_broker_assumptions() -> None:
+    """Spread-aware execution only exists when every broker choice is identity-bearing."""
+    v1 = ResearchRunSpecification.model_validate(
+        {
+            **_reference_run().model_dump(mode="python"),
+            "engine_contract_version": "thytrader-bar-backtest-v1",
+        }
+    )
+    broker = BrokerAssumptions(
+        price_model="constant_spread_bps",
+        spread_bps="10.00",
+        fill_policy="full",
+        trigger_evaluation="bid_side",
+        equity_marking="bid_close",
+    )
+    v2 = ResearchRunSpecification.model_validate(
+        {
+            **v1.model_dump(mode="python"),
+            "broker": broker,
+            "engine_contract_version": "thytrader-bar-backtest-v2",
+        }
+    )
+
+    assert v2.broker is not None
+    assert v2.broker.spread_bps == "10"
+    assert research_run_fingerprint(v1) != research_run_fingerprint(v2)
+    with pytest.raises(ValidationError, match="requires broker"):
+        ResearchRunSpecification.model_validate(
+            {**v1.model_dump(mode="python"), "engine_contract_version": "thytrader-bar-backtest-v2"}
+        )
+    with pytest.raises(ValidationError, match="require the backtest V2 contract"):
+        ResearchRunSpecification.model_validate({**v1.model_dump(mode="python"), "broker": broker})
 
 
 def test_run_spec_rejects_boolean_integers_and_numeric_timestamps() -> None:

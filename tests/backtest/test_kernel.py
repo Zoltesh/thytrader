@@ -13,10 +13,11 @@ from pydantic import ValidationError
 import pytest
 
 from thytrader.backtest.kernel import BacktestSimulationError, simulate_backtest
-from thytrader.backtest.models import canonical_backtest_result_bytes
+from thytrader.backtest.models import BacktestResult, canonical_backtest_result_bytes
 from thytrader.market_data.models import Candle
 from thytrader.research.models import (
     BarExecutionAssumptions,
+    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -104,6 +105,24 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
     )
 
 
+def _v2_run(strategy: StrategyDefinition, spread_bps: str) -> ResearchRunSpecification:
+    """Build one V2 run with fully disclosed constant-spread execution assumptions."""
+    v1 = _run(strategy)
+    return ResearchRunSpecification.model_validate(
+        {
+            **v1.model_dump(mode="python"),
+            "broker": BrokerAssumptions(
+                price_model="constant_spread_bps",
+                spread_bps=spread_bps,
+                fill_policy="full",
+                trigger_evaluation="bid_side",
+                equity_marking="bid_close",
+            ),
+            "engine_contract_version": "thytrader-bar-backtest-v2",
+        }
+    )
+
+
 def _candles() -> tuple[Candle, ...]:
     """Return warmup, one signal, one filled target, and one required final fill candle."""
     start = datetime(2026, 8, 1, tzinfo=UTC)
@@ -147,6 +166,39 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     total_return = Decimal(result.summary.total_return_fraction)
     total_net_pnl = Decimal(result.summary.total_net_pnl)
     assert total_return == total_net_pnl / Decimal("10000")
+
+
+def test_v2_zero_spread_preserves_v1_economics_and_records_executable_evidence() -> None:
+    """Zero spread preserves V1 economics while V2 records its distinct disclosed contract."""
+    strategy = _strategy()
+    v1 = simulate_backtest(_run(strategy), strategy, _candles())
+    v2 = simulate_backtest(_v2_run(strategy, "0"), strategy, _candles())
+
+    assert v2.engine_contract_version == "thytrader-bar-backtest-v2"
+    assert v2.broker is not None
+    assert v2.broker.spread_bps == "0"
+    assert v2.summary.total_spread_cost == "0"
+    assert tuple(trade.net_pnl for trade in v2.trades) == tuple(
+        trade.net_pnl for trade in v1.trades
+    )
+    assert v2.summary.final_equity == v1.summary.final_equity
+    assert v2.trades[0].entry.executable_side == "ask"
+    assert v2.trades[0].exit.executable_side == "bid"
+    assert v2.trades[0].entry.spread_cost == "0"
+    assert v2.trades[0].exit.spread_cost == "0"
+
+
+def test_v2_spread_is_monotonic_and_identity_bearing() -> None:
+    """Higher disclosed spread cannot improve a long-only simulated result."""
+    strategy = _strategy()
+    low = simulate_backtest(_v2_run(strategy, "10"), strategy, _candles())
+    high = simulate_backtest(_v2_run(strategy, "25"), strategy, _candles())
+
+    assert Decimal(high.summary.final_equity) < Decimal(low.summary.final_equity)
+    assert Decimal(high.summary.total_spread_cost or "0") > Decimal(
+        low.summary.total_spread_cost or "0"
+    )
+    assert high.run_fingerprint != low.run_fingerprint
 
 
 def test_simulation_exits_a_gap_through_stop_at_the_adverse_open() -> None:
@@ -250,6 +302,9 @@ def test_simulation_skips_a_zero_atr_entry_without_failing() -> None:
     assert result.summary.average_loss is None
     assert result.summary.profit_factor is None
     assert result.summary.maximum_drawdown == "0"
+    canonical = canonical_backtest_result_bytes(result)
+
+    assert BacktestResult.model_validate_json(canonical) == result
 
 
 @pytest.mark.parametrize("noncanonical", ["10000.0", "-0"])

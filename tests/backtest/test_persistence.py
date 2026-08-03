@@ -27,10 +27,10 @@ from thytrader.persistence.schema import (
     published_strategy_versions,
     strategy_dataset_bindings,
 )
-from thytrader.research.models import canonical_research_run_bytes
+from thytrader.research.models import ResearchRunSpecification, canonical_research_run_bytes
 from thytrader.research.signal_evaluator import evaluate_signal_trace
 
-from .test_kernel import _candles, _run, _strategy
+from .test_kernel import _candles, _run, _strategy, _v2_run
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -98,8 +98,20 @@ def test_postgres_store_persists_and_reloads_a_canonical_result() -> None:
     if database_url is None:
         pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
     strategy = _strategy()
-    result = simulate_backtest(_run(strategy), strategy, _candles())
-    asyncio.run(_assert_postgres_round_trip(database_url, result, strategy))
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    asyncio.run(_assert_postgres_round_trip(database_url, result, strategy, specification))
+
+
+def test_postgres_store_persists_and_reloads_a_v2_canonical_result() -> None:
+    """V2 broker evidence must round-trip with its matching source-run contract."""
+    database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
+    strategy = _strategy()
+    specification = _v2_run(strategy, "10")
+    result = simulate_backtest(specification, strategy, _candles())
+    asyncio.run(_assert_postgres_round_trip(database_url, result, strategy, specification))
 
 
 def test_postgres_store_lists_summaries_without_trade_ledgers() -> None:
@@ -108,21 +120,34 @@ def test_postgres_store_lists_summaries_without_trade_ledgers() -> None:
     if database_url is None:
         pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
     strategy = _strategy()
-    result = simulate_backtest(_run(strategy), strategy, _candles())
-    asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy))
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy, specification))
+
+
+def test_postgres_store_lists_v2_contract_from_canonical_result() -> None:
+    """The list projection must expose V2 rather than relabeling it as legacy V1."""
+    database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
+    strategy = _strategy()
+    specification = _v2_run(strategy, "10")
+    result = simulate_backtest(specification, strategy, _candles())
+    asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy, specification))
 
 
 async def _assert_postgres_summary_listing(
     database_url: str,
     result: BacktestResult,
     strategy: StrategyDefinition,
+    specification: ResearchRunSpecification,
 ) -> None:
     """Seed, publish, then read back summary views through the projection query."""
     engine = create_engine(SecretStr(database_url))
     try:
-        await _seed_sources(engine, result, strategy)
+        await _seed_sources(engine, result, strategy, specification)
         store = PostgresBacktestResultStore(engine)
-        trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+        trace = evaluate_signal_trace(specification, strategy, _candles())
         await store.publish(result, trace=trace)
         fingerprint = backtest_result_fingerprint(result)
 
@@ -143,7 +168,7 @@ async def _assert_postgres_summary_listing(
         assert [row.result_fingerprint for row in by_dataset] == [fingerprint]
         row = by_run[0]
         assert row.summary == result.summary
-        assert row.engine_contract_version == "thytrader-bar-backtest-v1"
+        assert row.engine_contract_version == specification.engine_contract_version
         assert row.published_at.tzinfo is not None
     finally:
         await dispose(engine)
@@ -153,13 +178,14 @@ async def _assert_postgres_round_trip(
     database_url: str,
     result: BacktestResult,
     strategy: StrategyDefinition,
+    specification: ResearchRunSpecification,
 ) -> None:
     """Seed immutable source rows, append a result twice, and assert one verified load."""
     engine = create_engine(SecretStr(database_url))
     try:
-        await _seed_sources(engine, result, strategy)
+        await _seed_sources(engine, result, strategy, specification)
         store = PostgresBacktestResultStore(engine)
-        trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+        trace = evaluate_signal_trace(specification, strategy, _candles())
         published = await store.publish(result, trace=trace)
         republished = await store.publish(result, trace=trace)
         reloaded = await store.load(backtest_result_fingerprint(result))
@@ -174,10 +200,10 @@ async def _seed_sources(
     engine: AsyncEngine,
     result: BacktestResult,
     strategy: StrategyDefinition,
+    specification: ResearchRunSpecification,
 ) -> None:
-    """Insert the immutable strategy, binding, and run rows a result depends on."""
+    """Insert the immutable strategy, binding, and matching source-run publication rows."""
     now = datetime.now(UTC)
-    specification = _run(strategy)
     async with engine.begin() as connection:
         await connection.execute(
             delete(published_backtest_results).where(
