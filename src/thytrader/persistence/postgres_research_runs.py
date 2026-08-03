@@ -79,6 +79,12 @@ class PostgresResearchRunStore:
         try:
             published = await self.load(fingerprint, dataset_store=dataset_store)
         except ResearchRunPublicationError as error:
+            if execution_fingerprint is not None:
+                existing = await self.load_by_execution_fingerprint(
+                    execution_fingerprint, dataset_store=dataset_store
+                )
+                if existing is not None:
+                    return existing
             if "was not found" not in str(error):
                 raise
             identity_statement = select(published_research_run_specs.c.run_fingerprint).where(
