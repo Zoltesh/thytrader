@@ -62,3 +62,17 @@ def test_backtest_execution_identity_ignores_request_id_and_publication_time() -
     second = _parser().parse_args(_publication_arguments())
 
     assert backtest_execution_fingerprint(first) == backtest_execution_fingerprint(second)
+
+
+def test_backtest_execution_identity_normalizes_equivalent_decimal_inputs() -> None:
+    """CLI syntax must not create a distinct executable identity for equal Decimal assumptions."""
+    canonical = _parser().parse_args(_publication_arguments())
+    equivalent = _publication_arguments()
+    equivalent[equivalent.index("10000")] = "10000.0"
+    equivalent[equivalent.index("0.001")] = "0.0010"
+    equivalent[equivalent.index("0.002")] = "0.0020"
+    equivalent[equivalent.index("1")] = "1.0"
+
+    assert backtest_execution_fingerprint(_parser().parse_args(equivalent)) == (
+        backtest_execution_fingerprint(canonical)
+    )

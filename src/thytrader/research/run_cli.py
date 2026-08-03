@@ -80,20 +80,21 @@ def _uuid7(created_at: datetime) -> UUID:
 
 def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
     """Hash the execution semantics that make repeated CLI publication idempotent."""
+    capital = CapitalAssumptions(
+        quote_currency="USD", initial_quote_balance=arguments.initial_quote_balance
+    )
+    costs = CostAssumptions(
+        maker_fee_rate=arguments.maker_fee_rate,
+        taker_fee_rate=arguments.taker_fee_rate,
+        fixed_slippage_bps=arguments.fixed_slippage_bps,
+    )
     payload = {
         "bar_execution": {
             "fill_timing": "next_candle_open",
             "signal_timing": "completed_candle_close",
         },
-        "capital": {
-            "initial_quote_balance": arguments.initial_quote_balance,
-            "quote_currency": "USD",
-        },
-        "costs": {
-            "fixed_slippage_bps": arguments.fixed_slippage_bps,
-            "maker_fee_rate": arguments.maker_fee_rate,
-            "taker_fee_rate": arguments.taker_fee_rate,
-        },
+        "capital": capital.model_dump(mode="json"),
+        "costs": costs.model_dump(mode="json"),
         "dataset_fingerprint": arguments.dataset_fingerprint,
         "engine_contract_version": "thytrader-bar-backtest-v1",
         "evaluation_end": arguments.evaluation_end.isoformat(),
