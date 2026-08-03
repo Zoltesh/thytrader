@@ -124,6 +124,7 @@ lifecycle, summaries, and authoring surface are implemented.
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
   PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
+- ✅ Read-only API and dashboard inspection for immutable result summaries, full reverified trade ledgers, equity curves, provenance, and disclosed simulation assumptions. The dashboard cannot submit simulations, mutate results, or grant trading authority.
 - Conservative bar-level broker with explicit spread, latency, rejection, partial-fill, and maker-limit models.
 - Multi-position and cross-strategy portfolio/risk policy integration.
 - Trailing-stop state machine when the schema and market-data resolution support it.

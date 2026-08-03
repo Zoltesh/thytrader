@@ -5,6 +5,7 @@ from fastapi import Request  # noqa: TC002
 
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
+from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -51,5 +52,14 @@ def get_market_data_state_store(request: Request) -> MarketDataWorkerStateStore:
     store = getattr(request.app.state, "market_data_state_store", None)
     if not isinstance(store, MarketDataWorkerStateStore):
         message = "Market-data worker state store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_backtest_result_store(request: Request) -> BacktestResultReader:
+    """Return the read-only backtest result boundary attached during app startup."""
+    store = getattr(request.app.state, "backtest_result_store", None)
+    if not isinstance(store, BacktestResultReader):
+        message = "Backtest result store is unavailable."
         raise TypeError(message)
     return store

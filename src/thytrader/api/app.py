@@ -10,6 +10,7 @@ from coinbase.rest import RESTClient
 from fastapi import FastAPI
 
 from thytrader import __version__
+from thytrader.api.routes.backtests import router as backtests_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
@@ -24,11 +25,16 @@ from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     MarketDataWorkerStateStore,
 )
+from thytrader.persistence.backtest_results import (
+    BacktestResultReader,
+    DisabledBacktestResultStore,
+)
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     PortfolioHistoryStore,
 )
+from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.portfolio.demo import DemoExchangeAccount
@@ -49,6 +55,7 @@ def create_app(
     market_data_service: MarketDataService | None = None,
     history_store: PortfolioHistoryStore | None = None,
     market_data_state_store: MarketDataWorkerStateStore | None = None,
+    backtest_result_store: BacktestResultReader | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -61,6 +68,7 @@ def create_app(
     runtime = RuntimeState(settings=resolved_settings)
     external_store = history_store
     external_market_data_state_store = market_data_state_store
+    external_backtest_result_store = backtest_result_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -70,7 +78,8 @@ def create_app(
 
         store = external_store
         worker_state_store = external_market_data_state_store
-        needs_database = store is None or worker_state_store is None
+        backtest_store = external_backtest_result_store
+        needs_database = store is None or worker_state_store is None or backtest_store is None
         if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
             try:
@@ -83,11 +92,14 @@ def create_app(
                 store = PostgresPortfolioHistoryStore(engine)
             if worker_state_store is None:
                 worker_state_store = PostgresMarketDataWorkerStateStore(engine)
+            if backtest_store is None:
+                backtest_store = PostgresBacktestResultStore(engine)
 
         _app.state.history_store = store or DisabledPortfolioHistoryStore()
         _app.state.market_data_state_store = (
             worker_state_store or DisabledMarketDataWorkerStateStore()
         )
+        _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
 
         runtime.ready = True
         try:
@@ -108,6 +120,7 @@ def create_app(
     app.include_router(market_data_ingestion_router)
     app.include_router(portfolio_router)
     app.include_router(portfolio_history_router)
+    app.include_router(backtests_router)
     return app
 
 

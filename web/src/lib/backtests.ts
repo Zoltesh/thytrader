@@ -1,0 +1,118 @@
+export type BacktestSummary = {
+	initial_equity: string;
+	final_equity: string;
+	total_net_pnl: string;
+	total_return_fraction: string;
+	gross_profit: string;
+	gross_loss: string;
+	win_rate: string;
+	profit_factor: string | null;
+	average_win: string | null;
+	average_loss: string | null;
+	trade_count: number;
+	winning_trade_count: number;
+	maximum_drawdown: string;
+	maximum_drawdown_fraction: string;
+	exposure_bars: number;
+	evaluation_bars: number;
+};
+
+export type BacktestSummaryEntry = {
+	result_fingerprint: string;
+	run_fingerprint: string;
+	strategy_fingerprint: string;
+	dataset_fingerprint: string;
+	engine_contract_version: 'thytrader-bar-backtest-v1';
+	published_at: string;
+	summary: BacktestSummary;
+};
+
+export type BacktestList = {
+	entries: BacktestSummaryEntry[];
+	limit: number;
+	offset: number;
+	returned: number;
+};
+
+export type BacktestFill = {
+	candle_starts_at: string;
+	price: string;
+	quantity: string;
+	notional: string;
+	fee: string;
+	fee_rate: string;
+};
+
+export type BacktestTrade = {
+	entry: BacktestFill;
+	exit: BacktestFill & {
+		reason: 'stop_loss' | 'take_profit' | 'time_exit' | 'evaluation_end';
+	};
+	gross_pnl: string;
+	net_pnl: string;
+	holding_bars: number;
+};
+
+export type EquityPoint = {
+	candle_starts_at: string;
+	cash: string;
+	base_quantity: string;
+	mark_price: string;
+	equity: string;
+};
+
+export type BacktestResult = {
+	schema_version: '1.0';
+	engine_contract_version: 'thytrader-bar-backtest-v1';
+	run_fingerprint: string;
+	strategy_fingerprint: string;
+	dataset_fingerprint: string;
+	signal_trace_fingerprint: string;
+	trades: BacktestTrade[];
+	equity_curve: EquityPoint[];
+	summary: BacktestSummary;
+};
+
+export type BacktestDetail = {
+	result: BacktestResult;
+	result_fingerprint: string;
+};
+
+export type ApiError = {
+	detail?: { code?: string; message?: string };
+};
+
+export function formatPercent(fraction: string): string {
+	return `${(Number(fraction) * 100).toFixed(2)}%`;
+}
+
+export function shortFingerprint(fingerprint: string): string {
+	return `${fingerprint.slice(0, 16)}…${fingerprint.slice(-8)}`;
+}
+
+export async function fetchBacktests(signal?: AbortSignal): Promise<BacktestList> {
+	const response = await fetch('/api/v1/backtests', {
+		headers: { Accept: 'application/json' },
+		signal
+	});
+	if (!response.ok) {
+		const body = (await response.json().catch(() => ({}))) as ApiError;
+		throw new Error(body.detail?.message ?? 'Backtest results are unavailable.');
+	}
+	return (await response.json()) as BacktestList;
+}
+
+export async function fetchBacktest(
+	resultFingerprint: string,
+	signal?: AbortSignal
+): Promise<BacktestDetail> {
+	const response = await fetch(`/api/v1/backtests/${encodeURIComponent(resultFingerprint)}`, {
+		headers: { Accept: 'application/json' },
+		signal
+	});
+	if (!response.ok) {
+		const body = (await response.json().catch(() => ({}))) as ApiError;
+		throw new Error(body.detail?.message ?? 'Backtest result is unavailable.');
+	}
+	return (await response.json()) as BacktestDetail;
+}

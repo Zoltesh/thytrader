@@ -102,6 +102,53 @@ def test_postgres_store_persists_and_reloads_a_canonical_result() -> None:
     asyncio.run(_assert_postgres_round_trip(database_url, result, strategy))
 
 
+def test_postgres_store_lists_summaries_without_trade_ledgers() -> None:
+    """Discovery rows expose indexed identities plus summary metrics, not the ledger."""
+    database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
+    strategy = _strategy()
+    result = simulate_backtest(_run(strategy), strategy, _candles())
+    asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy))
+
+
+async def _assert_postgres_summary_listing(
+    database_url: str,
+    result: BacktestResult,
+    strategy: StrategyDefinition,
+) -> None:
+    """Seed, publish, then read back summary views through the projection query."""
+    engine = create_engine(SecretStr(database_url))
+    try:
+        await _seed_sources(engine, result, strategy)
+        store = PostgresBacktestResultStore(engine)
+        trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+        await store.publish(result, trace=trace)
+        fingerprint = backtest_result_fingerprint(result)
+
+        all_rows = await store.list_summaries(limit=10, offset=0)
+        by_run = await store.list_summaries(
+            run_fingerprint=result.run_fingerprint, limit=10, offset=0
+        )
+        by_strategy = await store.list_summaries(
+            strategy_fingerprint=result.strategy_fingerprint, limit=10, offset=0
+        )
+        by_dataset = await store.list_summaries(
+            dataset_fingerprint=result.dataset_fingerprint, limit=10, offset=0
+        )
+
+        assert any(row.result_fingerprint == fingerprint for row in all_rows)
+        assert [row.result_fingerprint for row in by_run] == [fingerprint]
+        assert [row.result_fingerprint for row in by_strategy] == [fingerprint]
+        assert [row.result_fingerprint for row in by_dataset] == [fingerprint]
+        row = by_run[0]
+        assert row.summary == result.summary
+        assert row.engine_contract_version == "thytrader-bar-backtest-v1"
+        assert row.published_at.tzinfo is not None
+    finally:
+        await dispose(engine)
+
+
 async def _assert_postgres_round_trip(
     database_url: str,
     result: BacktestResult,
@@ -109,60 +156,8 @@ async def _assert_postgres_round_trip(
 ) -> None:
     """Seed immutable source rows, append a result twice, and assert one verified load."""
     engine = create_engine(SecretStr(database_url))
-    now = datetime.now(UTC)
-    specification = _run(strategy)
     try:
-        async with engine.begin() as connection:
-            await connection.execute(
-                delete(published_backtest_results).where(
-                    published_backtest_results.c.run_fingerprint.in_(
-                        select(published_research_run_specs.c.run_fingerprint).where(
-                            published_research_run_specs.c.run_id == str(specification.run_id)
-                        )
-                    )
-                )
-            )
-            await connection.execute(
-                delete(published_research_run_specs).where(
-                    published_research_run_specs.c.run_id == str(specification.run_id)
-                )
-            )
-            await connection.execute(
-                postgres_insert(published_strategy_versions)
-                .values(
-                    strategy_fingerprint=result.strategy_fingerprint,
-                    strategy_id=str(strategy.strategy_id),
-                    version=strategy.version,
-                    created_at=strategy.created_at,
-                    canonical_definition="{}",
-                    published_at=now,
-                )
-                .on_conflict_do_nothing()
-            )
-            await connection.execute(
-                postgres_insert(strategy_dataset_bindings)
-                .values(
-                    strategy_fingerprint=result.strategy_fingerprint,
-                    dataset_fingerprint=result.dataset_fingerprint,
-                    bound_at=now,
-                )
-                .on_conflict_do_nothing()
-            )
-            await connection.execute(
-                postgres_insert(published_research_run_specs)
-                .values(
-                    run_fingerprint=result.run_fingerprint,
-                    run_id=str(specification.run_id),
-                    created_at=specification.created_at,
-                    strategy_fingerprint=result.strategy_fingerprint,
-                    dataset_fingerprint=result.dataset_fingerprint,
-                    canonical_specification=canonical_research_run_bytes(specification).decode(
-                        "utf-8"
-                    ),
-                    published_at=now,
-                )
-                .on_conflict_do_nothing()
-            )
+        await _seed_sources(engine, result, strategy)
         store = PostgresBacktestResultStore(engine)
         trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
         published = await store.publish(result, trace=trace)
@@ -173,3 +168,62 @@ async def _assert_postgres_round_trip(
         assert reloaded == result
     finally:
         await dispose(engine)
+
+
+async def _seed_sources(
+    engine: AsyncEngine,
+    result: BacktestResult,
+    strategy: StrategyDefinition,
+) -> None:
+    """Insert the immutable strategy, binding, and run rows a result depends on."""
+    now = datetime.now(UTC)
+    specification = _run(strategy)
+    async with engine.begin() as connection:
+        await connection.execute(
+            delete(published_backtest_results).where(
+                published_backtest_results.c.run_fingerprint.in_(
+                    select(published_research_run_specs.c.run_fingerprint).where(
+                        published_research_run_specs.c.run_id == str(specification.run_id)
+                    )
+                )
+            )
+        )
+        await connection.execute(
+            delete(published_research_run_specs).where(
+                published_research_run_specs.c.run_id == str(specification.run_id)
+            )
+        )
+        await connection.execute(
+            postgres_insert(published_strategy_versions)
+            .values(
+                strategy_fingerprint=result.strategy_fingerprint,
+                strategy_id=str(strategy.strategy_id),
+                version=strategy.version,
+                created_at=strategy.created_at,
+                canonical_definition="{}",
+                published_at=now,
+            )
+            .on_conflict_do_nothing()
+        )
+        await connection.execute(
+            postgres_insert(strategy_dataset_bindings)
+            .values(
+                strategy_fingerprint=result.strategy_fingerprint,
+                dataset_fingerprint=result.dataset_fingerprint,
+                bound_at=now,
+            )
+            .on_conflict_do_nothing()
+        )
+        await connection.execute(
+            postgres_insert(published_research_run_specs)
+            .values(
+                run_fingerprint=result.run_fingerprint,
+                run_id=str(specification.run_id),
+                created_at=specification.created_at,
+                strategy_fingerprint=result.strategy_fingerprint,
+                dataset_fingerprint=result.dataset_fingerprint,
+                canonical_specification=canonical_research_run_bytes(specification).decode("utf-8"),
+                published_at=now,
+            )
+            .on_conflict_do_nothing()
+        )

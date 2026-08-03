@@ -69,9 +69,19 @@ The summary includes initial/final equity, total PnL and return fraction, trade/
 
 Migration `0007_published_backtest_results.py` creates `published_backtest_results`. Each row has a result fingerprint primary key, source identity columns, canonical result JSON, timestamp, source-run foreign key, and fingerprint format constraints. The source dataset has an index for result lookup; all result content remains inside the canonical document to preserve one audited identity.
 
+## Read-only results API
+
+Two read-only endpoints expose stored evidence to the browser. They cannot submit a backtest, mutate an immutable result, or grant trading authority.
+
+- `GET /api/v1/backtests` returns a bounded newest-first page of summaries. Each row carries the result/run/strategy/dataset fingerprints, the engine-contract version, the publication timestamp, and the immutable `summary` metrics block. Summary metrics are projected from the canonical document server-side, so a list query never materializes a full trade ledger or equity curve. It accepts at most one source-fingerprint filter (`run_fingerprint`, `strategy_fingerprint`, or `dataset_fingerprint`), `limit` (1–100, default 50), and `offset` (≥ 0).
+- `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification.
+
+Both endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. Decimal values remain canonical strings at the API boundary; the browser formats them for display only.
+
 ## Explicitly not in this slice
 
 - limit/maker order-book matching, latency distributions, spread models, rejections, or partial fills;
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
-- trailing stops, walk-forward optimization, benchmark comparison, results API, or dashboard;
+- trailing stops, walk-forward optimization, or benchmark comparison;
+- submitting a backtest from the API or dashboard, or any strategy authoring/mutation;
 - paper broker, exchange adapters, Coinbase submission, or live execution.

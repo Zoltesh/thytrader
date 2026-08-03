@@ -156,7 +156,7 @@
 		<nav aria-label="Primary navigation">
 			<a class="active" href={resolve('/')}>Portfolio</a>
 			<span>Strategies</span>
-			<span>Backtests</span>
+			<a href={resolve('/backtests')}>Backtests</a>
 		</nav>
 		<div class="local-pill"><span></span> Local workstation</div>
 	</header>

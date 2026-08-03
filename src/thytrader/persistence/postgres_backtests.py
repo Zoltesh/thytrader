@@ -8,14 +8,21 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import JSON, cast as sql_cast, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.backtest.models import (
     BacktestResult,
+    BacktestSummary,
     backtest_result_fingerprint,
     canonical_backtest_result_bytes,
+)
+from thytrader.persistence.backtest_results import (
+    BacktestResultIntegrityError,
+    BacktestResultNotFoundError,
+    BacktestResultSummaryView,
+    BacktestResultUnavailableError,
 )
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
 from thytrader.research.models import (
@@ -26,6 +33,8 @@ from thytrader.research.models import (
 from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -90,7 +99,7 @@ class PostgresBacktestResultStore:
         except SQLAlchemyError as error:
             raise BacktestPublicationError("Backtest result storage is unavailable.") from error
         if row is None:
-            raise BacktestPublicationError("Published backtest result was not found.")
+            raise BacktestResultNotFoundError("Published backtest result was not found.")
         canonical = cast("str", row["canonical_result"])
         try:
             result = BacktestResult.model_validate_json(canonical)
@@ -156,6 +165,65 @@ class PostgresBacktestResultStore:
             raise BacktestPublicationError("Backtest result storage is unavailable.") from error
         return tuple(cast("str", row) for row in rows)
 
+    async def list_summaries(
+        self,
+        *,
+        run_fingerprint: str | None = None,
+        strategy_fingerprint: str | None = None,
+        dataset_fingerprint: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> tuple[BacktestResultSummaryView, ...]:
+        """Return bounded newest-first summary rows without loading full ledgers.
+
+        Summary metrics are extracted from the canonical document's immutable
+        ``summary`` block server-side; identity columns come from the indexed
+        row. At most one source filter is accepted per query.
+        """
+        filters = [
+            value
+            for value in (run_fingerprint, strategy_fingerprint, dataset_fingerprint)
+            if value is not None
+        ]
+        if len(filters) > 1:
+            raise BacktestPublicationError("Summary discovery accepts one source filter at a time.")
+        for value in filters:
+            _validate_fingerprint(value)
+        if limit < 1 or limit > 100:
+            raise BacktestPublicationError("Summary discovery limit must be between 1 and 100.")
+        if offset < 0:
+            raise BacktestPublicationError("Summary discovery offset must not be negative.")
+
+        table = published_backtest_results
+        summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
+        statement = (
+            select(
+                table.c.result_fingerprint,
+                table.c.run_fingerprint,
+                table.c.strategy_fingerprint,
+                table.c.dataset_fingerprint,
+                table.c.published_at,
+                summary_json,
+            )
+            .order_by(table.c.published_at.desc(), table.c.result_fingerprint.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if run_fingerprint is not None:
+            statement = statement.where(table.c.run_fingerprint == run_fingerprint)
+        if strategy_fingerprint is not None:
+            statement = statement.where(table.c.strategy_fingerprint == strategy_fingerprint)
+        if dataset_fingerprint is not None:
+            statement = statement.where(table.c.dataset_fingerprint == dataset_fingerprint)
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise BacktestResultUnavailableError(
+                "Backtest result storage is unavailable."
+            ) from error
+        return tuple(_to_summary_view(row) for row in rows)
+
     async def _verify_source_identity(self, result: BacktestResult) -> None:
         """Require source fingerprints to match their existing immutable run publication row."""
         statement = select(
@@ -212,6 +280,29 @@ def _validated_result(result: BacktestResult) -> BacktestResult:
         return BacktestResult.model_validate_json(canonical_backtest_result_bytes(result))
     except (PydanticSerializationError, TypeError, ValueError, ValidationError) as error:
         raise BacktestPublicationError("Backtest result is invalid.") from error
+
+
+def _to_summary_view(row: object) -> BacktestResultSummaryView:
+    """Project one indexed row plus its extracted summary into a discovery view."""
+    mapping = cast("Mapping[str, object]", row)
+    try:
+        summary = BacktestSummary.model_validate(mapping["summary"])
+    except (TypeError, ValueError, ValidationError) as error:
+        raise BacktestResultIntegrityError(
+            "Stored backtest result summary failed validation."
+        ) from error
+    published_at = mapping["published_at"]
+    if not isinstance(published_at, datetime):
+        raise BacktestResultIntegrityError("Stored backtest result publication time is invalid.")
+    return BacktestResultSummaryView(
+        result_fingerprint=cast("str", mapping["result_fingerprint"]),
+        run_fingerprint=cast("str", mapping["run_fingerprint"]),
+        strategy_fingerprint=cast("str", mapping["strategy_fingerprint"]),
+        dataset_fingerprint=cast("str", mapping["dataset_fingerprint"]),
+        engine_contract_version="thytrader-bar-backtest-v1",
+        published_at=published_at,
+        summary=summary,
+    )
 
 
 def _validate_fingerprint(value: str) -> None:
