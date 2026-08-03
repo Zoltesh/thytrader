@@ -194,6 +194,27 @@ def test_simulation_exits_a_gap_through_stop_at_the_adverse_open() -> None:
     assert result.trades[0].exit.price == "7.992"
 
 
+def test_simulation_prefers_stop_when_stop_and_target_are_reached_in_one_bar() -> None:
+    """Ambiguous same-bar protective triggers use the conservative V1 stop-first policy."""
+    strategy = _strategy()
+    collision = (
+        *_candles()[:3],
+        Candle(
+            starts_at=datetime(2026, 8, 1, 3, tzinfo=UTC),
+            open=Decimal("15"),
+            high=Decimal("30"),
+            low=Decimal("9"),
+            close=Decimal("10"),
+            volume=Decimal("10"),
+        ),
+        _candles()[-1],
+    )
+
+    result = simulate_backtest(_run(strategy), strategy, collision)
+
+    assert result.trades[0].exit.reason == "stop_loss"
+
+
 def test_simulation_rejects_a_signal_only_research_run() -> None:
     """A signal-only immutable run must never silently gain fill and PnL semantics."""
     strategy = _strategy()
@@ -224,6 +245,11 @@ def test_simulation_skips_a_zero_atr_entry_without_failing() -> None:
 
     assert result.trades == ()
     assert result.summary.trade_count == 0
+    assert result.summary.final_equity == "10000"
+    assert result.summary.average_win is None
+    assert result.summary.average_loss is None
+    assert result.summary.profit_factor is None
+    assert result.summary.maximum_drawdown == "0"
 
 
 @pytest.mark.parametrize("noncanonical", ["10000.0", "-0"])
