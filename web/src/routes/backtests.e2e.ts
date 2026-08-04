@@ -4,6 +4,7 @@ const fingerprint = `sha256:${'a'.repeat(64)}`;
 const strategyFingerprint = `sha256:${'b'.repeat(64)}`;
 const runFingerprint = `sha256:${'c'.repeat(64)}`;
 const datasetFingerprint = `sha256:${'d'.repeat(64)}`;
+const benchmarkFingerprint = `sha256:${'e'.repeat(64)}`;
 
 const summary = {
 	initial_equity: '10000',
@@ -53,6 +54,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 					result_fingerprint: fingerprint,
 					benchmark: {
 						benchmark_contract_version: 'thytrader-buy-and-hold-v1',
+						benchmark_fingerprint: benchmarkFingerprint,
 						result_fingerprint: fingerprint,
 						run_fingerprint: runFingerprint,
 						dataset_fingerprint: datasetFingerprint,

@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { formatPercent, shortFingerprint, type BacktestSummaryEntry } from '$lib/backtests';
+	import {
+		compareDecimalStrings,
+		formatPercent,
+		shortFingerprint,
+		type BacktestSummaryEntry
+	} from '$lib/backtests';
 	import { formatUsd } from '$lib/portfolio';
 
 	let {
@@ -62,8 +67,8 @@
 									></button
 								></td
 							><td
-								class:gain={Number(entry.summary.total_return_fraction) > 0}
-								class:loss={Number(entry.summary.total_return_fraction) < 0}
+								class:gain={compareDecimalStrings(entry.summary.total_return_fraction, '0') > 0}
+								class:loss={compareDecimalStrings(entry.summary.total_return_fraction, '0') < 0}
 								>{formatPercent(entry.summary.total_return_fraction)}</td
 							><td>{formatUsd(entry.summary.final_equity)}</td><td>{entry.summary.trade_count}</td
 							><td>{formatPercent(entry.summary.win_rate)}</td><td class="loss"

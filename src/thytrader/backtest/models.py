@@ -26,6 +26,7 @@ from thytrader.research.models import (  # noqa: TC001
 )
 
 _RESULT_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+_BENCHMARK_FINGERPRINT_PLACEHOLDER = "sha256:" + "0" * 64
 
 
 def _validate_result_decimal_text(value: str) -> str:
@@ -206,6 +207,7 @@ class BacktestBenchmark(_FrozenBacktestModel):
     """Derived buy-and-hold comparison using the exact verified run and dataset contract."""
 
     benchmark_contract_version: Literal["thytrader-buy-and-hold-v1"]
+    benchmark_fingerprint: FingerprintText = _BENCHMARK_FINGERPRINT_PLACEHOLDER
     result_fingerprint: FingerprintText
     run_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
@@ -248,6 +250,16 @@ class BacktestBenchmark(_FrozenBacktestModel):
             raise ValueError("broker assumptions require a benchmark V2 result")
         return self
 
+    @model_validator(mode="after")
+    def require_canonical_fingerprint(self) -> Self:
+        """Bind derived evidence to every field in its canonical payload."""
+        expected = _backtest_benchmark_fingerprint_for_model(self)
+        if self.benchmark_fingerprint == _BENCHMARK_FINGERPRINT_PLACEHOLDER:
+            object.__setattr__(self, "benchmark_fingerprint", expected)
+        elif self.benchmark_fingerprint != expected:
+            raise ValueError("benchmark fingerprint does not match its canonical evidence")
+        return self
+
 
 def canonical_backtest_result_bytes(result: BacktestResult) -> bytes:
     """Revalidate and encode a result as sorted compact canonical UTF-8 JSON."""
@@ -264,3 +276,34 @@ def canonical_backtest_result_bytes(result: BacktestResult) -> bytes:
 def backtest_result_fingerprint(result: BacktestResult) -> str:
     """Return the SHA-256 content identity of one canonical simulation result."""
     return f"sha256:{sha256(canonical_backtest_result_bytes(result)).hexdigest()}"
+
+
+def canonical_backtest_benchmark_bytes(benchmark: BacktestBenchmark) -> bytes:
+    """Revalidate and encode derived benchmark evidence without its self-identity field."""
+    validated = BacktestBenchmark.model_validate(benchmark.model_dump(mode="python"))
+    return _backtest_benchmark_payload_bytes(validated)
+
+
+def backtest_benchmark_fingerprint(benchmark: BacktestBenchmark) -> str:
+    """Return the SHA-256 identity of one canonical derived benchmark payload."""
+    return f"sha256:{sha256(canonical_backtest_benchmark_bytes(benchmark)).hexdigest()}"
+
+
+def _backtest_benchmark_fingerprint_for_model(benchmark: BacktestBenchmark) -> str:
+    """Calculate a benchmark identity without recursively revalidating the model."""
+    return f"sha256:{sha256(_backtest_benchmark_payload_bytes(benchmark)).hexdigest()}"
+
+
+def _backtest_benchmark_payload_bytes(benchmark: BacktestBenchmark) -> bytes:
+    """Encode every derived benchmark field except the fingerprint that identifies them."""
+    return json.dumps(
+        benchmark.model_dump(
+            mode="json",
+            exclude={"benchmark_fingerprint"},
+            exclude_none=True,
+        ),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")

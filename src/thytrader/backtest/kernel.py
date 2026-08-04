@@ -266,27 +266,32 @@ def _candle_map(
 ) -> Mapping[datetime, Candle]:
     """Require exactly one well-formed candle through the required final next-open fill."""
     starts_at = specification.warmup.starts_at
-    ends_at = specification.evaluation.ends_at + timedelta(hours=1)
     try:
+        ends_at = specification.evaluation.ends_at + timedelta(hours=1)
         for candle in candles:
             validate_candle_timestamp(candle.starts_at)
         selected = tuple(candle for candle in candles if starts_at <= candle.starts_at < ends_at)
         for candle in selected:
             validate_candle_values(candle)
+        expected_count = int((ends_at - starts_at) / timedelta(hours=1))
+        mapped = {candle.starts_at: candle for candle in selected}
+        expected_starts = tuple(
+            starts_at + timedelta(hours=offset) for offset in range(expected_count)
+        )
     except CandleQualityError as error:
         message = "Backtest candles have invalid timestamps or values."
         raise BacktestSimulationError(message) from error
-    except (AttributeError, OverflowError, TypeError, ValueError) as error:
+    except OverflowError as error:
+        message = "Backtest candle coverage exceeds the representable timestamp range."
+        raise BacktestSimulationError(message) from error
+    except (AttributeError, TypeError, ValueError) as error:
         message = "Backtest candles have invalid timestamps or values."
         raise BacktestSimulationError(message) from error
-    expected_count = int((ends_at - starts_at) / timedelta(hours=1))
     if len(selected) != expected_count:
         raise BacktestSimulationError("Backtest candle coverage is incomplete or duplicated.")
-    mapped = {candle.starts_at: candle for candle in selected}
     if len(mapped) != expected_count:
         raise BacktestSimulationError("Backtest candle coverage is duplicated.")
-    for offset in range(expected_count):
-        expected_start = starts_at + timedelta(hours=offset)
+    for expected_start in expected_starts:
         candle = mapped.get(expected_start)
         if candle is None or candle.open <= 0 or candle.high < candle.low:
             raise BacktestSimulationError(

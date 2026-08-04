@@ -136,6 +136,26 @@ def test_dataset_store_rejects_unrepresentable_report_bounds(tmp_path: Path) -> 
     assert not tuple((tmp_path / "manifests").glob("*.json"))
 
 
+def test_dataset_store_rejects_unrepresentable_verified_manifest_bounds(tmp_path: Path) -> None:
+    """Verified reads must map terminal-bound arithmetic overflow to DatasetStoreError."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+    payload = json.loads(manifest.manifest_path.read_text())
+    extreme_end = datetime(9999, 12, 31, 23, tzinfo=UTC)
+    expected_count = int(
+        (extreme_end - datetime(2026, 7, 1, 0, tzinfo=UTC)) / CandleInterval.ONE_HOUR.duration
+    )
+    payload["ends_at"] = extreme_end.isoformat().replace("+00:00", "Z")
+    payload["expected_candle_count"] = expected_count
+    payload["received_candle_count"] = expected_count
+    payload["gap_count"] = 0
+    payload["missing_intervals"] = 0
+    manifest.manifest_path.write_text(json.dumps(payload))
+
+    with pytest.raises(DatasetStoreError, match="verification failed"):
+        store.load_verified(manifest.manifest_path)
+
+
 def test_dataset_store_rejects_forged_extension_report_before_publication(tmp_path: Path) -> None:
     """An extension must validate its incremental report before writing replacement partitions."""
     store = DatasetStore(tmp_path)

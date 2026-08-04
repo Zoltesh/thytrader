@@ -21,6 +21,7 @@ from thytrader.backtest.models import (
     BacktestBenchmark,
     BacktestResult,
     BacktestSummary,
+    backtest_benchmark_fingerprint,
     backtest_result_fingerprint,
 )
 from thytrader.persistence.backtest_benchmarks import (
@@ -190,6 +191,7 @@ async def get_backtest_benchmark(
     try:
         benchmark = await reader.load(result_fingerprint)
         benchmark = BacktestBenchmark.model_validate(benchmark.model_dump(mode="python"))
+        verified_benchmark_fingerprint = backtest_benchmark_fingerprint(benchmark)
     except _BACKTEST_NOT_FOUND_ERRORS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -215,6 +217,15 @@ async def get_backtest_benchmark(
         ) from None
     if benchmark.result_fingerprint != result_fingerprint:
         _logger.warning("Backtest benchmark returned mismatched result identity")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest benchmark is unavailable.",
+            },
+        )
+    if verified_benchmark_fingerprint != benchmark.benchmark_fingerprint:
+        _logger.warning("Backtest benchmark returned mismatched derived identity")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={

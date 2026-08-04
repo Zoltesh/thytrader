@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 from thytrader.market_data.models import Candle, CandleInterval
-from thytrader.market_data.quality import analyze_candles
+from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
 
 
 def _candle(hour: int) -> Candle:
@@ -71,3 +71,17 @@ def test_quality_rejects_nonfinite_and_semantically_invalid_ohlcv_values() -> No
                 CandleInterval.ONE_HOUR,
                 now=datetime(2026, 7, 28, 2, 0, tzinfo=UTC),
             )
+
+
+def test_quality_range_rejects_naive_candle_timestamp_with_controlled_error() -> None:
+    """Range analysis must validate candle timestamps before aware-boundary comparisons."""
+    naive = replace(_candle(0), starts_at=_candle(0).starts_at.replace(tzinfo=None))
+
+    with pytest.raises(CandleQualityError, match="timezone-aware UTC"):
+        analyze_range(
+            (naive,),
+            CandleInterval.ONE_HOUR,
+            starts_at=datetime(2026, 7, 28, 0, tzinfo=UTC),
+            ends_at=datetime(2026, 7, 28, 1, tzinfo=UTC),
+            now=datetime(2026, 7, 28, 2, tzinfo=UTC),
+        )

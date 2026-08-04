@@ -441,6 +441,28 @@ def test_backtests_benchmark_redacts_forged_model_copy() -> None:
     assert "NaN" not in response.text
 
 
+def test_backtests_benchmark_redacts_shape_valid_forgery() -> None:
+    """A shape-valid mutated benchmark must not pass its derived-evidence boundary."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
+    forged = benchmark.model_copy(update={"entry_price": "999"})
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+        backtest_benchmark_reader=InMemoryBacktestBenchmarkReader((forged,)),
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(f"/api/v1/backtests/{fingerprint}/benchmark")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "backtests_unavailable"
+    assert '"entry_price":"999"' not in response.text
+
+
 def test_backtests_benchmark_returns_404_for_unknown_result() -> None:
     """A benchmark request for an unknown result has the same redacted identity semantics."""
     app = create_app(

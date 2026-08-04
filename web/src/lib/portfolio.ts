@@ -274,7 +274,7 @@ function parseDecimal(amount: string): DecimalParts {
 	};
 }
 
-function compareDecimalStrings(left: string, right: string): number {
+export function compareDecimalStrings(left: string, right: string): number {
 	const leftParts = parseDecimal(left);
 	const rightParts = parseDecimal(right);
 	const scale = Math.max(leftParts.scale, rightParts.scale);
@@ -309,6 +309,17 @@ function formatPercentChange(amount: string, baseline: string): string {
 	let rounded = absoluteNumerator / absoluteDenominator;
 	if ((absoluteNumerator % absoluteDenominator) * 2n >= absoluteDenominator) rounded += 1n;
 	return formatFixedDecimal(negative ? -rounded : rounded, 2);
+}
+
+export function formatPercent(fraction: string): string {
+	const parts = parseDecimal(fraction);
+	const numerator = parts.units * 10000n;
+	const denominator = 10n ** BigInt(parts.scale);
+	const negative = numerator < 0n;
+	const absoluteNumerator = negative ? -numerator : numerator;
+	let rounded = absoluteNumerator / denominator;
+	if ((absoluteNumerator % denominator) * 2n >= denominator) rounded += 1n;
+	return `${formatFixedDecimal(negative ? -rounded : rounded, 2)}%`;
 }
 
 function formatFixedDecimal(units: bigint, scale: number): string {

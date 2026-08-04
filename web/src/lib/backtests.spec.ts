@@ -6,6 +6,11 @@ describe('backtest presentation', () => {
 		expect(formatPercent('0.01981496505')).toBe('1.98%');
 	});
 
+	it('formats very large stored return fractions without Number overflow', () => {
+		const fraction = `1${'0'.repeat(400)}`;
+		expect(formatPercent(fraction)).toBe(`1${'0'.repeat(402)}.00%`);
+	});
+
 	it('shortens a canonical fingerprint without discarding its identity prefix', () => {
 		const fingerprint = `sha256:${'a'.repeat(64)}`;
 		expect(shortFingerprint(fingerprint)).toBe(`sha256:${'a'.repeat(9)}…${'a'.repeat(8)}`);

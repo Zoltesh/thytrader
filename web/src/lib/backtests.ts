@@ -1,3 +1,7 @@
+import { compareDecimalStrings, formatPercent as formatExactPercent } from './portfolio';
+
+export { compareDecimalStrings };
+
 export type BacktestSummary = {
 	initial_equity: string;
 	final_equity: string;
@@ -95,6 +99,7 @@ export type BacktestDetail = {
 
 export type BacktestBenchmark = {
 	benchmark_contract_version: 'thytrader-buy-and-hold-v1';
+	benchmark_fingerprint: string;
 	result_fingerprint: string;
 	run_fingerprint: string;
 	dataset_fingerprint: string;
@@ -125,7 +130,7 @@ export type ApiError = {
 };
 
 export function formatPercent(fraction: string): string {
-	return `${(Number(fraction) * 100).toFixed(2)}%`;
+	return formatExactPercent(fraction);
 }
 
 export function shortFingerprint(fingerprint: string): string {

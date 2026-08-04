@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		compareDecimalStrings,
 		formatBrokerAssumptions,
 		formatPercent,
 		shortFingerprint,
@@ -74,8 +75,8 @@
 			</article>
 			<article>
 				<small>Net return</small><strong
-					class:gain={Number(result.summary.total_return_fraction) >= 0}
-					class:loss={Number(result.summary.total_return_fraction) < 0}
+					class:gain={compareDecimalStrings(result.summary.total_return_fraction, '0') >= 0}
+					class:loss={compareDecimalStrings(result.summary.total_return_fraction, '0') < 0}
 					>{formatPercent(result.summary.total_return_fraction)}</strong
 				><span>{formatUsd(result.summary.total_net_pnl)} net PnL</span>
 			</article>
@@ -113,8 +114,8 @@
 					<article>
 						<small>Strategy net return</small>
 						<strong
-							class:gain={Number(result.summary.total_return_fraction) >= 0}
-							class:loss={Number(result.summary.total_return_fraction) < 0}
+							class:gain={compareDecimalStrings(result.summary.total_return_fraction, '0') >= 0}
+							class:loss={compareDecimalStrings(result.summary.total_return_fraction, '0') < 0}
 							>{formatPercent(result.summary.total_return_fraction)}</strong
 						>
 						<span>{formatUsd(result.summary.total_net_pnl)} net PnL</span>
@@ -122,8 +123,8 @@
 					<article>
 						<small>Buy-and-hold return</small>
 						<strong
-							class:gain={Number(benchmark.total_return_fraction) >= 0}
-							class:loss={Number(benchmark.total_return_fraction) < 0}
+							class:gain={compareDecimalStrings(benchmark.total_return_fraction, '0') >= 0}
+							class:loss={compareDecimalStrings(benchmark.total_return_fraction, '0') < 0}
 							>{formatPercent(benchmark.total_return_fraction)}</strong
 						>
 						<span>{formatUsd(benchmark.total_net_pnl)} net PnL</span>
@@ -216,8 +217,9 @@
 											? `${formatUsd(trade.entry.spread_cost)} / ${formatUsd(trade.exit.spread_cost)}`
 											: '—'}</td
 									><td
-										class:gain={Number(trade.net_pnl) >= 0}
-										class:loss={Number(trade.net_pnl) < 0}>{formatUsd(trade.net_pnl)}</td
+										class:gain={compareDecimalStrings(trade.net_pnl, '0') >= 0}
+										class:loss={compareDecimalStrings(trade.net_pnl, '0') < 0}
+										>{formatUsd(trade.net_pnl)}</td
 									><td>{trade.holding_bars}</td></tr
 								>{/each}</tbody
 						>

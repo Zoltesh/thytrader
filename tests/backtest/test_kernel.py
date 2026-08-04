@@ -181,6 +181,40 @@ def test_simulation_rejects_naive_terminal_candle_with_controlled_error() -> Non
         simulate_backtest(_run(strategy), strategy, candles)
 
 
+def test_simulation_rejects_unrepresentable_terminal_boundary_with_controlled_error() -> None:
+    """A terminal next-open boundary beyond datetime.max must not leak OverflowError."""
+    strategy = _strategy()
+    evaluation_starts_at = datetime(9999, 12, 31, 22, tzinfo=UTC)
+    evaluation_ends_at = datetime(9999, 12, 31, 23, tzinfo=UTC)
+    base_run = _run(strategy)
+    run = base_run.model_copy(
+        update={
+            "evaluation": EvaluationWindow(
+                starts_at=evaluation_starts_at,
+                ends_at=evaluation_ends_at,
+            ),
+            "warmup": WarmupWindow(
+                bars=2,
+                starts_at=datetime(9999, 12, 31, 20, tzinfo=UTC),
+            ),
+        }
+    )
+    candles = tuple(
+        Candle(
+            starts_at=datetime(9999, 12, 31, hour, tzinfo=UTC),
+            open=Decimal("10"),
+            high=Decimal("11"),
+            low=Decimal("9"),
+            close=Decimal("10"),
+            volume=Decimal("10"),
+        )
+        for hour in range(20, 24)
+    )
+
+    with pytest.raises(BacktestSimulationError, match=r"candles|coverage"):
+        simulate_backtest(run, strategy, candles)
+
+
 def test_v2_zero_spread_preserves_v1_economics_and_records_executable_evidence() -> None:
     """Zero spread preserves V1 economics while V2 records its distinct disclosed contract."""
     strategy = _strategy()

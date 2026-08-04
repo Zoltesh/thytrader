@@ -190,6 +190,7 @@ class DatasetStore:
             CandleQualityError,
             InvalidOperation,
             OSError,
+            OverflowError,
             ValueError,
             json.JSONDecodeError,
             pl.exceptions.PolarsError,
