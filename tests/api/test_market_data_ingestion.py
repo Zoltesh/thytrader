@@ -164,3 +164,35 @@ def test_ingestion_diagnostics_mark_unverified_dataset_unavailable() -> None:
     assert body["coverage"]["complete"] is True
     assert body["coverage_status"] == "unavailable"
     assert body["failure"]["code"] == "dataset_verification_failed"
+
+
+def test_ingestion_diagnostics_fail_closed_for_unrepresentable_retry_time() -> None:
+    """Persisted max-date retries must not leak an arithmetic exception through the API."""
+
+    async def seed(store: InMemoryMarketDataWorkerStateStore) -> None:
+        attempted_at = datetime.max.replace(tzinfo=UTC)
+        await store.record_attempt(
+            MarketDataWorkerAttempt(
+                provider="demo",
+                product_id="BTC-USD",
+                timeframe=CandleInterval.ONE_HOUR,
+                attempted_at=attempted_at,
+                requested_starts_at=attempted_at,
+                requested_ends_at=attempted_at,
+            )
+        )
+
+    store = InMemoryMarketDataWorkerStateStore()
+    asyncio.run(seed(store))
+    app = create_app(Settings(_env_file=None), market_data_state_store=store)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/market-data/ingestion?product_id=BTC-USD")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "market_data_worker_state_unavailable",
+            "message": "Market-data ingestion state is unavailable.",
+        }
+    }

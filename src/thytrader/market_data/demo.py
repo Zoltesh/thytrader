@@ -63,10 +63,15 @@ class DemoMarketData:
     ) -> MarketDataPreview:
         """Return deterministic completed hourly candles for one supported demo product."""
         product = _product(product_id, interval)
-        latest_start = now.replace(minute=0, second=0, microsecond=0) - interval.duration
+        try:
+            latest_start = now.replace(minute=0, second=0, microsecond=0) - interval.duration
+            first_start = latest_start - interval.duration * 23
+        except OverflowError as error:
+            raise ValueError(
+                "Demo market-data preview cannot represent its requested timestamp range."
+            ) from error
         candles = tuple(
-            _candle(latest_start - interval.duration * offset, offset)
-            for offset in range(23, -1, -1)
+            _candle(first_start + interval.duration * offset, 23 - offset) for offset in range(24)
         )
         return MarketDataPreview(product, interval, now, analyze_candles(candles, interval, now))
 
@@ -80,7 +85,12 @@ class DemoMarketData:
     ) -> CandleRangeReport:
         """Return deterministic complete candles for one bounded hourly demo range."""
         _product(product_id, interval)
-        count = (ends_at - starts_at) // interval.duration
+        try:
+            count = (ends_at - starts_at) // interval.duration
+        except (OverflowError, TypeError, ValueError) as error:
+            raise ValueError(
+                "Demo market-data range cannot represent its requested timestamp range."
+            ) from error
         candles = tuple(
             _candle(starts_at + interval.duration * offset, offset) for offset in range(count)
         )

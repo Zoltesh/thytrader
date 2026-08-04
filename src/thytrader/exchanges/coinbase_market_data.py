@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -97,7 +97,11 @@ class CoinbaseMarketData:
     ) -> MarketDataPreview:
         """Fetch product constraints and recent completed candles for one spot product."""
         _require_utc(now)
-        start = now - interval.duration * _RECENT_INTERVAL_COUNT
+        start = _safe_shift(
+            now,
+            -(interval.duration * _RECENT_INTERVAL_COUNT),
+            "Coinbase recent preview cannot represent its lower request boundary.",
+        )
         product_response = await asyncio.to_thread(self._client.get_product, product_id)
         candle_response = await asyncio.to_thread(
             self._client.get_candles,
@@ -136,7 +140,14 @@ class CoinbaseMarketData:
         candles: list[Candle] = []
         page_start = starts_at
         while page_start < ends_at:
-            page_end = min(page_start + interval.duration * _CANDLE_PAGE_LIMIT, ends_at)
+            page_end = min(
+                _safe_shift(
+                    page_start,
+                    interval.duration * _CANDLE_PAGE_LIMIT,
+                    "Coinbase historical range cannot represent a page boundary.",
+                ),
+                ends_at,
+            )
             response = await asyncio.to_thread(
                 self._client.get_candles,
                 product_id,
@@ -282,3 +293,11 @@ def _require_utc(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
         message = "Market-data requests require a timezone-aware UTC clock value."
         raise CoinbaseMarketDataError(message)
+
+
+def _safe_shift(value: datetime, delta: timedelta, message: str) -> datetime:
+    """Shift one UTC instant without leaking an unrepresentable datetime boundary."""
+    try:
+        return value + delta
+    except OverflowError as error:
+        raise CoinbaseMarketDataError(message) from error

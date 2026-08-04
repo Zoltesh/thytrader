@@ -100,3 +100,16 @@ def test_quality_rejects_unrepresentable_completion_boundary_with_controlled_err
             CandleInterval.ONE_HOUR,
             now=datetime.max.replace(tzinfo=UTC),
         )
+
+
+def test_quality_rejects_mixed_timezone_candles_before_sorting() -> None:
+    """Mixed aware and naive timestamps must not leak comparison TypeError."""
+    aware = _candle(0)
+    naive = replace(_candle(1), starts_at=_candle(1).starts_at.replace(tzinfo=None))
+
+    with pytest.raises(CandleQualityError, match="timezone-aware UTC"):
+        analyze_candles(
+            (aware, naive),
+            CandleInterval.ONE_HOUR,
+            now=datetime(2026, 7, 28, 3, tzinfo=UTC),
+        )

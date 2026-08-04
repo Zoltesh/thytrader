@@ -73,6 +73,26 @@ describe('chartData', () => {
 		expect(result.points.split(' ')).toHaveLength(2);
 	});
 
+	it('keeps huge and tiny exact amounts finite in SVG geometry', () => {
+		const tiny = `0.${'0'.repeat(500)}1`;
+		const huge = `1${'0'.repeat(500)}`;
+		const result = chartData(
+			[entry(tiny, '2026-07-27T10:00:00Z'), entry(huge, '2026-07-27T11:00:00Z')],
+			760,
+			220,
+			40
+		);
+
+		expect(result.values.every(Number.isFinite)).toBe(true);
+		expect(result.coordinates.every(({ x, y, value }) => Number.isFinite(x + y + value))).toBe(
+			true
+		);
+		expect(result.points).not.toContain('Infinity');
+		expect(result.minAmount).toBe(tiny);
+		expect(result.maxAmount).toBe(huge);
+		expect(result.coordinates[0].y).toBeGreaterThan(result.coordinates[1].y);
+	});
+
 	it('splits visual segments when snapshots have a worker-downtime gap', () => {
 		const entries = [
 			entry('100', '2026-07-27T10:00:00Z'),

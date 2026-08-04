@@ -82,6 +82,9 @@ observation instant. It is a data-freshness fact—not a worker-health claim.
 The adapter rejects naive/non-UTC timestamps, duplicate or off-interval timestamps, invalid decimal
 strings, non-finite values, negative volume, invalid venue increments, and internally inconsistent
 OHLC values. Returning a partial candle set would overstate its quality.
+Provider pagination, demo ranges, worker scheduling, dataset verification, and read-only diagnostics
+also map unrepresentable or mixed-timezone timestamp arithmetic to controlled domain or redacted API
+errors; raw Python datetime exceptions must not cross these boundaries.
 
 ## Immutable local dataset contract
 

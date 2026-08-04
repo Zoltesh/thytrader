@@ -13,6 +13,7 @@ from thytrader.market_data.models import CandleInterval, CandleRangeReport
 from thytrader.market_data.worker_state import (
     MarketDataMaintenanceKind,
     MarketDataWorkerAttempt,
+    MarketDataWorkerError,
     MarketDataWorkerFailure,
     MarketDataWorkerStateStore,
     MarketDataWorkerSuccess,
@@ -67,7 +68,11 @@ async def ingest_once(
                 requested_ends_at=prior.covered_ends_at,
                 maintenance_kind=MarketDataMaintenanceKind.INCREMENTAL,
                 expected_ends_at=ends_at,
-                next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
+                next_attempt_at=_safe_shift(
+                    now.astimezone(UTC),
+                    timedelta(seconds=retry_base_seconds),
+                    "Market-data worker cannot represent its next attempt time.",
+                ),
                 expected_consecutive_failures=prior.consecutive_failures,
             )
             if not await state_store.record_attempt(reconciliation_attempt):
@@ -125,8 +130,10 @@ async def ingest_once(
                 MarketDataWorkerSuccess(
                     attempt=reconciliation_attempt,
                     covered_starts_at=verified_candles[0].starts_at,
-                    covered_ends_at=(
-                        verified_candles[-1].starts_at + CandleInterval.ONE_HOUR.duration
+                    covered_ends_at=_safe_shift(
+                        verified_candles[-1].starts_at,
+                        CandleInterval.ONE_HOUR.duration,
+                        "Market-data worker cannot represent verified candle coverage.",
                     ),
                     expected_candle_count=len(verified_candles),
                     received_candle_count=len(verified_candles),
@@ -138,10 +145,18 @@ async def ingest_once(
             )
             _logger.info("market_data_ingestion_current")
             return
-        starts_at = prior.covered_ends_at - CandleInterval.ONE_HOUR.duration
+        starts_at = _safe_shift(
+            prior.covered_ends_at,
+            -CandleInterval.ONE_HOUR.duration,
+            "Market-data worker cannot represent its incremental range start.",
+        )
         maintenance_kind = MarketDataMaintenanceKind.INCREMENTAL
     else:
-        starts_at = ends_at - timedelta(hours=lookback_hours)
+        starts_at = _safe_shift(
+            ends_at,
+            -timedelta(hours=lookback_hours),
+            "Market-data worker cannot represent its initial range start.",
+        )
         maintenance_kind = MarketDataMaintenanceKind.INITIAL_BACKFILL
     attempt = MarketDataWorkerAttempt(
         provider=provider,
@@ -152,7 +167,11 @@ async def ingest_once(
         requested_ends_at=ends_at,
         maintenance_kind=maintenance_kind,
         expected_ends_at=ends_at,
-        next_attempt_at=now.astimezone(UTC) + timedelta(seconds=retry_base_seconds),
+        next_attempt_at=_safe_shift(
+            now.astimezone(UTC),
+            timedelta(seconds=retry_base_seconds),
+            "Market-data worker cannot represent its next attempt time.",
+        ),
         expected_consecutive_failures=prior.consecutive_failures if prior is not None else 0,
     )
     if not await state_store.record_attempt(attempt):
@@ -327,4 +346,16 @@ def _next_retry_at(
     bounded_jitter = min(max(jitter_value, 0.0), 1.0)
     base_delay = min(base_seconds * (2**prior_failures), 3_600)
     delay = base_delay + int(base_delay * 0.2 * bounded_jitter)
-    return attempted_at + timedelta(seconds=delay)
+    return _safe_shift(
+        attempted_at,
+        timedelta(seconds=delay),
+        "Market-data worker cannot represent its retry schedule.",
+    )
+
+
+def _safe_shift(value: datetime, delta: timedelta, message: str) -> datetime:
+    """Shift one worker instant without leaking an unrepresentable datetime boundary."""
+    try:
+        return value + delta
+    except OverflowError as error:
+        raise MarketDataWorkerError(message) from error

@@ -192,23 +192,26 @@ export function chartData(
 	}
 
 	const amounts = entries.map((e) => e.total_value.amount);
-	const values = amounts.map((amount) => Number(amount));
 	const dates = entries.map((e) => e.as_of);
-	const min = Math.min(...values);
-	const max = Math.max(...values);
 	const minAmount = amounts.reduce((current, amount) =>
 		compareDecimalStrings(amount, current) < 0 ? amount : current
 	);
 	const maxAmount = amounts.reduce((current, amount) =>
 		compareDecimalStrings(amount, current) > 0 ? amount : current
 	);
-	const range = max - min || 1; // Avoid division by zero for flat lines
+	const values = amounts.map(decimalToFiniteGeometryValue);
+	const min = Math.min(...values);
+	const max = Math.max(...values);
+	const rangeAmount = subtractDecimalStrings(maxAmount, minAmount);
+	const positions = amounts.map((amount) =>
+		decimalGeometryRatio(subtractDecimalStrings(amount, minAmount), rangeAmount)
+	);
 	const chartW = width - padding * 2;
 	const chartH = height - padding * 2;
 
 	const coordinates = values.map((value, i) => {
 		const x = padding + (chartW * i) / (values.length - 1);
-		const y = padding + chartH - ((value - min) / range) * chartH;
+		const y = padding + chartH - positions[i] * chartH;
 		const priorDate = i > 0 ? Date.parse(dates[i - 1]) : Number.NaN;
 		const currentDate = Date.parse(dates[i]);
 		const gapBefore =
@@ -290,6 +293,40 @@ function subtractDecimalStrings(left: string, right: string): string {
 	const leftUnits = leftParts.units * 10n ** BigInt(scale - leftParts.scale);
 	const rightUnits = rightParts.units * 10n ** BigInt(scale - rightParts.scale);
 	return formatDecimal(leftUnits - rightUnits, scale);
+}
+
+function decimalToFiniteGeometryValue(amount: string): number {
+	/** Convert exact text to a bounded finite value only for non-authoritative chart geometry. */
+	const { units, scale } = parseDecimal(amount);
+	if (units === 0n) return 0;
+	const negative = units < 0n;
+	const digits = (negative ? -units : units).toString();
+	const significant = Number(digits.slice(0, 15));
+	const exponent = digits.length - scale - Math.min(digits.length, 15);
+	const value = significant * 10 ** exponent;
+	if (!Number.isFinite(value)) return negative ? -Number.MAX_VALUE : Number.MAX_VALUE;
+	if (value === 0) return negative ? -Number.MIN_VALUE : Number.MIN_VALUE;
+	return negative ? -value : value;
+}
+
+function decimalGeometryRatio(numerator: string, denominator: string): number {
+	/** Return a finite linear position in [0, 1] from exact non-negative decimal differences. */
+	const numeratorParts = parseDecimal(numerator);
+	const denominatorParts = parseDecimal(denominator);
+	const scale = Math.max(numeratorParts.scale, denominatorParts.scale);
+	const numeratorUnits = numeratorParts.units * 10n ** BigInt(scale - numeratorParts.scale);
+	const denominatorUnits = denominatorParts.units * 10n ** BigInt(scale - denominatorParts.scale);
+	if (denominatorUnits <= 0n || numeratorUnits <= 0n) return 0;
+	if (numeratorUnits >= denominatorUnits) return 1;
+	const numeratorDigits = numeratorUnits.toString();
+	const denominatorDigits = denominatorUnits.toString();
+	const significantDigits = 15;
+	const numeratorPrefix = Number(numeratorDigits.slice(0, significantDigits));
+	const denominatorPrefix = Number(denominatorDigits.slice(0, significantDigits));
+	const exponent = numeratorDigits.length - denominatorDigits.length;
+	const ratio = (numeratorPrefix / denominatorPrefix) * 10 ** exponent;
+	if (!Number.isFinite(ratio) || ratio <= 0) return Number.MIN_VALUE;
+	return Math.min(1, ratio);
 }
 
 function formatPercentChange(amount: string, baseline: string): string {

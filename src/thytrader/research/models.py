@@ -251,7 +251,10 @@ class ResearchRunSpecification(_FrozenModel):
     @model_validator(mode="after")
     def require_derived_warmup_range(self) -> Self:
         """Require warmup to end at evaluation start with exactly the declared hourly bars."""
-        expected_start = self.evaluation.starts_at - timedelta(hours=self.warmup.bars)
+        try:
+            expected_start = self.evaluation.starts_at - timedelta(hours=self.warmup.bars)
+        except OverflowError as error:
+            raise ValueError("warmup range cannot represent the declared hourly bars") from error
         if self.warmup.starts_at != expected_start:
             raise ValueError(
                 "warmup starts_at must equal evaluation starts_at minus the declared warmup bars"

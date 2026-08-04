@@ -100,11 +100,14 @@ async def get_ingestion_state(
             dataset_revision=0,
             maintenance_kind=None,
         )
-    return _to_response(
-        state,
-        now=datetime.now(UTC),
-        interval_seconds=runtime.settings.market_data_worker_interval_seconds,
-    )
+    try:
+        return _to_response(
+            state,
+            now=datetime.now(UTC),
+            interval_seconds=runtime.settings.market_data_worker_interval_seconds,
+        )
+    except OverflowError, TypeError, ValueError:
+        raise _unavailable() from None
 
 
 def _to_response(

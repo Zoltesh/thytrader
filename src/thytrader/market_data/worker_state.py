@@ -16,6 +16,10 @@ class MarketDataWorkerUnavailableError(RuntimeError):
     """Signal that durable market-data worker state is unavailable."""
 
 
+class MarketDataWorkerError(ValueError):
+    """Signal an unrepresentable market-data worker range or schedule."""
+
+
 class MarketDataWorkerStatus(StrEnum):
     """Observable lifecycle outcome for the most recent ingestion attempt."""
 

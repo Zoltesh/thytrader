@@ -168,6 +168,24 @@ def test_run_spec_requires_exact_derived_warmup_range() -> None:
         )
 
 
+def test_run_spec_rejects_unrepresentable_derived_warmup_range() -> None:
+    """Minimum-date evaluation bounds must produce a controlled validation error."""
+    run = _reference_run()
+    minimum = datetime.min.replace(tzinfo=UTC)
+
+    with pytest.raises(ValidationError, match="represent"):
+        ResearchRunSpecification.model_validate(
+            {
+                **run.model_dump(mode="python"),
+                "evaluation": EvaluationWindow(
+                    starts_at=minimum,
+                    ends_at=minimum + timedelta(hours=1),
+                ),
+                "warmup": WarmupWindow(bars=1, starts_at=minimum),
+            }
+        )
+
+
 def test_run_spec_rejects_malformed_fingerprints_and_unbounded_assumptions() -> None:
     """Artifact identities, capital, costs, and seeds have explicit safe bounds."""
     run = _reference_run()

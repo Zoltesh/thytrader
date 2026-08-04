@@ -52,9 +52,10 @@ def analyze_candles(
     naive, or non-interval-aligned data is rejected rather than silently repaired.
     """
     _require_utc(now)
-    ordered = tuple(sorted(candles, key=lambda candle: candle.starts_at))
-    for candle in ordered:
+    for candle in candles:
         validate_candle_values(candle)
+        validate_candle_timestamp(candle.starts_at)
+    ordered = tuple(sorted(candles, key=lambda candle: candle.starts_at))
     _validate_timestamps(ordered, interval)
     completed = tuple(
         candle for candle in ordered if _completion_boundary(candle.starts_at, interval) <= now

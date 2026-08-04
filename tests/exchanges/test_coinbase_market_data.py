@@ -1,10 +1,15 @@
 """Behavioral tests for the Coinbase historical market-data adapter."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+import pytest
+
+from thytrader.exchanges.coinbase_market_data import (
+    CoinbaseMarketData,
+    CoinbaseMarketDataError,
+)
 from thytrader.market_data.models import CandleInterval
 
 
@@ -202,6 +207,23 @@ class BoundaryCandleCoinbaseMarketClient(PagedCoinbaseMarketClient):
         return StubResponse(payload)
 
 
+class EmptyCandleCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """SDK-shaped client returning no candles for boundary arithmetic tests."""
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Return an empty validated-shaped candle response."""
+        assert limit is not None
+        self.candle_calls.append((product_id, start, end, granularity, limit))
+        return StubResponse({"candles": []})
+
+
 def test_coinbase_market_data_builds_exact_preview_and_reports_upstream_gaps() -> None:
     """A Coinbase payload should produce validated completed candles and gap metadata."""
     client = StubCoinbaseMarketClient()
@@ -294,3 +316,31 @@ def test_coinbase_market_data_ignores_open_candle_at_exclusive_range_boundary() 
     assert report.requested_candle_count == 24
     assert report.quality.candle_count == 24
     assert report.complete is True
+
+
+def test_coinbase_market_data_maps_recent_lower_boundary_overflow() -> None:
+    """A minimum-date preview request must fail as a controlled adapter error."""
+    with pytest.raises(CoinbaseMarketDataError, match="represent"):
+        asyncio.run(
+            CoinbaseMarketData(StubCoinbaseMarketClient()).get_recent_preview(
+                "BTC-USD",
+                CandleInterval.ONE_HOUR,
+                datetime.min.replace(tzinfo=UTC),
+            )
+        )
+
+
+def test_coinbase_market_data_maps_historical_page_boundary_overflow() -> None:
+    """A maximum-date range must not leak page arithmetic OverflowError."""
+    ends_at = datetime.max.replace(tzinfo=UTC)
+
+    with pytest.raises(CoinbaseMarketDataError, match="represent"):
+        asyncio.run(
+            CoinbaseMarketData(EmptyCandleCoinbaseMarketClient()).get_historical_range(
+                "BTC-USD",
+                CandleInterval.ONE_HOUR,
+                ends_at - timedelta(hours=1),
+                ends_at,
+                ends_at,
+            )
+        )

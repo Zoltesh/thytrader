@@ -8,22 +8,23 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import pytest
+
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.worker_state import (
     InMemoryMarketDataWorkerStateStore,
     MarketDataWorkerAttempt,
+    MarketDataWorkerError,
     MarketDataWorkerFailure,
     MarketDataWorkerStatus,
     MarketDataWorkerSuccess,
 )
-from thytrader.market_data_worker.service import ingest_once, run_market_data_worker
+from thytrader.market_data_worker.service import _next_retry_at, ingest_once, run_market_data_worker
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 class _StubRangeService:
@@ -109,6 +110,30 @@ def test_ingest_once_publishes_verified_complete_range_and_success_state(tmp_pat
         assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 1
 
     asyncio.run(exercise())
+
+
+def test_ingest_once_rejects_unrepresentable_initial_range(tmp_path: Path) -> None:
+    """A minimum-date initial backfill must fail as a controlled worker error."""
+
+    async def exercise() -> None:
+        with pytest.raises(MarketDataWorkerError, match="represent"):
+            await ingest_once(
+                service=_StubRangeService([]),
+                dataset_store=DatasetStore(tmp_path),
+                state_store=InMemoryMarketDataWorkerStateStore(),
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=datetime.min.replace(tzinfo=UTC),
+            )
+
+    asyncio.run(exercise())
+
+
+def test_next_retry_at_rejects_unrepresentable_schedule() -> None:
+    """Maximum-date retry arithmetic must not leak raw datetime overflow."""
+    with pytest.raises(MarketDataWorkerError, match="represent"):
+        _next_retry_at(datetime.max.replace(tzinfo=UTC), 300, 0, 0.0)
 
 
 def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path) -> None:
