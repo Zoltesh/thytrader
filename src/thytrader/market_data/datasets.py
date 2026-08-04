@@ -70,28 +70,7 @@ class DatasetStore:
         """Write a complete range and publish its manifest only after all files are present."""
         _validate_identifier(provider)
         _validate_identifier(product_id)
-        if not report.complete:
-            message = "Only a complete historical range can be persisted as a dataset."
-            raise DatasetStoreError(message)
-        if not report.quality.candles:
-            message = "A complete dataset must contain at least one candle."
-            raise DatasetStoreError(message)
-        try:
-            recomputed_report = analyze_range(
-                tuple(report.quality.candles),
-                CandleInterval.ONE_HOUR,
-                report.starts_at,
-                report.ends_at,
-                report.ends_at + CandleInterval.ONE_HOUR.duration,
-            )
-        except CandleQualityError as error:
-            raise DatasetStoreError(str(error)) from error
-        except (TypeError, ValueError) as error:
-            message = "Dataset range report facts are invalid and cannot be published."
-            raise DatasetStoreError(message) from error
-        if not _report_facts_match(report, recomputed_report):
-            message = "Dataset range report facts are invalid and cannot be published."
-            raise DatasetStoreError(message)
+        _validate_report_for_publication(report)
 
         timeframe = CandleInterval.ONE_HOUR.value
         rows = _candle_rows(report)
@@ -126,6 +105,7 @@ class DatasetStore:
 
     def extend(self, content_fingerprint: str, report: CandleRangeReport) -> DatasetManifest:
         """Publish a cumulative revision by merging a verified dataset with one overlap range."""
+        _validate_report_for_publication(report)
         prior = self.load_verified(self._manifest_path(content_fingerprint))
         prior_file_rows = {file: _parquet_rows(file) for file in prior.files}
         prior_rows = tuple(row for rows in prior_file_rows.values() for row in rows)
@@ -418,6 +398,32 @@ def _validate_identifier(value: str) -> None:
     """Reject filesystem-unsafe provider and product identifier values."""
     if not _IDENTIFIER.fullmatch(value):
         message = "Dataset identifier contains unsafe filesystem characters."
+        raise DatasetStoreError(message)
+
+
+def _validate_report_for_publication(report: CandleRangeReport) -> None:
+    """Recompute every durable range fact before a report can publish dataset files."""
+    if not report.complete:
+        message = "Only a complete historical range can be persisted as a dataset."
+        raise DatasetStoreError(message)
+    if not report.quality.candles:
+        message = "A complete dataset must contain at least one candle."
+        raise DatasetStoreError(message)
+    try:
+        recomputed_report = analyze_range(
+            tuple(report.quality.candles),
+            CandleInterval.ONE_HOUR,
+            report.starts_at,
+            report.ends_at,
+            report.ends_at + CandleInterval.ONE_HOUR.duration,
+        )
+    except CandleQualityError as error:
+        raise DatasetStoreError(str(error)) from error
+    except (TypeError, ValueError) as error:
+        message = "Dataset range report facts are invalid and cannot be published."
+        raise DatasetStoreError(message) from error
+    if not _report_facts_match(report, recomputed_report):
+        message = "Dataset range report facts are invalid and cannot be published."
         raise DatasetStoreError(message)
 
 

@@ -17,16 +17,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _candle(hour: int) -> Candle:
+def _candle_at(starts_at: datetime) -> Candle:
     """Build one exact hourly candle for an immutable dataset fixture."""
     return Candle(
-        starts_at=datetime(2026, 7, 1, hour, tzinfo=UTC),
+        starts_at=starts_at,
         open=Decimal("100"),
         high=Decimal("110"),
         low=Decimal("90"),
         close=Decimal("105"),
         volume=Decimal("12.5"),
     )
+
+
+def _candle(hour: int) -> Candle:
+    """Build one exact hourly candle on the fixture's first calendar day."""
+    return _candle_at(datetime(2026, 7, 1, hour, tzinfo=UTC))
 
 
 def _complete_report() -> CandleRangeReport:
@@ -37,6 +42,17 @@ def _complete_report() -> CandleRangeReport:
         starts_at=datetime(2026, 7, 1, 0, tzinfo=UTC),
         ends_at=datetime(2026, 7, 1, 3, tzinfo=UTC),
         now=datetime(2026, 7, 1, 4, tzinfo=UTC),
+    )
+
+
+def _extension_report(now: datetime) -> CandleRangeReport:
+    """Build one complete overlapping range report that advances the fixture by two candles."""
+    return analyze_range(
+        tuple(_candle_at(datetime(2026, 7, 1, hour, tzinfo=UTC)) for hour in (2, 3, 4)),
+        CandleInterval.ONE_HOUR,
+        starts_at=datetime(2026, 7, 1, 2, tzinfo=UTC),
+        ends_at=datetime(2026, 7, 1, 5, tzinfo=UTC),
+        now=now,
     )
 
 
@@ -107,6 +123,37 @@ def test_dataset_store_rejects_forged_range_facts_before_publication(tmp_path: P
             DatasetStore(root).write("coinbase", "BTC-USD", forged_report)
         assert not tuple(root.rglob("*.parquet"))
         assert not tuple((root / "manifests").glob("*.json"))
+
+
+def test_dataset_store_rejects_forged_extension_report_before_publication(tmp_path: Path) -> None:
+    """An extension must validate its incremental report before writing replacement partitions."""
+    store = DatasetStore(tmp_path)
+    prior = store.write("coinbase", "BTC-USD", _complete_report())
+    incremental = _extension_report(datetime(2026, 7, 1, 6, tzinfo=UTC))
+    forged = replace(
+        incremental,
+        requested_candle_count=incremental.requested_candle_count + 1,
+    )
+
+    with pytest.raises(DatasetStoreError, match="report facts"):
+        store.extend(prior.content_fingerprint, forged)
+
+    assert tuple(tmp_path.rglob("*.parquet")) == prior.files
+    assert tuple((tmp_path / "manifests").glob("*.json")) == (prior.manifest_path,)
+
+
+def test_dataset_store_extends_valid_stale_report(tmp_path: Path) -> None:
+    """Publication validation must ignore stale status while preserving all durable range facts."""
+    store = DatasetStore(tmp_path)
+    prior = store.write("coinbase", "BTC-USD", _complete_report())
+    stale_report = _extension_report(datetime(2026, 7, 10, tzinfo=UTC))
+
+    assert stale_report.quality.is_stale is True
+    extended = store.extend(prior.content_fingerprint, stale_report)
+
+    assert extended.ends_at == "2026-07-01T05:00:00Z"
+    assert extended.expected_candle_count == 5
+    assert len(store.load_candles(extended.content_fingerprint)) == 5
 
 
 def test_dataset_store_fingerprint_includes_dataset_identity(tmp_path: Path) -> None:
