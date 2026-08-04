@@ -56,9 +56,13 @@ def analyze_candles(
     for candle in ordered:
         validate_candle_values(candle)
     _validate_timestamps(ordered, interval)
-    completed = tuple(candle for candle in ordered if candle.starts_at + interval.duration <= now)
+    completed = tuple(
+        candle for candle in ordered if _completion_boundary(candle.starts_at, interval) <= now
+    )
     gap_count, missing_intervals = _gaps(completed, interval)
-    latest_completed_at = completed[-1].starts_at + interval.duration if completed else None
+    latest_completed_at = (
+        _completion_boundary(completed[-1].starts_at, interval) if completed else None
+    )
     is_stale = latest_completed_at is not None and now - latest_completed_at > interval.duration * 2
     return CandleQualityReport(
         candles=completed,
@@ -133,6 +137,16 @@ def _gaps(candles: tuple[Candle, ...], interval: CandleInterval) -> tuple[int, i
             gaps += 1
             missing += intervals - 1
     return gaps, missing
+
+
+def _completion_boundary(starts_at: datetime, interval: CandleInterval) -> datetime:
+    """Return a candle's completion boundary or a controlled quality error."""
+    try:
+        return starts_at + interval.duration
+    except OverflowError as error:
+        raise CandleQualityError(
+            "Candle timestamp cannot represent its completion boundary."
+        ) from error
 
 
 def _require_utc(value: datetime) -> None:

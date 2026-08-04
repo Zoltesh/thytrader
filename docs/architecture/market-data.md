@@ -64,6 +64,8 @@ No strategy, backtest, paper session, or live trading path may depend on the pre
 
 A candle becomes eligible only when `starts_at + interval <= observation_time`. The current open
 candle is excluded because its OHLCV values are mutable and could introduce lookahead bias.
+If that completion boundary cannot be represented by the timestamp type, quality analysis rejects
+the candle with a controlled `CandleQualityError` rather than leaking a raw datetime overflow.
 
 ### Completeness
 

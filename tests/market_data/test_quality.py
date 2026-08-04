@@ -85,3 +85,18 @@ def test_quality_range_rejects_naive_candle_timestamp_with_controlled_error() ->
             ends_at=datetime(2026, 7, 28, 1, tzinfo=UTC),
             now=datetime(2026, 7, 28, 2, tzinfo=UTC),
         )
+
+
+def test_quality_rejects_unrepresentable_completion_boundary_with_controlled_error() -> None:
+    """Quality analysis must classify a max-date candle completion overflow."""
+    extreme = replace(
+        _candle(0),
+        starts_at=datetime(9999, 12, 31, 23, tzinfo=UTC),
+    )
+
+    with pytest.raises(CandleQualityError, match="completion boundary"):
+        analyze_candles(
+            (extreme,),
+            CandleInterval.ONE_HOUR,
+            now=datetime.max.replace(tzinfo=UTC),
+        )
