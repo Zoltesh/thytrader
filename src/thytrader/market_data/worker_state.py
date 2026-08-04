@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
@@ -219,6 +219,9 @@ def _validate_coverage(state: MarketDataWorkerState) -> None:
             message = "Market-data worker state claims success without coverage evidence."
             raise MarketDataWorkerError(message)
         return
+    if state.last_success_at is None:
+        message = "Market-data worker coverage evidence is missing its success instant."
+        raise MarketDataWorkerError(message)
 
     _require_optional_nonnegative_integer(state.expected_candle_count, "expected_candle_count")
     _require_optional_nonnegative_integer(state.received_candle_count, "received_candle_count")
@@ -229,6 +232,14 @@ def _validate_coverage(state: MarketDataWorkerState) -> None:
         raise MarketDataWorkerError(message)
     if state.covered_starts_at >= state.covered_ends_at:
         message = "Market-data worker state has an empty or inverted coverage range."
+        raise MarketDataWorkerError(message)
+    coverage_duration = state.covered_ends_at - state.covered_starts_at
+    if coverage_duration % state.timeframe.duration != timedelta(0):
+        message = "Market-data worker state has a coverage range misaligned to its timeframe."
+        raise MarketDataWorkerError(message)
+    coverage_count = coverage_duration // state.timeframe.duration
+    if state.expected_candle_count is not None and state.expected_candle_count != coverage_count:
+        message = "Market-data worker state has a coverage count inconsistent with its range."
         raise MarketDataWorkerError(message)
     if (
         not state.complete
@@ -272,6 +283,9 @@ def _validate_failure_lifecycle(state: MarketDataWorkerState) -> None:
     elif state.status is MarketDataWorkerStatus.FAILED:
         if state.consecutive_failures < 1 or not has_failure_code:
             message = "Market-data worker failure state has inconsistent failure facts."
+            raise MarketDataWorkerError(message)
+        if state.next_retry_at is None or state.next_retry_at <= state.last_attempt_at:
+            message = "Market-data worker failure state is missing a valid retry deadline."
             raise MarketDataWorkerError(message)
     elif (state.consecutive_failures == 0) != (not has_failure_code):
         message = "Market-data worker running state has inconsistent retained failure facts."

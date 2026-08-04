@@ -221,6 +221,147 @@ def test_ingest_once_rejects_forged_negative_persisted_failure_count(tmp_path: P
     asyncio.run(exercise())
 
 
+def test_ingest_once_rejects_forged_coverage_count_before_provider_io(tmp_path: Path) -> None:
+    """A complete persisted range must retain the exact count implied by its interval."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=ends_at,
+            requested_starts_at=ends_at - timedelta(hours=3),
+            requested_ends_at=ends_at,
+        )
+        await state_store.record_attempt(attempt)
+        await state_store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=attempt,
+                covered_starts_at=attempt.requested_starts_at,
+                covered_ends_at=attempt.requested_ends_at,
+                expected_candle_count=3,
+                received_candle_count=3,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "a" * 64,
+            )
+        )
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        object.__setattr__(state, "expected_candle_count", 1)
+        object.__setattr__(state, "received_candle_count", 1)
+        service = _StubRangeService([])
+
+        with pytest.raises(MarketDataWorkerError, match="coverage count"):
+            await ingest_once(
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=ends_at + timedelta(hours=1),
+            )
+
+        assert service.requests == []
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_rejects_coverage_without_success_before_provider_io(tmp_path: Path) -> None:
+    """Persisted verified coverage must retain the success instant that established it."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=ends_at,
+            requested_starts_at=ends_at - timedelta(hours=3),
+            requested_ends_at=ends_at,
+        )
+        await state_store.record_attempt(attempt)
+        await state_store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=attempt,
+                covered_starts_at=attempt.requested_starts_at,
+                covered_ends_at=attempt.requested_ends_at,
+                expected_candle_count=3,
+                received_candle_count=3,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "a" * 64,
+            )
+        )
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        object.__setattr__(state, "last_success_at", None)
+        service = _StubRangeService([])
+
+        with pytest.raises(MarketDataWorkerError, match="success instant"):
+            await ingest_once(
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=ends_at + timedelta(hours=1),
+            )
+
+        assert service.requests == []
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_rejects_failed_state_without_retry_deadline(tmp_path: Path) -> None:
+    """A failed persisted state must not bypass durable retry scheduling before provider I/O."""
+
+    async def exercise() -> None:
+        attempted_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=attempted_at,
+            requested_starts_at=attempted_at - timedelta(hours=3),
+            requested_ends_at=attempted_at,
+        )
+        await state_store.record_attempt(attempt)
+        await state_store.record_failure(
+            MarketDataWorkerFailure(
+                attempt=attempt,
+                code="provider_unavailable",
+                message="Historical market-data retrieval failed.",
+                next_retry_at=attempted_at + timedelta(minutes=5),
+            )
+        )
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        object.__setattr__(state, "next_retry_at", None)
+        service = _StubRangeService([])
+
+        with pytest.raises(MarketDataWorkerError, match="retry deadline"):
+            await ingest_once(
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=attempted_at + timedelta(hours=1),
+            )
+
+        assert service.requests == []
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path) -> None:
     """Provider failures remain durable and publish no misleading dataset or coverage facts."""
 
@@ -638,7 +779,12 @@ def test_new_attempt_preserves_previous_failure_until_verified_success() -> None
         )
         await store.record_attempt(first)
         await store.record_failure(
-            MarketDataWorkerFailure(first, "provider_unavailable", "Retrieval failed.")
+            MarketDataWorkerFailure(
+                first,
+                "provider_unavailable",
+                "Retrieval failed.",
+                next_retry_at=first.attempted_at + timedelta(minutes=5),
+            )
         )
         retry = replace(
             first,

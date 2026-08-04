@@ -66,6 +66,7 @@ def test_postgres_worker_transitions_compile_idempotent_compare_and_set_guards(
                     attempt=attempt,
                     code="provider_unavailable",
                     message="Historical market-data retrieval failed.",
+                    next_retry_at=attempted_at + timedelta(minutes=5),
                 )
             )
         finally:

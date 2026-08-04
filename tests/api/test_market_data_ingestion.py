@@ -149,6 +149,7 @@ def test_ingestion_diagnostics_mark_unverified_dataset_unavailable() -> None:
                 attempt=failed_attempt,
                 code="dataset_verification_failed",
                 message="The current market-data dataset could not be verified.",
+                next_retry_at=failed_attempt.attempted_at + timedelta(minutes=5),
             )
         )
 
@@ -165,6 +166,52 @@ def test_ingestion_diagnostics_mark_unverified_dataset_unavailable() -> None:
     assert body["coverage"]["complete"] is True
     assert body["coverage_status"] == "unavailable"
     assert body["failure"]["code"] == "dataset_verification_failed"
+
+
+def test_ingestion_diagnostics_reject_coverage_without_success_instant() -> None:
+    """Forged verified coverage without its establishing success must fail closed at HTTP."""
+
+    async def seed(store: InMemoryMarketDataWorkerStateStore) -> None:
+        ends_at = datetime(2026, 8, 1, 3, tzinfo=UTC)
+        attempt = MarketDataWorkerAttempt(
+            provider="demo",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=ends_at,
+            requested_starts_at=ends_at - timedelta(hours=3),
+            requested_ends_at=ends_at,
+        )
+        await store.record_attempt(attempt)
+        await store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=attempt,
+                covered_starts_at=attempt.requested_starts_at,
+                covered_ends_at=attempt.requested_ends_at,
+                expected_candle_count=3,
+                received_candle_count=3,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "a" * 64,
+            )
+        )
+
+    store = InMemoryMarketDataWorkerStateStore()
+    asyncio.run(seed(store))
+    state = asyncio.run(store.get("demo", "BTC-USD", CandleInterval.ONE_HOUR))
+    assert state is not None
+    object.__setattr__(state, "last_success_at", None)
+    app = create_app(Settings(_env_file=None), market_data_state_store=store)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/market-data/ingestion?product_id=BTC-USD")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "market_data_worker_state_unavailable",
+            "message": "Market-data ingestion state is unavailable.",
+        }
+    }
 
 
 def test_ingestion_diagnostics_fail_closed_for_unrepresentable_retry_time() -> None:

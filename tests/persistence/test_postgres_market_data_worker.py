@@ -77,6 +77,7 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
                     attempt=failed_attempt,
                     code="provider_unavailable",
                     message="Historical market-data retrieval failed.",
+                    next_retry_at=failed_attempt.attempted_at + timedelta(minutes=5),
                 )
             )
             second_failed_attempt = MarketDataWorkerAttempt(
@@ -94,6 +95,7 @@ def test_postgres_worker_state_survives_restart_and_preserves_verified_coverage(
                     attempt=second_failed_attempt,
                     code="provider_unavailable",
                     message="Historical market-data retrieval failed.",
+                    next_retry_at=second_failed_attempt.attempted_at + timedelta(minutes=10),
                 )
             )
             write_complete = True

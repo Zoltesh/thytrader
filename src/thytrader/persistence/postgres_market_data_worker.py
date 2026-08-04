@@ -11,6 +11,7 @@ from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.worker_state import (
     MarketDataMaintenanceKind,
     MarketDataWorkerAttempt,
+    MarketDataWorkerError,
     MarketDataWorkerFailure,
     MarketDataWorkerState,
     MarketDataWorkerStatus,
@@ -219,30 +220,34 @@ def _attempt_values(attempt: MarketDataWorkerAttempt) -> dict[str, object]:
 def _to_state(row: Row[tuple[object, ...]]) -> MarketDataWorkerState:
     """Reconstruct the typed domain state from one SQLAlchemy row."""
     values = row._mapping
-    return MarketDataWorkerState(
-        provider=cast("str", values["provider"]),
-        product_id=cast("str", values["product_id"]),
-        timeframe=CandleInterval(cast("str", values["timeframe"])),
-        status=MarketDataWorkerStatus(cast("str", values["status"])),
-        last_attempt_at=cast("datetime", values["last_attempt_at"]),
-        last_success_at=cast("datetime | None", values["last_success_at"]),
-        requested_starts_at=cast("datetime", values["requested_starts_at"]),
-        requested_ends_at=cast("datetime", values["requested_ends_at"]),
-        covered_starts_at=cast("datetime | None", values["covered_starts_at"]),
-        covered_ends_at=cast("datetime | None", values["covered_ends_at"]),
-        expected_candle_count=cast("int | None", values["expected_candle_count"]),
-        received_candle_count=cast("int | None", values["received_candle_count"]),
-        gap_count=cast("int | None", values["gap_count"]),
-        missing_intervals=cast("int | None", values["missing_intervals"]),
-        complete=cast("bool", values["complete"]),
-        content_fingerprint=cast("str | None", values["content_fingerprint"]),
-        failure_code=cast("str | None", values["failure_code"]),
-        failure_message=cast("str | None", values["failure_message"]),
-        consecutive_failures=cast("int", values["consecutive_failures"]),
-        updated_at=cast("datetime", values["updated_at"]),
-        expected_ends_at=cast("datetime | None", values["expected_ends_at"]),
-        next_retry_at=cast("datetime | None", values["next_retry_at"]),
-        dataset_revision=cast("int", values["dataset_revision"]),
-        maintenance_kind=MarketDataMaintenanceKind(cast("str", values["maintenance_kind"])),
-        enabled=cast("bool", values["enabled"]),
-    )
+    try:
+        return MarketDataWorkerState(
+            provider=cast("str", values["provider"]),
+            product_id=cast("str", values["product_id"]),
+            timeframe=CandleInterval(cast("str", values["timeframe"])),
+            status=MarketDataWorkerStatus(cast("str", values["status"])),
+            last_attempt_at=cast("datetime", values["last_attempt_at"]),
+            last_success_at=cast("datetime | None", values["last_success_at"]),
+            requested_starts_at=cast("datetime", values["requested_starts_at"]),
+            requested_ends_at=cast("datetime", values["requested_ends_at"]),
+            covered_starts_at=cast("datetime | None", values["covered_starts_at"]),
+            covered_ends_at=cast("datetime | None", values["covered_ends_at"]),
+            expected_candle_count=cast("int | None", values["expected_candle_count"]),
+            received_candle_count=cast("int | None", values["received_candle_count"]),
+            gap_count=cast("int | None", values["gap_count"]),
+            missing_intervals=cast("int | None", values["missing_intervals"]),
+            complete=cast("bool", values["complete"]),
+            content_fingerprint=cast("str | None", values["content_fingerprint"]),
+            failure_code=cast("str | None", values["failure_code"]),
+            failure_message=cast("str | None", values["failure_message"]),
+            consecutive_failures=cast("int", values["consecutive_failures"]),
+            updated_at=cast("datetime", values["updated_at"]),
+            expected_ends_at=cast("datetime | None", values["expected_ends_at"]),
+            next_retry_at=cast("datetime | None", values["next_retry_at"]),
+            dataset_revision=cast("int", values["dataset_revision"]),
+            maintenance_kind=MarketDataMaintenanceKind(cast("str", values["maintenance_kind"])),
+            enabled=cast("bool", values["enabled"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        message = "Market-data worker state has malformed persisted state."
+        raise MarketDataWorkerError(message) from error
