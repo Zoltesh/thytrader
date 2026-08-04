@@ -1,4 +1,8 @@
-import { compareDecimalStrings, formatPercent as formatExactPercent } from './portfolio';
+import {
+	compareDecimalStrings,
+	decimalChartGeometry,
+	formatPercent as formatExactPercent
+} from './portfolio';
 
 export { compareDecimalStrings };
 
@@ -131,6 +135,22 @@ export type ApiError = {
 
 export function formatPercent(fraction: string): string {
 	return formatExactPercent(fraction);
+}
+
+export function backtestEquityPath(equities: readonly string[]): string {
+	/** Build a finite SVG path after exact decimal equity-range calculations. */
+	if (equities.length < 2) return '';
+	const { positions } = decimalChartGeometry(equities);
+	const width = 760;
+	const height = 180;
+	const padding = 26;
+	return positions
+		.map((position, index) => {
+			const x = padding + ((width - padding * 2) * index) / (positions.length - 1);
+			const y = height - padding - position * (height - padding * 2);
+			return `${x.toFixed(1)},${y.toFixed(1)}`;
+		})
+		.join(' ');
 }
 
 export function shortFingerprint(fingerprint: string): string {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		backtestEquityPath,
 		compareDecimalStrings,
 		formatBrokerAssumptions,
 		formatPercent,
@@ -27,23 +28,9 @@
 		onBack: () => void;
 	} = $props();
 	const result = $derived(detail?.result ?? null);
-	const equityValues = $derived(result?.equity_curve.map((point) => Number(point.equity)) ?? []);
-	const equityPath = $derived.by(() => {
-		if (equityValues.length < 2) return '';
-		const width = 760;
-		const height = 180;
-		const padding = 26;
-		const low = Math.min(...equityValues);
-		const high = Math.max(...equityValues);
-		const range = high - low || 1;
-		return equityValues
-			.map((value, index) => {
-				const x = padding + ((width - padding * 2) * index) / (equityValues.length - 1);
-				const y = height - padding - ((value - low) / range) * (height - padding * 2);
-				return `${x.toFixed(1)},${y.toFixed(1)}`;
-			})
-			.join(' ');
-	});
+	const equityPath = $derived(
+		backtestEquityPath(result?.equity_curve.map((point) => point.equity) ?? [])
+	);
 </script>
 
 <section class="detail" aria-label="Backtest result detail">

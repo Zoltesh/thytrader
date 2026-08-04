@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.models import CandleInterval
 
 
 class MarketDataWorkerUnavailableError(RuntimeError):
@@ -111,7 +110,17 @@ class MarketDataWorkerState:
 
 
 def validate_market_data_worker_state(state: MarketDataWorkerState) -> MarketDataWorkerState:
-    """Require every durable worker timestamp to be an aware UTC instant."""
+    """Require every deserialized worker-state field to satisfy lifecycle invariants."""
+    _require_nonempty_text(state.provider, "provider")
+    _require_nonempty_text(state.product_id, "product_id")
+    _require_instance(state.timeframe, CandleInterval, "timeframe")
+    _require_instance(state.status, MarketDataWorkerStatus, "status")
+    _require_instance(state.maintenance_kind, MarketDataMaintenanceKind, "maintenance_kind")
+    _require_bool(state.complete, "complete")
+    _require_bool(state.enabled, "enabled")
+    _require_nonnegative_integer(state.consecutive_failures, "consecutive_failures")
+    _require_nonnegative_integer(state.dataset_revision, "dataset_revision")
+
     timestamps = (
         ("last_attempt_at", state.last_attempt_at),
         ("last_success_at", state.last_success_at),
@@ -126,6 +135,9 @@ def validate_market_data_worker_state(state: MarketDataWorkerState) -> MarketDat
     for field_name, value in timestamps:
         if value is not None:
             _require_utc_timestamp(value, field_name)
+    _require_ordered_timestamps(state)
+    _validate_coverage(state)
+    _validate_failure_lifecycle(state)
     return state
 
 
@@ -137,6 +149,132 @@ def _require_utc_timestamp(value: object, field_name: str) -> None:
         or value.utcoffset() != UTC.utcoffset(value)
     ):
         message = f"Market-data worker state field {field_name!r} must be timezone-aware UTC."
+        raise MarketDataWorkerError(message)
+
+
+def _require_nonempty_text(value: object, field_name: str) -> None:
+    """Require one durable identity or diagnostic field to be a nonempty string."""
+    if not isinstance(value, str) or not value:
+        message = f"Market-data worker state field {field_name!r} must be a nonempty string."
+        raise MarketDataWorkerError(message)
+
+
+def _require_instance(value: object, expected_type: type[object], field_name: str) -> None:
+    """Require one model-bypassed enum field to retain its domain type."""
+    if not isinstance(value, expected_type):
+        message = f"Market-data worker state field {field_name!r} has an invalid domain value."
+        raise MarketDataWorkerError(message)
+
+
+def _require_bool(value: object, field_name: str) -> None:
+    """Require one persisted boolean without accepting integer lookalikes."""
+    if type(value) is not bool:
+        message = f"Market-data worker state field {field_name!r} must be a boolean."
+        raise MarketDataWorkerError(message)
+
+
+def _require_nonnegative_integer(value: object, field_name: str) -> None:
+    """Require one persisted counter without accepting booleans or negative values."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        message = f"Market-data worker state field {field_name!r} must be a non-negative integer."
+        raise MarketDataWorkerError(message)
+
+
+def _require_optional_nonnegative_integer(value: object, field_name: str) -> None:
+    """Require one optional persisted coverage count when it is present."""
+    if value is not None:
+        _require_nonnegative_integer(value, field_name)
+
+
+def _require_ordered_timestamps(state: MarketDataWorkerState) -> None:
+    """Require durable worker instants to preserve their recorded lifecycle order."""
+    if state.requested_starts_at > state.requested_ends_at:
+        message = "Market-data worker state has an inverted requested range."
+        raise MarketDataWorkerError(message)
+    if state.updated_at < state.last_attempt_at:
+        message = "Market-data worker state was updated before its last attempt."
+        raise MarketDataWorkerError(message)
+    if state.last_success_at is not None and state.last_success_at > state.last_attempt_at:
+        message = "Market-data worker state records success after its last attempt."
+        raise MarketDataWorkerError(message)
+
+
+def _validate_coverage(state: MarketDataWorkerState) -> None:
+    """Require complete coverage evidence to be all-present, exact, and content-addressed."""
+    coverage = (
+        state.covered_starts_at,
+        state.covered_ends_at,
+        state.expected_candle_count,
+        state.received_candle_count,
+        state.gap_count,
+        state.missing_intervals,
+        state.content_fingerprint,
+    )
+    present = tuple(value is not None for value in coverage)
+    if any(present) and not all(present):
+        message = "Market-data worker state has incomplete coverage evidence."
+        raise MarketDataWorkerError(message)
+    if not any(present):
+        if state.complete or state.last_success_at is not None:
+            message = "Market-data worker state claims success without coverage evidence."
+            raise MarketDataWorkerError(message)
+        return
+
+    _require_optional_nonnegative_integer(state.expected_candle_count, "expected_candle_count")
+    _require_optional_nonnegative_integer(state.received_candle_count, "received_candle_count")
+    _require_optional_nonnegative_integer(state.gap_count, "gap_count")
+    _require_optional_nonnegative_integer(state.missing_intervals, "missing_intervals")
+    if state.covered_starts_at is None or state.covered_ends_at is None:
+        message = "Market-data worker state has incomplete coverage timestamps."
+        raise MarketDataWorkerError(message)
+    if state.covered_starts_at >= state.covered_ends_at:
+        message = "Market-data worker state has an empty or inverted coverage range."
+        raise MarketDataWorkerError(message)
+    if (
+        not state.complete
+        or state.expected_candle_count is None
+        or state.expected_candle_count < 1
+        or state.received_candle_count != state.expected_candle_count
+        or state.gap_count != 0
+        or state.missing_intervals != 0
+    ):
+        message = "Market-data worker state has incomplete coverage facts."
+        raise MarketDataWorkerError(message)
+    _require_content_fingerprint(state.content_fingerprint)
+
+
+def _require_content_fingerprint(value: object) -> None:
+    """Require one complete coverage fingerprint to retain its canonical SHA-256 shape."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 71
+        or not value.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in value[7:])
+    ):
+        message = "Market-data worker state has an invalid coverage fingerprint."
+        raise MarketDataWorkerError(message)
+
+
+def _validate_failure_lifecycle(state: MarketDataWorkerState) -> None:
+    """Require failure diagnostics and counters to agree with the current lifecycle outcome."""
+    has_failure_code = state.failure_code is not None
+    has_failure_message = state.failure_message is not None
+    if has_failure_code != has_failure_message:
+        message = "Market-data worker state has incomplete failure diagnostics."
+        raise MarketDataWorkerError(message)
+    if has_failure_code:
+        _require_nonempty_text(state.failure_code, "failure_code")
+        _require_nonempty_text(state.failure_message, "failure_message")
+    if state.status is MarketDataWorkerStatus.SUCCEEDED:
+        if state.consecutive_failures != 0 or has_failure_code or not state.complete:
+            message = "Market-data worker success state has inconsistent failure or coverage facts."
+            raise MarketDataWorkerError(message)
+    elif state.status is MarketDataWorkerStatus.FAILED:
+        if state.consecutive_failures < 1 or not has_failure_code:
+            message = "Market-data worker failure state has inconsistent failure facts."
+            raise MarketDataWorkerError(message)
+    elif (state.consecutive_failures == 0) != (not has_failure_code):
+        message = "Market-data worker running state has inconsistent retained failure facts."
         raise MarketDataWorkerError(message)
 
 

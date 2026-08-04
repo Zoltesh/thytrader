@@ -185,6 +185,42 @@ def test_ingest_once_rejects_forged_naive_persisted_coverage(tmp_path: Path) -> 
     asyncio.run(exercise())
 
 
+def test_ingest_once_rejects_forged_negative_persisted_failure_count(tmp_path: Path) -> None:
+    """A malformed persisted retry counter must fail before provider or dataset I/O."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=now,
+            requested_starts_at=now - timedelta(hours=3),
+            requested_ends_at=now,
+        )
+        await state_store.record_attempt(attempt)
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        object.__setattr__(state, "consecutive_failures", -1)
+        service = _StubRangeService([])
+
+        with pytest.raises(MarketDataWorkerError, match="consecutive_failures"):
+            await ingest_once(
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=now + timedelta(hours=1),
+            )
+
+        assert service.requests == []
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path) -> None:
     """Provider failures remain durable and publish no misleading dataset or coverage facts."""
 

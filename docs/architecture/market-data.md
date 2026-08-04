@@ -141,7 +141,9 @@ failure count, and next retry instant. Dataset-verification failures retain thos
 report coverage availability as unavailable until verification succeeds. Retries use capped
 exponential delay with positive jitter, and persisted deadlines remain effective across restarts. State
 reader boundaries reject malformed or non-UTC timestamp fields before any worker ordering,
-scheduling, or API serialization. State transitions are monotonic: stale attempts, stale failure
+retry scheduling, provider I/O, or API serialization. Readers also require worker identity, enum,
+boolean, counter, failure, coverage, and content-fingerprint facts to form one coherent lifecycle
+state. State transitions are monotonic: stale attempts, stale failure
 snapshots, and late worker completions cannot
 replace a newer attempt, double-count failures, shorten exponential backoff, or regress verified
 coverage. A later verified success clears failure and retry state. PostgreSQL is

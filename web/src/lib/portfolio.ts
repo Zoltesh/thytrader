@@ -157,6 +157,37 @@ export function permissionLabel(permission: string): string {
 	return permission.charAt(0).toUpperCase() + permission.slice(1).toLowerCase();
 }
 
+export function decimalChartGeometry(amounts: readonly string[]): {
+	values: number[];
+	min: number;
+	max: number;
+	minAmount: string;
+	maxAmount: string;
+	positions: number[];
+} {
+	/** Build finite chart-only coordinates after exact decimal range calculations. */
+	if (amounts.length === 0) throw new Error('Chart geometry requires at least one decimal amount');
+	const minAmount = amounts.reduce((current, amount) =>
+		compareDecimalStrings(amount, current) < 0 ? amount : current
+	);
+	const maxAmount = amounts.reduce((current, amount) =>
+		compareDecimalStrings(amount, current) > 0 ? amount : current
+	);
+	const values = amounts.map(decimalToFiniteGeometryValue);
+	const rangeAmount = subtractDecimalStrings(maxAmount, minAmount);
+	const positions = amounts.map((amount) =>
+		decimalGeometryRatio(subtractDecimalStrings(amount, minAmount), rangeAmount)
+	);
+	return {
+		values,
+		min: Math.min(...values),
+		max: Math.max(...values),
+		minAmount,
+		maxAmount,
+		positions
+	};
+}
+
 /**
  * Compute chart coordinates from history entries.
  * Returns SVG path data, min/max values, and axis labels.
@@ -193,19 +224,7 @@ export function chartData(
 
 	const amounts = entries.map((e) => e.total_value.amount);
 	const dates = entries.map((e) => e.as_of);
-	const minAmount = amounts.reduce((current, amount) =>
-		compareDecimalStrings(amount, current) < 0 ? amount : current
-	);
-	const maxAmount = amounts.reduce((current, amount) =>
-		compareDecimalStrings(amount, current) > 0 ? amount : current
-	);
-	const values = amounts.map(decimalToFiniteGeometryValue);
-	const min = Math.min(...values);
-	const max = Math.max(...values);
-	const rangeAmount = subtractDecimalStrings(maxAmount, minAmount);
-	const positions = amounts.map((amount) =>
-		decimalGeometryRatio(subtractDecimalStrings(amount, minAmount), rangeAmount)
-	);
+	const { values, min, max, minAmount, maxAmount, positions } = decimalChartGeometry(amounts);
 	const chartW = width - padding * 2;
 	const chartH = height - padding * 2;
 

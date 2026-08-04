@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
@@ -219,6 +220,53 @@ def test_ingestion_diagnostics_reject_forged_naive_retry_timestamp() -> None:
     state = asyncio.run(store.get("demo", "BTC-USD", CandleInterval.ONE_HOUR))
     assert state is not None
     object.__setattr__(state, "next_retry_at", datetime.fromisoformat("2026-08-01T00:05:00"))
+    app = create_app(Settings(_env_file=None), market_data_state_store=store)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/market-data/ingestion?product_id=BTC-USD")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "market_data_worker_state_unavailable",
+            "message": "Market-data ingestion state is unavailable.",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("status", "forged"),
+        ("maintenance_kind", "forged"),
+        ("consecutive_failures", -1),
+        ("enabled", 1),
+    ],
+)
+def test_ingestion_diagnostics_reject_forged_state_domain_fields(
+    field_name: str,
+    value: object,
+) -> None:
+    """Forged lifecycle data must never escape the stable unavailable API envelope."""
+
+    async def seed(store: InMemoryMarketDataWorkerStateStore) -> None:
+        attempted_at = datetime(2026, 8, 1, tzinfo=UTC)
+        await store.record_attempt(
+            MarketDataWorkerAttempt(
+                provider="demo",
+                product_id="BTC-USD",
+                timeframe=CandleInterval.ONE_HOUR,
+                attempted_at=attempted_at,
+                requested_starts_at=attempted_at,
+                requested_ends_at=attempted_at,
+            )
+        )
+
+    store = InMemoryMarketDataWorkerStateStore()
+    asyncio.run(seed(store))
+    state = asyncio.run(store.get("demo", "BTC-USD", CandleInterval.ONE_HOUR))
+    assert state is not None
+    object.__setattr__(state, field_name, value)
     app = create_app(Settings(_env_file=None), market_data_state_store=store)
 
     with TestClient(app, raise_server_exceptions=False) as client:
