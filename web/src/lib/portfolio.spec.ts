@@ -67,6 +67,9 @@ describe('chartData', () => {
 		const result = chartData(entries, 760, 220, 40);
 		expect(result.min).toBeCloseTo(12345.678901);
 		expect(result.max).toBeCloseTo(98765.432109);
+		expect(result.minAmount).toBe('12345.678901');
+		expect(result.maxAmount).toBe('98765.432109');
+		expect(result.coordinates[0].amount).toBe('12345.678901');
 		expect(result.points.split(' ')).toHaveLength(2);
 	});
 
@@ -96,7 +99,17 @@ describe('history presentation', () => {
 			entry('100', '2026-07-27T10:00:00Z')
 		]);
 
-		expect(change).toEqual({ amount: 25, percent: 25, direction: 'gain' });
+		expect(change).toEqual({ amount: '25', percent: 25, direction: 'gain' });
+	});
+
+	it('preserves exact monetary range changes beyond JavaScript safe integers', () => {
+		const change = portfolioChange([
+			entry('9007199254740993.01', '2026-07-27T12:00:00Z'),
+			entry('9007199254740992.01', '2026-07-27T10:00:00Z')
+		]);
+
+		expect(change?.amount).toBe('1');
+		expect(change?.direction).toBe('gain');
 	});
 
 	it('marks a worker stale after two configured sampling intervals', () => {

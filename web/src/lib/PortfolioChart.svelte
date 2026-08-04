@@ -41,9 +41,9 @@
 	const chartEntries = $derived([...entries].reverse());
 	const data = $derived(chartData(chartEntries, width, height, padding, samplingIntervalSeconds));
 	const segments = $derived(chartSegments(data));
-	const current = $derived(entries.length > 0 ? Number(entries[0].total_value.amount) : 0);
-	const high = $derived(data.values.length > 0 ? Math.max(...data.values) : 0);
-	const low = $derived(data.values.length > 0 ? Math.min(...data.values) : 0);
+	const current = $derived(entries.length > 0 ? entries[0].total_value.amount : '0');
+	const high = $derived(data.maxAmount);
+	const low = $derived(data.minAmount);
 	const change = $derived(portfolioChange(entries));
 	const workerStale = $derived(isHistoryStale(entries, samplingIntervalSeconds));
 	const latestSnapshot = $derived(
@@ -101,11 +101,9 @@
 
 	{#if entries.length >= 2 && availability === 'ready'}
 		<div class="stats">
-			<span class="stat"
-				><small>Current</small><strong>{formatUsd(current.toString())}</strong></span
-			>
-			<span class="stat"><small>High</small><strong>{formatUsd(high.toString())}</strong></span>
-			<span class="stat"><small>Low</small><strong>{formatUsd(low.toString())}</strong></span>
+			<span class="stat"><small>Current</small><strong>{formatUsd(current)}</strong></span>
+			<span class="stat"><small>High</small><strong>{formatUsd(high)}</strong></span>
+			<span class="stat"><small>Low</small><strong>{formatUsd(low)}</strong></span>
 			{#if change}
 				<span
 					class:gain={change.direction === 'gain'}
@@ -115,7 +113,7 @@
 					<small>Range change</small>
 					<strong
 						>{change.direction === 'gain' ? '+' : change.direction === 'loss' ? '−' : ''}{formatUsd(
-							Math.abs(change.amount).toString()
+							change.amount.startsWith('-') ? change.amount.slice(1) : change.amount
 						)}{#if change.percent !== null}
 							({change.direction === 'gain' ? '+' : ''}{change.percent.toFixed(2)}%){/if}</strong
 					>
@@ -172,7 +170,7 @@
 						fill="#5ce1b5"
 						role="button"
 						tabindex="0"
-						aria-label={`${formatUsd(point.value.toString())} at ${new Date(point.date).toLocaleString()}`}
+						aria-label={`${formatUsd(point.amount)} at ${new Date(point.date).toLocaleString()}`}
 						onmouseenter={() => (highlightedIndex = index)}
 						onmouseleave={() => (highlightedIndex = null)}
 						onfocus={() => (highlightedIndex = index)}
@@ -188,7 +186,7 @@
 					>
 						<rect x="-85" y="-30" width="170" height="28" rx="4" />
 						<text text-anchor="middle" y="-12"
-							>{formatUsd(point.value.toString())} · {new Date(point.date).toLocaleString()}</text
+							>{formatUsd(point.amount)} · {new Date(point.date).toLocaleString()}</text
 						>
 					</g>
 				{/if}

@@ -36,6 +36,11 @@ def validate_candle_values(candle: Candle) -> None:
         raise CandleQualityError("Candle OHLCV values are semantically invalid.")
 
 
+def validate_candle_timestamp(value: datetime) -> None:
+    """Reject candle timestamps that are not timezone-aware UTC instants."""
+    _require_utc(value)
+
+
 def analyze_candles(
     candles: tuple[Candle, ...],
     interval: CandleInterval,
@@ -130,6 +135,10 @@ def _gaps(candles: tuple[Candle, ...], interval: CandleInterval) -> tuple[int, i
 
 def _require_utc(value: datetime) -> None:
     """Reject naive or non-UTC instants at the market-data boundary."""
-    if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
         message = "Candle timestamps must be timezone-aware UTC instants."
         raise CandleQualityError(message)

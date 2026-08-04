@@ -180,3 +180,19 @@ def test_buy_and_hold_rejects_nonfinite_or_invalid_candles() -> None:
 
     with pytest.raises(BacktestBenchmarkError, match="OHLCV"):
         calculate_buy_and_hold_benchmark(result, specification, invalid_candles)
+
+
+def test_buy_and_hold_rejects_naive_candle_timestamps() -> None:
+    """Malformed candle timestamps must fail at the controlled benchmark boundary."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    source_candles = _candles()
+    invalid_candles = (
+        *source_candles[:2],
+        replace(source_candles[2], starts_at=source_candles[2].starts_at.replace(tzinfo=None)),
+        *source_candles[3:],
+    )
+
+    with pytest.raises(BacktestBenchmarkError, match="timestamp"):
+        calculate_buy_and_hold_benchmark(result, specification, invalid_candles)

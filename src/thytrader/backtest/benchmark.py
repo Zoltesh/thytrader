@@ -15,7 +15,11 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_result_fingerprint,
 )
-from thytrader.market_data.quality import CandleQualityError, validate_candle_values
+from thytrader.market_data.quality import (
+    CandleQualityError,
+    validate_candle_timestamp,
+    validate_candle_values,
+)
 from thytrader.research.indicators import canonical_decimal
 from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
 
@@ -122,7 +126,7 @@ def calculate_buy_and_hold_benchmark(
             )
     except CandleQualityError as error:
         raise BacktestBenchmarkError("Benchmark candles contain invalid OHLCV values.") from error
-    except (DecimalException, IndexError, KeyError, ValueError) as error:
+    except (DecimalException, IndexError, KeyError, TypeError, ValueError) as error:
         if isinstance(error, BacktestBenchmarkError):
             raise
         raise BacktestBenchmarkError(
@@ -137,6 +141,13 @@ def _selected_candles(
     """Require exactly the evaluation candles plus the published terminal next-open candle."""
     starts_at = specification.evaluation.starts_at
     ends_at = specification.evaluation.ends_at
+    try:
+        validate_candle_timestamp(starts_at)
+        validate_candle_timestamp(ends_at)
+        for candle in candles:
+            validate_candle_timestamp(candle.starts_at)
+    except CandleQualityError as error:
+        raise BacktestBenchmarkError("Benchmark candle timestamps are invalid.") from error
     selected = tuple(candle for candle in candles if starts_at <= candle.starts_at <= ends_at)
     evaluation_bars = int((ends_at - starts_at).total_seconds() // 3600)
     if len(selected) != evaluation_bars + 1:

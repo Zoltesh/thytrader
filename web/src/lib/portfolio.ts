@@ -119,14 +119,20 @@ export type ChartCoordinate = {
 	x: number;
 	y: number;
 	value: number;
+	amount: string;
 	date: string;
 	gapBefore: boolean;
 };
 
 export type PortfolioChange = {
-	amount: number;
+	amount: string;
 	percent: number | null;
 	direction: 'gain' | 'loss' | 'flat';
+};
+
+type DecimalParts = {
+	units: bigint;
+	scale: number;
 };
 
 export function formatUsd(amount: string): string {
@@ -169,15 +175,33 @@ export function chartData(
 	coordinates: ChartCoordinate[];
 	min: number;
 	max: number;
+	minAmount: string;
+	maxAmount: string;
 } {
 	if (entries.length < 2) {
-		return { points: '', values: [], dates: [], coordinates: [], min: 0, max: 0 };
+		return {
+			points: '',
+			values: [],
+			dates: [],
+			coordinates: [],
+			min: 0,
+			max: 0,
+			minAmount: '0',
+			maxAmount: '0'
+		};
 	}
 
-	const values = entries.map((e) => Number(e.total_value.amount));
+	const amounts = entries.map((e) => e.total_value.amount);
+	const values = amounts.map((amount) => Number(amount));
 	const dates = entries.map((e) => e.as_of);
 	const min = Math.min(...values);
 	const max = Math.max(...values);
+	const minAmount = amounts.reduce((current, amount) =>
+		compareDecimalStrings(amount, current) < 0 ? amount : current
+	);
+	const maxAmount = amounts.reduce((current, amount) =>
+		compareDecimalStrings(amount, current) > 0 ? amount : current
+	);
 	const range = max - min || 1; // Avoid division by zero for flat lines
 	const chartW = width - padding * 2;
 	const chartH = height - padding * 2;
@@ -192,14 +216,14 @@ export function chartData(
 			Number.isFinite(priorDate) &&
 			Number.isFinite(currentDate) &&
 			currentDate - priorDate > samplingIntervalSeconds * 2 * 1000;
-		return { x, y, value, date: dates[i], gapBefore };
+		return { x, y, value, amount: amounts[i], date: dates[i], gapBefore };
 	});
 
 	const points = coordinates
 		.map((coordinate) => `${coordinate.x.toFixed(1)},${coordinate.y.toFixed(1)}`)
 		.join(' ');
 
-	return { points, values, dates, coordinates, min, max };
+	return { points, values, dates, coordinates, min, max, minAmount, maxAmount };
 }
 
 export function chartSegments(data: ReturnType<typeof chartData>): string[] {
@@ -225,12 +249,59 @@ export function portfolioChange(entries: HistoryEntry[]): PortfolioChange | null
 	if (entries.length < 2) {
 		return null;
 	}
-	const current = Number(entries[0].total_value.amount);
-	const baseline = Number(entries[entries.length - 1].total_value.amount);
-	const amount = current - baseline;
-	const percent = baseline === 0 ? null : (amount / baseline) * 100;
-	const direction = amount > 0 ? 'gain' : amount < 0 ? 'loss' : 'flat';
+	const current = entries[0].total_value.amount;
+	const baseline = entries[entries.length - 1].total_value.amount;
+	const amount = subtractDecimalStrings(current, baseline);
+	const baselineNumber = Number(baseline);
+	const percent =
+		compareDecimalStrings(baseline, '0') === 0 ? null : (Number(amount) / baselineNumber) * 100;
+	const direction =
+		compareDecimalStrings(amount, '0') > 0
+			? 'gain'
+			: compareDecimalStrings(amount, '0') < 0
+				? 'loss'
+				: 'flat';
 	return { amount, percent, direction };
+}
+
+function parseDecimal(amount: string): DecimalParts {
+	const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+	if (!match) throw new Error('Amounts must be canonical decimal strings');
+	const fraction = match[3] ?? '';
+	const unsignedUnits = BigInt(`${match[2]}${fraction}`);
+	return {
+		units: match[1] === '-' ? -unsignedUnits : unsignedUnits,
+		scale: fraction.length
+	};
+}
+
+function compareDecimalStrings(left: string, right: string): number {
+	const leftParts = parseDecimal(left);
+	const rightParts = parseDecimal(right);
+	const scale = Math.max(leftParts.scale, rightParts.scale);
+	const leftUnits = leftParts.units * 10n ** BigInt(scale - leftParts.scale);
+	const rightUnits = rightParts.units * 10n ** BigInt(scale - rightParts.scale);
+	return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
+}
+
+function subtractDecimalStrings(left: string, right: string): string {
+	const leftParts = parseDecimal(left);
+	const rightParts = parseDecimal(right);
+	const scale = Math.max(leftParts.scale, rightParts.scale);
+	const leftUnits = leftParts.units * 10n ** BigInt(scale - leftParts.scale);
+	const rightUnits = rightParts.units * 10n ** BigInt(scale - rightParts.scale);
+	return formatDecimal(leftUnits - rightUnits, scale);
+}
+
+function formatDecimal(units: bigint, scale: number): string {
+	if (units === 0n) return '0';
+	const sign = units < 0n ? '-' : '';
+	const digits = (units < 0n ? -units : units).toString().padStart(scale + 1, '0');
+	if (scale === 0) return `${sign}${digits}`;
+	const splitAt = digits.length - scale;
+	const whole = digits.slice(0, splitAt);
+	const fraction = digits.slice(splitAt).replace(/0+$/, '');
+	return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
 }
 
 export function isHistoryStale(

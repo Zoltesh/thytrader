@@ -89,6 +89,26 @@ def test_dataset_store_rejects_incomplete_range(tmp_path: Path) -> None:
         DatasetStore(tmp_path).write("coinbase", "BTC-USD", report)
 
 
+def test_dataset_store_rejects_forged_range_facts_before_publication(tmp_path: Path) -> None:
+    """A forged complete report must not publish files before its range facts are recomputed."""
+    report = _complete_report()
+    forged_reports = (
+        replace(report, requested_candle_count=report.requested_candle_count + 1),
+        replace(
+            report,
+            quality=replace(report.quality, gap_count=report.quality.gap_count + 1),
+        ),
+        replace(report, starts_at=report.starts_at - CandleInterval.ONE_HOUR.duration),
+    )
+
+    for index, forged_report in enumerate(forged_reports):
+        root = tmp_path / f"case-{index}"
+        with pytest.raises(DatasetStoreError, match=r"report facts|coverage"):
+            DatasetStore(root).write("coinbase", "BTC-USD", forged_report)
+        assert not tuple(root.rglob("*.parquet"))
+        assert not tuple((root / "manifests").glob("*.json"))
+
+
 def test_dataset_store_fingerprint_includes_dataset_identity(tmp_path: Path) -> None:
     """Identical candle content for distinct products must never share a manifest identity."""
     store = DatasetStore(tmp_path)

@@ -17,10 +17,11 @@ from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
     get_backtest_result_store,
 )
-from thytrader.backtest.models import (  # noqa: TC001
+from thytrader.backtest.models import (
     BacktestBenchmark,
     BacktestResult,
     BacktestSummary,
+    backtest_result_fingerprint,
 )
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
@@ -41,6 +42,7 @@ _logger = logging.getLogger(__name__)
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MAX_LIMIT = 100
+_BACKTEST_NOT_FOUND_ERRORS = (BacktestBenchmarkNotFoundError, BacktestResultNotFoundError)
 
 
 class BacktestSummaryResponse(BaseModel):
@@ -187,7 +189,7 @@ async def get_backtest_benchmark(
         )
     try:
         benchmark = await reader.load(result_fingerprint)
-    except BacktestBenchmarkNotFoundError, BacktestResultNotFoundError:
+    except _BACKTEST_NOT_FOUND_ERRORS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "backtest_not_found", "message": "Backtest result was not found."},
@@ -269,6 +271,15 @@ async def get_backtest(
                 "message": "Backtest results are unavailable.",
             },
         ) from None
+    if backtest_result_fingerprint(result) != result_fingerprint:
+        _logger.warning("Backtest detail returned mismatched result identity")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest results are unavailable.",
+            },
+        )
     return BacktestDetailResponse(result=result, result_fingerprint=result_fingerprint)
 
 

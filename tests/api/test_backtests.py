@@ -215,6 +215,15 @@ class InMemoryBacktestResultReader:
             raise BacktestResultNotFoundError("missing") from None
 
 
+class MismatchedBacktestResultReader(InMemoryBacktestResultReader):
+    """Reader that deliberately returns a valid result for the wrong requested identity."""
+
+    async def load(self, result_fingerprint: str) -> BacktestResult:
+        """Return the stored result regardless of the requested fingerprint."""
+        del result_fingerprint
+        return next(iter(self._results.values()))
+
+
 class InMemoryBacktestBenchmarkReader:
     """Deterministic read-only benchmark store used only by API behavior tests."""
 
@@ -336,6 +345,22 @@ def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
     assert payload["summary"]["total_spread_cost"] == result.summary.total_spread_cost
     assert payload["trades"][0]["entry"]["executable_side"] == "ask"
     assert payload["trades"][0]["exit"]["executable_side"] == "bid"
+
+
+def test_backtests_detail_rejects_mismatched_reader_identity() -> None:
+    """The detail endpoint must not label a reader result with a different requested identity."""
+    result = _result()
+    requested_fingerprint = "sha256:" + "f" * 64
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=MismatchedBacktestResultReader((result,)),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/backtests/{requested_fingerprint}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "backtests_unavailable"
 
 
 def test_backtests_benchmark_returns_derived_buy_and_hold_evidence() -> None:

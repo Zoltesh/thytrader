@@ -77,10 +77,21 @@ class DatasetStore:
             message = "A complete dataset must contain at least one candle."
             raise DatasetStoreError(message)
         try:
-            for candle in report.quality.candles:
-                validate_candle_values(candle)
+            recomputed_report = analyze_range(
+                tuple(report.quality.candles),
+                CandleInterval.ONE_HOUR,
+                report.starts_at,
+                report.ends_at,
+                report.ends_at + CandleInterval.ONE_HOUR.duration,
+            )
         except CandleQualityError as error:
             raise DatasetStoreError(str(error)) from error
+        except (TypeError, ValueError) as error:
+            message = "Dataset range report facts are invalid and cannot be published."
+            raise DatasetStoreError(message) from error
+        if not _report_facts_match(report, recomputed_report):
+            message = "Dataset range report facts are invalid and cannot be published."
+            raise DatasetStoreError(message)
 
         timeframe = CandleInterval.ONE_HOUR.value
         rows = _candle_rows(report)
@@ -442,6 +453,24 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _report_facts_match(
+    supplied: CandleRangeReport,
+    recomputed: CandleRangeReport,
+) -> bool:
+    """Compare every range fact persisted in a dataset manifest."""
+    return (
+        supplied.starts_at == recomputed.starts_at
+        and supplied.ends_at == recomputed.ends_at
+        and supplied.requested_candle_count == recomputed.requested_candle_count
+        and supplied.quality.candles == recomputed.quality.candles
+        and supplied.quality.candle_count == recomputed.quality.candle_count
+        and supplied.quality.gap_count == recomputed.quality.gap_count
+        and supplied.quality.missing_intervals == recomputed.quality.missing_intervals
+        and supplied.quality.latest_completed_at == recomputed.quality.latest_completed_at
+        and supplied.complete == recomputed.complete
+    )
 
 
 def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
