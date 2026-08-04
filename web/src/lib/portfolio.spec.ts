@@ -99,7 +99,7 @@ describe('history presentation', () => {
 			entry('100', '2026-07-27T10:00:00Z')
 		]);
 
-		expect(change).toEqual({ amount: '25', percent: 25, direction: 'gain' });
+		expect(change).toEqual({ amount: '25', percent: '25.00', direction: 'gain' });
 	});
 
 	it('preserves exact monetary range changes beyond JavaScript safe integers', () => {
@@ -110,6 +110,17 @@ describe('history presentation', () => {
 
 		expect(change?.amount).toBe('1');
 		expect(change?.direction).toBe('gain');
+	});
+
+	it('calculates percentages without overflowing JavaScript Number', () => {
+		const baseline = `1${'0'.repeat(400)}`;
+		const current = `15${'0'.repeat(399)}`;
+		const change = portfolioChange([
+			entry(current, '2026-07-27T12:00:00Z'),
+			entry(baseline, '2026-07-27T10:00:00Z')
+		]);
+
+		expect(change).toEqual({ amount: `5${'0'.repeat(399)}`, percent: '50.00', direction: 'gain' });
 	});
 
 	it('marks a worker stale after two configured sampling intervals', () => {

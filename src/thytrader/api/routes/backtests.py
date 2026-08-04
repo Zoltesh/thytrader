@@ -189,6 +189,7 @@ async def get_backtest_benchmark(
         )
     try:
         benchmark = await reader.load(result_fingerprint)
+        benchmark = BacktestBenchmark.model_validate(benchmark.model_dump(mode="python"))
     except _BACKTEST_NOT_FOUND_ERRORS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -248,6 +249,7 @@ async def get_backtest(
         )
     try:
         result = await store.load(result_fingerprint)
+        verified_result_fingerprint = backtest_result_fingerprint(result)
     except BacktestResultNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -271,7 +273,7 @@ async def get_backtest(
                 "message": "Backtest results are unavailable.",
             },
         ) from None
-    if backtest_result_fingerprint(result) != result_fingerprint:
+    if verified_result_fingerprint != result_fingerprint:
         _logger.warning("Backtest detail returned mismatched result identity")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

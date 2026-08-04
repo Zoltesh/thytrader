@@ -115,7 +115,7 @@
 						>{change.direction === 'gain' ? '+' : change.direction === 'loss' ? '−' : ''}{formatUsd(
 							change.amount.startsWith('-') ? change.amount.slice(1) : change.amount
 						)}{#if change.percent !== null}
-							({change.direction === 'gain' ? '+' : ''}{change.percent.toFixed(2)}%){/if}</strong
+							({change.direction === 'gain' ? '+' : ''}{change.percent}%){/if}</strong
 					>
 				</span>
 			{/if}

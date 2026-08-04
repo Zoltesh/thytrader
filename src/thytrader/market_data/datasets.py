@@ -419,7 +419,7 @@ def _validate_report_for_publication(report: CandleRangeReport) -> None:
         )
     except CandleQualityError as error:
         raise DatasetStoreError(str(error)) from error
-    except (TypeError, ValueError) as error:
+    except (OverflowError, TypeError, ValueError) as error:
         message = "Dataset range report facts are invalid and cannot be published."
         raise DatasetStoreError(message) from error
     if not _report_facts_match(report, recomputed_report):

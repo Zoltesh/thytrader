@@ -125,6 +125,17 @@ def test_dataset_store_rejects_forged_range_facts_before_publication(tmp_path: P
         assert not tuple((root / "manifests").glob("*.json"))
 
 
+def test_dataset_store_rejects_unrepresentable_report_bounds(tmp_path: Path) -> None:
+    """Malformed extreme bounds must become controlled publication errors without artifacts."""
+    report = replace(_complete_report(), ends_at=datetime.max.replace(tzinfo=UTC))
+
+    with pytest.raises(DatasetStoreError, match="invalid"):
+        DatasetStore(tmp_path).write("coinbase", "BTC-USD", report)
+
+    assert not tuple(tmp_path.rglob("*.parquet"))
+    assert not tuple((tmp_path / "manifests").glob("*.json"))
+
+
 def test_dataset_store_rejects_forged_extension_report_before_publication(tmp_path: Path) -> None:
     """An extension must validate its incremental report before writing replacement partitions."""
     store = DatasetStore(tmp_path)

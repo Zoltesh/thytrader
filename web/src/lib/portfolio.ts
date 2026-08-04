@@ -126,7 +126,7 @@ export type ChartCoordinate = {
 
 export type PortfolioChange = {
 	amount: string;
-	percent: number | null;
+	percent: string | null;
 	direction: 'gain' | 'loss' | 'flat';
 };
 
@@ -252,9 +252,8 @@ export function portfolioChange(entries: HistoryEntry[]): PortfolioChange | null
 	const current = entries[0].total_value.amount;
 	const baseline = entries[entries.length - 1].total_value.amount;
 	const amount = subtractDecimalStrings(current, baseline);
-	const baselineNumber = Number(baseline);
 	const percent =
-		compareDecimalStrings(baseline, '0') === 0 ? null : (Number(amount) / baselineNumber) * 100;
+		compareDecimalStrings(baseline, '0') === 0 ? null : formatPercentChange(amount, baseline);
 	const direction =
 		compareDecimalStrings(amount, '0') > 0
 			? 'gain'
@@ -291,6 +290,32 @@ function subtractDecimalStrings(left: string, right: string): string {
 	const leftUnits = leftParts.units * 10n ** BigInt(scale - leftParts.scale);
 	const rightUnits = rightParts.units * 10n ** BigInt(scale - rightParts.scale);
 	return formatDecimal(leftUnits - rightUnits, scale);
+}
+
+function formatPercentChange(amount: string, baseline: string): string {
+	const amountParts = parseDecimal(amount);
+	const baselineParts = parseDecimal(baseline);
+	let numerator = amountParts.units * 10000n;
+	let denominator = baselineParts.units;
+	const scaleDifference = baselineParts.scale - amountParts.scale;
+	if (scaleDifference >= 0) {
+		numerator *= 10n ** BigInt(scaleDifference);
+	} else {
+		denominator *= 10n ** BigInt(-scaleDifference);
+	}
+	const negative = numerator < 0n !== denominator < 0n;
+	const absoluteNumerator = numerator < 0n ? -numerator : numerator;
+	const absoluteDenominator = denominator < 0n ? -denominator : denominator;
+	let rounded = absoluteNumerator / absoluteDenominator;
+	if ((absoluteNumerator % absoluteDenominator) * 2n >= absoluteDenominator) rounded += 1n;
+	return formatFixedDecimal(negative ? -rounded : rounded, 2);
+}
+
+function formatFixedDecimal(units: bigint, scale: number): string {
+	const sign = units < 0n ? '-' : '';
+	const digits = (units < 0n ? -units : units).toString().padStart(scale + 1, '0');
+	const splitAt = digits.length - scale;
+	return `${sign}${digits.slice(0, splitAt)}.${digits.slice(splitAt)}`;
 }
 
 function formatDecimal(units: bigint, scale: number): string {

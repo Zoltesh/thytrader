@@ -224,6 +224,19 @@ class MismatchedBacktestResultReader(InMemoryBacktestResultReader):
         return next(iter(self._results.values()))
 
 
+class ForgedBacktestResultReader(InMemoryBacktestResultReader):
+    """Reader that returns a model-copy result whose canonical fields were bypassed."""
+
+    def __init__(self, result: BacktestResult) -> None:
+        """Keep one forged result without fingerprinting it at construction time."""
+        self._forged_result = result
+
+    async def load(self, result_fingerprint: str) -> BacktestResult:
+        """Return the forged result regardless of the requested identity."""
+        del result_fingerprint
+        return self._forged_result
+
+
 class InMemoryBacktestBenchmarkReader:
     """Deterministic read-only benchmark store used only by API behavior tests."""
 
@@ -363,6 +376,26 @@ def test_backtests_detail_rejects_mismatched_reader_identity() -> None:
     assert response.json()["detail"]["code"] == "backtests_unavailable"
 
 
+def test_backtests_detail_redacts_forged_result_revalidation_failure() -> None:
+    """A forged stored result must not escape as an unhandled HTTP 500."""
+    result = _result()
+    forged = result.model_copy(
+        update={"summary": result.summary.model_copy(update={"total_net_pnl": "NaN"})}
+    )
+    requested_fingerprint = "sha256:" + "f" * 64
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=ForgedBacktestResultReader(forged),
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(f"/api/v1/backtests/{requested_fingerprint}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "backtests_unavailable"
+    assert "NaN" not in response.text
+
+
 def test_backtests_benchmark_returns_derived_buy_and_hold_evidence() -> None:
     """The benchmark endpoint exposes a comparison without changing the immutable result payload."""
     strategy = _strategy()
@@ -384,6 +417,28 @@ def test_backtests_benchmark_returns_derived_buy_and_hold_evidence() -> None:
     assert payload["result_fingerprint"] == fingerprint
     assert payload["benchmark"]["benchmark_contract_version"] == "thytrader-buy-and-hold-v1"
     assert payload["benchmark"]["total_fees"] == benchmark.total_fees
+
+
+def test_backtests_benchmark_redacts_forged_model_copy() -> None:
+    """A forged benchmark model must be revalidated before it reaches the HTTP response."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
+    forged = benchmark.model_copy(update={"entry_price": "NaN"})
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+        backtest_benchmark_reader=InMemoryBacktestBenchmarkReader((forged,)),
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(f"/api/v1/backtests/{fingerprint}/benchmark")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "backtests_unavailable"
+    assert "NaN" not in response.text
 
 
 def test_backtests_benchmark_returns_404_for_unknown_result() -> None:

@@ -32,6 +32,11 @@ from thytrader.backtest.models import (
     BacktestTrade,
     EquityPoint,
 )
+from thytrader.market_data.quality import (
+    CandleQualityError,
+    validate_candle_timestamp,
+    validate_candle_values,
+)
 from thytrader.research.indicators import canonical_decimal
 from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
@@ -262,7 +267,18 @@ def _candle_map(
     """Require exactly one well-formed candle through the required final next-open fill."""
     starts_at = specification.warmup.starts_at
     ends_at = specification.evaluation.ends_at + timedelta(hours=1)
-    selected = tuple(candle for candle in candles if starts_at <= candle.starts_at < ends_at)
+    try:
+        for candle in candles:
+            validate_candle_timestamp(candle.starts_at)
+        selected = tuple(candle for candle in candles if starts_at <= candle.starts_at < ends_at)
+        for candle in selected:
+            validate_candle_values(candle)
+    except CandleQualityError as error:
+        message = "Backtest candles have invalid timestamps or values."
+        raise BacktestSimulationError(message) from error
+    except (AttributeError, OverflowError, TypeError, ValueError) as error:
+        message = "Backtest candles have invalid timestamps or values."
+        raise BacktestSimulationError(message) from error
     expected_count = int((ends_at - starts_at) / timedelta(hours=1))
     if len(selected) != expected_count:
         raise BacktestSimulationError("Backtest candle coverage is incomplete or duplicated.")

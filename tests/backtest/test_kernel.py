@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 import json
@@ -166,6 +167,18 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     total_return = Decimal(result.summary.total_return_fraction)
     total_net_pnl = Decimal(result.summary.total_net_pnl)
     assert total_return == total_net_pnl / Decimal("10000")
+
+
+def test_simulation_rejects_naive_terminal_candle_with_controlled_error() -> None:
+    """A malformed next-open timestamp must not escape as an aware/naive TypeError."""
+    strategy = _strategy()
+    candles = (
+        *_candles()[:-1],
+        replace(_candles()[-1], starts_at=_candles()[-1].starts_at.replace(tzinfo=None)),
+    )
+
+    with pytest.raises(BacktestSimulationError, match="candles"):
+        simulate_backtest(_run(strategy), strategy, candles)
 
 
 def test_v2_zero_spread_preserves_v1_economics_and_records_executable_evidence() -> None:
