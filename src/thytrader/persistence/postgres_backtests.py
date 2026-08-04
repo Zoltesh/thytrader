@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
@@ -24,12 +24,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
-from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
-from thytrader.research.models import (
-    ResearchRunSpecification,
-    canonical_research_run_bytes,
-    research_run_fingerprint,
-)
+from thytrader.persistence.schema import published_backtest_results
 from thytrader.research.publication import ResearchRunPublicationError
 from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
@@ -39,13 +34,27 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+    from thytrader.research.models import ResearchRunSpecification
+    from thytrader.research.publication import PublishedResearchRunSpecification
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class BacktestPublicationError(RuntimeError):
     """Report a redacted immutable-result persistence or integrity failure."""
+
+
+class BacktestResearchRunReader(Protocol):
+    """Read one fully verified immutable research run for result consumers."""
+
+    async def load(
+        self,
+        run_fingerprint_value: str,
+        *,
+        dataset_store: DatasetStore,
+    ) -> PublishedResearchRunSpecification:
+        """Load and reverify one published run against its immutable dataset."""
+        ...
 
 
 class PostgresBacktestResultStore:
@@ -55,12 +64,10 @@ class PostgresBacktestResultStore:
         self,
         engine: AsyncEngine,
         *,
-        research_run_store: PostgresResearchRunStore | None = None,
-        dataset_store: DatasetStore | None = None,
+        research_run_store: BacktestResearchRunReader,
+        dataset_store: DatasetStore,
     ) -> None:
-        """Use one application-managed engine and optional full source verifier."""
-        if (research_run_store is None) != (dataset_store is None):
-            raise ValueError("Research-run and dataset stores must be configured together.")
+        """Use one application-managed engine and a mandatory full source verifier."""
         self._engine = engine
         self._research_run_store = research_run_store
         self._dataset_store = dataset_store
@@ -249,68 +256,27 @@ class PostgresBacktestResultStore:
         result: BacktestResult,
     ) -> ResearchRunSpecification:
         """Load and reverify the immutable research run behind one result."""
-        if self._research_run_store is not None and self._dataset_store is not None:
-            try:
-                published = await self._research_run_store.load(
-                    result.run_fingerprint,
-                    dataset_store=self._dataset_store,
-                )
-            except ResearchRunPublicationError as error:
-                raise BacktestPublicationError(
-                    "Backtest result source run could not be fully verified."
-                ) from error
-            specification = published.specification
-            if (
-                specification.strategy_fingerprint != result.strategy_fingerprint
-                or specification.dataset_fingerprint != result.dataset_fingerprint
-                or specification.engine_contract_version != result.engine_contract_version
-                or specification.broker != result.broker
-            ):
-                raise BacktestPublicationError(
-                    "Backtest result source run does not match the result."
-                )
-            return specification
-        statement = select(
-            published_research_run_specs.c.run_id,
-            published_research_run_specs.c.created_at,
-            published_research_run_specs.c.strategy_fingerprint,
-            published_research_run_specs.c.dataset_fingerprint,
-            published_research_run_specs.c.canonical_specification,
-        ).where(published_research_run_specs.c.run_fingerprint == result.run_fingerprint)
         try:
-            async with self._engine.connect() as connection:
-                row = (await connection.execute(statement)).mappings().one_or_none()
-        except SQLAlchemyError as error:
-            raise BacktestPublicationError(
-                "Backtest result source publication is unavailable."
-            ) from error
-        if row is None:
-            raise BacktestPublicationError("Backtest result source run was not found.")
-        if (
-            cast("str", row["strategy_fingerprint"]) != result.strategy_fingerprint
-            or cast("str", row["dataset_fingerprint"]) != result.dataset_fingerprint
-        ):
-            raise BacktestPublicationError(
-                "Backtest result source identities do not match the run."
+            published = await self._research_run_store.load(
+                result.run_fingerprint,
+                dataset_store=self._dataset_store,
             )
-        canonical = cast("str", row["canonical_specification"])
-        try:
-            specification = ResearchRunSpecification.model_validate_json(canonical)
-        except (TypeError, ValueError, ValidationError) as error:
-            raise BacktestPublicationError("Backtest result source run is invalid.") from error
+        except ResearchRunPublicationError as error:
+            raise BacktestPublicationError(
+                "Backtest result source run could not be fully verified."
+            ) from error
+        if published.run_fingerprint != result.run_fingerprint:
+            raise BacktestPublicationError(
+                "Backtest result source verifier returned a different run identity."
+            )
+        specification = published.specification
         if (
-            cast("str", row["run_id"]) != str(specification.run_id)
-            or cast("datetime", row["created_at"]) != specification.created_at
-            or specification.strategy_fingerprint != result.strategy_fingerprint
+            specification.strategy_fingerprint != result.strategy_fingerprint
             or specification.dataset_fingerprint != result.dataset_fingerprint
             or specification.engine_contract_version != result.engine_contract_version
             or specification.broker != result.broker
-            or canonical_research_run_bytes(specification).decode("utf-8") != canonical
-            or research_run_fingerprint(specification) != result.run_fingerprint
         ):
-            raise BacktestPublicationError(
-                "Backtest result source run is not a canonical executable backtest run."
-            )
+            raise BacktestPublicationError("Backtest result source run does not match the result.")
         return specification
 
     async def _verify_source_identity(self, result: BacktestResult) -> None:

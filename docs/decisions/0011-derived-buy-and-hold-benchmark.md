@@ -19,6 +19,8 @@ The reader re-verifies the result, its published research-run specification, and
 
 The benchmark response carries the source identities, execution assumptions, entry/exit evidence, costs, net return, and maximum drawdown. It is not persisted as part of canonical result JSON and cannot mutate or re-fingerprint an existing result. If the result, source run, or dataset cannot be reverified, the endpoint fails closed with a redacted `503` response.
 
+The PostgreSQL result repository therefore requires the full research-run verifier and immutable dataset store at construction time. A row-only source lookup is not an acceptable benchmark boundary, even when the result row itself contains matching strategy and dataset fingerprints.
+
 ## Consequences
 
 - Existing V1 and V2 result bytes and fingerprints remain unchanged.

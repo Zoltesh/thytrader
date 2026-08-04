@@ -78,7 +78,7 @@ The summary includes initial/final equity, total PnL and return fraction, trade/
 
 ## Persistence
 
-Migration `0007_published_backtest_results.py` creates `published_backtest_results`. Each row has a result fingerprint primary key, source identity columns, canonical result JSON, timestamp, source-run foreign key, and fingerprint format constraints. The source dataset has an index for result lookup; all result content remains inside the canonical document to preserve one audited identity.
+Migration `0007_published_backtest_results.py` creates `published_backtest_results`. Each row has a result fingerprint primary key, source identity columns, canonical result JSON, timestamp, source-run foreign key, and fingerprint format constraints. The source dataset has an index for result lookup; all result content remains inside the canonical document to preserve one audited identity. The PostgreSQL result store requires an application-managed research-run verifier and `DatasetStore`; there is no row-only source fallback, so a result store cannot become a benchmark source without full strategy, run, manifest, and coverage verification.
 
 ## Read-only results API
 

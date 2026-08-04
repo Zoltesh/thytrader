@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING, NoReturn, cast
 
 from pydantic import SecretStr
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
 from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_backtests import (
     BacktestPublicationError,
@@ -27,12 +28,19 @@ from thytrader.persistence.schema import (
     published_strategy_versions,
     strategy_dataset_bindings,
 )
-from thytrader.research.models import ResearchRunSpecification, canonical_research_run_bytes
+from thytrader.research.models import (
+    ResearchRunSpecification,
+    canonical_research_run_bytes,
+    research_run_fingerprint,
+)
+from thytrader.research.publication import PublishedResearchRunSpecification
 from thytrader.research.signal_evaluator import evaluate_signal_trace
 
 from .test_kernel import _candles, _run, _strategy, _v2_run
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.strategies.models import StrategyDefinition
@@ -44,6 +52,42 @@ class _ExplodingEngine:
     def begin(self) -> NoReturn:
         """Expose forbidden database access during fail-closed validation tests."""
         raise AssertionError("database access must not occur")
+
+
+class _VerifiedSourceRunStore:
+    """Supply one already-verified source run to result-store contract tests."""
+
+    def __init__(self, specification: ResearchRunSpecification) -> None:
+        """Bind the source specification used by the test's result artifact."""
+        self._specification = specification
+
+    async def load(
+        self,
+        run_fingerprint_value: str,
+        *,
+        dataset_store: DatasetStore,
+    ) -> PublishedResearchRunSpecification:
+        """Return the exact source identity while accepting the production dataset boundary."""
+        del dataset_store
+        expected_fingerprint = research_run_fingerprint(self._specification)
+        if run_fingerprint_value != expected_fingerprint:
+            raise AssertionError("test source verifier received the wrong run identity")
+        return PublishedResearchRunSpecification(
+            run_fingerprint=expected_fingerprint,
+            specification=self._specification,
+        )
+
+
+def _result_store(
+    engine: AsyncEngine,
+    specification: ResearchRunSpecification,
+) -> PostgresBacktestResultStore:
+    """Build a result store with an explicit verified-source test boundary."""
+    return PostgresBacktestResultStore(
+        engine,
+        research_run_store=_VerifiedSourceRunStore(specification),
+        dataset_store=DatasetStore(Path()),
+    )
 
 
 def test_schema_metadata_has_immutable_backtest_result_table() -> None:
@@ -78,18 +122,29 @@ def test_backtest_result_migration_follows_research_run_publication() -> None:
 def test_result_store_revalidates_forged_result_before_database_access() -> None:
     """Unchecked model copies cannot become durable result records."""
     strategy = _strategy()
-    result = simulate_backtest(_run(strategy), strategy, _candles())
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
     forged_summary = result.summary.model_copy(update={"trade_count": -1})
     forged = result.model_copy(update={"summary": forged_summary})
-    store = PostgresBacktestResultStore(cast("AsyncEngine", _ExplodingEngine()))
+    store = _result_store(cast("AsyncEngine", _ExplodingEngine()), specification)
 
     with pytest.raises(BacktestPublicationError, match="invalid"):
         asyncio.run(
             store.publish(
                 forged,
-                trace=evaluate_signal_trace(_run(strategy), strategy, _candles()),
+                trace=evaluate_signal_trace(specification, strategy, _candles()),
             )
         )
+
+
+def test_result_store_requires_full_source_verification() -> None:
+    """A PostgreSQL result store must not be constructible without its verifier boundary."""
+    constructor = cast(
+        "Callable[[AsyncEngine], PostgresBacktestResultStore]",
+        PostgresBacktestResultStore,
+    )
+    with pytest.raises(TypeError, match="research_run_store"):
+        constructor(cast("AsyncEngine", _ExplodingEngine()))
 
 
 def test_postgres_store_persists_and_reloads_a_canonical_result() -> None:
@@ -146,7 +201,7 @@ async def _assert_postgres_summary_listing(
     engine = create_engine(SecretStr(database_url))
     try:
         await _seed_sources(engine, result, strategy, specification)
-        store = PostgresBacktestResultStore(engine)
+        store = _result_store(engine, specification)
         trace = evaluate_signal_trace(specification, strategy, _candles())
         await store.publish(result, trace=trace)
         fingerprint = backtest_result_fingerprint(result)
@@ -184,7 +239,7 @@ async def _assert_postgres_round_trip(
     engine = create_engine(SecretStr(database_url))
     try:
         await _seed_sources(engine, result, strategy, specification)
-        store = PostgresBacktestResultStore(engine)
+        store = _result_store(engine, specification)
         trace = evaluate_signal_trace(specification, strategy, _candles())
         published = await store.publish(result, trace=trace)
         republished = await store.publish(result, trace=trace)
@@ -194,19 +249,6 @@ async def _assert_postgres_round_trip(
         assert republished == result
         assert reloaded == result
         assert source_specification == specification
-
-        async with engine.begin() as connection:
-            await connection.execute(
-                update(published_research_run_specs)
-                .where(published_research_run_specs.c.run_fingerprint == result.run_fingerprint)
-                .values(
-                    created_at=specification.created_at.replace(
-                        year=specification.created_at.year + 1
-                    )
-                )
-            )
-        with pytest.raises(BacktestPublicationError, match="canonical executable"):
-            await store.load_source_specification(result)
     finally:
         await dispose(engine)
 
