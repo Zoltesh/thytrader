@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from thytrader.market_data.models import CandleInterval
 
 
@@ -105,6 +104,40 @@ class MarketDataWorkerState:
     dataset_revision: int = 0
     maintenance_kind: MarketDataMaintenanceKind = MarketDataMaintenanceKind.INITIAL_BACKFILL
     enabled: bool = True
+
+    def __post_init__(self) -> None:
+        """Reject malformed durable timestamp facts before they can influence worker decisions."""
+        validate_market_data_worker_state(self)
+
+
+def validate_market_data_worker_state(state: MarketDataWorkerState) -> MarketDataWorkerState:
+    """Require every durable worker timestamp to be an aware UTC instant."""
+    timestamps = (
+        ("last_attempt_at", state.last_attempt_at),
+        ("last_success_at", state.last_success_at),
+        ("requested_starts_at", state.requested_starts_at),
+        ("requested_ends_at", state.requested_ends_at),
+        ("covered_starts_at", state.covered_starts_at),
+        ("covered_ends_at", state.covered_ends_at),
+        ("updated_at", state.updated_at),
+        ("expected_ends_at", state.expected_ends_at),
+        ("next_retry_at", state.next_retry_at),
+    )
+    for field_name, value in timestamps:
+        if value is not None:
+            _require_utc_timestamp(value, field_name)
+    return state
+
+
+def _require_utc_timestamp(value: object, field_name: str) -> None:
+    """Reject one malformed worker-state timestamp with a controlled domain error."""
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
+        message = f"Market-data worker state field {field_name!r} must be timezone-aware UTC."
+        raise MarketDataWorkerError(message)
 
 
 @runtime_checkable
@@ -306,7 +339,8 @@ class InMemoryMarketDataWorkerStateStore:
         timeframe: CandleInterval,
     ) -> MarketDataWorkerState | None:
         """Return the latest state for an exact target, if attempted."""
-        return self._states.get(_key(provider, product_id, timeframe))
+        state = self._states.get(_key(provider, product_id, timeframe))
+        return validate_market_data_worker_state(state) if state is not None else None
 
 
 def _key(

@@ -140,7 +140,9 @@ Failures retain prior verified coverage while recording a stable redacted code/m
 failure count, and next retry instant. Dataset-verification failures retain those historical facts but
 report coverage availability as unavailable until verification succeeds. Retries use capped
 exponential delay with positive jitter, and persisted deadlines remain effective across restarts. State
-transitions are monotonic: stale attempts, stale failure snapshots, and late worker completions cannot
+reader boundaries reject malformed or non-UTC timestamp fields before any worker ordering,
+scheduling, or API serialization. State transitions are monotonic: stale attempts, stale failure
+snapshots, and late worker completions cannot
 replace a newer attempt, double-count failures, shorten exponential backoff, or regress verified
 coverage. A later verified success clears failure and retry state. PostgreSQL is
 authoritative for coordination;

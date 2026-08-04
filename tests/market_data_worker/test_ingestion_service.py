@@ -136,6 +136,55 @@ def test_next_retry_at_rejects_unrepresentable_schedule() -> None:
         _next_retry_at(datetime.max.replace(tzinfo=UTC), 300, 0, 0.0)
 
 
+def test_ingest_once_rejects_forged_naive_persisted_coverage(tmp_path: Path) -> None:
+    """A forged persisted coverage timestamp must fail before worker comparisons or I/O."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        attempt = MarketDataWorkerAttempt(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=ends_at,
+            requested_starts_at=report.starts_at,
+            requested_ends_at=report.ends_at,
+        )
+        await state_store.record_attempt(attempt)
+        await state_store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=attempt,
+                covered_starts_at=report.starts_at,
+                covered_ends_at=report.ends_at,
+                expected_candle_count=3,
+                received_candle_count=3,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "a" * 64,
+            )
+        )
+        state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        object.__setattr__(state, "covered_ends_at", datetime.fromisoformat("2026-07-29T02:00:00"))
+        service = _StubRangeService([])
+
+        with pytest.raises(MarketDataWorkerError, match="UTC"):
+            await ingest_once(
+                service=service,
+                dataset_store=DatasetStore(tmp_path),
+                state_store=state_store,
+                provider="coinbase",
+                product_id="BTC-USD",
+                lookback_hours=3,
+                now=ends_at,
+            )
+
+        assert service.requests == []
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path) -> None:
     """Provider failures remain durable and publish no misleading dataset or coverage facts."""
 

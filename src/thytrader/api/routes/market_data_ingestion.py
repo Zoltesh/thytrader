@@ -14,6 +14,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
+    validate_market_data_worker_state,
 )
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
 
@@ -74,6 +75,8 @@ async def get_ingestion_state(
     try:
         provider = _provider(runtime)
         state = await store.get(provider, product_id, CandleInterval.ONE_HOUR)
+        if state is not None:
+            validate_market_data_worker_state(state)
     except MarketDataWorkerUnavailableError:
         raise _unavailable() from None
     except Exception:  # noqa: BLE001 - persistence details are redacted at the API boundary.

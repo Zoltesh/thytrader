@@ -15,8 +15,10 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerAttempt,
     MarketDataWorkerError,
     MarketDataWorkerFailure,
+    MarketDataWorkerState,
     MarketDataWorkerStateStore,
     MarketDataWorkerSuccess,
+    validate_market_data_worker_state,
 )
 
 _logger = logging.getLogger(__name__)
@@ -41,6 +43,16 @@ class HourlyRangeService(Protocol):
         ...
 
 
+async def _load_validated_state(
+    state_store: MarketDataWorkerStateStore,
+    provider: str,
+    product_id: str,
+) -> MarketDataWorkerState | None:
+    """Load durable state and reject forged timestamps before scheduling or comparison."""
+    state = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+    return validate_market_data_worker_state(state) if state is not None else None
+
+
 async def ingest_once(
     *,
     service: HourlyRangeService,
@@ -56,7 +68,7 @@ async def ingest_once(
 ) -> None:
     """Retrieve, verify, publish, and durably report one bounded hourly range."""
     ends_at = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
-    prior = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+    prior = await _load_validated_state(state_store, provider, product_id)
     if prior is not None and prior.complete and prior.covered_ends_at is not None:
         if prior.covered_ends_at >= ends_at:
             reconciliation_attempt = MarketDataWorkerAttempt(
@@ -263,7 +275,7 @@ async def run_market_data_worker(
     try:
         while not stop_requested.is_set():
             cycle_now = now_factory()
-            prior = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+            prior = await _load_validated_state(state_store, provider, product_id)
             if (
                 prior is not None
                 and prior.next_retry_at is not None
@@ -288,7 +300,7 @@ async def run_market_data_worker(
                 verify_current_dataset=verify_current_dataset,
             )
             verify_current_dataset = False
-            state = await state_store.get(provider, product_id, CandleInterval.ONE_HOUR)
+            state = await _load_validated_state(state_store, provider, product_id)
             wait_seconds = interval_seconds
             if state is not None and state.next_retry_at is not None:
                 wait_seconds = max(

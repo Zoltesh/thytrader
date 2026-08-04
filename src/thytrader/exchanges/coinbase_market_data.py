@@ -227,11 +227,16 @@ def _parse_candle(raw_candle: object) -> Candle:
             raise CoinbaseMarketDataError(message)
         payload[key] = value
     start = payload.get("start")
-    if not isinstance(start, str) or not start.isdigit():
+    if not isinstance(start, str) or not start.isascii() or not start.isdecimal():
         message = "Coinbase candle start must be an epoch-seconds string."
         raise CoinbaseMarketDataError(message)
+    try:
+        starts_at = datetime.fromtimestamp(int(start), tz=UTC)
+    except (OverflowError, OSError, ValueError) as error:
+        message = "Coinbase candle start is outside the supported epoch range."
+        raise CoinbaseMarketDataError(message) from error
     candle = Candle(
-        starts_at=datetime.fromtimestamp(int(start), tz=UTC),
+        starts_at=starts_at,
         open=_positive_decimal(payload, "open"),
         high=_positive_decimal(payload, "high"),
         low=_positive_decimal(payload, "low"),

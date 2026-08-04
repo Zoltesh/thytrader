@@ -224,6 +224,41 @@ class EmptyCandleCoinbaseMarketClient(StubCoinbaseMarketClient):
         return StubResponse({"candles": []})
 
 
+class MalformedEpochCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """SDK-shaped client returning one candle with an invalid epoch text value."""
+
+    def __init__(self, candle_start: str) -> None:
+        """Store the malformed provider timestamp returned by every candle call."""
+        super().__init__()
+        self._candle_start = candle_start
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Return one structurally valid candle whose epoch conversion must fail closed."""
+        assert limit is not None
+        self.candle_calls.append((product_id, start, end, granularity, limit))
+        return StubResponse(
+            {
+                "candles": [
+                    {
+                        "start": self._candle_start,
+                        "open": "100",
+                        "high": "110",
+                        "low": "90",
+                        "close": "105",
+                        "volume": "12.5",
+                    }
+                ]
+            }
+        )
+
+
 def test_coinbase_market_data_builds_exact_preview_and_reports_upstream_gaps() -> None:
     """A Coinbase payload should produce validated completed candles and gap metadata."""
     client = StubCoinbaseMarketClient()
@@ -342,5 +377,20 @@ def test_coinbase_market_data_maps_historical_page_boundary_overflow() -> None:
                 ends_at - timedelta(hours=1),
                 ends_at,
                 ends_at,
+            )
+        )
+
+
+@pytest.mark.parametrize("candle_start", ["9" * 30, "²"])
+def test_coinbase_market_data_rejects_unrepresentable_or_non_ascii_candle_epochs(
+    candle_start: str,
+) -> None:
+    """Malformed upstream epoch text must map to the stable adapter error."""
+    with pytest.raises(CoinbaseMarketDataError, match="epoch"):
+        asyncio.run(
+            CoinbaseMarketData(MalformedEpochCoinbaseMarketClient(candle_start)).get_recent_preview(
+                "BTC-USD",
+                CandleInterval.ONE_HOUR,
+                datetime(2026, 7, 28, 5, 30, tzinfo=UTC),
             )
         )
