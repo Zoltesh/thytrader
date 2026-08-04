@@ -69,7 +69,12 @@ def verify_research_run_eligibility(
         raise ResearchRunPublicationError(
             "Research run dataset does not provide the required warmup coverage."
         )
-    required_fill_end = specification.evaluation.ends_at + timedelta(hours=1)
+    try:
+        required_fill_end = specification.evaluation.ends_at + timedelta(hours=1)
+    except OverflowError as error:
+        raise ResearchRunPublicationError(
+            "Research run evaluation window cannot represent required next-candle-open coverage."
+        ) from error
     if dataset_ends_at < required_fill_end:
         raise ResearchRunPublicationError(
             "Research run dataset lacks next-candle-open coverage for the final evaluation candle."

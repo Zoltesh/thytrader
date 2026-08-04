@@ -54,6 +54,8 @@ The final next-open candle required by the published run may fill a final pendin
 
 The required final next-open candle is never passed into indicator or condition evaluation. No future high, low, close, or volume can influence prior signals or fills.
 
+Publication eligibility applies the same boundary contract before simulation: a run whose final evaluation end cannot represent one additional hourly next-open candle is rejected with a controlled research-publication error rather than leaking a raw datetime overflow.
+
 ## Position and cost model
 
 V1 is one BTC-USD-like long-only position at a time. It uses the declared ATR stop distance and risk fraction, bounded by the strategy maximum quote notional, portfolio exposure fraction, available quote cash including entry fees, and minimum quote notional. It does not create a trade if the calculated stop is non-positive or the minimum notional is unavailable.

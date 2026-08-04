@@ -39,21 +39,26 @@ def _published_strategy() -> PublishedStrategy:
     )
 
 
-def _run(published: PublishedStrategy) -> ResearchRunSpecification:
+def _run(
+    published: PublishedStrategy,
+    *,
+    evaluation: EvaluationWindow | None = None,
+) -> ResearchRunSpecification:
     """Return a run request compatible with the reference strategy."""
+    selected_evaluation = evaluation or EvaluationWindow(
+        starts_at=datetime(2026, 7, 10, tzinfo=UTC),
+        ends_at=datetime(2026, 7, 20, tzinfo=UTC),
+    )
     return ResearchRunSpecification(
         schema_version="1.0",
         run_id=UUID("019faf76-6600-7000-8000-000000000066"),
         created_at=datetime(2026, 7, 29, 20, tzinfo=UTC),
         strategy_fingerprint=published.strategy_fingerprint,
         dataset_fingerprint=_DATASET_FINGERPRINT,
-        evaluation=EvaluationWindow(
-            starts_at=datetime(2026, 7, 10, tzinfo=UTC),
-            ends_at=datetime(2026, 7, 20, tzinfo=UTC),
-        ),
+        evaluation=selected_evaluation,
         warmup=WarmupWindow(
             bars=50,
-            starts_at=datetime(2026, 7, 7, 22, tzinfo=UTC),
+            starts_at=selected_evaluation.starts_at - timedelta(hours=50),
         ),
         capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
         costs=CostAssumptions(
@@ -150,6 +155,24 @@ def test_eligibility_rejects_insufficient_warmup_or_next_open_coverage() -> None
         verify_research_run_eligibility(run, published, late_start)
     with pytest.raises(ResearchRunPublicationError, match="next-candle-open"):
         verify_research_run_eligibility(run, published, missing_next_open)
+
+
+def test_eligibility_rejects_unrepresentable_next_open_boundary() -> None:
+    """Maximum-date evaluation windows fail as controlled publication errors."""
+    published = _published_strategy()
+    extreme_evaluation = EvaluationWindow(
+        starts_at=datetime(9999, 12, 31, 22, tzinfo=UTC),
+        ends_at=datetime(9999, 12, 31, 23, tzinfo=UTC),
+    )
+    extreme_run = _run(published, evaluation=extreme_evaluation)
+    extreme_manifest = replace(
+        _manifest(),
+        starts_at="9999-12-29T20:00:00Z",
+        ends_at="9999-12-31T23:00:00Z",
+    )
+
+    with pytest.raises(ResearchRunPublicationError, match="next-candle-open"):
+        verify_research_run_eligibility(extreme_run, published, extreme_manifest)
 
 
 def test_eligibility_rejects_incomplete_manifest_even_when_forged() -> None:
