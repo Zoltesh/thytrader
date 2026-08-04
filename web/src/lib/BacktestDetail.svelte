@@ -192,9 +192,9 @@
 					<table>
 						<thead
 							><tr
-								><th>Entry</th><th>Exit</th><th>Reason</th><th>Quantity</th><th>Fees</th><th
-									>Spread</th
-								><th>Net PnL</th><th>Bars</th></tr
+								><th>Entry</th><th>Exit</th><th>Reason</th><th>Quantity</th><th
+									>Fees (entry / exit)</th
+								><th>Spread/unit (entry / exit)</th><th>Net PnL</th><th>Bars</th></tr
 							></thead
 						><tbody
 							>{#each result.trades as trade, index (index)}<tr
@@ -207,15 +207,13 @@
 											>{trade.exit.price}</small
 										></td
 									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td
-										>{formatUsd((Number(trade.entry.fee) + Number(trade.exit.fee)).toString())}</td
+										>{formatUsd(trade.entry.fee)} / {formatUsd(trade.exit.fee)}</td
 									><td
-										>{trade.entry.spread_cost && trade.exit.spread_cost
-											? formatUsd(
-													(
-														Number(trade.entry.spread_cost) * Number(trade.entry.quantity) +
-														Number(trade.exit.spread_cost) * Number(trade.exit.quantity)
-													).toString()
-												)
+										>{trade.entry.executable_side === 'ask' &&
+										trade.exit.executable_side === 'bid' &&
+										trade.entry.spread_cost &&
+										trade.exit.spread_cost
+											? `${formatUsd(trade.entry.spread_cost)} / ${formatUsd(trade.exit.spread_cost)}`
 											: '—'}</td
 									><td
 										class:gain={Number(trade.net_pnl) >= 0}

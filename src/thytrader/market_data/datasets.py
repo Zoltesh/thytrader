@@ -15,7 +15,11 @@ from uuid import uuid4
 import polars as pl
 
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
-from thytrader.market_data.quality import CandleQualityError, analyze_range
+from thytrader.market_data.quality import (
+    CandleQualityError,
+    analyze_range,
+    validate_candle_values,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -72,6 +76,11 @@ class DatasetStore:
         if not report.quality.candles:
             message = "A complete dataset must contain at least one candle."
             raise DatasetStoreError(message)
+        try:
+            for candle in report.quality.candles:
+                validate_candle_values(candle)
+        except CandleQualityError as error:
+            raise DatasetStoreError(str(error)) from error
 
         timeframe = CandleInterval.ONE_HOUR.value
         rows = _candle_rows(report)
@@ -467,7 +476,7 @@ def _parquet_rows(path: Path) -> tuple[dict[str, str], ...]:
 def _rows_to_candles(rows: Sequence[dict[str, str]]) -> tuple[Candle, ...]:
     """Reconstruct exact domain candles from verified canonical Parquet row values."""
     try:
-        return tuple(
+        candles = tuple(
             Candle(
                 starts_at=_parse_utc_text(row["starts_at"]),
                 open=Decimal(row["open"]),
@@ -478,9 +487,13 @@ def _rows_to_candles(rows: Sequence[dict[str, str]]) -> tuple[Candle, ...]:
             )
             for row in rows
         )
+        for candle in candles:
+            validate_candle_values(candle)
     except (InvalidOperation, KeyError, ValueError) as error:
         message = "Dataset verification failed because Parquet rows are not valid candle values."
         raise DatasetStoreError(message) from error
+    else:
+        return candles
 
 
 def _parse_utc_text(value: str) -> datetime:

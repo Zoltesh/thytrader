@@ -151,7 +151,8 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByText('Modeled assumptions')).toBeVisible();
 	await expect(page.getByText('10 bps constant spread')).toBeVisible();
 	await expect(page.getByText('Total modeled spread cost: $0.10.')).toBeVisible();
-	await expect(page.getByRole('cell', { name: '$0.10' })).toBeVisible();
+	await expect(page.getByRole('cell', { name: '$0.03 / $0.05' })).toBeVisible();
+	await expect(page.getByRole('cell', { name: '$0.05 / $0.05' })).toBeVisible();
 	await expect(page.getByText('take profit')).toBeVisible();
 	await expect(page.getByTestId('benchmark-comparison')).toBeVisible();
 	await expect(page.getByText('Buy-and-hold comparison')).toBeVisible();

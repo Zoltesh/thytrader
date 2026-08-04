@@ -1,7 +1,10 @@
 """Behavioral tests for historical-candle quality analysis."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+
+import pytest
 
 from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_candles
@@ -46,3 +49,25 @@ def test_quality_marks_old_completed_data_stale() -> None:
     assert report.candle_count == 1
     assert report.missing_intervals == 0
     assert report.is_stale is True
+
+
+def test_quality_rejects_nonfinite_and_semantically_invalid_ohlcv_values() -> None:
+    """Provider-neutral quality must reject unsafe exact OHLCV values before persistence."""
+    base = _candle(0)
+    invalid_candles = (
+        replace(base, high=Decimal("Infinity")),
+        replace(base, volume=Decimal("NaN")),
+        replace(base, open=Decimal("0")),
+        replace(base, low=Decimal("-1")),
+        replace(base, high=Decimal("100")),
+        replace(base, low=Decimal("106")),
+        replace(base, volume=Decimal("-0.1")),
+    )
+
+    for candle in invalid_candles:
+        with pytest.raises(ValueError, match="OHLCV"):
+            analyze_candles(
+                (candle,),
+                CandleInterval.ONE_HOUR,
+                now=datetime(2026, 7, 28, 2, 0, tzinfo=UTC),
+            )

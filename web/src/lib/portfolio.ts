@@ -130,12 +130,21 @@ export type PortfolioChange = {
 };
 
 export function formatUsd(amount: string): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	}).format(Number(amount));
+	const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+	if (!match) throw new Error('USD amounts must be canonical decimal strings');
+	const sign = match[1] === '-' ? '-$' : '$';
+	const wholeDigits = match[2];
+	if (!wholeDigits) throw new Error('USD amounts must include whole digits');
+	const fractionDigits = match[3] ?? '';
+	let whole = BigInt(wholeDigits);
+	let cents = BigInt(fractionDigits.slice(0, 2).padEnd(2, '0') || '0');
+	if (fractionDigits[2] !== undefined && fractionDigits[2] >= '5') cents += 1n;
+	if (cents === 100n) {
+		whole += 1n;
+		cents = 0n;
+	}
+	const groupedWhole = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+	return `${sign}${groupedWhole}.${cents.toString().padStart(2, '0')}`;
 }
 
 export function permissionLabel(permission: string): string {

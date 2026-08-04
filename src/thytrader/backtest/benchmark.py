@@ -15,6 +15,7 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_result_fingerprint,
 )
+from thytrader.market_data.quality import CandleQualityError, validate_candle_values
 from thytrader.research.indicators import canonical_decimal
 from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
 
@@ -119,6 +120,8 @@ def calculate_buy_and_hold_benchmark(
                 maximum_drawdown_fraction=canonical_decimal(maximum_drawdown_fraction),
                 evaluation_bars=evaluation_bars,
             )
+    except CandleQualityError as error:
+        raise BacktestBenchmarkError("Benchmark candles contain invalid OHLCV values.") from error
     except (DecimalException, IndexError, KeyError, ValueError) as error:
         if isinstance(error, BacktestBenchmarkError):
             raise
@@ -142,6 +145,7 @@ def _selected_candles(
         raise BacktestBenchmarkError("Benchmark candle coverage is duplicated.")
     for offset, candle in enumerate(selected):
         expected_start = starts_at + timedelta(hours=offset)
+        validate_candle_values(candle)
         if (
             candle.starts_at != expected_start
             or candle.open <= 0

@@ -14,6 +14,11 @@ describe('portfolio presentation', () => {
 		expect(formatUsd('98542.17')).toBe('$98,542.17');
 	});
 
+	it('preserves precise decimal strings while rounding only to display cents', () => {
+		expect(formatUsd('9007199254740992.01')).toBe('$9,007,199,254,740,992.01');
+		expect(formatUsd('0.005')).toBe('$0.01');
+	});
+
 	it('formats detected permission labels for display', () => {
 		expect(permissionLabel('transfer')).toBe('Transfer');
 	});

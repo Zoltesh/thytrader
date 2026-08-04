@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from itertools import pairwise
 
 from thytrader.market_data.models import (
@@ -14,7 +15,25 @@ from thytrader.market_data.models import (
 
 
 class CandleQualityError(ValueError):
-    """Signal invalid timestamps that prevent trustworthy candle analysis."""
+    """Signal invalid candle values or timestamps that prevent trustworthy analysis."""
+
+
+def validate_candle_values(candle: Candle) -> None:
+    """Reject non-finite or semantically impossible exact OHLCV values."""
+    values = (candle.open, candle.high, candle.low, candle.close, candle.volume)
+    if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
+        raise CandleQualityError("Candle OHLCV values must be finite Decimal values.")
+    if (
+        candle.open <= 0
+        or candle.high <= 0
+        or candle.low <= 0
+        or candle.close <= 0
+        or candle.volume < 0
+        or candle.high < max(candle.open, candle.close)
+        or candle.low > min(candle.open, candle.close)
+        or candle.high < candle.low
+    ):
+        raise CandleQualityError("Candle OHLCV values are semantically invalid.")
 
 
 def analyze_candles(
@@ -29,6 +48,8 @@ def analyze_candles(
     """
     _require_utc(now)
     ordered = tuple(sorted(candles, key=lambda candle: candle.starts_at))
+    for candle in ordered:
+        validate_candle_values(candle)
     _validate_timestamps(ordered, interval)
     completed = tuple(candle for candle in ordered if candle.starts_at + interval.duration <= now)
     gap_count, missing_intervals = _gaps(completed, interval)

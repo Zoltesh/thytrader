@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.backtest.benchmark import calculate_buy_and_hold_benchmark
+import pytest
+
+from thytrader.backtest.benchmark import (
+    BacktestBenchmarkError,
+    calculate_buy_and_hold_benchmark,
+)
 from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import (
     BacktestResult,
@@ -94,7 +100,20 @@ def test_buy_and_hold_uses_the_verified_run_window_and_cost_contract() -> None:
     assert benchmark.entry_candle_starts_at == specification.evaluation.starts_at
     assert benchmark.exit_candle_starts_at == specification.evaluation.ends_at
     assert benchmark.initial_equity == specification.capital.initial_quote_balance
-    assert Decimal(benchmark.total_fees) > 0
+    assert benchmark.entry_price == "14.014"
+    assert benchmark.exit_price == "9.99"
+    assert benchmark.final_equity == (
+        "7100.128272070102694568049572326732292515012788751026561120658641"
+    )
+    assert benchmark.total_fees == (
+        "34.18879381240373541485603076706583977755919586544051899056176216"
+    )
+    assert benchmark.maximum_drawdown == (
+        "2899.871727929897305431950427673267707484987211248973438879341359"
+    )
+    assert benchmark.maximum_drawdown_fraction == (
+        "0.2899871727929897305431950427673267707484987211248973438879341359"
+    )
     assert benchmark.total_spread_cost is None
     assert benchmark.evaluation_bars == 2
 
@@ -110,8 +129,23 @@ def test_buy_and_hold_v2_discloses_spread_and_is_not_part_of_result_identity() -
 
     assert benchmark.engine_contract_version == "thytrader-bar-backtest-v2"
     assert benchmark.broker == result.broker
-    assert benchmark.total_spread_cost is not None
-    assert Decimal(benchmark.total_spread_cost) > 0
+    assert benchmark.entry_price == "14.021007"
+    assert benchmark.exit_price == "9.985005"
+    assert benchmark.final_equity == (
+        "7093.031692088023631405063016032552650043733415648826634522836892"
+    )
+    assert benchmark.total_fees == (
+        "34.17457220923323629028090740775886654615382638026576963866231978"
+    )
+    assert benchmark.total_spread_cost == (
+        "8.541503405705179924999014598782721564786477582432043182848276451"
+    )
+    assert benchmark.maximum_drawdown == (
+        "2906.968307911976368594936983967447349956266584351173365477163108"
+    )
+    assert benchmark.maximum_drawdown_fraction == (
+        "0.2906968307911976368594936983967447349956266584351173365477163108"
+    )
     assert canonical_backtest_result_bytes(result) == before
     assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
 
@@ -130,3 +164,19 @@ def test_buy_and_hold_rejects_candle_coverage_outside_the_published_window() -> 
         assert "coverage" in str(error)
     else:
         raise AssertionError("incomplete benchmark coverage must fail closed")
+
+
+def test_buy_and_hold_rejects_nonfinite_or_invalid_candles() -> None:
+    """The direct benchmark boundary must fail closed even outside DatasetStore composition."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    invalid_candles = _candles()
+    invalid_candles = (
+        *invalid_candles[:2],
+        replace(invalid_candles[2], volume=Decimal("NaN")),
+        *invalid_candles[3:],
+    )
+
+    with pytest.raises(BacktestBenchmarkError, match="OHLCV"):
+        calculate_buy_and_hold_benchmark(result, specification, invalid_candles)

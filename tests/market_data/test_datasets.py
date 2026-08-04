@@ -1,5 +1,6 @@
 """Behavioral tests for immutable historical market-data datasets."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 import json
@@ -212,6 +213,37 @@ def test_dataset_store_load_verified_returns_a_healthy_published_dataset(tmp_pat
 
     assert loaded.content_fingerprint == written.content_fingerprint
     assert loaded.files == written.files
+
+
+def test_dataset_store_rejects_forged_report_with_invalid_ohlcv_values(tmp_path: Path) -> None:
+    """The durable write boundary must not trust a forged complete report's candle values."""
+    valid_report = _complete_report()
+    invalid_report = replace(
+        valid_report,
+        quality=replace(
+            valid_report.quality,
+            candles=(
+                replace(valid_report.quality.candles[0], high=Decimal("Infinity")),
+                *valid_report.quality.candles[1:],
+            ),
+        ),
+    )
+
+    with pytest.raises(DatasetStoreError, match="Candle"):
+        DatasetStore(tmp_path).write("coinbase", "BTC-USD", invalid_report)
+
+
+def test_dataset_store_rejects_nonfinite_values_during_verified_load(tmp_path: Path) -> None:
+    """Verified reads must reject persisted Infinity or NaN even when Parquet schema is intact."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+    rows = [dict(row) for row in pl.read_parquet(manifest.files[0]).to_dicts()]
+    rows[0]["high"] = "Infinity"
+    rows[1]["volume"] = "NaN"
+    pl.DataFrame(rows).write_parquet(manifest.files[0])
+
+    with pytest.raises(DatasetStoreError, match="verification"):
+        store.load_candles(manifest.content_fingerprint)
 
 
 def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_path: Path) -> None:
