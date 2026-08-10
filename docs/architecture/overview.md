@@ -2,7 +2,14 @@
 
 ## System shape
 
-ThyTrader begins as a modular monolith deployed as multiple supervised processes. Domain packages share one repository and release lifecycle, while API and worker processes provide fault and scaling boundaries.
+ThyTrader is a modular monolith deployed as multiple supervised processes. Domain packages share one
+repository and release lifecycle, while API and worker processes provide fault and scaling boundaries.
+
+The diagram describes the **target system shape**, not a claim that every responsibility is already
+implemented. Today, the browser and HTTP API are read-only for portfolio, market-data, and backtest
+evidence; the portfolio worker takes snapshots; and the independently supervised market-data worker
+maintains verified 1h datasets. There is no strategy runtime worker, paper broker, order management,
+risk, reconciliation, or live-execution package yet.
 
 ```text
 SvelteKit web UI
@@ -30,9 +37,14 @@ Market-data worker ----------------------+
 
 ### API process
 
-FastAPI owns the supported application interface:
+FastAPI owns the supported application interface. Its implemented surface is currently read-only:
 
-- portfolio and account queries;
+- portfolio, portfolio-history, market-data, worker-state, health, and immutable backtest-result
+  retrieval.
+
+The following are target responsibilities that must be exposed as supported, tested contracts before
+they are described as available:
+
 - strategy configuration and versioning;
 - backtest submission and result retrieval;
 - runtime status and health;
@@ -44,7 +56,7 @@ HTTP route handlers must remain thin. Exchange logic, risk evaluation, strategy 
 
 ### Worker process
 
-The continuously running worker owns:
+The target continuously running strategy/execution worker owns:
 
 - Coinbase market and user WebSocket sessions;
 - strategy scheduling and evaluation;
@@ -56,6 +68,10 @@ The continuously running worker owns:
 - health and audit events.
 
 Core automation is not implemented with cron. Containers or a service manager supervise long-lived processes.
+
+The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
+market-data worker is independently supervised and only owns market-data ingestion/publication.
+Paper and live workers must not be inferred from either process merely existing.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational

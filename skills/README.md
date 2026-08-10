@@ -2,9 +2,11 @@
 
 This directory is reserved for distributable skills that help user-controlled agents interact with ThyTrader through supported, versioned interfaces.
 
-## Planned first skill
+## Planned skills
 
-`thytrader-operator` will provide a read-only workflow for:
+### `thytrader-operator`
+
+The first skill will provide a read-only workflow for:
 
 - component and exchange-connection health;
 - redacted configuration validation;
@@ -14,6 +16,13 @@ This directory is reserved for distributable skills that help user-controlled ag
 - fees, spread, slippage, and execution-quality analysis;
 - risk-policy events and reconciliation anomalies;
 - generation of a redacted diagnostic/support bundle.
+
+### Future research-mutation skill
+
+Once strategy authoring and backtest-submission contracts exist, a separate skill may assist with
+strategy drafts, validation, immutable publication, and idempotent backtest submission. It must
+require explicit user confirmation and has no paper, live, arming, cancellation, risk-control, or
+direct-database authority.
 
 See [`docs/agent-integration.md`](../docs/agent-integration.md) for the product contract and safety model.
 

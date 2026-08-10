@@ -2,7 +2,10 @@
 
 ## Recommendation
 
-ThyTrader should ship repository-level agent skills, but only after it exposes stable, versioned operational interfaces. The skill is documentation and workflow; it should not compensate for a missing product API by scraping logs, querying PostgreSQL directly, or importing private internals.
+ThyTrader should ship repository-level agent skills as supported UI/API contracts become available.
+The first skill remains read-only and requires stable, versioned operational interfaces. A skill is
+documentation and workflow; it must not compensate for a missing product API by scraping logs,
+querying PostgreSQL directly, or importing private internals.
 
 A `skills/` directory is reserved now so agent integration evolves as a first-class product surface rather than an afterthought.
 
@@ -19,6 +22,11 @@ A user's agent should be able to answer questions such as:
 - Are live and backtest assumptions materially different?
 - Did restarts, disconnects, rejected orders, or reconciliation anomalies occur?
 - Which configuration values are invalid, risky, deprecated, or ineffective?
+
+After authoring and research-submission contracts are stable, a **separate** bounded research skill
+may help a user create a draft, validate/publish an immutable strategy version, submit a backtest,
+and compare results. It is not an extension of the read-only operator skill and has no paper, live,
+arming, cancellation, or kill-switch authority.
 
 ## Supported interface design
 
@@ -53,6 +61,19 @@ They must not:
 - treat missing telemetry as proof of health.
 
 Future mutation tools must be separate, narrowly scoped, auditable, idempotent where applicable, and confirmation-gated. A read-only skill must never silently gain mutation capabilities.
+
+### Research mutation boundary
+
+The earliest permitted mutation surface is limited to research artifacts:
+
+- create or edit a strategy **draft**;
+- validate and publish a new immutable strategy version;
+- submit an idempotent backtest that names a published strategy and verified dataset;
+- retrieve immutable results for comparison.
+
+Each operation requires explicit user confirmation, returns stable artifact identities, and records an
+audit event once audit recording exists. It may not deploy a strategy, start/stop paper execution,
+arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform direct storage access.
 
 ## Stable diagnostics schema
 
@@ -104,14 +125,14 @@ The future skill should tell agents to:
 - Compatibility tests between the skill's documented schema and current CLI/API.
 - Failure-mode tests for database, worker, Coinbase, and market-data outages.
 - Tests proving read-only commands cannot mutate orders, strategies, or runtime state.
-## Skill evolution by phase
+## Skill evolution by capability
 
-| Phase | Supported agent authority |
+| Capability available | Supported agent authority |
 |---|---|
-| Current (Phases 0–1) | Read-only health, configuration validity, snapshot/history freshness, redacted diagnostics |
-| Phase 2 | Read-only market-data quality and strategy-schema validation/reporting |
-| Phase 3 | Read-only backtest inspection and reproducibility reports |
-| Phase 4 | Read-only paper-session health and performance |
-| Phase 5+ | Separate mutation tools only if justified; arming, cancellation, configuration changes, and kill switches always explicit confirmation-gated |
+| Current implementation | No distributable skill: no stable diagnostics API/CLI exists yet. Browser routes are not the agent contract. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, and backtest reproducibility/performance reports. |
+| Supported strategy/backtest mutation contracts | A separate confirmation-gated research skill for drafts, immutable publication, and backtest submission only. |
+| Paper runtime | Read-only paper-session health/performance becomes available through the operator skill. Paper deployment/control requires a distinct, confirmation-gated tool if justified. |
+| Guarded live execution | Separate, explicit confirmation-gated tools only if justified; arming, cancellation, configuration changes, and kill switches never inherit authority from an observation or research skill. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**

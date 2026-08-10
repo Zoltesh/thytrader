@@ -20,8 +20,16 @@ PostgreSQL publication is binding-gated and every load reverifies both source ar
 The first executable [signal evaluator](signal-evaluation.md) requires
 `thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
 semantics, and emits a canonical per-candle entry-condition trace without lookahead. Historical
-`thytrader-bar-v1` requests remain request-only. No broker, position or exit state, fills, fees,
-slippage, PnL, result persistence, or complete backtest result exists yet.
+`thytrader-bar-v1` requests remain request-only. Separately, the implemented
+[`thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` simulator](backtest-simulation.md)
+turns an eligible published run into an immutable long-only, single-position trade ledger, equity
+curve, drawdown series, cost evidence, and result summary. It is still research-only: no broker
+adapter, order intent, paper runtime, or exchange order path exists.
+
+The current browser API can inspect stored immutable backtest results, but cannot author/publish a
+strategy or submit a backtest. The next vertical increment exposes those existing application
+services through narrow UI/API contracts; it does not loosen fingerprint verification, result
+immutability, or the boundary between research and execution.
 
 ## V1 authoring experience
 
@@ -35,6 +43,19 @@ The V1 UI uses a structured rule builder with nested AND/OR groups. It should pr
 - clear separation among signal, sizing, execution, and risk rules.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
+
+### First author-to-result vertical slice
+
+The first authoring surface is intentionally constrained to the implemented conservative profile,
+not a general-purpose strategy IDE. It must let a user create a draft from the reference template,
+edit only fields supported by the current schema, validate errors before publication, publish one
+immutable version, select a verified dataset, submit a reproducible backtest, and open the resulting
+immutable evidence in the existing results screen.
+
+Backtest submission must name a published strategy fingerprint and verified dataset fingerprint;
+the server derives or validates all execution identity inputs and returns a result/run identity. A
+browser or agent must not pass arbitrary code, bypass publication, mutate a published version, or
+turn backtest submission into a paper/live deployment.
 
 ## Reference strategy
 

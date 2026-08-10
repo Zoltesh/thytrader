@@ -70,6 +70,16 @@ The first reference strategy is an EMA trend strategy with optional RSI and volu
 
 Coinbase's static sandbox is suitable for API contract tests, not realistic paper trading; ThyTrader therefore owns its simulation semantics.
 
+### Delivery order for the first usable automation path
+
+The product will first make one narrow research loop user-controllable: configure the implemented
+reference strategy through the browser, publish an immutable version, backtest it against a verified
+dataset, and inspect the evidence. Supported agent observation follows that loop; bounded,
+confirmation-gated agent research automation may follow once the same browser/API contracts are
+tested. Paper deployment is the first automated runtime, using the shared published strategy semantics
+and independent risk gate. Guarded live execution remains after paper restart, stale-data, duplicate-
+event, and reconciliation acceptance tests pass.
+
 ## Explicitly deferred
 
 - Hosted multi-tenant SaaS.
