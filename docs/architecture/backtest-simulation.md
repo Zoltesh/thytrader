@@ -82,9 +82,11 @@ The summary includes initial/final equity, total PnL and return fraction, trade/
 
 Migration `0007_published_backtest_results.py` creates `published_backtest_results`. Each row has a result fingerprint primary key, source identity columns, canonical result JSON, timestamp, source-run foreign key, and fingerprint format constraints. The source dataset has an index for result lookup; all result content remains inside the canonical document to preserve one audited identity. The PostgreSQL result store requires an application-managed research-run verifier and `DatasetStore`; there is no row-only source fallback, so a result store cannot become a benchmark source without full strategy, run, manifest, and coverage verification.
 
-## Read-only results API
+## Results API and bounded research submission
 
-Three read-only endpoints expose stored evidence to the browser. They cannot submit a backtest, mutate an immutable result, or grant trading authority.
+Three read-only endpoints expose stored evidence to the browser; `POST /api/v1/backtests` submits a
+bounded deterministic historical simulation. No endpoint can mutate an immutable result or grant paper/live
+trading authority.
 
 - `GET /api/v1/backtests` returns a bounded newest-first page of summaries. Each row carries the result/run/strategy/dataset fingerprints, the engine-contract version, the publication timestamp, and the immutable `summary` metrics block. Summary metrics are projected from the canonical document server-side, so a list query never materializes a full trade ledger or equity curve. It accepts at most one source-fingerprint filter (`run_fingerprint`, `strategy_fingerprint`, or `dataset_fingerprint`), `limit` (1–100, default 50), and `offset` (≥ 0).
 - `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification.

@@ -226,6 +226,7 @@ async def _assert_postgres_summary_listing(
         assert row.engine_contract_version == specification.engine_contract_version
         assert row.published_at.tzinfo is not None
     finally:
+        await _cleanup_seeded_sources(engine, result)
         await dispose(engine)
 
 
@@ -250,7 +251,37 @@ async def _assert_postgres_round_trip(
         assert reloaded == result
         assert source_specification == specification
     finally:
+        await _cleanup_seeded_sources(engine, result)
         await dispose(engine)
+
+
+async def _cleanup_seeded_sources(
+    engine: AsyncEngine,
+    result: BacktestResult,
+) -> None:
+    """Remove test-seeded immutable records in foreign-key order after every round trip."""
+    async with engine.begin() as connection:
+        await connection.execute(
+            delete(published_backtest_results).where(
+                published_backtest_results.c.run_fingerprint == result.run_fingerprint
+            )
+        )
+        await connection.execute(
+            delete(published_research_run_specs).where(
+                published_research_run_specs.c.run_fingerprint == result.run_fingerprint
+            )
+        )
+        await connection.execute(
+            delete(strategy_dataset_bindings).where(
+                strategy_dataset_bindings.c.strategy_fingerprint == result.strategy_fingerprint,
+                strategy_dataset_bindings.c.dataset_fingerprint == result.dataset_fingerprint,
+            )
+        )
+        await connection.execute(
+            delete(published_strategy_versions).where(
+                published_strategy_versions.c.strategy_fingerprint == result.strategy_fingerprint
+            )
+        )
 
 
 async def _seed_sources(

@@ -155,7 +155,9 @@ lifecycle, summaries, and authoring surface are implemented.
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
   PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
-- ✅ Read-only API and dashboard inspection for immutable result summaries, full reverified trade ledgers, equity curves, provenance, and disclosed simulation assumptions. The dashboard cannot submit simulations, mutate results, or grant trading authority.
+- ✅ Browser/API research flow creates an ephemeral conservative strategy draft, validates/publishes immutable
+  strategy evidence, selects a reverified compatible 1h dataset, submits/reuses deterministic backtests, and
+  opens the existing immutable result detail. It cannot mutate results or grant trading authority.
 - ✅ `thytrader-bar-backtest-v2` uses the same deterministic single-position event ordering with a canonical,
   disclosed constant-basis-point spread stress model: ask-side entries, bid-side exits and triggers,
   bid-close equity marking, executable-entry sizing, immutable fill-level evidence, and zero-spread

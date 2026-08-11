@@ -1,7 +1,8 @@
-"""Read-only immutable backtest result HTTP presentation.
+"""Immutable backtest result and research-submission HTTP presentation.
 
-These endpoints expose historical simulation evidence only. They cannot submit
-a backtest, mutate an immutable result, or grant any trading authority.
+Read endpoints expose historical evidence; the bounded `POST /api/v1/backtests`
+submission endpoint publishes deterministic research results only. No route can
+mutate an immutable result or grant paper/live trading authority.
 """
 
 from __future__ import annotations
