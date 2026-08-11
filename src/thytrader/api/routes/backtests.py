@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
     get_backtest_result_store,
+    get_backtest_submitter,
 )
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -23,6 +24,11 @@ from thytrader.backtest.models import (
     BacktestSummary,
     backtest_benchmark_fingerprint,
     backtest_result_fingerprint,
+)
+from thytrader.backtest.submission import (
+    BacktestSubmissionError,
+    BacktestSubmissionRequest,
+    BacktestSubmitter,
 )
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
@@ -68,6 +74,13 @@ class BacktestListResponse(BaseModel):
     returned: int
 
 
+class BacktestSubmissionResponse(BaseModel):
+    """Immutable evidence identities emitted by one completed research submission."""
+
+    run_fingerprint: str
+    result_fingerprint: str
+
+
 class BacktestDetailResponse(BaseModel):
     """One fully reverified immutable simulation result."""
 
@@ -106,6 +119,25 @@ def _fingerprint_or_none(value: str | None) -> str | None:
             detail={"code": "backtest_invalid", "message": "Fingerprint filter is malformed."},
         )
     return value
+
+
+@router.post("", response_model=BacktestSubmissionResponse, status_code=status.HTTP_201_CREATED)
+async def submit_backtest(
+    request: BacktestSubmissionRequest,
+    submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
+) -> BacktestSubmissionResponse:
+    """Submit one immutable historical simulation without paper or live authority."""
+    try:
+        result = await submitter.submit(request)
+    except BacktestSubmissionError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Backtest submission is unavailable.",
+        ) from None
+    return BacktestSubmissionResponse(
+        run_fingerprint=result.run_fingerprint,
+        result_fingerprint=result.result_fingerprint,
+    )
 
 
 @router.get(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -13,6 +13,24 @@ if TYPE_CHECKING:
 
 class StrategyPublicationError(RuntimeError):
     """Report a redacted strategy publication or integrity failure."""
+
+
+@runtime_checkable
+class StrategyPublicationStore(Protocol):
+    """Persist one immutable published strategy through the application boundary."""
+
+    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+        """Publish and return one verified immutable strategy definition."""
+        ...
+
+
+class DisabledStrategyPublicationStore:
+    """Fail closed when immutable strategy storage is not configured."""
+
+    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+        """Refuse strategy publication without durable storage."""
+        del definition
+        raise StrategyPublicationError("Strategy publication storage is unavailable.")
 
 
 @dataclass(frozen=True, slots=True)

@@ -102,7 +102,7 @@
 			><span class="brand-mark">T</span><span>ThyTrader</span></a
 		>
 		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a><span>Strategies</span><a
+			<a href={resolve('/')}>Portfolio</a><a href={resolve('/strategies')}>Strategies</a><a
 				class="active"
 				href={resolve('/backtests')}>Backtests</a
 			>

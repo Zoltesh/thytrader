@@ -6,10 +6,12 @@ ThyTrader is a modular monolith deployed as multiple supervised processes. Domai
 repository and release lifecycle, while API and worker processes provide fault and scaling boundaries.
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
-implemented. Today, the browser and HTTP API are read-only for portfolio, market-data, and backtest
-evidence; the portfolio worker takes snapshots; and the independently supervised market-data worker
-maintains verified 1h datasets. There is no strategy runtime worker, paper broker, order management,
-risk, reconciliation, or live-execution package yet.
+implemented. Today, the browser and HTTP API provide read-only portfolio, market-data, and backtest
+evidence plus a bounded research-only mutation flow: a browser draft can be validated/published as an
+immutable strategy and submitted to the deterministic historical backtest service. The portfolio worker
+takes snapshots; and the independently supervised market-data worker maintains verified 1h datasets.
+There is no strategy runtime worker, paper broker, order management, risk, reconciliation, or
+live-execution package yet.
 
 ```text
 SvelteKit web UI
@@ -37,10 +39,17 @@ Market-data worker ----------------------+
 
 ### API process
 
-FastAPI owns the supported application interface. Its implemented surface is currently read-only:
+FastAPI owns the supported application interface. Its implemented surface is portfolio, portfolio-history,
+market-data, worker-state, health, immutable backtest-result retrieval, and the bounded research mutation
+contracts below:
 
-- portfolio, portfolio-history, market-data, worker-state, health, and immutable backtest-result
-  retrieval.
+- `POST /api/v1/strategies` creates an ephemeral reference draft with a server-owned identity;
+- `POST /api/v1/strategies/{strategy_id}/publish` validates and publishes that immutable strategy;
+- `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
+  the deterministic backtest engine.
+
+These contracts have no paper/live execution authority. The strategy draft is intentionally browser-local;
+durable draft/archive lifecycle remains future work.
 
 The following are target responsibilities that must be exposed as supported, tested contracts before
 they are described as available:

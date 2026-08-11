@@ -16,6 +16,12 @@ from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
+from thytrader.api.routes.strategies import router as strategies_router
+from thytrader.backtest.submission import (
+    BacktestSubmitter,
+    DisabledBacktestSubmitter,
+    PostgresBacktestSubmitter,
+)
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
@@ -44,9 +50,14 @@ from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
+from thytrader.strategies.publication import (
+    DisabledStrategyPublicationStore,
+    StrategyPublicationStore,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -64,6 +75,8 @@ def create_app(
     market_data_state_store: MarketDataWorkerStateStore | None = None,
     backtest_result_store: BacktestResultReader | None = None,
     backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
+    strategy_store: StrategyPublicationStore | None = None,
+    backtest_submitter: BacktestSubmitter | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -78,6 +91,8 @@ def create_app(
     external_market_data_state_store = market_data_state_store
     external_backtest_result_store = backtest_result_store
     external_backtest_benchmark_reader = backtest_benchmark_reader
+    external_strategy_store = strategy_store
+    external_backtest_submitter = backtest_submitter
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -89,8 +104,15 @@ def create_app(
         worker_state_store = external_market_data_state_store
         backtest_store = external_backtest_result_store
         benchmark_reader = external_backtest_benchmark_reader
+        publication_store = external_strategy_store
+        submitter = external_backtest_submitter
         dataset_store: DatasetStore | None = None
-        needs_database = store is None or worker_state_store is None or backtest_store is None
+        needs_database = (
+            store is None
+            or worker_state_store is None
+            or backtest_store is None
+            or publication_store is None
+        )
         if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
             try:
@@ -104,12 +126,15 @@ def create_app(
             if worker_state_store is None:
                 worker_state_store = PostgresMarketDataWorkerStateStore(engine)
             dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
+            if publication_store is None:
+                publication_store = PostgresStrategyPublicationStore(engine)
             if backtest_store is None:
                 backtest_store = PostgresBacktestResultStore(
                     engine,
                     research_run_store=PostgresResearchRunStore(engine),
                     dataset_store=dataset_store,
                 )
+            submitter = _submission_service(submitter, engine, dataset_store)
         if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
             benchmark_dataset_store = dataset_store or DatasetStore(
                 resolved_settings.market_data_dataset_root
@@ -126,6 +151,10 @@ def create_app(
         )
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
+        _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
+        _app.state.strategy_publication_store = (
+            publication_store or DisabledStrategyPublicationStore()
+        )
 
         runtime.ready = True
         try:
@@ -146,8 +175,18 @@ def create_app(
     app.include_router(market_data_ingestion_router)
     app.include_router(portfolio_router)
     app.include_router(portfolio_history_router)
+    app.include_router(strategies_router)
     app.include_router(backtests_router)
     return app
+
+
+def _submission_service(
+    submitter: BacktestSubmitter | None,
+    engine: AsyncEngine,
+    dataset_store: DatasetStore,
+) -> BacktestSubmitter:
+    """Preserve an injected test boundary or construct the durable production submitter."""
+    return submitter or PostgresBacktestSubmitter(engine, dataset_store)
 
 
 def _build_portfolio_service(settings: Settings) -> PortfolioService:
