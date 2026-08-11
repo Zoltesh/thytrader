@@ -106,7 +106,7 @@ def create_app(
         benchmark_reader = external_backtest_benchmark_reader
         publication_store = external_strategy_store
         submitter = external_backtest_submitter
-        dataset_store: DatasetStore | None = None
+        dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         needs_database = (
             store is None
             or worker_state_store is None
@@ -125,7 +125,6 @@ def create_app(
                 store = PostgresPortfolioHistoryStore(engine)
             if worker_state_store is None:
                 worker_state_store = PostgresMarketDataWorkerStateStore(engine)
-            dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
             if publication_store is None:
                 publication_store = PostgresStrategyPublicationStore(engine)
             if backtest_store is None:
@@ -170,6 +169,7 @@ def create_app(
     app.state.market_data_service = market_data_service or _build_market_data_service(
         resolved_settings
     )
+    app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
     app.include_router(health_router)
     app.include_router(market_data_router)
     app.include_router(market_data_ingestion_router)

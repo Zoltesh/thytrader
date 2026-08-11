@@ -1,10 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { createDraft, publishDraft, submitBacktest, type StrategyDraft } from '$lib/strategies';
+	import {
+		createDraft,
+		listDatasets,
+		publishDraft,
+		submitBacktest,
+		type Dataset,
+		type StrategyDraft
+	} from '$lib/strategies';
 
 	let draft: StrategyDraft | null = $state(null);
 	let publishedFingerprint = $state<string | null>(null);
+	let datasets = $state<Dataset[]>([]);
 	let datasetFingerprint = $state('');
 	let evaluationStart = $state('');
 	let evaluationEnd = $state('');
@@ -17,7 +25,10 @@
 		loading = true;
 		error = null;
 		try {
-			draft = await createDraft();
+			const [created, availableDatasets] = await Promise.all([createDraft(), listDatasets()]);
+			draft = created;
+			datasets = availableDatasets.filter((dataset) => dataset.product_id === 'BTC-USD');
+			datasetFingerprint = datasets[0]?.content_fingerprint ?? '';
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not create a strategy draft.';
 		} finally {
@@ -159,10 +170,16 @@
 					</div>
 					<div class="form-grid">
 						<label
-							>Dataset fingerprint<input
-								bind:value={datasetFingerprint}
-								placeholder="sha256:…"
-							/></label
+							>Verified BTC-USD 1h dataset<select bind:value={datasetFingerprint}>
+								<option value="">Select a verified dataset</option>
+								{#each datasets as dataset (dataset.content_fingerprint)}
+									<option value={dataset.content_fingerprint}
+										>{new Date(dataset.starts_at).toLocaleDateString()} – {new Date(
+											dataset.ends_at
+										).toLocaleDateString()} · {dataset.content_fingerprint.slice(0, 18)}…</option
+									>
+								{/each}
+							</select></label
 						><label
 							>Evaluation start (UTC)<input
 								type="datetime-local"
@@ -203,7 +220,8 @@
 		color: #aeb9bb;
 		font-size: 12px;
 	}
-	input {
+	input,
+	select {
 		width: 100%;
 		border: 1px solid #303a3c;
 		border-radius: 8px;

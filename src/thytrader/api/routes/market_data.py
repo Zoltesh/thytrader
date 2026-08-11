@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 from decimal import Decimal  # noqa: TC003
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_serializer
 
-from thytrader.api.dependencies import get_market_data_service
+from thytrader.api.dependencies import get_dataset_store, get_market_data_service
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore  # noqa: TC001
 from thytrader.market_data.models import CandleRangeReport, MarketDataPreview  # noqa: TC001
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 
@@ -76,6 +77,24 @@ class ProductCatalogResponse(BaseModel):
     products: tuple[ProductResponse, ...]
 
 
+class DatasetResponse(BaseModel):
+    """Browser-safe immutable dataset identity and complete evaluation coverage."""
+
+    provider: str
+    product_id: str
+    timeframe: Literal["1h"]
+    starts_at: datetime
+    ends_at: datetime
+    received_candle_count: int
+    content_fingerprint: str
+
+
+class DatasetCatalogResponse(BaseModel):
+    """Verified local datasets selectable by browser research workflows."""
+
+    datasets: tuple[DatasetResponse, ...]
+
+
 class MarketDataErrorDetail(BaseModel):
     """Stable redacted market-data upstream failure detail."""
 
@@ -118,6 +137,17 @@ async def get_market_data_products(
     )
 
 
+@router.get("/datasets", response_model=DatasetCatalogResponse)
+async def get_verified_datasets(
+    store: Annotated[DatasetStore, Depends(get_dataset_store)],
+) -> DatasetCatalogResponse:
+    """Return all complete local manifests after re-verifying their immutable contents."""
+    manifests = store.list_verified()
+    return DatasetCatalogResponse(
+        datasets=tuple(_to_dataset_response(manifest) for manifest in manifests)
+    )
+
+
 @router.get(
     "/preview",
     response_model=MarketDataPreviewResponse,
@@ -150,6 +180,19 @@ async def get_market_data_range(
     except Exception:  # noqa: BLE001 - provider failures are intentionally redacted at the API boundary.
         raise _unavailable() from None
     return _to_range_response(report)
+
+
+def _to_dataset_response(manifest: DatasetManifest) -> DatasetResponse:
+    """Map a re-verified immutable manifest into its browser selector representation."""
+    return DatasetResponse(
+        provider=manifest.provider,
+        product_id=manifest.product_id,
+        timeframe="1h",
+        starts_at=datetime.fromisoformat(manifest.starts_at),
+        ends_at=datetime.fromisoformat(manifest.ends_at),
+        received_candle_count=manifest.received_candle_count,
+        content_fingerprint=manifest.content_fingerprint,
+    )
 
 
 def _to_preview_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:

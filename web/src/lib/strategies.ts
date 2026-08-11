@@ -8,6 +8,13 @@ export type StrategyDraft = {
 	[key: string]: unknown;
 };
 
+export type Dataset = {
+	product_id: string;
+	starts_at: string;
+	ends_at: string;
+	content_fingerprint: string;
+};
+
 type DraftResponse = { strategy: StrategyDraft };
 type PublishedStrategy = { strategy_fingerprint: string; strategy: StrategyDraft };
 type BacktestSubmission = { run_fingerprint: string; result_fingerprint: string };
@@ -26,6 +33,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export async function createDraft(): Promise<StrategyDraft> {
 	return (await request<DraftResponse>('/api/v1/strategies', { method: 'POST' })).strategy;
+}
+
+export async function listDatasets(): Promise<Dataset[]> {
+	return (await request<{ datasets: Dataset[] }>('/api/v1/market-data/datasets')).datasets;
 }
 
 export async function publishDraft(draft: StrategyDraft): Promise<PublishedStrategy> {

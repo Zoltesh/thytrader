@@ -4,6 +4,7 @@
 from fastapi import Request  # noqa: TC002
 
 from thytrader.backtest.submission import BacktestSubmitter
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
@@ -33,12 +34,21 @@ def get_portfolio_service(request: Request) -> PortfolioService:
 
 
 def get_market_data_service(request: Request) -> MarketDataService:
-    """Return the configured read-only market-data service from application state."""
+    """Return the read-only market-data service attached during app startup."""
     service = getattr(request.app.state, "market_data_service", None)
     if not isinstance(service, MarketDataService):
         message = "Market-data service is unavailable."
         raise TypeError(message)
     return service
+
+
+def get_dataset_store(request: Request) -> DatasetStore:
+    """Return the immutable local dataset catalogue attached during app startup."""
+    store = getattr(request.app.state, "dataset_store", None)
+    if not isinstance(store, DatasetStore):
+        message = "Dataset store is unavailable."
+        raise TypeError(message)
+    return store
 
 
 def get_history_store(request: Request) -> PortfolioHistoryStore:

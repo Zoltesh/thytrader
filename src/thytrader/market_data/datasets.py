@@ -93,6 +93,19 @@ class DatasetStore:
             manifest_path,
         )
 
+    def list_verified(self) -> tuple[DatasetManifest, ...]:
+        """Return every complete immutable dataset whose manifest re-verifies from disk."""
+        manifests = self._root / "manifests"
+        if not manifests.exists():
+            return ()
+        verified: list[DatasetManifest] = []
+        for path in sorted(manifests.glob("*.json"), reverse=True):
+            try:
+                verified.append(self.load_verified(path))
+            except DatasetStoreError:
+                continue
+        return tuple(verified)
+
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
         """Resolve and verify exact typed candles by immutable dataset fingerprint."""
         manifest = self.load_manifest(content_fingerprint)
