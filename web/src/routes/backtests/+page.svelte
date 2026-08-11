@@ -91,7 +91,11 @@
 		benchmarkLoading = false;
 	}
 
-	onMount(() => void loadList());
+	onMount(() => {
+		void loadList();
+		const fingerprint = new URLSearchParams(window.location.search).get('result');
+		if (fingerprint?.match(/^sha256:[0-9a-f]{64}$/)) selectBacktest(fingerprint);
+	});
 </script>
 
 <svelte:head><title>Backtests · ThyTrader</title></svelte:head>
