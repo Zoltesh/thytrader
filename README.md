@@ -19,14 +19,20 @@ uv run python scripts/setup_local_stack.py
 
 The command is safe to rerun. It preserves unrelated ignored `.env` entries, creates matching
 local-only database settings when needed, refuses to replace a user-managed database URL, builds the
-images, waits for services to become healthy, and does not print credentials or connection URLs. It
-also recognizes and safely updates ThyTrader's former generated `127.0.0.1:5433` database URL while
-continuing to reject arbitrary custom URLs. Duplicate ThyTrader-managed database keys are rejected as
-ambiguous rather than partially rewritten.
+images, starts and waits for a healthy PostgreSQL service, runs Alembic as a one-shot gate, then
+starts API, both workers, and web only after migration succeeds. The final startup waits for all
+service health checks and does not print credentials or connection URLs. It also recognizes and
+safely updates ThyTrader's former generated `127.0.0.1:5433` database URL while continuing to reject
+arbitrary custom URLs. Duplicate ThyTrader-managed database keys are rejected as ambiguous rather
+than partially rewritten.
 
 - Dashboard: `http://127.0.0.1:5175`
 - API readiness: `http://127.0.0.1:8200/health/ready`
 - PostgreSQL: `127.0.0.1:5439` (loopback only)
+
+`THYTRADER_API_PORT` defaults to `8200`. If you override it in ignored `.env`, Compose applies the
+same value to the API listener, loopback host mapping, API readiness probe, and the web container's
+internal proxy target.
 
 The worker takes a snapshot at startup and then every five minutes by default. Configure a value
 between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ignored `.env`.
@@ -139,6 +145,8 @@ uv run thytrader-research-evaluate <run_fingerprint> --pretty
 
 The command prints a deterministic completed-candle entry-condition trace and its SHA-256 fingerprint.
 It does not publish a run, create an order intent, apply cooldown, simulate entries or exits, calculate
-PnL, persist results, or mutate trading state. There is not yet a public run-authoring workflow or
-dashboard backtest screen; see the
-[signal-evaluation contract](docs/architecture/signal-evaluation.md) for exact semantics and limits.
+PnL, persist results, or mutate trading state. The browser research workflow separately creates a
+constrained reference draft, publishes an immutable strategy, selects a verified dataset, submits a
+deterministic backtest, and opens its immutable result detail; it has no paper or live trading authority.
+See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
+[backtest simulation](docs/architecture/backtest-simulation.md) for exact semantics and limits.

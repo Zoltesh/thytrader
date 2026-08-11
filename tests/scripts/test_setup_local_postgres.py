@@ -157,17 +157,40 @@ def test_stack_commands_migrate_before_starting_long_running_services() -> None:
 
     assert commands == (
         ["docker", "compose", "version"],
-        ["docker", "compose", "up", "--build", "migrate"],
+        ["docker", "compose", "build"],
+        ["docker", "compose", "up", "-d", "--wait", "postgres"],
+        ["docker", "compose", "run", "--rm", "--no-deps", "migrate"],
         [
             "docker",
             "compose",
             "up",
             "-d",
-            "--build",
             "--wait",
+            "--no-deps",
             "api",
             "worker",
             "market-data-worker",
             "web",
         ],
     )
+
+
+def test_main_runs_each_migration_gated_stack_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CLI must execute the complete ordered stack sequence after dotenv configuration."""
+    module = _load_script()
+    executed: list[list[str]] = []
+    configured_paths: list[Path] = []
+
+    def record(command: list[str], project_root: Path) -> None:
+        del project_root
+        executed.append(command)
+
+    def record_configuration(environment_path: Path) -> None:
+        configured_paths.append(environment_path)
+
+    monkeypatch.setattr(module, "_run", record)
+    monkeypatch.setattr(module, "configure_local_database", record_configuration)
+
+    assert module.main() == 0
+    assert executed == list(module._stack_commands())
+    assert len(configured_paths) == 1

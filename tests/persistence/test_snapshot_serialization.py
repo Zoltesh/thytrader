@@ -265,6 +265,9 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "thytrader_market_data:" in content
     assert "THYTRADER_MARKET_DATA_DATASET_ROOT: /var/lib/thytrader/market-data" in content
     assert "condition: service_completed_successfully" in content
-    assert "127.0.0.1:8200:8200" in content
+    assert "THYTRADER_API_PORT: ${THYTRADER_API_PORT:-8200}" in content
+    assert "127.0.0.1:${THYTRADER_API_PORT:-8200}:${THYTRADER_API_PORT:-8200}" in content
+    assert "os.environ['THYTRADER_API_PORT']" in content
+    assert "THYTRADER_API_PROXY_TARGET: http://api:${THYTRADER_API_PORT:-8200}" in content
     assert "127.0.0.1:5175:5175" in content
     assert "THYTRADER_WORKER_READINESS_FILE" in content

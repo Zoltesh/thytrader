@@ -144,17 +144,19 @@ def _run(command: list[str], project_root: Path) -> None:
 
 
 def _stack_commands() -> tuple[list[str], ...]:
-    """Return the ordered commands that build, migrate, and start the stack."""
+    """Return the detached build, migration-gate, and long-service startup sequence."""
     return (
         ["docker", "compose", "version"],
-        ["docker", "compose", "up", "--build", "migrate"],
+        ["docker", "compose", "build"],
+        ["docker", "compose", "up", "-d", "--wait", "postgres"],
+        ["docker", "compose", "run", "--rm", "--no-deps", "migrate"],
         [
             "docker",
             "compose",
             "up",
             "-d",
-            "--build",
             "--wait",
+            "--no-deps",
             "api",
             "worker",
             "market-data-worker",
@@ -172,8 +174,8 @@ def main() -> int:
         commands = _stack_commands()
         _run(commands[0], project_root)
         configure_local_database(environment_path)
-        _run(commands[1], project_root)
-        _run(commands[2], project_root)
+        for command in commands[1:]:
+            _run(command, project_root)
     except FileNotFoundError:
         print(  # noqa: T201 - CLI status message.
             "Docker Compose is required. Install Docker Desktop or Docker Engine with Compose.",

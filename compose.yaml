@@ -51,9 +51,9 @@ services:
     environment:
       <<: *backend-environment
       THYTRADER_API_HOST: 0.0.0.0
-      THYTRADER_API_PORT: "8200"
+      THYTRADER_API_PORT: ${THYTRADER_API_PORT:-8200}
     ports:
-      - "127.0.0.1:8200:8200"
+      - "127.0.0.1:${THYTRADER_API_PORT:-8200}:${THYTRADER_API_PORT:-8200}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -63,7 +63,7 @@ services:
           "CMD",
           "/app/.venv/bin/python",
           "-c",
-          "from urllib.request import urlopen; urlopen('http://127.0.0.1:8200/health/ready', timeout=2).read()",
+          "from urllib.request import urlopen; import os; urlopen('http://127.0.0.1:' + os.environ['THYTRADER_API_PORT'] + '/health/ready', timeout=2).read()",
         ]
       interval: 5s
       timeout: 3s
@@ -129,7 +129,7 @@ services:
       context: ./web
       dockerfile: Dockerfile
     environment:
-      THYTRADER_API_PROXY_TARGET: http://api:8200
+      THYTRADER_API_PROXY_TARGET: http://api:${THYTRADER_API_PORT:-8200}
     ports:
       - "127.0.0.1:5175:5175"
     depends_on:

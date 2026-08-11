@@ -31,7 +31,7 @@ The first paper loop does not require Coinbase WebSockets: the existing verified
 maintenance path is sufficient for candle-close evaluation. WebSockets remain required before
 lower-latency behavior, user-order monitoring, or live reconciliation can be considered complete.
 
-## Phase 0: Repository foundation — ✅ Complete
+## Phase 0: Repository foundation — In progress
 
 - Architecture and product documentation.
 - Repository-specific `AGENTS.md`.
@@ -43,10 +43,12 @@ lower-latency behavior, user-order monitoring, or live reconciliation can be con
 - PostgreSQL migrations and configuration validation.
 - `.env.example` with placeholders only.
 - Structured logging and secret redaction.
+- Bootstrap regression coverage for deterministic image build, healthy database, one-shot migration,
+  and health-gated API/worker/web startup ordering.
 
-**Exit gate met:** one documented command (`uv run python scripts/setup_local_stack.py`) starts
-healthy web, API, worker, and database services, applies migrations before long-running services,
-and passes quality checks on a clean checkout.
+**Remaining exit-gate evidence:** run the documented command on a clean checkout with Docker Compose,
+then prove API/web readiness, a useful worker-produced artifact, restart persistence, clean shutdown,
+and no orphan listeners. Until that runtime exercise is recorded, Phase 0 is not complete.
 
 ## Phase 1: Read-only Coinbase and portfolio visibility — In progress
 
@@ -126,8 +128,8 @@ readiness, and graceful shutdown.
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
 - ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, and volume SMA.
 - ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
-- 🚧 Reference EMA trend profile implemented as a backend contract; its template, authoring API, and
-  browser workflow are the next user-visible increment.
+- ✅ Conservative reference EMA trend profile with an ephemeral browser draft, typed authoring API,
+  immutable publication, and verified-dataset backtest workflow.
 - 🚧 Published versions are immutable; durable draft/archive lifecycle remains.
 - 🚧 Human-readable strategy summaries remain.
 
