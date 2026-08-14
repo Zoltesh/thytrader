@@ -255,6 +255,7 @@ def test_compose_yaml_binds_postgres_to_loopback_only() -> None:
 def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     """Compose must start API, worker, and web only after safe prerequisites."""
     content = Path("compose.yaml").read_text(encoding="utf-8")
+    api_block = content.split("  api:", maxsplit=1)[1].split("  worker:", maxsplit=1)[0]
 
     assert "  migrate:" in content
     assert "  api:" in content
@@ -264,6 +265,8 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "condition: service_healthy" in content
     assert "thytrader_market_data:" in content
     assert "THYTRADER_MARKET_DATA_DATASET_ROOT: /var/lib/thytrader/market-data" in content
+    assert "THYTRADER_MARKET_DATA_DATASET_ROOT: /var/lib/thytrader/market-data" in api_block
+    assert "- thytrader_market_data:/var/lib/thytrader/market-data:ro" in api_block
     assert "condition: service_completed_successfully" in content
     assert "THYTRADER_API_PORT: ${THYTRADER_API_PORT:-8200}" in content
     assert "127.0.0.1:${THYTRADER_API_PORT:-8200}:${THYTRADER_API_PORT:-8200}" in content

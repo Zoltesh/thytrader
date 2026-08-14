@@ -52,8 +52,11 @@ services:
       <<: *backend-environment
       THYTRADER_API_HOST: 0.0.0.0
       THYTRADER_API_PORT: ${THYTRADER_API_PORT:-8200}
+      THYTRADER_MARKET_DATA_DATASET_ROOT: /var/lib/thytrader/market-data
     ports:
       - "127.0.0.1:${THYTRADER_API_PORT:-8200}:${THYTRADER_API_PORT:-8200}"
+    volumes:
+      - thytrader_market_data:/var/lib/thytrader/market-data:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

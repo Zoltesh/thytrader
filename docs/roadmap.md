@@ -31,7 +31,7 @@ The first paper loop does not require Coinbase WebSockets: the existing verified
 maintenance path is sufficient for candle-close evaluation. WebSockets remain required before
 lower-latency behavior, user-order monitoring, or live reconciliation can be considered complete.
 
-## Phase 0: Repository foundation — In progress
+## Phase 0: Repository foundation — ✅ Complete
 
 - Architecture and product documentation.
 - Repository-specific `AGENTS.md`.
@@ -45,10 +45,16 @@ lower-latency behavior, user-order monitoring, or live reconciliation can be con
 - Structured logging and secret redaction.
 - Bootstrap regression coverage for deterministic image build, healthy database, one-shot migration,
   and health-gated API/worker/web startup ordering.
+- Shared immutable market-data volume: the worker publishes datasets and the API consumes the same
+  artifacts through a read-only mount.
 
-**Remaining exit-gate evidence:** run the documented command on a clean checkout with Docker Compose,
-then prove API/web readiness, a useful worker-produced artifact, restart persistence, clean shutdown,
-and no orphan listeners. Until that runtime exercise is recorded, Phase 0 is not complete.
+**Exit gate met:** from clean project-owned Docker state, the documented bootstrap built every image,
+started healthy PostgreSQL, applied migrations `0001` through `0008`, and returned only after the API,
+portfolio worker, market-data worker, and web UI were healthy. Runtime proof covered live read-only
+Coinbase portfolio access, worker publication and API discovery of a verified dataset, deterministic
+browser-facing strategy publication and idempotent backtest retrieval, in-place service restart, and a
+full `docker compose down` plus bootstrap restart with PostgreSQL and Parquet identities retained. The
+shutdown released every project port and left no running project container.
 
 ## Phase 1: Read-only Coinbase and portfolio visibility — In progress
 

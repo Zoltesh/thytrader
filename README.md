@@ -42,7 +42,9 @@ The separately supervised market-data worker retrieves the latest aligned seven-
 publishes only complete verified Parquet and manifests, and retries every five minutes by default.
 PostgreSQL records its latest attempt, verified coverage, freshness, fingerprint, and redacted failure
 state. Its cadence, lookback, target, and dataset root are configurable through the documented
-`THYTRADER_MARKET_DATA_*` variables in ignored `.env`.
+`THYTRADER_MARKET_DATA_*` variables in ignored `.env`. Compose mounts that immutable dataset volume
+read-write only in the market-data worker and read-only in the API so browser dataset selection and
+backtest verification consume the exact artifacts the worker published.
 
 The portfolio-history panel offers `24H`, `7D`, `30D`, and `All` ranges. The API performs the
 range query and bounds the response to representative observations, preserving the range endpoints

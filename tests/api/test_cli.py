@@ -29,6 +29,9 @@ def test_api_process_serves_liveness_until_sigterm() -> None:
         {
             "THYTRADER_API_HOST": "127.0.0.1",
             "THYTRADER_API_PORT": str(port),
+            "THYTRADER_COINBASE_API_KEY_NAME": "",
+            "THYTRADER_COINBASE_API_PRIVATE_KEY": "",
+            "THYTRADER_DATABASE_URL": "",
             "THYTRADER_ENVIRONMENT": "test",
         }
     )

@@ -9,7 +9,13 @@ export default defineConfig({
 			command: 'uv run thytrader-api',
 			cwd: '..',
 			url: 'http://127.0.0.1:8200/health/ready',
-			env: { THYTRADER_API_PORT: '8200' },
+			env: {
+				THYTRADER_API_PORT: '8200',
+				THYTRADER_COINBASE_API_KEY_NAME: '',
+				THYTRADER_COINBASE_API_PRIVATE_KEY: '',
+				THYTRADER_DATABASE_URL: '',
+				THYTRADER_ENVIRONMENT: 'test'
+			},
 			reuseExistingServer: true
 		},
 		{
