@@ -18,7 +18,12 @@ from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_range
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
-from thytrader.persistence.schema import published_strategy_versions, strategy_dataset_bindings
+from thytrader.persistence.schema import (
+    published_strategy_versions,
+    strategy_dataset_bindings,
+    strategy_drafts,
+)
+from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import (
     StrategyDefinition,
     StrategyStatus,
@@ -348,6 +353,158 @@ def test_postgres_publishes_verifies_and_binds_strategy_to_dataset(tmp_path: Pat
                             )
                         )
                     )
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.skipif(
+    _TEST_DATABASE_URL is None,
+    reason="THYTRADER_TEST_DATABASE_URL is required for PostgreSQL integration coverage.",
+)
+def test_postgres_draft_revision_and_publication_transition_are_concurrency_safe() -> None:
+    """CAS saves and concurrent publication preserve one atomic immutable transition."""
+
+    async def exercise() -> None:
+        if _TEST_DATABASE_URL is None:
+            raise AssertionError("PostgreSQL integration URL was not configured.")
+        engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        second_engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        store = PostgresStrategyPublicationStore(engine)
+        concurrent_store = PostgresStrategyPublicationStore(second_engine)
+        draft = create_reference_draft().model_copy(
+            update={"strategy_id": UUID("01985cf0-7b60-7000-8000-000000000004")}
+        )
+        published_fingerprint: str | None = None
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    delete(strategy_drafts).where(
+                        strategy_drafts.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+                await connection.execute(
+                    delete(published_strategy_versions).where(
+                        published_strategy_versions.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+            created = await store.create_draft(draft)
+            assert created.revision == 1
+            saved_definition = draft.model_copy(update={"name": "Current durable edit"})
+            saved = await store.save_draft(saved_definition, expected_revision=1)
+            assert saved.revision == 2
+            with pytest.raises(RuntimeError, match="revision conflict"):
+                await store.save_draft(
+                    draft.model_copy(update={"name": "Stale edit"}), expected_revision=1
+                )
+            results = await asyncio.gather(
+                store.publish_draft(saved.definition, expected_revision=2),
+                concurrent_store.publish_draft(saved.definition, expected_revision=2),
+            )
+            assert results[0] == results[1]
+            published_fingerprint = results[0].strategy_fingerprint
+            matching_drafts = tuple(
+                item
+                for item in await store.list_drafts()
+                if item.definition.strategy_id == draft.strategy_id
+            )
+            assert matching_drafts == ()
+            assert await store.load(published_fingerprint) == results[0]
+            with pytest.raises(StrategyPublicationError, match="revision conflict"):
+                await store.publish_draft(saved.definition, expected_revision=999)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    update(published_strategy_versions)
+                    .where(
+                        published_strategy_versions.c.strategy_fingerprint == published_fingerprint
+                    )
+                    .values(version=999)
+                )
+            with pytest.raises(StrategyPublicationError, match="row identity"):
+                await store.publish_draft(saved.definition, expected_revision=2)
+        finally:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    delete(strategy_drafts).where(
+                        strategy_drafts.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+                if published_fingerprint is not None:
+                    await connection.execute(
+                        delete(published_strategy_versions).where(
+                            published_strategy_versions.c.strategy_fingerprint
+                            == published_fingerprint
+                        )
+                    )
+            await dispose(second_engine)
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.skipif(
+    _TEST_DATABASE_URL is None,
+    reason="THYTRADER_TEST_DATABASE_URL is required for PostgreSQL integration coverage.",
+)
+def test_failed_publication_rolls_back_the_draft_revision_and_content() -> None:
+    """An immutable identity conflict rolls back the whole draft-publication transition."""
+
+    async def exercise() -> None:
+        if _TEST_DATABASE_URL is None:
+            raise AssertionError("PostgreSQL integration URL was not configured.")
+        engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        store = PostgresStrategyPublicationStore(engine)
+        draft = create_reference_draft().model_copy(
+            update={"strategy_id": UUID("01985cf0-7b60-7000-8000-000000000005")}
+        )
+        conflicting_publication = draft.model_copy(
+            update={"name": "Existing immutable content", "status": StrategyStatus.PUBLISHED}
+        )
+        conflicting_fingerprint = strategy_fingerprint(conflicting_publication)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    delete(strategy_drafts).where(
+                        strategy_drafts.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+                await connection.execute(
+                    delete(published_strategy_versions).where(
+                        published_strategy_versions.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+            await store.publish(conflicting_publication)
+            created = await store.create_draft(draft)
+            attempted_edit = draft.model_copy(update={"name": "Uncommitted publish edit"})
+
+            with pytest.raises(
+                StrategyPublicationError,
+                match="published with different content",
+            ):
+                await store.publish_draft(attempted_edit, expected_revision=created.revision)
+
+            remaining = tuple(
+                item
+                for item in await store.list_drafts()
+                if item.definition.strategy_id == draft.strategy_id
+            )
+            assert remaining == (created,)
+            assert await store.load(conflicting_fingerprint) == PublishedStrategy(
+                strategy_fingerprint=conflicting_fingerprint,
+                definition=conflicting_publication,
+            )
+        finally:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    delete(strategy_drafts).where(
+                        strategy_drafts.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
+                await connection.execute(
+                    delete(published_strategy_versions).where(
+                        published_strategy_versions.c.strategy_id == str(draft.strategy_id)
+                    )
+                )
             await dispose(engine)
 
     asyncio.run(exercise())

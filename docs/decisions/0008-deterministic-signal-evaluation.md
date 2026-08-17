@@ -46,7 +46,8 @@ costs, and results remain outside this engine.
   results in place.
 - The same published request and verified artifacts recreate byte-identical trace output independent of
   ambient Decimal precision.
-- There is a read-only CLI for existing executable publications, but no authoring or mutation interface.
+- At acceptance time, only a read-only CLI existed for executable publications; later research-workspace
+  increments added bounded strategy authoring and mutation interfaces without changing this engine contract.
 - Signal traces are ephemeral and are not evidence that a broker simulation or backtest result exists.
 
 ## Alternatives considered

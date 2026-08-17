@@ -54,6 +54,7 @@ from thytrader.persistence.postgres_strategies import PostgresStrategyPublicatio
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
+from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
 from thytrader.strategies.publication import (
     DisabledStrategyPublicationStore,
     StrategyPublicationStore,
@@ -76,6 +77,7 @@ def create_app(
     backtest_result_store: BacktestResultReader | None = None,
     backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
     strategy_store: StrategyPublicationStore | None = None,
+    strategy_draft_store: StrategyDraftStore | None = None,
     backtest_submitter: BacktestSubmitter | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
@@ -92,6 +94,7 @@ def create_app(
     external_backtest_result_store = backtest_result_store
     external_backtest_benchmark_reader = backtest_benchmark_reader
     external_strategy_store = strategy_store
+    external_strategy_draft_store = strategy_draft_store
     external_backtest_submitter = backtest_submitter
     engine: AsyncEngine | None = None
 
@@ -105,6 +108,7 @@ def create_app(
         backtest_store = external_backtest_result_store
         benchmark_reader = external_backtest_benchmark_reader
         publication_store = external_strategy_store
+        draft_store = external_strategy_draft_store
         submitter = external_backtest_submitter
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         needs_database = (
@@ -112,6 +116,7 @@ def create_app(
             or worker_state_store is None
             or backtest_store is None
             or publication_store is None
+            or draft_store is None
         )
         if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
@@ -127,6 +132,8 @@ def create_app(
                 worker_state_store = PostgresMarketDataWorkerStateStore(engine)
             if publication_store is None:
                 publication_store = PostgresStrategyPublicationStore(engine)
+            if draft_store is None:
+                draft_store = PostgresStrategyPublicationStore(engine)
             if backtest_store is None:
                 backtest_store = PostgresBacktestResultStore(
                     engine,
@@ -151,6 +158,7 @@ def create_app(
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
         _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
+        _app.state.strategy_draft_store = draft_store or DisabledStrategyDraftStore()
         _app.state.strategy_publication_store = (
             publication_store or DisabledStrategyPublicationStore()
         )
@@ -160,8 +168,7 @@ def create_app(
             yield
         finally:
             runtime.ready = False
-            if engine is not None:
-                await dispose(engine)
+            await _dispose_if_present(engine)
 
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
@@ -178,6 +185,12 @@ def create_app(
     app.include_router(strategies_router)
     app.include_router(backtests_router)
     return app
+
+
+async def _dispose_if_present(engine: AsyncEngine | None) -> None:
+    """Dispose a lifespan-owned database engine only when the API created one."""
+    if engine is not None:
+        await dispose(engine)
 
 
 def _submission_service(

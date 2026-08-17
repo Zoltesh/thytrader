@@ -43,20 +43,25 @@ FastAPI owns the supported application interface. Its implemented surface is por
 market-data, worker-state, health, immutable backtest-result retrieval, and the bounded research mutation
 contracts below:
 
-- `POST /api/v1/strategies` creates an ephemeral reference draft with a server-owned identity;
+- `POST /api/v1/strategies` creates a durable reference draft with a server-owned identity;
+- `GET /api/v1/strategies?status=draft` recovers saved editable drafts and `PUT
+  /api/v1/strategies/{strategy_id}/versions/{version}` persists a validated replacement;
 - `POST /api/v1/strategies/{strategy_id}/publish` validates and publishes that immutable strategy;
+- `GET /api/v1/strategies?status=published` lists active immutable versions, while `POST
+  /api/v1/strategies/{strategy_fingerprint}/archive` appends an archive marker that hides a version
+  from active selection without changing its canonical publication evidence;
 - `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
   the deterministic backtest engine.
 
-These contracts have no paper/live execution authority. The strategy draft is intentionally browser-local;
-durable draft/archive lifecycle remains future work.
+These contracts have no paper/live execution authority. Drafts are mutable PostgreSQL records guarded
+by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A
+successful publication saves the current draft, writes immutable evidence, and consumes the draft in
+one PostgreSQL transaction; published canonical definitions remain immutable. Archives are separate
+immutable markers rather than a mutation of the content-addressed publication row.
 
-The following are target responsibilities that must be exposed as supported, tested contracts before
+The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:
 
-- strategy configuration and versioning;
-- backtest submission and result retrieval;
-- runtime status and health;
 - explicit live-trading arm/disarm operations;
 - UI WebSocket events;
 - future read-only operator/agent endpoints.

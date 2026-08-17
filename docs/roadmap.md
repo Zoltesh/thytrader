@@ -49,7 +49,8 @@ lower-latency behavior, user-order monitoring, or live reconciliation can be con
   artifacts through a read-only mount.
 
 **Exit gate met:** from clean project-owned Docker state, the documented bootstrap built every image,
-started healthy PostgreSQL, applied migrations `0001` through `0008`, and returned only after the API,
+started healthy PostgreSQL, applied migrations `0001` through `0009` (including durable strategy
+draft/publication lifecycle storage), and returned only after the API,
 portfolio worker, market-data worker, and web UI were healthy. Runtime proof covered live read-only
 Coinbase portfolio access, worker publication and API discovery of a verified dataset, deterministic
 browser-facing strategy publication and idempotent backtest retrieval, in-place service restart, and a
@@ -134,10 +135,14 @@ readiness, and graceful shutdown.
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
 - ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, and volume SMA.
 - ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
-- ✅ Conservative reference EMA trend profile with an ephemeral browser draft, typed authoring API,
-  immutable publication, and verified-dataset backtest workflow.
-- 🚧 Published versions are immutable; durable draft/archive lifecycle remains.
-- 🚧 Human-readable strategy summaries remain.
+- ✅ Conservative reference EMA trend profile with durable browser draft recovery, typed authoring API,
+  immutable publication, verified-dataset backtest workflow, and bounded human-readable summary.
+- ✅ Mutable PostgreSQL drafts retain the server-owned identity and validated definition across browser
+  reloads with optimistic revision checks that reject stale saves. Publication saves, publishes, and
+  consumes the matching draft atomically; separately stored append-only archive markers hide published
+  versions from active selection without altering their canonical bytes or fingerprints.
+- 🚧 Editing a published version into an explicit next version and richer user-authored descriptions
+  remain.
 
 **Exit gate:** the same immutable strategy version can be validated and associated with a
 reproducible dataset snapshot.
@@ -145,7 +150,7 @@ reproducible dataset snapshot.
 **Declarative publication exit gate met:** the implemented indicator and recursive-condition
 language can be validated, published, verified by fingerprint, and durably associated only with a
 verified dataset fingerprint. Phase 2B remains in progress until the remaining policy variants,
-lifecycle, summaries, and authoring surface are implemented.
+explicit next-version workflow, richer descriptions, and broader authoring surface are implemented.
 
 ## Phase 3: Backtesting
 
@@ -163,7 +168,7 @@ lifecycle, summaries, and authoring surface are implemented.
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
   PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
-- ✅ Browser/API research flow creates an ephemeral conservative strategy draft, validates/publishes immutable
+- ✅ Browser/API research flow creates a durable conservative strategy draft, validates/publishes immutable
   strategy evidence, selects a reverified compatible 1h dataset, submits/reuses deterministic backtests, and
   opens the existing immutable result detail. It cannot mutate results or grant trading authority.
 - ✅ `thytrader-bar-backtest-v2` uses the same deterministic single-position event ordering with a canonical,
@@ -179,12 +184,15 @@ lifecycle, summaries, and authoring surface are implemented.
 
 ### Next delivery increment
 
-The current API and dashboard inspect immutable results only; they cannot publish a strategy or
-submit a backtest. Before additional simulation fidelity work, expose the existing publication and
-`evaluate_and_publish_backtest` application path through a narrow mutation API and the strategy UI.
-Submission must require an already-published strategy fingerprint and a verified dataset fingerprint,
-return immutable result identity/evidence, remain idempotent for equivalent inputs, and never create
-paper or live trading authority.
+The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
+immutable strategy evidence, presents a bounded semantic summary, archives a publication without mutating
+its evidence, selects a verified dataset, submits/reuses a deterministic backtest, and opens the immutable
+result detail. It creates no paper or live trading authority.
+
+The next user-visible increment is the narrow Phase 4 paper-deployment loop for one published 1h reference
+strategy: persisted deployment intent, idempotent closed-candle evaluation, simulated fills and position/P&L,
+restart recovery, and visible pause/kill controls. It must use the same canonical published strategy and
+verified data boundaries as this research path.
 
 **Exit gate:** reference-strategy results are deterministic, disclose assumptions, resist lookahead,
 and pass adversarial fill/risk tests.

@@ -56,10 +56,11 @@ def test_browser_strategy_workflow_publishes_and_reuses_immutable_backtest(
             draft_response = client.post("/api/v1/strategies")
             assert draft_response.status_code == 201
             draft = draft_response.json()["strategy"]
+            revision = draft_response.json()["revision"]
 
             published_response = client.post(
                 f"/api/v1/strategies/{draft['strategy_id']}/publish",
-                json={"strategy": draft},
+                json={"strategy": draft, "revision": revision},
             )
             assert published_response.status_code == 201
             published = published_response.json()

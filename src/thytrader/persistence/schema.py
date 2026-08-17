@@ -90,6 +90,20 @@ market_data_worker_state = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+strategy_drafts = Table(
+    "strategy_drafts",
+    metadata,
+    Column("strategy_id", String(36), primary_key=True),
+    Column("version", Integer(), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("revision", BigInteger, nullable=False),
+    Column("canonical_definition", Text, nullable=False),
+    CheckConstraint("version > 0", name="ck_strategy_draft_version_positive"),
+    CheckConstraint("revision > 0", name="ck_strategy_draft_revision_positive"),
+)
+
+
 published_strategy_versions = Table(
     "published_strategy_versions",
     metadata,
@@ -99,6 +113,7 @@ published_strategy_versions = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("canonical_definition", Text(), nullable=False),
     Column("published_at", DateTime(timezone=True), nullable=False),
+    Column("source_draft_revision", BigInteger, nullable=True),
     UniqueConstraint(
         "strategy_id",
         "version",
@@ -112,7 +127,28 @@ published_strategy_versions = Table(
         "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_published_strategy_fingerprint_format",
     ),
+    CheckConstraint(
+        "source_draft_revision IS NULL OR source_draft_revision > 0",
+        name="ck_published_strategy_source_draft_revision_positive",
+    ),
 )
+
+archived_strategy_versions = Table(
+    "archived_strategy_versions",
+    metadata,
+    Column("strategy_fingerprint", String(71), primary_key=True),
+    Column("archived_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["strategy_fingerprint"],
+        ["published_strategy_versions.strategy_fingerprint"],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_archived_strategy_fingerprint_format",
+    ),
+)
+
 
 strategy_dataset_bindings = Table(
     "strategy_dataset_bindings",
@@ -248,6 +284,7 @@ Index(
 )
 
 __all__ = [
+    "archived_strategy_versions",
     "market_data_worker_state",
     "metadata",
     "portfolio_snapshots",
@@ -255,4 +292,5 @@ __all__ = [
     "published_research_run_specs",
     "published_strategy_versions",
     "strategy_dataset_bindings",
+    "strategy_drafts",
 ]

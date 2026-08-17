@@ -89,7 +89,22 @@ no reproducible consumer still names a fingerprint.
 A normal `docker compose down` preserves PostgreSQL and immutable market-data volumes. Only
 `docker compose down -v` destroys them and is intentionally destructive.
 
-## Native development
+## Strategy research workspace
+
+Open `http://127.0.0.1:5175/strategies` after the local stack is healthy. The workspace reconciles
+active drafts and publications, recovers the newest artifact by creation time (preferring immutable
+publication on a tie), or creates the conservative BTC-USD/1h reference draft when neither exists. It
+displays a bounded semantic summary and lets you save a validated definition. Saves carry an opaque revision and
+reject stale browser tabs rather than overwriting newer edits. **Validate & publish immutable version**
+atomically consumes that mutable draft and records canonical strategy evidence; it does not start paper or
+live trading. A published version can be archived from the same screen: that appends an archive marker
+and hides it from active selection without changing its fingerprint or canonical bytes. Backtests require
+a verified dataset fingerprint and remain deterministic research artifacts.
+
+The next automation milestone is the Phase 4 paper-deployment loop; no autonomous strategy execution,
+order intent, simulated fill, or live order submission exists yet. See the [delivery roadmap](docs/roadmap.md)
+for its explicit pause/kill, idempotency, and restart-recovery acceptance gates.
+
 
 Use native processes for fast backend or frontend iteration. ThyTrader requires Python 3.14 and
 `uv`; install the locked environment with `uv sync`. The web workspace is pinned to Node `22.23.1`

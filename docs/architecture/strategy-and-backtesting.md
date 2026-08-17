@@ -9,7 +9,8 @@ The complete V1 field-level contract — indicators, conditions, entry, sizing, 
 The implemented Phase 2B publication profile validates the conservative 1h indicator catalog
 (EMA, SMA, RSI, ATR, and volume SMA) and bounded recursive AND/OR/NOT conditions, publishes exact
 canonical content immutably, and durably associates that strategy fingerprint with an independently
-verified immutable dataset fingerprint. There is no authoring endpoint, broker, or order path yet.
+verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
+guarded drafts, publication, and archive markers; there is still no paper/live broker or order path.
 
 The first Phase 3 prerequisite is also implemented: an internal immutable
 [research-run specification](research-run-specification.md) binds the exact published strategy and
@@ -26,10 +27,10 @@ turns an eligible published run into an immutable long-only, single-position tra
 curve, drawdown series, cost evidence, and result summary. It is still research-only: no broker
 adapter, order intent, paper runtime, or exchange order path exists.
 
-The current browser API can inspect stored immutable backtest results, but cannot author/publish a
-strategy or submit a backtest. The next vertical increment exposes those existing application
-services through narrow UI/API contracts; it does not loosen fingerprint verification, result
-immutability, or the boundary between research and execution.
+The browser API can author durable revision-guarded drafts, publish immutable strategy evidence,
+archive publications through append-only markers, submit reproducible backtests, and inspect stored
+immutable results. These narrow UI/API contracts preserve fingerprint verification, result
+immutability, and the boundary between research and execution.
 
 ## V1 authoring experience
 

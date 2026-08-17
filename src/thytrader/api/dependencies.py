@@ -12,7 +12,10 @@ from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
-from thytrader.strategies.publication import StrategyPublicationStore
+from thytrader.strategies.authoring import (
+    StrategyDraftStore,
+)
+from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationStore
 
 
 def get_runtime_state(request: Request) -> RuntimeState:
@@ -94,6 +97,24 @@ def get_backtest_benchmark_reader(request: Request) -> BacktestBenchmarkReader:
         message = "Backtest benchmark reader is unavailable."
         raise TypeError(message)
     return reader
+
+
+def get_strategy_draft_store(request: Request) -> StrategyDraftStore:
+    """Return the durable draft boundary attached during app startup."""
+    store = getattr(request.app.state, "strategy_draft_store", None)
+    if not isinstance(store, StrategyDraftStore):
+        message = "Strategy draft storage is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_strategy_publication_catalog(request: Request) -> StrategyPublicationCatalog:
+    """Return immutable strategy discovery and archive operations from application state."""
+    store = getattr(request.app.state, "strategy_publication_store", None)
+    if not isinstance(store, StrategyPublicationCatalog):
+        message = "Strategy publication catalog is unavailable."
+        raise TypeError(message)
+    return store
 
 
 def get_strategy_publication_store(request: Request) -> StrategyPublicationStore:

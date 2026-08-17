@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import secrets
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from thytrader.strategies.models import (
@@ -32,8 +34,64 @@ from thytrader.strategies.models import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class StrategyDraft:
+    """One validated editable definition plus its optimistic-concurrency revision."""
+
+    definition: StrategyDefinition
+    revision: int
+
+
+@runtime_checkable
+class StrategyDraftStore(Protocol):
+    """Persist editable drafts without granting publication or trading authority."""
+
+    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
+        """Persist and return one validated draft definition."""
+        ...
+
+    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
+        """Return every saved editable draft in stable creation order."""
+        ...
+
+    async def save_draft(
+        self, definition: StrategyDefinition, *, expected_revision: int
+    ) -> StrategyDraft:
+        """Replace a draft only when its durable revision still matches."""
+        ...
+
+    async def delete_draft(self, strategy_id: UUID, version: int) -> None:
+        """Consume a draft after it has been published as immutable evidence."""
+        ...
+
+
+class DisabledStrategyDraftStore:
+    """Fail closed when durable strategy-draft storage is unavailable."""
+
+    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
+        """Refuse an unsafely ephemeral strategy draft."""
+        del definition
+        raise RuntimeError("Strategy draft storage is unavailable.")
+
+    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
+        """Refuse draft discovery without durable storage."""
+        raise RuntimeError("Strategy draft storage is unavailable.")
+
+    async def save_draft(
+        self, definition: StrategyDefinition, *, expected_revision: int
+    ) -> StrategyDraft:
+        """Refuse mutation without durable strategy-draft storage."""
+        del definition, expected_revision
+        raise RuntimeError("Strategy draft storage is unavailable.")
+
+    async def delete_draft(self, strategy_id: UUID, version: int) -> None:
+        """Refuse mutable-state removal without durable storage."""
+        del strategy_id, version
+        raise RuntimeError("Strategy draft storage is unavailable.")
+
+
 def create_reference_draft(*, now: datetime | None = None) -> StrategyDefinition:
-    """Create one server-identified, non-persisted conservative BTC-USD research draft."""
+    """Construct one server-identified reference draft for the durable authoring boundary."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)
     created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
     return StrategyDefinition(

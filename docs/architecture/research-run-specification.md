@@ -7,9 +7,11 @@ simulation is allowed to consume, together with the deterministic request assump
 be inherited from ambient configuration. It is an immutable research artifact, not evidence that a
 backtest ran and not authority to place an order.
 
-Publication remains internal-only. A read-only CLI can now evaluate an existing publication that
-selects the explicit signal-engine contract. There is no REST mutation endpoint, authoring UI,
-simulation broker, result record, paper broker, Coinbase order call, or live-trading path.
+Research-run-spec publication remains an internal application boundary. The browser strategy API now
+authors revision-guarded drafts, publishes immutable strategy evidence, and submits deterministic
+backtests whose server-side workflow derives and persists the eligible run specification and immutable
+result. A read-only CLI can also evaluate an existing publication that selects the explicit signal-
+engine contract. There is still no paper broker, Coinbase order call, or live-trading path.
 
 ## Canonical V1 document
 
