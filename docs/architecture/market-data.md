@@ -10,6 +10,8 @@ GET /api/v1/market-data/products
 GET /api/v1/market-data/preview?product_id=BTC-USD
 GET /api/v1/market-data/range?product_id=BTC-USD
 GET /api/v1/market-data/ingestion?product_id=BTC-USD
+GET /api/v1/market-data/freshness?product_id=BTC-USD
+GET /api/v1/market-data/feed?product_id=BTC-USD
 ```
 
 The range endpoint paginates through Coinbase's 350-candle limit using non-overlapping pages,
@@ -36,8 +38,10 @@ backtests can resolve through the internal verified reader:
 
 The first three responses report request-time data-source facts. The ingestion endpoint separately
 reports durable evidence from the supervised worker: last attempt/success, requested and verified
-coverage, freshness, immutable fingerprint, and stable redacted failure state. None assert that the
-market is safe to trade.
+coverage, freshness, immutable fingerprint, and stable redacted failure state. The dedicated
+`freshness` endpoint makes the newest verified-candle age explicit (<2h05m is fresh), while the
+`feed` endpoint reports the public WebSocket ticker lifecycle independently from candle freshness.
+None assert that the market is safe to trade.
 
 ## Current scope boundary
 

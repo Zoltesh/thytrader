@@ -197,9 +197,10 @@
 			><span class="brand-mark">T</span><span>ThyTrader</span></a
 		>
 		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a><a class="active" href={resolve('/strategies')}
-				>Strategies</a
-			><a href={resolve('/backtests')}>Backtests</a>
+			<a href={resolve('/')}>Portfolio</a>
+			<a class="active" href={resolve('/strategies')}>Strategies</a>
+			<a href={resolve('/backtests')}>Backtests</a>
+			<a href={resolve('/audit')}>Audit</a>
 		</nav>
 		<div class="local-pill"><span></span> Research only</div>
 	</header>

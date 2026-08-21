@@ -5,8 +5,10 @@ from fastapi import Request  # noqa: TC002
 
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.feed_state import MarketFeedStateStore
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
+from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
@@ -72,6 +74,15 @@ def get_market_data_state_store(request: Request) -> MarketDataWorkerStateStore:
     return store
 
 
+def get_market_feed_state_store(request: Request) -> MarketFeedStateStore:
+    """Return durable public ticker state attached during app startup."""
+    store = getattr(request.app.state, "market_feed_state_store", None)
+    if not isinstance(store, MarketFeedStateStore):
+        message = "Market-feed state store is unavailable."
+        raise TypeError(message)
+    return store
+
+
 def get_backtest_result_store(request: Request) -> BacktestResultReader:
     """Return the read-only backtest result boundary attached during app startup."""
     store = getattr(request.app.state, "backtest_result_store", None)
@@ -97,6 +108,15 @@ def get_backtest_benchmark_reader(request: Request) -> BacktestBenchmarkReader:
         message = "Backtest benchmark reader is unavailable."
         raise TypeError(message)
     return reader
+
+
+def get_audit_event_store(request: Request) -> AuditEventStore:
+    """Return the append-only audit event boundary attached during app startup."""
+    store = getattr(request.app.state, "audit_event_store", None)
+    if not isinstance(store, AuditEventStore):
+        message = "Audit event store is unavailable."
+        raise TypeError(message)
+    return store
 
 
 def get_strategy_draft_store(request: Request) -> StrategyDraftStore:

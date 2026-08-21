@@ -72,6 +72,20 @@ class StubCoinbaseClient:
         response.status_code = 404
         raise HTTPError("product unavailable", response=response)
 
+    def get_transaction_summary(self, **kwargs: Any) -> Any:
+        """Return a stubbed transaction summary."""
+        del kwargs
+        return StubResponse(
+            {
+                "total_volume": 0,
+                "fee_tier": {
+                    "pricing_tier": "Tier 1",
+                    "taker_fee_rate": "0.006",
+                    "maker_fee_rate": "0.004",
+                },
+            }
+        )
+
 
 class StubResponse:
     """Coinbase SDK response exposing its documented dictionary conversion."""

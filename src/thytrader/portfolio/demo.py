@@ -1,7 +1,9 @@
 """Deterministic demo exchange data for immediate UI evaluation."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
+from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance
 
 
@@ -23,3 +25,14 @@ class DemoExchangeAccount:
     async def get_usd_price(self, currency: str) -> Decimal | None:
         """Return deterministic direct USD prices for demo assets."""
         return {"BTC": Decimal("120000"), "ETH": Decimal("3263.1866666667")}.get(currency)
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Return a deterministic fee profile for demo display."""
+        return FeeProfile(
+            taker_fee_rate=Decimal("0.0060"),
+            maker_fee_rate=Decimal("0.0040"),
+            usd_volume_30d=Decimal("15250.00"),
+            fee_tier="Tier 1",
+            as_of=datetime(2026, 8, 17, 12, 0, 0, tzinfo=UTC),
+            source="coinbase",
+        )

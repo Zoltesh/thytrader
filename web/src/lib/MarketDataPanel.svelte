@@ -6,12 +6,33 @@
 		MarketProduct
 	} from '$lib/portfolio';
 
+	export interface FreshnessState {
+		product_id: string;
+		newest_candle_at: string | null;
+		as_of: string;
+		age_seconds: number | null;
+		status: 'fresh' | 'stale' | 'unknown';
+	}
+
+	export interface MarketFeedState {
+		product_id: string;
+		state: 'disconnected' | 'connecting' | 'connected' | 'stale' | 'reconnecting' | 'disabled';
+		last_message_at: string | null;
+		last_ticker_at: string | null;
+		last_price: string | null;
+		updated_at: string;
+	}
+
 	let {
 		preview = null as MarketDataPreview | null,
 		range = null as MarketDataRange | null,
 		rangeAvailability = 'ready' as 'ready' | 'failed',
 		ingestion = null as MarketDataIngestionState | null,
 		ingestionAvailability = 'ready' as 'ready' | 'unavailable' | 'failed',
+		freshness = null as FreshnessState | null,
+		freshnessAvailability = 'ready' as 'ready' | 'unavailable' | 'failed',
+		feed = null as MarketFeedState | null,
+		feedAvailability = 'ready' as 'ready' | 'unavailable' | 'failed',
 		products = [] as MarketProduct[],
 		selectedProductId = 'BTC-USD',
 		loading = false,
@@ -23,6 +44,10 @@
 		rangeAvailability?: 'ready' | 'failed';
 		ingestion?: MarketDataIngestionState | null;
 		ingestionAvailability?: 'ready' | 'unavailable' | 'failed';
+		freshness?: FreshnessState | null;
+		freshnessAvailability?: 'ready' | 'unavailable' | 'failed';
+		feed?: MarketFeedState | null;
+		feedAvailability?: 'ready' | 'unavailable' | 'failed';
 		products?: MarketProduct[];
 		selectedProductId?: string;
 		loading?: boolean;
@@ -80,7 +105,32 @@
 			</select>
 		</label>
 		{#if preview && availability === 'ready'}
-			<span class:warning={status !== 'Complete'} class="quality-status">{status}</span>
+			<div class="status-badges">
+				{#if freshness && freshnessAvailability === 'ready'}
+					<span
+						class="freshness-badge {freshness.status}"
+						title={freshness.age_seconds !== null
+							? `${Math.floor(freshness.age_seconds / 60)}m old`
+							: 'Unknown age'}
+					>
+						Candle: {freshness.status}
+					</span>
+				{:else if freshnessAvailability !== 'ready'}
+					<span class="freshness-badge unknown" title="Freshness could not be loaded">
+						Candle: unavailable
+					</span>
+				{/if}
+				{#if feed && feedAvailability === 'ready'}
+					<span class="freshness-badge {feed.state}" title="Public ticker feed lifecycle">
+						Feed: {feed.state}
+					</span>
+				{:else if feedAvailability !== 'ready'}
+					<span class="freshness-badge unknown" title="Ticker feed state could not be loaded">
+						Feed: unavailable
+					</span>
+				{/if}
+				<span class:warning={status !== 'Complete'} class="quality-status">{status}</span>
+			</div>
 		{/if}
 	</div>
 
@@ -267,6 +317,33 @@
 		padding: 4px 8px;
 		color: #5ce1b5;
 		font-size: 11px;
+	}
+	.status-badges {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.freshness-badge {
+		padding: 4px 8px;
+		border-radius: 999px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: capitalize;
+	}
+	.freshness-badge.fresh {
+		background: #143329;
+		color: #5ce1b5;
+		border: 1px solid #28544a;
+	}
+	.freshness-badge.stale {
+		background: #3e2614;
+		color: #edbb70;
+		border: 1px solid #76552d;
+	}
+	.freshness-badge.unknown {
+		background: #232b2d;
+		color: #839194;
+		border: 1px solid #384548;
 	}
 	.quality-status.warning,
 	.market-detail.warning,

@@ -31,10 +31,12 @@ The dataset root is a private, worker-owned local trust boundary. Verification a
 bounded verify-then-persist TOCTOU window under that assumption. A binding row records an accepted
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
-Not yet implemented: other sizing/stop/trailing variants, draft persistence and lifecycle
-transitions, authoring API/UI, summaries, broker/accounting simulation, completed backtest results,
-paper execution, or live execution. Published `thytrader-bar-signal-v1` runs support read-only
-deterministic entry-condition evaluation as defined in
+Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
+API/UI, immutable strategy publication, completed reproducible backtest results, and read-only result
+inspection. Not yet implemented: other sizing/stop/trailing variants, richer human summaries,
+broker/accounting simulation realism beyond the current deterministic backtest engine, paper execution,
+or live execution. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
 ## Design principles

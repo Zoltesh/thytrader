@@ -1,8 +1,12 @@
 """Behavioral tests for portfolio aggregation and valuation."""
 
+from __future__ import annotations
+
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 
+from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance
 from thytrader.portfolio.service import PortfolioService
 
@@ -40,6 +44,17 @@ class StubExchangeAccount:
     async def get_usd_price(self, currency: str) -> Decimal | None:
         """Return one direct USD market and leave another unvalued."""
         return {"BTC": Decimal("60000"), "OBSCURE": None}[currency]
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Return deterministic fee profile."""
+        return FeeProfile(
+            taker_fee_rate=Decimal("0.0060"),
+            maker_fee_rate=Decimal("0.0040"),
+            usd_volume_30d=Decimal("15250.00"),
+            fee_tier="Tier 1",
+            as_of=datetime.now(UTC),
+            source="coinbase",
+        )
 
 
 def test_portfolio_values_balances_and_accepts_extra_permissions() -> None:

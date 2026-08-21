@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from thytrader.portfolio.models import Money, Portfolio, PortfolioAsset, PortfolioConnection
 
 if TYPE_CHECKING:
+    from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.protocols import ExchangeAccount
 
 
@@ -62,3 +63,7 @@ class PortfolioService:
         if currency in {"USD", "USDC"}:
             return Decimal("1")
         return await self._exchange.get_usd_price(currency)
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Fetch 30-day volume and current fee rates."""
+        return await self._exchange.get_fee_profile()

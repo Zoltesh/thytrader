@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    UUID,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -283,9 +284,77 @@ Index(
     published_backtest_results.c.dataset_fingerprint,
 )
 
+audit_events = Table(
+    "audit_events",
+    metadata,
+    Column("id", UUID(), primary_key=True, comment="Surrogate UUID identifier."),
+    Column(
+        "occurred_at",
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Event occurrence instant.",
+    ),
+    Column("category", String(32), nullable=False, comment="Functional event category."),
+    Column("action", String(64), nullable=False, comment="Action or transition name."),
+    Column("outcome", String(16), nullable=False, comment="Success, failure, or info."),
+    Column("provider", String(32), nullable=True, comment="Optional exchange/service provider."),
+    Column("product_id", String(32), nullable=True, comment="Optional product symbol."),
+    Column(
+        "detail",
+        Text(),
+        nullable=False,
+        server_default="",
+        comment="Redacted descriptive details.",
+    ),
+    Column(
+        "recorded_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default="now()",
+        comment="Row insertion instant.",
+    ),
+    CheckConstraint(
+        "category IN ('connection', 'snapshot', 'worker_error', 'market_data', 'websocket')",
+        name="ck_audit_events_category",
+    ),
+    CheckConstraint(
+        "outcome IN ('success', 'failure', 'info')",
+        name="ck_audit_events_outcome",
+    ),
+)
+
+Index(
+    "ix_audit_events_occurred_at_desc",
+    audit_events.c.occurred_at.desc(),
+    audit_events.c.id.desc(),
+)
+
+Index(
+    "ix_audit_events_category_occurred_at_desc",
+    audit_events.c.category,
+    audit_events.c.occurred_at.desc(),
+)
+
+market_feed_state = Table(
+    "market_feed_state",
+    metadata,
+    Column("product_id", String(32), primary_key=True),
+    Column("state", String(16), nullable=False),
+    Column("last_message_at", DateTime(timezone=True), nullable=True),
+    Column("last_ticker_at", DateTime(timezone=True), nullable=True),
+    Column("last_price", String(64), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "state IN ('disconnected', 'connecting', 'connected', 'stale', 'reconnecting', 'disabled')",
+        name="ck_market_feed_state_value",
+    ),
+)
+
 __all__ = [
     "archived_strategy_versions",
+    "audit_events",
     "market_data_worker_state",
+    "market_feed_state",
     "metadata",
     "portfolio_snapshots",
     "published_backtest_results",

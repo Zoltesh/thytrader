@@ -57,7 +57,7 @@ browser-facing strategy publication and idempotent backtest retrieval, in-place 
 full `docker compose down` plus bootstrap restart with PostgreSQL and Parquet identities retained. The
 shutdown released every project port and left no running project container.
 
-## Phase 1: Read-only Coinbase and portfolio visibility — In progress
+## Phase 1: Read-only Coinbase and portfolio visibility — ✅ Complete
 
 ### Completed
 
@@ -72,15 +72,12 @@ shutdown released every project port and left no running project container.
 - Dashboard with connection status, staleness indicators, and redacted diagnostics.
 - API `/health/ready` and `/health/live` endpoints.
 - Secret redaction in logs, test fixtures, and API responses.
+- Structured append-only operational audit trail (`persistence/audit_events.py`, migration `0010_audit_events.py`, `persistence/postgres_audit_events.py`, `/api/v1/audit-events`, and `/audit` UI route).
+- Coinbase fee-tier visibility and 30-day volume display (`exchanges/fees.py`, `/api/v1/fees`, and dashboard fee panel).
+- Market-data freshness contract (<2h05m threshold) and dedicated dashboard badge (`market_data/freshness.py`, `/api/v1/market-data/freshness`).
+- Coinbase Advanced Trade public WebSocket market ticker streaming lifecycle with heartbeat-timeout supervision and reconnect backoff (`exchanges/ws/`).
 
-### Remaining before exit gate
-
-- Coinbase market/user WebSocket lifecycle and heartbeat handling.
-- Fee-tier display and transaction-cost visibility.
-- Structured audit-event recording (append-oriented events for connection transitions, snapshots, and errors).
-- Market-data freshness indicators on the dashboard (separate from portfolio snapshot staleness).
-
-**Exit gate:** a user can connect an operator-selected key and observe an accurate, reconcilable
+**Exit gate met:** a user can connect an operator-selected key and observe an accurate, reconcilable
 portfolio — including live market data, fees, and audit trail — without enabling order submission.
 
 ## Phase 2: Historical data and strategy definitions

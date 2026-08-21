@@ -399,6 +399,69 @@ td:first-child {
 		flex-direction: column;
 	}
 }
+
+.fees-panel {
+	margin-bottom: 32px;
+	border: 1px solid #1f2729;
+	border-radius: 12px;
+	background: #111618;
+	overflow: hidden;
+}
+
+.fees-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 16px;
+	padding: 24px;
+}
+
+.fee-card {
+	background: #171f21;
+	border: 1px solid #232d30;
+	padding: 16px;
+	border-radius: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.fee-card p {
+	margin: 0;
+	font-size: 12px;
+	color: #839194;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.fee-card strong {
+	font-size: 20px;
+	color: #f4f6f8;
+	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.fee-card span {
+	font-size: 11px;
+	color: #617073;
+}
+
+.tier-badge {
+	background: #1c3831;
+	color: #5ce1b5;
+	border: 1px solid #28544a;
+	padding: 4px 10px;
+	border-radius: 6px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.unavailable-state,
+.loading-state {
+	padding: 32px;
+	text-align: center;
+	color: #79878a;
+	font-size: 14px;
+}
+
 @media (max-width: 520px) {
 	.topbar {
 		padding: 0 20px;

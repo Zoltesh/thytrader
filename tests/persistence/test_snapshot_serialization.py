@@ -221,6 +221,26 @@ def test_research_run_specification_migration_follows_strategy_publication() -> 
     assert "ck_research_run_dataset_fingerprint_format" in content
 
 
+def test_audit_events_migration_follows_strategy_drafts() -> None:
+    """The tenth migration must append audit events without mutating historical tables."""
+    content = Path("alembic/versions/0010_audit_events.py").read_text(encoding="utf-8")
+    assert 'revision = "0010"' in content
+    assert 'down_revision = "0009"' in content
+    assert "audit_events" in content
+    assert "ck_audit_events_category" in content
+    assert "ck_audit_events_outcome" in content
+    assert "ix_audit_events_occurred_at_desc" in content
+
+
+def test_market_feed_state_migration_follows_audit_events() -> None:
+    """The eleventh migration must append ticker snapshots without rewriting history."""
+    content = Path("alembic/versions/0011_market_feed_state.py").read_text(encoding="utf-8")
+    assert 'revision = "0011"' in content
+    assert 'down_revision = "0010"' in content
+    assert "market_feed_state" in content
+    assert "ck_market_feed_state_value" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

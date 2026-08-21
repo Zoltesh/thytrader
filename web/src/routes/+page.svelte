@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import MarketDataPanel from '$lib/MarketDataPanel.svelte';
+	import MarketDataPanel, {
+		type FreshnessState,
+		type MarketFeedState
+	} from '$lib/MarketDataPanel.svelte';
 	import PortfolioChart from '$lib/PortfolioChart.svelte';
 	import {
+		formatPercent,
 		formatUsd,
 		permissionLabel,
 		type ApiError,
@@ -16,6 +20,7 @@
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
+	import { fetchFeeProfile, type FeeProfile } from '$lib/fees';
 
 	let portfolio: Portfolio | null = $state(null);
 	let loading = $state(true);
@@ -34,6 +39,13 @@
 	let selectedMarketProductId = $state('BTC-USD');
 	let marketDataLoading = $state(true);
 	let marketDataAvailability: 'ready' | 'failed' = $state('ready');
+	let marketFreshness: FreshnessState | null = $state(null);
+	let marketFreshnessAvailability: 'ready' | 'unavailable' | 'failed' = $state('ready');
+	let marketFeed: MarketFeedState | null = $state(null);
+	let marketFeedAvailability: 'ready' | 'unavailable' | 'failed' = $state('ready');
+	let feeProfile: FeeProfile | null = $state(null);
+	let feesLoading = $state(true);
+	let feesAvailability: 'ready' | 'unavailable' = $state('ready');
 
 	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
@@ -64,6 +76,8 @@
 		marketDataAvailability = 'ready';
 		marketDataRangeAvailability = 'ready';
 		marketDataIngestionAvailability = 'ready';
+		marketFreshnessAvailability = 'ready';
+		marketFeedAvailability = 'ready';
 		try {
 			if (!marketProducts.length) {
 				const catalogResponse = await fetch('/api/v1/market-data/products', {
@@ -76,17 +90,42 @@
 				}
 			}
 			selectedMarketProductId = productId;
-			const [previewResult, rangeResult, ingestionResult] = await Promise.allSettled([
-				fetch(`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`, {
-					headers: { Accept: 'application/json' }
-				}),
-				fetch(`/api/v1/market-data/range?product_id=${encodeURIComponent(productId)}`, {
-					headers: { Accept: 'application/json' }
-				}),
-				fetch(`/api/v1/market-data/ingestion?product_id=${encodeURIComponent(productId)}`, {
-					headers: { Accept: 'application/json' }
-				})
-			]);
+			const [previewResult, rangeResult, ingestionResult, freshnessResult, feedResult] =
+				await Promise.allSettled([
+					fetch(`/api/v1/market-data/preview?product_id=${encodeURIComponent(productId)}`, {
+						headers: { Accept: 'application/json' }
+					}),
+					fetch(`/api/v1/market-data/range?product_id=${encodeURIComponent(productId)}`, {
+						headers: { Accept: 'application/json' }
+					}),
+					fetch(`/api/v1/market-data/ingestion?product_id=${encodeURIComponent(productId)}`, {
+						headers: { Accept: 'application/json' }
+					}),
+					fetch(`/api/v1/market-data/freshness?product_id=${encodeURIComponent(productId)}`, {
+						headers: { Accept: 'application/json' }
+					}),
+					fetch(`/api/v1/market-data/feed?product_id=${encodeURIComponent(productId)}`, {
+						headers: { Accept: 'application/json' }
+					})
+				]);
+			if (freshnessResult.status === 'fulfilled' && freshnessResult.value.ok) {
+				marketFreshness = (await freshnessResult.value.json()) as FreshnessState;
+			} else {
+				marketFreshness = null;
+				marketFreshnessAvailability =
+					freshnessResult.status === 'fulfilled' && freshnessResult.value.status === 503
+						? 'unavailable'
+						: 'failed';
+			}
+			if (feedResult.status === 'fulfilled' && feedResult.value.ok) {
+				marketFeed = (await feedResult.value.json()) as MarketFeedState;
+			} else {
+				marketFeed = null;
+				marketFeedAvailability =
+					feedResult.status === 'fulfilled' && feedResult.value.status === 503
+						? 'unavailable'
+						: 'failed';
+			}
 			if (previewResult.status === 'fulfilled' && previewResult.value.ok) {
 				marketDataPreview = (await previewResult.value.json()) as MarketDataPreview;
 			} else {
@@ -115,8 +154,25 @@
 			marketDataIngestion = null;
 			marketDataIngestionAvailability = 'failed';
 			marketDataAvailability = 'failed';
+			marketFreshness = null;
+			marketFreshnessAvailability = 'failed';
+			marketFeed = null;
+			marketFeedAvailability = 'failed';
 		} finally {
 			marketDataLoading = false;
+		}
+	}
+
+	async function loadFees(): Promise<void> {
+		feesLoading = true;
+		feesAvailability = 'ready';
+		try {
+			feeProfile = await fetchFeeProfile();
+		} catch {
+			feeProfile = null;
+			feesAvailability = 'unavailable';
+		} finally {
+			feesLoading = false;
 		}
 	}
 
@@ -132,7 +188,7 @@
 				throw new Error(body.detail?.message ?? 'Portfolio data is unavailable.');
 			}
 			portfolio = (await response.json()) as Portfolio;
-			await Promise.all([loadHistory(), loadMarketData()]);
+			await Promise.all([loadHistory(), loadMarketData(), loadFees()]);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Portfolio data is unavailable.';
 		} finally {
@@ -157,6 +213,7 @@
 			<a class="active" href={resolve('/')}>Portfolio</a>
 			<a href={resolve('/strategies')}>Strategies</a>
 			<a href={resolve('/backtests')}>Backtests</a>
+			<a href={resolve('/audit')}>Audit</a>
 		</nav>
 		<div class="local-pill"><span></span> Local workstation</div>
 	</header>
@@ -227,6 +284,43 @@
 				</article>
 			</section>
 
+			<section class="fees-panel">
+				<div class="panel-heading">
+					<div>
+						<h2>Fee Tier & Costs</h2>
+						<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
+					</div>
+					{#if feeProfile}
+						<span class="badge tier-badge">{feeProfile.fee_tier}</span>
+					{/if}
+				</div>
+				{#if feesLoading}
+					<div class="loading-state"><p>Loading fee profile…</p></div>
+				{:else if feeProfile}
+					<div class="fees-grid">
+						<article class="fee-card">
+							<p>Taker fee rate</p>
+							<strong>{formatPercent(feeProfile.taker_fee_rate)}</strong>
+							<span>Market orders / taker</span>
+						</article>
+						<article class="fee-card">
+							<p>Maker fee rate</p>
+							<strong>{formatPercent(feeProfile.maker_fee_rate)}</strong>
+							<span>Limit orders / maker</span>
+						</article>
+						<article class="fee-card">
+							<p>30-day trailing volume</p>
+							<strong>{formatUsd(feeProfile.usd_volume_30d)}</strong>
+							<span>USD spot volume</span>
+						</article>
+					</div>
+				{:else if feesAvailability === 'unavailable'}
+					<div class="unavailable-state">
+						<p>Fee profile is temporarily unavailable.</p>
+					</div>
+				{/if}
+			</section>
+
 			<PortfolioChart
 				entries={history}
 				loading={historyLoading}
@@ -242,6 +336,10 @@
 				ingestion={marketDataIngestion}
 				ingestionAvailability={marketDataIngestionAvailability}
 				rangeAvailability={marketDataRangeAvailability}
+				freshness={marketFreshness}
+				freshnessAvailability={marketFreshnessAvailability}
+				feed={marketFeed}
+				feedAvailability={marketFeedAvailability}
 				products={marketProducts}
 				selectedProductId={selectedMarketProductId}
 				loading={marketDataLoading}

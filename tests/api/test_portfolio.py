@@ -1,6 +1,8 @@
 """Behavioral tests for the portfolio HTTP endpoint."""
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from fastapi.testclient import TestClient
 
@@ -26,6 +28,10 @@ class FailingExchangeAccount:
     async def get_usd_price(self, currency: str) -> None:
         """Return no price for the unreachable exchange."""
         del currency
+
+    async def get_fee_profile(self) -> Any:
+        """Raise a synthetic upstream failure."""
+        raise RuntimeError("synthetic secret detail")
 
 
 def test_portfolio_endpoint_returns_demo_data_without_credentials() -> None:

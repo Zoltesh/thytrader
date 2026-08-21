@@ -143,11 +143,7 @@ def validate_market_data_worker_state(state: MarketDataWorkerState) -> MarketDat
 
 def _require_utc_timestamp(value: object, field_name: str) -> None:
     """Reject one malformed worker-state timestamp with a controlled domain error."""
-    if (
-        not isinstance(value, datetime)
-        or value.tzinfo is None
-        or value.utcoffset() != UTC.utcoffset(value)
-    ):
+    if not isinstance(value, datetime) or value.tzinfo is not UTC:
         message = f"Market-data worker state field {field_name!r} must be timezone-aware UTC."
         raise MarketDataWorkerError(message)
 

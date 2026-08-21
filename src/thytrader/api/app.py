@@ -10,7 +10,9 @@ from coinbase.rest import RESTClient
 from fastapi import FastAPI
 
 from thytrader import __version__
+from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
+from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
@@ -27,10 +29,18 @@ from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
+from thytrader.market_data.feed_state import (
+    DisabledMarketFeedStateStore,
+    MarketFeedStateStore,
+)
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     MarketDataWorkerStateStore,
+)
+from thytrader.persistence.audit_events import (
+    AuditEventStore,
+    DisabledAuditEventStore,
 )
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkReader,
@@ -46,9 +56,11 @@ from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     PortfolioHistoryStore,
 )
+from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
+from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.portfolio.demo import DemoExchangeAccount
@@ -73,7 +85,9 @@ def create_app(
     portfolio_service: PortfolioService | None = None,
     market_data_service: MarketDataService | None = None,
     history_store: PortfolioHistoryStore | None = None,
+    audit_event_store: AuditEventStore | None = None,
     market_data_state_store: MarketDataWorkerStateStore | None = None,
+    market_feed_state_store: MarketFeedStateStore | None = None,
     backtest_result_store: BacktestResultReader | None = None,
     backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
     strategy_store: StrategyPublicationStore | None = None,
@@ -90,7 +104,9 @@ def create_app(
     resolved_settings = settings or Settings()
     runtime = RuntimeState(settings=resolved_settings)
     external_store = history_store
+    external_audit_event_store = audit_event_store
     external_market_data_state_store = market_data_state_store
+    external_market_feed_state_store = market_feed_state_store
     external_backtest_result_store = backtest_result_store
     external_backtest_benchmark_reader = backtest_benchmark_reader
     external_strategy_store = strategy_store
@@ -104,7 +120,9 @@ def create_app(
         nonlocal engine
 
         store = external_store
+        audit_store = external_audit_event_store
         worker_state_store = external_market_data_state_store
+        feed_state_store = external_market_feed_state_store
         backtest_store = external_backtest_result_store
         benchmark_reader = external_backtest_benchmark_reader
         publication_store = external_strategy_store
@@ -113,7 +131,9 @@ def create_app(
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         needs_database = (
             store is None
+            or audit_store is None
             or worker_state_store is None
+            or feed_state_store is None
             or backtest_store is None
             or publication_store is None
             or draft_store is None
@@ -126,20 +146,25 @@ def create_app(
                 await dispose(engine)
                 _logger.exception("Database connectivity check failed")
                 raise
-            if store is None:
-                store = PostgresPortfolioHistoryStore(engine)
-            if worker_state_store is None:
-                worker_state_store = PostgresMarketDataWorkerStateStore(engine)
-            if publication_store is None:
-                publication_store = PostgresStrategyPublicationStore(engine)
-            if draft_store is None:
-                draft_store = PostgresStrategyPublicationStore(engine)
-            if backtest_store is None:
-                backtest_store = PostgresBacktestResultStore(
-                    engine,
-                    research_run_store=PostgresResearchRunStore(engine),
-                    dataset_store=dataset_store,
-                )
+            (
+                store,
+                audit_store,
+                worker_state_store,
+                feed_state_store,
+                publication_store,
+                draft_store,
+                backtest_store,
+            ) = _init_db_stores(
+                engine=engine,
+                dataset_store=dataset_store,
+                store=store,
+                audit_store=audit_store,
+                worker_state_store=worker_state_store,
+                feed_state_store=feed_state_store,
+                publication_store=publication_store,
+                draft_store=draft_store,
+                backtest_store=backtest_store,
+            )
             submitter = _submission_service(submitter, engine, dataset_store)
         if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
             benchmark_dataset_store = dataset_store or DatasetStore(
@@ -152,9 +177,11 @@ def create_app(
             )
 
         _app.state.history_store = store or DisabledPortfolioHistoryStore()
+        _app.state.audit_event_store = audit_store or DisabledAuditEventStore()
         _app.state.market_data_state_store = (
             worker_state_store or DisabledMarketDataWorkerStateStore()
         )
+        _app.state.market_feed_state_store = feed_state_store or DisabledMarketFeedStateStore()
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
         _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
@@ -178,6 +205,8 @@ def create_app(
     )
     app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
     app.include_router(health_router)
+    app.include_router(audit_events_router)
+    app.include_router(fees_router)
     app.include_router(market_data_router)
     app.include_router(market_data_ingestion_router)
     app.include_router(portfolio_router)
@@ -185,6 +214,49 @@ def create_app(
     app.include_router(strategies_router)
     app.include_router(backtests_router)
     return app
+
+
+def _init_db_stores(
+    *,
+    engine: AsyncEngine,
+    dataset_store: DatasetStore,
+    store: PortfolioHistoryStore | None,
+    audit_store: AuditEventStore | None,
+    worker_state_store: MarketDataWorkerStateStore | None,
+    feed_state_store: MarketFeedStateStore | None,
+    publication_store: StrategyPublicationStore | None,
+    draft_store: StrategyDraftStore | None,
+    backtest_store: BacktestResultReader | None,
+) -> tuple[
+    PortfolioHistoryStore,
+    AuditEventStore,
+    MarketDataWorkerStateStore,
+    MarketFeedStateStore,
+    StrategyPublicationStore,
+    StrategyDraftStore,
+    BacktestResultReader,
+]:
+    """Instantiate database-backed persistence stores when missing."""
+    resolved_store = store or PostgresPortfolioHistoryStore(engine)
+    resolved_audit = audit_store or PostgresAuditEventStore(engine)
+    resolved_worker = worker_state_store or PostgresMarketDataWorkerStateStore(engine)
+    resolved_feed = feed_state_store or PostgresMarketFeedStateStore(engine)
+    resolved_publication = publication_store or PostgresStrategyPublicationStore(engine)
+    resolved_draft = draft_store or PostgresStrategyPublicationStore(engine)
+    resolved_backtest = backtest_store or PostgresBacktestResultStore(
+        engine,
+        research_run_store=PostgresResearchRunStore(engine),
+        dataset_store=dataset_store,
+    )
+    return (
+        resolved_store,
+        resolved_audit,
+        resolved_worker,
+        resolved_feed,
+        resolved_publication,
+        resolved_draft,
+        resolved_backtest,
+    )
 
 
 async def _dispose_if_present(engine: AsyncEngine | None) -> None:

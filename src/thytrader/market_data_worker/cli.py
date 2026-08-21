@@ -16,10 +16,13 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data_worker.feed import run_public_market_feed
 from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
+from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
+from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 
 _logger = logging.getLogger(__name__)
 
@@ -38,6 +41,9 @@ async def run() -> None:
     engine = create_engine(settings.database_url)
     service, provider = _build_service(settings)
     state_store = PostgresMarketDataWorkerStateStore(engine)
+    feed_store = PostgresMarketFeedStateStore(engine)
+    audit_store = PostgresAuditEventStore(engine)
+    live_feed = provider == "coinbase"
     try:
         try:
             await ping(engine)
@@ -58,16 +64,25 @@ async def run() -> None:
         readiness_file = settings.market_data_worker_readiness_file
 
         _logger.info("market_data_worker_started")
-        await run_market_data_worker(
-            stop_requested,
-            service=service,
-            dataset_store=DatasetStore(settings.market_data_dataset_root),
-            state_store=state_store,
-            provider=provider,
-            product_id=settings.market_data_worker_product_id,
-            lookback_hours=settings.market_data_worker_lookback_hours,
-            interval_seconds=settings.market_data_worker_interval_seconds,
-            on_readiness_changed=lambda ready: _set_readiness(readiness_file, ready),
+        await asyncio.gather(
+            run_market_data_worker(
+                stop_requested,
+                service=service,
+                dataset_store=DatasetStore(settings.market_data_dataset_root),
+                state_store=state_store,
+                provider=provider,
+                product_id=settings.market_data_worker_product_id,
+                lookback_hours=settings.market_data_worker_lookback_hours,
+                interval_seconds=settings.market_data_worker_interval_seconds,
+                on_readiness_changed=lambda ready: _set_readiness(readiness_file, ready),
+            ),
+            run_public_market_feed(
+                stop_requested,
+                product_id=settings.market_data_worker_product_id,
+                enabled=live_feed,
+                feed_store=feed_store,
+                audit_store=audit_store,
+            ),
         )
         _logger.info("market_data_worker_stopped")
     finally:

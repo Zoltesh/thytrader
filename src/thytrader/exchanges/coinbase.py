@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
 from requests import HTTPError
 
+from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance
 
 _ACCOUNT_PAGE_SIZE = 250
@@ -39,6 +41,10 @@ class CoinbaseClient(Protocol):
 
     def get_product(self, product_id: str) -> CoinbaseResponse:
         """Return one product including its latest price."""
+        ...
+
+    def get_transaction_summary(self, **kwargs: Any) -> CoinbaseResponse:
+        """Return 30-day volume and fee tier summary."""
         ...
 
 
@@ -105,6 +111,55 @@ class CoinbaseAccount:
             return Decimal(price)
         except InvalidOperation:
             return None
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Fetch 30-day volume and fee tier details from Coinbase."""
+        response = await asyncio.to_thread(self._client.get_transaction_summary)
+        payload = response.to_dict()
+        return self._parse_fee_profile(payload)
+
+    def _parse_fee_profile(self, payload: dict[str, Any]) -> FeeProfile:
+        """Map one complete Coinbase transaction summary into exact fee evidence."""
+        fee_tier_raw = payload.get("fee_tier")
+        if isinstance(fee_tier_raw, dict):
+            fee_tier_dict = fee_tier_raw
+        elif fee_tier_raw is not None and hasattr(fee_tier_raw, "to_dict"):
+            fee_tier_dict = fee_tier_raw.to_dict()
+            if not isinstance(fee_tier_dict, dict):
+                raise TypeError("Coinbase fee tier response must be a mapping.")
+        else:
+            raise ValueError("Coinbase fee tier response is missing.")
+
+        pricing_tier = fee_tier_dict.get("pricing_tier")
+        taker_rate_raw = fee_tier_dict.get("taker_fee_rate")
+        maker_rate_raw = fee_tier_dict.get("maker_fee_rate")
+        total_volume_raw = payload.get("total_volume")
+        if not isinstance(pricing_tier, str) or not pricing_tier.strip():
+            raise ValueError("Coinbase fee tier name is missing.")
+        if taker_rate_raw is None or maker_rate_raw is None or total_volume_raw is None:
+            raise ValueError("Coinbase fee rate or 30d volume is missing.")
+        if any(
+            isinstance(value, bool) for value in (taker_rate_raw, maker_rate_raw, total_volume_raw)
+        ):
+            raise ValueError("Coinbase fee values must not be booleans.")
+
+        try:
+            taker_rate = Decimal(str(taker_rate_raw))
+            maker_rate = Decimal(str(maker_rate_raw))
+            total_volume = Decimal(str(total_volume_raw))
+        except InvalidOperation as err:
+            raise ValueError("Coinbase fee response contains an invalid decimal.") from err
+        if not all(value.is_finite() for value in (taker_rate, maker_rate, total_volume)):
+            raise ValueError("Coinbase fee response contains a non-finite decimal.")
+
+        return FeeProfile(
+            taker_fee_rate=taker_rate,
+            maker_fee_rate=maker_rate,
+            usd_volume_30d=total_volume,
+            fee_tier=pricing_tier,
+            as_of=datetime.now(UTC),
+            source="coinbase",
+        )
 
     @staticmethod
     def _account_items(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:

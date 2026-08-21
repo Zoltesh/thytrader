@@ -84,8 +84,9 @@ The target continuously running strategy/execution worker owns:
 Core automation is not implemented with cron. Containers or a service manager supervise long-lived processes.
 
 The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
-market-data worker is independently supervised and only owns market-data ingestion/publication.
-Paper and live workers must not be inferred from either process merely existing.
+market-data worker is independently supervised and owns historical market-data ingestion/publication
+plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
+workers must not be inferred from either process merely existing.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational

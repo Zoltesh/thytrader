@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from decimal import Decimal
 
+    from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
 
 
@@ -23,4 +24,8 @@ class ExchangeAccount(Protocol):
 
     async def get_usd_price(self, currency: str) -> Decimal | None:
         """Return a direct USD spot price when one exists."""
+        ...
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Return the current 30-day volume and fee tier details."""
         ...

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from thytrader.config import Settings
+from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.models import (
     Money,
@@ -73,6 +74,38 @@ def test_worker_takes_initial_snapshot_then_stops() -> None:
         stop.set()
         await task
         assert runtime.ready is False
+
+    asyncio.run(exercise())
+
+
+def test_worker_records_audit_events_on_lifecycle_and_snapshots() -> None:
+    """Worker records worker_started, snapshot, and worker_stopped audit events."""
+
+    async def exercise() -> None:
+        settings = Settings(_env_file=None, snapshot_interval_seconds=60)
+        runtime = RuntimeState(settings=settings)
+        stop = asyncio.Event()
+        service = _StubPortfolioService(demo=False)
+        history_store = InMemoryPortfolioHistoryStore()
+        audit_store = InMemoryAuditEventStore()
+
+        task = asyncio.create_task(
+            run_worker(
+                runtime,
+                stop,
+                portfolio_service=service,  # type: ignore[arg-type]
+                history_store=history_store,
+                audit_store=audit_store,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop.set()
+        await task
+
+        events = await audit_store.list_recent(limit=10)
+        assert len(events) == 3
+        actions = [e.action for e in events]
+        assert actions == ["worker_stopped", "portfolio_snapshot_recorded", "worker_started"]
 
     asyncio.run(exercise())
 

@@ -34,12 +34,28 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await page.route('**/api/v1/portfolio', async (route) => {
 		await route.fulfill({ json: demoPortfolio });
 	});
+	await page.route('**/api/v1/fees', async (route) => {
+		await route.fulfill({
+			json: {
+				taker_fee_rate: '0.0060',
+				maker_fee_rate: '0.0040',
+				usd_volume_30d: '15250.00',
+				fee_tier: 'Tier 1',
+				as_of: '2026-08-17T12:00:00Z',
+				source: 'coinbase'
+			}
+		});
+	});
 
 	await page.goto('/');
 
 	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
 	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$98,542.17')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
+	await expect(page.getByText('0.60%')).toBeVisible();
+	await expect(page.getByText('0.40%')).toBeVisible();
+	await expect(page.getByText('Tier 1')).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76000000');
 	await expect(page.getByRole('row', { name: /Ethereum ETH/ })).toContainText('$7,342.17');
 	await expect(page.getByText('View', { exact: true })).toBeVisible();
@@ -47,12 +63,60 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(page.getByText('Transfer', { exact: true })).toBeVisible();
 });
 
+test('formats tiny fee rates with exact decimal arithmetic', async ({ page }) => {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({ json: demoPortfolio });
+	});
+	await page.route('**/api/v1/fees', async (route) => {
+		await route.fulfill({
+			json: {
+				taker_fee_rate: '0.000049999999999999999999999999999999999999',
+				maker_fee_rate: '0.000050000000000000000000000000000000000000',
+				usd_volume_30d: '0',
+				fee_tier: 'Precision test',
+				as_of: '2026-08-17T12:00:00Z',
+				source: 'coinbase'
+			}
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('0.00%', { exact: true })).toBeVisible();
+	await expect(page.getByText('0.01%', { exact: true })).toBeVisible();
+});
+
 test('loads demo portfolio through the real SvelteKit and FastAPI processes', async ({ page }) => {
 	await page.goto('/');
 
 	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$99,792.17')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
+	await expect(page.getByText('0.60%')).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toBeVisible();
+});
+
+test('shows controlled unavailable state when fees request fails with 502', async ({ page }) => {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({ json: demoPortfolio });
+	});
+	await page.route('**/api/v1/fees', async (route) => {
+		await route.fulfill({
+			status: 502,
+			json: {
+				detail: {
+					code: 'fees_unavailable',
+					message: 'Fee profile is temporarily unavailable.'
+				}
+			}
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
+	await expect(page.getByText('Fee profile is temporarily unavailable.')).toBeVisible();
 });
 
 test('refreshes the portfolio and presents a redacted connection error', async ({ page }) => {
@@ -147,6 +211,17 @@ test('shows a visible range-coverage failure while recent candle diagnostics rem
 });
 
 test('shows durable market-data worker coverage and freshness evidence', async ({ page }) => {
+	await page.route('**/api/v1/market-data/freshness*', async (route) => {
+		await route.fulfill({
+			json: {
+				product_id: 'BTC-USD',
+				newest_candle_at: '2026-08-17T12:00:00Z',
+				as_of: '2026-08-17T13:00:00Z',
+				age_seconds: 3600,
+				status: 'fresh'
+			}
+		});
+	});
 	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
 		await route.fulfill({
 			status: 200,
@@ -187,6 +262,7 @@ test('shows durable market-data worker coverage and freshness evidence', async (
 
 	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
 	await expect(page.getByText('Fresh · complete')).toBeVisible();
+	await expect(page.getByText('Candle: fresh')).toBeVisible();
 	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 	await expect(page.getByText('Demo dataset')).toBeVisible();
 	await expect(page.getByText('Current · complete')).toBeVisible();
@@ -303,4 +379,51 @@ test('keeps worker evidence visible when the recent-candle preview fails', async
 
 	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
 	await expect(page.getByText('Fresh · complete')).toBeVisible();
+});
+
+test('shows controlled freshness failure state when the freshness endpoint fails', async ({
+	page
+}) => {
+	await page.route('**/api/v1/market-data/freshness*', async (route) => {
+		await route.fulfill({
+			status: 503,
+			json: { detail: { code: 'market_data_worker_state_unavailable' } }
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Candle: unavailable')).toBeVisible();
+});
+
+test('shows public ticker feed lifecycle separately from candle freshness', async ({ page }) => {
+	await page.route('**/api/v1/market-data/feed*', async (route) => {
+		await route.fulfill({
+			json: {
+				product_id: 'BTC-USD',
+				state: 'connected',
+				last_message_at: '2026-08-17T12:00:00Z',
+				last_ticker_at: '2026-08-17T12:00:00Z',
+				last_price: '65000.50',
+				updated_at: '2026-08-17T12:00:00Z'
+			}
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Feed: connected')).toBeVisible();
+});
+
+test('shows controlled feed failure state when the feed endpoint fails', async ({ page }) => {
+	await page.route('**/api/v1/market-data/feed*', async (route) => {
+		await route.fulfill({
+			status: 503,
+			json: { detail: { code: 'market_feed_state_unavailable' } }
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Feed: unavailable')).toBeVisible();
 });

@@ -11,11 +11,16 @@ from typing import TYPE_CHECKING
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.observability.logging import configure_logging
+from thytrader.persistence.audit_events import (
+    AuditEventStore,
+    DisabledAuditEventStore,
+)
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     PortfolioHistoryStore,
 )
+from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
@@ -41,7 +46,7 @@ async def run() -> None:
     loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
 
     portfolio_service = _build_portfolio_service(settings)
-    history_store, engine = await _build_history_store(settings)
+    history_store, audit_store, engine = await _build_stores(settings)
 
     readiness_file = settings.worker_readiness_file
     try:
@@ -51,6 +56,7 @@ async def run() -> None:
             stop_requested,
             portfolio_service=portfolio_service,
             history_store=history_store,
+            audit_store=audit_store,
             on_started=lambda: _mark_ready(readiness_file),
         )
         logger.info("worker_stopped")
@@ -91,12 +97,12 @@ def _build_portfolio_service(settings: Settings) -> PortfolioService:
     return PortfolioService(CoinbaseAccount(client))
 
 
-async def _build_history_store(
+async def _build_stores(
     settings: Settings,
-) -> tuple[PortfolioHistoryStore, AsyncEngine | None]:
-    """Create a PostgreSQL history store when configured, or disabled."""
+) -> tuple[PortfolioHistoryStore, AuditEventStore, AsyncEngine | None]:
+    """Create PostgreSQL stores when configured, or disabled."""
     if settings.database_url is None:
-        return DisabledPortfolioHistoryStore(), None
+        return DisabledPortfolioHistoryStore(), DisabledAuditEventStore(), None
 
     engine = create_engine(settings.database_url)
     try:
@@ -105,7 +111,7 @@ async def _build_history_store(
         await dispose(engine)
         logger.exception("Worker database connectivity check failed")
         raise
-    return PostgresPortfolioHistoryStore(engine), engine
+    return PostgresPortfolioHistoryStore(engine), PostgresAuditEventStore(engine), engine
 
 
 def main() -> None:

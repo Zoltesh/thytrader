@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from thytrader.api.dependencies import get_market_data_state_store, get_runtime_state
+from thytrader.api.dependencies import (
+    get_market_data_state_store,
+    get_market_feed_state_store,
+    get_runtime_state,
+)
+from thytrader.market_data.feed_state import (
+    MarketFeedSnapshot,
+    MarketFeedStateStore,
+)
+from thytrader.market_data.freshness import (
+    evaluate_freshness,
+)
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
@@ -19,6 +31,16 @@ from thytrader.market_data.worker_state import (
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
+_logger = logging.getLogger(__name__)
+
+
+def _require_utc(value: datetime | None) -> datetime | None:
+    """Reject naive or non-UTC datetimes so ages cannot be ambiguous."""
+    if value is None:
+        return None
+    if value.tzinfo is not UTC:
+        raise ValueError("datetime must be timezone-aware UTC")
+    return value
 
 
 class IngestionCoverageResponse(BaseModel):
@@ -65,6 +87,113 @@ class IngestionStateResponse(BaseModel):
     maintenance_kind: Literal["initial_backfill", "incremental"] | None
 
 
+class FreshnessResponse(BaseModel):
+    """Explicit market data candle freshness state."""
+
+    product_id: str
+    newest_candle_at: datetime | None = None
+    as_of: datetime
+    age_seconds: int | None = None
+    status: Literal["fresh", "stale", "unknown"]
+
+    _require_utc_validator = field_validator("newest_candle_at", "as_of", mode="before")(
+        _require_utc
+    )
+
+
+class MarketFeedResponse(BaseModel):
+    """Public ticker lifecycle facts, distinct from REST candle freshness."""
+
+    product_id: str
+    state: Literal[
+        "disconnected",
+        "connecting",
+        "connected",
+        "stale",
+        "reconnecting",
+        "disabled",
+    ]
+    last_message_at: datetime | None = None
+    last_ticker_at: datetime | None = None
+    last_price: str | None = None
+    updated_at: datetime
+
+    _require_utc_validator = field_validator(
+        "last_message_at", "last_ticker_at", "updated_at", mode="before"
+    )(_require_utc)
+
+
+@router.get("/freshness", response_model=FreshnessResponse)
+async def get_market_data_freshness(
+    store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+) -> FreshnessResponse:
+    """Return explicit market data freshness evaluated against newest verified candle."""
+    now = datetime.now(UTC)
+    try:
+        provider = _provider(runtime)
+        state = await store.get(provider, product_id, CandleInterval.ONE_HOUR)
+        newest_candle = state.covered_ends_at if state is not None else None
+        freshness = evaluate_freshness(
+            product_id=product_id, newest_candle_at=newest_candle, now=now
+        )
+        return FreshnessResponse(
+            product_id=freshness.product_id,
+            newest_candle_at=freshness.newest_candle_at,
+            as_of=freshness.as_of,
+            age_seconds=freshness.age_seconds,
+            status=freshness.status.value,
+        )
+    except Exception as error:  # noqa: BLE001 - persistence details are redacted at the API boundary.
+        _logger.warning("Freshness evaluation failed: %s", type(error).__name__)
+        raise _unavailable() from None
+
+
+@router.get("/feed", response_model=MarketFeedResponse)
+async def get_market_feed_state(
+    store: Annotated[MarketFeedStateStore, Depends(get_market_feed_state_store)],
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+) -> MarketFeedResponse:
+    """Return the latest public ticker lifecycle snapshot."""
+    try:
+        snapshot = await store.get(product_id)
+        if snapshot is None:
+            now = datetime.now(UTC)
+            return MarketFeedResponse(
+                product_id=product_id,
+                state="disconnected",
+                last_message_at=None,
+                last_ticker_at=None,
+                last_price=None,
+                updated_at=now,
+            )
+        validated_snapshot = MarketFeedSnapshot(
+            product_id=snapshot.product_id,
+            state=snapshot.state,
+            last_message_at=snapshot.last_message_at,
+            last_ticker_at=snapshot.last_ticker_at,
+            last_price=snapshot.last_price,
+            updated_at=snapshot.updated_at,
+        )
+        _require_matching_feed_product(validated_snapshot, requested_product_id=product_id)
+        return MarketFeedResponse(
+            product_id=validated_snapshot.product_id,
+            state=validated_snapshot.state.value,
+            last_message_at=validated_snapshot.last_message_at,
+            last_ticker_at=validated_snapshot.last_ticker_at,
+            last_price=(
+                str(validated_snapshot.last_price)
+                if validated_snapshot.last_price is not None
+                else None
+            ),
+            updated_at=validated_snapshot.updated_at,
+        )
+    except Exception as error:  # noqa: BLE001 - persistence details are redacted at the API boundary.
+        _logger.warning("Market feed state query failed: %s", type(error).__name__)
+        raise _unavailable() from None
+
+
 @router.get("/ingestion", response_model=IngestionStateResponse)
 async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
@@ -109,7 +238,8 @@ async def get_ingestion_state(
             now=datetime.now(UTC),
             interval_seconds=runtime.settings.market_data_worker_interval_seconds,
         )
-    except OverflowError, TypeError, ValueError:
+    except Exception as error:  # noqa: BLE001 - mapping failures are redacted at the API boundary.
+        _logger.warning("Ingestion state mapping failed: %s", type(error).__name__)
         raise _unavailable() from None
 
 
@@ -211,6 +341,16 @@ def _coverage(state: MarketDataWorkerState) -> IngestionCoverageResponse | None:
         complete=state.complete,
         content_fingerprint=fingerprint,
     )
+
+
+def _require_matching_feed_product(
+    snapshot: MarketFeedSnapshot,
+    *,
+    requested_product_id: str,
+) -> None:
+    """Reject a store snapshot that does not belong to the requested product."""
+    if snapshot.product_id != requested_product_id:
+        raise ValueError("Feed snapshot product does not match the requested product.")
 
 
 def _unavailable() -> HTTPException:
