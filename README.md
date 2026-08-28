@@ -14,6 +14,13 @@ loopback-only host ports. From a fresh clone with Docker Compose and [`uv`](http
 installed, run:
 
 ```bash
+make run
+```
+
+`make run` wraps `scripts/setup_local_stack.py` (described below), so it is the single command to
+type. The equivalent direct invocation is:
+
+```bash
 uv run python scripts/setup_local_stack.py
 ```
 
@@ -131,6 +138,15 @@ uv run thytrader-api
 uv run thytrader-worker
 uv run thytrader-market-data-worker
 ```
+
+Common stack operations are also available as Makefile targets:
+
+```bash
+make status   # service health
+make logs     # follow API, worker, market-data worker, and web logs
+make stop     # stop the stack (preserves database and market-data volumes)
+```
+
 Run frontend verification with:
 
 ```bash
