@@ -40,9 +40,12 @@
 		publishedFingerprint = null;
 		archived = false;
 		try {
-			const [savedDrafts, publications] = await Promise.all([
+			const [savedDrafts, publications, datasetsOutcome] = await Promise.all([
 				listDrafts(),
-				listPublishedStrategies()
+				listPublishedStrategies(),
+				listDatasets().catch((caught: unknown): Dataset[] | Error =>
+					caught instanceof Error ? caught : new Error('Could not load verified datasets.')
+				)
 			]);
 			const recovered = [...savedDrafts, ...publications].sort(
 				(left, right) =>
@@ -68,12 +71,11 @@
 				await startNewDraft();
 			}
 
-			try {
-				const availableDatasets = await listDatasets();
-				datasets = availableDatasets.filter((dataset) => dataset.product_id === 'BTC-USD');
+			if (datasetsOutcome instanceof Error) {
+				error = datasetsOutcome.message;
+			} else {
+				datasets = datasetsOutcome.filter((dataset) => dataset.product_id === 'BTC-USD');
 				datasetFingerprint = datasets[0]?.content_fingerprint ?? '';
-			} catch (caught) {
-				error = caught instanceof Error ? caught.message : 'Could not load verified datasets.';
 			}
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not load strategy drafts.';

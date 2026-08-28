@@ -60,6 +60,9 @@ class DatasetStore:
     def __init__(self, root: Path) -> None:
         """Configure the local root under which immutable datasets are published."""
         self._root = root
+        self._verified_cache: dict[
+            Path, tuple[tuple[tuple[Path, int, int], ...], DatasetManifest]
+        ] = {}
 
     def write(
         self,
@@ -97,14 +100,46 @@ class DatasetStore:
         """Return every complete immutable dataset whose manifest re-verifies from disk."""
         manifests = self._root / "manifests"
         if not manifests.exists():
+            self._verified_cache.clear()
             return ()
         verified: list[DatasetManifest] = []
+        seen: set[Path] = set()
         for path in sorted(manifests.glob("*.json"), reverse=True):
-            try:
-                verified.append(self.load_verified(path))
-            except DatasetStoreError:
-                continue
+            seen.add(path)
+            manifest = self._list_verified_manifest(path)
+            if manifest is not None:
+                verified.append(manifest)
+        for cached_path in list(self._verified_cache):
+            if cached_path not in seen:
+                del self._verified_cache[cached_path]
         return tuple(verified)
+
+    def _list_verified_manifest(self, manifest_path: Path) -> DatasetManifest | None:
+        """Return one listing entry, reusing prior verification while file identity holds."""
+        cached = self._verified_cache.get(manifest_path)
+        if cached is not None:
+            (identity, manifest) = cached
+            if self._identity_matches(identity):
+                return manifest
+        try:
+            manifest = self.load_verified(manifest_path)
+        except DatasetStoreError:
+            self._verified_cache.pop(manifest_path, None)
+            return None
+        self._verified_cache[manifest_path] = (
+            tuple(
+                (file, file.stat().st_size, int(file.stat().st_mtime_ns)) for file in manifest.files
+            ),
+            manifest,
+        )
+        return manifest
+
+    def _identity_matches(self, identity: tuple[tuple[Path, int, int], ...]) -> bool:
+        """Check that every cached dataset file still exists with the same size and mtime."""
+        return all(
+            file.is_file() and file.stat().st_size == size and int(file.stat().st_mtime_ns) == stamp
+            for file, size, stamp in identity
+        )
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
         """Resolve and verify exact typed candles by immutable dataset fingerprint."""

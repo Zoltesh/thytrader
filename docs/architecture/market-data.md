@@ -109,6 +109,14 @@ It validates identifier/time/count facts, resolved paths beneath the configured 
 candle coverage after reading every referenced Parquet file; it then recomputes the fingerprint before
 returning a dataset to a future backtest or worker.
 
+`DatasetStore.list_verified()` serves browser catalogue listings from the same deep verification.
+Because datasets accumulate and execution consumers must always reread content, listings reuse the
+previous verification result while every referenced Parquet file keeps its recorded byte size and
+modification time, and re-verify any dataset whose file identity changes. Content that is corrupted
+without any identity change stays hidden from deep execution loads, which always reread and reject
+mismatches, while listings may briefly keep serving the manifest facts of the previously verified
+content.
+
 ```text
 <dataset-root>/
   coinbase/BTC-USD/1h/2026/07/01/part-<content-sha256>.parquet

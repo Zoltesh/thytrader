@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 import json
+import os
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -352,6 +353,57 @@ def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_pa
 
     with pytest.raises(DatasetStoreError, match="verification"):
         store.load_verified(manifest.manifest_path)
+
+
+def test_dataset_store_listing_reuses_verification_for_unchanged_file_identity(
+    tmp_path: Path,
+) -> None:
+    """Listings trust unchanged file identity without rereading Parquet content."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+
+    first = store.list_verified()
+    assert len(first) == 1
+
+    # Corrupt content while preserving size and mtime: the identity gate cannot see
+    # this. Listings reuse the prior verification; deep execution loads still reject.
+    parquet = written.files[0]
+    payload = parquet.read_bytes()
+    stat_before = parquet.stat()
+    parquet.write_bytes(bytes(reversed(payload)))
+    os.utime(parquet, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
+
+    second = store.list_verified()
+    assert [entry.content_fingerprint for entry in second] == [
+        entry.content_fingerprint for entry in first
+    ]
+    with pytest.raises(DatasetStoreError, match="verification"):
+        store.load_verified(written.manifest_path)
+
+
+def test_dataset_store_listing_reverifies_when_dataset_file_is_removed(tmp_path: Path) -> None:
+    """A missing immutable file must be dropped from listings instead of being trusted."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+
+    first = store.list_verified()
+    assert len(first) == 1
+    manifest.files[0].unlink()
+
+    assert store.list_verified() == ()
+
+
+def test_dataset_store_listing_reverifies_when_dataset_file_is_replaced(tmp_path: Path) -> None:
+    """A modified immutable file must leave the listing until deep verification accepts it."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+
+    first = store.list_verified()
+    assert len(first) == 1
+    payload = manifest.files[0].read_bytes()
+    manifest.files[0].write_bytes(payload + b"corruption")
+
+    assert store.list_verified() == ()
 
 
 def test_dataset_store_rejects_manifest_with_duplicate_file_entries(tmp_path: Path) -> None:
