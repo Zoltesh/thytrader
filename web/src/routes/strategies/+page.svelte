@@ -5,10 +5,15 @@
 		archivePublishedStrategy,
 		createDraft,
 		clonePublishedStrategy,
+		fetchDraftVersion,
+		fetchStrategySource,
 		importStrategy,
 		listStrategies,
+		toBuilderModel,
+		type BuilderModel,
 		type StrategyLibraryEntry
 	} from '$lib/strategies';
+	import { plainEnglishSummary, validateDefinition, ENGINE_SUPPORT } from '$lib/strategy-insight';
 
 	let entries = $state<StrategyLibraryEntry[]>([]);
 	let error = $state<string | null>(null);
@@ -17,6 +22,38 @@
 	let showImport = $state(false);
 	let importText = $state('');
 	let importHint = $state<string | null>(null);
+	let viewEntry = $state<StrategyLibraryEntry | null>(null);
+	let viewModel = $state<BuilderModel | null>(null);
+	let viewLoading = $state(false);
+	let viewError = $state<string | null>(null);
+
+	async function openView(entry: StrategyLibraryEntry): Promise<void> {
+		viewEntry = entry;
+		viewModel = null;
+		viewError = null;
+		viewLoading = true;
+		try {
+			if (entry.status === 'draft') {
+				const draft = await fetchDraftVersion(entry.strategy_id, 1);
+				viewModel = toBuilderModel(draft.strategy, draft.revision);
+			} else if (entry.latest_fingerprint) {
+				const source = await fetchStrategySource(entry.latest_fingerprint);
+				viewModel = toBuilderModel(source, 0);
+			} else {
+				viewError = 'No immutable evidence is available for this strategy.';
+			}
+		} catch (caught) {
+			viewError = caught instanceof Error ? caught.message : 'Could not load strategy details.';
+		} finally {
+			viewLoading = false;
+		}
+	}
+
+	function closeView(): void {
+		viewEntry = null;
+		viewModel = null;
+		viewError = null;
+	}
 
 	async function loadLibrary(): Promise<void> {
 		loading = true;
@@ -188,7 +225,6 @@
 								<tr>
 									<td>
 										<span class="strategy-name">{entry.name}</span>
-										<span class="strategy-summary">{entry.summary}</span>
 									</td>
 									<td>{entry.product_id} · {entry.timeframe}</td>
 									<td>
@@ -217,6 +253,9 @@
 									</td>
 									<td>
 										<div class="row-actions">
+											<button class="secondary" type="button" onclick={() => openView(entry)}
+												>View</button
+											>
 											{#if entry.status === 'draft'}
 												<a class="secondary" href={resolve(`/strategies/${entry.strategy_id}`)}
 													>Edit</a
@@ -286,6 +325,64 @@
 	</div>
 {/if}
 
+{#if viewEntry}
+	<div class="import-backdrop">
+		<div class="view-drawer" role="dialog" aria-modal="true" aria-label="Strategy inspector">
+			<div class="view-head">
+				<div>
+					<p class="eyebrow">{viewEntry.status} · v{viewEntry.latest_version ?? '—'}</p>
+					<h2>{viewEntry.name}</h2>
+				</div>
+				<button class="secondary" type="button" onclick={closeView}>Close</button>
+			</div>
+			{#if viewLoading}
+				<p class="view-note">Loading strategy evidence…</p>
+			{:else if viewError}
+				<p class="view-problem" role="alert">{viewError}</p>
+			{:else if viewModel}
+				<div class="view-block">
+					<h3>Plain-English summary</h3>
+					<p>{plainEnglishSummary(viewModel)}</p>
+				</div>
+				<div class="view-block">
+					<h3>Validation</h3>
+					{#if validateDefinition(viewModel).length === 0}
+						<p class="view-ok">No problems detected.</p>
+					{:else}
+						<ul class="view-problems">
+							{#each validateDefinition(viewModel) as problem (problem)}
+								<li>{problem}</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+				<div class="view-block">
+					<h3>Required data</h3>
+					<p>
+						{viewModel.warmup_bars} completed {viewModel.timeframe} bars (OHLCV) before the first signal.
+					</p>
+				</div>
+				<div class="view-block">
+					<h3>Engine support (thytrader-bar-backtest-v1)</h3>
+					<ul class="engine-list">
+						{#each ENGINE_SUPPORT as row (row.label)}
+							<li class={row.supported ? 'supported' : 'unsupported'}>
+								<span class="mark">{row.supported ? '✓' : '✗'}</span>
+								<span>{row.label}<small>{row.note}</small></span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+				{#if viewEntry.status === 'draft' && viewEntry.strategy_id}
+					<a class="secondary view-edit" href={resolve(`/strategies/${viewEntry.strategy_id}`)}
+						>Edit this draft</a
+					>
+				{/if}
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style>
 	.library-card {
 		background: var(--card, #141b1c);
@@ -325,12 +422,6 @@
 		display: block;
 		color: #edf3f3;
 		font-weight: 600;
-	}
-	.strategy-summary {
-		display: block;
-		color: #aeb9bb;
-		font-size: 12px;
-		margin-top: 4px;
 	}
 	.fingerprint {
 		display: block;
@@ -459,6 +550,93 @@
 		justify-content: flex-end;
 		gap: 12px;
 		margin-top: 14px;
+	}
+	.view-drawer {
+		width: min(640px, 100%);
+		max-height: 86vh;
+		overflow-y: auto;
+		background: #141b1c;
+		border: 1px solid #303a3c;
+		border-radius: 12px;
+		padding: 20px 24px;
+		display: grid;
+		gap: 16px;
+	}
+	.view-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 12px;
+	}
+	.view-head h2 {
+		margin: 2px 0 0;
+		font-size: 18px;
+		color: #edf3f3;
+	}
+	.view-block h3 {
+		margin: 0 0 6px;
+		font-size: 12px;
+		color: #aeb9bb;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.view-block p {
+		margin: 0;
+		font-size: 13px;
+		color: #d8e1e2;
+	}
+	.view-note {
+		color: #aeb9bb;
+		font-size: 13px;
+	}
+	.view-ok {
+		color: #83d5a3;
+		font-size: 13px;
+	}
+	.view-problem {
+		color: #f0a3a3;
+		font-size: 13px;
+	}
+	.view-problems {
+		margin: 0;
+		padding-left: 16px;
+		color: #f0a3a3;
+		font-size: 12px;
+		display: grid;
+		gap: 4px;
+	}
+	.view-edit {
+		justify-self: start;
+		text-decoration: none;
+	}
+	.engine-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 8px;
+	}
+	.engine-list li {
+		display: flex;
+		gap: 8px;
+		font-size: 12px;
+		color: #d8e1e2;
+	}
+	.engine-list li .mark {
+		font-weight: 700;
+	}
+	.engine-list li.supported .mark {
+		color: #83d5a3;
+	}
+	.engine-list li.unsupported {
+		color: #9aa8aa;
+	}
+	.engine-list li.unsupported .mark {
+		color: #f0a3a3;
+	}
+	.engine-list small {
+		display: block;
+		color: #77888b;
 	}
 	@media (max-width: 900px) {
 		table {
