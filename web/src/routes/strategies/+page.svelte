@@ -145,6 +145,12 @@
 				</p>
 			</div>
 		</section>
+		<section class="top-actions" aria-label="Library actions">
+			<button class="refresh" type="button" onclick={createNew} disabled={pendingAction !== null}
+				>{pendingAction === 'create' ? 'Creating…' : 'New strategy'}</button
+			>
+			<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
+		</section>
 		{#if error}<div class="error-banner" role="alert">
 				<div>
 					<strong>Research operation unavailable</strong>
@@ -159,19 +165,9 @@
 				<div class="empty-state">
 					<p>No strategies yet.</p>
 					<p class="empty-hint">
-						Create a conservative reference draft, or import a strategy definition you exported
-						elsewhere.
+						Use <strong>New strategy</strong> above to create a conservative reference draft, or import
+						a strategy definition you exported elsewhere.
 					</p>
-					<div class="empty-actions">
-						<button
-							class="refresh"
-							type="button"
-							onclick={createNew}
-							disabled={pendingAction !== null}
-							>{pendingAction === 'create' ? 'Creating…' : 'Create reference strategy'}</button
-						>
-						<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
-					</div>
 				</div>
 			{:else}
 				<div class="table-scroll">
@@ -226,12 +222,6 @@
 													>Edit</a
 												>
 											{/if}
-											<button
-												class="secondary"
-												type="button"
-												onclick={createNew}
-												disabled={pendingAction !== null}>New</button
-											>
 											{#if entry.latest_fingerprint}
 												<button
 													class="secondary"
@@ -258,16 +248,6 @@
 							{/each}
 						</tbody>
 					</table>
-				</div>
-				<div class="library-footer">
-					<button
-						class="refresh"
-						type="button"
-						onclick={createNew}
-						disabled={pendingAction !== null}
-						>{pendingAction === 'create' ? 'Creating…' : 'Create reference strategy'}</button
-					>
-					<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
 				</div>
 			{/if}
 		</section>
@@ -415,11 +395,10 @@
 		opacity: 0.55;
 		cursor: default;
 	}
-	.library-footer {
+	.top-actions {
 		display: flex;
 		gap: 12px;
-		padding: 14px 16px;
-		border-top: 1px solid #232d2e;
+		margin-bottom: 16px;
 	}
 	.empty-state {
 		padding: 42px 24px;
@@ -432,12 +411,6 @@
 	.empty-hint {
 		color: #aeb9bb;
 		font-size: 13px;
-	}
-	.empty-actions {
-		display: flex;
-		gap: 12px;
-		justify-content: center;
-		margin-top: 18px;
 	}
 	.import-backdrop {
 		position: fixed;

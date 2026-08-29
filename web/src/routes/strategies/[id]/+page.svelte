@@ -1004,12 +1004,16 @@
 		display: block;
 		color: #77888b;
 	}
-	@media (max-width: 1100px) {
+	@media (max-width: 900px) {
 		.builder-grid {
 			grid-template-columns: 1fr;
 		}
 		.inspector {
 			position: static;
+		}
+		/* Keep the inspector readable without scrolling past the whole form. */
+		.builder-grid .inspector {
+			order: -1;
 		}
 	}
 </style>

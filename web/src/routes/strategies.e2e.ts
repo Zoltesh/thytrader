@@ -103,7 +103,7 @@ test('shows an empty library with create and import actions when no strategies e
 	await page.goto('/strategies');
 	await expect(page.getByRole('heading', { name: 'Strategy library' })).toBeVisible();
 	await expect(page.getByText('No strategies yet.')).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Create reference strategy' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'New strategy' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Import JSON…' })).toBeVisible();
 });
 
@@ -144,7 +144,8 @@ test('creates a reference strategy and refreshes the library', async ({ page }) 
 		await route.fulfill({ json: { strategies: [libraryEntry] } });
 	});
 	await page.goto('/strategies');
-	await page.getByRole('button', { name: 'Create reference strategy' }).click();
+	await page.waitForSelector('table tbody tr');
+	await page.getByRole('button', { name: 'New strategy' }).click();
 	await expect.poll(() => createCalls).toBe(1);
 	await expect(page.getByRole('cell', { name: 'Recovered BTC trend draft' })).toBeVisible();
 	await expect(page.getByRole('alert')).not.toBeVisible();
@@ -194,7 +195,9 @@ test('imports a pasted strategy definition as a new draft', async ({ page }) => 
 		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
 	});
 	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
 	await page.getByRole('button', { name: 'Import JSON…' }).click();
+	await expect(page.getByRole('dialog', { name: 'Import strategy JSON' })).toBeVisible();
 	await page.getByLabel('Strategy definition JSON').fill(JSON.stringify(draft));
 	await page.getByRole('button', { name: 'Import draft' }).click();
 	await expect.poll(() => importedBody).not.toBeNull();
@@ -214,7 +217,9 @@ test('rejects invalid import JSON without leaving the dialog or sending a reques
 		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
 	});
 	await page.goto('/strategies');
+	await page.waitForSelector('.empty-state');
 	await page.getByRole('button', { name: 'Import JSON…' }).click();
+	await expect(page.getByRole('dialog', { name: 'Import strategy JSON' })).toBeVisible();
 	await page.getByLabel('Strategy definition JSON').fill('{not json');
 	await page.getByRole('button', { name: 'Import draft' }).click();
 	await expect(page.getByRole('alert').last()).toContainText('not valid JSON');

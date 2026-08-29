@@ -133,7 +133,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	});
 	if (!response.ok) {
 		const body = (await response.json().catch(() => ({}))) as { detail?: string };
-		throw new Error(body.detail ?? 'The requested research operation is unavailable.');
+		const detail = body.detail ?? 'no details returned';
+		throw new Error(`The research operation failed (HTTP ${response.status}): ${detail}`);
 	}
 	return (await response.json()) as T;
 }

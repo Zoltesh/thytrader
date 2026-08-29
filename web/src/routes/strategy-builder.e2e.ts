@@ -128,7 +128,7 @@ test('flags engine settings the current backtester does not model', async ({ pag
 
 test('saves edited builder state through the durable draft boundary', async ({ page }) => {
 	type SavedPayload = { strategy: { name: string }; revision: number };
-	let savedBody: SavedPayload | null = null;
+	let savedBody = null as SavedPayload | null;
 	let savedOnce = false;
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		if (route.request().method() === 'PUT') {
