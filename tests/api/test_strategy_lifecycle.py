@@ -142,7 +142,7 @@ class InMemoryPublicationStore:
 
 
 def test_strategy_creation_persists_a_draft_that_the_browser_can_recover() -> None:
-    """A reference draft survives the create request and is discoverable through the API."""
+    """A reference draft survives the create request and is discoverable in the library."""
     draft_store = InMemoryDraftStore()
     app = create_app(
         Settings(_env_file=None),
@@ -152,25 +152,27 @@ def test_strategy_creation_persists_a_draft_that_the_browser_can_recover() -> No
 
     with TestClient(app) as client:
         created = client.post("/api/v1/strategies")
-        drafts = client.get("/api/v1/strategies?status=draft")
+        library = client.get("/api/v1/strategies")
 
     assert created.status_code == 201
     assert created.json()["revision"] == 1
-    assert drafts.status_code == 200
+    assert library.status_code == 200
     created_draft = created.json()["strategy"]
-    assert drafts.json() == {
-        "strategies": [
-            {
-                "strategy": created_draft,
-                "revision": 1,
-                "strategy_fingerprint": None,
-                "archived_at": None,
-                "summary": (
-                    "BTC-USD · 1h · EMA(20) crosses above EMA(50) · RSI ≥ 50 · 0.5% risk · $10-$100"
-                ),
-            }
-        ]
-    }
+    entry = library.json()["strategies"][0]
+    assert entry["strategy_id"] == created_draft["strategy_id"]
+    assert entry["name"] == created_draft["name"]
+    assert entry["product_id"] == "BTC-USD"
+    assert entry["timeframe"] == "1h"
+    assert entry["latest_version"] == 1
+    assert entry["status"] == "draft"
+    assert entry["latest_fingerprint"] is None
+    assert entry["archived"] is False
+    assert entry["backtest"] is None
+    assert entry["paper_live"] == {"paper": "unavailable", "live": "unavailable"}
+    assert (
+        entry["summary"]
+        == "BTC-USD · 1h · EMA(20) crosses above EMA(50) · RSI ≥ 50 · 0.5% risk · $10-$100"
+    )
 
 
 def test_strategy_creation_rejects_forged_draft_store_definitions() -> None:
@@ -307,7 +309,7 @@ def test_strategy_draft_update_recovers_the_latest_validated_definition() -> Non
     assert saved.json()["strategy"]["name"] == "BTC trend with a bounded risk budget"
     assert "1% risk" in saved.json()["summary"]
     assert recovered.status_code == 200
-    recovered_name = recovered.json()["strategies"][0]["strategy"]["name"]
+    recovered_name = recovered.json()["strategies"][0]["name"]
     assert recovered_name == "BTC trend with a bounded risk budget"
 
 
@@ -353,7 +355,7 @@ def test_strategy_summary_follows_crossover_operands_not_indicator_order() -> No
         strategy_draft_store=draft_store,
     )
     with TestClient(app) as client:
-        response = client.get("/api/v1/strategies?status=draft")
+        response = client.get("/api/v1/strategies")
 
     assert response.status_code == 200
     summary = response.json()["strategies"][0]["summary"]
@@ -376,7 +378,7 @@ def test_published_catalog_rejects_fingerprint_and_status_forgery() -> None:
         strategy_store=publication_store,
     )
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/api/v1/strategies?status=published")
+        response = client.get("/api/v1/strategies")
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Strategy publication catalog is unavailable."}
@@ -478,14 +480,14 @@ def test_stale_browser_save_cannot_overwrite_a_newer_draft_revision() -> None:
             f"/api/v1/strategies/{stale['strategy_id']}/versions/{stale['version']}",
             json={"strategy": stale, "revision": created["revision"]},
         )
-        recovered = client.get("/api/v1/strategies?status=draft").json()["strategies"][0]
+        recovered = client.get("/api/v1/strategies").json()["strategies"][0]
 
     assert accepted.status_code == 200
     assert accepted.json()["revision"] == 2
     assert rejected.status_code == 409
     assert rejected.json() == {"detail": "Strategy draft changed; reload before saving."}
-    assert recovered["strategy"]["name"] == "Newest accepted edit"
-    assert recovered["revision"] == 2
+    assert recovered["name"] == "Newest accepted edit"
+    assert recovered["latest_version"] == 1
 
 
 def test_publication_rejects_a_draft_that_was_never_durably_saved() -> None:
@@ -525,11 +527,14 @@ def test_publishing_a_draft_consumes_its_mutable_browser_copy() -> None:
             f"/api/v1/strategies/{draft['strategy_id']}/publish",
             json={"strategy": draft, "revision": 1},
         )
-        remaining_drafts = client.get("/api/v1/strategies?status=draft")
+        library = client.get("/api/v1/strategies")
 
     assert publication.status_code == 201
-    assert remaining_drafts.status_code == 200
-    assert remaining_drafts.json()["strategies"] == []
+    assert library.status_code == 200
+    entry = library.json()["strategies"][0]
+    assert entry["status"] == "published"
+    assert entry["strategy_id"] == draft["strategy_id"]
+    assert entry["latest_fingerprint"] is not None
 
 
 def test_archiving_hides_immutable_publication_from_active_browser_selection() -> None:
@@ -549,17 +554,15 @@ def test_archiving_hides_immutable_publication_from_active_browser_selection() -
             json={"strategy": draft, "revision": 1},
         ).json()
         archive = client.post(f"/api/v1/strategies/{published['strategy_fingerprint']}/archive")
-        active = client.get("/api/v1/strategies?status=published")
-        history = client.get("/api/v1/strategies?status=published&include_archived=true")
+        history = client.get("/api/v1/strategies")
 
     assert archive.status_code == 200
     assert archive.json()["strategy_fingerprint"] == published["strategy_fingerprint"]
-    assert active.status_code == 200
-    assert active.json()["strategies"] == []
     assert history.status_code == 200
     historic_entry = history.json()["strategies"][0]
-    assert historic_entry["strategy_fingerprint"] == published["strategy_fingerprint"]
-    assert historic_entry["strategy"]["status"] == StrategyStatus.PUBLISHED
+    assert historic_entry["archived"] is True
+    assert historic_entry["status"] == "archived"
+    assert historic_entry["strategy_id"] == draft["strategy_id"]
 
 
 @pytest.mark.parametrize(
@@ -627,7 +630,7 @@ def test_archive_integrity_exception_failures_are_redacted(
         ("create_draft", "/api/v1/strategies", "Strategy draft storage is unavailable."),
         (
             "list_drafts",
-            "/api/v1/strategies?status=draft",
+            "/api/v1/strategies",
             "Strategy lifecycle storage is unavailable.",
         ),
     ),

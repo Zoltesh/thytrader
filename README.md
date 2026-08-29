@@ -98,15 +98,21 @@ A normal `docker compose down` preserves PostgreSQL and immutable market-data vo
 
 ## Strategy research workspace
 
-Open `http://127.0.0.1:5175/strategies` after the local stack is healthy. The workspace reconciles
-active drafts and publications, recovers the newest artifact by creation time (preferring immutable
-publication on a tie), or creates the conservative BTC-USD/1h reference draft when neither exists. It
-displays a bounded semantic summary and lets you save a validated definition. Saves carry an opaque revision and
-reject stale browser tabs rather than overwriting newer edits. **Validate & publish immutable version**
-atomically consumes that mutable draft and records canonical strategy evidence; it does not start paper or
-live trading. A published version can be archived from the same screen: that appends an archive marker
-and hides it from active selection without changing its fingerprint or canonical bytes. Backtests require
-a verified dataset fingerprint and remain deterministic research artifacts.
+Open `http://127.0.0.1:5175/strategies` after the local stack is healthy. The strategy library lists
+every strategy identity with its market and timeframe, latest version, draft/published/archived
+status, the newest backtest bound to any of its immutable versions, and its explicit paper/live
+status. Paper and live report `unavailable` because no execution runtime exists yet; the columns
+appear only after those runtimes deliver real status. From the library you can create the
+conservative reference draft, clone a published strategy into a fresh draft identity, import a
+complete strategy definition JSON as a new draft, and archive an immutable publication.
+
+Draft and publication semantics are unchanged: saves carry an opaque revision and reject stale
+browser tabs rather than overwriting newer edits. **Validate & publish immutable version** (via
+`POST /api/v1/strategies/{strategy_id}/publish`) atomically consumes that mutable draft and records
+canonical strategy evidence; it does not start paper or live trading. A published version can be
+archived from the library: that appends a permanent archive marker and hides it from active
+selection without changing its fingerprint or canonical bytes. Backtests require a verified dataset
+fingerprint and remain deterministic research artifacts.
 
 The next automation milestone is the Phase 4 paper-deployment loop; no autonomous strategy execution,
 order intent, simulated fill, or live order submission exists yet. See the [delivery roadmap](docs/roadmap.md)

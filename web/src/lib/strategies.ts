@@ -10,12 +10,43 @@ export type StrategyDraft = {
 	[key: string]: unknown;
 };
 
-export type StrategyListEntry = {
-	strategy: StrategyDraft;
-	revision: number | null;
-	strategy_fingerprint: string | null;
-	archived_at: string | null;
+export type StrategyLibraryBacktest = {
+	result_fingerprint: string;
+	published_at: string;
+	summary: {
+		initial_equity: string;
+		final_equity: string;
+		total_return_fraction: string;
+		trade_count: number;
+		win_rate: string;
+		maximum_drawdown_fraction: string;
+		[key: string]: unknown;
+	};
+};
+
+export type StrategyLibraryPaperLive = { paper: string; live: string };
+
+export type StrategyLibraryEntry = {
+	strategy_id: string;
+	name: string;
+	product_id: string;
+	timeframe: string;
+	latest_version: number | null;
+	status: string;
+	latest_fingerprint: string | null;
+	archived: boolean;
 	summary: string;
+	backtest: StrategyLibraryBacktest | null;
+	paper_live: StrategyLibraryPaperLive;
+	created_at: string;
+	updated_at: string;
+};
+
+export type StrategyCreatedResponse = {
+	strategy: StrategyDraft;
+	revision: number;
+	created: StrategyLibraryEntry;
+	siblings: StrategyLibraryEntry[];
 };
 
 export type Dataset = {
@@ -26,7 +57,7 @@ export type Dataset = {
 };
 
 export type DraftResponse = { strategy: StrategyDraft; revision: number; summary: string };
-type StrategyListResponse = { strategies: StrategyListEntry[] };
+type StrategyLibraryResponse = { strategies: StrategyLibraryEntry[] };
 type PublishedStrategy = { strategy_fingerprint: string; strategy: StrategyDraft };
 type ArchivedStrategy = { strategy_fingerprint: string; archived_at: string | null };
 type BacktestSubmission = { run_fingerprint: string; result_fingerprint: string };
@@ -43,16 +74,34 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T;
 }
 
-export async function createDraft(): Promise<DraftResponse> {
-	return request<DraftResponse>('/api/v1/strategies', { method: 'POST' });
+export async function createDraft(): Promise<StrategyCreatedResponse> {
+	return request<StrategyCreatedResponse>('/api/v1/strategies', { method: 'POST' });
 }
 
-export async function listDrafts(): Promise<StrategyListEntry[]> {
-	return (await request<StrategyListResponse>('/api/v1/strategies?status=draft')).strategies;
+export async function listStrategies(): Promise<StrategyLibraryEntry[]> {
+	return (await request<StrategyLibraryResponse>('/api/v1/strategies')).strategies;
 }
 
-export async function listPublishedStrategies(): Promise<StrategyListEntry[]> {
-	return (await request<StrategyListResponse>('/api/v1/strategies?status=published')).strategies;
+export async function clonePublishedStrategy(fingerprint: string): Promise<DraftResponse> {
+	return request<DraftResponse>('/api/v1/strategies/clone', {
+		method: 'POST',
+		body: JSON.stringify({ strategy_fingerprint: fingerprint })
+	});
+}
+
+export async function importStrategy(definition: unknown): Promise<DraftResponse> {
+	return request<DraftResponse>('/api/v1/strategies/import', {
+		method: 'POST',
+		body: JSON.stringify({ strategy: definition })
+	});
+}
+
+export async function fetchStrategySource(fingerprint: string): Promise<StrategyDraft> {
+	return (
+		await request<{ strategy: StrategyDraft }>(
+			`/api/v1/strategies/source/${encodeURIComponent(fingerprint)}`
+		)
+	).strategy;
 }
 
 export async function saveDraft(draft: StrategyDraft, revision: number): Promise<DraftResponse> {

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import secrets
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from thytrader.strategies.models import (
@@ -88,6 +88,25 @@ class DisabledStrategyDraftStore:
         """Refuse mutable-state removal without durable storage."""
         del strategy_id, version
         raise RuntimeError("Strategy draft storage is unavailable.")
+
+
+def create_cloned_draft(
+    source: StrategyDefinition, *, now: datetime | None = None
+) -> StrategyDefinition:
+    """Derive a fresh draft identity from immutable evidence without changing semantics."""
+    created_at = (now or datetime.now(UTC)).astimezone(UTC)
+    created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
+    payload: dict[str, Any] = source.model_dump(mode="python")
+    payload.update(
+        {
+            "strategy_id": _uuid7(created_at),
+            "version": 1,
+            "name": f"{source.name} (clone)",
+            "status": StrategyStatus.DRAFT,
+            "created_at": created_at,
+        }
+    )
+    return StrategyDefinition.model_validate(payload)
 
 
 def create_reference_draft(*, now: datetime | None = None) -> StrategyDefinition:

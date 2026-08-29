@@ -17,7 +17,11 @@ from thytrader.backtest.submission import (
 from thytrader.config import Settings
 from thytrader.strategies.authoring import StrategyDraft
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
+from thytrader.strategies.publication import (
+    PublishedStrategy,
+    StrategyCatalogEntry,
+    StrategyPublicationError,
+)
 
 
 class InMemoryBacktestSubmitter:
@@ -64,6 +68,24 @@ class InMemoryStrategyPublicationStore:
         self.draft_store.drafts.pop(key)
         return result
 
+    async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
+        """Return the captured publication as one catalog entry."""
+        del include_archived
+        if self.published is None:
+            return ()
+        return (
+            StrategyCatalogEntry(
+                strategy_fingerprint=strategy_fingerprint(self.published),
+                definition=self.published,
+                archived_at=None,
+            ),
+        )
+
+    async def archive(self, strategy_fingerprint_value: str) -> StrategyCatalogEntry:
+        """Refuse archiving in this publication-capture double."""
+        del strategy_fingerprint_value
+        raise RuntimeError("Published strategy was not found.")
+
 
 class InMemoryStrategyDraftStore:
     """Persist revision-guarded drafts without PostgreSQL."""
@@ -105,17 +127,19 @@ def test_draft_discovery_without_durable_storage_fails_closed() -> None:
     """Draft discovery exposes a controlled unavailable response without a database."""
     app = create_app(Settings(_env_file=None))
     with TestClient(app) as client:
-        response = client.get("/api/v1/strategies?status=draft")
+        library = client.get("/api/v1/strategies")
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Strategy lifecycle storage is unavailable."}
+    assert library.status_code == 503
+    assert library.json() == {"detail": "Strategy lifecycle storage is unavailable."}
 
 
 def test_strategy_creation_returns_a_durable_conservative_draft() -> None:
     """Creating a browser draft supplies server-owned identity and safe reference defaults."""
+    draft_store = InMemoryStrategyDraftStore()
     app = create_app(
         Settings(_env_file=None),
-        strategy_draft_store=InMemoryStrategyDraftStore(),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryStrategyPublicationStore(draft_store),
     )
 
     with TestClient(app) as client:
