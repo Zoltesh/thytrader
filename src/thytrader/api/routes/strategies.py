@@ -109,6 +109,13 @@ class StrategyDraftResponse(BaseModel):
     summary: str
 
 
+class StrategyDraftVersionResponse(BaseModel):
+    """One complete durable draft document with its optimistic-concurrency revision."""
+
+    strategy: StrategyDefinition
+    revision: int = Field(ge=1)
+
+
 class StrategyDraftRequest(BaseModel):
     """One complete editable strategy draft supplied by the browser."""
 
@@ -271,6 +278,39 @@ async def create_strategy_draft(
         revision=draft.revision,
         created=created,
         siblings=tuple(siblings),
+    )
+
+
+@router.get(
+    "/{strategy_id}/versions/{version}",
+    response_model=StrategyDraftVersionResponse,
+)
+async def get_strategy_draft_version(
+    strategy_id: UUID,
+    version: int,
+    store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
+) -> StrategyDraftVersionResponse:
+    """Return one complete durable draft document for browser editing."""
+    try:
+        drafts = await store.list_drafts()
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy draft storage is unavailable.",
+        ) from None
+    for draft in drafts:
+        if draft.definition.strategy_id == strategy_id and draft.definition.version == version:
+            validated = _require_exact_draft(
+                draft,
+                detail="Strategy draft storage is unavailable.",
+            )
+            return StrategyDraftVersionResponse(
+                strategy=validated.definition,
+                revision=validated.revision,
+            )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Strategy draft was not found.",
     )
 
 

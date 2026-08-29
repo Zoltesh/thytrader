@@ -43,6 +43,19 @@ The V1 UI uses a structured rule builder with nested AND/OR groups. It should pr
 - validation before save or deployment;
 - clear separation among signal, sizing, execution, and risk rules.
 
+The browser builder at `/strategies/{strategy_id}` implements this for durable drafts: Overview,
+Market and data, Indicators, Entry conditions, Exit conditions and protective stops, Position
+sizing, Portfolio limits, and Execution preferences. Entry conditions are edited as a nested
+ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
+plain-English summary, live validation errors, the required warmup/data window, unsaved-change
+state, and an explicit engine-support matrix. That matrix distinguishes settings the current
+`thytrader-bar-backtest-v1` engine actually consumes (entry conditions, indicators, risk-fraction
+sizing with notional bounds, ATR initial stop, reward/risk take profit, time exit) from declared
+schema fields it does not yet model (entry cooldown, maker-only/marketable preference, entry wait
+and unfilled policy, trailing stops). The engine fills every simulated entry at the next bar open
+unconditionally, so unsupported fields can be declared but must never be read as backtested
+behavior.
+
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 
 ### First author-to-result vertical slice

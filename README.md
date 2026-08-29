@@ -107,7 +107,10 @@ conservative reference draft, clone a published strategy into a fresh draft iden
 complete strategy definition JSON as a new draft, and archive an immutable publication.
 
 Draft and publication semantics are unchanged: saves carry an opaque revision and reject stale
-browser tabs rather than overwriting newer edits. **Validate & publish immutable version** (via
+browser tabs rather than overwriting newer edits. The builder at `/strategies/{strategy_id}` opens
+any durable draft for full-schema editing with a nested ALL/ANY/NOT rule tree and an inspector
+showing a plain-English summary, validation errors, required warmup, unsaved state, and an explicit
+engine-support matrix. **Validate & publish immutable version** (via
 `POST /api/v1/strategies/{strategy_id}/publish`) atomically consumes that mutable draft and records
 canonical strategy evidence; it does not start paper or live trading. A published version can be
 archived from the library: that appends a permanent archive marker and hides it from active

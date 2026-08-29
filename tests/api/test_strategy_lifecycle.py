@@ -141,6 +141,36 @@ class InMemoryPublicationStore:
         )
 
 
+def test_strategy_draft_version_returns_the_durable_document_for_the_builder() -> None:
+    """The builder can fetch one exact draft document plus its current revision."""
+    draft_store = InMemoryDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryPublicationStore(draft_store),
+    )
+
+    with TestClient(app) as client:
+        created = client.post("/api/v1/strategies").json()
+        draft = created["strategy"]
+        draft["name"] = "Builder-recovered draft"
+        client.put(
+            f"/api/v1/strategies/{draft['strategy_id']}/versions/{draft['version']}",
+            json={"strategy": draft, "revision": created["revision"]},
+        )
+        recovered = client.get(
+            f"/api/v1/strategies/{draft['strategy_id']}/versions/{draft['version']}"
+        )
+        missing = client.get(f"/api/v1/strategies/{draft['strategy_id']}/versions/99")
+
+    assert recovered.status_code == 200
+    payload = recovered.json()
+    assert payload["strategy"]["name"] == "Builder-recovered draft"
+    assert payload["revision"] == 2
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Strategy draft was not found."}
+
+
 def test_strategy_creation_persists_a_draft_that_the_browser_can_recover() -> None:
     """A reference draft survives the create request and is discoverable in the library."""
     draft_store = InMemoryDraftStore()

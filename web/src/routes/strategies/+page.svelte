@@ -221,6 +221,11 @@
 									</td>
 									<td>
 										<div class="row-actions">
+											{#if entry.status === 'draft'}
+												<a class="secondary" href={resolve(`/strategies/${entry.strategy_id}`)}
+													>Edit</a
+												>
+											{/if}
 											<button
 												class="secondary"
 												type="button"
@@ -381,6 +386,10 @@
 		display: flex;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+	.row-actions a.secondary {
+		display: inline-block;
+		text-decoration: none;
 	}
 	.secondary {
 		border: 1px solid #455457;

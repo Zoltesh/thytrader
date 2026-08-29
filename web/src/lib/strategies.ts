@@ -5,8 +5,13 @@ export type StrategyDraft = {
 	description: string | null;
 	status: 'draft' | 'published' | 'archived';
 	created_at: string;
-	sizing: { risk_fraction: string; min_quote_notional: string; max_quote_notional: string };
-	portfolio_limits: { max_strategy_exposure_fraction: string };
+	sizing: {
+		kind?: string;
+		risk_fraction: string;
+		min_quote_notional: string;
+		max_quote_notional: string;
+	};
+	portfolio_limits: { max_strategy_exposure_fraction: string; max_concurrent_positions?: number };
 	[key: string]: unknown;
 };
 
@@ -47,6 +52,65 @@ export type StrategyCreatedResponse = {
 	revision: number;
 	created: StrategyLibraryEntry;
 	siblings: StrategyLibraryEntry[];
+};
+
+export type DraftVersionResponse = { strategy: StrategyDraft; revision: number };
+
+export type IndicatorInput = 'close' | 'volume' | ['high', 'low', 'close'];
+
+export type IndicatorDraft = {
+	id: string;
+	kind: 'ema' | 'sma' | 'rsi' | 'atr' | 'volume_sma';
+	input: IndicatorInput;
+	parameters: { period: number };
+};
+
+export type ComparisonOperatorValue =
+	| 'greater_than'
+	| 'greater_than_or_equal'
+	| 'less_than'
+	| 'less_than_or_equal'
+	| 'equals'
+	| 'crosses_above'
+	| 'crosses_below';
+
+export type OperandDraft = { indicator: string } | { literal: string };
+
+export type ConditionDraft =
+	| { left: OperandDraft; operator: ComparisonOperatorValue; right: OperandDraft }
+	| { all: ConditionDraft[] }
+	| { any: ConditionDraft[] }
+	| { not: ConditionDraft };
+
+export type BuilderModel = {
+	strategy_id: string;
+	version: number;
+	revision: number;
+	name: string;
+	description: string;
+	status: string;
+	created_at: string;
+	product_id: string;
+	base_currency: string;
+	timeframe: string;
+	warmup_bars: number;
+	indicators: IndicatorDraft[];
+	entry: { when: ConditionDraft };
+	sizing: { risk_fraction: string; min_quote_notional: string; max_quote_notional: string };
+	portfolio_limits: { max_strategy_exposure_fraction: string };
+	exits: {
+		initial_stop: { kind: string; atr_indicator: string; multiple: string };
+		take_profit: { kind: string; multiple: string };
+		trailing_stop: { enabled: boolean };
+		time_exit: { max_bars_held: number };
+	};
+	execution: {
+		entry_preference: string;
+		max_entry_wait_bars: number;
+		on_unfilled_entry: string;
+	};
+	cooldown_bars: number;
+	metadata: { tags: string[]; notes: string[] };
 };
 
 export type Dataset = {
@@ -102,6 +166,81 @@ export async function fetchStrategySource(fingerprint: string): Promise<Strategy
 			`/api/v1/strategies/source/${encodeURIComponent(fingerprint)}`
 		)
 	).strategy;
+}
+
+export async function fetchDraftVersion(
+	strategyId: string,
+	version: number
+): Promise<DraftVersionResponse> {
+	return request<DraftVersionResponse>(
+		`/api/v1/strategies/${encodeURIComponent(strategyId)}/versions/${version}`
+	);
+}
+
+export function toBuilderModel(strategy: StrategyDraft, revision: number): BuilderModel {
+	const entry = strategy.entry as { when: ConditionDraft; cooldown_bars: number };
+	const exits = strategy.exits as BuilderModel['exits'];
+	return {
+		strategy_id: strategy.strategy_id,
+		version: strategy.version,
+		revision,
+		name: strategy.name,
+		description: strategy.description ?? '',
+		status: strategy.status,
+		created_at: strategy.created_at,
+		product_id: (strategy.instrument as { product_id: string }).product_id,
+		base_currency: (strategy.instrument as { base_currency: string }).base_currency,
+		timeframe: strategy.timeframe as string,
+		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
+		indicators: (strategy.indicators as IndicatorDraft[]) ?? [],
+		entry: { when: entry.when },
+		sizing: {
+			risk_fraction: strategy.sizing.risk_fraction,
+			min_quote_notional: strategy.sizing.min_quote_notional,
+			max_quote_notional: strategy.sizing.max_quote_notional
+		},
+		portfolio_limits: {
+			max_strategy_exposure_fraction: strategy.portfolio_limits.max_strategy_exposure_fraction
+		},
+		exits,
+		execution: strategy.execution as BuilderModel['execution'],
+		cooldown_bars: entry.cooldown_bars,
+		metadata: strategy.metadata as BuilderModel['metadata']
+	};
+}
+
+export function fromBuilderModel(model: BuilderModel): StrategyDraft {
+	return {
+		schema_version: '1.0',
+		strategy_id: model.strategy_id,
+		version: model.version,
+		name: model.name,
+		description: model.description.trim().length > 0 ? model.description : null,
+		status: 'draft',
+		created_at: model.created_at,
+		instrument: {
+			product_id: model.product_id,
+			base_currency: model.base_currency,
+			quote_currency: 'USD'
+		},
+		timeframe: model.timeframe,
+		data_requirements: {
+			warmup_bars: model.warmup_bars,
+			required_fields: ['open', 'high', 'low', 'close', 'volume']
+		},
+		indicators: model.indicators,
+		entry: {
+			side: 'long',
+			when: model.entry.when,
+			cooldown_bars: model.cooldown_bars,
+			max_open_positions: 1
+		},
+		sizing: { kind: 'risk_fraction', ...model.sizing },
+		portfolio_limits: { ...model.portfolio_limits, max_concurrent_positions: 1 },
+		exits: model.exits,
+		execution: model.execution,
+		metadata: model.metadata
+	};
 }
 
 export async function saveDraft(draft: StrategyDraft, revision: number): Promise<DraftResponse> {
