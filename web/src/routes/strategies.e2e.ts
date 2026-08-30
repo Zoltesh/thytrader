@@ -160,7 +160,12 @@ test('clones a published strategy by fingerprint and refreshes the library', asy
 		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
 	});
 	await page.goto('/strategies');
-	await page.getByRole('button', { name: 'Clone' }).click();
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	await page
+		.getByRole('toolbar', { name: 'Row actions' })
+		.getByRole('button', { name: 'Clone' })
+		.click();
 	await expect.poll(() => cloneFingerprint).toBe(fingerprint);
 	await expect(page.getByRole('alert')).not.toBeVisible();
 });
@@ -182,9 +187,48 @@ test('archives a published strategy and refreshes the library', async ({ page })
 		});
 	});
 	await page.goto('/strategies');
-	await page.getByRole('button', { name: 'Archive' }).click();
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	const toolbar = page.getByRole('toolbar', { name: 'Row actions' });
+	await toolbar.getByRole('button', { name: 'Archive' }).click();
 	await expect(page.locator('.status-pill[data-status="archived"]')).toBeVisible();
 	await expect(page.getByRole('alert')).not.toBeVisible();
+});
+
+test('shows a hover action bar with status-appropriate actions and edge-safe positioning', async ({
+	page
+}) => {
+	mockLibrary(page, [publishedEntry, secondStrategyEntry]);
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.waitForTimeout(400);
+	await expect(page.locator('th')).toHaveCount(6);
+	await expect(page.getByRole('columnheader', { name: 'Actions' })).toHaveCount(0);
+
+	const firstRow = page.locator('table tbody tr').first();
+	await firstRow.hover();
+	const toolbar = page.getByRole('toolbar', { name: 'Row actions' });
+	await expect(toolbar).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'View' })).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'Clone' })).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'Archive' })).toBeVisible();
+	await expect(toolbar.getByRole('link', { name: 'Edit' })).toHaveCount(0);
+	const barBox = await toolbar.boundingBox();
+	expect(barBox).not.toBeNull();
+	if (barBox) {
+		expect(barBox.x).toBeGreaterThanOrEqual(0);
+		expect(barBox.x + barBox.width).toBeLessThanOrEqual(900);
+	}
+
+	await page.locator('table tbody tr').nth(1).hover();
+	await expect(toolbar.getByRole('link', { name: 'Edit' })).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'Clone' })).toHaveCount(0);
+
+	await page.locator('tbody').hover({ position: { x: 5, y: 5 } });
+	await firstRow.hover();
+	await page.mouse.move(10, 10);
+	await expect(toolbar).not.toBeVisible();
 });
 
 test('imports a pasted strategy definition as a new draft', async ({ page }) => {

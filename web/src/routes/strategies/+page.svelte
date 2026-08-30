@@ -26,6 +26,53 @@
 	let viewModel = $state<BuilderModel | null>(null);
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
+	let hoveredId = $state<string | null>(null);
+	let barPosition = $state<{ x: number; y: number } | null>(null);
+	let barWidth = $state(0);
+	let barHeight = $state(0);
+	let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
+		cancelHide();
+		hoveredId = entry.strategy_id;
+		updateBarPosition(event);
+	}
+
+	function updateBarPosition(event: MouseEvent): void {
+		const gap = 14;
+		const margin = 8;
+		const height = barHeight || 46;
+		const width = barWidth || 240;
+		const rightEdge = window.innerWidth - margin;
+		let x = event.clientX + gap;
+		// Prefer the right of the cursor; flip to the left when it would clip.
+		if (x + width > rightEdge) {
+			x = event.clientX - gap - width;
+		}
+		// Cursor hugging the edge in both directions: clamp inside the viewport.
+		x = Math.min(Math.max(x, margin), rightEdge - width);
+		let y = event.clientY - height - gap;
+		if (y < margin) {
+			// Not enough room above the cursor: drop the bar below it.
+			y = event.clientY + gap;
+		}
+		barPosition = { x, y };
+	}
+
+	function scheduleHide(): void {
+		cancelHide();
+		hideTimer = setTimeout(() => {
+			hoveredId = null;
+			barPosition = null;
+		}, 140);
+	}
+
+	function cancelHide(): void {
+		if (hideTimer !== null) {
+			clearTimeout(hideTimer);
+			hideTimer = null;
+		}
+	}
 
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
 		viewEntry = entry;
@@ -217,12 +264,22 @@
 								<th scope="col">Status</th>
 								<th scope="col">Latest backtest</th>
 								<th scope="col">Paper / live</th>
-								<th scope="col">Actions</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each entries as entry (entry.strategy_id)}
-								<tr>
+								<tr
+									class:hover-row={hoveredId === entry.strategy_id}
+									onmouseenter={(event) => showBar(event, entry)}
+									onmousemove={(event) => {
+										if (hoveredId === entry.strategy_id) updateBarPosition(event);
+									}}
+									onmouseleave={scheduleHide}
+									onclick={(event) => {
+										if ((event.target as HTMLElement).closest('a, button')) return;
+										openView(entry);
+									}}
+								>
 									<td>
 										<span class="strategy-name">{entry.name}</span>
 									</td>
@@ -250,38 +307,6 @@
 									</td>
 									<td>
 										<span class="muted">{entry.paper_live.paper} / {entry.paper_live.live}</span>
-									</td>
-									<td>
-										<div class="row-actions">
-											<button class="secondary" type="button" onclick={() => openView(entry)}
-												>View</button
-											>
-											{#if entry.status === 'draft'}
-												<a class="secondary" href={resolve(`/strategies/${entry.strategy_id}`)}
-													>Edit</a
-												>
-											{/if}
-											{#if entry.latest_fingerprint}
-												<button
-													class="secondary"
-													type="button"
-													onclick={() => clone(entry)}
-													disabled={pendingAction !== null}
-													>{pendingAction === `clone:${entry.strategy_id}`
-														? 'Cloning…'
-														: 'Clone'}</button
-												>
-												<button
-													class="secondary"
-													type="button"
-													onclick={() => archive(entry)}
-													disabled={pendingAction !== null}
-													>{pendingAction === `archive:${entry.strategy_id}`
-														? 'Archiving…'
-														: 'Archive'}</button
-												>
-											{/if}
-										</div>
 									</td>
 								</tr>
 							{/each}
@@ -383,6 +408,48 @@
 	</div>
 {/if}
 
+{#if hoveredId !== null && barPosition !== null}
+	<div
+		class="hover-actions"
+		bind:clientWidth={barWidth}
+		bind:clientHeight={barHeight}
+		style="left: {barPosition.x}px; top: {barPosition.y}px;"
+		onmouseenter={cancelHide}
+		onmouseleave={scheduleHide}
+		role="toolbar"
+		aria-label="Row actions"
+		tabindex="-1"
+	>
+		{#if hoveredId !== null}
+			{@const entry = entries.find((candidate) => candidate.strategy_id === hoveredId)}
+			{#if entry}
+				<button class="bar-button" type="button" onclick={() => openView(entry)}>View</button>
+				{#if entry.status === 'draft'}
+					<a class="bar-button" href={resolve(`/strategies/${entry.strategy_id}`)}>Edit</a>
+				{/if}
+				{#if entry.latest_fingerprint}
+					<button
+						class="bar-button"
+						type="button"
+						disabled={pendingAction !== null}
+						onclick={() => clone(entry)}
+					>
+						{pendingAction === `clone:${entry.strategy_id}` ? 'Cloning…' : 'Clone'}
+					</button>
+					<button
+						class="bar-button bar-danger"
+						type="button"
+						disabled={pendingAction !== null}
+						onclick={() => archive(entry)}
+					>
+						{pendingAction === `archive:${entry.strategy_id}` ? 'Archiving…' : 'Archive'}
+					</button>
+				{/if}
+			{/if}
+		{/if}
+	</div>
+{/if}
+
 <style>
 	.library-card {
 		background: var(--card, #141b1c);
@@ -417,6 +484,15 @@
 	}
 	tbody tr:last-child td {
 		border-bottom: none;
+	}
+	tbody tr {
+		cursor: default;
+	}
+	tbody tr.hover-row td {
+		background: #1a2426;
+	}
+	tbody tr.hover-row .strategy-name {
+		color: #9fe0bd;
 	}
 	.strategy-name {
 		display: block;
@@ -453,14 +529,51 @@
 	td a {
 		color: #7fd0f0;
 	}
-	.row-actions {
+	.hover-actions {
+		position: fixed;
+		z-index: 30;
 		display: flex;
-		gap: 8px;
-		flex-wrap: wrap;
+		gap: 6px;
+		padding: 6px;
+		background: #1d2627;
+		border: 1px solid #3a4648;
+		border-radius: 10px;
+		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+		animation: bar-in 90ms ease-out;
 	}
-	.row-actions a.secondary {
-		display: inline-block;
+	@keyframes bar-in {
+		from {
+			opacity: 0;
+			transform: translateY(3px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+	.bar-button {
+		border: 1px solid #455457;
+		border-radius: 8px;
+		background: transparent;
+		color: #d8e1e2;
+		padding: 6px 11px;
+		font: inherit;
+		font-size: 12px;
+		cursor: pointer;
 		text-decoration: none;
+		display: inline-block;
+	}
+	.bar-button:hover:not(:disabled) {
+		background: #273437;
+		border-color: #5b6c70;
+	}
+	.bar-button.bar-danger:hover:not(:disabled) {
+		color: #f0a3a3;
+		border-color: #6c4040;
+	}
+	.bar-button:disabled {
+		opacity: 0.55;
+		cursor: default;
 	}
 	.secondary {
 		border: 1px solid #455457;
