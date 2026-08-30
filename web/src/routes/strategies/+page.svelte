@@ -35,27 +35,22 @@
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
 		hoveredId = entry.strategy_id;
-		updateBarPosition(event);
+		positionBarForRow((event.currentTarget as HTMLElement).getBoundingClientRect());
 	}
 
-	function updateBarPosition(event: MouseEvent): void {
-		const gap = 14;
-		const margin = 8;
+	// One stable spot per row: vertically centered, right-aligned. The bar never
+	// follows the mouse, so it stays a fixed target while the row is hovered.
+	function positionBarForRow(rowRect: DOMRect): void {
+		const margin = 10;
 		const height = barHeight || 46;
 		const width = barWidth || 240;
-		const rightEdge = window.innerWidth - margin;
-		let x = event.clientX + gap;
-		// Prefer the right of the cursor; flip to the left when it would clip.
-		if (x + width > rightEdge) {
-			x = event.clientX - gap - width;
-		}
-		// Cursor hugging the edge in both directions: clamp inside the viewport.
-		x = Math.min(Math.max(x, margin), rightEdge - width);
-		let y = event.clientY - height - gap;
-		if (y < margin) {
-			// Not enough room above the cursor: drop the bar below it.
-			y = event.clientY + gap;
-		}
+		// clientWidth excludes the scrollbar, unlike innerWidth.
+		const visibleWidth = document.documentElement.clientWidth;
+		const x = visibleWidth - margin - width;
+		const y = Math.min(
+			Math.max(rowRect.top + rowRect.height / 2 - height / 2, margin),
+			document.documentElement.clientHeight - height - margin
+		);
 		barPosition = { x, y };
 	}
 
@@ -73,6 +68,12 @@
 			hideTimer = null;
 		}
 	}
+
+	$effect(() => {
+		if (hoveredId === null || barWidth === 0 || barHeight === 0) return;
+		const row = document.querySelector(`tbody tr[data-strategy-id="${hoveredId}"]`);
+		if (row instanceof HTMLElement) positionBarForRow(row.getBoundingClientRect());
+	});
 
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
 		viewEntry = entry;
@@ -269,11 +270,9 @@
 						<tbody>
 							{#each entries as entry (entry.strategy_id)}
 								<tr
+									data-strategy-id={entry.strategy_id}
 									class:hover-row={hoveredId === entry.strategy_id}
 									onmouseenter={(event) => showBar(event, entry)}
-									onmousemove={(event) => {
-										if (hoveredId === entry.strategy_id) updateBarPosition(event);
-									}}
 									onmouseleave={scheduleHide}
 									onclick={(event) => {
 										if ((event.target as HTMLElement).closest('a, button')) return;
@@ -489,10 +488,10 @@
 		cursor: default;
 	}
 	tbody tr.hover-row td {
-		background: #1a2426;
+		background: #1b2527;
 	}
-	tbody tr.hover-row .strategy-name {
-		color: #9fe0bd;
+	tbody tr.hover-row td:first-child {
+		box-shadow: inset 3px 0 0 #2f6f52;
 	}
 	.strategy-name {
 		display: block;
@@ -533,23 +532,14 @@
 		position: fixed;
 		z-index: 30;
 		display: flex;
-		gap: 6px;
-		padding: 6px;
-		background: #1d2627;
+		gap: 4px;
+		padding: 5px;
+		background: rgba(24, 32, 33, 0.92);
+		backdrop-filter: blur(6px);
 		border: 1px solid #3a4648;
 		border-radius: 10px;
-		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-		animation: bar-in 90ms ease-out;
-	}
-	@keyframes bar-in {
-		from {
-			opacity: 0;
-			transform: translateY(3px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+		transition: opacity 100ms ease;
 	}
 	.bar-button {
 		border: 1px solid #455457;
