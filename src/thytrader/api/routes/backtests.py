@@ -28,6 +28,7 @@ from thytrader.backtest.models import (
 )
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
+    BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
     BacktestSubmitter,
 )
@@ -130,7 +131,16 @@ async def submit_backtest(
     """Submit one immutable historical simulation without paper or live authority."""
     try:
         result = await submitter.submit(request)
-    except BacktestSubmissionError:
+    except BacktestSubmissionRejectedError as rejected:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "backtest_window_rejected",
+                "message": str(rejected),
+            },
+        ) from None
+    except BacktestSubmissionError as error:
+        _logger.warning("backtest_submission_failed error_class=%s", type(error.__cause__).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Backtest submission is unavailable.",

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.service import evaluate_and_publish_backtest
+from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -26,11 +27,16 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
+from thytrader.research.publication import (
+    PublishedResearchRunSpecification,
+    ResearchRunPublicationError,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
+    from thytrader.strategies.publication import PublishedStrategy
 
 
 class BacktestSubmissionRequest(BaseModel):
@@ -67,6 +73,10 @@ class BacktestSubmissionResult:
 
 class BacktestSubmissionError(RuntimeError):
     """Report a redacted submission failure without granting trading authority."""
+
+
+class BacktestSubmissionRejectedError(ValueError):
+    """Report a caller-input rejection (dataset/window mismatch) before any I/O."""
 
 
 @runtime_checkable
@@ -106,6 +116,11 @@ class PostgresBacktestSubmitter:
         try:
             _validate_submission_assumptions(request)
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
+        except BacktestSubmissionRejectedError:
+            raise
+        except Exception as error:
+            raise BacktestSubmissionError("Backtest submission is unavailable.") from error
+        try:
             now = _utc_millisecond(datetime.now(UTC))
             await self._strategy_store.bind_dataset(
                 request.strategy_fingerprint,
@@ -119,42 +134,8 @@ class PostgresBacktestSubmitter:
                 dataset_store=self._dataset_store,
             )
             if published_run is None:
-                specification = ResearchRunSpecification(
-                    schema_version="1.0",
-                    run_id=_uuid7(now),
-                    created_at=now,
-                    strategy_fingerprint=request.strategy_fingerprint,
-                    dataset_fingerprint=request.dataset_fingerprint,
-                    evaluation=EvaluationWindow(
-                        starts_at=request.evaluation_start,
-                        ends_at=request.evaluation_end,
-                    ),
-                    warmup=WarmupWindow(
-                        bars=strategy.definition.data_requirements.warmup_bars,
-                        starts_at=request.evaluation_start
-                        - timedelta(hours=strategy.definition.data_requirements.warmup_bars),
-                    ),
-                    capital=CapitalAssumptions(
-                        quote_currency="USD",
-                        initial_quote_balance=request.initial_quote_balance,
-                    ),
-                    costs=CostAssumptions(
-                        maker_fee_rate=request.maker_fee_rate,
-                        taker_fee_rate=request.taker_fee_rate,
-                        fixed_slippage_bps=request.fixed_slippage_bps,
-                    ),
-                    broker=_broker_from_request(request),
-                    bar_execution=BarExecutionAssumptions(
-                        signal_timing="completed_candle_close",
-                        fill_timing="next_candle_open",
-                    ),
-                    engine_contract_version=request.engine_contract_version,
-                    random_seed=0,
-                )
-                published_run = await self._run_store.publish(
-                    specification,
-                    dataset_store=self._dataset_store,
-                    execution_fingerprint=execution_fingerprint,
+                published_run = await self._publish_run(
+                    request, strategy, now, execution_fingerprint
                 )
             result = await evaluate_and_publish_backtest(
                 published_run.run_fingerprint,
@@ -163,12 +144,67 @@ class PostgresBacktestSubmitter:
                 dataset_store=self._dataset_store,
                 result_store=self._result_store,
             )
+        except BacktestSubmissionRejectedError:
+            raise
         except Exception as error:
             raise BacktestSubmissionError("Backtest submission is unavailable.") from error
         return BacktestSubmissionResult(
             run_fingerprint=published_run.run_fingerprint,
             result_fingerprint=backtest_result_fingerprint(result),
         )
+
+    async def _publish_run(
+        self,
+        request: BacktestSubmissionRequest,
+        strategy: PublishedStrategy,
+        now: datetime,
+        execution_fingerprint: str,
+    ) -> PublishedResearchRunSpecification:
+        """Build, verify, and idempotently publish one immutable run specification."""
+        specification = ResearchRunSpecification(
+            schema_version="1.0",
+            run_id=_uuid7(now),
+            created_at=now,
+            strategy_fingerprint=request.strategy_fingerprint,
+            dataset_fingerprint=request.dataset_fingerprint,
+            evaluation=EvaluationWindow(
+                starts_at=request.evaluation_start,
+                ends_at=request.evaluation_end,
+            ),
+            warmup=WarmupWindow(
+                bars=strategy.definition.data_requirements.warmup_bars,
+                starts_at=request.evaluation_start
+                - timedelta(hours=strategy.definition.data_requirements.warmup_bars),
+            ),
+            capital=CapitalAssumptions(
+                quote_currency="USD",
+                initial_quote_balance=request.initial_quote_balance,
+            ),
+            costs=CostAssumptions(
+                maker_fee_rate=request.maker_fee_rate,
+                taker_fee_rate=request.taker_fee_rate,
+                fixed_slippage_bps=request.fixed_slippage_bps,
+            ),
+            broker=_broker_from_request(request),
+            bar_execution=BarExecutionAssumptions(
+                signal_timing="completed_candle_close",
+                fill_timing="next_candle_open",
+            ),
+            engine_contract_version=request.engine_contract_version,
+            random_seed=0,
+        )
+        try:
+            return await self._run_store.publish(
+                specification,
+                dataset_store=self._dataset_store,
+                execution_fingerprint=execution_fingerprint,
+            )
+        except (ResearchRunPublicationError, DatasetStoreError) as error:
+            raise BacktestSubmissionRejectedError(
+                "The evaluation window does not fit the selected dataset. "
+                "The dataset must cover the strategy warmup before the window "
+                "and one extra candle after it."
+            ) from error
 
 
 def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None:

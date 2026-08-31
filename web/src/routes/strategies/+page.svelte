@@ -7,9 +7,11 @@
 		archivePublishedStrategy,
 		createDraft,
 		clonePublishedStrategy,
+		datasetEvaluationWindow,
 		fetchDraftVersion,
 		fetchStrategySource,
 		importStrategy,
+		latestDatasets,
 		listDatasets,
 		listStrategies,
 		submitBacktest,
@@ -241,9 +243,10 @@
 		try {
 			const datasets = await listDatasets();
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-			launchDatasets = datasets.filter((dataset) => dataset.product_id === entry.product_id);
+			// Revisions are cumulative; only the latest one is a useful launch target.
+			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === entry.product_id));
 			if (launchDatasets.length > 0) {
-				launchForm.dataset_fingerprint = launchDatasets[0].content_fingerprint;
+				selectLaunchDataset(launchDatasets[0]);
 			}
 		} catch (caught) {
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
@@ -254,6 +257,36 @@
 				launchDatasetsLoading = false;
 			}
 		}
+	}
+
+	function selectLaunchDataset(dataset: Dataset): void {
+		launchForm.dataset_fingerprint = dataset.content_fingerprint;
+		applyLaunchWindowDefaults();
+	}
+
+	function applyLaunchWindowDefaults(): void {
+		const dataset = launchDatasets.find(
+			(candidate) => candidate.content_fingerprint === launchForm.dataset_fingerprint
+		);
+		if (dataset === undefined) return;
+		const warmup = viewModel?.warmup_bars ?? 0;
+		const bounds = datasetEvaluationWindow(dataset, warmup);
+		launchForm.evaluation_start = bounds.min;
+		launchForm.evaluation_end = bounds.max;
+	}
+
+	function launchWindowBounds(): { min: string; max: string } | null {
+		const dataset = launchDatasets.find(
+			(candidate) => candidate.content_fingerprint === launchForm.dataset_fingerprint
+		);
+		if (dataset === undefined) return null;
+		return datasetEvaluationWindow(dataset, viewModel?.warmup_bars ?? 0);
+	}
+
+	function launchWindowHint(): string | null {
+		const bounds = launchWindowBounds();
+		if (bounds === null) return null;
+		return `Usable window for this dataset: ${bounds.min.replace('T', ' ')} → ${bounds.max.replace('T', ' ')} (UTC hours). It must fit inside the dataset with ${viewModel?.warmup_bars ?? 0} warmup bars before it and one candle after it.`;
 	}
 
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
@@ -284,6 +317,8 @@
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
 			viewModel = loadedModel;
 			if (loadedModel !== null) {
+				// Datasets may have loaded first; refresh window defaults with the real warmup.
+				applyLaunchWindowDefaults();
 				void loadVersionResults(entry, requestId);
 			}
 		} catch (caught) {
@@ -646,7 +681,10 @@
 							>
 							<label
 								>Verified dataset
-								<select bind:value={launchForm.dataset_fingerprint}>
+								<select
+									bind:value={launchForm.dataset_fingerprint}
+									onchange={() => applyLaunchWindowDefaults()}
+								>
 									<option value="">Select a verified {viewEntry.product_id} dataset</option>
 									{#each launchDatasets as dataset (dataset.content_fingerprint)}
 										<option value={dataset.content_fingerprint}
@@ -683,13 +721,26 @@
 						<div class="launch-grid">
 							<label
 								>Evaluation start
-								<input type="datetime-local" bind:value={launchForm.evaluation_start} /></label
+								<input
+									type="datetime-local"
+									bind:value={launchForm.evaluation_start}
+									min={launchWindowBounds()?.min}
+									max={launchWindowBounds()?.max}
+								/></label
 							>
 							<label
 								>Evaluation end
-								<input type="datetime-local" bind:value={launchForm.evaluation_end} /></label
+								<input
+									type="datetime-local"
+									bind:value={launchForm.evaluation_end}
+									min={launchWindowBounds()?.min}
+									max={launchWindowBounds()?.max}
+								/></label
 							>
 						</div>
+						{#if launchWindowHint() !== null}
+							<p class="view-note">{launchWindowHint()}</p>
+						{/if}
 						<div class="launch-grid">
 							<label
 								>Initial capital (USD)

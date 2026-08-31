@@ -12,11 +12,14 @@ import pytest
 
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
+    BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
     PostgresBacktestSubmitter,
     _broker_from_request,
     _execution_fingerprint,
 )
+from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.research.publication import ResearchRunPublicationError
 
 
 class _NoIoStrategyStore:
@@ -167,3 +170,103 @@ async def test_submitter_rejects_forged_invalid_financial_input_before_io(
         await submitter.submit(forged)
 
     assert strategy_store.load_calls == 0
+
+
+@pytest.mark.anyio
+async def test_dataset_coverage_failure_maps_to_caller_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A window that cannot fit the dataset is a caller error, not an outage."""
+    submitter = object.__new__(PostgresBacktestSubmitter)
+    run_store = _RejectingRunStore(ResearchRunPublicationError("no warmup coverage"))
+    dataset_store = _UnusedDatasetStore()
+    monkeypatch.setattr(submitter, "_strategy_store", _LoadedStrategyStore(), raising=False)
+    monkeypatch.setattr(submitter, "_run_store", run_store, raising=False)
+    monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
+
+    with pytest.raises(BacktestSubmissionRejectedError, match="does not fit the selected dataset"):
+        await submitter.submit(_request())
+
+    assert dataset_store.load_candles_calls == 0
+
+
+@pytest.mark.anyio
+async def test_dataset_integrity_failure_maps_to_caller_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dataset the store cannot verify is reported as a caller-visible rejection."""
+    submitter = object.__new__(PostgresBacktestSubmitter)
+    run_store = _RejectingRunStore(DatasetStoreError("manifest integrity failed"))
+    dataset_store = _UnusedDatasetStore()
+    monkeypatch.setattr(submitter, "_strategy_store", _LoadedStrategyStore(), raising=False)
+    monkeypatch.setattr(submitter, "_run_store", run_store, raising=False)
+    monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
+
+    with pytest.raises(BacktestSubmissionRejectedError, match="does not fit the selected dataset"):
+        await submitter.submit(_request())
+
+
+@pytest.mark.anyio
+async def test_unexpected_publish_failure_maps_to_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failures outside the known validation set stay redacted unavailability."""
+    submitter = object.__new__(PostgresBacktestSubmitter)
+    run_store = _RejectingRunStore(RuntimeError("connection reset"))
+    dataset_store = _UnusedDatasetStore()
+    monkeypatch.setattr(submitter, "_strategy_store", _LoadedStrategyStore(), raising=False)
+    monkeypatch.setattr(submitter, "_run_store", run_store, raising=False)
+    monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
+
+    with pytest.raises(BacktestSubmissionError, match="unavailable"):
+        await submitter.submit(_request())
+
+
+class _RejectingRunStore:
+    """Raise one fixed publication error to exercise the submitter's error mapping."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def load_by_execution_fingerprint(self, *args: object, **kwargs: object) -> None:
+        """Report no existing equivalent run so publication is attempted."""
+        del args, kwargs
+        return
+
+    async def publish(self, *args: object, **kwargs: object) -> None:
+        """Raise the configured publication error."""
+        del args, kwargs
+        raise self._error
+
+
+class _LoadedStrategyStore:
+    """Return minimal published-strategy evidence without database I/O."""
+
+    async def load(self, strategy_fingerprint: str) -> object:
+        """Return a stand-in published strategy with one warmup bar."""
+        del strategy_fingerprint
+
+        class _Definition:
+            data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
+
+        class _Strategy:
+            definition = _Definition()
+
+        return _Strategy()
+
+    async def bind_dataset(self, *args: object, **kwargs: object) -> None:
+        """Accept the binding without persistence."""
+        del args, kwargs
+
+
+class _UnusedDatasetStore:
+    """Record whether dataset candle I/O was reached (it must not be)."""
+
+    def __init__(self) -> None:
+        self.load_candles_calls = 0
+
+    def load_candles(self, content_fingerprint: str) -> tuple[()]:
+        """Record the forbidden candle load."""
+        del content_fingerprint
+        self.load_candles_calls += 1
+        return ()

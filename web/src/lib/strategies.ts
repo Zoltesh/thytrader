@@ -126,6 +126,42 @@ export type Dataset = {
 	content_fingerprint: string;
 };
 
+/**
+ * Collapse verified cumulative revisions to one latest dataset per product.
+ * Every revision of a product shares its start and grows its end, so the
+ * newest `ends_at` (tiebroken by candle count) is a strict superset.
+ */
+export function latestDatasets(datasets: Dataset[]): Dataset[] {
+	const byProduct = new Map<string, Dataset>();
+	for (const dataset of datasets) {
+		const current = byProduct.get(dataset.product_id);
+		if (
+			current === undefined ||
+			dataset.ends_at > current.ends_at ||
+			(dataset.ends_at === current.ends_at && dataset.starts_at < current.starts_at)
+		) {
+			byProduct.set(dataset.product_id, dataset);
+		}
+	}
+	return [...byProduct.values()];
+}
+
+/** Compute the inclusive evaluation window one dataset can support for a warmup. */
+export function datasetEvaluationWindow(
+	dataset: Dataset,
+	warmupBars: number
+): { min: string; max: string } {
+	const toLocalInput = (iso: string): string => {
+		const shifted = new Date(new Date(iso).getTime() - warmupBars * 3_600_000);
+		return shifted.toISOString().slice(0, 16);
+	};
+	return {
+		min: toLocalInput(dataset.starts_at),
+		// One candle beyond the end is consumed for the final next-open fill.
+		max: toLocalInput(new Date(new Date(dataset.ends_at).getTime() - 3_600_000).toISOString())
+	};
+}
+
 export type DraftResponse = { strategy: StrategyDraft; revision: number; summary: string };
 type StrategyLibraryResponse = { strategies: StrategyLibraryEntry[] };
 type PublishedStrategy = { strategy_fingerprint: string; strategy: StrategyDraft };
@@ -138,8 +174,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 		headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init?.headers }
 	});
 	if (!response.ok) {
-		const body = (await response.json().catch(() => ({}))) as { detail?: string };
-		const detail = body.detail ?? 'no details returned';
+		const body = (await response.json().catch(() => ({}))) as {
+			detail?: string | { message?: string };
+		};
+		const detail =
+			typeof body.detail === 'string'
+				? body.detail
+				: (body.detail?.message ?? 'no details returned');
 		throw new Error(`The research operation failed (HTTP ${response.status}): ${detail}`);
 	}
 	return (await response.json()) as T;
