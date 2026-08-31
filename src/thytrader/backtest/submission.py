@@ -7,10 +7,10 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 import secrets
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, Self, runtime_checkable
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.service import evaluate_and_publish_backtest
@@ -19,6 +19,7 @@ from thytrader.persistence.postgres_research_runs import PostgresResearchRunStor
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.research.models import (
     BarExecutionAssumptions,
+    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -44,6 +45,16 @@ class BacktestSubmissionRequest(BaseModel):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
+    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"] = (
+        "thytrader-bar-backtest-v1"
+    )
+    spread_bps: str | None = None
+
+    @model_validator(mode="after")
+    def validate_engine_broker_contract(self) -> Self:
+        """Reject assumptions that cannot form one valid immutable research run."""
+        _validate_submission_assumptions(self)
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +102,9 @@ class PostgresBacktestSubmitter:
         )
 
     async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
-        """Create/reuse exact V1 research inputs, simulate, and return immutable identities."""
+        """Create/reuse exact research inputs, simulate, and return immutable identities."""
         try:
+            _validate_submission_assumptions(request)
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
             now = _utc_millisecond(datetime.now(UTC))
             await self._strategy_store.bind_dataset(
@@ -131,11 +143,12 @@ class PostgresBacktestSubmitter:
                         taker_fee_rate=request.taker_fee_rate,
                         fixed_slippage_bps=request.fixed_slippage_bps,
                     ),
+                    broker=_broker_from_request(request),
                     bar_execution=BarExecutionAssumptions(
                         signal_timing="completed_candle_close",
                         fill_timing="next_candle_open",
                     ),
-                    engine_contract_version="thytrader-bar-backtest-v1",
+                    engine_contract_version=request.engine_contract_version,
                     random_seed=0,
                 )
                 published_run = await self._run_store.publish(
@@ -158,8 +171,50 @@ class PostgresBacktestSubmitter:
         )
 
 
+def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None:
+    """Revalidate every untrusted simulation assumption before source or persistence I/O."""
+    _require_valid_broker_inputs(request)
+    EvaluationWindow(starts_at=request.evaluation_start, ends_at=request.evaluation_end)
+    CapitalAssumptions(
+        quote_currency="USD",
+        initial_quote_balance=request.initial_quote_balance,
+    )
+    CostAssumptions(
+        maker_fee_rate=request.maker_fee_rate,
+        taker_fee_rate=request.taker_fee_rate,
+        fixed_slippage_bps=request.fixed_slippage_bps,
+    )
+    _broker_from_request(request)
+
+
+def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumptions | None:
+    """Resolve V2-only broker inputs, mirroring the CLI contract exactly."""
+    if request.engine_contract_version == "thytrader-bar-backtest-v1":
+        return None
+    if request.spread_bps is None:
+        message = "spread_bps is required for the thytrader-bar-backtest-v2 contract"
+        raise ValueError(message)
+    return BrokerAssumptions(
+        price_model="constant_spread_bps",
+        spread_bps=request.spread_bps,
+        fill_policy="full",
+        trigger_evaluation="bid_side",
+        equity_marking="bid_close",
+    )
+
+
+def _require_valid_broker_inputs(request: BacktestSubmissionRequest) -> None:
+    """Reject mismatched engine and spread combinations before any publication."""
+    if request.engine_contract_version == "thytrader-bar-backtest-v1":
+        if request.spread_bps is not None:
+            raise ValueError("spread_bps requires the thytrader-bar-backtest-v2 contract")
+        return
+    if request.spread_bps is None:
+        raise ValueError("spread_bps is required for the thytrader-bar-backtest-v2 contract")
+
+
 def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
-    """Hash normalized V1 simulation semantics so equivalent submissions are idempotent."""
+    """Hash normalized simulation semantics so equivalent submissions are idempotent."""
     capital = CapitalAssumptions(
         quote_currency="USD",
         initial_quote_balance=request.initial_quote_balance,
@@ -169,15 +224,17 @@ def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
         taker_fee_rate=request.taker_fee_rate,
         fixed_slippage_bps=request.fixed_slippage_bps,
     )
+    broker = _broker_from_request(request)
     payload = {
         "bar_execution": {
             "fill_timing": "next_candle_open",
             "signal_timing": "completed_candle_close",
         },
+        "broker": None if broker is None else broker.model_dump(mode="json"),
         "capital": capital.model_dump(mode="json"),
         "costs": costs.model_dump(mode="json"),
         "dataset_fingerprint": request.dataset_fingerprint,
-        "engine_contract_version": "thytrader-bar-backtest-v1",
+        "engine_contract_version": request.engine_contract_version,
         "evaluation_end": request.evaluation_end.isoformat(),
         "evaluation_start": request.evaluation_start.isoformat(),
         "random_seed": 0,

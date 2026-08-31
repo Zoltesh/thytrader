@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { formatPercent } from '$lib/backtests';
+	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
 		archivePublishedStrategy,
 		createDraft,
@@ -8,12 +10,35 @@
 		fetchDraftVersion,
 		fetchStrategySource,
 		importStrategy,
+		listDatasets,
 		listStrategies,
+		submitBacktest,
 		toBuilderModel,
+		type BacktestLaunchInput,
 		type BuilderModel,
-		type StrategyLibraryEntry
+		type Dataset,
+		type StrategyLibraryEntry,
+		type StrategyPublishedVersion
 	} from '$lib/strategies';
-	import { plainEnglishSummary, validateDefinition, ENGINE_SUPPORT } from '$lib/strategy-insight';
+	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
+
+	type VersionResultEntry = {
+		result_fingerprint: string;
+		published_at: string;
+		engine_contract_version: string;
+		total_return_fraction: string;
+		trade_count: number;
+		win_rate: string;
+		maximum_drawdown_fraction: string;
+	};
+
+	type VersionResultGroup = {
+		version: number;
+		fingerprint: string;
+		loading: boolean;
+		error: string | null;
+		entries: VersionResultEntry[];
+	};
 
 	let entries = $state<StrategyLibraryEntry[]>([]);
 	let error = $state<string | null>(null);
@@ -26,11 +51,31 @@
 	let viewModel = $state<BuilderModel | null>(null);
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
+	let researchTab = $state<'insight' | 'research'>('insight');
+	let launchDatasets = $state<Dataset[]>([]);
+	let launchDatasetsLoading = $state(false);
+	let launchDatasetError = $state<string | null>(null);
+	let launchError = $state<string | null>(null);
+	let launching = $state(false);
+	let selectedStrategyFingerprint = $state('');
+	let launchForm = $state({
+		dataset_fingerprint: '',
+		evaluation_start: '',
+		evaluation_end: '',
+		initial_quote_balance: '10000',
+		maker_fee_rate: '0.001',
+		taker_fee_rate: '0.002',
+		fixed_slippage_bps: '10',
+		engine: 'thytrader-bar-backtest-v1' as BacktestLaunchInput['engine_contract_version'],
+		spread_bps: '8'
+	});
+	let versionResults = $state<VersionResultGroup[]>([]);
 	let hoveredId = $state<string | null>(null);
 	let barPosition = $state<{ x: number; y: number } | null>(null);
 	let barWidth = $state(0);
 	let barHeight = $state(0);
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
+	let viewRequestId = 0;
 
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
@@ -75,32 +120,190 @@
 		if (row instanceof HTMLElement) positionBarForRow(row.getBoundingClientRect());
 	});
 
+	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
+		if (entry.status === 'draft') return [];
+		if (entry.published_versions.length > 0) return entry.published_versions;
+		if (entry.latest_fingerprint && entry.latest_version) {
+			return [
+				{
+					version: entry.latest_version,
+					strategy_fingerprint: entry.latest_fingerprint
+				}
+			];
+		}
+		return [];
+	}
+
+	async function loadVersionResults(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
+		if (requestId !== viewRequestId) return;
+		const publishedVersions = publishedVersionsFor(entry);
+		versionResults = publishedVersions.map((publishedVersion) => ({
+			version: publishedVersion.version,
+			fingerprint: publishedVersion.strategy_fingerprint,
+			loading: true,
+			error: null,
+			entries: []
+		}));
+		await Promise.all(
+			publishedVersions.map(async (publishedVersion, index) => {
+				const fingerprint = publishedVersion.strategy_fingerprint;
+				try {
+					const collected: VersionResultEntry[] = [];
+					const pageSize = 20;
+					let offset = 0;
+					while (true) {
+						const response = await fetch(
+							`/api/v1/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}&limit=${pageSize}&offset=${offset}`
+						);
+						if (!response.ok) throw new Error(`HTTP ${response.status}`);
+						const body = (await response.json()) as {
+							entries: {
+								result_fingerprint: string;
+								published_at: string;
+								engine_contract_version: string;
+								summary: {
+									total_return_fraction: string;
+									trade_count: number;
+									win_rate: string;
+									maximum_drawdown_fraction: string;
+								};
+							}[];
+							returned: number;
+						};
+						collected.push(
+							...body.entries.map((row) => ({
+								result_fingerprint: row.result_fingerprint,
+								published_at: row.published_at,
+								engine_contract_version: row.engine_contract_version,
+								total_return_fraction: row.summary.total_return_fraction,
+								trade_count: row.summary.trade_count,
+								win_rate: row.summary.win_rate,
+								maximum_drawdown_fraction: row.summary.maximum_drawdown_fraction
+							}))
+						);
+						if (body.returned < pageSize) break;
+						offset += body.returned;
+					}
+					if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+					versionResults[index] = {
+						version: publishedVersion.version,
+						fingerprint,
+						loading: false,
+						error: null,
+						entries: collected
+					};
+				} catch (caught) {
+					if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+					versionResults[index] = {
+						version: publishedVersion.version,
+						fingerprint,
+						loading: false,
+						error: caught instanceof Error ? caught.message : 'Could not load backtest results.',
+						entries: []
+					};
+				}
+			})
+		);
+	}
+
+	async function runLaunch(): Promise<void> {
+		if (!viewEntry || selectedStrategyFingerprint === '' || launching) return;
+		launching = true;
+		launchError = null;
+		try {
+			const input: BacktestLaunchInput = {
+				strategy_fingerprint: selectedStrategyFingerprint,
+				dataset_fingerprint: launchForm.dataset_fingerprint,
+				evaluation_start: new Date(launchForm.evaluation_start).toISOString(),
+				evaluation_end: new Date(launchForm.evaluation_end).toISOString(),
+				initial_quote_balance: launchForm.initial_quote_balance,
+				maker_fee_rate: launchForm.maker_fee_rate,
+				taker_fee_rate: launchForm.taker_fee_rate,
+				fixed_slippage_bps: launchForm.fixed_slippage_bps,
+				engine_contract_version: launchForm.engine,
+				spread_bps: launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null
+			};
+			const result = await submitBacktest(input);
+			window.location.assign(
+				resolve(`/backtests?result=${encodeURIComponent(result.result_fingerprint)}`)
+			);
+		} catch (caught) {
+			launchError = caught instanceof Error ? caught.message : 'Backtest submission failed.';
+		} finally {
+			launching = false;
+		}
+	}
+
+	async function loadLaunchDatasets(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
+		launchDatasets = [];
+		launchDatasetsLoading = true;
+		launchDatasetError = null;
+		try {
+			const datasets = await listDatasets();
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+			launchDatasets = datasets.filter((dataset) => dataset.product_id === entry.product_id);
+			if (launchDatasets.length > 0) {
+				launchForm.dataset_fingerprint = launchDatasets[0].content_fingerprint;
+			}
+		} catch (caught) {
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+			launchDatasetError =
+				caught instanceof Error ? caught.message : 'Verified datasets are unavailable.';
+		} finally {
+			if (requestId === viewRequestId && viewEntry?.strategy_id === entry.strategy_id) {
+				launchDatasetsLoading = false;
+			}
+		}
+	}
+
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
+		const requestId = ++viewRequestId;
 		viewEntry = entry;
 		viewModel = null;
 		viewError = null;
 		viewLoading = true;
+		researchTab = 'insight';
+		versionResults = [];
+		launchError = null;
+		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
+		launchForm.dataset_fingerprint = '';
+		void loadLaunchDatasets(entry, requestId);
 		try {
+			let loadedModel: BuilderModel | null = null;
 			if (entry.status === 'draft') {
 				const draft = await fetchDraftVersion(entry.strategy_id, 1);
-				viewModel = toBuilderModel(draft.strategy, draft.revision);
+				loadedModel = toBuilderModel(draft.strategy, draft.revision);
 			} else if (entry.latest_fingerprint) {
 				const source = await fetchStrategySource(entry.latest_fingerprint);
-				viewModel = toBuilderModel(source, 0);
+				loadedModel = toBuilderModel(source, 0);
 			} else {
-				viewError = 'No immutable evidence is available for this strategy.';
+				if (requestId === viewRequestId) {
+					viewError = 'No immutable evidence is available for this strategy.';
+				}
+			}
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+			viewModel = loadedModel;
+			if (loadedModel !== null) {
+				void loadVersionResults(entry, requestId);
 			}
 		} catch (caught) {
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
 			viewError = caught instanceof Error ? caught.message : 'Could not load strategy details.';
 		} finally {
-			viewLoading = false;
+			if (requestId === viewRequestId && viewEntry?.strategy_id === entry.strategy_id) {
+				viewLoading = false;
+			}
 		}
 	}
 
 	function closeView(): void {
+		viewRequestId += 1;
 		viewEntry = null;
 		viewModel = null;
 		viewError = null;
+		selectedStrategyFingerprint = '';
+		launchDatasetError = null;
+		launchDatasetsLoading = false;
 	}
 
 	async function loadLibrary(): Promise<void> {
@@ -193,13 +396,23 @@
 
 	function formatReturn(entry: StrategyLibraryEntry): string {
 		if (!entry.backtest) return '—';
-		const fraction = Number(entry.backtest.summary.total_return_fraction);
-		if (Number.isNaN(fraction)) return '—';
-		return `${(fraction * 100).toFixed(2)}%`;
+		return formatPercent(entry.backtest.summary.total_return_fraction);
 	}
 
 	function formatDate(value: string): string {
 		return new Date(value).toLocaleDateString();
+	}
+
+	function latestComparisonRows(): (VersionResultEntry & {
+		version: number;
+		fingerprint: string;
+	})[] {
+		return versionResults.flatMap((group) => {
+			const latest = group.entries[0];
+			return latest === undefined
+				? []
+				: [{ ...latest, version: group.version, fingerprint: group.fingerprint }];
+		});
 	}
 
 	onMount(() => void loadLibrary());
@@ -359,11 +572,29 @@
 				</div>
 				<button class="secondary" type="button" onclick={closeView}>Close</button>
 			</div>
+			<div class="drawer-tabs" role="tablist" aria-label="Strategy detail sections">
+				<button
+					class="drawer-tab"
+					class:active={researchTab === 'insight'}
+					type="button"
+					role="tab"
+					aria-selected={researchTab === 'insight'}
+					onclick={() => (researchTab = 'insight')}>Insight</button
+				>
+				<button
+					class="drawer-tab"
+					class:active={researchTab === 'research'}
+					type="button"
+					role="tab"
+					aria-selected={researchTab === 'research'}
+					onclick={() => (researchTab = 'research')}>Research</button
+				>
+			</div>
 			{#if viewLoading}
 				<p class="view-note">Loading strategy evidence…</p>
 			{:else if viewError}
 				<p class="view-problem" role="alert">{viewError}</p>
-			{:else if viewModel}
+			{:else if viewModel && researchTab === 'insight'}
 				<div class="view-block">
 					<h3>Plain-English summary</h3>
 					<p>{plainEnglishSummary(viewModel)}</p>
@@ -387,15 +618,200 @@
 					</p>
 				</div>
 				<div class="view-block">
-					<h3>Engine support (thytrader-bar-backtest-v1)</h3>
-					<ul class="engine-list">
-						{#each ENGINE_SUPPORT as row (row.label)}
-							<li class={row.supported ? 'supported' : 'unsupported'}>
-								<span class="mark">{row.supported ? '✓' : '✗'}</span>
-								<span>{row.label}<small>{row.note}</small></span>
-							</li>
+					<h3>Unsaved changes</h3>
+					<p class="view-ok">Read-only — no local edits.</p>
+				</div>
+				<div class="view-block">
+					<h3>Engine support</h3>
+					<EngineSupportMatrix />
+				</div>
+			{:else if viewModel && researchTab === 'research'}
+				<div class="view-block">
+					<h3>Launch backtest</h3>
+					<p class="view-note">
+						Runs against the selected immutable version of this strategy. Results are deterministic
+						and reproducible.
+					</p>
+					{#if publishedVersionsFor(viewEntry).length === 0}
+						<p class="view-note">Publish this draft before launching a reproducible backtest.</p>
+					{:else}
+						<div class="launch-grid">
+							<label
+								>Strategy version
+								<select bind:value={selectedStrategyFingerprint}>
+									{#each publishedVersionsFor(viewEntry) as version (version.strategy_fingerprint)}
+										<option value={version.strategy_fingerprint}>Version {version.version}</option>
+									{/each}
+								</select></label
+							>
+							<label
+								>Verified dataset
+								<select bind:value={launchForm.dataset_fingerprint}>
+									<option value="">Select a verified {viewEntry.product_id} dataset</option>
+									{#each launchDatasets as dataset (dataset.content_fingerprint)}
+										<option value={dataset.content_fingerprint}
+											>{new Date(dataset.starts_at).toLocaleDateString()} – {new Date(
+												dataset.ends_at
+											).toLocaleDateString()}</option
+										>
+									{/each}
+								</select>
+								{#if launchDatasetsLoading}
+									<small class="field-note">Loading verified datasets…</small>
+								{:else if launchDatasetError}
+									<small class="field-error" role="alert">{launchDatasetError}</small>
+								{:else if launchDatasets.length === 0}
+									<small class="field-note">No verified datasets match this market.</small>
+								{/if}</label
+							>
+						</div>
+						<div class="launch-grid">
+							<label
+								>Engine
+								<select bind:value={launchForm.engine}>
+									<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
+									<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
+								</select></label
+							>
+							{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
+								<label
+									>Constant spread (bps, total bid-ask)
+									<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
+								>
+							{/if}
+						</div>
+						<div class="launch-grid">
+							<label
+								>Evaluation start
+								<input type="datetime-local" bind:value={launchForm.evaluation_start} /></label
+							>
+							<label
+								>Evaluation end
+								<input type="datetime-local" bind:value={launchForm.evaluation_end} /></label
+							>
+						</div>
+						<div class="launch-grid">
+							<label
+								>Initial capital (USD)
+								<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
+							>
+							<label
+								>Maker fee rate
+								<input inputmode="decimal" bind:value={launchForm.maker_fee_rate} /></label
+							>
+						</div>
+						<div class="launch-grid">
+							<label
+								>Taker fee rate
+								<input inputmode="decimal" bind:value={launchForm.taker_fee_rate} /></label
+							>
+							<label
+								>Fixed slippage (bps)
+								<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
+							>
+						</div>
+						{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
+						<button
+							class="refresh launch-button"
+							type="button"
+							onclick={runLaunch}
+							disabled={launching ||
+								selectedStrategyFingerprint === '' ||
+								launchForm.dataset_fingerprint === '' ||
+								launchForm.evaluation_start === '' ||
+								launchForm.evaluation_end === ''}
+						>
+							{launching ? 'Running simulation…' : 'Run backtest'}
+						</button>
+					{/if}
+				</div>
+				<div class="view-block">
+					<h3>Results by version</h3>
+					{#if latestComparisonRows().length > 1}
+						{@const comparisonRows = latestComparisonRows()}
+						<table class="results-table comparison-table" aria-label="Latest result comparison">
+							<thead>
+								<tr>
+									<th scope="col">Version</th>
+									<th scope="col">Engine</th>
+									<th scope="col">Return</th>
+									<th scope="col">Trades</th>
+									<th scope="col">Win rate</th>
+									<th scope="col">Max drawdown</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each comparisonRows as row (row.fingerprint)}
+									<tr>
+										<td>V{row.version}</td>
+										<td>{row.engine_contract_version.endsWith('-v2') ? 'V2' : 'V1'}</td>
+										<td>
+											<a
+												href={resolve(
+													`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`
+												)}>{formatPercent(row.total_return_fraction)}</a
+											>
+										</td>
+										<td>{row.trade_count}</td>
+										<td>{formatPercent(row.win_rate)}</td>
+										<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+					{#if versionResults.length === 0}
+						<p class="view-note">
+							This strategy has no immutable published versions to compare yet.
+						</p>
+					{:else}
+						{#each versionResults as version (version.fingerprint)}
+							<div class="version-block">
+								<h4>
+									Version {version.version}
+									<code>{version.fingerprint.slice(0, 18)}…</code>
+								</h4>
+								{#if version.loading}
+									<p class="view-note">Loading results…</p>
+								{:else if version.error}
+									<p class="view-problem">{version.error}</p>
+								{:else if version.entries.length === 0}
+									<p class="view-note">No backtests yet for this version.</p>
+								{:else}
+									<table class="results-table">
+										<thead>
+											<tr>
+												<th scope="col">Return</th>
+												<th scope="col">Engine</th>
+												<th scope="col">Trades</th>
+												<th scope="col">Win rate</th>
+												<th scope="col">Max drawdown</th>
+												<th scope="col">Published</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each version.entries as row (row.result_fingerprint)}
+												<tr>
+													<td>
+														<a
+															href={resolve(
+																`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`
+															)}>{formatPercent(row.total_return_fraction)}</a
+														>
+													</td>
+													<td>{row.engine_contract_version.endsWith('-v2') ? 'V2' : 'V1'}</td>
+													<td>{row.trade_count}</td>
+													<td>{formatPercent(row.win_rate)}</td>
+													<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
+													<td>{new Date(row.published_at).toLocaleString()}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								{/if}
+							</div>
 						{/each}
-					</ul>
+					{/if}
 				</div>
 				{#if viewEntry.status === 'draft' && viewEntry.strategy_id}
 					<a class="secondary view-edit" href={resolve(`/strategies/${viewEntry.strategy_id}`)}
@@ -655,7 +1071,7 @@
 		margin-top: 14px;
 	}
 	.view-drawer {
-		width: min(640px, 100%);
+		width: min(920px, 100%);
 		max-height: 86vh;
 		overflow-y: auto;
 		background: #141b1c;
@@ -712,38 +1128,122 @@
 		justify-self: start;
 		text-decoration: none;
 	}
-	.engine-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: grid;
-		gap: 8px;
-	}
-	.engine-list li {
+
+	.drawer-tabs {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
+	}
+	.drawer-tab {
+		border: 1px solid #303a3c;
+		background: transparent;
+		color: #aeb9bb;
+		border-radius: 999px;
+		padding: 6px 14px;
+		font: inherit;
 		font-size: 12px;
-		color: #d8e1e2;
+		cursor: pointer;
 	}
-	.engine-list li .mark {
-		font-weight: 700;
+	.drawer-tab.active {
+		background: #1d2b26;
+		color: #9fe0bd;
+		border-color: #2f5c44;
 	}
-	.engine-list li.supported .mark {
-		color: #83d5a3;
+	.launch-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 10px;
 	}
-	.engine-list li.unsupported {
-		color: #9aa8aa;
+	.launch-grid label {
+		display: grid;
+		gap: 4px;
+		font-size: 11px;
 	}
-	.engine-list li.unsupported .mark {
+	.launch-grid input,
+	.launch-grid select {
+		border: 1px solid #303a3c;
+		border-radius: 7px;
+		background: #101617;
+		color: #edf3f3;
+		padding: 7px 9px;
+		font: inherit;
+		font-size: 12px;
+		width: 100%;
+	}
+	.field-note,
+	.field-error {
+		font-size: 10px;
+		line-height: 1.35;
+	}
+	.field-note {
+		color: #77888b;
+	}
+	.field-error {
 		color: #f0a3a3;
 	}
-	.engine-list small {
-		display: block;
-		color: #77888b;
+	.launch-button {
+		justify-self: start;
+		border: none;
+		border-radius: 8px;
+		background: #2f6f52;
+		color: #eafff3;
+		padding: 9px 14px;
+		font: inherit;
+		font-size: 13px;
+		cursor: pointer;
+	}
+	.launch-button:disabled {
+		opacity: 0.55;
+		cursor: default;
+	}
+	.version-block {
+		border: 1px solid #232d2e;
+		border-radius: 8px;
+		padding: 10px 12px;
+		margin-bottom: 10px;
+	}
+	.version-block h4 {
+		margin: 0 0 8px;
+		font-size: 11px;
+		color: #aeb9bb;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.results-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 12px;
+	}
+	.results-table th,
+	.results-table td {
+		text-align: left;
+		padding: 5px 8px 5px 0;
+		border-bottom: 1px solid #232d2e;
+	}
+	.results-table th {
+		color: #aeb9bb;
+		font-weight: 500;
+		font-size: 11px;
+	}
+	.results-table tr:last-child td {
+		border-bottom: none;
+	}
+	.results-table td a {
+		color: #7fd0f0;
+	}
+	.comparison-table {
+		margin: 10px 0 16px;
 	}
 	@media (max-width: 900px) {
 		table {
 			font-size: 12px;
+		}
+	}
+	@media (max-width: 640px) {
+		.launch-grid {
+			grid-template-columns: 1fr;
+		}
+		.view-drawer {
+			padding: 16px;
 		}
 	}
 </style>

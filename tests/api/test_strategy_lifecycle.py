@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -196,6 +196,7 @@ def test_strategy_creation_persists_a_draft_that_the_browser_can_recover() -> No
     assert entry["latest_version"] == 1
     assert entry["status"] == "draft"
     assert entry["latest_fingerprint"] is None
+    assert entry["published_versions"] == []
     assert entry["archived"] is False
     assert entry["backtest"] is None
     assert entry["paper_live"] == {"paper": "unavailable", "live": "unavailable"}
@@ -518,6 +519,54 @@ def test_stale_browser_save_cannot_overwrite_a_newer_draft_revision() -> None:
     assert rejected.json() == {"detail": "Strategy draft changed; reload before saving."}
     assert recovered["name"] == "Newest accepted edit"
     assert recovered["latest_version"] == 1
+
+
+def test_strategy_library_labels_every_published_version_fingerprint() -> None:
+    """Research comparisons receive explicit version-to-fingerprint evidence."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reference = create_reference_draft(now=created_at)
+    first = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    second = StrategyDefinition.model_validate(
+        {
+            **first.model_dump(mode="python"),
+            "version": 2,
+            "created_at": created_at + timedelta(days=1),
+        }
+    )
+    first_fingerprint = strategy_fingerprint(first)
+    second_fingerprint = strategy_fingerprint(second)
+    publication_store.published[second_fingerprint] = PublishedStrategy(
+        strategy_fingerprint=second_fingerprint,
+        definition=second,
+    )
+    publication_store.published[first_fingerprint] = PublishedStrategy(
+        strategy_fingerprint=first_fingerprint,
+        definition=first,
+    )
+    publication_store.archived[first_fingerprint] = created_at + timedelta(hours=1)
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/strategies")
+
+    assert response.status_code == 200
+    entry = response.json()["strategies"][0]
+    assert entry["latest_version"] == 2
+    assert entry["latest_fingerprint"] == second_fingerprint
+    assert entry["status"] == "published"
+    assert entry["archived"] is False
+    assert entry["published_versions"] == [
+        {"version": 1, "strategy_fingerprint": first_fingerprint},
+        {"version": 2, "strategy_fingerprint": second_fingerprint},
+    ]
 
 
 def test_publication_rejects_a_draft_that_was_never_durably_saved() -> None:

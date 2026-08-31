@@ -68,6 +68,13 @@ class StrategyLibraryPaperLiveResponse(BaseModel):
     live: str = "unavailable"
 
 
+class StrategyLibraryPublishedVersionResponse(BaseModel):
+    """Bind one published version number to its immutable strategy fingerprint."""
+
+    version: int = Field(ge=1)
+    strategy_fingerprint: str
+
+
 class StrategyLibraryEntryResponse(BaseModel):
     """One stable strategy identity with its newest lifecycle evidence."""
 
@@ -78,6 +85,7 @@ class StrategyLibraryEntryResponse(BaseModel):
     latest_version: int | None
     status: str
     latest_fingerprint: str | None
+    published_versions: tuple[StrategyLibraryPublishedVersionResponse, ...] = Field(default=())
     archived: bool
     summary: str
     backtest: StrategyLibraryBacktestResponse | None
@@ -534,6 +542,8 @@ class _LibraryGroup:
         "status",
         "timeframe",
         "updated_at",
+        "version_archived",
+        "version_fingerprints",
     )
 
     def __init__(self, definition: StrategyDefinition) -> None:
@@ -551,6 +561,8 @@ class _LibraryGroup:
         self.drafts: deque[StrategyDefinition] = deque()
         self.publications: deque[StrategyDefinition] = deque()
         self.fingerprints: tuple[str, ...] = ()
+        self.version_archived: tuple[tuple[int, bool], ...] = ()
+        self.version_fingerprints: tuple[tuple[int, str], ...] = ()
 
     def _observe(self, definition: StrategyDefinition) -> None:
         """Track the group-wide name, market, and time envelope of one version."""
@@ -585,9 +597,15 @@ class _LibraryGroup:
         if self.latest_version is None or definition.version > self.latest_version:
             self.latest_version = definition.version
             self.status = StrategyStatus.PUBLISHED
-        self.latest_fingerprint = entry.strategy_fingerprint
-        if entry.archived_at is not None:
-            self.archived = True
+        known = dict(self.version_fingerprints)
+        known[definition.version] = entry.strategy_fingerprint
+        self.version_fingerprints = tuple(sorted(known.items()))
+        self.latest_fingerprint = self.version_fingerprints[-1][1]
+        archive_markers = dict(self.version_archived)
+        archive_markers[definition.version] = entry.archived_at is not None
+        self.version_archived = tuple(sorted(archive_markers.items()))
+        latest_published_version = self.version_fingerprints[-1][0]
+        self.archived = archive_markers[latest_published_version]
 
     def require_times(self) -> tuple[datetime, datetime]:
         """Return the group envelope, rejecting identities without observed versions."""
@@ -729,6 +747,13 @@ def _library_entry(
             else group.status.value
         ),
         latest_fingerprint=group.latest_fingerprint,
+        published_versions=tuple(
+            StrategyLibraryPublishedVersionResponse(
+                version=version,
+                strategy_fingerprint=fingerprint,
+            )
+            for version, fingerprint in group.version_fingerprints
+        ),
         archived=group.archived,
         summary=_strategy_summary(representative),
         backtest=backtest,

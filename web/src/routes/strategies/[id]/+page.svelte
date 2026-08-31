@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
 		fetchDraftVersion,
 		toBuilderModel,
@@ -13,7 +14,7 @@
 		type ConditionDraft,
 		type IndicatorDraft
 	} from '$lib/strategies';
-	import { plainEnglishSummary, validateDefinition, ENGINE_SUPPORT } from '$lib/strategy-insight';
+	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
 
 	let model = $state<BuilderModel | null>(null);
 	let loading = $state(true);
@@ -527,15 +528,8 @@
 						{:else}<p class="ok">All edits saved.</p>{/if}
 					</div>
 					<div class="inspector-block">
-						<h3>Engine support (thytrader-bar-backtest-v1)</h3>
-						<ul class="engine-list">
-							{#each ENGINE_SUPPORT as row (row.label)}
-								<li class={row.supported ? 'supported' : 'unsupported'}>
-									<span class="mark">{row.supported ? '✓' : '✗'}</span>
-									<span>{row.label}<small>{row.note}</small></span>
-								</li>
-							{/each}
-						</ul>
+						<h3>Engine support</h3>
+						<EngineSupportMatrix />
 					</div>
 				</aside>
 			</div>
@@ -820,35 +814,7 @@
 		display: grid;
 		gap: 4px;
 	}
-	.engine-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: grid;
-		gap: 8px;
-	}
-	.engine-list li {
-		display: flex;
-		gap: 8px;
-		font-size: 12px;
-		color: #d8e1e2;
-	}
-	.engine-list li .mark {
-		font-weight: 700;
-	}
-	.engine-list li.supported .mark {
-		color: #83d5a3;
-	}
-	.engine-list li.unsupported {
-		color: #9aa8aa;
-	}
-	.engine-list li.unsupported .mark {
-		color: #f0a3a3;
-	}
-	.engine-list small {
-		display: block;
-		color: #77888b;
-	}
+
 	@media (max-width: 900px) {
 		.builder-grid {
 			grid-template-columns: 1fr;

@@ -166,8 +166,10 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
   PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
 - ✅ Browser/API research flow creates a durable conservative strategy draft, validates/publishes immutable
-  strategy evidence, selects a reverified compatible 1h dataset, submits/reuses deterministic backtests, and
-  opens the existing immutable result detail. It cannot mutate results or grant trading authority.
+  strategy evidence, explicitly selects an exact version, reverified compatible 1h dataset, period,
+  capital, fees, slippage, V1/V2 engine, and V2 spread, submits/reuses deterministic backtests, loads
+  all results per exact strategy version, compares the newest result across versions, and opens the
+  immutable result detail. It cannot mutate results or grant trading authority.
 - ✅ `thytrader-bar-backtest-v2` uses the same deterministic single-position event ordering with a canonical,
   disclosed constant-basis-point spread stress model: ask-side entries, bid-side exits and triggers,
   bid-close equity marking, executable-entry sizing, immutable fill-level evidence, and zero-spread
@@ -182,9 +184,9 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 ### Next delivery increment
 
 The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
-immutable strategy evidence, presents a bounded semantic summary, archives a publication without mutating
-its evidence, selects a verified dataset, submits/reuses a deterministic backtest, and opens the immutable
-result detail. It creates no paper or live trading authority.
+immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2 support matrix,
+archives a publication without mutating its evidence, launches explicit exact-version V1/V2 research,
+and compares complete stored result histories across versions. It creates no paper or live trading authority.
 
 The next user-visible increment is the narrow Phase 4 paper-deployment loop for one published 1h reference
 strategy: persisted deployment intent, idempotent closed-candle evaluation, simulated fills and position/P&L,

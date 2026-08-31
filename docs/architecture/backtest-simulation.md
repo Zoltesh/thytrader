@@ -91,14 +91,20 @@ trading authority.
 - `GET /api/v1/backtests` returns a bounded newest-first page of summaries. Each row carries the result/run/strategy/dataset fingerprints, the engine-contract version, the publication timestamp, and the immutable `summary` metrics block. Summary metrics are projected from the canonical document server-side, so a list query never materializes a full trade ledger or equity curve. It accepts at most one source-fingerprint filter (`run_fingerprint`, `strategy_fingerprint`, or `dataset_fingerprint`), `limit` (1–100, default 50), and `offset` (≥ 0).
 - `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification.
 - `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns a versioned `thytrader-buy-and-hold-v1` comparison derived from the same reverified result, source run, and immutable dataset. It buys at the first evaluation candle open, marks at completed evaluation closes, and liquidates at the published final next-open boundary using the source run's taker fee, fixed slippage, and V1/V2 fill assumptions. The response includes source identities, entry/exit evidence, modeled costs, return, maximum drawdown, and a canonical `benchmark_fingerprint` covering every other derived field; the API revalidates that identity before serialization. It is not part of canonical result bytes.
+- `POST /api/v1/backtests` requires an immutable strategy fingerprint, verified dataset fingerprint,
+  exact UTC evaluation period, capital, maker/taker fees, fixed slippage, and an explicit V1 or V2
+  engine contract. V1 rejects a spread field; V2 requires a bounded constant `spread_bps` value and
+  publishes the same canonical broker block and execution fingerprint shape as the CLI. Request
+  validation rejects invalid period, financial, and engine/broker combinations before source binding
+  or publication. Equivalent browser and CLI assumptions reuse the same immutable run.
 
-All three endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
+The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
 
 ## Explicitly not in this slice
 
 - limit/maker order-book matching, latency distributions, rejections, or partial fills;
 - observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
-- trailing stops or walk-forward optimization;
-- submitting a backtest from the API or dashboard, or any strategy authoring/mutation;
+- trailing stops;
+- sensitivity analysis, out-of-sample partitioning, parameter sweeps, or walk-forward workflows;
 - paper broker, exchange adapters, Coinbase submission, or live execution.

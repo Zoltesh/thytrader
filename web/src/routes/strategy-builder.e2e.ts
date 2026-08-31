@@ -118,12 +118,14 @@ test('marks unsaved changes and blocks saving when validation fails', async ({ p
 test('flags engine settings the current backtester does not model', async ({ page }) => {
 	mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
-	const engineList = page.locator('.engine-list');
-	await expect(engineList).toContainText('Entry cooldown (cooldown_bars)');
-	await expect(engineList).toContainText('not modeled by the current backtester');
-	await expect(engineList).toContainText('Maker-only / marketable entry preference');
-	const unsupported = engineList.locator('li.unsupported');
-	await expect(unsupported).toHaveCount(4);
+	const engineMatrix = page.getByRole('table', { name: 'Engine support matrix' });
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
+	const cooldown = engineMatrix.getByRole('row', { name: /Entry cooldown/ });
+	await expect(cooldown).toContainText('not modeled by either bar backtester');
+	await expect(cooldown.getByText('Unsupported')).toHaveCount(2);
+	const makerEntry = engineMatrix.getByRole('row', { name: /Maker-only/ });
+	await expect(makerEntry.getByText('Unsupported')).toHaveCount(2);
 });
 
 test('saves edited builder state through the durable draft boundary', async ({ page }) => {

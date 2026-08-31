@@ -116,7 +116,7 @@ function validateCondition(condition: ConditionDraft, ids: Set<string>): string[
 	return validateCondition((condition as { not: ConditionDraft }).not, ids);
 }
 
-export type EngineSupportRow = { label: string; supported: boolean; note: string };
+export type EngineSupportRow = { label: string; v1: boolean; v2: boolean; note: string };
 
 // The current bar-backtest engine consumes these settings. It fills every
 // entry at the next bar open unconditionally, so cooldown and execution
@@ -124,36 +124,68 @@ export type EngineSupportRow = { label: string; supported: boolean; note: string
 export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	{
 		label: 'Entry conditions (ALL / ANY / NOT, comparisons, crossovers)',
-		supported: true,
+		v1: true,
+		v2: true,
 		note: 'evaluated on completed candles, no lookahead'
 	},
 	{
 		label: 'Indicators: EMA, SMA, RSI, ATR, volume SMA',
-		supported: true,
+		v1: true,
+		v2: true,
 		note: 'exact Decimal arithmetic'
 	},
 	{
 		label: 'Risk-fraction sizing with notional bounds',
-		supported: true,
+		v1: true,
+		v2: true,
 		note: 'bounded by exposure fraction'
 	},
-	{ label: 'ATR initial stop', supported: true, note: 'stop-loss priority inside the bar' },
-	{ label: 'Reward/risk take profit', supported: true, note: 'checked after the stop' },
-	{ label: 'Time exit (max bars held)', supported: true, note: 'exits at the open' },
+	{
+		label: 'ATR initial stop',
+		v1: true,
+		v2: true,
+		note: 'stop-loss priority inside the bar'
+	},
+	{
+		label: 'Reward/risk take profit',
+		v1: true,
+		v2: true,
+		note: 'checked after the stop'
+	},
+	{
+		label: 'Time exit (max bars held)',
+		v1: true,
+		v2: true,
+		note: 'exits at the open'
+	},
+	{
+		label: 'Constant spread stress assumption',
+		v1: false,
+		v2: true,
+		note: 'V2 models an explicit total bid-ask spread; V1 does not'
+	},
 	{
 		label: 'Entry cooldown (cooldown_bars)',
-		supported: false,
-		note: 'not modeled by the current backtester'
+		v1: false,
+		v2: false,
+		note: 'not modeled by either bar backtester'
 	},
 	{
 		label: 'Maker-only / marketable entry preference',
-		supported: false,
+		v1: false,
+		v2: false,
 		note: 'fills at next open; no order book'
 	},
 	{
 		label: 'Entry wait and unfilled policy',
-		supported: false,
-		note: 'not modeled by the current backtester'
+		v1: false,
+		v2: false,
+		note: 'not modeled by either bar backtester'
 	},
-	{ label: 'Trailing stop', supported: false, note: 'schema allows disabled only in V1' }
+	{
+		label: 'Trailing stop',
+		v1: false,
+		v2: false,
+		note: 'the published strategy profile permits disabled only'
+	}
 ];

@@ -49,12 +49,22 @@ sizing, Portfolio limits, and Execution preferences. Entry conditions are edited
 ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
-`thytrader-bar-backtest-v1` engine actually consumes (entry conditions, indicators, risk-fraction
-sizing with notional bounds, ATR initial stop, reward/risk take profit, time exit) from declared
-schema fields it does not yet model (entry cooldown, maker-only/marketable preference, entry wait
-and unfilled policy, trailing stops). The engine fills every simulated entry at the next bar open
-unconditionally, so unsupported fields can be declared but must never be read as backtested
+`thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` engines actually consume (entry
+conditions, indicators, risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
+take profit, time exit) from declared schema fields neither engine models (entry cooldown,
+maker-only/marketable preference, entry wait and unfilled policy, trailing stops). V2 alone supports
+an explicit constant-spread stress assumption. Both engines fill every simulated entry at the next
+bar open unconditionally, so unsupported fields can be declared but must never be read as backtested
 behavior.
+
+The library's read-only detail surface exposes Insight and Research tabs for every strategy identity.
+Insight always shows the same summary, validation, warmup/data, unsaved/read-only state, and V1/V2
+support matrix as the builder. Research requires an explicit immutable published version, verified
+dataset, half-open evaluation period, exact initial capital, maker/taker fees, fixed slippage, and
+engine contract; V2 additionally requires an explicit constant total bid-ask spread. It walks the
+bounded results API until every stored result for each exact version is loaded, groups complete
+history by version, and compares the newest result across versions. Drafts must be published before
+research submission. Dataset-catalog and per-version result failures remain independently visible.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 

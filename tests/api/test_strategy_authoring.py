@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
+import pytest
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -209,3 +210,63 @@ def test_backtest_submission_returns_immutable_run_and_result_identities() -> No
         "run_fingerprint": "sha256:" + "a" * 64,
         "result_fingerprint": "sha256:" + "b" * 64,
     }
+
+
+@pytest.mark.parametrize(
+    ("engine_contract_version", "spread_bps"),
+    [
+        ("thytrader-bar-backtest-v1", "8"),
+        ("thytrader-bar-backtest-v2", None),
+    ],
+)
+def test_backtest_submission_rejects_mismatched_engine_and_spread_inputs(
+    engine_contract_version: str,
+    spread_bps: str | None,
+) -> None:
+    """Invalid broker assumptions fail at request validation before submission."""
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_submitter=InMemoryBacktestSubmitter(),
+    )
+    request = {
+        "strategy_fingerprint": "sha256:" + "a" * 64,
+        "dataset_fingerprint": "sha256:" + "b" * 64,
+        "evaluation_start": "2026-08-01T00:00:00Z",
+        "evaluation_end": "2026-08-02T00:00:00Z",
+        "initial_quote_balance": "10000",
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "1",
+        "engine_contract_version": engine_contract_version,
+        "spread_bps": spread_bps,
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/backtests", json=request)
+
+    assert response.status_code == 422
+
+
+def test_backtest_submission_rejects_invalid_financial_assumptions() -> None:
+    """Exact-decimal simulation assumptions fail before the submitter is invoked."""
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_submitter=InMemoryBacktestSubmitter(),
+    )
+    request = {
+        "strategy_fingerprint": "sha256:" + "a" * 64,
+        "dataset_fingerprint": "sha256:" + "b" * 64,
+        "evaluation_start": "2026-08-01T00:00:00Z",
+        "evaluation_end": "2026-08-02T00:00:00Z",
+        "initial_quote_balance": "0",
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "1",
+        "engine_contract_version": "thytrader-bar-backtest-v1",
+        "spread_bps": None,
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/backtests", json=request)
+
+    assert response.status_code == 422

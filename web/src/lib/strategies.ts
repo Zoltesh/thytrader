@@ -31,6 +31,11 @@ export type StrategyLibraryBacktest = {
 
 export type StrategyLibraryPaperLive = { paper: string; live: string };
 
+export type StrategyPublishedVersion = {
+	version: number;
+	strategy_fingerprint: string;
+};
+
 export type StrategyLibraryEntry = {
 	strategy_id: string;
 	name: string;
@@ -39,6 +44,7 @@ export type StrategyLibraryEntry = {
 	latest_version: number | null;
 	status: string;
 	latest_fingerprint: string | null;
+	published_versions: StrategyPublishedVersion[];
 	archived: boolean;
 	summary: string;
 	backtest: StrategyLibraryBacktest | null;
@@ -275,7 +281,7 @@ export async function archivePublishedStrategy(fingerprint: string): Promise<Arc
 	);
 }
 
-export async function submitBacktest(input: {
+export type BacktestLaunchInput = {
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
 	evaluation_start: string;
@@ -284,7 +290,11 @@ export async function submitBacktest(input: {
 	maker_fee_rate: string;
 	taker_fee_rate: string;
 	fixed_slippage_bps: string;
-}): Promise<BacktestSubmission> {
+	engine_contract_version: 'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2';
+	spread_bps: string | null;
+};
+
+export async function submitBacktest(input: BacktestLaunchInput): Promise<BacktestSubmission> {
 	return request<BacktestSubmission>('/api/v1/backtests', {
 		method: 'POST',
 		body: JSON.stringify(input)

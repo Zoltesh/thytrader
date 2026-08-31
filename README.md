@@ -110,7 +110,12 @@ Draft and publication semantics are unchanged: saves carry an opaque revision an
 browser tabs rather than overwriting newer edits. The builder at `/strategies/{strategy_id}` opens
 any durable draft for full-schema editing with a nested ALL/ANY/NOT rule tree and an inspector
 showing a plain-English summary, validation errors, required warmup, unsaved state, and an explicit
-engine-support matrix. **Validate & publish immutable version** (via
+V1/V2 engine-support matrix. Every library row opens the same read-only Insight panel; published
+strategies also expose a Research tab. Research explicitly selects an immutable strategy version,
+verified dataset, evaluation period, initial capital, maker/taker fees, fixed slippage, engine, and
+the V2 constant-spread stress assumption. It lists every stored result for each exact published
+version and compares the latest result across versions; dataset and per-version result failures remain
+visible without hiding strategy evidence. **Validate & publish immutable version** (via
 `POST /api/v1/strategies/{strategy_id}/publish`) atomically consumes that mutable draft and records
 canonical strategy evidence; it does not start paper or live trading. A published version can be
 archived from the library: that appends a permanent archive marker and hides it from active
