@@ -299,6 +299,117 @@ test('ignores stale inspector responses after another strategy is opened', async
 	await expect(page.getByText(/^Second strategy: when/)).toBeVisible();
 });
 
+test('versions tab lists history, exports, diffs, and revises into draft v2', async ({ page }) => {
+	const secondFingerprint = `sha256:${'c'.repeat(64)}`;
+	const versionsEntry = {
+		...publishedEntry,
+		latest_version: 2,
+		latest_fingerprint: secondFingerprint,
+		published_versions: [
+			{ version: 1, strategy_fingerprint: fingerprint },
+			{ version: 2, strategy_fingerprint: secondFingerprint }
+		]
+	};
+	const revisedDraft = {
+		...draft,
+		strategy_id: versionsEntry.strategy_id,
+		version: 3,
+		status: 'draft'
+	};
+	let reviseFingerprint = '';
+	await mockLibrary(page, [versionsEntry]);
+	await page.route(`**/api/v1/strategies/${versionsEntry.strategy_id}/history`, async (route) =>
+		route.fulfill({
+			json: {
+				strategy_id: versionsEntry.strategy_id,
+				latest_version: 2,
+				next_version: 3,
+				versions: [
+					{
+						version: 1,
+						strategy_fingerprint: fingerprint,
+						published: true,
+						archived: true,
+						archived_at: '2026-08-28T12:00:00Z',
+						backtest: null
+					},
+					{
+						version: 2,
+						strategy_fingerprint: secondFingerprint,
+						published: true,
+						archived: false,
+						archived_at: null,
+						backtest: null
+					}
+				],
+				draft: null
+			}
+		})
+	);
+	await page.route('**/api/v1/strategies/source/*', async (route) => {
+		const url = route.request().url();
+		const requested = decodeURIComponent(url.split('/source/')[1] ?? '');
+		await route.fulfill({
+			json: {
+				strategy: {
+					...draft,
+					strategy_id: versionsEntry.strategy_id,
+					status: 'published',
+					name: requested === fingerprint ? 'Recovered BTC trend draft' : 'Renamed trend draft'
+				}
+			}
+		});
+	});
+	await page.route('**/api/v1/strategies/*/revise', async (route) => {
+		const body = (await route.request().postDataJSON()) as { strategy_fingerprint: string };
+		reviseFingerprint = body.strategy_fingerprint;
+		await route.fulfill({
+			status: 201,
+			json: {
+				strategy: revisedDraft,
+				revision: 1,
+				source_fingerprint: body.strategy_fingerprint,
+				summary: 'revised'
+			}
+		});
+	});
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Versions' }).click();
+	await expect(page.getByRole('table', { name: 'Published version history' })).toBeVisible();
+	const historyTable = page.getByRole('table', { name: 'Published version history' });
+	await expect(historyTable.getByRole('cell', { name: 'V1', exact: true })).toBeVisible();
+	await expect(historyTable.getByRole('cell', { name: 'V2', exact: true })).toBeVisible();
+	await expect(page.getByText(/archived ·/).first()).toBeVisible();
+
+	// Export downloads the canonical definition for the selected version.
+	const download = page.waitForEvent('download');
+	await page
+		.getByRole('table', { name: 'Published version history' })
+		.getByRole('button', { name: 'Export' })
+		.first()
+		.click();
+	expect((await download).suggestedFilename()).toMatch(/\.json$/);
+
+	// Semantic diff between V1 and V2 reports the renamed strategy name.
+	const diffTable = page.getByRole('table', { name: 'Semantic diff' });
+	await expect(diffTable).toBeVisible();
+	await expect(diffTable.getByRole('cell', { name: 'Strategy name' })).toBeVisible();
+	await expect(diffTable.getByText('Recovered BTC trend draft')).toBeVisible();
+	await expect(diffTable.getByText('Renamed trend draft')).toBeVisible();
+
+	// Edit into next draft creates draft v3 on the same identity.
+	await page
+		.getByRole('table', { name: 'Published version history' })
+		.getByRole('button', { name: 'Edit into next draft' })
+		.first()
+		.click();
+	await expect.poll(() => reviseFingerprint).toBe(fingerprint);
+	await expect(page.getByRole('alert')).not.toBeVisible();
+});
+
 test('research tab launches a backtest with engine and spread and lists version results', async ({
 	page
 }) => {

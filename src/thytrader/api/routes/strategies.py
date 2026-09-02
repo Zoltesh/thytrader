@@ -26,6 +26,7 @@ from thytrader.strategies.authoring import (
     StrategyDraftStore,
     create_cloned_draft,
     create_reference_draft,
+    create_revised_draft,
 )
 from thytrader.strategies.models import (
     AllCondition,
@@ -151,6 +152,12 @@ class StrategyImportRequest(BaseModel):
     strategy: StrategyDefinition
 
 
+class StrategyRevisionRequest(BaseModel):
+    """One immutable published version selected as the base for a new draft."""
+
+    strategy_fingerprint: str
+
+
 class StrategyImportResponse(BaseModel):
     """One imported draft as durably persisted by the authoring boundary."""
 
@@ -184,6 +191,36 @@ class StrategyDefinitionSourceResponse(BaseModel):
     """One complete canonical strategy definition returned for cloning or import."""
 
     strategy: StrategyDefinition
+
+
+class StrategyVersionHistoryEntryResponse(BaseModel):
+    """One immutable published version with its newest backtest evidence."""
+
+    version: int = Field(ge=1)
+    strategy_fingerprint: str
+    published: bool
+    archived: bool
+    archived_at: str | None
+    backtest: StrategyLibraryBacktestResponse | None
+
+
+class StrategyVersionHistoryResponse(BaseModel):
+    """Complete published version history for one stable strategy identity."""
+
+    strategy_id: str
+    latest_version: int | None
+    next_version: int
+    versions: tuple[StrategyVersionHistoryEntryResponse, ...] = Field(default=())
+    draft: StrategyDraftResponse | None
+
+
+class StrategyRevisionResponse(BaseModel):
+    """One newly derived next-version draft created from immutable evidence."""
+
+    strategy: StrategyDefinition
+    revision: int = Field(ge=1)
+    source_fingerprint: str
+    summary: str
 
 
 @router.get("", response_model=StrategyListResponse)
@@ -347,6 +384,170 @@ async def clone_strategy_draft(
     return StrategyCloneResponse(
         strategy=draft.definition,
         revision=draft.revision,
+        summary=_strategy_summary(draft.definition),
+    )
+
+
+@router.get(
+    "/{strategy_id}/history",
+    response_model=StrategyVersionHistoryResponse,
+)
+async def get_strategy_version_history(
+    strategy_id: UUID,
+    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
+    publication_catalog: Annotated[
+        StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
+    ],
+    result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+) -> StrategyVersionHistoryResponse:
+    """Return the immutable version history for one stable strategy identity."""
+    identity = str(strategy_id)
+    try:
+        drafts = await draft_store.list_drafts()
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy lifecycle storage is unavailable.",
+        ) from None
+    try:
+        publications = await publication_catalog.list_published(include_archived=True)
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy publication catalog is unavailable.",
+        ) from None
+    matching = [entry for entry in publications if str(entry.definition.strategy_id) == identity]
+    if not matching and not any(str(draft.definition.strategy_id) == identity for draft in drafts):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy was not found.",
+        )
+    identity_draft = next(
+        (draft for draft in drafts if str(draft.definition.strategy_id) == identity),
+        None,
+    )
+    identity_draft = (
+        _require_exact_draft(
+            identity_draft,
+            detail="Strategy draft storage is unavailable.",
+        )
+        if identity_draft is not None
+        else None
+    )
+    versions: list[StrategyVersionHistoryEntryResponse] = []
+    for entry in matching:
+        definition = _require_exact_catalog_entry(entry)
+        backtest = await _latest_backtest(
+            (entry.strategy_fingerprint,),
+            result_store,
+        )
+        versions.append(
+            StrategyVersionHistoryEntryResponse(
+                version=definition.version,
+                strategy_fingerprint=entry.strategy_fingerprint,
+                published=True,
+                archived=entry.archived_at is not None,
+                archived_at=(
+                    entry.archived_at.isoformat() if entry.archived_at is not None else None
+                ),
+                backtest=backtest,
+            )
+        )
+    versions.sort(key=lambda version: version.version)
+    latest_version = (
+        versions[-1].version
+        if versions
+        else (identity_draft.definition.version if identity_draft is not None else None)
+    )
+    next_version = (latest_version or 1) + 1
+    draft_response = (
+        StrategyDraftResponse(
+            strategy=identity_draft.definition,
+            revision=identity_draft.revision,
+            summary=_strategy_summary(identity_draft.definition),
+        )
+        if identity_draft is not None
+        else None
+    )
+    return StrategyVersionHistoryResponse(
+        strategy_id=identity,
+        latest_version=latest_version,
+        next_version=next_version,
+        versions=tuple(versions),
+        draft=draft_response,
+    )
+
+
+@router.post(
+    "/{strategy_id}/revise",
+    response_model=StrategyRevisionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def revise_strategy(
+    strategy_id: UUID,
+    request: StrategyRevisionRequest,
+    catalog: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
+    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
+) -> StrategyRevisionResponse:
+    """Derive the next editable draft version from one immutable published version."""
+    source = await _published_definition(catalog, request.strategy_fingerprint)
+    if str(source.strategy_id) != str(strategy_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The supplied fingerprint belongs to a different strategy identity.",
+        )
+    try:
+        drafts = await draft_store.list_drafts()
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy draft storage is unavailable.",
+        ) from None
+    existing_drafts = [
+        draft for draft in drafts if str(draft.definition.strategy_id) == str(strategy_id)
+    ]
+    if existing_drafts:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An editable draft already exists for this strategy; open it instead.",
+        )
+    try:
+        publications = await catalog.list_published(include_archived=True)
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy publication catalog is unavailable.",
+        ) from None
+    identity_versions = [
+        entry.definition.version
+        for entry in publications
+        if str(entry.definition.strategy_id) == str(strategy_id)
+    ]
+    next_version = max(identity_versions, default=source.version) + 1
+    try:
+        revised = create_revised_draft(source, next_version=next_version)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from None
+    try:
+        draft = await draft_store.create_draft(revised)
+    except RuntimeError, TypeError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy draft storage is unavailable.",
+        ) from None
+    draft = _require_exact_draft(
+        draft,
+        expected=revised,
+        expected_revision=1,
+        detail="Strategy draft storage is unavailable.",
+    )
+    return StrategyRevisionResponse(
+        strategy=draft.definition,
+        revision=draft.revision,
+        source_fingerprint=request.strategy_fingerprint,
         summary=_strategy_summary(draft.definition),
     )
 

@@ -57,14 +57,25 @@ an explicit constant-spread stress assumption. Both engines fill every simulated
 bar open unconditionally, so unsupported fields can be declared but must never be read as backtested
 behavior.
 
-The library's read-only detail surface exposes Insight and Research tabs for every strategy identity.
-Insight always shows the same summary, validation, warmup/data, unsaved/read-only state, and V1/V2
-support matrix as the builder. Research requires an explicit immutable published version, verified
-dataset, half-open evaluation period, exact initial capital, maker/taker fees, fixed slippage, and
-engine contract; V2 additionally requires an explicit constant total bid-ask spread. It walks the
-bounded results API until every stored result for each exact version is loaded, groups complete
-history by version, and compares the newest result across versions. Drafts must be published before
-research submission. Dataset-catalog and per-version result failures remain independently visible.
+The library's read-only detail surface exposes Insight, Research, and Versions tabs for every
+strategy identity. Insight always shows the same summary, validation, warmup/data, unsaved/read-only
+state, and V1/V2 support matrix as the builder. Research requires an explicit immutable published
+version, verified dataset, half-open evaluation period, exact initial capital, maker/taker fees,
+fixed slippage, and engine contract; V2 additionally requires an explicit constant total bid-ask
+spread. It walks the bounded results API until every stored result for each exact version is loaded,
+groups complete history by version, and compares the newest result across versions. Drafts must be
+published before research submission. Dataset-catalog and per-version result failures remain
+independently visible. Versions lists the complete immutable published history for one strategy
+identity — each version with its fingerprint, archive marker, and newest backtest — and supports
+three derived actions. Export downloads the exact canonical definition of one published version.
+The semantic diff compares any two published versions field by field and renders human-readable
+differences without JSON noise. `POST /api/v1/strategies/{strategy_id}/revise` derives the next
+editable draft version (for example draft v2 from published v1) on the same stable strategy
+identity from one selected immutable version, rejecting conflicting open drafts with HTTP 409;
+publication remains immutable and history-preserving. Clone stays a separate-identity action at the
+library level. Deployments (paper execution, runtime status, pause/kill controls, live arming)
+remain unbuilt by design: no paper/live broker or order path exists, and the library reports
+paper/live status as explicitly unavailable.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 

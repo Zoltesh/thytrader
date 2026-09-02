@@ -9,19 +9,23 @@
 		clonePublishedStrategy,
 		datasetEvaluationWindow,
 		fetchDraftVersion,
+		fetchStrategyHistory,
 		fetchStrategySource,
 		importStrategy,
 		latestDatasets,
 		listDatasets,
 		listStrategies,
+		reviseStrategy,
 		submitBacktest,
 		toBuilderModel,
 		type BacktestLaunchInput,
 		type BuilderModel,
 		type Dataset,
 		type StrategyLibraryEntry,
-		type StrategyPublishedVersion
+		type StrategyPublishedVersion,
+		type StrategyVersionHistory
 	} from '$lib/strategies';
+	import { semanticDiff, type SemanticDiff } from '$lib/strategy-diff';
 	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
 
 	type VersionResultEntry = {
@@ -53,7 +57,7 @@
 	let viewModel = $state<BuilderModel | null>(null);
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
-	let researchTab = $state<'insight' | 'research'>('insight');
+	let researchTab = $state<'insight' | 'research' | 'versions'>('insight');
 	let launchDatasets = $state<Dataset[]>([]);
 	let launchDatasetsLoading = $state(false);
 	let launchDatasetError = $state<string | null>(null);
@@ -72,6 +76,13 @@
 		spread_bps: '8'
 	});
 	let versionResults = $state<VersionResultGroup[]>([]);
+	let versionHistory = $state<StrategyVersionHistory | null>(null);
+	let historyLoading = $state(false);
+	let historyError = $state<string | null>(null);
+	let revising = $state<string | null>(null);
+	let reviseError = $state<string | null>(null);
+	let diffSelection = $state<{ from: number; to: number }>({ from: 0, to: 0 });
+	let diffCache = $state<Record<string, BuilderModel>>({});
 	let hoveredId = $state<string | null>(null);
 	let barPosition = $state<{ x: number; y: number } | null>(null);
 	let barWidth = $state(0);
@@ -289,6 +300,108 @@
 		return `Usable window for this dataset: ${bounds.min.replace('T', ' ')} → ${bounds.max.replace('T', ' ')} (UTC hours). It must fit inside the dataset with ${viewModel?.warmup_bars ?? 0} warmup bars before it and one candle after it.`;
 	}
 
+	async function loadVersionHistory(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
+		historyLoading = true;
+		historyError = null;
+		reviseError = null;
+		versionHistory = null;
+		diffCache = {};
+		try {
+			const history = await fetchStrategyHistory(entry.strategy_id);
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+			versionHistory = history;
+			const versions = history.versions;
+			if (versions.length >= 2) {
+				diffSelection = {
+					from: versions[versions.length - 2].version,
+					to: versions[versions.length - 1].version
+				};
+			} else if (versions.length === 1) {
+				diffSelection = { from: versions[0].version, to: versions[0].version };
+			} else {
+				diffSelection = { from: 0, to: 0 };
+			}
+		} catch (caught) {
+			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
+			historyError =
+				caught instanceof Error ? caught.message : 'Could not load the version history.';
+		} finally {
+			if (requestId === viewRequestId && viewEntry?.strategy_id === entry.strategy_id) {
+				historyLoading = false;
+			}
+		}
+	}
+
+	async function loadDiffModel(
+		entry: StrategyLibraryEntry,
+		fingerprint: string
+	): Promise<BuilderModel> {
+		const cached = diffCache[fingerprint];
+		if (cached !== undefined) return cached;
+		const source = await fetchStrategySource(fingerprint);
+		const model = toBuilderModel(source, 0);
+		diffCache = { ...diffCache, [fingerprint]: model };
+		return model;
+	}
+
+	async function currentDiff(): Promise<SemanticDiff | null> {
+		if (!viewEntry || !versionHistory) return null;
+		const fromVersion = versionHistory.versions.find(
+			(version) => version.version === diffSelection.from
+		);
+		const toVersion = versionHistory.versions.find(
+			(version) => version.version === diffSelection.to
+		);
+		if (fromVersion === undefined || toVersion === undefined) return null;
+		if (diffSelection.from === diffSelection.to) return null;
+		try {
+			const [before, after] = await Promise.all([
+				loadDiffModel(viewEntry, fromVersion.strategy_fingerprint),
+				loadDiffModel(viewEntry, toVersion.strategy_fingerprint)
+			]);
+			return semanticDiff(before, after);
+		} catch {
+			return null;
+		}
+	}
+
+	async function reviseFromVersion(
+		entry: StrategyLibraryEntry,
+		fingerprint: string
+	): Promise<void> {
+		if (revising !== null) return;
+		revising = fingerprint;
+		reviseError = null;
+		try {
+			await reviseStrategy(entry.strategy_id, fingerprint);
+			await loadLibrary();
+			await loadVersionHistory(entry, viewRequestId);
+		} catch (caught) {
+			reviseError = caught instanceof Error ? caught.message : 'Could not create a new draft.';
+		} finally {
+			revising = null;
+		}
+	}
+
+	function versionHistoryDownloadName(entry: StrategyLibraryEntry, version: number): string {
+		return `${entry.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-v${version}.json`;
+	}
+
+	async function exportVersion(
+		entry: StrategyLibraryEntry,
+		fingerprint: string,
+		version: number
+	): Promise<void> {
+		const source = await fetchStrategySource(fingerprint);
+		const blob = new Blob([JSON.stringify(source, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = versionHistoryDownloadName(entry, version);
+		anchor.click();
+		URL.revokeObjectURL(url);
+	}
+
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
 		const requestId = ++viewRequestId;
 		viewEntry = entry;
@@ -301,6 +414,9 @@
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
 		void loadLaunchDatasets(entry, requestId);
+		if (entry.status !== 'draft') {
+			void loadVersionHistory(entry, requestId);
+		}
 		try {
 			let loadedModel: BuilderModel | null = null;
 			if (entry.status === 'draft') {
@@ -336,6 +452,11 @@
 		viewEntry = null;
 		viewModel = null;
 		viewError = null;
+		versionHistory = null;
+		historyError = null;
+		reviseError = null;
+		revising = null;
+		diffCache = {};
 		selectedStrategyFingerprint = '';
 		launchDatasetError = null;
 		launchDatasetsLoading = false;
@@ -624,6 +745,14 @@
 					aria-selected={researchTab === 'research'}
 					onclick={() => (researchTab = 'research')}>Research</button
 				>
+				<button
+					class="drawer-tab"
+					class:active={researchTab === 'versions'}
+					type="button"
+					role="tab"
+					aria-selected={researchTab === 'versions'}
+					onclick={() => (researchTab = 'versions')}>Versions</button
+				>
 			</div>
 			{#if viewLoading}
 				<p class="view-note">Loading strategy evidence…</p>
@@ -864,6 +993,177 @@
 						{/each}
 					{/if}
 				</div>
+			{:else if viewModel && researchTab === 'versions'}
+				{@const viewSnapshot = viewEntry}
+				{@const historySnapshot = versionHistory}
+				{#if viewSnapshot.status === 'draft'}
+					<p class="view-note">
+						Publish this draft to start an immutable version history. Cloning creates a separate
+						strategy identity instead.
+					</p>
+				{:else if historyLoading}
+					<p class="view-note">Loading version history…</p>
+				{:else if historyError}
+					<p class="view-problem" role="alert">{historyError}</p>
+				{:else if reviseError}
+					<p class="view-problem" role="alert">{reviseError}</p>
+				{:else if historySnapshot}
+					<div class="view-block">
+						<h3>Published versions</h3>
+						{#if historySnapshot.versions.length === 0}
+							<p class="view-note">No immutable published versions yet.</p>
+						{:else}
+							<table class="results-table" aria-label="Published version history">
+								<thead>
+									<tr>
+										<th scope="col">Version</th>
+										<th scope="col">Fingerprint</th>
+										<th scope="col">Status</th>
+										<th scope="col">Latest backtest</th>
+										<th scope="col">Actions</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each historySnapshot.versions as version (version.version)}
+										{@const latestFingerprint =
+											historySnapshot.versions[historySnapshot.versions.length - 1]
+												.strategy_fingerprint}
+										<tr>
+											<td>V{version.version}</td>
+											<td
+												><code class="fingerprint"
+													>{version.strategy_fingerprint.slice(0, 18)}…</code
+												></td
+											>
+											<td>
+												{version.archived
+													? `archived${version.archived_at ? ` · ${new Date(version.archived_at).toLocaleDateString()}` : ''}`
+													: 'active'}
+											</td>
+											<td>
+												{#if version.backtest}
+													<a
+														href={resolve(
+															`/backtests?result=${encodeURIComponent(version.backtest.result_fingerprint)}`
+														)}>{formatPercent(version.backtest.summary.total_return_fraction)}</a
+													>
+												{:else}
+													<span class="muted">None</span>
+												{/if}
+											</td>
+											<td>
+												<div class="version-actions">
+													<button
+														class="bar-button"
+														type="button"
+														disabled={revising !== null}
+														onclick={() =>
+															reviseFromVersion(viewSnapshot, version.strategy_fingerprint)}
+													>
+														{revising === version.strategy_fingerprint
+															? 'Creating…'
+															: 'Edit into next draft'}
+													</button>
+													<button
+														class="bar-button"
+														type="button"
+														onclick={() =>
+															exportVersion(
+																viewSnapshot,
+																version.strategy_fingerprint,
+																version.version
+															)}
+													>
+														Export
+													</button>
+													<button
+														class="bar-button"
+														type="button"
+														disabled={revising !== null ||
+															version.strategy_fingerprint === latestFingerprint}
+														onclick={() =>
+															(diffSelection = {
+																from: version.version,
+																to: historySnapshot.versions[historySnapshot.versions.length - 1]
+																	.version
+															})}
+													>
+														Compare to latest
+													</button>
+												</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+					</div>
+					{#if historySnapshot.draft}
+						<div class="view-block">
+							<h3>Open draft</h3>
+							<p class="view-note">
+								A draft v{historySnapshot.draft.strategy.version} already exists for this strategy.
+							</p>
+							<a
+								class="secondary view-edit"
+								href={resolve(`/strategies/${viewSnapshot.strategy_id}`)}
+								>Open draft v{historySnapshot.draft.strategy.version}</a
+							>
+						</div>
+					{/if}
+					{#if historySnapshot.versions.length >= 2}
+						<div class="view-block">
+							<h3>Semantic diff</h3>
+							<div class="launch-grid">
+								<label
+									>From version
+									<select bind:value={diffSelection.from}>
+										{#each historySnapshot.versions as version (version.version)}
+											<option value={version.version}>V{version.version}</option>
+										{/each}
+									</select></label
+								>
+								<label
+									>To version
+									<select bind:value={diffSelection.to}>
+										{#each historySnapshot.versions as version (version.version)}
+											<option value={version.version}>V{version.version}</option>
+										{/each}
+									</select></label
+								>
+							</div>
+							{#await currentDiff()}
+								<p class="view-note">Comparing versions…</p>
+							{:then diff}
+								{#if diff === null || diff.changes.length === 0}
+									<p class="view-note">These versions are semantically equivalent.</p>
+								{:else}
+									<p class="view-note">{diff.summary}</p>
+									<table class="results-table diff-table" aria-label="Semantic diff">
+										<thead>
+											<tr>
+												<th scope="col">Field</th>
+												<th scope="col">From</th>
+												<th scope="col">To</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each diff.changes as change (change.path + change.kind)}
+												<tr>
+													<td>{change.label}</td>
+													<td><code>{change.from === '' ? '—' : change.from}</code></td>
+													<td><code>{change.to === '' ? '—' : change.to}</code></td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								{/if}
+							{:catch}
+								<p class="view-problem" role="alert">Could not load the selected versions.</p>
+							{/await}
+						</div>
+					{/if}
+				{/if}
 				{#if viewEntry.status === 'draft' && viewEntry.strategy_id}
 					<a class="secondary view-edit" href={resolve(`/strategies/${viewEntry.strategy_id}`)}
 						>Edit this draft</a
@@ -1174,6 +1474,11 @@
 		font-size: 12px;
 		display: grid;
 		gap: 4px;
+	}
+	.version-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
 	}
 	.view-edit {
 		justify-self: start;

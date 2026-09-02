@@ -322,6 +322,46 @@ export async function archivePublishedStrategy(fingerprint: string): Promise<Arc
 	);
 }
 
+export type StrategyVersionHistoryEntry = {
+	version: number;
+	strategy_fingerprint: string;
+	published: boolean;
+	archived: boolean;
+	archived_at: string | null;
+	backtest: StrategyLibraryBacktest | null;
+};
+
+export type StrategyVersionHistory = {
+	strategy_id: string;
+	latest_version: number | null;
+	next_version: number;
+	versions: StrategyVersionHistoryEntry[];
+	draft: DraftResponse | null;
+};
+
+export async function fetchStrategyHistory(strategyId: string): Promise<StrategyVersionHistory> {
+	return request<StrategyVersionHistory>(
+		`/api/v1/strategies/${encodeURIComponent(strategyId)}/history`
+	);
+}
+
+export type RevisionResponse = {
+	strategy: StrategyDraft;
+	revision: number;
+	source_fingerprint: string;
+	summary: string;
+};
+
+export async function reviseStrategy(
+	strategyId: string,
+	fingerprint: string
+): Promise<RevisionResponse> {
+	return request<RevisionResponse>(`/api/v1/strategies/${encodeURIComponent(strategyId)}/revise`, {
+		method: 'POST',
+		body: JSON.stringify({ strategy_fingerprint: fingerprint })
+	});
+}
+
 export type BacktestLaunchInput = {
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;

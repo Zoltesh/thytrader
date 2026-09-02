@@ -109,6 +109,25 @@ def create_cloned_draft(
     return StrategyDefinition.model_validate(payload)
 
 
+def create_revised_draft(
+    source: StrategyDefinition, *, next_version: int, now: datetime | None = None
+) -> StrategyDefinition:
+    """Derive the next draft version of one strategy identity from published evidence."""
+    if next_version <= source.version:
+        raise ValueError("A revised draft requires a version greater than its source version.")
+    created_at = (now or datetime.now(UTC)).astimezone(UTC)
+    created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
+    payload: dict[str, Any] = source.model_dump(mode="python")
+    payload.update(
+        {
+            "version": next_version,
+            "status": StrategyStatus.DRAFT,
+            "created_at": created_at,
+        }
+    )
+    return StrategyDefinition.model_validate(payload)
+
+
 def create_reference_draft(*, now: datetime | None = None) -> StrategyDefinition:
     """Construct one server-identified reference draft for the durable authoring boundary."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)

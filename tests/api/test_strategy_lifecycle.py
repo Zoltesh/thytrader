@@ -14,10 +14,16 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
+from uuid import uuid4
+
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
-from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
+from thytrader.strategies.authoring import (
+    StrategyDraft,
+    create_reference_draft,
+    create_revised_draft,
+)
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 from thytrader.strategies.publication import (
     PublishedStrategy,
@@ -614,6 +620,235 @@ def test_publishing_a_draft_consumes_its_mutable_browser_copy() -> None:
     assert entry["status"] == "published"
     assert entry["strategy_id"] == draft["strategy_id"]
     assert entry["latest_fingerprint"] is not None
+
+
+def test_version_history_reports_versions_draft_and_next_version() -> None:
+    """The Versions tab receives exact immutable history for one strategy identity."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reference = create_reference_draft(now=created_at)
+    published_one = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    fingerprint_one = strategy_fingerprint(published_one)
+    publication_store.published[fingerprint_one] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_one, definition=published_one
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        history = client.get(f"/api/v1/strategies/{published_one.strategy_id}/history")
+
+    assert history.status_code == 200
+    payload = history.json()
+    assert payload["strategy_id"] == str(published_one.strategy_id)
+    assert payload["latest_version"] == 1
+    assert payload["next_version"] == 2
+    assert payload["draft"] is None
+    assert [version["version"] for version in payload["versions"]] == [1]
+    assert payload["versions"][0]["strategy_fingerprint"] == fingerprint_one
+    assert payload["versions"][0]["published"] is True
+    assert payload["versions"][0]["archived"] is False
+    assert payload["versions"][0]["backtest"] is None
+
+
+def test_version_history_includes_archived_versions_and_open_draft() -> None:
+    """Archived evidence stays visible with its marker and an open draft is reported."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reference = create_reference_draft(now=created_at)
+    published_one = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    published_two = StrategyDefinition.model_validate(
+        {
+            **published_one.model_dump(mode="python"),
+            "version": 2,
+            "created_at": created_at + timedelta(days=1),
+        }
+    )
+    fingerprint_one = strategy_fingerprint(published_one)
+    fingerprint_two = strategy_fingerprint(published_two)
+    publication_store.published[fingerprint_one] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_one, definition=published_one
+    )
+    publication_store.published[fingerprint_two] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_two, definition=published_two
+    )
+    publication_store.archived[fingerprint_one] = created_at + timedelta(hours=2)
+    revised = create_revised_draft(
+        published_two, next_version=3, now=created_at + timedelta(days=2)
+    )
+    draft_store.drafts[(str(revised.strategy_id), revised.version)] = StrategyDraft(
+        definition=revised, revision=1
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        history = client.get(f"/api/v1/strategies/{published_one.strategy_id}/history")
+
+    assert history.status_code == 200
+    payload = history.json()
+    assert payload["latest_version"] == 2
+    assert payload["next_version"] == 3
+    assert [version["version"] for version in payload["versions"]] == [1, 2]
+    assert payload["versions"][0]["archived"] is True
+    assert payload["versions"][0]["archived_at"] is not None
+    assert payload["versions"][1]["archived"] is False
+    assert payload["draft"] is not None
+    assert payload["draft"]["strategy"]["version"] == 3
+    assert payload["draft"]["revision"] == 1
+
+
+def test_version_history_rejects_unknown_strategies() -> None:
+    """History for an identity with no drafts or publications answers 404."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        history = client.get(f"/api/v1/strategies/{uuid4()}/history")
+
+    assert history.status_code == 404
+    assert history.json() == {"detail": "Strategy was not found."}
+
+
+def test_revise_derives_the_next_draft_version_from_published_evidence() -> None:
+    """Editing a published version creates draft v2 on the same immutable identity."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reference = create_reference_draft(now=created_at)
+    published_one = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    fingerprint_one = strategy_fingerprint(published_one)
+    publication_store.published[fingerprint_one] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_one, definition=published_one
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        revision = client.post(
+            f"/api/v1/strategies/{published_one.strategy_id}/revise",
+            json={"strategy_fingerprint": fingerprint_one},
+        )
+        history = client.get(f"/api/v1/strategies/{published_one.strategy_id}/history")
+
+    assert revision.status_code == 201
+    payload = revision.json()
+    assert payload["source_fingerprint"] == fingerprint_one
+    assert payload["strategy"]["strategy_id"] == str(published_one.strategy_id)
+    assert payload["strategy"]["version"] == 2
+    assert payload["strategy"]["status"] == "draft"
+    assert payload["strategy"]["name"] == published_one.name
+    assert payload["revision"] == 1
+    assert history.json()["draft"] is not None
+
+
+def test_revise_rejects_a_conflicting_open_draft() -> None:
+    """Only one editable draft may exist per strategy identity at a time."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reference = create_reference_draft(now=created_at)
+    published_one = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    fingerprint_one = strategy_fingerprint(published_one)
+    publication_store.published[fingerprint_one] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_one, definition=published_one
+    )
+    revised = create_revised_draft(
+        published_one, next_version=2, now=created_at + timedelta(days=1)
+    )
+    draft_store.drafts[(str(revised.strategy_id), revised.version)] = StrategyDraft(
+        definition=revised, revision=1
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        revision = client.post(
+            f"/api/v1/strategies/{published_one.strategy_id}/revise",
+            json={"strategy_fingerprint": fingerprint_one},
+        )
+
+    assert revision.status_code == 409
+    assert revision.json()["detail"] == (
+        "An editable draft already exists for this strategy; open it instead."
+    )
+
+
+def test_revise_rejects_a_fingerprint_from_a_different_identity() -> None:
+    """The supplied fingerprint must belong to the addressed strategy identity."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    reference = create_reference_draft()
+    published_one = StrategyDefinition.model_validate(
+        {**reference.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+    )
+    fingerprint_one = strategy_fingerprint(published_one)
+    publication_store.published[fingerprint_one] = PublishedStrategy(
+        strategy_fingerprint=fingerprint_one, definition=published_one
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        revision = client.post(
+            f"/api/v1/strategies/{uuid4()}/revise",
+            json={"strategy_fingerprint": fingerprint_one},
+        )
+
+    assert revision.status_code == 400
+    assert revision.json()["detail"] == (
+        "The supplied fingerprint belongs to a different strategy identity."
+    )
+
+
+def test_revise_rejects_an_unknown_fingerprint() -> None:
+    """Revision requires an existing immutable publication."""
+    draft_store = InMemoryDraftStore()
+    publication_store = InMemoryPublicationStore(draft_store)
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=publication_store,
+    )
+
+    with TestClient(app) as client:
+        revision = client.post(
+            f"/api/v1/strategies/{uuid4()}/revise",
+            json={"strategy_fingerprint": f"sha256:{'0' * 64}"},
+        )
+
+    assert revision.status_code == 404
+    assert revision.json() == {"detail": "Published strategy was not found."}
 
 
 def test_archiving_hides_immutable_publication_from_active_browser_selection() -> None:
