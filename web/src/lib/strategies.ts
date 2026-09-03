@@ -313,7 +313,7 @@ export async function saveDraft(draft: StrategyDraft, revision: number): Promise
 }
 
 export async function listDatasets(): Promise<Dataset[]> {
-	return (await request<{ datasets: Dataset[] }>('/api/v1/market-data/datasets')).datasets;
+	return (await request<{ datasets: Dataset[] }>('/api/v1/market-data/datasets/latest')).datasets;
 }
 
 export async function publishDraft(

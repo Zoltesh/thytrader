@@ -2,11 +2,13 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import (
     Candle,
     CandleInterval,
@@ -15,7 +17,11 @@ from thytrader.market_data.models import (
     MarketDataPreview,
     MarketProduct,
 )
+from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class StaticMarketDataProvider:
@@ -306,3 +312,69 @@ def test_market_data_range_returns_requested_and_received_coverage() -> None:
     assert response.json()["requested_candle_count"] == 168
     assert response.json()["received_candle_count"] == 1
     assert response.json()["complete"] is True
+
+
+def _stored_dataset(root: Path) -> str:
+    """Publish one complete verified fixture dataset and return its fingerprint."""
+    starts_at = datetime(2026, 7, 1, 0, tzinfo=UTC)
+    candles = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_HOUR,
+        starts_at,
+        starts_at + CandleInterval.ONE_HOUR.duration,
+        now=starts_at + CandleInterval.ONE_HOUR.duration,
+    )
+    return DatasetStore(root).write("coinbase", "BTC-USD", report).content_fingerprint
+
+
+def test_market_data_latest_datasets_returns_one_revision_per_market(tmp_path: Path) -> None:
+    """The launch-form catalog serves the newest revision without the full history."""
+    fingerprint = _stored_dataset(tmp_path)
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_service=MarketDataService(StaticMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/datasets/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "datasets": [
+            {
+                "provider": "coinbase",
+                "product_id": "BTC-USD",
+                "timeframe": "1h",
+                "starts_at": "2026-07-01T00:00:00Z",
+                "ends_at": "2026-07-01T01:00:00Z",
+                "received_candle_count": 1,
+                "content_fingerprint": fingerprint,
+            }
+        ]
+    }
+
+
+def test_market_data_latest_datasets_reports_empty_catalog_without_datasets(
+    tmp_path: Path,
+) -> None:
+    """A dataset-free store must return an empty catalog instead of failing."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_service=MarketDataService(StaticMarketDataProvider()),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/datasets/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {"datasets": []}

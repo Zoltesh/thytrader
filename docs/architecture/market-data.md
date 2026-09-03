@@ -9,6 +9,8 @@ bounded recent candle-validation window, and a seven-day 1h range-completeness r
 GET /api/v1/market-data/products
 GET /api/v1/market-data/preview?product_id=BTC-USD
 GET /api/v1/market-data/range?product_id=BTC-USD
+GET /api/v1/market-data/datasets
+GET /api/v1/market-data/datasets/latest
 GET /api/v1/market-data/ingestion?product_id=BTC-USD
 GET /api/v1/market-data/freshness?product_id=BTC-USD
 GET /api/v1/market-data/feed?product_id=BTC-USD
@@ -115,7 +117,10 @@ previous verification result while every referenced Parquet file keeps its recor
 modification time, and re-verify any dataset whose file identity changes. Content that is corrupted
 without any identity change stays hidden from deep execution loads, which always reread and reject
 mismatches, while listings may briefly keep serving the manifest facts of the previously verified
-content.
+content. `DatasetStore.list_latest_verified()` collapses that full history to the newest revision
+per provider/product/timeframe; `GET /api/v1/market-data/datasets/latest` serves it to the strategy
+launch form, whose picker needs exactly one dataset per market, while `/datasets` keeps returning
+every revision so stored results keep resolving their exact source fingerprints.
 
 ```text
 <dataset-root>/

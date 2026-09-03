@@ -60,6 +60,7 @@
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
 	let researchTab = $state<'insight' | 'research' | 'versions'>('insight');
+	let datasetsRequested = $state(false);
 	let launchDatasets = $state<Dataset[]>([]);
 	let launchDatasetsLoading = $state(false);
 	let launchDatasetError = $state<string | null>(null);
@@ -135,6 +136,15 @@
 		if (hoveredId === null || barWidth === 0 || barHeight === 0) return;
 		const row = document.querySelector(`tbody tr[data-strategy-id="${hoveredId}"]`);
 		if (row instanceof HTMLElement) positionBarForRow(row.getBoundingClientRect());
+	});
+
+	// Fetch the verified-dataset catalog the first time the Research tab needs
+	// it, not when the inspector opens.
+	$effect(() => {
+		const entry = viewEntry;
+		if (researchTab !== 'research' || entry === null || datasetsRequested) return;
+		datasetsRequested = true;
+		void loadLaunchDatasets(entry, viewRequestId);
 	});
 
 	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
@@ -254,14 +264,18 @@
 		}
 	}
 
+	// The dataset catalog is not fetched on inspector open: it can be slow on
+	// large revision histories and never blocks the evidence being viewed. The
+	// Research tab launches it on first open so "Loading strategy evidence…"
+	// stays gated only by the strategy request.
 	async function loadLaunchDatasets(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
-		launchDatasets = [];
+		if (launchDatasetsLoading) return;
 		launchDatasetsLoading = true;
 		launchDatasetError = null;
 		try {
 			const datasets = await listDatasets();
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-			// Revisions are cumulative; only the latest one is a useful launch target.
+			// The server returns one latest revision per market; filter to this one.
 			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === entry.product_id));
 			if (launchDatasets.length > 0) {
 				selectLaunchDataset(launchDatasets[0]);
@@ -271,9 +285,9 @@
 			launchDatasetError =
 				caught instanceof Error ? caught.message : 'Verified datasets are unavailable.';
 		} finally {
-			if (requestId === viewRequestId && viewEntry?.strategy_id === entry.strategy_id) {
-				launchDatasetsLoading = false;
-			}
+			// A superseded request (another strategy opened) must not leave the
+			// next view stuck on "Loading verified datasets…".
+			launchDatasetsLoading = false;
 		}
 	}
 
@@ -444,9 +458,12 @@
 		versionResults = [];
 		launchError = null;
 		launching = false;
+		datasetsRequested = false;
+		launchDatasets = [];
+		launchDatasetError = null;
+		launchDatasetsLoading = false;
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
-		void loadLaunchDatasets(entry, requestId);
 		if (entry.published_versions.length > 0 || entry.status !== 'draft') {
 			void loadVersionHistory(entry, requestId);
 		}
@@ -492,6 +509,8 @@
 		revising = null;
 		diffCache = {};
 		selectedStrategyFingerprint = '';
+		datasetsRequested = false;
+		launchDatasets = [];
 		launchDatasetError = null;
 		launchDatasetsLoading = false;
 	}

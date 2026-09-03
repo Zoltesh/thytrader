@@ -114,6 +114,29 @@ class DatasetStore:
                 del self._verified_cache[cached_path]
         return tuple(verified)
 
+    def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
+        """Return the newest verified revision per provider/product/timeframe.
+
+        Cumulative worker revisions of one market share their start and grow
+        their end, so the newest ``ends_at`` (tiebroken by earliest start) is a
+        strict superset and the only useful catalog selection target. This walk
+        still verifies every revision once, but callers such as the browser
+        catalog endpoint avoid materializing the full revision history per
+        request; ``list_verified()`` keeps returning every revision so
+        historical results keep resolving their exact fingerprints.
+        """
+        latest: dict[tuple[str, str, str], DatasetManifest] = {}
+        for manifest in self.list_verified():
+            key = (manifest.provider, manifest.product_id, manifest.timeframe)
+            current = latest.get(key)
+            if (
+                current is None
+                or manifest.ends_at > current.ends_at
+                or (manifest.ends_at == current.ends_at and manifest.starts_at < current.starts_at)
+            ):
+                latest[key] = manifest
+        return tuple(sorted(latest.values(), key=lambda manifest: manifest.product_id))
+
     def _list_verified_manifest(self, manifest_path: Path) -> DatasetManifest | None:
         """Return one listing entry, reusing prior verification while identity holds."""
         cached = self._verified_cache.get(manifest_path)

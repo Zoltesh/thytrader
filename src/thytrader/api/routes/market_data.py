@@ -95,6 +95,12 @@ class DatasetCatalogResponse(BaseModel):
     datasets: tuple[DatasetResponse, ...]
 
 
+class LatestDatasetCatalogResponse(BaseModel):
+    """One latest verified revision per market for launch-form selection."""
+
+    datasets: tuple[DatasetResponse, ...]
+
+
 class MarketDataErrorDetail(BaseModel):
     """Stable redacted market-data upstream failure detail."""
 
@@ -144,6 +150,23 @@ async def get_verified_datasets(
     """Return all complete local manifests after re-verifying their immutable contents."""
     manifests = store.list_verified()
     return DatasetCatalogResponse(
+        datasets=tuple(_to_dataset_response(manifest) for manifest in manifests)
+    )
+
+
+@router.get("/datasets/latest", response_model=LatestDatasetCatalogResponse)
+async def get_latest_verified_datasets(
+    store: Annotated[DatasetStore, Depends(get_dataset_store)],
+) -> LatestDatasetCatalogResponse:
+    """Return the newest verified revision per market for launch selection.
+
+    Cumulative worker revisions make full-history listings expensive and
+    redundant for the launch form: the newest revision per market is a strict
+    superset of its predecessors, and launch submission resolves exact
+    fingerprints regardless of which listing served the selection.
+    """
+    manifests = store.list_latest_verified()
+    return LatestDatasetCatalogResponse(
         datasets=tuple(_to_dataset_response(manifest) for manifest in manifests)
     )
 

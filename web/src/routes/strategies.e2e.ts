@@ -274,7 +274,7 @@ test('ignores stale inspector responses after another strategy is opened', async
 			}
 		});
 	});
-	await page.route('**/api/v1/market-data/datasets', async (route) =>
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
 		route.fulfill({ json: { datasets: [] } })
 	);
 	await page.route(
@@ -478,7 +478,7 @@ test('research tab launches a backtest with engine and spread and lists version 
 		await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 	});
 	const datasetFingerprint = `sha256:${'f'.repeat(64)}`;
-	await page.route('**/api/v1/market-data/datasets', async (route) =>
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
 		route.fulfill({
 			json: {
 				datasets: [
@@ -574,7 +574,7 @@ test('research tab loads every result page for an exact strategy version', async
 			});
 		}
 	);
-	await page.route('**/api/v1/market-data/datasets', async (route) =>
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
 		route.fulfill({ json: { datasets: [] } })
 	);
 	await page.route('**/api/v1/strategies/source/*', async (route) =>
@@ -598,7 +598,7 @@ test('research tab preserves inspector evidence when the dataset catalog fails',
 	page
 }) => {
 	await mockLibrary(page, [publishedEntry]);
-	await page.route('**/api/v1/market-data/datasets', async (route) =>
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
 		route.fulfill({ status: 503, json: { detail: 'Verified datasets are unavailable.' } })
 	);
 	await page.route('**/api/v1/strategies/source/*', async (route) =>
@@ -623,6 +623,76 @@ test('research tab preserves inspector evidence when the dataset catalog fails',
 
 	await expect(page.getByRole('alert')).toContainText('Verified datasets are unavailable.');
 	await expect(page.getByRole('button', { name: 'Run backtest' })).toBeDisabled();
+});
+
+test('opening the inspector does not request the dataset catalog', async ({ page }) => {
+	await mockLibrary(page, [publishedEntry]);
+	let datasetRequests = 0;
+	let sourceRequests = 0;
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) => {
+		datasetRequests += 1;
+		await route.fulfill({ json: { datasets: [] } });
+	});
+	await page.route('**/api/v1/strategies/source/*', async (route) => {
+		sourceRequests += 1;
+		await route.fulfill({ json: { strategy: { ...draft, status: 'published' } } });
+	});
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await expect(page.getByText('Plain-English summary')).toBeVisible();
+	await page.waitForTimeout(250);
+
+	expect(sourceRequests).toBe(1);
+	expect(datasetRequests).toBe(0);
+});
+
+test('research tab loads the latest dataset catalog when it opens', async ({ page }) => {
+	await mockLibrary(page, [publishedEntry]);
+	const datasetFingerprint = `sha256:${'f'.repeat(64)}`;
+	let datasetRequests = 0;
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) => {
+		datasetRequests += 1;
+		await route.fulfill({
+			json: {
+				datasets: [
+					{
+						product_id: 'BTC-USD',
+						starts_at: '2026-06-01T00:00:00Z',
+						ends_at: '2026-08-01T00:00:00Z',
+						content_fingerprint: datasetFingerprint
+					}
+				]
+			}
+		});
+	});
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await expect(page.getByText('Plain-English summary')).toBeVisible();
+	expect(datasetRequests).toBe(0);
+
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await page.waitForTimeout(250);
+	expect(datasetRequests).toBe(1);
 });
 
 test('imports a pasted strategy definition as a new draft', async ({ page }) => {

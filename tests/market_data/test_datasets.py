@@ -355,6 +355,40 @@ def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_pa
         store.load_verified(manifest.manifest_path)
 
 
+def test_dataset_store_latest_listing_returns_one_revision_per_market(tmp_path: Path) -> None:
+    """Cumulative revisions collapse to the newest superset per provider/product/timeframe."""
+    store = DatasetStore(tmp_path)
+    first = store.write("coinbase", "BTC-USD", _complete_report())
+    extended = store.extend(first.content_fingerprint, _extension_report(datetime.now(UTC)))
+    other_product = store.write("coinbase", "ETH-USD", _complete_report())
+
+    latest = store.list_latest_verified()
+
+    assert [entry.content_fingerprint for entry in latest] == [
+        extended.content_fingerprint,
+        other_product.content_fingerprint,
+    ]
+    # The full listing keeps every revision so historical fingerprints resolve.
+    assert {entry.content_fingerprint for entry in store.list_verified()} == {
+        first.content_fingerprint,
+        extended.content_fingerprint,
+        other_product.content_fingerprint,
+    }
+
+
+def test_dataset_store_latest_listing_reverifies_when_revision_file_is_removed(
+    tmp_path: Path,
+) -> None:
+    """A missing immutable file must drop both its revision and the market's latest entry."""
+    store = DatasetStore(tmp_path)
+    manifest = store.write("coinbase", "BTC-USD", _complete_report())
+
+    assert len(store.list_latest_verified()) == 1
+    manifest.files[0].unlink()
+
+    assert store.list_latest_verified() == ()
+
+
 def test_dataset_store_listing_reuses_verification_for_unchanged_file_identity(
     tmp_path: Path,
 ) -> None:
