@@ -11,10 +11,12 @@
 		fetchDraftVersion,
 		fetchStrategyHistory,
 		fetchStrategySource,
+		formatUtcInputValue,
 		importStrategy,
 		latestDatasets,
 		listDatasets,
 		listStrategies,
+		parseUtcInputValue,
 		reviseStrategy,
 		submitBacktest,
 		toBuilderModel,
@@ -72,7 +74,8 @@
 		maker_fee_rate: '0.001',
 		taker_fee_rate: '0.002',
 		fixed_slippage_bps: '10',
-		engine: 'thytrader-bar-backtest-v1' as BacktestLaunchInput['engine_contract_version'],
+		// The docs make the engine contract explicit and required; no silent default.
+		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
 		spread_bps: '8'
 	});
 	let versionResults = $state<VersionResultGroup[]>([]);
@@ -81,6 +84,7 @@
 	let historyError = $state<string | null>(null);
 	let revising = $state<string | null>(null);
 	let reviseError = $state<string | null>(null);
+	let exporting = $state(false);
 	let diffSelection = $state<{ from: number; to: number }>({ from: 0, to: 0 });
 	let diffCache = $state<Record<string, BuilderModel>>({});
 	let hoveredId = $state<string | null>(null);
@@ -134,9 +138,8 @@
 	});
 
 	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
-		if (entry.status === 'draft') return [];
 		if (entry.published_versions.length > 0) return entry.published_versions;
-		if (entry.latest_fingerprint && entry.latest_version) {
+		if (entry.status !== 'draft' && entry.latest_fingerprint && entry.latest_version) {
 			return [
 				{
 					version: entry.latest_version,
@@ -221,14 +224,18 @@
 
 	async function runLaunch(): Promise<void> {
 		if (!viewEntry || selectedStrategyFingerprint === '' || launching) return;
+		if (launchForm.engine === '') {
+			launchError = 'Select an engine contract before launching.';
+			return;
+		}
 		launching = true;
 		launchError = null;
 		try {
 			const input: BacktestLaunchInput = {
 				strategy_fingerprint: selectedStrategyFingerprint,
 				dataset_fingerprint: launchForm.dataset_fingerprint,
-				evaluation_start: new Date(launchForm.evaluation_start).toISOString(),
-				evaluation_end: new Date(launchForm.evaluation_end).toISOString(),
+				evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
+				evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
 				initial_quote_balance: launchForm.initial_quote_balance,
 				maker_fee_rate: launchForm.maker_fee_rate,
 				taker_fee_rate: launchForm.taker_fee_rate,
@@ -374,8 +381,23 @@
 		reviseError = null;
 		try {
 			await reviseStrategy(entry.strategy_id, fingerprint);
-			await loadLibrary();
-			await loadVersionHistory(entry, viewRequestId);
+			const [library, history] = await Promise.all([
+				listStrategies().catch(() => null),
+				fetchStrategyHistory(entry.strategy_id).catch(() => null)
+			]);
+			if (library !== null) entries = library;
+			const revised = history?.draft ?? null;
+			const [updatedEntry] = (library ?? []).filter(
+				(candidate) => candidate.strategy_id === entry.strategy_id
+			);
+			if (history !== null) {
+				versionHistory = history;
+				if (revised !== null && viewEntry?.strategy_id === entry.strategy_id) {
+					viewEntry = { ...(updatedEntry ?? entry) };
+					viewModel = toBuilderModel(revised.strategy, revised.revision);
+					applyLaunchWindowDefaults();
+				}
+			}
 		} catch (caught) {
 			reviseError = caught instanceof Error ? caught.message : 'Could not create a new draft.';
 		} finally {
@@ -392,14 +414,24 @@
 		fingerprint: string,
 		version: number
 	): Promise<void> {
-		const source = await fetchStrategySource(fingerprint);
-		const blob = new Blob([JSON.stringify(source, null, 2)], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const anchor = document.createElement('a');
-		anchor.href = url;
-		anchor.download = versionHistoryDownloadName(entry, version);
-		anchor.click();
-		URL.revokeObjectURL(url);
+		if (exporting) return;
+		exporting = true;
+		historyError = null;
+		try {
+			const source = await fetchStrategySource(fingerprint);
+			const blob = new Blob([JSON.stringify(source, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = versionHistoryDownloadName(entry, version);
+			anchor.click();
+			URL.revokeObjectURL(url);
+		} catch (caught) {
+			historyError =
+				caught instanceof Error ? caught.message : 'Could not export the strategy definition.';
+		} finally {
+			exporting = false;
+		}
 	}
 
 	async function openView(entry: StrategyLibraryEntry): Promise<void> {
@@ -411,16 +443,18 @@
 		researchTab = 'insight';
 		versionResults = [];
 		launchError = null;
+		launching = false;
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
 		void loadLaunchDatasets(entry, requestId);
-		if (entry.status !== 'draft') {
+		if (entry.published_versions.length > 0 || entry.status !== 'draft') {
 			void loadVersionHistory(entry, requestId);
 		}
 		try {
 			let loadedModel: BuilderModel | null = null;
 			if (entry.status === 'draft') {
-				const draft = await fetchDraftVersion(entry.strategy_id, 1);
+				const draftVersion = entry.latest_version ?? 1;
+				const draft = await fetchDraftVersion(entry.strategy_id, draftVersion);
 				loadedModel = toBuilderModel(draft.strategy, draft.revision);
 			} else if (entry.latest_fingerprint) {
 				const source = await fetchStrategySource(entry.latest_fingerprint);
@@ -556,7 +590,7 @@
 	}
 
 	function formatDate(value: string): string {
-		return new Date(value).toLocaleDateString();
+		return formatUtcInputValue(new Date(value)).replace('T', ' ');
 	}
 
 	function latestComparisonRows(): (VersionResultEntry & {
@@ -817,9 +851,9 @@
 									<option value="">Select a verified {viewEntry.product_id} dataset</option>
 									{#each launchDatasets as dataset (dataset.content_fingerprint)}
 										<option value={dataset.content_fingerprint}
-											>{new Date(dataset.starts_at).toLocaleDateString()} – {new Date(
-												dataset.ends_at
-											).toLocaleDateString()}</option
+											>{formatUtcInputValue(new Date(dataset.starts_at)).replace('T', ' ')} – {formatUtcInputValue(
+												new Date(dataset.ends_at)
+											).replace('T', ' ')} UTC</option
 										>
 									{/each}
 								</select>
@@ -836,6 +870,7 @@
 							<label
 								>Engine
 								<select bind:value={launchForm.engine}>
+									<option value="" disabled selected hidden>Select an engine</option>
 									<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
 									<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
 								</select></label
@@ -983,7 +1018,9 @@
 													<td>{row.trade_count}</td>
 													<td>{formatPercent(row.win_rate)}</td>
 													<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
-													<td>{new Date(row.published_at).toLocaleString()}</td>
+													<td
+														>{formatUtcInputValue(new Date(row.published_at)).replace('T', ' ')}</td
+													>
 												</tr>
 											{/each}
 										</tbody>
@@ -996,12 +1033,7 @@
 			{:else if viewModel && researchTab === 'versions'}
 				{@const viewSnapshot = viewEntry}
 				{@const historySnapshot = versionHistory}
-				{#if viewSnapshot.status === 'draft'}
-					<p class="view-note">
-						Publish this draft to start an immutable version history. Cloning creates a separate
-						strategy identity instead.
-					</p>
-				{:else if historyLoading}
+				{#if historyLoading}
 					<p class="view-note">Loading version history…</p>
 				{:else if historyError}
 					<p class="view-problem" role="alert">{historyError}</p>
@@ -1037,7 +1069,7 @@
 											>
 											<td>
 												{version.archived
-													? `archived${version.archived_at ? ` · ${new Date(version.archived_at).toLocaleDateString()}` : ''}`
+													? `archived${version.archived_at ? ` · ${formatUtcInputValue(new Date(version.archived_at)).slice(0, 10)}` : ''}`
 													: 'active'}
 											</td>
 											<td>
@@ -1067,6 +1099,7 @@
 													<button
 														class="bar-button"
 														type="button"
+														disabled={exporting}
 														onclick={() =>
 															exportVersion(
 																viewSnapshot,
@@ -1074,7 +1107,7 @@
 																version.version
 															)}
 													>
-														Export
+														{exporting ? 'Exporting…' : 'Export'}
 													</button>
 													<button
 														class="bar-button"
@@ -1135,7 +1168,11 @@
 							{#await currentDiff()}
 								<p class="view-note">Comparing versions…</p>
 							{:then diff}
-								{#if diff === null || diff.changes.length === 0}
+								{#if diff === null}
+									<p class="view-problem" role="alert">
+										Could not load the selected versions for comparison.
+									</p>
+								{:else if diff.changes.length === 0}
 									<p class="view-note">These versions are semantically equivalent.</p>
 								{:else}
 									<p class="view-note">{diff.summary}</p>

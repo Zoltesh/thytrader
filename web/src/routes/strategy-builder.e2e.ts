@@ -20,7 +20,8 @@ const draft = {
 	indicators: [
 		{ id: 'fast', kind: 'ema', input: 'close', parameters: { period: 20 } },
 		{ id: 'slow', kind: 'ema', input: 'close', parameters: { period: 50 } },
-		{ id: 'rsi', kind: 'rsi', input: 'close', parameters: { period: 14 } }
+		{ id: 'rsi', kind: 'rsi', input: 'close', parameters: { period: 14 } },
+		{ id: 'atr', kind: 'atr', input: ['high', 'low', 'close'], parameters: { period: 14 } }
 	],
 	entry: {
 		side: 'long',
@@ -152,7 +153,7 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 	const saved = savedBody as SavedPayload;
 	expect(saved.strategy.name).toBe('Renamed in builder');
 	expect(saved.revision).toBe(1);
-	await expect(page.getByText('All edits saved.')).toBeVisible();
+	await expect(page.getByText(`Saved ${new Date().toLocaleTimeString()}`)).toBeVisible();
 });
 
 test('refuses to open a builder for a published or archived identity', async ({ page }) => {

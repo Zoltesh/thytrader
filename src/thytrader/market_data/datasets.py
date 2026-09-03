@@ -115,7 +115,7 @@ class DatasetStore:
         return tuple(verified)
 
     def _list_verified_manifest(self, manifest_path: Path) -> DatasetManifest | None:
-        """Return one listing entry, reusing prior verification while file identity holds."""
+        """Return one listing entry, reusing prior verification while identity holds."""
         cached = self._verified_cache.get(manifest_path)
         if cached is not None:
             (identity, manifest) = cached
@@ -126,12 +126,15 @@ class DatasetStore:
         except DatasetStoreError:
             self._verified_cache.pop(manifest_path, None)
             return None
-        self._verified_cache[manifest_path] = (
-            tuple(
-                (file, file.stat().st_size, int(file.stat().st_mtime_ns)) for file in manifest.files
-            ),
-            manifest,
+        # The manifest itself joins the identity gate: a rewritten manifest must
+        # not keep serving stale coverage facts from the prior verification.
+        stamps = [
+            (manifest_path, manifest_path.stat().st_size, int(manifest_path.stat().st_mtime_ns))
+        ]
+        stamps.extend(
+            (file, file.stat().st_size, int(file.stat().st_mtime_ns)) for file in manifest.files
         )
+        self._verified_cache[manifest_path] = (tuple(stamps), manifest)
         return manifest
 
     def _identity_matches(self, identity: tuple[tuple[Path, int, int], ...]) -> bool:

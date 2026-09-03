@@ -57,10 +57,22 @@ export function conditionToText(condition: ConditionDraft): string {
 		const group = condition as { all?: ConditionDraft[]; any?: ConditionDraft[] };
 		const children = group.all ?? group.any ?? [];
 		const joiner = group.all !== undefined ? ' AND ' : ' OR ';
-		return children.map(conditionToText).join(joiner);
+		// Parenthesize nested groups so (A AND B) OR C differs from
+		// A AND (B OR C); the flat renderer reported both as equivalent.
+		return children.map((child) => renderConditionChild(child, joiner)).join(joiner);
 	}
 	const negated = condition as { not: ConditionDraft };
 	return `NOT (${conditionToText(negated.not)})`;
+}
+
+function renderConditionChild(child: ConditionDraft, parentJoiner: string): string {
+	if (!isGroup(child)) return conditionToText(child);
+	const childJoiner =
+		(child as { all?: ConditionDraft[]; any?: ConditionDraft[] }).all !== undefined
+			? ' AND '
+			: ' OR ';
+	if (childJoiner === parentJoiner) return conditionToText(child);
+	return `(${conditionToText(child)})`;
 }
 
 function indicatorText(indicator: IndicatorDraft): string {

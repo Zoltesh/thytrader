@@ -20,6 +20,7 @@ from thytrader.api.dependencies import (
 from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
+    BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
 )
 from thytrader.strategies.authoring import (
     StrategyDraft,
@@ -303,6 +304,22 @@ async def create_strategy_draft(
         expected_revision=1,
         detail="Strategy draft storage is unavailable.",
     )
+    try:
+        drafts = await draft_store.list_drafts()
+        publications = await publication_catalog.list_published(include_archived=True)
+    except RuntimeError, TypeError, ValueError:
+        # The draft is durably persisted and verified; a transient library-read
+        # failure must not turn a created draft into a retryable 503 (a retry
+        # would mint a duplicate reference draft).
+        only_group: dict[str, _LibraryGroup] = {}
+        _register_draft(only_group, draft)
+        created = _library_entry(only_group[str(definition.strategy_id)], None)
+        return StrategyCreatedResponse(
+            strategy=draft.definition,
+            revision=draft.revision,
+            created=created,
+            siblings=(),
+        )
     groups: dict[str, _LibraryGroup] = {}
     for stored in drafts:
         _register_draft(
@@ -533,7 +550,13 @@ async def revise_strategy(
         ) from None
     try:
         draft = await draft_store.create_draft(revised)
-    except RuntimeError, TypeError, ValueError:
+    except RuntimeError as error:
+        if str(error) == "An editable draft already exists for this strategy; open it instead.":
+            # A concurrent revise won the draft slot; the winner must be reused, not retried.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An editable draft already exists for this strategy; open it instead.",
+            ) from None
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Strategy draft storage is unavailable.",
@@ -767,13 +790,16 @@ class _LibraryGroup:
 
     def _observe(self, definition: StrategyDefinition) -> None:
         """Track the group-wide name, market, and time envelope of one version."""
-        self.name = definition.name
-        self.product_id = definition.instrument.product_id
-        self.timeframe = definition.timeframe
         if self.created_at is None or definition.created_at < self.created_at:
             self.created_at = definition.created_at
         if self.updated_at is None or definition.created_at > self.updated_at:
             self.updated_at = definition.created_at
+
+    def _adopt_identity(self, definition: StrategyDefinition) -> None:
+        """Adopt display identity from the highest observed version, not registration order."""
+        self.name = definition.name
+        self.product_id = definition.instrument.product_id
+        self.timeframe = definition.timeframe
 
     def observe_draft(self, definition: StrategyDefinition) -> None:
         """Record one editable draft version inside the stable identity group."""
@@ -784,6 +810,7 @@ class _LibraryGroup:
         if self.latest_version is None or definition.version > self.latest_version:
             self.latest_version = definition.version
             self.status = StrategyStatus.DRAFT
+            self._adopt_identity(definition)
 
     def observe_publication(
         self,
@@ -795,9 +822,11 @@ class _LibraryGroup:
         self.publications.append(definition)
         if self.activity is None or definition.created_at > self.activity:
             self.activity = definition.created_at
-        if self.latest_version is None or definition.version > self.latest_version:
+        # Publications win version ties so immutable evidence outranks a stale draft.
+        if self.latest_version is None or definition.version >= self.latest_version:
             self.latest_version = definition.version
             self.status = StrategyStatus.PUBLISHED
+            self._adopt_identity(definition)
         known = dict(self.version_fingerprints)
         known[definition.version] = entry.strategy_fingerprint
         self.version_fingerprints = tuple(sorted(known.items()))
@@ -844,7 +873,14 @@ async def _published_definition(
 
 def _cloned_draft_definition(source: StrategyDefinition) -> StrategyDefinition:
     """Derive a fresh draft identity from immutable evidence without changing semantics."""
-    return create_cloned_draft(source)
+    try:
+        return create_cloned_draft(source)
+    except ValueError as error:
+        # A 120-character source name would exceed the " (clone)" headroom.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This strategy name is too long to clone; shorten it first.",
+        ) from error
 
 
 async def _require_import_identity_available(
@@ -852,7 +888,7 @@ async def _require_import_identity_available(
     catalog: StrategyPublicationCatalog,
     supplied: StrategyDefinition,
 ) -> None:
-    """Reject imports that would overwrite an existing draft or equal a known publication."""
+    """Reject imports that would overwrite an existing draft or duplicate a publication."""
     identity = str(supplied.strategy_id)
     try:
         drafts = await draft_store.list_drafts()
@@ -868,8 +904,11 @@ async def _require_import_identity_available(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A draft with this strategy identity already exists.",
             )
+    published_copy = supplied.model_copy(update={"status": StrategyStatus.PUBLISHED})
     for entry in publications:
-        if entry.definition == supplied:
+        if str(entry.definition.strategy_id) == identity and (
+            entry.definition == published_copy or entry.definition.version == supplied.version
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This strategy is already published; clone it instead.",
@@ -905,6 +944,7 @@ async def _latest_backtest(
     result_store: BacktestResultReader,
 ) -> StrategyLibraryBacktestResponse | None:
     """Resolve the newest immutable backtest bound to any version of one strategy."""
+    candidates: list[BacktestResultSummaryView] = []
     for fingerprint_value in fingerprints:
         try:
             summaries = await result_store.list_summaries(
@@ -916,13 +956,15 @@ async def _latest_backtest(
             continue
         if not summaries:
             continue
-        newest = summaries[0]
-        return StrategyLibraryBacktestResponse(
-            result_fingerprint=newest.result_fingerprint,
-            published_at=newest.published_at.isoformat(),
-            summary=newest.summary,
-        )
-    return None
+        candidates.append(summaries[0])
+    if not candidates:
+        return None
+    newest = max(candidates, key=lambda summary: summary.published_at)
+    return StrategyLibraryBacktestResponse(
+        result_fingerprint=newest.result_fingerprint,
+        published_at=newest.published_at.isoformat(),
+        summary=newest.summary,
+    )
 
 
 def _library_entry(

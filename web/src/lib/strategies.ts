@@ -146,19 +146,33 @@ export function latestDatasets(datasets: Dataset[]): Dataset[] {
 	return [...byProduct.values()];
 }
 
-/** Compute the inclusive evaluation window one dataset can support for a warmup. */
+/**
+ * Parse one zone-less `datetime-local` input value as the UTC instant it
+ * represents. The launch form labels both fields UTC hours, so local-time
+ * interpretation would silently shift the identity-bearing evaluation window.
+ */
+export function parseUtcInputValue(value: string): Date {
+	return new Date(`${value}Z`);
+}
+
+/** Format one instant as a zone-less `datetime-local` string in UTC hours. */
+export function formatUtcInputValue(instant: Date): string {
+	return instant.toISOString().slice(0, 16);
+}
+
+/**
+ * Compute the inclusive evaluation window one dataset can support for a warmup.
+ * The dataset must supply `warmupBars` completed candles before the window and
+ * one candle after it for the final next-open fill.
+ */
 export function datasetEvaluationWindow(
 	dataset: Dataset,
 	warmupBars: number
 ): { min: string; max: string } {
-	const toLocalInput = (iso: string): string => {
-		const shifted = new Date(new Date(iso).getTime() - warmupBars * 3_600_000);
-		return shifted.toISOString().slice(0, 16);
-	};
+	const hour = 3_600_000;
 	return {
-		min: toLocalInput(dataset.starts_at),
-		// One candle beyond the end is consumed for the final next-open fill.
-		max: toLocalInput(new Date(new Date(dataset.ends_at).getTime() - 3_600_000).toISOString())
+		min: formatUtcInputValue(new Date(new Date(dataset.starts_at).getTime() + warmupBars * hour)),
+		max: formatUtcInputValue(new Date(new Date(dataset.ends_at).getTime() - hour))
 	};
 }
 

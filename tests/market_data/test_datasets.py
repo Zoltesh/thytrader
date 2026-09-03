@@ -406,6 +406,32 @@ def test_dataset_store_listing_reverifies_when_dataset_file_is_replaced(tmp_path
     assert store.list_verified() == ()
 
 
+def test_dataset_store_listing_reverifies_when_manifest_is_rewritten(
+    tmp_path: Path,
+) -> None:
+    """A rewritten manifest must not keep serving stale coverage facts from cache."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+
+    first = store.list_verified()
+    assert len(first) == 1
+    assert first[0].ends_at == written.ends_at
+
+    # Rewrite the manifest while preserving mtime so the identity-gate clock
+    # cannot see the change; only the manifest stamp in the cache makes the
+    # listing reread it.
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["ends_at"] = "2026-07-01T02:00:00Z"
+    stat_before = written.manifest_path.stat()
+    written.manifest_path.write_text(json.dumps(manifest_body))
+    os.utime(written.manifest_path, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
+
+    # The rewritten manifest disagrees with the candle coverage, so the reread
+    # rejects it and the entry leaves the listing. The prior cache served the
+    # stale original manifest instead of observing the rewrite.
+    assert store.list_verified() == ()
+
+
 def test_dataset_store_rejects_manifest_with_duplicate_file_entries(tmp_path: Path) -> None:
     """A manifest listing the same file twice must fail verification via duplicate candles."""
     store = DatasetStore(tmp_path)

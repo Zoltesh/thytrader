@@ -199,12 +199,28 @@ class PostgresBacktestSubmitter:
                 dataset_store=self._dataset_store,
                 execution_fingerprint=execution_fingerprint,
             )
-        except (ResearchRunPublicationError, DatasetStoreError) as error:
+        except DatasetStoreError as error:
+            # A missing/unusable dataset artifact is caller input, not an outage.
             raise BacktestSubmissionRejectedError(
                 "The evaluation window does not fit the selected dataset. "
                 "The dataset must cover the strategy warmup before the window "
                 "and one extra candle after it."
             ) from error
+        except ResearchRunPublicationError as error:
+            message = str(error)
+            dataset_problem = (
+                "dataset" in message
+                or "warmup" in message
+                or "coverage" in message
+                or "evaluation window" in message
+            )
+            if dataset_problem:
+                raise BacktestSubmissionRejectedError(
+                    "The evaluation window does not fit the selected dataset. "
+                    "The dataset must cover the strategy warmup before the window "
+                    "and one extra candle after it."
+                ) from error
+            raise BacktestSubmissionError("Backtest submission is unavailable.") from error
 
 
 def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None:

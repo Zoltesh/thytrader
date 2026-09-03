@@ -65,13 +65,19 @@ class PostgresStrategyPublicationStore:
                 canonical_definition=canonical,
             )
             .on_conflict_do_nothing()
+            .returning(strategy_drafts.c.strategy_id)
         )
         try:
             async with self._engine.begin() as connection:
-                await connection.execute(statement)
-            return await self._load_draft(definition.strategy_id, definition.version)
+                inserted = (await connection.execute(statement)).scalar_one_or_none()
         except SQLAlchemyError as error:
             raise RuntimeError("Strategy draft storage is unavailable.") from error
+        if inserted is None:
+            # A concurrent request won the immutable (strategy_id, version) slot.
+            raise RuntimeError(
+                "An editable draft already exists for this strategy; open it instead."
+            )
+        return await self._load_draft(definition.strategy_id, definition.version)
 
     async def list_drafts(self) -> tuple[StrategyDraft, ...]:
         """Load and validate every saved draft in stable creation order."""

@@ -12,7 +12,8 @@
 		listStrategies,
 		type BuilderModel,
 		type ConditionDraft,
-		type IndicatorDraft
+		type IndicatorDraft,
+		type IndicatorInput
 	} from '$lib/strategies';
 	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
 
@@ -105,17 +106,68 @@
 		return -1;
 	}
 
-	function toggleNot(
-		group: { all?: ConditionDraft[]; any?: ConditionDraft[] },
-		index: number,
-		parent: object
+	/** Add one negated comparison as a direct child of a nested group. */
+	function addNotChild(group: { all?: ConditionDraft[]; any?: ConditionDraft[] }): void {
+		const child: ConditionDraft = {
+			not: {
+				left: { indicator: model?.indicators[0]?.id ?? 'fast' },
+				operator: 'greater_than',
+				right: { literal: '0' }
+			}
+		};
+		if (group.all) group.all.push(child);
+		if (group.any) group.any.push(child);
+		markDirty();
+	}
+
+	/** Wrap the root condition itself so the top-level group can be negated. */
+	function toggleRootNot(): void {
+		if (!model) return;
+		const root = model.entry.when;
+		model.entry.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
+		markDirty();
+	}
+
+	function isRootGroup(condition: ConditionDraft, root: ConditionDraft): boolean {
+		return condition === root;
+	}
+
+	function rightOperandKey(comparison: {
+		right: { indicator?: string; literal?: string };
+	}): string {
+		return comparison.right.indicator !== undefined
+			? `indicator:${comparison.right.indicator}`
+			: 'literal';
+	}
+
+	function setRightOperand(
+		comparison: { right: { indicator?: string; literal?: string } },
+		key: string
 	): void {
-		const child = (group.all ?? group.any ?? [])[index];
-		if (!child) return;
-		const wrapped: ConditionDraft = { not: child };
-		if (group.all) group.all[index] = wrapped;
-		if (group.any) group.any[index] = wrapped;
-		void parent;
+		if (key === 'literal') {
+			comparison.right = { literal: '0' };
+		} else {
+			comparison.right = { indicator: key.slice('indicator:'.length) };
+		}
+		markDirty();
+	}
+
+	/** Keep each indicator's fixed input aligned with its kind, as the schema demands. */
+	function indicatorInputFor(kind: IndicatorDraft['kind']): IndicatorInput {
+		if (kind === 'atr') return ['high', 'low', 'close'];
+		if (kind === 'volume_sma') return 'volume';
+		return 'close';
+	}
+
+	function indicatorPeriodMax(kind: IndicatorDraft['kind']): number {
+		return kind === 'rsi' || kind === 'atr' ? 100 : 500;
+	}
+
+	function onIndicatorKindChange(indicator: IndicatorDraft): void {
+		indicator.input = indicatorInputFor(indicator.kind);
+		if (indicator.parameters.period > indicatorPeriodMax(indicator.kind)) {
+			indicator.parameters.period = indicatorPeriodMax(indicator.kind);
+		}
 		markDirty();
 	}
 
@@ -155,12 +207,11 @@
 		error = null;
 		try {
 			const id = strategyId();
-			const [draftResponse, library] = await Promise.all([
-				fetchDraftVersion(id, 1),
-				listStrategies().catch(() => [])
-			]);
-			model = toBuilderModel(draftResponse.strategy, draftResponse.revision);
+			const library = await listStrategies().catch(() => []);
 			const entry = library.find((candidate) => candidate.strategy_id === id);
+			const draftVersion = entry?.latest_version ?? 1;
+			const draftResponse = await fetchDraftVersion(id, draftVersion);
+			model = toBuilderModel(draftResponse.strategy, draftResponse.revision);
 			if (entry && entry.status !== 'draft' && entry.latest_fingerprint) {
 				error =
 					'This strategy identity is published or archived; its builder is read-only history.';
@@ -177,13 +228,22 @@
 	}
 
 	async function save(): Promise<void> {
-		if (!model || saving || validationErrors.length > 0) return;
+		if (!model || saving || publishing || validationErrors.length > 0) return;
 		saving = true;
 		error = null;
+		const snapshot = fromBuilderModel(model);
+		const snapshotRevision = model.revision;
 		try {
-			const saved = await saveDraft(fromBuilderModel(model), model.revision);
-			model = toBuilderModel(saved.strategy, saved.revision);
-			dirty = false;
+			const saved = await saveDraft(snapshot, snapshotRevision);
+			const responseModel = toBuilderModel(saved.strategy, saved.revision);
+			// Preserve edits made while the request was in flight: only accept the
+			// server response when the live model is still the snapshot we sent.
+			if (fromBuilderModel(model) === snapshot) {
+				model = responseModel;
+				dirty = false;
+			} else {
+				model.revision = saved.revision;
+			}
 			savedAt = new Date().toLocaleTimeString();
 			validate(model);
 		} catch (caught) {
@@ -194,12 +254,14 @@
 	}
 
 	async function publish(): Promise<void> {
-		if (!model || publishing || validationErrors.length > 0) return;
+		if (!model || publishing || saving || validationErrors.length > 0) return;
 		publishing = true;
 		error = null;
 		try {
 			await publishDraft(fromBuilderModel(model), model.revision);
-			await load();
+			model = null;
+			error =
+				'Published. This version is now immutable; revise it into a new draft to keep editing.';
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Strategy publication failed.';
 		} finally {
@@ -221,7 +283,13 @@
 
 	function removeIndicator(index: number): void {
 		if (!model) return;
+		const removedId = model.indicators[index]?.id;
 		model.indicators.splice(index, 1);
+		// The initial stop must always reference a live ATR indicator.
+		if (removedId !== undefined && model.exits.initial_stop.atr_indicator === removedId) {
+			const replacement = model.indicators.find((candidate) => candidate.kind === 'atr');
+			model.exits.initial_stop.atr_indicator = replacement?.id ?? '';
+		}
 		markDirty();
 	}
 
@@ -342,7 +410,10 @@
 									<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
 									<label
 										>Kind
-										<select bind:value={indicator.kind} onchange={markDirty}>
+										<select
+											bind:value={indicator.kind}
+											onchange={() => onIndicatorKindChange(indicator)}
+										>
 											<option value="ema">EMA</option>
 											<option value="sma">SMA</option>
 											<option value="rsi">RSI</option>
@@ -392,6 +463,17 @@
 							<h2>Exit conditions and protective stops</h2>
 							<div class="grid-two">
 								<label
+									>Initial stop — ATR indicator
+									<select bind:value={model.exits.initial_stop.atr_indicator} onchange={markDirty}>
+										{#each model.indicators.filter((candidate) => candidate.kind === 'atr') as atr (atr.id)}
+											<option value={atr.id}>{atr.id} (ATR)</option>
+										{/each}
+										{#if !model.indicators.some((candidate) => candidate.kind === 'atr')}
+											<option value="">No ATR indicator defined</option>
+										{/if}
+									</select></label
+								>
+								<label
 									>Initial stop — ATR multiple
 									<input
 										inputmode="decimal"
@@ -399,6 +481,8 @@
 										oninput={markDirty}
 									/></label
 								>
+							</div>
+							<div class="grid-two">
 								<label
 									>Take profit — reward/risk multiple
 									<input
@@ -407,6 +491,7 @@
 										oninput={markDirty}
 									/></label
 								>
+								<span></span>
 							</div>
 							<div class="grid-two">
 								<label
@@ -539,6 +624,7 @@
 
 {#snippet conditionNode(condition: ConditionDraft, parent: object, depth: number)}
 	{@const index = childIndex(condition, parent)}
+	{@const isRoot = isRootGroup(condition, model?.entry.when as ConditionDraft)}
 	<div class="rule-node" style="margin-left: {depth * 18}px">
 		{#if isGroup(condition)}
 			{@const group = condition as { all?: ConditionDraft[]; any?: ConditionDraft[] }}
@@ -556,9 +642,21 @@
 				>
 				<button class="secondary" type="button" onclick={() => addGroup(group, 'any')}>+ ANY</button
 				>
-				<button class="secondary" type="button" onclick={() => toggleNot(group, index, parent)}
-					>+ NOT</button
-				>
+				{#if isRoot}
+					<button
+						class="secondary"
+						type="button"
+						onclick={toggleRootNot}
+						aria-label="Negate the root condition group">+ NOT</button
+					>
+				{:else}
+					<button
+						class="secondary"
+						type="button"
+						onclick={() => addNotChild(group)}
+						aria-label="Add a negated condition">+ NOT</button
+					>
+				{/if}
 			</div>
 			{#each group.all ?? group.any ?? [] as child, childIdx (childIdx)}
 				{@render conditionNode(child, group, depth + 1)}
@@ -579,6 +677,7 @@
 			}}
 			<div class="rule-comparison">
 				<select
+					aria-label="Left operand"
 					value={leftOperandKey(comparison)}
 					onchange={(event) =>
 						setLeftOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
@@ -587,23 +686,44 @@
 						<option value={choice.key}>{choice.label}</option>
 					{/each}
 				</select>
-				<select bind:value={comparison.operator} onchange={markDirty}>
+				<select bind:value={comparison.operator} onchange={markDirty} aria-label="Operator">
 					{#each operators as operator (operator.value)}
 						<option value={operator.value}>{operator.label}</option>
 					{/each}
 				</select>
-				<input
-					class="literal"
-					inputmode="decimal"
-					value={comparison.right.literal ?? ''}
-					oninput={(event) => {
-						comparison.right = { literal: (event.currentTarget as HTMLInputElement).value };
-						markDirty();
-					}}
-					placeholder="value"
-				/>
-				<button class="secondary" type="button" onclick={() => removeChild(parent, index)}>×</button
+				<select
+					aria-label="Right operand"
+					value={rightOperandKey(comparison)}
+					onchange={(event) =>
+						setRightOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
 				>
+					{#each operandChoices() as choice (choice.key)}
+						<option value={choice.key}>{choice.label}</option>
+					{/each}
+				</select>
+				{#if comparison.right.indicator !== undefined}
+					<span class="operand-name">{comparison.right.indicator}</span>
+				{:else}
+					<input
+						class="literal"
+						inputmode="decimal"
+						value={comparison.right.literal ?? ''}
+						oninput={(event) => {
+							comparison.right = { literal: (event.currentTarget as HTMLInputElement).value };
+							markDirty();
+						}}
+						placeholder="value"
+						aria-label="Literal value"
+					/>
+				{/if}
+				<button
+					class="secondary"
+					type="button"
+					onclick={() => removeChild(parent, index)}
+					aria-label="Remove this rule"
+				>
+					×
+				</button>
 			</div>
 		{/if}
 	</div>
@@ -773,6 +893,11 @@
 	.rule-comparison .literal {
 		width: auto;
 		min-width: 110px;
+	}
+	.operand-name {
+		color: #9fe0bd;
+		font-size: 12px;
+		padding: 0 2px;
 	}
 	.cooldown-row {
 		margin-top: 6px;
