@@ -144,7 +144,7 @@ async def get_market_data_products(
 
 
 @router.get("/datasets", response_model=DatasetCatalogResponse)
-async def get_verified_datasets(
+def get_verified_datasets(
     store: Annotated[DatasetStore, Depends(get_dataset_store)],
 ) -> DatasetCatalogResponse:
     """Return all complete local manifests after re-verifying their immutable contents."""
@@ -155,7 +155,7 @@ async def get_verified_datasets(
 
 
 @router.get("/datasets/latest", response_model=LatestDatasetCatalogResponse)
-async def get_latest_verified_datasets(
+def get_latest_verified_datasets(
     store: Annotated[DatasetStore, Depends(get_dataset_store)],
 ) -> LatestDatasetCatalogResponse:
     """Return the newest verified revision per market for launch selection.

@@ -1,16 +1,19 @@
 """Behavioral tests for immutable historical market-data datasets."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 import json
 import os
+from threading import Event, Lock
 from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
-from thytrader.market_data.datasets import DatasetStore, DatasetStoreError
+from thytrader.market_data import datasets as dataset_module
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
 
@@ -355,6 +358,133 @@ def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_pa
         store.load_verified(manifest.manifest_path)
 
 
+class _RecordingDatasetStore(DatasetStore):
+    """Record deep verification work while preserving the real store behavior."""
+
+    def __init__(self, root: Path) -> None:
+        """Configure the store and an ordered verification ledger."""
+        super().__init__(root)
+        self.verified_paths: list[Path] = []
+
+    def load_verified(self, manifest_path: Path) -> DatasetManifest:
+        """Record each deep verification before delegating to the real boundary."""
+        self.verified_paths.append(manifest_path)
+        return super().load_verified(manifest_path)
+
+
+class _ConcurrentCatalogStore(DatasetStore):
+    """Detect overlapping deep verification through one shared store instance."""
+
+    def __init__(self, root: Path) -> None:
+        """Configure synchronization state for concurrent listing probes."""
+        super().__init__(root)
+        self.first_started = Event()
+        self.concurrent_entry = Event()
+        self.release = Event()
+        self._active = 0
+        self._probe_lock = Lock()
+
+    def load_verified(self, manifest_path: Path) -> DatasetManifest:
+        """Pause verification and report if a second catalog call enters concurrently."""
+        with self._probe_lock:
+            self._active += 1
+            if self._active > 1:
+                self.concurrent_entry.set()
+            self.first_started.set()
+        try:
+            if not self.release.wait(timeout=2):
+                raise TimeoutError("test did not release dataset verification")
+            return super().load_verified(manifest_path)
+        finally:
+            with self._probe_lock:
+                self._active -= 1
+
+
+def test_dataset_store_serializes_shared_catalog_cache_access(tmp_path: Path) -> None:
+    """Concurrent catalog requests must not mutate verification cache state in parallel."""
+    DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
+    store = _ConcurrentCatalogStore(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(store.list_latest_verified)
+        assert store.first_started.wait(timeout=1)
+        second = executor.submit(store.list_latest_verified)
+        overlapped = store.concurrent_entry.wait(timeout=0.2)
+        store.release.set()
+        first_result = first.result(timeout=1)
+        second_result = second.result(timeout=1)
+
+    assert overlapped is False
+    assert len(first_result) == 1
+    assert len(second_result) == 1
+
+
+def test_dataset_store_latest_listing_deep_verifies_only_newest_revision_per_market(
+    tmp_path: Path,
+) -> None:
+    """Latest discovery must not deep-read superseded cumulative revisions."""
+    publishing_store = DatasetStore(tmp_path)
+    first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
+    extended = publishing_store.extend(
+        first.content_fingerprint, _extension_report(datetime.now(UTC))
+    )
+    ethereum = publishing_store.write("coinbase", "ETH-USD", _complete_report())
+    store = _RecordingDatasetStore(tmp_path)
+
+    latest = store.list_latest_verified()
+
+    assert {entry.content_fingerprint for entry in latest} == {
+        extended.content_fingerprint,
+        ethereum.content_fingerprint,
+    }
+    assert set(store.verified_paths) == {extended.manifest_path, ethereum.manifest_path}
+    assert first.manifest_path not in store.verified_paths
+
+
+def test_dataset_store_latest_listing_skips_superseded_revision_file_lists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Latest discovery must not resolve every file referenced by superseded manifests."""
+    publishing_store = DatasetStore(tmp_path)
+    first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
+    extended = publishing_store.extend(
+        first.content_fingerprint, _extension_report(datetime.now(UTC))
+    )
+    resolved: list[str] = []
+    original = dataset_module._safe_dataset_path
+
+    def record_resolution(root: Path, relative: str) -> Path:
+        """Record safe-path work before delegating to the production validator."""
+        resolved.append(relative)
+        return original(root, relative)
+
+    monkeypatch.setattr(dataset_module, "_safe_dataset_path", record_resolution)
+
+    latest = DatasetStore(tmp_path).list_latest_verified()
+
+    assert [entry.content_fingerprint for entry in latest] == [extended.content_fingerprint]
+    first_relative = first.files[0].relative_to(tmp_path).as_posix()
+    assert first_relative not in resolved
+
+
+def test_dataset_store_latest_listing_falls_back_from_corrupt_newest_revision(
+    tmp_path: Path,
+) -> None:
+    """A corrupt newest candidate must fall back to the next newest verified revision."""
+    publishing_store = DatasetStore(tmp_path)
+    first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
+    extended = publishing_store.extend(
+        first.content_fingerprint, _extension_report(datetime.now(UTC))
+    )
+    extended.files[0].write_bytes(b"corrupt newest revision")
+    store = _RecordingDatasetStore(tmp_path)
+
+    latest = store.list_latest_verified()
+
+    assert [entry.content_fingerprint for entry in latest] == [first.content_fingerprint]
+    assert store.verified_paths == [extended.manifest_path, first.manifest_path]
+
+
 def test_dataset_store_latest_listing_returns_one_revision_per_market(tmp_path: Path) -> None:
     """Cumulative revisions collapse to the newest superset per provider/product/timeframe."""
     store = DatasetStore(tmp_path)
@@ -389,28 +519,23 @@ def test_dataset_store_latest_listing_reverifies_when_revision_file_is_removed(
     assert store.list_latest_verified() == ()
 
 
-def test_dataset_store_listing_reuses_verification_for_unchanged_file_identity(
+def test_dataset_store_listing_reverifies_same_size_replacement_with_preserved_mtime(
     tmp_path: Path,
 ) -> None:
-    """Listings trust unchanged file identity without rereading Parquet content."""
+    """Listings must reject changed bytes even when size and modification time are restored."""
     store = DatasetStore(tmp_path)
     written = store.write("coinbase", "BTC-USD", _complete_report())
 
     first = store.list_verified()
     assert len(first) == 1
 
-    # Corrupt content while preserving size and mtime: the identity gate cannot see
-    # this. Listings reuse the prior verification; deep execution loads still reject.
     parquet = written.files[0]
     payload = parquet.read_bytes()
     stat_before = parquet.stat()
     parquet.write_bytes(bytes(reversed(payload)))
     os.utime(parquet, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
 
-    second = store.list_verified()
-    assert [entry.content_fingerprint for entry in second] == [
-        entry.content_fingerprint for entry in first
-    ]
+    assert store.list_verified() == ()
     with pytest.raises(DatasetStoreError, match="verification"):
         store.load_verified(written.manifest_path)
 
@@ -451,13 +576,16 @@ def test_dataset_store_listing_reverifies_when_manifest_is_rewritten(
     assert len(first) == 1
     assert first[0].ends_at == written.ends_at
 
-    # Rewrite the manifest while preserving mtime so the identity-gate clock
-    # cannot see the change; only the manifest stamp in the cache makes the
-    # listing reread it.
-    manifest_body = json.loads(written.manifest_path.read_text())
-    manifest_body["ends_at"] = "2026-07-01T02:00:00Z"
+    # Rewrite one same-length field and restore mtime; change time must still
+    # invalidate the cached manifest facts.
+    manifest_text = written.manifest_path.read_text()
+    rewritten = manifest_text.replace(
+        '"ends_at":"2026-07-01T03:00:00Z"',
+        '"ends_at":"2026-07-01T02:00:00Z"',
+    )
+    assert len(rewritten) == len(manifest_text)
     stat_before = written.manifest_path.stat()
-    written.manifest_path.write_text(json.dumps(manifest_body))
+    written.manifest_path.write_text(rewritten)
     os.utime(written.manifest_path, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
 
     # The rewritten manifest disagrees with the candle coverage, so the reread

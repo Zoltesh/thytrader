@@ -1,14 +1,17 @@
 """Behavioral tests for the read-only market-data preview endpoint."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import Event
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
+import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.market_data.models import (
     Candle,
     CandleInterval,
@@ -378,3 +381,57 @@ def test_market_data_latest_datasets_reports_empty_catalog_without_datasets(
 
     assert response.status_code == 200
     assert response.json() == {"datasets": []}
+
+
+class _BlockingCatalogStore(DatasetStore):
+    """Hold catalog work until a test proves another request can complete."""
+
+    def __init__(self, root: Path) -> None:
+        """Configure synchronization signals for a deliberately slow listing."""
+        super().__init__(root)
+        self.started = Event()
+        self.release = Event()
+
+    def _block(self) -> tuple[DatasetManifest, ...]:
+        """Signal catalog entry and wait for the responsiveness assertion."""
+        self.started.set()
+        if not self.release.wait(timeout=2):
+            raise TimeoutError("test did not release the blocking dataset catalog")
+        return ()
+
+    def list_verified(self) -> tuple[DatasetManifest, ...]:
+        """Block the full-history listing."""
+        return self._block()
+
+    def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
+        """Block the latest-per-market listing."""
+        return self._block()
+
+
+@pytest.mark.parametrize(
+    "catalog_path",
+    ("/api/v1/market-data/datasets", "/api/v1/market-data/datasets/latest"),
+)
+def test_dataset_catalog_work_does_not_block_unrelated_api_requests(
+    tmp_path: Path, catalog_path: str
+) -> None:
+    """Slow filesystem catalog work must run outside the API event loop."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_service=MarketDataService(StaticMarketDataProvider()),
+    )
+    store = _BlockingCatalogStore(tmp_path)
+    app.state.dataset_store = store
+
+    with TestClient(app) as client, ThreadPoolExecutor(max_workers=2) as executor:
+        catalog_request = executor.submit(client.get, catalog_path)
+        assert store.started.wait(timeout=1)
+        health_request = executor.submit(client.get, "/health/live")
+        try:
+            health_response = health_request.result(timeout=0.5)
+        finally:
+            store.release.set()
+        catalog_response = catalog_request.result(timeout=1)
+
+    assert health_response.status_code == 200
+    assert catalog_response.status_code == 200

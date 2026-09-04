@@ -111,16 +111,23 @@ It validates identifier/time/count facts, resolved paths beneath the configured 
 candle coverage after reading every referenced Parquet file; it then recomputes the fingerprint before
 returning a dataset to a future backtest or worker.
 
-`DatasetStore.list_verified()` serves browser catalogue listings from the same deep verification.
-Because datasets accumulate and execution consumers must always reread content, listings reuse the
-previous verification result while every referenced Parquet file keeps its recorded byte size and
-modification time, and re-verify any dataset whose file identity changes. Content that is corrupted
-without any identity change stays hidden from deep execution loads, which always reread and reject
-mismatches, while listings may briefly keep serving the manifest facts of the previously verified
-content. `DatasetStore.list_latest_verified()` collapses that full history to the newest revision
-per provider/product/timeframe; `GET /api/v1/market-data/datasets/latest` serves it to the strategy
-launch form, whose picker needs exactly one dataset per market, while `/datasets` keeps returning
-every revision so stored results keep resolving their exact source fingerprints.
+`DatasetStore.list_verified()` serves full-history browser catalogue listings from the same deep
+verification. Because datasets accumulate and execution consumers must always reread content,
+listings reuse the previous verification result while every manifest and referenced Parquet file keeps
+its recorded file type, byte size, modification time, and change time. An ordinary in-place write or
+replacement invalidates that identity even if an actor restores the original size and modification
+time, forcing deep reverification before the dataset can remain selectable. Deep execution loads
+always reread and reverify content regardless of this listing cache.
+
+`DatasetStore.list_latest_verified()` does not deep-verify that cumulative history. It cheaply parses
+only the identity and time bounds needed to group manifest candidates, then deep-verifies the newest
+candidate per provider/product/timeframe. If that candidate is corrupt, discovery continues
+newest-first until it finds a valid prior revision. `GET /api/v1/market-data/datasets/latest` serves
+this bounded catalog to the strategy launch form, while `/datasets` keeps returning every verified
+revision so operators can inspect full history and stored results can resolve exact source
+fingerprints. Shared cache access is serialized across concurrent catalog requests, and both
+filesystem-backed routes run in FastAPI's worker thread pool so even a cold full catalog verification
+cannot block unrelated API requests.
 
 ```text
 <dataset-root>/

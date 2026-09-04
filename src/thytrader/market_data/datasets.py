@@ -9,6 +9,7 @@ from hashlib import sha256
 import json
 import os
 import re
+from threading import RLock
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
@@ -54,14 +55,27 @@ class DatasetManifest:
     manifest_path: Path
 
 
+@dataclass(frozen=True, slots=True)
+class _DatasetCatalogCandidate:
+    """Cheaply parsed manifest identity used to rank deep-verification candidates."""
+
+    provider: str
+    product_id: str
+    timeframe: str
+    starts_at: datetime
+    ends_at: datetime
+    manifest_path: Path
+
+
 class DatasetStore:
     """Write and verify complete validated ranges as immutable date-partitioned datasets."""
 
     def __init__(self, root: Path) -> None:
         """Configure the local root under which immutable datasets are published."""
         self._root = root
+        self._catalog_lock = RLock()
         self._verified_cache: dict[
-            Path, tuple[tuple[tuple[Path, int, int], ...], DatasetManifest]
+            Path, tuple[tuple[tuple[Path, int, int, int], ...], DatasetManifest]
         ] = {}
 
     def write(
@@ -98,6 +112,11 @@ class DatasetStore:
 
     def list_verified(self) -> tuple[DatasetManifest, ...]:
         """Return every complete immutable dataset whose manifest re-verifies from disk."""
+        with self._catalog_lock:
+            return self._list_verified()
+
+    def _list_verified(self) -> tuple[DatasetManifest, ...]:
+        """List full verified history while the shared catalog cache lock is held."""
         manifests = self._root / "manifests"
         if not manifests.exists():
             self._verified_cache.clear()
@@ -115,27 +134,112 @@ class DatasetStore:
         return tuple(verified)
 
     def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
-        """Return the newest verified revision per provider/product/timeframe.
+        """Return the newest verified revision per provider/product/timeframe."""
+        with self._catalog_lock:
+            return self._list_latest_verified()
 
-        Cumulative worker revisions of one market share their start and grow
-        their end, so the newest ``ends_at`` (tiebroken by earliest start) is a
-        strict superset and the only useful catalog selection target. This walk
-        still verifies every revision once, but callers such as the browser
-        catalog endpoint avoid materializing the full revision history per
-        request; ``list_verified()`` keeps returning every revision so
-        historical results keep resolving their exact fingerprints.
+    def _list_latest_verified(self) -> tuple[DatasetManifest, ...]:
+        """List latest verified revisions while the shared catalog cache lock is held.
+
+        Manifest metadata is cheap to inspect, so candidates are grouped and
+        ordered before any Parquet content is read. Each market then deep-verifies
+        newest-first until one valid revision is found. Historical revisions stay
+        available through ``list_verified()`` for exact-fingerprint provenance.
         """
-        latest: dict[tuple[str, str, str], DatasetManifest] = {}
-        for manifest in self.list_verified():
-            key = (manifest.provider, manifest.product_id, manifest.timeframe)
-            current = latest.get(key)
-            if (
-                current is None
-                or manifest.ends_at > current.ends_at
-                or (manifest.ends_at == current.ends_at and manifest.starts_at < current.starts_at)
-            ):
-                latest[key] = manifest
-        return tuple(sorted(latest.values(), key=lambda manifest: manifest.product_id))
+        manifests = self._root / "manifests"
+        if not manifests.exists():
+            self._verified_cache.clear()
+            return ()
+        candidates: dict[tuple[str, str, str], list[_DatasetCatalogCandidate]] = {}
+        seen: set[Path] = set()
+        for path in manifests.glob("*.json"):
+            seen.add(path)
+            try:
+                candidate = self._load_catalog_candidate(path)
+            except DatasetStoreError:
+                self._verified_cache.pop(path, None)
+                continue
+            key = (candidate.provider, candidate.product_id, candidate.timeframe)
+            candidates.setdefault(key, []).append(candidate)
+        for cached_path in list(self._verified_cache):
+            if cached_path not in seen:
+                del self._verified_cache[cached_path]
+
+        latest: list[DatasetManifest] = []
+        for key in sorted(candidates):
+            revisions = candidates[key]
+            revisions.sort(key=lambda candidate: candidate.starts_at)
+            revisions.sort(key=lambda candidate: candidate.ends_at, reverse=True)
+            for candidate in revisions:
+                verified = self._list_verified_manifest(candidate.manifest_path)
+                if verified is not None:
+                    latest.append(verified)
+                    break
+        return tuple(latest)
+
+    def _load_catalog_candidate(self, manifest_path: Path) -> _DatasetCatalogCandidate:
+        """Validate only metadata needed to rank one deep-verification candidate."""
+        try:
+            payload = json.loads(manifest_path.read_text())
+        except (OSError, OverflowError, ValueError, json.JSONDecodeError) as error:
+            message = "Dataset verification failed while reading its manifest."
+            raise DatasetStoreError(message) from error
+        return self._catalog_candidate_from_payload(payload, manifest_path)
+
+    def _catalog_candidate_from_payload(
+        self, payload: object, manifest_path: Path
+    ) -> _DatasetCatalogCandidate:
+        """Build a ranking candidate without inspecting its cumulative file list."""
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != _DATASET_SCHEMA_VERSION
+        ):
+            message = "Dataset verification failed because the manifest schema is unsupported."
+            raise DatasetStoreError(message)
+        manifest_payload = cast("dict[str, object]", payload)
+        required_text = (
+            "provider",
+            "product_id",
+            "timeframe",
+            "starts_at",
+            "ends_at",
+            "content_fingerprint",
+        )
+        if any(not isinstance(manifest_payload.get(key), str) for key in required_text):
+            message = "Dataset verification failed because the manifest is malformed."
+            raise DatasetStoreError(message)
+        provider = cast("str", manifest_payload["provider"])
+        product_id = cast("str", manifest_payload["product_id"])
+        timeframe = cast("str", manifest_payload["timeframe"])
+        content_fingerprint = cast("str", manifest_payload["content_fingerprint"])
+        _validate_identifier(provider)
+        _validate_identifier(product_id)
+        if timeframe != CandleInterval.ONE_HOUR.value:
+            message = "Dataset verification failed because the timeframe is unsupported."
+            raise DatasetStoreError(message)
+        fingerprint_match = _FINGERPRINT.fullmatch(content_fingerprint)
+        if fingerprint_match is None:
+            message = "Dataset verification failed because the content fingerprint is malformed."
+            raise DatasetStoreError(message)
+        expected_path = self._root / "manifests" / f"{fingerprint_match.group(1)}.json"
+        if manifest_path.resolve() != expected_path.resolve():
+            message = (
+                "Dataset verification failed: manifest is not at its canonical publication path."
+            )
+            raise DatasetStoreError(message)
+        starts_at = _parse_utc_text(cast("str", manifest_payload["starts_at"]))
+        ends_at = _parse_utc_text(cast("str", manifest_payload["ends_at"]))
+        if starts_at >= ends_at:
+            message = "Dataset verification failed because manifest facts are inconsistent."
+            raise DatasetStoreError(message)
+        return _DatasetCatalogCandidate(
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            manifest_path=manifest_path,
+        )
 
     def _list_verified_manifest(self, manifest_path: Path) -> DatasetManifest | None:
         """Return one listing entry, reusing prior verification while identity holds."""
@@ -151,20 +255,19 @@ class DatasetStore:
             return None
         # The manifest itself joins the identity gate: a rewritten manifest must
         # not keep serving stale coverage facts from the prior verification.
-        stamps = [
-            (manifest_path, manifest_path.stat().st_size, int(manifest_path.stat().st_mtime_ns))
-        ]
-        stamps.extend(
-            (file, file.stat().st_size, int(file.stat().st_mtime_ns)) for file in manifest.files
-        )
+        stamps = [_file_identity(manifest_path)]
+        stamps.extend(_file_identity(file) for file in manifest.files)
         self._verified_cache[manifest_path] = (tuple(stamps), manifest)
         return manifest
 
-    def _identity_matches(self, identity: tuple[tuple[Path, int, int], ...]) -> bool:
-        """Check that every cached dataset file still exists with the same size and mtime."""
+    def _identity_matches(self, identity: tuple[tuple[Path, int, int, int], ...]) -> bool:
+        """Check that cached files retain type, size, modification time, and change time."""
         return all(
-            file.is_file() and file.stat().st_size == size and int(file.stat().st_mtime_ns) == stamp
-            for file, size, stamp in identity
+            file.is_file()
+            and file.stat().st_size == size
+            and int(file.stat().st_mtime_ns) == modified_at
+            and int(file.stat().st_ctime_ns) == changed_at
+            for file, size, modified_at, changed_at in identity
         )
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
@@ -519,6 +622,12 @@ def _safe_dataset_path(root: Path, relative: str) -> Path:
         message = "Dataset verification failed because a manifest file path escapes its root."
         raise DatasetStoreError(message) from error
     return candidate
+
+
+def _file_identity(path: Path) -> tuple[Path, int, int, int]:
+    """Capture metadata that changes for normal in-place writes and replacements."""
+    state = path.stat()
+    return (path, state.st_size, int(state.st_mtime_ns), int(state.st_ctime_ns))
 
 
 def _fsync_file(path: Path) -> None:
