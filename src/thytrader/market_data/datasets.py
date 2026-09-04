@@ -9,6 +9,7 @@ from hashlib import sha256
 import json
 import os
 import re
+from stat import S_ISREG
 from threading import RLock
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
@@ -241,34 +242,48 @@ class DatasetStore:
             manifest_path=manifest_path,
         )
 
+    def _load_manifest_metadata(self, manifest_path: Path) -> DatasetManifest:
+        """Validate one manifest structure without reading its referenced Parquet content."""
+        try:
+            payload = json.loads(manifest_path.read_text())
+            return self._manifest_from_payload(payload, manifest_path)
+        except DatasetStoreError:
+            raise
+        except (OSError, OverflowError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+            message = "Dataset verification failed while reading its manifest."
+            raise DatasetStoreError(message) from error
+
     def _list_verified_manifest(self, manifest_path: Path) -> DatasetManifest | None:
-        """Return one listing entry, reusing prior verification while identity holds."""
+        """Return one listing entry only when verification and cached identity are coherent."""
         cached = self._verified_cache.get(manifest_path)
         if cached is not None:
             (identity, manifest) = cached
             if self._identity_matches(identity):
                 return manifest
         try:
+            candidate = self._load_manifest_metadata(manifest_path)
+        except DatasetStoreError:
+            self._verified_cache.pop(manifest_path, None)
+            return None
+        identity_before = _dataset_identity(candidate)
+        if identity_before is None:
+            self._verified_cache.pop(manifest_path, None)
+            return None
+        try:
             manifest = self.load_verified(manifest_path)
         except DatasetStoreError:
             self._verified_cache.pop(manifest_path, None)
             return None
-        # The manifest itself joins the identity gate: a rewritten manifest must
-        # not keep serving stale coverage facts from the prior verification.
-        stamps = [_file_identity(manifest_path)]
-        stamps.extend(_file_identity(file) for file in manifest.files)
-        self._verified_cache[manifest_path] = (tuple(stamps), manifest)
+        identity_after = _dataset_identity(manifest)
+        if identity_after is None or identity_after != identity_before:
+            self._verified_cache.pop(manifest_path, None)
+            return None
+        self._verified_cache[manifest_path] = (identity_after, manifest)
         return manifest
 
     def _identity_matches(self, identity: tuple[tuple[Path, int, int, int], ...]) -> bool:
-        """Check that cached files retain type, size, modification time, and change time."""
-        return all(
-            file.is_file()
-            and file.stat().st_size == size
-            and int(file.stat().st_mtime_ns) == modified_at
-            and int(file.stat().st_ctime_ns) == changed_at
-            for file, size, modified_at, changed_at in identity
-        )
+        """Check that every cached file still has its verified filesystem identity."""
+        return all(_file_identity(expected[0]) == expected for expected in identity)
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
         """Resolve and verify exact typed candles by immutable dataset fingerprint."""
@@ -624,9 +639,27 @@ def _safe_dataset_path(root: Path, relative: str) -> Path:
     return candidate
 
 
-def _file_identity(path: Path) -> tuple[Path, int, int, int]:
-    """Capture metadata that changes for normal in-place writes and replacements."""
-    state = path.stat()
+def _dataset_identity(
+    manifest: DatasetManifest,
+) -> tuple[tuple[Path, int, int, int], ...] | None:
+    """Capture one coherent identity snapshot for a manifest and all of its files."""
+    identities: list[tuple[Path, int, int, int]] = []
+    for path in (manifest.manifest_path, *manifest.files):
+        identity = _file_identity(path)
+        if identity is None:
+            return None
+        identities.append(identity)
+    return tuple(identities)
+
+
+def _file_identity(path: Path) -> tuple[Path, int, int, int] | None:
+    """Capture one regular file's identity, or return a cache miss when stat fails."""
+    try:
+        state = path.stat()
+    except OSError:
+        return None
+    if not S_ISREG(state.st_mode):
+        return None
     return (path, state.st_size, int(state.st_mtime_ns), int(state.st_ctime_ns))
 
 

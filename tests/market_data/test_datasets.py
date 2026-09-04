@@ -372,6 +372,43 @@ class _RecordingDatasetStore(DatasetStore):
         return super().load_verified(manifest_path)
 
 
+class _MutationAfterVerificationStore(DatasetStore):
+    """Mutate one verified file before listing code can publish its cache identity."""
+
+    def __init__(self, root: Path) -> None:
+        """Configure a one-shot post-verification mutation."""
+        super().__init__(root)
+        self._mutated = False
+
+    def load_verified(self, manifest_path: Path) -> DatasetManifest:
+        """Corrupt a file immediately after the real deep verifier accepts it."""
+        manifest = super().load_verified(manifest_path)
+        if not self._mutated:
+            parquet = manifest.files[0]
+            payload = parquet.read_bytes()
+            state = parquet.stat()
+            parquet.write_bytes(bytes(reversed(payload)))
+            os.utime(parquet, ns=(state.st_atime_ns, state.st_mtime_ns))
+            self._mutated = True
+        return manifest
+
+
+def test_dataset_store_does_not_cache_identity_captured_after_verification(
+    tmp_path: Path,
+) -> None:
+    """A post-verification mutation must prevent both listing and cache publication."""
+    DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
+    store = _MutationAfterVerificationStore(tmp_path)
+
+    assert store.list_verified() == ()
+    assert store.list_verified() == ()
+
+
+def test_file_identity_treats_stat_failure_as_a_cache_miss(tmp_path: Path) -> None:
+    """A disappearing file must invalidate identity checks instead of leaking an OS error."""
+    assert dataset_module._file_identity(tmp_path / "missing.parquet") is None
+
+
 class _ConcurrentCatalogStore(DatasetStore):
     """Detect overlapping deep verification through one shared store instance."""
 
