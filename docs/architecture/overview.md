@@ -93,8 +93,10 @@ The current `thytrader-worker` is a portfolio snapshot worker, not a strategy sc
 market-data worker is independently supervised and owns historical market-data ingestion/publication
 plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
 execution run in `thytrader-execution-worker`, which polls closed 1h candles over REST and talks to a
-paper broker or the Coinbase REST v3 adapter. User-order WebSockets and trailing-stop workers remain
-deferred.
+paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
+fill matching but blocks new entries; stop cancels resting orders. The worker replays contiguous
+missed closed hours after downtime and pauses when the latest bar is missing or gapped. User-order
+WebSockets and trailing-stop workers remain deferred.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational

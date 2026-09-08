@@ -23,6 +23,7 @@
 	let publishing = $state(false);
 	let dirty = $state(false);
 	let error = $state<string | null>(null);
+	let publishedNotice = $state<string | null>(null);
 	let savedAt = $state<string | null>(null);
 	let validationErrors = $state<string[]>([]);
 	let activeSection = $state('overview');
@@ -238,7 +239,7 @@
 			const responseModel = toBuilderModel(saved.strategy, saved.revision);
 			// Preserve edits made while the request was in flight: only accept the
 			// server response when the live model is still the snapshot we sent.
-			if (fromBuilderModel(model) === snapshot) {
+			if (JSON.stringify(fromBuilderModel(model)) === JSON.stringify(snapshot)) {
 				model = responseModel;
 				dirty = false;
 			} else {
@@ -260,8 +261,8 @@
 		try {
 			await publishDraft(fromBuilderModel(model), model.revision);
 			model = null;
-			error =
-				'Published. This version is now immutable; revise it into a new draft to keep editing.';
+			publishedNotice =
+				'This version is now immutable; revise it into a new draft to keep editing.';
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Strategy publication failed.';
 		} finally {
@@ -318,6 +319,14 @@
 	<main>
 		{#if loading}
 			<div class="loading-card"><div class="skeleton wide"></div></div>
+		{:else if publishedNotice}
+			<div class="error-banner" role="status">
+				<div>
+					<strong>Published</strong>
+					<p>{publishedNotice}</p>
+				</div>
+				<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+			</div>
 		{:else if error}
 			<div class="error-banner" role="alert">
 				<div>

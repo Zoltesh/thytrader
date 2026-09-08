@@ -75,14 +75,13 @@ class PaperBroker:
         )
         if not traded_through:
             return None
-        now = utc_now()
         return Fill(
-            id=uuid7(now),
+            id=uuid7(utc_now()),
             deployment_id=order.deployment_id,
             order_id=order.id,
             venue_fill_id=f"paper:{order.client_order_id}:{candle.starts_at.isoformat()}",
             price=order.price,
             quantity=order.quantity,
             fee=Decimal("0"),
-            filled_at=now,
+            filled_at=candle.starts_at,
         )

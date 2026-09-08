@@ -77,7 +77,8 @@ editable draft version (for example draft v2 from published v1) on the same stab
 identity from one selected immutable version, rejecting conflicting open drafts with HTTP 409;
 publication remains immutable and history-preserving. Clone stays a separate-identity action at the
 library level. The Deploy tab starts paper or live runtimes for a published version, shows phase,
-position, orders, fills, and reject reasons, and pause/resume/stop the execution worker. The library
+position, orders, fills, and reject reasons, and pause/resume/stop the execution worker. Live start
+and stop ask for confirmation. Pause keeps protective exits running; stop cancels resting orders. The library
 paper/live column reflects the newest deployment status per mode.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.

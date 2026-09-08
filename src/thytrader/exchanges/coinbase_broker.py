@@ -57,15 +57,19 @@ class CoinbaseRestBroker:
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase create-order request failed.") from error
         success = payload.get("success")
-        order_payload = _nested_object(payload, "order")
-        if success is False or order_payload is None:
+        order_payload = _nested_object(payload, "success_response") or _nested_object(
+            payload, "order"
+        )
+        venue_id = _text(payload.get("order_id"))
+        if order_payload is not None:
+            venue_id = _text(order_payload.get("order_id")) or venue_id
+        if success is False or venue_id is None:
             reason = str(payload.get("error_response") or payload.get("message") or "rejected")
             return SubmitResult(
                 status=OrderStatus.REJECTED,
-                venue_order_id=client_order_id,
+                venue_order_id=venue_id or client_order_id,
                 reject_reason=reason[:500],
             )
-        venue_id = _text(order_payload.get("order_id")) or client_order_id
         return await self.get_order(venue_order_id=venue_id, client_order_id=client_order_id)
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
@@ -78,14 +82,20 @@ class CoinbaseRestBroker:
         return await self.get_order(venue_order_id=venue_order_id, client_order_id=venue_order_id)
 
     async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
-        """GET /orders/historical/{order_id} as JSON."""
-        del client_order_id
+        """GET /orders/historical/{order_id}, resolving client ids when needed."""
+        order_id = venue_order_id or self._venue_id_for_client(client_order_id)
+        if not order_id:
+            return SubmitResult(
+                status=OrderStatus.UNKNOWN,
+                venue_order_id="",
+                reject_reason="not_found",
+            )
         try:
-            payload = self._transport.get(_ORDER_PATH.format(order_id=venue_order_id))
+            payload = self._transport.get(_ORDER_PATH.format(order_id=order_id))
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase get-order request failed.") from error
         order_payload = _nested_object(payload, "order") or payload
-        return _submit_from_order_json(order_payload, venue_order_id)
+        return _submit_from_order_json(order_payload, order_id)
 
     async def list_fills(
         self,
@@ -163,6 +173,33 @@ class CoinbaseRestBroker:
             orders.extend(_object_list(payload.get("orders")))
             if payload.get("has_next") is not True:
                 return tuple(orders)
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                raise BrokerError(
+                    "Coinbase order pagination declared a next page without a cursor."
+                )
+            cursor = next_cursor
+        raise BrokerError("Coinbase order pagination exceeded the page limit.")
+
+    def _venue_id_for_client(self, client_order_id: str) -> str | None:
+        """Find the venue order id for one client order id from historical spot orders."""
+        if not client_order_id:
+            return None
+        cursor: str | None = None
+        for _page in range(_MAX_PAGES):
+            params: dict[str, object] = {
+                "product_type": "SPOT",
+                "order_placement_source": "RETAIL_ADVANCED",
+                "limit": 100,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            payload = self._transport.get(_LIST_ORDERS_PATH, params)
+            for item in _object_list(payload.get("orders")):
+                if _text(item.get("client_order_id")) == client_order_id:
+                    return _text(item.get("order_id"))
+            if payload.get("has_next") is not True:
+                return None
             next_cursor = payload.get("cursor")
             if not isinstance(next_cursor, str) or not next_cursor:
                 raise BrokerError(

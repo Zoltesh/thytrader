@@ -41,7 +41,25 @@ def test_size_long_entry_respects_risk_fraction_and_increments() -> None:
     assert sized.notional == sized.quantity * sized.entry_price
 
 
-def test_size_long_entry_rejects_insufficient_cash() -> None:
+def test_size_long_entry_reserves_fee_inside_cash() -> None:
+    """Fee-adjusted cash must cap notional so notional plus fee cannot exceed cash."""
+    strategy = create_reference_draft()
+    payload = strategy.model_dump(mode="python")
+    payload["sizing"]["max_quote_notional"] = "100000"
+    payload["portfolio_limits"]["max_strategy_exposure_fraction"] = "1"
+    payload["sizing"]["risk_fraction"] = "0.25"
+    limited = strategy.__class__.model_validate(payload)
+    sized = size_long_entry(
+        strategy=limited,
+        cash=Decimal("100"),
+        entry_price=Decimal("100"),
+        atr=Decimal("0.01"),
+        product=_product(),
+        fee_rate=Decimal("0.01"),
+    )
+    assert sized is not None
+    assert sized.notional <= Decimal("100") / Decimal("1.01")
+
     """Below the minimum quote notional there is no executable size."""
     strategy = create_reference_draft()
     sized = size_long_entry(

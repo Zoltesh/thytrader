@@ -14,7 +14,7 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     RuntimePhase,
-    with_status,
+    with_runtime,
 )
 from thytrader.strategies.publication import (
     PublishedStrategy,
@@ -82,7 +82,9 @@ async def set_deployment_status(
         raise ExecutionConflictError("A stopped deployment cannot be resumed.")
     if status is DeploymentStatus.RUNNING and current is DeploymentStatus.RUNNING:
         return snapshot
-    updated = with_status(snapshot.deployment, status, utc_now())
+    updated = with_runtime(
+        snapshot.deployment, updated_at=utc_now(), status=status, clear_mismatch=True
+    )
     await store.save_deployment(updated)
     return await store.get_deployment(deployment_id)
 

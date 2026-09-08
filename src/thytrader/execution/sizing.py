@@ -42,6 +42,7 @@ def size_long_entry(
     entry_price: Decimal,
     atr: Decimal,
     product: MarketProduct,
+    fee_rate: Decimal = Decimal("0"),
 ) -> SizedEntry | None:
     """Size a long using ATR stop distance, risk fraction, and quote bounds."""
     if entry_price <= 0 or atr <= 0 or cash <= 0:
@@ -54,10 +55,11 @@ def size_long_entry(
         return None
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
     risk_quantity = requested_risk / stop_distance
+    fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
     maximum_notional = min(
         Decimal(strategy.sizing.max_quote_notional),
         cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
-        cash,
+        fee_adjusted_cash,
     )
     notional = min(risk_quantity * entry_price, maximum_notional)
     if notional < Decimal(strategy.sizing.min_quote_notional):

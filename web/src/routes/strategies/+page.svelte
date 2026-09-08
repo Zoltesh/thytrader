@@ -563,6 +563,12 @@
 	}
 
 	async function deployStrategy(): Promise<void> {
+		if (deployMode === 'live') {
+			const confirmed = window.confirm(
+				'Start LIVE trading on Coinbase? This places real spot orders for the selected published version.'
+			);
+			if (!confirmed) return;
+		}
 		deploying = true;
 		deployError = null;
 		try {
@@ -581,6 +587,12 @@
 	}
 
 	async function changeDeployment(id: string, action: 'pause' | 'resume' | 'stop'): Promise<void> {
+		if (action === 'stop') {
+			const confirmed = window.confirm(
+				'Stop this deployment permanently? Resting orders will be canceled.'
+			);
+			if (!confirmed) return;
+		}
 		deployError = null;
 		try {
 			if (action === 'pause') await pauseDeployment(id);
@@ -726,7 +738,8 @@
 				<p class="eyebrow">Conservative research</p>
 				<h1>Strategy library</h1>
 				<p class="lede">
-					Every strategy identity with its latest evidence. Nothing here deploys or trades.
+					Every strategy identity with its latest evidence. Paper and live runtimes start from the
+					Deploy tab on a published version.
 				</p>
 			</div>
 		</section>

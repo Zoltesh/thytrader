@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import BrokerError
@@ -34,6 +35,9 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.strategies.models import StrategyDefinition
 
+_ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+_IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+
 
 async def process_closed_bar(
     snapshot: DeploymentSnapshot,
@@ -44,39 +48,63 @@ async def process_closed_bar(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Advance one running deployment by exactly one newly closed candle."""
-    if snapshot.deployment.status is not DeploymentStatus.RUNNING or not candles:
+    """Advance one running or paused deployment by exactly one newly closed candle."""
+    if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
+        return snapshot
+    if snapshot.deployment.status not in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}:
         return snapshot
     candle = candles[-1]
     deployment = snapshot.deployment
     if deployment.last_evaluated_bar == candle.starts_at:
-        return await _ensure_take_profit_if_open(
-            snapshot, candle=candle, product=product, broker=broker, store=store
+        if deployment.phase in _IN_MARKET:
+            return await _ensure_take_profit(
+                snapshot, candle=candle, product=product, broker=broker, store=store
+            )
+        return snapshot
+    if deployment.cooldown_bars_remaining > 0:
+        cooled = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            cooldown_bars_remaining=deployment.cooldown_bars_remaining - 1,
         )
-    snapshot = await _match_resting_orders(snapshot, candle=candle, broker=broker, store=store)
-    snapshot = await _manage_position(
-        snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
-    )
-    snapshot = await _maybe_enter(
+        await store.save_deployment(cooled)
+        snapshot = await store.get_deployment(deployment.id)
+    snapshot = await _match_resting_orders(
         snapshot,
-        strategy=strategy,
-        product=product,
-        candles=candles,
         candle=candle,
         broker=broker,
         store=store,
+        cooldown_bars=strategy.entry.cooldown_bars,
     )
-    cooldown = snapshot.deployment.cooldown_bars_remaining
-    if cooldown > 0:
-        cooldown -= 1
-    updated = with_runtime(
-        snapshot.deployment,
-        updated_at=utc_now(),
+    snapshot = await _manage_position(
+        snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
+    )
+    if snapshot.deployment.status is DeploymentStatus.RUNNING:
+        snapshot = await _maybe_enter(
+            snapshot,
+            strategy=strategy,
+            product=product,
+            candles=candles,
+            candle=candle,
+            broker=broker,
+            store=store,
+        )
+    return await _persist_runtime(
+        snapshot,
+        store=store,
         last_evaluated_bar=candle.starts_at,
-        cooldown_bars_remaining=cooldown,
     )
-    await store.save_deployment(updated)
-    return await store.get_deployment(updated.id)
+
+
+async def cancel_resting_orders(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Cancel every locally open order for a stopped or flattening deployment."""
+    await _cancel_open_orders(snapshot, broker=broker, store=store)
+    return await store.get_deployment(snapshot.deployment.id)
 
 
 async def _match_resting_orders(
@@ -85,6 +113,7 @@ async def _match_resting_orders(
     candle: Candle,
     broker: Broker,
     store: ExecutionStore,
+    cooldown_bars: int,
 ) -> DeploymentSnapshot:
     """Apply paper or local fills for resting limits against the closed candle."""
     for order in snapshot.orders:
@@ -101,7 +130,9 @@ async def _match_resting_orders(
             updated_at=utc_now(),
         )
         await store.save_order(filled)
-        snapshot = await apply_fill(snapshot, fill=fill, order=filled, store=store)
+        snapshot = await apply_fill(
+            snapshot, fill=fill, order=filled, store=store, cooldown_bars=cooldown_bars
+        )
     return await store.get_deployment(snapshot.deployment.id)
 
 
@@ -111,11 +142,12 @@ async def apply_fill(
     fill: Fill,
     order: Order,
     store: ExecutionStore,
+    cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """Update cash and position from one fill and persist the result."""
     if order.side is OrderSide.BUY:
         return await _apply_buy_fill(snapshot, fill=fill, store=store)
-    return await _apply_sell_fill(snapshot, fill=fill, store=store)
+    return await _apply_sell_fill(snapshot, fill=fill, store=store, cooldown_bars=cooldown_bars)
 
 
 async def _apply_buy_fill(
@@ -124,10 +156,26 @@ async def _apply_buy_fill(
     fill: Fill,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Open the long from an entry fill, or pause when stop/target prices are missing."""
+    """Open or add to the long from an entry fill, or pause when stop/target are missing."""
     deployment = snapshot.deployment
     now = utc_now()
     cash = deployment.cash - (fill.price * fill.quantity) - fill.fee
+    existing = snapshot.position
+    if existing is not None:
+        quantity = existing.quantity + fill.quantity
+        entry_price = (
+            (existing.entry_price * existing.quantity) + (fill.price * fill.quantity)
+        ) / quantity
+        position = replace(existing, quantity=quantity, entry_price=entry_price, updated_at=now)
+        updated = with_runtime(
+            deployment,
+            updated_at=now,
+            cash=cash,
+            phase=RuntimePhase.OPEN if deployment.phase is RuntimePhase.FLAT else deployment.phase,
+        )
+        await store.save_position(position, deployment_id=deployment.id)
+        await store.save_deployment(updated)
+        return await store.get_deployment(deployment.id)
     stop = deployment.pending_stop_price
     target = deployment.pending_target_price
     if stop is None or target is None:
@@ -143,13 +191,14 @@ async def _apply_buy_fill(
         await store.save_deployment(paused)
         await store.save_position(None, deployment_id=deployment.id)
         return await store.get_deployment(deployment.id)
+    entered_bar = fill.filled_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
     position = Position(
         deployment_id=deployment.id,
         quantity=fill.quantity,
         entry_price=fill.price,
         stop_price=stop,
         target_price=target,
-        entered_bar=fill.filled_at,
+        entered_bar=entered_bar,
         updated_at=now,
     )
     updated = with_runtime(
@@ -171,10 +220,22 @@ async def _apply_sell_fill(
     *,
     fill: Fill,
     store: ExecutionStore,
+    cooldown_bars: int,
 ) -> DeploymentSnapshot:
-    """Flatten the long after an exit fill."""
+    """Reduce or flatten the long after an exit fill."""
     deployment = snapshot.deployment
     cash = deployment.cash + (fill.price * fill.quantity) - fill.fee
+    position = snapshot.position
+    if position is not None and fill.quantity < position.quantity:
+        remaining = replace(
+            position,
+            quantity=position.quantity - fill.quantity,
+            updated_at=utc_now(),
+        )
+        updated = with_runtime(deployment, updated_at=utc_now(), cash=cash)
+        await store.save_position(remaining, deployment_id=deployment.id)
+        await store.save_deployment(updated)
+        return await store.get_deployment(deployment.id)
     updated = with_runtime(
         deployment,
         updated_at=utc_now(),
@@ -182,7 +243,7 @@ async def _apply_sell_fill(
         phase=RuntimePhase.FLAT,
         bars_held=0,
         pending_entry_bars=0,
-        cooldown_bars_remaining=0,
+        cooldown_bars_remaining=max(cooldown_bars, 0),
         clear_pending_levels=True,
     )
     await store.save_position(None, deployment_id=deployment.id)
@@ -206,12 +267,19 @@ async def _manage_position(
             snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
         )
     position = snapshot.position
-    if deployment.phase is not RuntimePhase.OPEN or position is None:
+    if deployment.phase not in _IN_MARKET or position is None:
         return snapshot
-    bars_held = deployment.bars_held + 1
-    updated = with_runtime(deployment, updated_at=utc_now(), bars_held=bars_held)
-    await store.save_deployment(updated)
-    snapshot = await store.get_deployment(deployment.id)
+    if position.entered_bar != candle.starts_at:
+        bars_held = deployment.bars_held + 1
+        updated = with_runtime(deployment, updated_at=utc_now(), bars_held=bars_held)
+        await store.save_deployment(updated)
+        snapshot = await store.get_deployment(deployment.id)
+        deployment = snapshot.deployment
+        position = snapshot.position
+        if position is None:
+            return snapshot
+    else:
+        bars_held = deployment.bars_held
     if candle.low <= position.stop_price:
         return await _marketable_exit(
             snapshot,
@@ -221,7 +289,7 @@ async def _manage_position(
             broker=broker,
             store=store,
             purpose=IntentPurpose.STOP,
-            price=position.stop_price,
+            price=min(candle.open, position.stop_price),
         )
     if bars_held >= strategy.exits.time_exit.max_bars_held:
         return await _marketable_exit(
@@ -251,14 +319,27 @@ async def _manage_pending_entry(
     """Wait, cancel, or reprice an unfilled maker entry."""
     deployment = snapshot.deployment
     waited = deployment.pending_entry_bars + 1
-    open_entry = _open_side(snapshot.orders, OrderSide.BUY)
+    open_entry = _active_side(snapshot.orders, OrderSide.BUY)
     if open_entry is None:
         return await _flatten_pending(snapshot, store=store, cooldown_bars=1)
+    if open_entry.status is not OrderStatus.OPEN or open_entry.venue_order_id is None:
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Entry order is unconfirmed; reconcile before retrying.",
+        )
     if waited < strategy.execution.max_entry_wait_bars:
         waited_state = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=waited)
         await store.save_deployment(waited_state)
         return await store.get_deployment(deployment.id)
     snapshot = await _cancel_one_order(open_entry, broker=broker, store=store)
+    remaining = _active_side(snapshot.orders, OrderSide.BUY)
+    if remaining is not None and remaining.status is not OrderStatus.CANCELED:
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Unfilled entry could not be canceled before retrying.",
+        )
     if strategy.execution.on_unfilled_entry == "reprice":
         return await _reprice_entry(
             snapshot, candle=candle, product=product, broker=broker, store=store, prior=open_entry
@@ -297,20 +378,15 @@ async def _reprice_entry(
     try:
         price = broker.maker_limit_price(product_id=product.product_id, mark=candle.close)
     except BrokerError:
-        paused = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Maker entry price is unavailable for repricing.",
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Maker entry price is unavailable for repricing.",
             phase=RuntimePhase.FLAT,
-            pending_entry_bars=0,
-            clear_pending_levels=True,
         )
-        await store.save_deployment(paused)
-        return await store.get_deployment(snapshot.deployment.id)
     reset = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
     await store.save_deployment(reset)
-    await submit_intent(
+    order = await submit_intent(
         store=store,
         broker=broker,
         deployment_id=snapshot.deployment.id,
@@ -322,6 +398,12 @@ async def _reprice_entry(
         price=price,
         candle=candle,
     )
+    if order.status is OrderStatus.UNKNOWN:
+        return await _pause(
+            await store.get_deployment(snapshot.deployment.id),
+            store=store,
+            detail="Repriced entry submit is unconfirmed.",
+        )
     pending = with_runtime(
         reset, updated_at=utc_now(), phase=RuntimePhase.PENDING_ENTRY, pending_entry_bars=0
     )
@@ -346,6 +428,14 @@ async def _marketable_exit(
         return snapshot
     await _cancel_open_orders(snapshot, broker=broker, store=store)
     snapshot = await store.get_deployment(snapshot.deployment.id)
+    if _active_side(snapshot.orders, OrderSide.BUY) or _active_side(
+        snapshot.orders, OrderSide.SELL
+    ):
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Could not cancel resting orders before a marketable exit.",
+        )
     order = await submit_intent(
         store=store,
         broker=broker,
@@ -359,14 +449,17 @@ async def _marketable_exit(
         candle=candle,
     )
     if order.status is OrderStatus.FILLED:
-        snapshot = await _apply_immediate_exit_fill(snapshot, order=order, store=store)
-    cooled = with_runtime(
-        snapshot.deployment,
-        updated_at=utc_now(),
-        cooldown_bars_remaining=strategy.entry.cooldown_bars,
+        return await _apply_immediate_exit_fill(
+            snapshot,
+            order=order,
+            store=store,
+            cooldown_bars=strategy.entry.cooldown_bars,
+        )
+    return await _pause(
+        await store.get_deployment(snapshot.deployment.id),
+        store=store,
+        detail="Marketable exit was not confirmed filled.",
     )
-    await store.save_deployment(cooled)
-    return await store.get_deployment(cooled.id)
 
 
 async def _apply_immediate_exit_fill(
@@ -374,6 +467,7 @@ async def _apply_immediate_exit_fill(
     *,
     order: Order,
     store: ExecutionStore,
+    cooldown_bars: int,
 ) -> DeploymentSnapshot:
     """Apply a marketable sell fill that the broker reported as already complete."""
     fill = next(
@@ -391,6 +485,7 @@ async def _apply_immediate_exit_fill(
         fill=fill,
         order=order,
         store=store,
+        cooldown_bars=cooldown_bars,
     )
 
 
@@ -406,9 +501,13 @@ async def _ensure_take_profit(
     position = snapshot.position
     if position is None:
         return snapshot
-    if _open_side(snapshot.orders, OrderSide.SELL) is not None:
-        return snapshot
-    await submit_intent(
+    if _active_side(snapshot.orders, OrderSide.SELL) is not None:
+        pending = with_runtime(
+            snapshot.deployment, updated_at=utc_now(), phase=RuntimePhase.PENDING_EXIT
+        )
+        await store.save_deployment(pending)
+        return await store.get_deployment(snapshot.deployment.id)
+    order = await submit_intent(
         store=store,
         broker=broker,
         deployment_id=snapshot.deployment.id,
@@ -420,10 +519,18 @@ async def _ensure_take_profit(
         price=position.target_price,
         candle=candle,
     )
-    pending = with_runtime(
-        snapshot.deployment, updated_at=utc_now(), phase=RuntimePhase.PENDING_EXIT
-    )
-    await store.save_deployment(pending)
+    if order.status is OrderStatus.OPEN:
+        pending = with_runtime(
+            snapshot.deployment, updated_at=utc_now(), phase=RuntimePhase.PENDING_EXIT
+        )
+        await store.save_deployment(pending)
+        return await store.get_deployment(snapshot.deployment.id)
+    if order.status in {OrderStatus.UNKNOWN, OrderStatus.PENDING}:
+        return await _pause(
+            await store.get_deployment(snapshot.deployment.id),
+            store=store,
+            detail="Take-profit submit is unconfirmed.",
+        )
     return await store.get_deployment(snapshot.deployment.id)
 
 
@@ -440,6 +547,8 @@ async def _maybe_enter(
     """Place a post-only buy when flat, off cooldown, and the entry condition matches."""
     deployment = snapshot.deployment
     if deployment.phase is not RuntimePhase.FLAT or deployment.cooldown_bars_remaining > 0:
+        return snapshot
+    if deployment.status is not DeploymentStatus.RUNNING:
         return snapshot
     outcome = evaluate_latest_entry(strategy, candles)
     signaled = with_runtime(deployment, updated_at=utc_now(), last_signal=outcome.value)
@@ -475,14 +584,7 @@ async def _submit_sized_entry(
     try:
         entry_price = broker.maker_limit_price(product_id=product.product_id, mark=candle.close)
     except BrokerError:
-        paused = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Maker entry price is unavailable.",
-        )
-        await store.save_deployment(paused)
-        return await store.get_deployment(snapshot.deployment.id)
+        return await _pause(snapshot, store=store, detail="Maker entry price is unavailable.")
     sized = size_long_entry(
         strategy=strategy,
         cash=snapshot.deployment.cash,
@@ -501,7 +603,7 @@ async def _submit_sized_entry(
         pending_target_price=sized.target_price,
     )
     await store.save_deployment(pending)
-    await submit_intent(
+    order = await submit_intent(
         store=store,
         broker=broker,
         deployment_id=snapshot.deployment.id,
@@ -513,7 +615,14 @@ async def _submit_sized_entry(
         price=sized.entry_price,
         candle=candle,
     )
-    return await store.get_deployment(snapshot.deployment.id)
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    if order.status is OrderStatus.UNKNOWN:
+        return await _pause(snapshot, store=store, detail="Entry submit is unconfirmed.")
+    if order.status is OrderStatus.REJECTED:
+        return await _flatten_pending(
+            snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
+        )
+    return snapshot
 
 
 async def _cancel_open_orders(
@@ -549,25 +658,55 @@ async def _cancel_one_order(
     return await store.get_deployment(order.deployment_id)
 
 
-async def _ensure_take_profit_if_open(
+async def _pause(
     snapshot: DeploymentSnapshot,
     *,
-    candle: Candle,
-    product: MarketProduct,
-    broker: Broker,
     store: ExecutionStore,
+    detail: str,
+    phase: RuntimePhase | None = None,
 ) -> DeploymentSnapshot:
-    """Rest a take-profit when a skipped bar still has an unprotected open long."""
-    if snapshot.deployment.phase is not RuntimePhase.OPEN:
-        return snapshot
-    return await _ensure_take_profit(
-        snapshot, candle=candle, product=product, broker=broker, store=store
+    """Pause when venue state cannot be reconciled safely."""
+    paused = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail=detail,
+        phase=snapshot.deployment.phase if phase is None else phase,
+        pending_entry_bars=0 if phase is RuntimePhase.FLAT else None,
+        clear_pending_levels=phase is RuntimePhase.FLAT,
     )
+    await store.save_deployment(paused)
+    return await store.get_deployment(snapshot.deployment.id)
 
 
-def _open_side(orders: Sequence[Order], side: OrderSide) -> Order | None:
-    """Return the first open order on one side, if any."""
+async def _persist_runtime(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    last_evaluated_bar: datetime,
+) -> DeploymentSnapshot:
+    """Write runtime fields without clobbering a concurrent operator status."""
+    latest = await store.get_deployment(snapshot.deployment.id)
+    operator = latest.deployment.status
+    status = operator
+    if (
+        snapshot.deployment.status is DeploymentStatus.PAUSED
+        and operator is not DeploymentStatus.STOPPED
+    ):
+        status = DeploymentStatus.PAUSED
+    updated = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        last_evaluated_bar=last_evaluated_bar,
+        status=status,
+    )
+    await store.save_deployment(updated)
+    return await store.get_deployment(updated.id)
+
+
+def _active_side(orders: Sequence[Order], side: OrderSide) -> Order | None:
+    """Return the first active order on one side, if any."""
     return next(
-        (order for order in orders if order.status is OrderStatus.OPEN and order.side is side),
+        (order for order in orders if order.status in _ACTIVE and order.side is side),
         None,
     )

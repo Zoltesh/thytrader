@@ -80,7 +80,82 @@ async def test_create_order_uses_client_order_id_and_gets_status() -> None:
 
 
 @pytest.mark.anyio
-async def test_empty_client_order_id_is_rejected() -> None:
+async def test_create_order_reads_success_response_order_id() -> None:
+    """Advanced Trade create-order JSON nests the venue id under success_response."""
+    transport = FakeTransport(
+        posts={
+            "/api/v3/brokerage/orders": [
+                {
+                    "success": True,
+                    "success_response": {
+                        "order_id": "venue-1",
+                        "product_id": "BTC-USD",
+                        "side": "BUY",
+                        "client_order_id": "client-1",
+                    },
+                }
+            ]
+        },
+        gets={
+            "/api/v3/brokerage/orders/historical/venue-1": [
+                {
+                    "order": {
+                        "order_id": "venue-1",
+                        "status": "OPEN",
+                        "filled_size": "0",
+                    }
+                }
+            ]
+        },
+    )
+    broker = CoinbaseRestBroker(transport)
+    result = await broker.place_order(
+        client_order_id="client-1",
+        product_id="BTC-USD",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+    )
+    assert result.status is OrderStatus.OPEN
+    assert result.venue_order_id == "venue-1"
+
+
+@pytest.mark.anyio
+async def test_get_order_resolves_client_order_id_when_venue_id_is_missing() -> None:
+    """Ambiguous submits are looked up from historical spot orders by client id."""
+    batch = "/api/v3/brokerage/orders/historical/batch"
+    historical = "/api/v3/brokerage/orders/historical/venue-9"
+    transport = FakeTransport(
+        gets={
+            batch: [
+                {
+                    "orders": [
+                        {
+                            "order_id": "venue-9",
+                            "client_order_id": "client-missing-venue",
+                            "status": "OPEN",
+                        }
+                    ],
+                    "has_next": False,
+                }
+            ],
+            historical: [
+                {
+                    "order": {
+                        "order_id": "venue-9",
+                        "status": "OPEN",
+                        "filled_size": "0",
+                    }
+                }
+            ],
+        }
+    )
+    result = await CoinbaseRestBroker(transport).get_order(
+        venue_order_id="", client_order_id="client-missing-venue"
+    )
+    assert result.venue_order_id == "venue-9"
+    assert result.status is OrderStatus.OPEN
     """SDK-style empty client ids are forbidden so the venue cannot mint a new identity."""
     broker = CoinbaseRestBroker(FakeTransport(gets={}, posts={}))
     with pytest.raises(BrokerError, match="client_order_id"):

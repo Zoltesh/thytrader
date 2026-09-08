@@ -1,5 +1,6 @@
 """Closed-candle paper maker loop for one published long strategy."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -13,6 +14,7 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    OrderStatus,
     RuntimePhase,
 )
 from thytrader.execution.paper import PaperBroker
@@ -188,3 +190,178 @@ async def test_unfilled_entry_cancels_after_max_wait() -> None:
         )
     assert current.deployment.phase is RuntimePhase.FLAT
     assert all(order.status.value != "open" for order in current.orders)
+
+
+async def _filled_long(
+    store: InMemoryExecutionStore, strategy: StrategyDefinition
+) -> tuple[DeploymentSnapshot, tuple[Candle, ...]]:
+    """Place and fill a paper maker entry, returning the snapshot and candle window."""
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    last = warmup[-1]
+    fill_bar = Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    window = (*warmup, fill_bar)
+    filled = await process_closed_bar(
+        pending,
+        strategy=strategy,
+        product=_product(),
+        candles=window,
+        broker=PaperBroker(),
+        store=store,
+    )
+    return filled, window
+
+
+def _next_bar(
+    window: tuple[Candle, ...],
+    *,
+    open_: Decimal,
+    high: Decimal,
+    low: Decimal,
+    close: Decimal,
+) -> Candle:
+    """Build the next hourly candle after the current window."""
+    last = window[-1]
+    return Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=open_,
+        high=high,
+        low=low,
+        close=close,
+        volume=Decimal("10"),
+    )
+
+
+@pytest.mark.anyio
+async def test_stop_still_fires_while_take_profit_is_resting() -> None:
+    """A resting TP must not disable the synthetic stop on a later closed bar."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    assert filled.deployment.phase is RuntimePhase.PENDING_EXIT
+    stop = filled.position.stop_price
+    crash = _next_bar(
+        window,
+        open_=stop + Decimal("1"),
+        high=stop + Decimal("1"),
+        low=stop - Decimal("5"),
+        close=stop - Decimal("2"),
+    )
+    exited = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, crash),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert exited.position is None
+    assert exited.deployment.phase is RuntimePhase.FLAT
+    assert any(order.kind.value == "marketable" for order in exited.orders)
+
+
+@pytest.mark.anyio
+async def test_paused_deployment_still_exits_on_stop() -> None:
+    """Pause blocks new entries but still evaluates protective exits."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    paused = replace(filled.deployment, status=DeploymentStatus.PAUSED)
+    await store.save_deployment(paused)
+    filled = await store.get_deployment(filled.deployment.id)
+    stop = filled.position.stop_price
+    crash = _next_bar(
+        window,
+        open_=stop + Decimal("1"),
+        high=stop + Decimal("1"),
+        low=stop - Decimal("5"),
+        close=stop - Decimal("2"),
+    )
+    exited = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, crash),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert exited.position is None
+    assert exited.deployment.status is DeploymentStatus.PAUSED
+    assert all(
+        order.status is not OrderStatus.OPEN or order.side.value != "buy" for order in exited.orders
+    )
+
+
+@pytest.mark.anyio
+async def test_take_profit_fill_applies_cooldown_before_reentry() -> None:
+    """TP fills must honor cooldown_bars instead of flattening to zero cooldown."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    target = filled.position.target_price
+    tp_bar = _next_bar(
+        window,
+        open_=target - Decimal("1"),
+        high=target + Decimal("2"),
+        low=target - Decimal("1"),
+        close=target,
+    )
+    after = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, tp_bar),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert after.position is None
+    assert after.deployment.phase is RuntimePhase.FLAT
+    assert after.deployment.cooldown_bars_remaining > 0
+    assert all(order.status is not OrderStatus.OPEN for order in after.orders)
+
+
+@pytest.mark.anyio
+async def test_stop_fill_uses_gap_open_when_bar_opens_through_stop() -> None:
+    """A gap through the stop fills at the adverse open, not the stop price."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    stop = filled.position.stop_price
+    gap_open = stop - Decimal("8")
+    crash = _next_bar(
+        window,
+        open_=gap_open,
+        high=gap_open + Decimal("1"),
+        low=gap_open - Decimal("1"),
+        close=gap_open,
+    )
+    exited = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, crash),
+        broker=PaperBroker(),
+        store=store,
+    )
+    sell_fills = [fill for fill in exited.fills if fill.price == gap_open]
+    assert sell_fills
+    assert exited.position is None
