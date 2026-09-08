@@ -27,6 +27,14 @@
 		type StrategyPublishedVersion,
 		type StrategyVersionHistory
 	} from '$lib/strategies';
+	import {
+		createDeployment,
+		listDeployments,
+		pauseDeployment,
+		resumeDeployment,
+		stopDeployment,
+		type Deployment
+	} from '$lib/deployments';
 	import { semanticDiff, type SemanticDiff } from '$lib/strategy-diff';
 	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
 
@@ -59,7 +67,7 @@
 	let viewModel = $state<BuilderModel | null>(null);
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
-	let researchTab = $state<'insight' | 'research' | 'versions'>('insight');
+	let researchTab = $state<'insight' | 'research' | 'versions' | 'deploy'>('insight');
 	let datasetsRequested = $state(false);
 	let launchDatasets = $state<Dataset[]>([]);
 	let launchDatasetsLoading = $state(false);
@@ -94,6 +102,13 @@
 	let barHeight = $state(0);
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 	let viewRequestId = 0;
+	let strategyDeployments = $state<Deployment[]>([]);
+	let deployLoading = $state(false);
+	let deploying = $state(false);
+	let deployError = $state<string | null>(null);
+	let deployFingerprint = $state('');
+	let deployMode = $state<'paper' | 'live'>('paper');
+	let deployCash = $state('10000');
 
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
@@ -145,6 +160,11 @@
 		if (researchTab !== 'research' || entry === null || datasetsRequested) return;
 		datasetsRequested = true;
 		void loadLaunchDatasets(entry, viewRequestId);
+	});
+
+	$effect(() => {
+		if (researchTab !== 'deploy' || viewEntry === null) return;
+		void loadStrategyDeployments();
 	});
 
 	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
@@ -464,6 +484,11 @@
 		launchDatasetsLoading = false;
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
+		strategyDeployments = [];
+		deployError = null;
+		deployFingerprint = entry.latest_fingerprint ?? '';
+		deployMode = 'paper';
+		deployCash = '10000';
 		if (entry.published_versions.length > 0 || entry.status !== 'draft') {
 			void loadVersionHistory(entry, requestId);
 		}
@@ -513,6 +538,59 @@
 		launchDatasets = [];
 		launchDatasetError = null;
 		launchDatasetsLoading = false;
+		strategyDeployments = [];
+		deployError = null;
+	}
+
+	async function loadStrategyDeployments(): Promise<void> {
+		const entry = viewEntry;
+		if (entry === null) return;
+		deployLoading = true;
+		try {
+			const deployments = await listDeployments();
+			if (viewEntry?.strategy_id !== entry.strategy_id) return;
+			strategyDeployments = deployments.filter(
+				(deployment) => deployment.strategy_id === entry.strategy_id
+			);
+		} catch (caught) {
+			if (viewEntry?.strategy_id !== entry.strategy_id) return;
+			deployError = caught instanceof Error ? caught.message : 'Could not load deployments.';
+		} finally {
+			if (viewEntry?.strategy_id === entry.strategy_id) {
+				deployLoading = false;
+			}
+		}
+	}
+
+	async function deployStrategy(): Promise<void> {
+		deploying = true;
+		deployError = null;
+		try {
+			await createDeployment({
+				strategy_fingerprint: deployFingerprint,
+				mode: deployMode,
+				paper_starting_cash: deployMode === 'paper' ? deployCash : undefined
+			});
+			await loadStrategyDeployments();
+			await loadLibrary();
+		} catch (caught) {
+			deployError = caught instanceof Error ? caught.message : 'Could not start the deployment.';
+		} finally {
+			deploying = false;
+		}
+	}
+
+	async function changeDeployment(id: string, action: 'pause' | 'resume' | 'stop'): Promise<void> {
+		deployError = null;
+		try {
+			if (action === 'pause') await pauseDeployment(id);
+			else if (action === 'resume') await resumeDeployment(id);
+			else await stopDeployment(id);
+			await loadStrategyDeployments();
+			await loadLibrary();
+		} catch (caught) {
+			deployError = caught instanceof Error ? caught.message : 'Could not update the deployment.';
+		}
 	}
 
 	async function loadLibrary(): Promise<void> {
@@ -805,6 +883,14 @@
 					role="tab"
 					aria-selected={researchTab === 'versions'}
 					onclick={() => (researchTab = 'versions')}>Versions</button
+				>
+				<button
+					class="drawer-tab"
+					class:active={researchTab === 'deploy'}
+					type="button"
+					role="tab"
+					aria-selected={researchTab === 'deploy'}
+					onclick={() => (researchTab = 'deploy')}>Deploy</button
 				>
 			</div>
 			{#if viewLoading}
@@ -1225,6 +1311,155 @@
 						>Edit this draft</a
 					>
 				{/if}
+			{:else if viewEntry && researchTab === 'deploy'}
+				<div class="view-block">
+					<h3>Deploy</h3>
+					<p class="view-note">
+						Starts the 1h candle-close runtime. Paper simulates maker fills; live places Coinbase
+						spot orders.
+					</p>
+					{#if publishedVersionsFor(viewEntry).length === 0}
+						<p class="view-note">Publish this strategy before deploying.</p>
+					{:else}
+						<div class="launch-grid">
+							<label
+								>Published version
+								<select bind:value={deployFingerprint}>
+									{#each publishedVersionsFor(viewEntry) as version (version.strategy_fingerprint)}
+										<option value={version.strategy_fingerprint}>Version {version.version}</option>
+									{/each}
+								</select></label
+							>
+							<label
+								>Mode
+								<select bind:value={deployMode}>
+									<option value="paper">Paper</option>
+									<option value="live">Live</option>
+								</select></label
+							>
+						</div>
+						{#if deployMode === 'paper'}
+							<label class="deploy-cash"
+								>Paper starting cash (USD)
+								<input bind:value={deployCash} /></label
+							>
+						{/if}
+						<button
+							class="launch-button"
+							type="button"
+							disabled={deploying || !deployFingerprint}
+							onclick={() => void deployStrategy()}
+						>
+							{deploying ? 'Starting…' : 'Start deployment'}
+						</button>
+						{#if deployError}
+							<p class="view-problem" role="alert">{deployError}</p>
+						{/if}
+					{/if}
+				</div>
+				<div class="view-block">
+					<h3>Runtime</h3>
+					{#if deployLoading}
+						<p class="view-note">Loading deployments…</p>
+					{:else if strategyDeployments.length === 0}
+						<p class="view-note">No deployments yet.</p>
+					{:else}
+						{#each strategyDeployments as deployment (deployment.id)}
+							<div class="version-block">
+								<h4>{deployment.mode} · {deployment.status} · {deployment.phase}</h4>
+								<p>
+									Cash {deployment.cash}
+									{#if deployment.last_signal}
+										· last signal {deployment.last_signal}
+									{/if}
+									{#if deployment.last_evaluated_bar}
+										· bar {deployment.last_evaluated_bar}
+									{/if}
+								</p>
+								{#if deployment.mismatch_detail}
+									<p class="view-problem" role="alert">{deployment.mismatch_detail}</p>
+								{/if}
+								{#if deployment.position}
+									<p>
+										Position {deployment.position.quantity} @ {deployment.position.entry_price} · stop
+										{deployment.position.stop_price} · target {deployment.position.target_price}
+									</p>
+								{/if}
+								{#if deployment.orders.length > 0}
+									<table class="results-table" aria-label="Open and recent orders">
+										<thead>
+											<tr>
+												<th scope="col">Side</th>
+												<th scope="col">Qty</th>
+												<th scope="col">Kind</th>
+												<th scope="col">Status</th>
+												<th scope="col">Price</th>
+												<th scope="col">Reject</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each deployment.orders as order (order.id)}
+												<tr>
+													<td>{order.side}</td>
+													<td>{order.quantity}</td>
+													<td>{order.kind}</td>
+													<td>{order.status}</td>
+													<td>{order.price ?? '—'}</td>
+													<td>{order.reject_reason ?? '—'}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								{/if}
+								{#if deployment.fills.length > 0}
+									<table class="results-table" aria-label="Fills">
+										<thead>
+											<tr>
+												<th scope="col">Time</th>
+												<th scope="col">Qty</th>
+												<th scope="col">Price</th>
+												<th scope="col">Fee</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each deployment.fills as fill (fill.id)}
+												<tr>
+													<td>{fill.filled_at}</td>
+													<td>{fill.quantity}</td>
+													<td>{fill.price}</td>
+													<td>{fill.fee}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								{/if}
+								<div class="version-actions">
+									{#if deployment.status === 'running'}
+										<button
+											class="bar-button"
+											type="button"
+											onclick={() => void changeDeployment(deployment.id, 'pause')}>Pause</button
+										>
+									{/if}
+									{#if deployment.status === 'paused'}
+										<button
+											class="bar-button"
+											type="button"
+											onclick={() => void changeDeployment(deployment.id, 'resume')}>Resume</button
+										>
+									{/if}
+									{#if deployment.status !== 'stopped'}
+										<button
+											class="bar-button bar-danger"
+											type="button"
+											onclick={() => void changeDeployment(deployment.id, 'stop')}>Stop</button
+										>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -1564,6 +1799,11 @@
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 10px;
+	}
+	.deploy-cash {
+		display: grid;
+		gap: 4px;
+		margin: 10px 0;
 	}
 	.launch-grid label {
 		display: grid;

@@ -160,6 +160,7 @@ def _stack_commands() -> tuple[list[str], ...]:
             "api",
             "worker",
             "market-data-worker",
+            "execution-worker",
             "web",
         ],
     )

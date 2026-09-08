@@ -241,6 +241,20 @@ def test_market_feed_state_migration_follows_audit_events() -> None:
     assert "ck_market_feed_state_value" in content
 
 
+def test_execution_runtime_migration_follows_market_feed_state() -> None:
+    """The twelfth migration must add paper/live execution tables without rewriting history."""
+    content = Path("alembic/versions/0012_execution_runtime.py").read_text(encoding="utf-8")
+    assert 'revision = "0012"' in content
+    assert 'down_revision = "0011"' in content
+    assert "deployments" in content
+    assert "order_intents" in content
+    assert "execution_orders" in content
+    assert "execution_fills" in content
+    assert "execution_positions" in content
+    assert "ck_deployments_mode" in content
+    assert "ux_order_intents_client_order_id" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")
@@ -281,6 +295,7 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "  api:" in content
     assert "  worker:" in content
     assert "  market-data-worker:" in content
+    assert "  execution-worker:" in content
     assert "  web:" in content
     assert "condition: service_healthy" in content
     assert "thytrader_market_data:" in content

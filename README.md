@@ -9,7 +9,7 @@ Start with the [project documentation](docs/README.md) for the product direction
 ## Clone-and-run local stack
 
 The supported local stack uses Docker Compose. It starts PostgreSQL, applies the explicit Alembic
-migration, then starts the API, portfolio worker, market-data worker, and web UI—with health checks and
+migration, then starts the API, portfolio worker, market-data worker, execution worker, and web UI—with health checks and
 loopback-only host ports. From a fresh clone with Docker Compose and [`uv`](https://docs.astral.sh/uv)
 installed, run:
 
@@ -27,7 +27,7 @@ uv run python scripts/setup_local_stack.py
 The command is safe to rerun. It preserves unrelated ignored `.env` entries, creates matching
 local-only database settings when needed, refuses to replace a user-managed database URL, builds the
 images, starts and waits for a healthy PostgreSQL service, runs Alembic as a one-shot gate, then
-starts API, both workers, and web only after migration succeeds. The final startup waits for all
+starts API, the workers, and web only after migration succeeds. The final startup waits for all
 service health checks and does not print credentials or connection URLs. It also recognizes and
 safely updates ThyTrader's former generated `127.0.0.1:5433` database URL while continuing to reject
 arbitrary custom URLs. Duplicate ThyTrader-managed database keys are rejected as ambiguous rather
@@ -71,7 +71,7 @@ Inspect or stop the stack with:
 
 ```bash
 docker compose ps
-docker compose logs -f api worker market-data-worker web
+docker compose logs -f api worker market-data-worker execution-worker web
 docker compose down
 ```
 
@@ -122,9 +122,9 @@ archived from the library: that appends a permanent archive marker and hides it 
 selection without changing its fingerprint or canonical bytes. Backtests require a verified dataset
 fingerprint and remain deterministic research artifacts.
 
-The next automation milestone is the Phase 4 paper-deployment loop; no autonomous strategy execution,
-order intent, simulated fill, or live order submission exists yet. See the [delivery roadmap](docs/roadmap.md)
-for its explicit pause/kill, idempotency, and restart-recovery acceptance gates.
+The execution worker evaluates published paper and live deployments against closed 1h candles about
+every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
+credentials exist. See the [architecture overview](docs/architecture/overview.md).
 
 
 Use native processes for fast backend or frontend iteration. ThyTrader requires Python 3.14 and
@@ -136,6 +136,7 @@ uv sync
 uv run thytrader-api
 uv run thytrader-worker
 uv run thytrader-market-data-worker
+uv run thytrader-execution-worker
 cd web && npm ci && npm run dev -- --open
 ```
 
@@ -144,20 +145,21 @@ empty and live balances when both Coinbase variables are configured. ThyTrader a
 keys and keys with additional permissions; this read-only screen never submits an order.
 
 For a user-managed PostgreSQL instance, set `THYTRADER_DATABASE_URL` in ignored `.env`, apply the
-explicit migration, then start the API and both workers as separate processes:
+explicit migration, then start the API and workers as separate processes:
 
 ```bash
 uv run alembic upgrade head
 uv run thytrader-api
 uv run thytrader-worker
 uv run thytrader-market-data-worker
+uv run thytrader-execution-worker
 ```
 
 Common stack operations are also available as Makefile targets:
 
 ```bash
 make status   # service health
-make logs     # follow API, worker, market-data worker, and web logs
+make logs     # follow API, workers, and web logs
 make stop     # stop the stack (preserves database and market-data volumes)
 ```
 
@@ -194,6 +196,7 @@ The command prints a deterministic completed-candle entry-condition trace and it
 It does not publish a run, create an order intent, apply cooldown, simulate entries or exits, calculate
 PnL, persist results, or mutate trading state. The browser research workflow separately creates a
 constrained reference draft, publishes an immutable strategy, selects a verified dataset, submits a
-deterministic backtest, and opens its immutable result detail; it has no paper or live trading authority.
+deterministic backtest, and opens its immutable result detail. Paper and live deployment is a
+separate Deploy-tab runtime, not this CLI.
 See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
 [backtest simulation](docs/architecture/backtest-simulation.md) for exact semantics and limits.

@@ -743,3 +743,94 @@ test('surfaces a controlled error banner when the library cannot load', async ({
 	await expect(page.getByRole('alert')).toContainText('Strategy lifecycle storage is unavailable.');
 	await expect(page.getByRole('button', { name: 'Retry library load' })).toBeVisible();
 });
+
+test('deploy tab starts paper runtime and shows fills and reject reasons', async ({ page }) => {
+	await mockLibrary(page, [publishedEntry]);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	const deployment = {
+		id: '01985cf0-7b60-7000-8000-000000000111',
+		strategy_fingerprint: fingerprint,
+		strategy_id: strategyId,
+		product_id: 'BTC-USD',
+		mode: 'paper',
+		status: 'running',
+		phase: 'open',
+		cash: '9900',
+		paper_starting_cash: '10000',
+		last_evaluated_bar: '2026-08-14T12:00:00+00:00',
+		last_signal: 'matched',
+		mismatch_detail: null,
+		pending_entry_bars: 0,
+		bars_held: 1,
+		created_at: '2026-08-14T12:00:00+00:00',
+		updated_at: '2026-08-14T13:00:00+00:00',
+		position: {
+			quantity: '0.01',
+			entry_price: '100',
+			stop_price: '98',
+			target_price: '104',
+			entered_bar: '2026-08-14T12:00:00+00:00'
+		},
+		orders: [
+			{
+				id: '01985cf0-7b60-7000-8000-000000000112',
+				client_order_id: 'client-1',
+				venue_order_id: 'venue-1',
+				side: 'sell',
+				kind: 'post_only_limit',
+				quantity: '0.01',
+				price: '104',
+				filled_quantity: '0',
+				status: 'open',
+				reject_reason: null,
+				created_at: '2026-08-14T13:00:00+00:00',
+				updated_at: '2026-08-14T13:00:00+00:00'
+			}
+		],
+		fills: [
+			{
+				id: '01985cf0-7b60-7000-8000-000000000113',
+				order_id: '01985cf0-7b60-7000-8000-000000000114',
+				venue_fill_id: 'fill-1',
+				price: '100',
+				quantity: '0.01',
+				fee: '0',
+				filled_at: '2026-08-14T12:05:00+00:00'
+			}
+		]
+	};
+	let createdBody: { mode: string; paper_starting_cash?: string } | null = null;
+	await page.route('**/api/v1/deployments', async (route) => {
+		if (route.request().method() === 'POST') {
+			createdBody = (await route.request().postDataJSON()) as typeof createdBody;
+			await route.fulfill({ status: 201, json: deployment });
+			return;
+		}
+		await route.fulfill({ json: { deployments: [deployment] } });
+	});
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await expect(page.getByRole('heading', { name: 'Deploy' })).toBeVisible();
+	await page.getByRole('button', { name: 'Start deployment' }).click();
+	expect(createdBody).toEqual({
+		strategy_fingerprint: fingerprint,
+		mode: 'paper',
+		paper_starting_cash: '10000'
+	});
+	await expect(page.getByRole('heading', { name: 'paper · running · open' })).toBeVisible();
+	await expect(page.getByRole('table', { name: 'Open and recent orders' })).toBeVisible();
+	await expect(page.getByRole('table', { name: 'Fills' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+});

@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     market_data_worker_product_id: str = Field(default="BTC-USD", pattern=r"^[A-Z0-9]{2,20}-USD$")
     market_data_dataset_root: Path = Path("data/market-data")
     market_data_worker_readiness_file: Path | None = None
+    execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)
+    execution_worker_readiness_file: Path | None = None
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
 

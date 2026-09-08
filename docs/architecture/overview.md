@@ -6,12 +6,10 @@ ThyTrader is a modular monolith deployed as multiple supervised processes. Domai
 repository and release lifecycle, while API and worker processes provide fault and scaling boundaries.
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
-implemented. Today, the browser and HTTP API provide read-only portfolio, market-data, and backtest
-evidence plus a bounded research-only mutation flow: a browser draft can be validated/published as an
-immutable strategy and submitted to the deterministic historical backtest service. The portfolio worker
-takes snapshots; and the independently supervised market-data worker maintains verified 1h datasets.
-There is no strategy runtime worker, paper broker, order management, risk, reconciliation, or
-live-execution package yet.
+implemented. Today, the browser and HTTP API provide portfolio, market-data, strategy authoring,
+backtests, and paper/live deployments of a published 1h strategy. The portfolio worker takes
+snapshots; the market-data worker maintains verified 1h datasets; the execution worker evaluates
+closed 1h candles and submits maker orders through a paper broker or Coinbase Advanced Trade REST v3.
 
 ```text
 SvelteKit web UI
@@ -22,8 +20,10 @@ FastAPI API process ---------------- PostgreSQL
       |                                  |
 Portfolio worker ------------------------+
 Market-data worker ----------------------+
+Execution worker ------------------------+
       |
       +---- Coinbase market-data REST
+      +---- Coinbase Advanced Trade REST v3 orders (live only)
       +---- immutable Parquet datasets <----> Polars / DuckDB
 ```
 
@@ -51,19 +51,25 @@ contracts below:
   /api/v1/strategies/{strategy_fingerprint}/archive` appends an archive marker that hides a version
   from active selection without changing its canonical publication evidence;
 - `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
-  the deterministic backtest engine.
+  the deterministic backtest engine;
+- `POST /api/v1/deployments` starts a paper or live runtime for one published fingerprint; pause, resume,
+  and stop are explicit subsequent calls.
 
-These contracts have no paper/live execution authority. Drafts are mutable PostgreSQL records guarded
+Drafts are mutable PostgreSQL records guarded
 by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A
 successful publication saves the current draft, writes immutable evidence, and consumes the draft in
 one PostgreSQL transaction; published canonical definitions remain immutable. Archives are separate
 immutable markers rather than a mutation of the content-addressed publication row.
 
+Paper and live share one execution worker and the same published strategy semantics. Live mode is the
+arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
+from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes,
+trailing stops, native brackets/OCO, user-order WebSockets, and a risk-policy registry.
+
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:
 
-- explicit live-trading arm/disarm operations;
-- UI WebSocket events;
+- UI WebSocket events for runtime ticks;
 - future read-only operator/agent endpoints.
 
 HTTP route handlers must remain thin. Exchange logic, risk evaluation, strategy evaluation, and persistence belong to domain/application services.
@@ -86,7 +92,9 @@ Core automation is not implemented with cron. Containers or a service manager su
 The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
 market-data worker is independently supervised and owns historical market-data ingestion/publication
 plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
-workers must not be inferred from either process merely existing.
+execution run in `thytrader-execution-worker`, which polls closed 1h candles over REST and talks to a
+paper broker or the Coinbase REST v3 adapter. User-order WebSockets and trailing-stop workers remain
+deferred.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational
@@ -128,7 +136,7 @@ Dependencies should point toward stable domain abstractions. Coinbase-specific r
 
 Docker Compose should provide:
 
-- web, API, worker, and PostgreSQL services;
+- web, API, portfolio worker, market-data worker, execution worker, and PostgreSQL services;
 - health checks and restart policies;
 - migrations before service readiness;
 - persistent volumes for PostgreSQL, Parquet, and required application state;

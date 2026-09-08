@@ -8,8 +8,8 @@ run: ## Configure and start the full local stack: .env, Postgres, migrations, AP
 stop: ## Stop the stack (preserves database and market-data volumes)
 	docker compose down
 
-logs: ## Follow API, worker, market-data worker, and web logs
-	docker compose logs -f api worker market-data-worker web
+logs: ## Follow API, worker, market-data worker, execution worker, and web logs
+	docker compose logs -f api worker market-data-worker execution-worker web
 
 status: ## Show service health
 	docker compose ps

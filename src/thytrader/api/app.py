@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from thytrader import __version__
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
+from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
@@ -27,6 +28,7 @@ from thytrader.backtest.submission import (
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.execution.store import DisabledExecutionStore, ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.feed_state import (
@@ -58,6 +60,7 @@ from thytrader.persistence.portfolio_history import (
 )
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
@@ -93,6 +96,7 @@ def create_app(
     strategy_store: StrategyPublicationStore | None = None,
     strategy_draft_store: StrategyDraftStore | None = None,
     backtest_submitter: BacktestSubmitter | None = None,
+    execution_store: ExecutionStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -112,6 +116,7 @@ def create_app(
     external_strategy_store = strategy_store
     external_strategy_draft_store = strategy_draft_store
     external_backtest_submitter = backtest_submitter
+    external_execution_store = execution_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -128,6 +133,7 @@ def create_app(
         publication_store = external_strategy_store
         draft_store = external_strategy_draft_store
         submitter = external_backtest_submitter
+        execution = external_execution_store
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         needs_database = (
             store is None
@@ -166,6 +172,8 @@ def create_app(
                 backtest_store=backtest_store,
             )
             submitter = _submission_service(submitter, engine, dataset_store)
+            if execution is None:
+                execution = PostgresExecutionStore(engine)
         if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
             benchmark_dataset_store = dataset_store or DatasetStore(
                 resolved_settings.market_data_dataset_root
@@ -189,6 +197,7 @@ def create_app(
         _app.state.strategy_publication_store = (
             publication_store or DisabledStrategyPublicationStore()
         )
+        _app.state.execution_store = execution or DisabledExecutionStore()
 
         runtime.ready = True
         try:
@@ -212,6 +221,7 @@ def create_app(
     app.include_router(portfolio_router)
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
+    app.include_router(deployments_router)
     app.include_router(backtests_router)
     return app
 

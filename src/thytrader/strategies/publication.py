@@ -29,6 +29,10 @@ class StrategyPublicationStore(Protocol):
         """Atomically publish one current draft and consume its mutable row."""
         ...
 
+    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        """Load and verify one exact published strategy by fingerprint."""
+        ...
+
 
 class DisabledStrategyPublicationStore:
     """Fail closed when immutable strategy storage is not configured."""
@@ -43,6 +47,11 @@ class DisabledStrategyPublicationStore:
     ) -> PublishedStrategy:
         """Refuse atomic draft publication without durable storage."""
         del definition, expected_revision
+        raise StrategyPublicationError("Strategy publication storage is unavailable.")
+
+    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        """Refuse fingerprint loads without durable storage."""
+        del strategy_fingerprint_value
         raise StrategyPublicationError("Strategy publication storage is unavailable.")
 
     async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:

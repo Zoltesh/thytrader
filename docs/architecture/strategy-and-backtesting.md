@@ -10,7 +10,9 @@ The implemented Phase 2B publication profile validates the conservative 1h indic
 (EMA, SMA, RSI, ATR, and volume SMA) and bounded recursive AND/OR/NOT conditions, publishes exact
 canonical content immutably, and durably associates that strategy fingerprint with an independently
 verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
-guarded drafts, publication, and archive markers; there is still no paper/live broker or order path.
+guarded drafts, publication, and archive markers. Paper and live execution consume the same published
+version through `thytrader-execution-worker`: maker post-only entries, marketable stop/time-exits, and
+fill-based live reconcile against Advanced Trade REST v3 JSON.
 
 The first Phase 3 prerequisite is also implemented: an internal immutable
 [research-run specification](research-run-specification.md) binds the exact published strategy and
@@ -24,8 +26,9 @@ semantics, and emits a canonical per-candle entry-condition trace without lookah
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
 [`thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` simulator](backtest-simulation.md)
 turns an eligible published run into an immutable long-only, single-position trade ledger, equity
-curve, drawdown series, cost evidence, and result summary. It is still research-only: no broker
-adapter, order intent, paper runtime, or exchange order path exists.
+curve, drawdown series, cost evidence, and result summary. The backtest kernel stays research-only
+(next-open taker). Paper and live use a separate candle-close execution loop that honors published
+`execution.entry_preference`, `max_entry_wait_bars`, and `on_unfilled_entry`.
 
 The browser API can author durable revision-guarded drafts, publish immutable strategy evidence,
 archive publications through append-only markers, submit reproducible backtests, and inspect stored
@@ -73,9 +76,9 @@ differences without JSON noise. `POST /api/v1/strategies/{strategy_id}/revise` d
 editable draft version (for example draft v2 from published v1) on the same stable strategy
 identity from one selected immutable version, rejecting conflicting open drafts with HTTP 409;
 publication remains immutable and history-preserving. Clone stays a separate-identity action at the
-library level. Deployments (paper execution, runtime status, pause/kill controls, live arming)
-remain unbuilt by design: no paper/live broker or order path exists, and the library reports
-paper/live status as explicitly unavailable.
+library level. The Deploy tab starts paper or live runtimes for a published version, shows phase,
+position, orders, fills, and reject reasons, and pause/resume/stop the execution worker. The library
+paper/live column reflects the newest deployment status per mode.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 

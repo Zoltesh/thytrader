@@ -206,6 +206,15 @@ def _within_decimal_contract(value: object) -> bool:
     )
 
 
+def entry_condition_outcome(
+    condition: ConditionNode,
+    current: Mapping[str, Decimal | None],
+    previous: Mapping[str, Decimal | None] | None,
+) -> EntryConditionOutcome:
+    """Map tri-state condition evaluation into one explicit auditable outcome."""
+    return _condition_outcome(condition, current, previous)
+
+
 def _condition_outcome(
     condition: ConditionNode,
     current: Mapping[str, Decimal | None],

@@ -13,11 +13,14 @@ from pydantic import BaseModel, Field
 
 from thytrader.api.dependencies import (
     get_backtest_result_store,
+    get_execution_store,
     get_strategy_draft_store,
     get_strategy_publication_catalog,
     get_strategy_publication_store,
 )
 from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
+from thytrader.execution.models import DeploymentMode, ExecutionStoreError
+from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
@@ -64,7 +67,7 @@ class StrategyLibraryBacktestResponse(BaseModel):
 
 
 class StrategyLibraryPaperLiveResponse(BaseModel):
-    """Explicit no-authority deployment status until runtimes exist."""
+    """Paper and live runtime status for one strategy identity."""
 
     paper: str = "unavailable"
     live: str = "unavailable"
@@ -231,6 +234,7 @@ async def list_strategies(
         StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    execution_store: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> StrategyListResponse:
     """Return the strategy library grouped by stable identity with latest evidence."""
     try:
@@ -260,9 +264,10 @@ async def list_strategies(
         _register_publication(groups, entry, definition)
 
     entries: list[StrategyLibraryEntryResponse] = []
-    for group in groups.values():
+    for identity, group in groups.items():
         backtest = await _latest_backtest(group.fingerprints, result_store)
-        entries.append(_library_entry(group, backtest))
+        paper_live = await _paper_live_status(identity, execution_store)
+        entries.append(_library_entry(group, backtest, paper_live))
     entries.sort(key=_activity_instant, reverse=True)
     return StrategyListResponse(strategies=tuple(entries))
 
@@ -970,6 +975,7 @@ async def _latest_backtest(
 def _library_entry(
     group: _LibraryGroup,
     backtest: StrategyLibraryBacktestResponse | None,
+    paper_live: StrategyLibraryPaperLiveResponse | None = None,
 ) -> StrategyLibraryEntryResponse:
     """Project one identity group into its bounded library row."""
     created_at, updated_at = group.require_times()
@@ -1000,7 +1006,7 @@ def _library_entry(
         archived=group.archived,
         summary=_strategy_summary(representative),
         backtest=backtest,
-        paper_live=StrategyLibraryPaperLiveResponse(),
+        paper_live=paper_live or StrategyLibraryPaperLiveResponse(),
         created_at=created_at.isoformat(),
         updated_at=updated_at.isoformat(),
     )
@@ -1009,6 +1015,24 @@ def _library_entry(
 def _activity_instant(entry: StrategyLibraryEntryResponse) -> datetime:
     """Parse one library row's activity instant for newest-first sorting."""
     return datetime.fromisoformat(entry.updated_at)
+
+
+async def _paper_live_status(
+    strategy_id: str, store: ExecutionStore
+) -> StrategyLibraryPaperLiveResponse:
+    """Project the newest paper and live deployment statuses for one identity."""
+    try:
+        deployments = await store.list_by_strategy(strategy_id)
+    except ExecutionStoreError:
+        return StrategyLibraryPaperLiveResponse()
+    paper = "unavailable"
+    live = "unavailable"
+    for item in deployments:
+        if item.mode is DeploymentMode.PAPER and paper == "unavailable":
+            paper = item.status.value
+        elif item.mode is DeploymentMode.LIVE and live == "unavailable":
+            live = item.status.value
+    return StrategyLibraryPaperLiveResponse(paper=paper, live=live)
 
 
 def _require_exact_publication(

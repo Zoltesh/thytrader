@@ -69,6 +69,15 @@ class InMemoryStrategyPublicationStore:
         self.draft_store.drafts.pop(key)
         return result
 
+    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        """Return the captured publication when fingerprints match."""
+        if self.published is None:
+            raise StrategyPublicationError("Published strategy was not found.")
+        fingerprint = strategy_fingerprint(self.published)
+        if fingerprint != strategy_fingerprint_value:
+            raise StrategyPublicationError("Published strategy was not found.")
+        return PublishedStrategy(strategy_fingerprint=fingerprint, definition=self.published)
+
     async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
         """Return the captured publication as one catalog entry."""
         del include_archived

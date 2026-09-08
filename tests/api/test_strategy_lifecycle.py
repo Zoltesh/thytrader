@@ -122,6 +122,13 @@ class InMemoryPublicationStore:
         self.draft_store.drafts.pop(key)
         return published
 
+    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        """Return one previously published definition or fail."""
+        published = self.published.get(strategy_fingerprint_value)
+        if published is None:
+            raise StrategyPublicationError("Published strategy was not found.")
+        return published
+
     async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
         """Return published evidence, omitting archived entries unless explicitly requested."""
         return tuple(

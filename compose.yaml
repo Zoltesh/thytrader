@@ -9,6 +9,7 @@ x-backend-environment: &backend-environment
   THYTRADER_MARKET_DATA_WORKER_INTERVAL_SECONDS: ${THYTRADER_MARKET_DATA_WORKER_INTERVAL_SECONDS:-300}
   THYTRADER_MARKET_DATA_WORKER_LOOKBACK_HOURS: ${THYTRADER_MARKET_DATA_WORKER_LOOKBACK_HOURS:-168}
   THYTRADER_MARKET_DATA_WORKER_PRODUCT_ID: ${THYTRADER_MARKET_DATA_WORKER_PRODUCT_ID:-BTC-USD}
+  THYTRADER_EXECUTION_WORKER_INTERVAL_SECONDS: ${THYTRADER_EXECUTION_WORKER_INTERVAL_SECONDS:-30}
   THYTRADER_COINBASE_API_KEY_NAME: ${THYTRADER_COINBASE_API_KEY_NAME:-}
   THYTRADER_COINBASE_API_PRIVATE_KEY: ${THYTRADER_COINBASE_API_PRIVATE_KEY:-}
 
@@ -120,6 +121,31 @@ services:
           "/app/.venv/bin/python",
           "-c",
           "from pathlib import Path; raise SystemExit(not Path('/tmp/thytrader-market-data-worker.ready').is_file())",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  execution-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/.venv/bin/thytrader-execution-worker"]
+    environment:
+      <<: *backend-environment
+      THYTRADER_EXECUTION_WORKER_READINESS_FILE: /tmp/thytrader-execution-worker.ready
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "from pathlib import Path; raise SystemExit(not Path('/tmp/thytrader-execution-worker.ready').is_file())",
         ]
       interval: 5s
       timeout: 3s

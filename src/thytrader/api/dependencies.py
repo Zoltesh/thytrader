@@ -4,6 +4,7 @@
 from fastapi import Request  # noqa: TC002
 
 from thytrader.backtest.submission import BacktestSubmitter
+from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.feed_state import MarketFeedStateStore
 from thytrader.market_data.service import MarketDataService
@@ -142,5 +143,14 @@ def get_strategy_publication_store(request: Request) -> StrategyPublicationStore
     store = getattr(request.app.state, "strategy_publication_store", None)
     if not isinstance(store, StrategyPublicationStore):
         message = "Strategy publication store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_execution_store(request: Request) -> ExecutionStore:
+    """Return the paper/live execution boundary attached during app startup."""
+    store = getattr(request.app.state, "execution_store", None)
+    if not isinstance(store, ExecutionStore):
+        message = "Execution store is unavailable."
         raise TypeError(message)
     return store

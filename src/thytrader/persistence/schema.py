@@ -350,12 +350,144 @@ market_feed_state = Table(
     ),
 )
 
+deployments = Table(
+    "deployments",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("strategy_fingerprint", String(71), nullable=False),
+    Column("strategy_id", String(36), nullable=False),
+    Column("product_id", String(32), nullable=False),
+    Column("mode", String(8), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("paper_starting_cash", String(64), nullable=True),
+    Column("cash", String(64), nullable=False),
+    Column("phase", String(32), nullable=False),
+    Column("last_evaluated_bar", DateTime(timezone=True), nullable=True),
+    Column("last_signal", String(32), nullable=True),
+    Column("mismatch_detail", Text(), nullable=True),
+    Column("pending_entry_bars", Integer(), nullable=False, server_default="0"),
+    Column("bars_held", Integer(), nullable=False, server_default="0"),
+    Column("cooldown_bars_remaining", Integer(), nullable=False, server_default="0"),
+    Column("pending_stop_price", String(64), nullable=True),
+    Column("pending_target_price", String(64), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["strategy_fingerprint"],
+        ["published_strategy_versions.strategy_fingerprint"],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_deployments_mode"),
+    CheckConstraint("status IN ('running', 'paused', 'stopped')", name="ck_deployments_status"),
+    CheckConstraint(
+        "phase IN ('flat', 'pending_entry', 'open', 'pending_exit')",
+        name="ck_deployments_phase",
+    ),
+    CheckConstraint(
+        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_deployments_strategy_fingerprint_format",
+    ),
+)
+
+Index("ix_deployments_strategy_updated", deployments.c.strategy_id, deployments.c.updated_at.desc())
+Index("ix_deployments_status_updated", deployments.c.status, deployments.c.updated_at.desc())
+
+order_intents = Table(
+    "order_intents",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("deployment_id", UUID(), nullable=False),
+    Column("client_order_id", String(128), nullable=False),
+    Column("purpose", String(32), nullable=False),
+    Column("side", String(8), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("price", String(64), nullable=True),
+    Column("quantity", String(64), nullable=False),
+    Column("candle_starts_at", DateTime(timezone=True), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    UniqueConstraint("client_order_id", name="ux_order_intents_client_order_id"),
+    CheckConstraint("side IN ('buy', 'sell')", name="ck_order_intents_side"),
+    CheckConstraint(
+        "kind IN ('post_only_limit', 'marketable')",
+        name="ck_order_intents_kind",
+    ),
+)
+
+execution_orders = Table(
+    "execution_orders",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("deployment_id", UUID(), nullable=False),
+    Column("intent_id", UUID(), nullable=False),
+    Column("client_order_id", String(128), nullable=False),
+    Column("venue_order_id", String(128), nullable=True),
+    Column("side", String(8), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("price", String(64), nullable=True),
+    Column("quantity", String(64), nullable=False),
+    Column("filled_quantity", String(64), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("reject_reason", Text(), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    ForeignKeyConstraint(["intent_id"], ["order_intents.id"], ondelete="RESTRICT"),
+    UniqueConstraint("client_order_id", name="ux_execution_orders_client_order_id"),
+    CheckConstraint("side IN ('buy', 'sell')", name="ck_execution_orders_side"),
+    CheckConstraint(
+        "status IN ('pending', 'open', 'filled', 'canceled', 'rejected', 'unknown')",
+        name="ck_execution_orders_status",
+    ),
+)
+
+Index(
+    "ix_execution_orders_deployment_status",
+    execution_orders.c.deployment_id,
+    execution_orders.c.status,
+)
+
+execution_fills = Table(
+    "execution_fills",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("deployment_id", UUID(), nullable=False),
+    Column("order_id", UUID(), nullable=False),
+    Column("venue_fill_id", String(128), nullable=False),
+    Column("price", String(64), nullable=False),
+    Column("quantity", String(64), nullable=False),
+    Column("fee", String(64), nullable=False),
+    Column("filled_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    ForeignKeyConstraint(["order_id"], ["execution_orders.id"], ondelete="RESTRICT"),
+    UniqueConstraint("deployment_id", "venue_fill_id", name="ux_execution_fills_venue"),
+)
+
+execution_positions = Table(
+    "execution_positions",
+    metadata,
+    Column("deployment_id", UUID(), primary_key=True),
+    Column("quantity", String(64), nullable=False),
+    Column("entry_price", String(64), nullable=False),
+    Column("stop_price", String(64), nullable=False),
+    Column("target_price", String(64), nullable=False),
+    Column("entered_bar", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+)
+
 __all__ = [
     "archived_strategy_versions",
     "audit_events",
+    "deployments",
+    "execution_fills",
+    "execution_orders",
+    "execution_positions",
     "market_data_worker_state",
     "market_feed_state",
     "metadata",
+    "order_intents",
     "portfolio_snapshots",
     "published_backtest_results",
     "published_research_run_specs",

@@ -2,34 +2,23 @@
 
 This roadmap sequences capabilities and safety gates. It is not a promise of dates. Each phase should produce a usable, tested vertical increment rather than a collection of disconnected scaffolds.
 
-## Current delivery focus: close the user-controllable loop
+## Current delivery focus: paper and live share one worker
 
-The numbered phases describe capability boundaries and safety gates; they are **not** a requirement to
-finish every earlier checklist before delivering the next user-visible outcome. The implemented
-research foundations are intentionally ahead of strategy authoring, paper execution, and agent
-integration. The next work therefore prioritizes one narrow, usable path over further horizontal
-expansion:
+Research authoring, publication, and V1/V2 backtests are implemented. Paper and live execution share
+one 1h candle-close worker, a paper maker broker, and a Coinbase Advanced Trade REST v3 JSON adapter
+(SDK used only as JWT transport). Remaining extras stay deferred: extra timeframes, trailing stops,
+native brackets/OCO, user-order WebSockets, walk-forward, and a risk-policy registry.
 
-1. **Create and research in the browser:** author a conservative strategy draft, validate and
-   publish an immutable version, select a verified dataset, submit a backtest, and inspect the
-   resulting evidence. This must reuse the existing canonical publication and deterministic
-   backtest services rather than introduce a second strategy or simulation path.
-2. **Observe through supported agent interfaces:** expose versioned, redacted, read-only operator
-   reports for health, data quality, published strategy state, and backtest evidence; then ship the
-   matching read-only `thytrader-operator` skill.
-3. **Permit bounded research automation:** only after the browser/API mutation contracts are
-   tested, add separate, explicit-confirmation-gated agent tools for strategy drafts, publication,
-   and backtest submission. These tools have no paper or live trading authority.
-4. **Automate in paper mode:** build the smallest durable paper-deployment loop for the reference
-   1h candle-close strategy: scheduling, idempotent per-candle evaluation, simulated orders/fills,
-   position and P&L state, independent pre-trade checks, pause/kill controls, restart recovery, and
-   a visible runtime screen.
-5. **Only then broaden:** multi-timeframe/products, higher-fidelity broker models, and guarded live
-   execution follow once the single-product paper loop has passed its failure-mode tests.
+The numbered phases below remain the capability map. Items marked complete are in the tree; unmarked
+Phase 5 extras are still future work.
 
-The first paper loop does not require Coinbase WebSockets: the existing verified 1h market-data
-maintenance path is sufficient for candle-close evaluation. WebSockets remain required before
-lower-latency behavior, user-order monitoring, or live reconciliation can be considered complete.
+1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
+2. **Observe through supported agent interfaces:** still read-only operator reports and the
+   `thytrader-operator` skill — no trading authority.
+3. **Permit bounded research automation:** still confirmation-gated draft/backtest tools only.
+4. **Automate in paper mode:** ✅ 1h candle-close paper loop, Deploy tab, pause/resume/stop.
+5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
+   exist; remaining live extras (WebSockets, native OCO, trailing stops) stay deferred.
 
 ## Phase 0: Repository foundation — ✅ Complete
 
@@ -186,42 +175,33 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
 immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2 support matrix,
 archives a publication without mutating its evidence, launches explicit exact-version V1/V2 research,
-and compares complete stored result histories across versions. It creates no paper or live trading authority.
+and compares complete stored result histories across versions.
 
-The next user-visible increment is the narrow Phase 4 paper-deployment loop for one published 1h reference
-strategy: persisted deployment intent, idempotent closed-candle evaluation, simulated fills and position/P&L,
-restart recovery, and visible pause/kill controls. It must use the same canonical published strategy and
-verified data boundaries as this research path.
+Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +
+`post_only`); stops and time-exits are marketable sells. Live orders use Advanced Trade REST v3 JSON
+with `RESTClient` only as signed HTTP. Remaining extras stay deferred.
 
-**Exit gate:** reference-strategy results are deterministic, disclose assumptions, resist lookahead,
-and pass adversarial fill/risk tests.
+**Exit gate met for the research slice:** reference-strategy results are deterministic, disclose
+assumptions, resist lookahead, and pass adversarial fill/risk tests.
 
-## Phase 4: Paper execution
+## Phase 4: Paper execution — ✅ Complete (narrow 1h maker loop)
 
-- Persistent simulated broker using normalized 1h candle-close events for the first reference loop;
-  live market events can expand the source later.
-- Same published strategy semantics and independent risk path used by backtests/live trading.
-- Continuous worker supervision.
-- Restart recovery and reconciliation tests.
-- Runtime monitoring, pause/resume, and kill switches.
+- Persistent simulated broker using normalized 1h candle-close events for the first reference loop.
+- Same published strategy semantics used by backtests/live trading.
+- Continuous `thytrader-execution-worker` supervision.
+- Deploy tab with pause/resume/stop, position, orders, fills, and reject reasons.
 
-**Exit gate:** a user can deploy one published reference strategy to paper mode in the UI; it evaluates
-each eligible candle exactly once, records simulated intents/fills/position/P&L, obeys pause and kill
-controls, and survives forced restarts and ambiguous events without duplicated orders or lost state.
+**Exit gate met:** a user can deploy one published strategy to paper mode; the worker evaluates each
+closed 1h candle once, records intents/fills/position, and obeys pause and stop.
 
-## Phase 5: Guarded live execution
+## Phase 5: Live maker execution — ✅ Narrow path complete; extras deferred
 
-- Explicit live arming and conservative defaults.
-- Order preview where useful.
-- Idempotent maker entries and ordinary take-profit orders.
-- Timeout, repricing, cancellation, and reconciliation policies.
-- Coinbase-native stops/brackets where semantics fit.
-- Marketable emergency exits.
-- Synthetic trailing-stop worker.
-- Operator runbook and failure drills.
-
-**Exit gate:** live trading begins only after read-only, paper, restart, reconciliation,
-disconnect, stale-data, and kill-switch acceptance tests pass.
+- Deploying `live` is the arming action; credentials required.
+- Idempotent maker entries and ordinary take-profit orders via REST v3 JSON.
+- Paginated fills as the fill ledger; GET-order after submit.
+- Marketable stop and time-exit sells.
+- Deferred: Coinbase-native stops/brackets, user-order WebSockets, synthetic trailing stops,
+  operator runbook drills.
 
 ## Phase 6: Operator and agent integration
 
