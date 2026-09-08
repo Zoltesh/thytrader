@@ -255,6 +255,15 @@ def test_execution_runtime_migration_follows_market_feed_state() -> None:
     assert "ux_order_intents_client_order_id" in content
 
 
+def test_audit_research_category_migration_follows_execution_runtime() -> None:
+    """The thirteenth migration must allow research audit events without rewriting history."""
+    content = Path("alembic/versions/0013_audit_research_category.py").read_text(encoding="utf-8")
+    assert 'revision = "0013"' in content
+    assert 'down_revision = "0012"' in content
+    assert "research" in content
+    assert "ck_audit_events_category" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

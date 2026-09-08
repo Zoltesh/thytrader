@@ -54,6 +54,8 @@ contracts below:
   the deterministic backtest engine;
 - `POST /api/v1/deployments` starts a paper or live runtime for one published fingerprint; pause, resume,
   and stop are explicit subsequent calls.
+- `GET /api/v1/operator/*` is the versioned read-only agent/operator diagnostics contract; the matching
+  CLI is `thytrader-operator`. Research mutations for agents use `thytrader-research` with `--confirm`.
 
 Drafts are mutable PostgreSQL records guarded
 by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A
@@ -69,8 +71,7 @@ trailing stops, native brackets/OCO, user-order WebSockets, and a risk-policy re
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:
 
-- UI WebSocket events for runtime ticks;
-- future read-only operator/agent endpoints.
+- UI WebSocket events for runtime ticks.
 
 HTTP route handlers must remain thin. Exchange logic, risk evaluation, strategy evaluation, and persistence belong to domain/application services.
 

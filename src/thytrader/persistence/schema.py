@@ -314,7 +314,9 @@ audit_events = Table(
         comment="Row insertion instant.",
     ),
     CheckConstraint(
-        "category IN ('connection', 'snapshot', 'worker_error', 'market_data', 'websocket')",
+        "category IN ("
+        "'connection', 'snapshot', 'worker_error', 'market_data', 'websocket', 'research'"
+        ")",
         name="ck_audit_events_category",
     ),
     CheckConstraint(

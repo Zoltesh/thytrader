@@ -126,6 +126,10 @@ The execution worker evaluates published paper and live deployments against clos
 every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
 credentials exist. See the [architecture overview](docs/architecture/overview.md).
 
+Agents diagnose a running instance with `uv run thytrader-operator` (or `GET /api/v1/operator/*`)
+and mutate research artifacts only with `uv run thytrader-research … --confirm`. See
+[`skills/README.md`](skills/README.md).
+
 
 Use native processes for fast backend or frontend iteration. ThyTrader requires Python 3.14 and
 `uv`; install the locked environment with `uv sync`. The web workspace is pinned to Node `22.23.1`
@@ -200,3 +204,13 @@ deterministic backtest, and opens its immutable result detail. Paper and live de
 separate Deploy-tab runtime, not this CLI.
 See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
 [backtest simulation](docs/architecture/backtest-simulation.md) for exact semantics and limits.
+
+## Operator and research CLIs
+
+```bash
+uv run thytrader-operator health
+uv run thytrader-research create-draft --confirm
+```
+
+`thytrader-operator` is read-only. `thytrader-research` mutations require `--confirm` and cannot
+deploy or trade. Skills live in [`skills/`](skills/README.md).

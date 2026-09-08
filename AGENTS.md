@@ -144,6 +144,18 @@ Update documentation in the same change when modifying:
 
 Use an ADR for durable choices with meaningful alternatives. Supersede old ADRs rather than deleting their history.
 
+## Operating a running instance
+
+When the user asks to diagnose ThyTrader, inspect paper/live *status*, create a strategy, publish, or
+run a backtest, use the shipped skills instead of scraping logs or querying PostgreSQL:
+
+- [`skills/thytrader-operator/SKILL.md`](skills/thytrader-operator/SKILL.md) — read-only diagnostics
+  (`uv run thytrader-operator`, `GET /api/v1/operator/*`).
+- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
+  backtests only, with `--confirm` on every mutation.
+
+Those skills must not deploy, arm live trading, or cancel orders.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

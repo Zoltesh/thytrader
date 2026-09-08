@@ -13,9 +13,8 @@ The numbered phases below remain the capability map. Items marked complete are i
 Phase 5 extras are still future work.
 
 1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
-2. **Observe through supported agent interfaces:** still read-only operator reports and the
-   `thytrader-operator` skill — no trading authority.
-3. **Permit bounded research automation:** still confirmation-gated draft/backtest tools only.
+2. **Observe through supported agent interfaces:** ✅ `thytrader-operator` CLI/API and skill — no trading authority.
+3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests only).
 4. **Automate in paper mode:** ✅ 1h candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
    exist; remaining live extras (WebSockets, native OCO, trailing stops) stay deferred.
@@ -93,6 +92,7 @@ implemented research path and the next browser author-to-result increment.
 - Continuous cumulative 1h maintenance: durable planning from last verified coverage, one-candle
   overlap, deterministic merge, no-op current cycles, immutable revisions, and fingerprint lookup.
 - Capped exponential retry scheduling with jitter and prior-revision preservation across failures.
+- Versioned operator diagnostics (`thytrader-operator`, `GET /api/v1/operator/*`) for freshness and gaps.
 
 This proves the read-only provider, validation, continuous 1h maintenance, and fingerprint-addressed
 dataset paths. It is deliberately **not** a price chart, market signal, or backtest engine. See the
@@ -102,7 +102,6 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 - Extend the same durable contract to additional timeframes (5m, 15m, 30m, 6h, 1d).
 - Multi-product scheduling and explicit gap-repair workflows beyond idempotent exact-range retries.
-- Versioned machine-readable diagnostics and operator CLI.
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
@@ -203,19 +202,22 @@ closed 1h candle once, records intents/fills/position, and obeys pause and stop.
 - Deferred: Coinbase-native stops/brackets, user-order WebSockets, synthetic trailing stops,
   operator runbook drills.
 
-## Phase 6: Operator and agent integration
+## Phase 6: Operator and agent integration — 🚧 Diagnostics and research skills shipped
 
 Agent integration begins earlier as each supported interface becomes available; this phase completes
 the full operational surface. It must not wait for live trading, and it must not give an agent trading
 authority merely because it can inspect a system.
 
-- Stable versioned read-only diagnostics API and CLI, starting with health, configuration validity,
+- ✅ Stable versioned read-only diagnostics API and CLI, starting with health, configuration validity,
   market-data quality, published-strategy state, and backtest evidence.
-- Redacted health/configuration/data-quality/performance reports.
-- In-repo ThyTrader operator skill.
-- Machine-readable schemas and compatibility checks.
-- Explicitly separated, confirmation-gated research mutation tools for drafts, immutable publication,
-  and backtest submission if they prove useful. These are distinct from future paper/live authority.
+- ✅ Redacted health/configuration/data-quality/performance reports.
+- ✅ In-repo ThyTrader operator skill.
+- ✅ Machine-readable schemas and compatibility checks.
+- ✅ Explicitly separated, confirmation-gated research mutation tools for drafts, immutable publication,
+  and backtest submission. These are distinct from paper/live authority.
+- Paper/live **control** remains out of agent skills. Operator reports may list runtime status and
+  fill-count slices.
 
-**Exit gate:** an external agent can diagnose a running instance using supported interfaces
-without database access, secret exposure, or implicit trading authority.
+**Exit gate (diagnostics/research):** an external agent can diagnose a running instance and, with
+`--confirm`, mutate research artifacts using supported interfaces without database access, secret
+exposure, or implicit trading authority.

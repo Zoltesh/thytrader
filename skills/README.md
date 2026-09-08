@@ -1,47 +1,23 @@
 # ThyTrader Agent Skills
 
-This directory is reserved for distributable skills that help user-controlled agents interact with ThyTrader through supported, versioned interfaces.
+Distributable skills that operate a running ThyTrader instance through supported, versioned interfaces. They must not scrape logs, query PostgreSQL, or import private internals.
 
-## Planned skills
+## `thytrader-operator`
 
-### `thytrader-operator`
+Read-only diagnostics: health, redacted configuration, exchange permissions, market-data freshness, strategy/runtime status, performance, reconciliation, and a redacted support bundle.
 
-The first skill will provide a read-only workflow for:
+- Skill: [`thytrader-operator/SKILL.md`](thytrader-operator/SKILL.md)
+- CLI: `uv run thytrader-operator`
+- HTTP: `GET /api/v1/operator/...`
 
-- component and exchange-connection health;
-- redacted configuration validation;
-- market-data freshness and gap analysis;
-- strategy runtime state;
-- backtest, paper, and live performance analysis;
-- fees, spread, slippage, and execution-quality analysis;
-- risk-policy events and reconciliation anomalies;
-- generation of a redacted diagnostic/support bundle.
+## `thytrader-research`
 
-### Future research-mutation skill
+Confirmation-gated drafts, immutable publication, and idempotent backtest submission. No paper, live, arming, or cancellation authority.
 
-Once strategy authoring and backtest-submission contracts exist, a separate skill may assist with
-strategy drafts, validation, immutable publication, and idempotent backtest submission. It must
-require explicit user confirmation and has no paper, live, arming, cancellation, risk-control, or
-direct-database authority.
+- Skill: [`thytrader-research/SKILL.md`](thytrader-research/SKILL.md)
+- CLI: `uv run thytrader-research … --confirm`
 
-See [`docs/agent-integration.md`](../docs/agent-integration.md) for the product contract and safety model.
-
-## Why there is no `SKILL.md` yet
-
-A skill must describe commands and schemas that actually exist. ThyTrader does not yet expose a stable diagnostics API or CLI, so publishing an executable-looking skill now would create a false contract and encourage agents to scrape logs or query PostgreSQL directly.
-
-The browser-facing `GET /api/v1/market-data/preview` route is a useful Phase 2A foundation, but it
-is intentionally not yet the operator contract: it has no diagnostics schema version, CLI, service
-coverage report, or compatibility guarantee. Future operator commands must use a documented,
-versioned read-only diagnostics surface rather than treating dashboard routes as private agent APIs.
-
-The `thytrader-operator/SKILL.md` file should be added only after:
-
-1. the read-only operator API/CLI is implemented;
-2. its JSON schemas and exit codes are versioned;
-3. redaction and non-mutation tests pass;
-4. the documented commands are exercised end to end;
-5. compatibility checks can detect drift between the skill and application.
+See [`docs/agent-integration.md`](../docs/agent-integration.md) for the safety model.
 
 ## Skill policy
 

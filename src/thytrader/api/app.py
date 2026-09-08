@@ -17,6 +17,7 @@ from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
+from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.api.routes.strategies import router as strategies_router
@@ -215,6 +216,7 @@ def create_app(
     app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
     app.include_router(health_router)
     app.include_router(audit_events_router)
+    app.include_router(operator_router)
     app.include_router(fees_router)
     app.include_router(market_data_router)
     app.include_router(market_data_ingestion_router)

@@ -105,4 +105,4 @@ Audit data must be useful without exposing credentials or unnecessary personal/a
 
 ## Agent safety boundary
 
-The first distributable operator skill should be read-only. Agents may inspect health, configuration validity, risk state, data freshness, strategy performance, and redacted diagnostics. Live trading, configuration mutation, order cancellation, arming, or kill-switch operations require separate explicit tools and user confirmation policies.
+The first distributable operator skill is read-only. Agents may inspect health, configuration validity, risk state, data freshness, strategy performance, and redacted diagnostics through `thytrader-operator`. Live trading, configuration mutation, order cancellation, arming, or kill-switch operations require separate explicit tools and user confirmation policies. Research mutations use `thytrader-research` with `--confirm`.

@@ -1,13 +1,11 @@
-# ThyTrader Operator Skill Placeholder
+# ThyTrader Operator Skill
 
-This directory intentionally does not contain `SKILL.md` yet.
+Read-only diagnostics for a running instance. See [`SKILL.md`](SKILL.md).
 
-The future skill will monitor and analyze a running ThyTrader instance through the stable, read-only operator API/CLI described in [`docs/agent-integration.md`](../../docs/agent-integration.md). It must not invent commands, scrape private internals, query PostgreSQL directly, or imply authority to modify trading state.
+Creation gate (met):
 
-Creation gate:
-
-- supported diagnostics API/CLI implemented;
-- schemas and exit codes versioned;
-- redaction verified;
-- read-only behavior proven;
-- end-to-end skill commands tested.
+- versioned operator API/CLI implemented (`thytrader-operator`, `GET /api/v1/operator/...`);
+- `schema_version` is `thytrader-operator-report-v1`;
+- redaction and non-mutation tests exist;
+- documented commands are covered by contract tests;
+- skill paths and schema version are compatibility-checked against the application.

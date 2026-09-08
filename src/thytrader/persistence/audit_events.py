@@ -22,6 +22,7 @@ class AuditEventCategory(StrEnum):
     WORKER_ERROR = "worker_error"
     MARKET_DATA = "market_data"
     WEBSOCKET = "websocket"
+    RESEARCH = "research"
 
 
 class AuditEventOutcome(StrEnum):

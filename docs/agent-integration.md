@@ -97,16 +97,20 @@ The intended layout is:
 
 ```text
 skills/
-└── thytrader-operator/
-    ├── SKILL.md
-    └── references/
-        ├── diagnostics-api.md
-        └── report-schemas.md
+├── thytrader-operator/
+│   ├── SKILL.md
+│   └── references/
+│       ├── diagnostics-api.md
+│       └── report-schemas.md
+└── thytrader-research/
+    └── SKILL.md
 ```
 
-Do not add `SKILL.md` until its required commands/endpoints exist and are exercised in tests. Shipping a plausible but nonfunctional skill would create a false operational contract.
+`thytrader-operator/SKILL.md` documents commands that exist: `thytrader-operator` and
+`GET /api/v1/operator/*`. `thytrader-research/SKILL.md` documents `thytrader-research` with
+`--confirm` for mutations.
 
-The future skill should tell agents to:
+The operator skill tells agents to:
 
 1. Verify version and connectivity.
 2. Start with read-only health/configuration checks.
@@ -129,10 +133,9 @@ The future skill should tell agents to:
 
 | Capability available | Supported agent authority |
 |---|---|
-| Current implementation | No distributable skill: no stable diagnostics API/CLI exists yet. Browser routes are not the agent contract. |
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, and backtest reproducibility/performance reports. |
-| Supported strategy/backtest mutation contracts | A separate confirmation-gated research skill for drafts, immutable publication, and backtest submission only. |
-| Paper runtime | Read-only paper-session health/performance becomes available through the operator skill. Paper deployment/control requires a distinct, confirmation-gated tool if justified. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, and a redacted support bundle. |
+| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. |
+| Paper runtime | Read-only paper-session status/fill counts through the operator skill. Paper deployment/control requires a distinct, confirmation-gated tool if justified. |
 | Guarded live execution | Separate, explicit confirmation-gated tools only if justified; arming, cancellation, configuration changes, and kill switches never inherit authority from an observation or research skill. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**
