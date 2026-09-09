@@ -1,17 +1,21 @@
-"""Read-only operator CLI backed by the same diagnostics as the HTTP API."""
+"""Read-only operator CLI backed by the loopback HTTP API by default."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader.agent_http import AgentHttpError, resolve_api_base_url
 from thytrader.config import Settings
+from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
+from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics
-from thytrader.operator.status import EXIT_USAGE, exit_code_for
+from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -26,7 +30,8 @@ def _parser() -> argparse.ArgumentParser:
         prog="thytrader-operator",
         description=(
             "Read-only diagnostics for a running ThyTrader instance. "
-            "This command cannot place, edit, or cancel orders, or arm live trading."
+            "This command cannot place, edit, or cancel orders, or arm live trading. "
+            "Default transport is the loopback HTTP API; --local uses process stores."
         ),
     )
     parser.add_argument(
@@ -34,6 +39,16 @@ def _parser() -> argparse.ArgumentParser:
         choices=("json", "text"),
         default="json",
         help="json is the agent contract; text is a short human summary.",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Query local stores instead of HTTP. Do not use as a silent API fallback.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("health", help="API, workers, database, and exchange health.")
@@ -54,7 +69,10 @@ def _parser() -> argparse.ArgumentParser:
     performance.add_argument("--deployment-id", default=None)
     subparsers.add_parser("risk", help="Pause and mismatch findings.")
     subparsers.add_parser("reconciliation", help="Unknown orders and mismatch findings.")
+    runtime = subparsers.add_parser("runtime", help="Paper/live status without trading.")
+    runtime.add_argument("--deployment-id", default=None)
     subparsers.add_parser("support-bundle", help="Redacted bundle of the supported reports.")
+    subparsers.add_parser("schema-check", help="Verify skill docs match SCHEMA_VERSION.")
     return parser
 
 
@@ -62,31 +80,52 @@ async def _dispatch(
     diagnostics: OperatorDiagnostics,
     arguments: argparse.Namespace,
 ) -> OperatorEnvelope:
-    """Run one read-only report."""
+    """Run one read-only report from local stores."""
     command = arguments.command
-    if command == "health":
-        return await diagnostics.health(probe_api=True)
-    if command == "configuration":
-        return await diagnostics.configuration()
-    if command == "exchange":
-        return await diagnostics.exchange()
     if command == "market-data":
         return await diagnostics.market_data(arguments.product_id)
-    if command == "strategies":
-        return await diagnostics.strategies()
     if command == "performance":
-        deployment_id = UUID(arguments.deployment_id) if arguments.deployment_id else None
         return await diagnostics.performance(
             result_fingerprint=arguments.result_fingerprint,
-            deployment_id=deployment_id,
+            deployment_id=_uuid_or_none(arguments.deployment_id),
         )
-    if command == "risk":
-        return await diagnostics.risk()
-    if command == "reconciliation":
-        return await diagnostics.reconciliation()
-    if command == "support-bundle":
-        return await diagnostics.support_bundle()
-    raise AssertionError(f"unsupported operator command: {command}")
+    if command == "runtime":
+        return await diagnostics.runtime_report(_uuid_or_none(arguments.deployment_id))
+    factories = {
+        "health": lambda: diagnostics.health(probe_api=True),
+        "configuration": diagnostics.configuration,
+        "exchange": diagnostics.exchange,
+        "strategies": diagnostics.strategies,
+        "risk": diagnostics.risk,
+        "reconciliation": diagnostics.reconciliation,
+        "support-bundle": diagnostics.support_bundle,
+    }
+    factory = factories.get(command)
+    if factory is None:
+        raise AssertionError(f"unsupported operator command: {command}")
+    return await factory()
+
+
+def _uuid_or_none(value: str | None) -> UUID | None:
+    """Parse an optional UUID argument."""
+    if value is None:
+        return None
+    return UUID(value)
+
+
+def _query(arguments: argparse.Namespace) -> dict[str, str]:
+    """Collect optional GET query parameters for HTTP mode."""
+    query: dict[str, str] = {}
+    product_id = getattr(arguments, "product_id", None)
+    if isinstance(product_id, str) and product_id:
+        query["product_id"] = product_id
+    result_fingerprint = getattr(arguments, "result_fingerprint", None)
+    if isinstance(result_fingerprint, str) and result_fingerprint:
+        query["result_fingerprint"] = result_fingerprint
+    deployment_id = getattr(arguments, "deployment_id", None)
+    if isinstance(deployment_id, str) and deployment_id:
+        query["deployment_id"] = deployment_id
+    return query
 
 
 def _render(report: OperatorEnvelope, *, fmt: str, secrets: tuple[str, ...]) -> str:
@@ -106,14 +145,44 @@ def _render(report: OperatorEnvelope, *, fmt: str, secrets: tuple[str, ...]) -> 
     return redact_text("\n".join(lines), secrets)
 
 
-async def _run(arguments: argparse.Namespace) -> int:
-    """Load diagnostics, emit one report, and map status to an exit code."""
+async def _run_local(arguments: argparse.Namespace) -> int:
+    """Load diagnostics from process stores and emit one report."""
     settings = Settings()
     secrets = configured_secrets(settings)
     async with operator_diagnostics(settings) as diagnostics:
         report = await _dispatch(diagnostics, arguments)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
     return exit_code_for(report.overall_status)
+
+
+def _run_http(arguments: argparse.Namespace) -> int:
+    """Fetch one report from the loopback API without opening PostgreSQL."""
+    settings = Settings()
+    secrets = configured_secrets(settings)
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    report = fetch_operator_report(
+        base_url=base_url,
+        command=arguments.command,
+        query=_query(arguments),
+    )
+    sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
+    return exit_code_for(report.overall_status)
+
+
+def _run_schema_check(*, fmt: str) -> int:
+    """Verify shipped skill files against the application schema."""
+    result = check_operator_schema()
+    if fmt == "text":
+        sys.stdout.write(f"ok schema={result.schema_version}\n")
+        return EXIT_HEALTHY
+    payload = {
+        "ok": result.ok,
+        "schema_version": result.schema_version,
+        "report_kinds": list(result.report_kinds),
+        "schema_path": result.schema_path,
+    }
+    sys.stdout.write(f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n")
+    return EXIT_HEALTHY
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -123,8 +192,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         arguments = parser.parse_args(argv)
     except SystemExit as error:
         raise SystemExit(int(error.code) if isinstance(error.code, int) else EXIT_USAGE) from error
+    if arguments.local and arguments.base_url:
+        raise SystemExit("Use either --local or --base-url, not both.")
     try:
-        code = asyncio.run(_run(arguments))
+        if arguments.command == "schema-check":
+            code = _run_schema_check(fmt=arguments.format)
+        elif arguments.local:
+            code = asyncio.run(_run_local(arguments))
+        else:
+            code = _run_http(arguments)
+    except SchemaCheckError as error:
+        sys.stderr.write(f"{error}\n")
+        raise SystemExit(EXIT_FAILED) from error
+    except AgentHttpError as error:
+        raise SystemExit(str(error)) from error
     except Exception as error:
         message = "Operator diagnostics failed safely; trading state was not changed."
         raise SystemExit(message) from error

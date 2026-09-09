@@ -1,0 +1,14 @@
+---
+description: Use shipped ThyTrader operator, research, and runtime skills instead of inventing trading workflows.
+alwaysApply: true
+---
+
+# ThyTrader agent operations
+
+When diagnosing a running instance, mutating research artifacts, or controlling paper/live deployments, follow the skills of record:
+
+- `skills/thytrader-operator/SKILL.md` — read-only diagnostics
+- `skills/thytrader-research/SKILL.md` — drafts, publish, backtests with `--confirm`
+- `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
+
+Do not scrape logs, query PostgreSQL, print secrets, or give operator/research skills trading authority.

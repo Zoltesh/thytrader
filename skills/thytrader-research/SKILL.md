@@ -12,6 +12,8 @@ description: >-
 
 Bounded research mutations only. This skill is not an extension of `thytrader-operator` and has no paper, live, arming, cancellation, or kill-switch authority.
 
+Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to the database if the API is down.
+
 Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`, `POST /api/v1/backtests`) remain valid. The agent-facing mutation path is `uv run thytrader-research` with `--confirm`.
 
 ## Commands
@@ -36,8 +38,8 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 ## Forbidden
 
 - Deployments, pause/resume/stop, Coinbase orders, risk-limit edits, kill switches
-- Direct PostgreSQL access
+- Direct PostgreSQL access as the public agent contract
 - Treating a backtest as a live or paper fill
 - Archiving as part of this skill (out of scope)
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Paper/live control is `skills/thytrader-runtime/SKILL.md`.

@@ -18,6 +18,8 @@ Phase 5 extras are still future work.
 4. **Automate in paper mode:** ✅ 1h candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
    exist; remaining live extras (WebSockets, native OCO, trailing stops) stay deferred.
+6. **Operator/agent integration:** ✅ HTTP-first diagnostics and research CLIs, plus a separate
+   confirmation-gated `thytrader-runtime` skill for paper/live control.
 
 ## Phase 0: Repository foundation — ✅ Complete
 
@@ -202,7 +204,7 @@ closed 1h candle once, records intents/fills/position, and obeys pause and stop.
 - Deferred: Coinbase-native stops/brackets, user-order WebSockets, synthetic trailing stops,
   operator runbook drills.
 
-## Phase 6: Operator and agent integration — 🚧 Diagnostics and research skills shipped
+## Phase 6: Operator and agent integration — ✅ Complete
 
 Agent integration begins earlier as each supported interface becomes available; this phase completes
 the full operational surface. It must not wait for live trading, and it must not give an agent trading
@@ -212,12 +214,15 @@ authority merely because it can inspect a system.
   market-data quality, published-strategy state, and backtest evidence.
 - ✅ Redacted health/configuration/data-quality/performance reports.
 - ✅ In-repo ThyTrader operator skill.
-- ✅ Machine-readable schemas and compatibility checks.
+- ✅ Machine-readable schemas and compatibility checks (`schema-check` plus committed JSON Schema).
 - ✅ Explicitly separated, confirmation-gated research mutation tools for drafts, immutable publication,
   and backtest submission. These are distinct from paper/live authority.
-- Paper/live **control** remains out of agent skills. Operator reports may list runtime status and
-  fill-count slices.
+- ✅ HTTP-first operator and research CLIs (loopback API by default; `--local` is explicit).
+- ✅ Read-only runtime watch (`thytrader-operator runtime`).
+- ✅ Separate confirmation-gated `thytrader-runtime` skill/CLI for paper/live start, pause, resume, and
+  stop. Live start requires `--confirm` and `--i-understand-live`.
 
-**Exit gate (diagnostics/research):** an external agent can diagnose a running instance and, with
-`--confirm`, mutate research artifacts using supported interfaces without database access, secret
-exposure, or implicit trading authority.
+**Exit gate:** an external agent can diagnose a running instance and, with `--confirm`, mutate research
+artifacts using supported HTTP interfaces without database access, secret exposure, or implicit
+trading authority. Paper/live control is a third confirmation-gated surface, not part of operator or
+research skills.

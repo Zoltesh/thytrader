@@ -30,7 +30,7 @@ arming, cancellation, or kill-switch authority.
 
 ## Supported interface design
 
-Prefer a versioned `thytrader` operator CLI backed by the same application services as a read-only HTTP API.
+Prefer a versioned `thytrader` operator CLI backed by the same application services as a read-only HTTP API. The CLI talks to that API on loopback by default.
 
 Potential command groups, to be implemented before referenced by a real skill:
 
@@ -101,14 +101,18 @@ skills/
 │   ├── SKILL.md
 │   └── references/
 │       ├── diagnostics-api.md
-│       └── report-schemas.md
-└── thytrader-research/
+│       ├── report-schemas.md
+│       └── operator-report-v1.schema.json
+├── thytrader-research/
+│   └── SKILL.md
+└── thytrader-runtime/
     └── SKILL.md
 ```
 
 `thytrader-operator/SKILL.md` documents commands that exist: `thytrader-operator` and
 `GET /api/v1/operator/*`. `thytrader-research/SKILL.md` documents `thytrader-research` with
-`--confirm` for mutations.
+`--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
+control. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
 
 The operator skill tells agents to:
 
@@ -129,13 +133,14 @@ The operator skill tells agents to:
 - Compatibility tests between the skill's documented schema and current CLI/API.
 - Failure-mode tests for database, worker, Coinbase, and market-data outages.
 - Tests proving read-only commands cannot mutate orders, strategies, or runtime state.
+
 ## Skill evolution by capability
 
 | Capability available | Supported agent authority |
 |---|---|
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, and a redacted support bundle. |
-| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. |
-| Paper runtime | Read-only paper-session status/fill counts through the operator skill. Paper deployment/control requires a distinct, confirmation-gated tool if justified. |
-| Guarded live execution | Separate, explicit confirmation-gated tools only if justified; arming, cancellation, configuration changes, and kill switches never inherit authority from an observation or research skill. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
+| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. HTTP by default. |
+| Paper runtime | Read-only paper-session status/fill counts through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. |
+| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation or research skill. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**

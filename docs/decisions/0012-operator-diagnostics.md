@@ -21,7 +21,7 @@ Agents need a supported way to diagnose a running ThyTrader instance and to perf
 ## Consequences
 
 - Agents can diagnose without database credentials in the skill workflow (they invoke CLI/HTTP).
-- Paper and live control remain out of the operator and research skills.
+- Paper and live control remain out of the operator and research skills; they live on the separate `thytrader-runtime` skill (ADR 0013).
 - The composable risk-policy registry is still unavailable; operator risk reports say so and only surface pause/mismatch findings.
 - Paper/live performance is a fill-count slice until a dedicated ledger exists.
 

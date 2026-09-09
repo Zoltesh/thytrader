@@ -146,15 +146,19 @@ Use an ADR for durable choices with meaningful alternatives. Supersede old ADRs 
 
 ## Operating a running instance
 
-When the user asks to diagnose ThyTrader, inspect paper/live *status*, create a strategy, publish, or
-run a backtest, use the shipped skills instead of scraping logs or querying PostgreSQL:
+When the user asks to diagnose ThyTrader, inspect paper/live *status*, create a strategy, publish,
+run a backtest, or deploy/pause/resume/stop paper or live, use the shipped skills instead of scraping
+logs or querying PostgreSQL:
 
 - [`skills/thytrader-operator/SKILL.md`](skills/thytrader-operator/SKILL.md) — read-only diagnostics
   (`uv run thytrader-operator`, `GET /api/v1/operator/*`).
 - [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
   backtests only, with `--confirm` on every mutation.
+- [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
+  resume, and stop, with `--confirm` (live also `--i-understand-live`).
 
-Those skills must not deploy, arm live trading, or cancel orders.
+Operator and research skills must not deploy, arm live trading, or cancel orders. Runtime control
+must not be folded into those skills.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

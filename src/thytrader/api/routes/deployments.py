@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from thytrader.api.dependencies import (
+    get_audit_event_store,
     get_execution_store,
     get_runtime_state,
     get_strategy_publication_store,
@@ -26,6 +28,12 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.service import create_deployment, parse_decimal, set_deployment_status
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.persistence.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.publication import StrategyPublicationStore  # noqa: TC001
 
@@ -115,6 +123,7 @@ async def post_deployment(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Create a running paper or live deployment without waiting for the worker."""
     try:
@@ -135,6 +144,11 @@ async def post_deployment(
             else status.HTTP_503_SERVICE_UNAVAILABLE
         )
         raise HTTPException(status_code=code, detail=str(error)) from None
+    await _append_runtime_audit(
+        audit,
+        action="start_live" if deployment.mode is DeploymentMode.LIVE else "start_paper",
+        deployment=deployment,
+    )
     return _deployment_response(deployment)
 
 
@@ -167,31 +181,35 @@ async def get_deployment(
 async def pause_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Pause a running deployment so the worker skips new orders."""
-    return await _set_status(store, deployment_id, DeploymentStatus.PAUSED)
+    return await _set_status(store, audit, deployment_id, DeploymentStatus.PAUSED)
 
 
 @router.post("/{deployment_id}/resume", response_model=DeploymentResponse)
 async def resume_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Resume a paused deployment."""
-    return await _set_status(store, deployment_id, DeploymentStatus.RUNNING)
+    return await _set_status(store, audit, deployment_id, DeploymentStatus.RUNNING)
 
 
 @router.post("/{deployment_id}/stop", response_model=DeploymentResponse)
 async def stop_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Stop a deployment permanently."""
-    return await _set_status(store, deployment_id, DeploymentStatus.STOPPED)
+    return await _set_status(store, audit, deployment_id, DeploymentStatus.STOPPED)
 
 
 async def _set_status(
     store: ExecutionStore,
+    audit: AuditEventStore,
     deployment_id: UUID,
     status_value: DeploymentStatus,
 ) -> DeploymentResponse:
@@ -209,7 +227,42 @@ async def _set_status(
             else status.HTTP_503_SERVICE_UNAVAILABLE
         )
         raise HTTPException(status_code=code, detail=str(error)) from None
+    await _append_runtime_audit(
+        audit,
+        action=_status_action(status_value),
+        deployment=snapshot.deployment,
+    )
     return _snapshot_response(snapshot)
+
+
+def _status_action(status_value: DeploymentStatus) -> str:
+    """Map a status change onto a stable audit action name."""
+    if status_value is DeploymentStatus.PAUSED:
+        return "pause_deployment"
+    if status_value is DeploymentStatus.STOPPED:
+        return "stop_deployment"
+    return "resume_deployment"
+
+
+async def _append_runtime_audit(
+    audit: AuditEventStore,
+    *,
+    action: str,
+    deployment: Deployment,
+) -> None:
+    """Record one runtime control action without cash, quantities, or secrets."""
+    event = AuditEvent(
+        occurred_at=datetime.now(UTC),
+        category=AuditEventCategory.RUNTIME,
+        action=action,
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id} mode={deployment.mode.value} "
+            f"status={deployment.status.value} fingerprint={deployment.strategy_fingerprint}"
+        ),
+        product_id=deployment.product_id,
+    )
+    await audit.append(event)
 
 
 async def _require_snapshot(store: ExecutionStore, deployment_id: UUID) -> DeploymentSnapshot:

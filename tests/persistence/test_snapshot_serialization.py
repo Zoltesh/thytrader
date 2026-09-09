@@ -264,6 +264,15 @@ def test_audit_research_category_migration_follows_execution_runtime() -> None:
     assert "ck_audit_events_category" in content
 
 
+def test_audit_runtime_category_migration_follows_research() -> None:
+    """The fourteenth migration must allow runtime-control audit events."""
+    content = Path("alembic/versions/0014_audit_runtime_category.py").read_text(encoding="utf-8")
+    assert 'revision = "0014"' in content
+    assert 'down_revision = "0013"' in content
+    assert "runtime" in content
+    assert "ck_audit_events_category" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

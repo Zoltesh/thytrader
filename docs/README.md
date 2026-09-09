@@ -24,7 +24,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - **Decision records** explain important choices, alternatives, and consequences.
 - **Roadmap documents** sequence work without pretending dates or scope are guaranteed.
 - **`AGENTS.md`** gives coding agents repository-specific operating instructions.
-- **`skills/`** contains distributable operator and research skills. See [`skills/README.md`](../skills/README.md).
+- **`skills/`** contains distributable operator, research, and runtime skills. See [`skills/README.md`](../skills/README.md).
 
 ## Updating the documentation
 

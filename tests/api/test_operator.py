@@ -60,6 +60,7 @@ _OPERATOR_PATHS = (
     "/api/v1/operator/performance",
     "/api/v1/operator/risk",
     "/api/v1/operator/reconciliation",
+    "/api/v1/operator/runtime",
     "/api/v1/operator/support-bundle",
 )
 

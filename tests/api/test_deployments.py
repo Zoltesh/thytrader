@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import UUID  # noqa: TC003 - used in Protocol-matching draft store.
 
@@ -11,6 +12,7 @@ from pydantic import SecretStr
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 from thytrader.strategies.publication import (
@@ -114,6 +116,7 @@ def _client(
     execution: InMemoryExecutionStore,
     *,
     live_credentials: bool = False,
+    audit: InMemoryAuditEventStore | None = None,
 ) -> TestClient:
     """Build an API client with in-memory publication and execution stores."""
     settings = Settings(_env_file=None)
@@ -128,6 +131,7 @@ def _client(
         strategy_store=publication,
         strategy_draft_store=InMemoryDraftStore(),
         execution_store=execution,
+        audit_event_store=audit,
     )
     return TestClient(app)
 
@@ -270,3 +274,35 @@ def test_unknown_fingerprint_is_not_found() -> None:
 
     assert missing.status_code == 404
     assert unknown.status_code == 404
+
+
+def test_paper_start_records_runtime_audit_without_cash() -> None:
+    """Deployment mutations append runtime audit events without cash values."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    audit = InMemoryAuditEventStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution, audit=audit) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+
+    assert created.status_code == 201
+    events = asyncio.run(audit.list_recent())
+    assert events
+    event = events[0]
+    assert event.category is AuditEventCategory.RUNTIME
+    assert event.action == "start_paper"
+    assert "cash" not in event.detail.lower()
+    assert "10000" not in event.detail
+    assert fingerprint in event.detail

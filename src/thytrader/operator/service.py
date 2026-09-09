@@ -40,6 +40,8 @@ from thytrader.operator.models import (
     RiskFinding,
     RiskPayload,
     RiskReport,
+    RuntimePayload,
+    RuntimeReport,
     StrategiesPayload,
     StrategiesReport,
     SupportBundlePayload,
@@ -288,6 +290,43 @@ class OperatorDiagnostics:
             partial_result_warnings=tuple(warnings),
             recommended_next_action=recommend_next_action(components),
             payload=ReconciliationPayload(findings=findings),
+        )
+
+    async def runtime_report(self, deployment_id: UUID | None = None) -> RuntimeReport:
+        """Combine deployment status with risk and reconciliation findings."""
+        now = datetime.now(UTC)
+        strategies = await self.strategies()
+        risk = await self.risk()
+        reconciliation = await self.reconciliation()
+        deployments, risk_findings, recon_findings, extra = _runtime_slice(
+            strategies,
+            risk,
+            reconciliation,
+            deployment_id,
+        )
+        components = (
+            *strategies.components,
+            *risk.components,
+            *reconciliation.components,
+            *extra,
+        )
+        return RuntimeReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=aggregate_status(components),
+            components=components,
+            redaction=STANDARD_REDACTION,
+            partial_result_warnings=(
+                *strategies.partial_result_warnings,
+                *risk.partial_result_warnings,
+                *reconciliation.partial_result_warnings,
+            ),
+            recommended_next_action=recommend_next_action(components),
+            payload=RuntimePayload(
+                deployments=deployments,
+                risk_findings=risk_findings,
+                reconciliation_findings=recon_findings,
+            ),
         )
 
     async def support_bundle(self) -> SupportBundleReport:
@@ -994,6 +1033,42 @@ def _deployment_summary(deployment: Deployment) -> DeploymentSummary:
         last_evaluated_bar=deployment.last_evaluated_bar,
         mismatch_present=bool(deployment.mismatch_detail),
         last_signal=deployment.last_signal,
+    )
+
+
+def _runtime_slice(
+    strategies: StrategiesReport,
+    risk: RiskReport,
+    reconciliation: ReconciliationReport,
+    deployment_id: UUID | None,
+) -> tuple[
+    tuple[DeploymentSummary, ...],
+    tuple[RiskFinding, ...],
+    tuple[ReconciliationFinding, ...],
+    tuple[ComponentReport, ...],
+]:
+    """Optionally restrict runtime evidence to one deployment identity."""
+    deployments = strategies.payload.deployments
+    risk_findings = risk.payload.findings
+    recon_findings = reconciliation.payload.findings
+    if deployment_id is None:
+        return deployments, risk_findings, recon_findings, ()
+    selected = tuple(item for item in deployments if item.deployment_id == deployment_id)
+    extra: tuple[ComponentReport, ...] = ()
+    if not selected:
+        extra = (
+            ComponentReport(
+                name="runtime",
+                status=ReportStatus.FAILED,
+                reason_code="DEPLOYMENT_NOT_FOUND",
+                detail="No deployment matched the requested id.",
+            ),
+        )
+    return (
+        selected,
+        tuple(item for item in risk_findings if item.deployment_id == deployment_id),
+        tuple(item for item in recon_findings if item.deployment_id == deployment_id),
+        extra,
     )
 
 

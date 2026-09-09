@@ -315,7 +315,8 @@ audit_events = Table(
     ),
     CheckConstraint(
         "category IN ("
-        "'connection', 'snapshot', 'worker_error', 'market_data', 'websocket', 'research'"
+        "'connection', 'snapshot', 'worker_error', 'market_data', 'websocket', "
+        "'research', 'runtime'"
         ")",
         name="ck_audit_events_category",
     ),

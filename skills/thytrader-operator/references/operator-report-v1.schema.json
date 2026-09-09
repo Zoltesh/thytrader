@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thytrader.dev/schemas/operator-report-v1.json",
+  "title": "ThyTrader operator report envelope",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "report_kind",
+    "application_version",
+    "generated_at",
+    "timezone",
+    "overall_status",
+    "components",
+    "redaction",
+    "recommended_next_action",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "thytrader-operator-report-v1"
+    },
+    "report_kind": {
+      "type": "string",
+      "enum": [
+        "health",
+        "configuration",
+        "exchange",
+        "market_data",
+        "strategies",
+        "performance",
+        "risk",
+        "reconciliation",
+        "runtime",
+        "support_bundle"
+      ]
+    },
+    "application_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "timezone": {
+      "const": "UTC"
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": ["healthy", "degraded", "failed"]
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "reason_code"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["healthy", "degraded", "failed"] },
+          "reason_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": [
+        "secrets_redacted",
+        "raw_environment_omitted",
+        "account_identifiers_omitted",
+        "balances_omitted"
+      ],
+      "properties": {
+        "secrets_redacted": { "type": "boolean" },
+        "raw_environment_omitted": { "type": "boolean" },
+        "account_identifiers_omitted": { "type": "boolean" },
+        "balances_omitted": { "type": "boolean" }
+      }
+    },
+    "partial_result_warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "recommended_next_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

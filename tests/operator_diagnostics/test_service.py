@@ -91,3 +91,14 @@ def test_health_does_not_create_strategy_drafts() -> None:
     drafts = _RecordingDraftStore()
     asyncio.run(_diagnostics(drafts=drafts).health())
     assert drafts.create_calls == 0
+
+
+def test_runtime_report_omits_cash_and_includes_deployments() -> None:
+    """Runtime watch is a v1 report without balances."""
+    report = asyncio.run(_diagnostics().runtime_report())
+    assert report.schema_version == SCHEMA_VERSION
+    assert report.report_kind == "runtime"
+    dumped = report.model_dump(mode="json")
+    assert "cash" not in dumped
+    assert report.payload.deployments == ()
+    assert report.redaction.balances_omitted is True

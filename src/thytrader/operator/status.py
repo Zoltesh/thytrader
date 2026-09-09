@@ -27,6 +27,7 @@ _RECOMMENDATIONS: dict[str, str] = {
     "STALE": "Wait for the next verified 1h publication or inspect ingestion failures.",
     "RESULT_NOT_FOUND": "Pass a published result fingerprint from thytrader-operator performance.",
     "RISK_REGISTRY_UNAVAILABLE": "Treat pause and mismatch findings as the current risk surface.",
+    "DEPLOYMENT_NOT_FOUND": "Pass a deployment id from thytrader-operator strategies or runtime.",
 }
 
 

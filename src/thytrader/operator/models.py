@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
@@ -11,6 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"
+REPORT_KINDS: tuple[str, ...] = (
+    "health",
+    "configuration",
+    "exchange",
+    "market_data",
+    "strategies",
+    "performance",
+    "risk",
+    "reconciliation",
+    "runtime",
+    "support_bundle",
+)
 
 
 class ReportStatus(StrEnum):
@@ -61,10 +73,10 @@ class OperatorEnvelope(_FrozenModel):
     @field_validator("generated_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
-        """Keep operator timestamps timezone-aware UTC."""
-        if value.tzinfo is not UTC:
+        """Keep operator timestamps timezone-aware UTC after JSON round-trips."""
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("generated_at must be timezone-aware UTC")
-        return value
+        return value.astimezone(UTC)
 
 
 class HealthPayload(_FrozenModel):
@@ -273,6 +285,21 @@ class ReconciliationReport(OperatorEnvelope):
 
     report_kind: Literal["reconciliation"] = "reconciliation"
     payload: ReconciliationPayload
+
+
+class RuntimePayload(_FrozenModel):
+    """Paper/live status plus risk and reconciliation findings, without cash."""
+
+    deployments: tuple[DeploymentSummary, ...]
+    risk_findings: tuple[RiskFinding, ...]
+    reconciliation_findings: tuple[ReconciliationFinding, ...]
+
+
+class RuntimeReport(OperatorEnvelope):
+    """Read-only combined view of paper and live runtimes."""
+
+    report_kind: Literal["runtime"] = "runtime"
+    payload: RuntimePayload
 
 
 class SupportBundlePayload(_FrozenModel):

@@ -28,6 +28,7 @@ from thytrader.operator.models import (
     PerformanceReport,
     ReconciliationReport,
     RiskReport,
+    RuntimeReport,
     StrategiesReport,
     SupportBundleReport,
 )
@@ -137,6 +138,15 @@ async def get_operator_reconciliation(
 ) -> ReconciliationReport:
     """Return mismatch and unknown-order findings."""
     return await diagnostics.reconciliation()
+
+
+@router.get("/runtime", response_model=RuntimeReport)
+async def get_operator_runtime(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    deployment_id: UUID | None = None,
+) -> RuntimeReport:
+    """Return paper/live runtime status without trading authority."""
+    return await diagnostics.runtime_report(deployment_id)
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

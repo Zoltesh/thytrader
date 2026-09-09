@@ -10,6 +10,7 @@ import sys
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader.agent_http import AgentHttpError, resolve_api_base_url
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
@@ -25,6 +26,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.research import http as research_http
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
 from thytrader.strategies.models import StrategyDefinition
 
@@ -48,8 +50,19 @@ def _parser() -> argparse.ArgumentParser:
         prog="thytrader-research",
         description=(
             "Create drafts, publish immutable versions, and submit backtests. "
-            "Mutations require --confirm. This command has no paper or live authority."
+            "Mutations require --confirm. Default transport is the loopback HTTP API. "
+            "This command has no paper or live authority."
         ),
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Use PostgreSQL stores instead of HTTP. Do not use as a silent API fallback.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create-draft", help="Create the conservative reference draft.")
@@ -94,7 +107,7 @@ def _load_json(path_text: str) -> object:
 async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine | None]:
     """Build the mutator from PostgreSQL when configured."""
     if settings.database_url is None:
-        raise ResearchCliError("THYTRADER_DATABASE_URL is required for research commands.")
+        raise ResearchCliError("THYTRADER_DATABASE_URL is required for --local research commands.")
     engine = create_engine(settings.database_url)
     dataset_store = DatasetStore(settings.market_data_dataset_root)
     strategy_store = PostgresStrategyPublicationStore(engine)
@@ -114,8 +127,8 @@ async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine | N
     return mutator, engine
 
 
-async def _dispatch(arguments: argparse.Namespace) -> str:
-    """Execute one research command and return stdout JSON."""
+async def _dispatch_local(arguments: argparse.Namespace) -> str:
+    """Execute one research command against PostgreSQL stores."""
     settings = Settings()
     if arguments.command == "create-draft":
         _require_confirm(arguments.confirm)
@@ -149,6 +162,35 @@ async def _dispatch(arguments: argparse.Namespace) -> str:
             settings,
             lambda mutator: _show_result(mutator, arguments.result_fingerprint),
         )
+    raise AssertionError(f"unsupported research command: {arguments.command}")
+
+
+def _dispatch_http(arguments: argparse.Namespace) -> str:
+    """Execute one research command against the loopback HTTP API."""
+    settings = Settings()
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    if arguments.command == "create-draft":
+        _require_confirm(arguments.confirm)
+        return research_http.create_draft(base_url)
+    if arguments.command == "save-draft":
+        _require_confirm(arguments.confirm)
+        definition = StrategyDefinition.model_validate(_load_json(arguments.file))
+        return research_http.save_draft(base_url, definition, arguments.revision)
+    if arguments.command == "publish":
+        _require_confirm(arguments.confirm)
+        return research_http.publish(base_url, UUID(arguments.strategy_id))
+    if arguments.command == "submit-backtest":
+        _require_confirm(arguments.confirm)
+        request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
+        return research_http.submit_backtest(base_url, request)
+    if arguments.command == "list-results":
+        return research_http.list_results(
+            base_url,
+            arguments.strategy_fingerprint,
+            arguments.limit,
+        )
+    if arguments.command == "show-result":
+        return research_http.show_result(base_url, arguments.result_fingerprint)
     raise AssertionError(f"unsupported research command: {arguments.command}")
 
 
@@ -274,9 +316,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         arguments = parser.parse_args(argv)
     except SystemExit as error:
         raise SystemExit(int(error.code) if isinstance(error.code, int) else EXIT_USAGE) from error
+    if arguments.local and arguments.base_url:
+        raise SystemExit("Use either --local or --base-url, not both.")
     try:
-        output = asyncio.run(_dispatch(arguments))
+        if arguments.local:
+            output = asyncio.run(_dispatch_local(arguments))
+        else:
+            output = _dispatch_http(arguments)
     except ResearchCliError as error:
+        raise SystemExit(str(error)) from error
+    except AgentHttpError as error:
         raise SystemExit(str(error)) from error
     except ResearchMutationError as error:
         raise SystemExit(str(error)) from error

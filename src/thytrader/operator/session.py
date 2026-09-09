@@ -1,4 +1,7 @@
-"""Construct operator diagnostics from process settings without FastAPI."""
+"""Construct operator diagnostics from process settings without FastAPI.
+
+Used by `thytrader-operator --local`. The default CLI transport is loopback HTTP.
+"""
 
 from __future__ import annotations
 

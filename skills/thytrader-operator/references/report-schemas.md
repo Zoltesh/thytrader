@@ -3,7 +3,7 @@
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `support_bundle`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `support_bundle`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -18,4 +18,8 @@ Every JSON report includes:
 
 Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live operator performance is a fill-count slice, not a full PnL engine.
 
-The support-bundle `payload` nests the other reports unchanged.
+The `runtime` payload lists deployment identities plus risk and reconciliation findings. It omits cash, quantities, and order payloads.
+
+The support-bundle `payload` nests the other reports unchanged (it does not nest `runtime`).
+
+The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1.schema.json). Run `uv run thytrader-operator schema-check` to verify skill docs against `SCHEMA_VERSION`.
