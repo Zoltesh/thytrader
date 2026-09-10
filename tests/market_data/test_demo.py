@@ -21,6 +21,24 @@ def test_demo_recent_preview_maps_minimum_datetime_overflow() -> None:
         )
 
 
+def test_demo_five_minute_range_is_complete() -> None:
+    """Demo 5m ranges are complete synthetic bars, never interpolated."""
+    starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 8, 1, 1, tzinfo=UTC)
+    report = asyncio.run(
+        DemoMarketData().get_historical_range(
+            "ETH-USD",
+            CandleInterval.FIVE_MINUTES,
+            starts_at,
+            ends_at,
+            datetime(2026, 8, 1, 2, tzinfo=UTC),
+        )
+    )
+    assert report.complete is True
+    assert report.requested_candle_count == 12
+    assert report.quality.gap_count == 0
+
+
 def test_demo_historical_range_maps_mixed_timezone_inputs() -> None:
     """A mixed-timezone historical request must not leak Python comparison errors."""
     with pytest.raises(ValueError, match="timestamp range"):

@@ -8,6 +8,7 @@ from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.feed_state import MarketFeedStateStore
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.watchlist import MarketDataWatchlistStore
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
 from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
@@ -71,6 +72,15 @@ def get_market_data_state_store(request: Request) -> MarketDataWorkerStateStore:
     store = getattr(request.app.state, "market_data_state_store", None)
     if not isinstance(store, MarketDataWorkerStateStore):
         message = "Market-data worker state store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_market_data_watchlist_store(request: Request) -> MarketDataWatchlistStore:
+    """Return the durable ingestion watchlist attached during app startup."""
+    store = getattr(request.app.state, "market_data_watchlist_store", None)
+    if not isinstance(store, MarketDataWatchlistStore):
+        message = "Market-data watchlist store is unavailable."
         raise TypeError(message)
     return store
 

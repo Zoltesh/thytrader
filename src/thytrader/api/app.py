@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from fastapi import FastAPI
 from thytrader import __version__
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
+from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
@@ -37,6 +39,11 @@ from thytrader.market_data.feed_state import (
     MarketFeedStateStore,
 )
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.watchlist import (
+    DisabledMarketDataWatchlistStore,
+    MarketDataWatchlistStore,
+    ensure_default_watch_target,
+)
 from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     MarketDataWorkerStateStore,
@@ -63,6 +70,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
+from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
@@ -91,6 +99,7 @@ def create_app(
     history_store: PortfolioHistoryStore | None = None,
     audit_event_store: AuditEventStore | None = None,
     market_data_state_store: MarketDataWorkerStateStore | None = None,
+    market_data_watchlist_store: MarketDataWatchlistStore | None = None,
     market_feed_state_store: MarketFeedStateStore | None = None,
     backtest_result_store: BacktestResultReader | None = None,
     backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
@@ -111,6 +120,7 @@ def create_app(
     external_store = history_store
     external_audit_event_store = audit_event_store
     external_market_data_state_store = market_data_state_store
+    external_market_data_watchlist_store = market_data_watchlist_store
     external_market_feed_state_store = market_feed_state_store
     external_backtest_result_store = backtest_result_store
     external_backtest_benchmark_reader = backtest_benchmark_reader
@@ -128,6 +138,7 @@ def create_app(
         store = external_store
         audit_store = external_audit_event_store
         worker_state_store = external_market_data_state_store
+        watchlist_store = external_market_data_watchlist_store
         feed_state_store = external_market_feed_state_store
         backtest_store = external_backtest_result_store
         benchmark_reader = external_backtest_benchmark_reader
@@ -140,6 +151,7 @@ def create_app(
             store is None
             or audit_store is None
             or worker_state_store is None
+            or watchlist_store is None
             or feed_state_store is None
             or backtest_store is None
             or publication_store is None
@@ -175,6 +187,9 @@ def create_app(
             submitter = _submission_service(submitter, engine, dataset_store)
             if execution is None:
                 execution = PostgresExecutionStore(engine)
+            if watchlist_store is None:
+                watchlist_store = PostgresMarketDataWatchlistStore(engine)
+            await _seed_default_watchlist(watchlist_store, resolved_settings)
         if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
             benchmark_dataset_store = dataset_store or DatasetStore(
                 resolved_settings.market_data_dataset_root
@@ -189,6 +204,9 @@ def create_app(
         _app.state.audit_event_store = audit_store or DisabledAuditEventStore()
         _app.state.market_data_state_store = (
             worker_state_store or DisabledMarketDataWorkerStateStore()
+        )
+        _app.state.market_data_watchlist_store = (
+            watchlist_store or DisabledMarketDataWatchlistStore()
         )
         _app.state.market_feed_state_store = feed_state_store or DisabledMarketFeedStateStore()
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
@@ -217,6 +235,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(audit_events_router)
     app.include_router(operator_router)
+    app.include_router(data_router)
     app.include_router(fees_router)
     app.include_router(market_data_router)
     app.include_router(market_data_ingestion_router)
@@ -268,6 +287,25 @@ def _init_db_stores(
         resolved_publication,
         resolved_draft,
         resolved_backtest,
+    )
+
+
+async def _seed_default_watchlist(
+    store: MarketDataWatchlistStore,
+    settings: Settings,
+) -> None:
+    """Seed the configured 1h product when the watchlist table is empty."""
+    provider = (
+        "demo"
+        if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None
+        else "coinbase"
+    )
+    await ensure_default_watch_target(
+        store,
+        provider=provider,
+        product_id=settings.market_data_worker_product_id,
+        lookback_hours=settings.market_data_worker_lookback_hours,
+        now=datetime.now(UTC),
     )
 
 

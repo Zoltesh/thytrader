@@ -32,13 +32,18 @@ from thytrader.backtest.models import (
     BacktestTrade,
     EquityPoint,
 )
+from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
     CandleQualityError,
     validate_candle_timestamp,
     validate_candle_values,
 )
 from thytrader.research.indicators import canonical_decimal
-from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
+from thytrader.research.models import (
+    ResearchRunSpecification,
+    research_run_fingerprint,
+    specification_bar_interval,
+)
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
 from thytrader.research.trace import EntryConditionOutcome, signal_trace_fingerprint
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -112,12 +117,14 @@ def _simulate_backtest(
 ) -> BacktestResult:
     """Simulate one published strategy with next-open taker fills and conservative OHLC exits."""
     specification, strategy = _validated_inputs(specification, strategy)
+    interval = _bar_interval(specification, strategy)
+    bar = interval.duration
     fill_model = _fill_model(specification)
     try:
         trace = evaluate_signal_trace(specification, strategy, candles)
     except SignalEvaluationError as error:
         raise BacktestSimulationError("Backtest signal inputs could not be verified.") from error
-    candle_by_start = _candle_map(specification, candles)
+    candle_by_start = _candle_map(specification, candles, interval)
     cash = Decimal(specification.capital.initial_quote_balance)
     initial_cash = cash
     pending: _PendingEntry | None = None
@@ -125,12 +132,11 @@ def _simulate_backtest(
     trades: list[BacktestTrade] = []
     equity_curve: list[EquityPoint] = []
     evaluation_records = {record.candle_starts_at: record for record in trace.records}
-    evaluation_hours = int(
-        (specification.evaluation.ends_at - specification.evaluation.starts_at) / timedelta(hours=1)
-    )
+    evaluation_span = specification.evaluation.ends_at - specification.evaluation.starts_at
+    evaluation_bars = int(evaluation_span / bar)
 
-    for offset in range(evaluation_hours + 1):
-        starts_at = specification.evaluation.starts_at + timedelta(hours=offset)
+    for offset in range(evaluation_bars + 1):
+        starts_at = specification.evaluation.starts_at + bar * offset
         candle = candle_by_start[starts_at]
         if pending is not None:
             position, cash = _open_position(
@@ -144,7 +150,7 @@ def _simulate_backtest(
                 fill_model=fill_model,
             )
             pending = None
-        if position is not None and offset < evaluation_hours:
+        if position is not None and offset < evaluation_bars:
             trade, cash = _close_if_required(
                 position,
                 candle,
@@ -154,15 +160,16 @@ def _simulate_backtest(
                 slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
                 max_bars_held=strategy.exits.time_exit.max_bars_held,
                 fill_model=fill_model,
+                bar_duration=bar,
             )
             if trade is not None:
                 trades.append(trade)
                 position = None
-        if offset < evaluation_hours:
+        if offset < evaluation_bars:
             record = evaluation_records[starts_at]
             if position is None and record.entry_condition is EntryConditionOutcome.MATCHED:
                 pending = _PendingEntry(signal=record)
-        mark_reference = candle.open if offset == evaluation_hours else candle.close
+        mark_reference = candle.open if offset == evaluation_bars else candle.close
         equity_curve.append(
             _equity_point(candle.starts_at, cash, position, fill_model.mark_price(mark_reference))
         )
@@ -172,12 +179,13 @@ def _simulate_backtest(
             position,
             candle_by_start[specification.evaluation.ends_at],
             cash=cash,
-            bar_index=evaluation_hours,
+            bar_index=evaluation_bars,
             raw_exit_price=candle_by_start[specification.evaluation.ends_at].open,
             reason="evaluation_end",
             taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
             slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
             fill_model=fill_model,
+            bar_duration=bar,
         )
         trades.append(forced_exit)
         equity_curve[-1] = _equity_point(
@@ -263,21 +271,21 @@ def _fill_evidence(quote: FillQuote) -> _FillEvidence:
 def _candle_map(
     specification: ResearchRunSpecification,
     candles: Sequence[Candle],
+    interval: CandleInterval,
 ) -> Mapping[datetime, Candle]:
     """Require exactly one well-formed candle through the required final next-open fill."""
     starts_at = specification.warmup.starts_at
+    bar = interval.duration
     try:
-        ends_at = specification.evaluation.ends_at + timedelta(hours=1)
+        ends_at = specification.evaluation.ends_at + bar
         for candle in candles:
             validate_candle_timestamp(candle.starts_at)
         selected = tuple(candle for candle in candles if starts_at <= candle.starts_at < ends_at)
         for candle in selected:
             validate_candle_values(candle)
-        expected_count = int((ends_at - starts_at) / timedelta(hours=1))
+        expected_count = int((ends_at - starts_at) / bar)
         mapped = {candle.starts_at: candle for candle in selected}
-        expected_starts = tuple(
-            starts_at + timedelta(hours=offset) for offset in range(expected_count)
-        )
+        expected_starts = tuple(starts_at + bar * offset for offset in range(expected_count))
     except CandleQualityError as error:
         message = "Backtest candles have invalid timestamps or values."
         raise BacktestSimulationError(message) from error
@@ -294,9 +302,7 @@ def _candle_map(
     for expected_start in expected_starts:
         candle = mapped.get(expected_start)
         if candle is None or candle.open <= 0 or candle.high < candle.low:
-            raise BacktestSimulationError(
-                "Backtest candles are not valid contiguous hourly OHLC bars."
-            )
+            raise BacktestSimulationError("Backtest candles are not valid contiguous OHLC bars.")
     return mapped
 
 
@@ -364,6 +370,7 @@ def _close_if_required(
     slippage_bps: Decimal,
     max_bars_held: int,
     fill_model: FillModel,
+    bar_duration: timedelta,
 ) -> tuple[BacktestTrade | None, Decimal]:
     """Close one position using stop-first ambiguity, then target and time-exit ordering."""
     if bar_index - position.entered_bar_index >= max_bars_held:
@@ -377,6 +384,7 @@ def _close_if_required(
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
             fill_model=fill_model,
+            bar_duration=bar_duration,
         )
     if fill_model.sell_trigger_price(candle.low) <= position.stop_price:
         return _close_position(
@@ -392,6 +400,7 @@ def _close_if_required(
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
             fill_model=fill_model,
+            bar_duration=bar_duration,
         )
     if fill_model.sell_trigger_price(candle.high) >= position.target_price:
         return _close_position(
@@ -404,6 +413,7 @@ def _close_if_required(
             taker_fee_rate=taker_fee_rate,
             slippage_bps=slippage_bps,
             fill_model=fill_model,
+            bar_duration=bar_duration,
         )
     return None, cash
 
@@ -419,6 +429,7 @@ def _close_position(
     taker_fee_rate: Decimal,
     slippage_bps: Decimal,
     fill_model: FillModel,
+    bar_duration: timedelta,
 ) -> tuple[BacktestTrade, Decimal]:
     """Apply a modeled sell fill, fee, cash transition, and exact complete-trade evidence."""
     del bar_index
@@ -446,7 +457,9 @@ def _close_position(
             exit=exit_fill,
             gross_pnl=canonical_decimal(gross_pnl),
             net_pnl=canonical_decimal(net_pnl),
-            holding_bars=_holding_bars(position.entry.candle_starts_at, candle.starts_at),
+            holding_bars=_holding_bars(
+                position.entry.candle_starts_at, candle.starts_at, bar_duration
+            ),
         ),
         cash + exit_notional - exit_fee,
     )
@@ -541,6 +554,25 @@ def _summary(
     )
 
 
-def _holding_bars(entry: datetime, exit_: datetime) -> int:
-    """Return exact whole hourly bars between modeled entry and exit boundaries."""
-    return int((exit_ - entry) / timedelta(hours=1))
+def _bar_interval(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+) -> CandleInterval:
+    """Require the run windows and published strategy to share one supported bar duration."""
+    strategy_interval = parse_candle_interval(strategy.timeframe)
+    spec_interval = specification_bar_interval(specification)
+    if strategy_interval is not spec_interval:
+        raise BacktestSimulationError(
+            "Backtest timeframe does not match the strategy and run windows."
+        )
+    span = specification.evaluation.ends_at - specification.evaluation.starts_at
+    if span < strategy_interval.duration or span % strategy_interval.duration != timedelta(0):
+        raise BacktestSimulationError(
+            "Backtest evaluation window is not a positive multiple of the strategy timeframe."
+        )
+    return strategy_interval
+
+
+def _holding_bars(entry: datetime, exit_: datetime, bar_duration: timedelta) -> int:
+    """Return exact whole bars between modeled entry and exit boundaries."""
+    return int((exit_ - entry) / bar_duration)

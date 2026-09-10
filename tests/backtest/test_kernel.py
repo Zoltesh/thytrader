@@ -169,6 +169,58 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     assert total_return == total_net_pnl / Decimal("10000")
 
 
+def test_simulation_five_minute_timeframe_uses_five_minute_bars() -> None:
+    """A 5m strategy must step, fill, and hold on five-minute candles."""
+    strategy = StrategyDefinition.model_validate(
+        {**_strategy().model_dump(mode="python"), "timeframe": "5m"}
+    )
+    starts_at = datetime(2026, 8, 1, 2, tzinfo=UTC)
+    run = ResearchRunSpecification(
+        schema_version="1.0",
+        run_id=UUID("019cae99-3e00-7000-8000-000000000001"),
+        created_at=datetime(2026, 3, 2, 12, 50, 4, 416000, tzinfo=UTC),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        dataset_fingerprint="sha256:" + "a" * 64,
+        evaluation=EvaluationWindow(starts_at=starts_at, ends_at=starts_at + timedelta(minutes=10)),
+        warmup=WarmupWindow(bars=2, starts_at=starts_at - timedelta(minutes=10)),
+        capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
+        costs=CostAssumptions(
+            maker_fee_rate="0.001",
+            taker_fee_rate="0.002",
+            fixed_slippage_bps="10",
+        ),
+        bar_execution=BarExecutionAssumptions(
+            signal_timing="completed_candle_close",
+            fill_timing="next_candle_open",
+        ),
+        engine_contract_version="thytrader-bar-backtest-v1",
+        random_seed=0,
+    )
+    start = datetime(2026, 8, 1, 1, 50, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("15", "30", "10", "10"),
+        ("10", "11", "9", "10"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(minutes=5 * index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    result = simulate_backtest(run, strategy, candles)
+    assert result.trades[0].entry.candle_starts_at == datetime(2026, 8, 1, 2, 5, tzinfo=UTC)
+    assert result.trades[0].exit.reason == "take_profit"
+    assert result.summary.evaluation_bars == 2
+
+
 def test_simulation_rejects_naive_terminal_candle_with_controlled_error() -> None:
     """A malformed next-open timestamp must not escape as an aware/naive TypeError."""
     strategy = _strategy()

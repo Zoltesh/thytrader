@@ -10,6 +10,9 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 | GET | `/api/v1/operator/configuration` | `configuration` |
 | GET | `/api/v1/operator/exchange` | `exchange` |
 | GET | `/api/v1/operator/market-data` | `market_data` |
+| GET | `/api/v1/operator/data-catalog` | `data_catalog` |
+| GET | `/api/v1/operator/products` | `products` |
+| GET | `/api/v1/operator/indicators` | `indicators` |
 | GET | `/api/v1/operator/strategies` | `strategies` |
 | GET | `/api/v1/operator/performance` | `performance` |
 | GET | `/api/v1/operator/risk` | `risk` |
@@ -19,7 +22,7 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 
 Query parameters:
 
-- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-USD$`
+- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-USD$`, optional `timeframe` (`1h` or `5m`, default `1h`)
 - `performance`: optional `result_fingerprint` (`sha256:` + 64 lowercase hex) or `deployment_id` (UUID)
 - `runtime`: optional `deployment_id` (UUID)
 

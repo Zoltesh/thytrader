@@ -54,12 +54,21 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("health", help="API, workers, database, and exchange health.")
     subparsers.add_parser("configuration", help="Redacted configuration validity.")
     subparsers.add_parser("exchange", help="Coinbase connectivity and permissions.")
-    market = subparsers.add_parser("market-data", help="1h freshness and gap report.")
+    market = subparsers.add_parser("market-data", help="1h or 5m freshness and gap report.")
     market.add_argument(
         "--product-id",
         default=None,
         help="USD spot product, default from settings.",
     )
+    market.add_argument(
+        "--timeframe",
+        default="1h",
+        choices=("1h", "5m"),
+        help="Candle interval. Default 1h.",
+    )
+    subparsers.add_parser("products", help="Enabled USD spot products from the current catalog.")
+    subparsers.add_parser("data-catalog", help="Local datasets, watchlist, and coverage.")
+    subparsers.add_parser("indicators", help="Implemented indicator kinds and period bounds.")
     subparsers.add_parser("strategies", help="Draft, publication, and runtime status.")
     performance = subparsers.add_parser(
         "performance",
@@ -83,7 +92,13 @@ async def _dispatch(
     """Run one read-only report from local stores."""
     command = arguments.command
     if command == "market-data":
-        return await diagnostics.market_data(arguments.product_id)
+        return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
+    if command == "products":
+        return await diagnostics.products()
+    if command == "data-catalog":
+        return await diagnostics.data_catalog()
+    if command == "indicators":
+        return await diagnostics.indicators()
     if command == "performance":
         return await diagnostics.performance(
             result_fingerprint=arguments.result_fingerprint,
@@ -119,6 +134,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str]:
     product_id = getattr(arguments, "product_id", None)
     if isinstance(product_id, str) and product_id:
         query["product_id"] = product_id
+    timeframe = getattr(arguments, "timeframe", None)
+    if isinstance(timeframe, str) and timeframe:
+        query["timeframe"] = timeframe
     result_fingerprint = getattr(arguments, "result_fingerprint", None)
     if isinstance(result_fingerprint, str) and result_fingerprint:
         query["result_fingerprint"] = result_fingerprint

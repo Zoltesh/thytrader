@@ -286,6 +286,7 @@ async def test_paused_deployment_still_exits_on_stop() -> None:
     paused = replace(filled.deployment, status=DeploymentStatus.PAUSED)
     await store.save_deployment(paused)
     filled = await store.get_deployment(filled.deployment.id)
+    assert filled.position is not None
     stop = filled.position.stop_price
     crash = _next_bar(
         window,

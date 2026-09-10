@@ -196,6 +196,17 @@ class PostgresMarketDataWorkerStateStore:
             row = (await connection.execute(statement)).first()
         return _to_state(row) if row is not None else None
 
+    async def list_all(self) -> tuple[MarketDataWorkerState, ...]:
+        """Load latest state for every ingestion target."""
+        statement = select(market_data_worker_state).order_by(
+            market_data_worker_state.c.provider,
+            market_data_worker_state.c.product_id,
+            market_data_worker_state.c.timeframe,
+        )
+        async with self._engine.connect() as connection:
+            rows = (await connection.execute(statement)).all()
+        return tuple(_to_state(row) for row in rows)
+
     async def _execute(self, statement: Executable) -> bool:
         """Commit one atomic state transition."""
         async with self._engine.begin() as connection:

@@ -29,6 +29,7 @@ from thytrader.persistence.postgres_strategies import PostgresStrategyPublicatio
 from thytrader.research import http as research_http
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.strategies.publication import StrategyPublicationError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -289,6 +290,13 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     """Load one result summary without dumping the full trade ledger."""
     result = await mutator.results.load(result_fingerprint)
     computed = backtest_result_fingerprint(result)
+    timeframe = "1h"
+    try:
+        published = await mutator.publications.load(result.strategy_fingerprint)
+        if published.definition.timeframe in {"1h", "5m"}:
+            timeframe = published.definition.timeframe
+    except StrategyPublicationError:
+        timeframe = "1h"
     return _encode(
         {
             "result_fingerprint": computed,
@@ -297,7 +305,7 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
             "dataset_fingerprint": result.dataset_fingerprint,
             "engine_contract_version": result.engine_contract_version,
             "mode": "backtest",
-            "timeframe": "1h",
+            "timeframe": timeframe,
             "currency": "USD",
             "summary": result.summary.model_dump(mode="json"),
         }

@@ -103,6 +103,8 @@ skills/
 │       ├── diagnostics-api.md
 │       ├── report-schemas.md
 │       └── operator-report-v1.schema.json
+├── thytrader-data/
+│   └── SKILL.md
 ├── thytrader-research/
 │   └── SKILL.md
 └── thytrader-runtime/
@@ -110,7 +112,8 @@ skills/
 ```
 
 `thytrader-operator/SKILL.md` documents commands that exist: `thytrader-operator` and
-`GET /api/v1/operator/*`. `thytrader-research/SKILL.md` documents `thytrader-research` with
+`GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
+ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
 control. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
 

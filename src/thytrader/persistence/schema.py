@@ -91,6 +91,23 @@ market_data_worker_state = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+market_data_watchlist = Table(
+    "market_data_watchlist",
+    metadata,
+    Column("provider", String(32), primary_key=True),
+    Column("product_id", String(32), primary_key=True),
+    Column("timeframe", String(8), primary_key=True),
+    Column("lookback_hours", Integer(), nullable=False),
+    Column("enabled", Boolean(), nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("timeframe IN ('1h', '5m')", name="ck_market_data_watchlist_timeframe"),
+    CheckConstraint(
+        "lookback_hours >= 1 AND lookback_hours <= 2160",
+        name="ck_market_data_watchlist_lookback_hours",
+    ),
+)
+
 strategy_drafts = Table(
     "strategy_drafts",
     metadata,
@@ -487,6 +504,7 @@ __all__ = [
     "execution_fills",
     "execution_orders",
     "execution_positions",
+    "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",
     "metadata",

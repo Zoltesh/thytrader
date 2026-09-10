@@ -69,7 +69,7 @@ class IngestionStateResponse(BaseModel):
 
     provider: str
     product_id: str
-    timeframe: Literal["1h"]
+    timeframe: Literal["1h", "5m"]
     status: Literal["never_run", "running", "succeeded", "failed"]
     last_attempt_at: datetime | None
     last_success_at: datetime | None
@@ -128,15 +128,20 @@ async def get_market_data_freshness(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
 ) -> FreshnessResponse:
     """Return explicit market data freshness evaluated against newest verified candle."""
     now = datetime.now(UTC)
     try:
         provider = _provider(runtime)
-        state = await store.get(provider, product_id, CandleInterval.ONE_HOUR)
+        interval = CandleInterval(timeframe)
+        state = await store.get(provider, product_id, interval)
         newest_candle = state.covered_ends_at if state is not None else None
         freshness = evaluate_freshness(
-            product_id=product_id, newest_candle_at=newest_candle, now=now
+            product_id=product_id,
+            newest_candle_at=newest_candle,
+            now=now,
+            interval=interval,
         )
         return FreshnessResponse(
             product_id=freshness.product_id,
@@ -199,11 +204,13 @@ async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
 ) -> IngestionStateResponse:
     """Return durable ingestion evidence without initiating or mutating worker activity."""
     try:
         provider = _provider(runtime)
-        state = await store.get(provider, product_id, CandleInterval.ONE_HOUR)
+        interval = CandleInterval(timeframe)
+        state = await store.get(provider, product_id, interval)
         if state is not None:
             validate_market_data_worker_state(state)
     except MarketDataWorkerUnavailableError:
@@ -211,11 +218,11 @@ async def get_ingestion_state(
     except Exception:  # noqa: BLE001 - persistence details are redacted at the API boundary.
         raise _unavailable() from None
     if state is None:
-        expected_boundary = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        expected_boundary = interval.align_closed_end(datetime.now(UTC))
         return IngestionStateResponse(
             provider=provider,
             product_id=product_id,
-            timeframe="1h",
+            timeframe=timeframe,
             status="never_run",
             last_attempt_at=None,
             last_success_at=None,
@@ -260,8 +267,8 @@ def _to_response(
         if state.failure_code is not None and state.failure_message is not None
         else None
     )
-    expected_boundary = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
-    freshness = _freshness(state.covered_ends_at, expected_boundary)
+    expected_boundary = state.timeframe.align_closed_end(now)
+    freshness = _freshness(state.covered_ends_at, expected_boundary, state.timeframe)
     fresh = freshness in {"current", "delayed"} if state.covered_ends_at is not None else None
     coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
         "unavailable"
@@ -278,7 +285,7 @@ def _to_response(
     return IngestionStateResponse(
         provider=state.provider,
         product_id=state.product_id,
-        timeframe="1h",
+        timeframe=state.timeframe.value,
         status=state.status.value,
         last_attempt_at=state.last_attempt_at,
         last_success_at=state.last_success_at,
@@ -300,14 +307,15 @@ def _to_response(
 def _freshness(
     covered_ends_at: datetime | None,
     expected_boundary: datetime,
+    interval: CandleInterval,
 ) -> Literal["current", "delayed", "stale", "unknown"]:
-    """Classify verified coverage against the latest finalized hourly boundary."""
+    """Classify verified coverage against the latest finalized interval boundary."""
     if covered_ends_at is None:
         return "unknown"
     lag = expected_boundary - covered_ends_at
     if lag <= timedelta(0):
         return "current"
-    if lag <= CandleInterval.ONE_HOUR.duration * 2:
+    if lag <= interval.duration * 2:
         return "delayed"
     return "stale"
 

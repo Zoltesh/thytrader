@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.strategies.models import StrategyStatus
 
 if TYPE_CHECKING:
@@ -69,8 +70,9 @@ def verify_research_run_eligibility(
         raise ResearchRunPublicationError(
             "Research run dataset does not provide the required warmup coverage."
         )
+    interval = parse_candle_interval(published_strategy.definition.timeframe)
     try:
-        required_fill_end = specification.evaluation.ends_at + timedelta(hours=1)
+        required_fill_end = specification.evaluation.ends_at + interval.duration
     except OverflowError as error:
         raise ResearchRunPublicationError(
             "Research run evaluation window cannot represent required next-candle-open coverage."

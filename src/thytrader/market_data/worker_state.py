@@ -313,6 +313,10 @@ class MarketDataWorkerStateStore(Protocol):
         """Return the latest state for one exact ingestion target."""
         ...
 
+    async def list_all(self) -> tuple[MarketDataWorkerState, ...]:
+        """Return latest state for every ingestion target."""
+        ...
+
 
 class DisabledMarketDataWorkerStateStore:
     """Reject diagnostics when PostgreSQL worker state is not configured."""
@@ -340,6 +344,10 @@ class DisabledMarketDataWorkerStateStore:
     ) -> MarketDataWorkerState | None:
         """Reject reads so disabled state never appears as an idle worker."""
         del provider, product_id, timeframe
+        raise MarketDataWorkerUnavailableError("Market-data worker state is unavailable.")
+
+    async def list_all(self) -> tuple[MarketDataWorkerState, ...]:
+        """Reject reads so disabled state never appears as an idle worker."""
         raise MarketDataWorkerUnavailableError("Market-data worker state is unavailable.")
 
 
@@ -489,6 +497,10 @@ class InMemoryMarketDataWorkerStateStore:
         """Return the latest state for an exact target, if attempted."""
         state = self._states.get(_key(provider, product_id, timeframe))
         return validate_market_data_worker_state(state) if state is not None else None
+
+    async def list_all(self) -> tuple[MarketDataWorkerState, ...]:
+        """Return every stored target state in insertion order."""
+        return tuple(validate_market_data_worker_state(state) for state in self._states.values())
 
 
 def _key(

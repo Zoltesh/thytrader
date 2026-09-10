@@ -140,15 +140,45 @@ def test_run_spec_requires_uuid7_canonical_utc_and_hour_boundaries() -> None:
             starts_at=datetime.combine(date(2026, 7, 10), time.min),
             ends_at=datetime.combine(date(2026, 7, 20), time.min),
         )
-    with pytest.raises(ValidationError, match="whole-hour"):
+    with pytest.raises(ValidationError, match="candle boundary"):
         EvaluationWindow(
             starts_at=datetime(2026, 7, 10, 0, 1, tzinfo=UTC),
             ends_at=datetime(2026, 7, 20, 0, 0, tzinfo=UTC),
         )
 
 
+def test_run_spec_accepts_five_minute_warmup_spacing() -> None:
+    """5m strategies space warmup bars by five minutes, not by hours."""
+    starts_at = datetime(2026, 7, 10, 0, 5, tzinfo=UTC)
+    run = ResearchRunSpecification(
+        schema_version="1.0",
+        run_id=UUID("019faf76-6600-7000-8000-000000000065"),
+        created_at=datetime(2026, 7, 29, 20, 0, tzinfo=UTC),
+        strategy_fingerprint=_STRATEGY_FINGERPRINT,
+        dataset_fingerprint=_DATASET_FINGERPRINT,
+        evaluation=EvaluationWindow(
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=10),
+        ),
+        warmup=WarmupWindow(bars=2, starts_at=starts_at - timedelta(minutes=10)),
+        capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
+        costs=CostAssumptions(
+            maker_fee_rate="0.004",
+            taker_fee_rate="0.006",
+            fixed_slippage_bps="2.5",
+        ),
+        bar_execution=BarExecutionAssumptions(
+            signal_timing="completed_candle_close",
+            fill_timing="next_candle_open",
+        ),
+        engine_contract_version="thytrader-bar-v1",
+        random_seed=42,
+    )
+    assert run.warmup.starts_at == datetime(2026, 7, 9, 23, 55, tzinfo=UTC)
+
+
 def test_run_spec_requires_exact_derived_warmup_range() -> None:
-    """Warmup start must equal evaluation start minus the declared hourly bars."""
+    """Warmup start must equal evaluation start minus the declared bars."""
     run = _reference_run()
 
     with pytest.raises(ValidationError, match="warmup"):
@@ -173,7 +203,7 @@ def test_run_spec_rejects_unrepresentable_derived_warmup_range() -> None:
     run = _reference_run()
     minimum = datetime.min.replace(tzinfo=UTC)
 
-    with pytest.raises(ValidationError, match="represent"):
+    with pytest.raises(ValidationError, match="warmup"):
         ResearchRunSpecification.model_validate(
             {
                 **run.model_dump(mode="python"),

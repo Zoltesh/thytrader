@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
 from thytrader.market_data.models import (
+    MAX_HISTORICAL_INTERVAL_COUNT,
     Candle,
     CandleInterval,
     CandleRangeReport,
@@ -21,9 +22,10 @@ if TYPE_CHECKING:
 
 _CANDLE_PAGE_LIMIT = 350
 _RECENT_INTERVAL_COUNT = 25
-_MAX_RANGE_INTERVAL_COUNT = 2_160
+_MAX_RANGE_INTERVAL_COUNT = MAX_HISTORICAL_INTERVAL_COUNT
 _COINBASE_GRANULARITIES: dict[CandleInterval, str] = {
     CandleInterval.ONE_HOUR: "ONE_HOUR",
+    CandleInterval.FIVE_MINUTES: "FIVE_MINUTE",
 }
 
 
@@ -108,7 +110,7 @@ class CoinbaseMarketData:
             product_id,
             str(int(start.timestamp())),
             str(int(now.timestamp())),
-            _COINBASE_GRANULARITIES[interval],
+            _granularity(interval),
             _CANDLE_PAGE_LIMIT,
         )
         product = _parse_product(product_response.to_dict())
@@ -153,7 +155,7 @@ class CoinbaseMarketData:
                 product_id,
                 str(int(page_start.timestamp())),
                 str(int(page_end.timestamp())),
-                _COINBASE_GRANULARITIES[interval],
+                _granularity(interval),
                 _CANDLE_PAGE_LIMIT,
             )
             page_candles = _parse_candles(response.to_dict())
@@ -163,6 +165,15 @@ class CoinbaseMarketData:
             return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
         except CandleQualityError as error:
             raise CoinbaseMarketDataError(str(error)) from error
+
+
+def _granularity(interval: CandleInterval) -> str:
+    """Map a supported domain interval to Coinbase Advanced Trade granularity."""
+    try:
+        return _COINBASE_GRANULARITIES[interval]
+    except KeyError as error:
+        message = f"Coinbase market data does not support interval {interval.value}."
+        raise CoinbaseMarketDataError(message) from error
 
 
 def _parse_product(payload: dict[str, Any]) -> MarketProduct:

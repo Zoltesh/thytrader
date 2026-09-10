@@ -394,7 +394,7 @@ class StrategyDefinition(_FrozenModel):
     status: StrategyStatus
     created_at: datetime
     instrument: Instrument
-    timeframe: Literal["1h"]
+    timeframe: Literal["1h", "5m"]
     data_requirements: DataRequirements
     indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
     entry: EntryDefinition

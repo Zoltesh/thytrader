@@ -10,22 +10,31 @@ from fastapi import APIRouter, Depends, Query
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_backtest_result_store,
+    get_dataset_store,
     get_execution_store,
     get_history_store,
+    get_market_data_service,
     get_market_data_state_store,
+    get_market_data_watchlist_store,
     get_portfolio_service,
     get_runtime_state,
     get_strategy_draft_store,
     get_strategy_publication_catalog,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
+from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
+from thytrader.market_data.service import MarketDataService  # noqa: TC001
+from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
 from thytrader.operator.models import (
     ConfigurationReport,
+    DataCatalogReport,
     ExchangeReport,
     HealthReport,
+    IndicatorsReport,
     MarketDataReport,
     PerformanceReport,
+    ProductsReport,
     ReconciliationReport,
     RiskReport,
     RuntimeReport,
@@ -54,6 +63,9 @@ def get_operator_diagnostics(
     backtests: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     execution: Annotated[ExecutionStore, Depends(get_execution_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    dataset_store: Annotated[DatasetStore, Depends(get_dataset_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
+    market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -67,6 +79,9 @@ def get_operator_diagnostics(
         execution=execution,
         audit=audit,
         runtime=runtime,
+        dataset_store=dataset_store,
+        watchlist=watchlist,
+        market_data=market_data,
     )
 
 
@@ -98,9 +113,34 @@ async def get_operator_exchange(
 async def get_operator_market_data(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
     product_id: Annotated[str | None, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = None,
+    timeframe: Annotated[str, Query(pattern=r"^(1h|5m)$")] = "1h",
 ) -> MarketDataReport:
-    """Return 1h freshness and gap evidence for one USD spot product."""
-    return await diagnostics.market_data(product_id)
+    """Return freshness and gap evidence for one USD spot product and timeframe."""
+    return await diagnostics.market_data_report(product_id, timeframe)
+
+
+@router.get("/products", response_model=ProductsReport)
+async def get_operator_products(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> ProductsReport:
+    """Return enabled USD spot products from the current catalog."""
+    return await diagnostics.products()
+
+
+@router.get("/data-catalog", response_model=DataCatalogReport)
+async def get_operator_data_catalog(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> DataCatalogReport:
+    """Return local dataset coverage joined with the ingestion watchlist."""
+    return await diagnostics.data_catalog()
+
+
+@router.get("/indicators", response_model=IndicatorsReport)
+async def get_operator_indicators(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> IndicatorsReport:
+    """Return implemented indicator kinds without inventing unsupported studies."""
+    return await diagnostics.indicators()
 
 
 @router.get("/strategies", response_model=StrategiesReport)

@@ -42,4 +42,4 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 - Treating a backtest as a live or paper fill
 - Archiving as part of this skill (out of scope)
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Paper/live control is `skills/thytrader-runtime/SKILL.md`.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests; paper and live deployments still require `1h`.

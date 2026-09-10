@@ -16,7 +16,13 @@ from uuid import uuid4
 
 import polars as pl
 
-from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
+from thytrader.market_data.models import (
+    Candle,
+    CandleInterval,
+    CandleRangeReport,
+    interval_from_range,
+    parse_candle_interval,
+)
 from thytrader.market_data.quality import (
     CandleQualityError,
     analyze_range,
@@ -90,7 +96,7 @@ class DatasetStore:
         _validate_identifier(product_id)
         _validate_report_for_publication(report)
 
-        timeframe = CandleInterval.ONE_HOUR.value
+        timeframe = interval_from_range(report).value
         rows = _candle_rows(report)
         digest = _fingerprint(provider, product_id, timeframe, report, rows)
         manifest_path = self._root / "manifests" / f"{digest}.json"
@@ -215,9 +221,7 @@ class DatasetStore:
         content_fingerprint = cast("str", manifest_payload["content_fingerprint"])
         _validate_identifier(provider)
         _validate_identifier(product_id)
-        if timeframe != CandleInterval.ONE_HOUR.value:
-            message = "Dataset verification failed because the timeframe is unsupported."
-            raise DatasetStoreError(message)
+        _require_timeframe(timeframe)
         fingerprint_match = _FINGERPRINT.fullmatch(content_fingerprint)
         if fingerprint_match is None:
             message = "Dataset verification failed because the content fingerprint is malformed."
@@ -304,6 +308,10 @@ class DatasetStore:
         prior_candles = _rows_to_candles(prior_rows)
         prior_start = _parse_utc_text(prior.starts_at)
         prior_end = _parse_utc_text(prior.ends_at)
+        interval = _require_timeframe(prior.timeframe)
+        if interval_from_range(report) is not interval:
+            message = "Dataset extension timeframe must match the prior dataset."
+            raise DatasetStoreError(message)
         if report.starts_at >= prior_end or report.ends_at <= prior_end:
             message = "Dataset extension must overlap and advance the prior verified range."
             raise DatasetStoreError(message)
@@ -311,7 +319,7 @@ class DatasetStore:
         merged.update({candle.starts_at: candle for candle in report.quality.candles})
         combined = analyze_range(
             tuple(merged.values()),
-            CandleInterval.ONE_HOUR,
+            interval,
             prior_start,
             report.ends_at,
             report.ends_at,
@@ -369,12 +377,13 @@ class DatasetStore:
             payload = json.loads(manifest_path.read_text())
             manifest = self._manifest_from_payload(payload, manifest_path)
             rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
+            interval = _require_timeframe(manifest.timeframe)
             range_report = analyze_range(
                 _rows_to_candles(rows),
-                CandleInterval.ONE_HOUR,
+                interval,
                 _parse_utc_text(manifest.starts_at),
                 _parse_utc_text(manifest.ends_at),
-                _parse_utc_text(manifest.ends_at) + CandleInterval.ONE_HOUR.duration,
+                _parse_utc_text(manifest.ends_at) + interval.duration,
             )
         except DatasetStoreError:
             raise
@@ -512,9 +521,7 @@ class DatasetStore:
         content_fingerprint = cast("str", manifest_payload["content_fingerprint"])
         _validate_identifier(provider)
         _validate_identifier(product_id)
-        if timeframe != CandleInterval.ONE_HOUR.value:
-            message = "Dataset verification failed because the timeframe is unsupported."
-            raise DatasetStoreError(message)
+        interval = _require_timeframe(timeframe)
         fingerprint_match = _FINGERPRINT.fullmatch(content_fingerprint)
         if fingerprint_match is None:
             message = "Dataset verification failed because the content fingerprint is malformed."
@@ -562,8 +569,8 @@ class DatasetStore:
         missing_intervals = cast("int", manifest_payload["missing_intervals"])
         if (
             duration <= timedelta(0)
-            or duration % CandleInterval.ONE_HOUR.duration != timedelta(0)
-            or expected_candle_count != duration // CandleInterval.ONE_HOUR.duration
+            or duration % interval.duration != timedelta(0)
+            or expected_candle_count != duration // interval.duration
             or received_candle_count != expected_candle_count
             or gap_count != 0
             or missing_intervals != 0
@@ -594,6 +601,15 @@ def _validate_identifier(value: str) -> None:
         raise DatasetStoreError(message)
 
 
+def _require_timeframe(timeframe: str) -> CandleInterval:
+    """Parse a supported dataset timeframe or fail closed."""
+    try:
+        return parse_candle_interval(timeframe)
+    except ValueError as error:
+        message = "Dataset verification failed because the timeframe is unsupported."
+        raise DatasetStoreError(message) from error
+
+
 def _validate_report_for_publication(report: CandleRangeReport) -> None:
     """Recompute every durable range fact before a report can publish dataset files."""
     if not report.complete:
@@ -603,12 +619,13 @@ def _validate_report_for_publication(report: CandleRangeReport) -> None:
         message = "A complete dataset must contain at least one candle."
         raise DatasetStoreError(message)
     try:
+        interval = interval_from_range(report)
         recomputed_report = analyze_range(
             tuple(report.quality.candles),
-            CandleInterval.ONE_HOUR,
+            interval,
             report.starts_at,
             report.ends_at,
-            report.ends_at + CandleInterval.ONE_HOUR.duration,
+            report.ends_at + interval.duration,
         )
     except CandleQualityError as error:
         raise DatasetStoreError(str(error)) from error

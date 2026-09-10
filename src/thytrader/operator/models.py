@@ -16,6 +16,9 @@ REPORT_KINDS: tuple[str, ...] = (
     "configuration",
     "exchange",
     "market_data",
+    "data_catalog",
+    "products",
+    "indicators",
     "strategies",
     "performance",
     "risk",
@@ -23,6 +26,8 @@ REPORT_KINDS: tuple[str, ...] = (
     "runtime",
     "support_bundle",
 )
+
+SupportedTimeframe = Literal["1h", "5m"]
 
 
 class ReportStatus(StrEnum):
@@ -142,7 +147,7 @@ class MarketDataPayload(_FrozenModel):
 
     product_id: str
     provider: str | None
-    timeframe: Literal["1h"] = "1h"
+    timeframe: SupportedTimeframe = "1h"
     worker_status: str | None
     complete: bool | None
     freshness_status: str
@@ -172,7 +177,7 @@ class DraftSummary(_FrozenModel):
     version: int
     revision: int
     product_id: str
-    timeframe: Literal["1h"]
+    timeframe: SupportedTimeframe
 
 
 class PublicationSummary(_FrozenModel):
@@ -183,7 +188,7 @@ class PublicationSummary(_FrozenModel):
     version: int
     strategy_fingerprint: str
     product_id: str
-    timeframe: Literal["1h"]
+    timeframe: SupportedTimeframe
     archived: bool
 
 
@@ -221,7 +226,7 @@ class PerformancePayload(_FrozenModel):
     """One backtest, paper, or live performance slice with explicit provenance."""
 
     mode: Literal["backtest", "paper", "live"]
-    timeframe: Literal["1h"]
+    timeframe: SupportedTimeframe
     currency: Literal["USD"] = "USD"
     strategy_fingerprint: str | None
     dataset_fingerprint: str | None
@@ -319,6 +324,86 @@ class SupportBundleReport(OperatorEnvelope):
 
     report_kind: Literal["support_bundle"] = "support_bundle"
     payload: SupportBundlePayload
+
+
+class ProductSummary(_FrozenModel):
+    """One enabled USD spot product from the current catalog."""
+
+    product_id: str
+    base_currency: str
+    quote_currency: str
+    trading_enabled: bool
+
+
+class ProductsPayload(_FrozenModel):
+    """Coinbase or demo USD spot products visible to agents."""
+
+    provider: str
+    products: tuple[ProductSummary, ...]
+
+
+class ProductsReport(OperatorEnvelope):
+    """Read-only USD spot catalog without secrets."""
+
+    report_kind: Literal["products"] = "products"
+    payload: ProductsPayload
+
+
+class DatasetCoverageRow(_FrozenModel):
+    """Local verified coverage plus watchlist and worker facts for one target."""
+
+    provider: str | None
+    product_id: str
+    timeframe: SupportedTimeframe
+    watched: bool
+    lookback_hours: int | None
+    worker_status: str | None
+    complete: bool | None
+    freshness_status: str
+    covered_starts_at: datetime | None
+    covered_ends_at: datetime | None
+    expected_candle_count: int | None
+    received_candle_count: int | None
+    gap_count: int | None
+    missing_intervals: int | None
+    content_fingerprint: str | None
+    sparsity: Literal["none", "unknown", "gapped"]
+
+
+class DataCatalogPayload(_FrozenModel):
+    """Agent-visible dataset catalog for 1h and 5m coverage."""
+
+    datasets: tuple[DatasetCoverageRow, ...]
+    supported_timeframes: tuple[SupportedTimeframe, ...] = ("1h", "5m")
+
+
+class DataCatalogReport(OperatorEnvelope):
+    """Local Parquet coverage joined with watchlist and worker state."""
+
+    report_kind: Literal["data_catalog"] = "data_catalog"
+    payload: DataCatalogPayload
+
+
+class IndicatorCatalogEntry(_FrozenModel):
+    """One implemented indicator kind and its canonical input/period bounds."""
+
+    kind: str
+    inputs: tuple[str, ...]
+    period_min: int
+    period_max: int
+
+
+class IndicatorsPayload(_FrozenModel):
+    """Implemented indicator registry. MACD and others are not invented here."""
+
+    indicators: tuple[IndicatorCatalogEntry, ...]
+
+
+class IndicatorsReport(OperatorEnvelope):
+    """Read-only list of strategy indicators the engine actually implements."""
+
+    report_kind: Literal["indicators"] = "indicators"
+    payload: IndicatorsPayload
 
 
 STANDARD_REDACTION = RedactionMetadata(

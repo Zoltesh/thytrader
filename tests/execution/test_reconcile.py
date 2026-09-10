@@ -36,6 +36,25 @@ class _LookupBroker:
         """Bind the get-order result used by reconcile."""
         self._result = result
 
+    async def place_order(
+        self,
+        *,
+        client_order_id: str,
+        product_id: str,
+        side: OrderSide,
+        kind: OrderKind,
+        quantity: Decimal,
+        price: Decimal | None,
+    ) -> SubmitResult:
+        """Reconcile tests do not place orders."""
+        del client_order_id, product_id, side, kind, quantity, price
+        raise AssertionError("place_order should not run in these reconcile tests")
+
+    async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
+        """Reconcile tests do not cancel orders."""
+        del venue_order_id, client_order_id
+        raise AssertionError("cancel_order should not run in these reconcile tests")
+
     async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """Return the configured snapshot."""
         del venue_order_id, client_order_id
@@ -50,6 +69,11 @@ class _LookupBroker:
         """Live-style: no candle matching."""
         del order, candle
         return None
+
+    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+        """Reconcile tests do not size maker limits."""
+        del product_id, mark
+        raise AssertionError("maker_limit_price should not run in these reconcile tests")
 
 
 async def _snapshot_with_order(store: InMemoryExecutionStore, order: Order) -> Deployment:

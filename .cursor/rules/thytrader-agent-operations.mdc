@@ -1,14 +1,15 @@
 ---
-description: Use shipped ThyTrader operator, research, and runtime skills instead of inventing trading workflows.
+description: Use shipped ThyTrader operator, data, research, and runtime skills instead of inventing trading workflows.
 alwaysApply: true
 ---
 
 # ThyTrader agent operations
 
-When diagnosing a running instance, mutating research artifacts, or controlling paper/live deployments, follow the skills of record:
+When diagnosing a running instance, mutating research artifacts, ingesting market data, or controlling paper/live deployments, follow the skills of record:
 
 - `skills/thytrader-operator/SKILL.md` — read-only diagnostics
+- `skills/thytrader-data/SKILL.md` — watchlist, ingest, gap-fill with `--confirm`
 - `skills/thytrader-research/SKILL.md` — drafts, publish, backtests with `--confirm`
 - `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
 
-Do not scrape logs, query PostgreSQL, print secrets, or give operator/research skills trading authority.
+Do not scrape logs, query PostgreSQL, print secrets, interpolate candles, or give operator/research/data skills trading authority.

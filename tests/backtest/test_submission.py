@@ -247,6 +247,7 @@ class _LoadedStrategyStore:
         del strategy_fingerprint
 
         class _Definition:
+            timeframe = "1h"
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:

@@ -20,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.market_data.models import CandleInterval
+
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DECIMAL_TEXT_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
@@ -66,11 +68,11 @@ def _require_utc(value: datetime, *, label: str) -> datetime:
     return value.astimezone(UTC)
 
 
-def _require_utc_hour(value: datetime, *, label: str) -> datetime:
-    """Require one exact whole-hour UTC candle boundary."""
+def _require_utc_candle_boundary(value: datetime, *, label: str) -> datetime:
+    """Require a timezone-aware UTC instant aligned to a 1h or 5m candle start."""
     normalized = _require_utc(value, label=label)
-    if normalized.minute or normalized.second or normalized.microsecond:
-        raise ValueError(f"{label} must be a whole-hour UTC boundary")
+    if normalized.second or normalized.microsecond or normalized.minute % 5:
+        raise ValueError(f"{label} must be an aligned UTC candle boundary")
     return normalized
 
 
@@ -88,9 +90,9 @@ class EvaluationWindow(_FrozenModel):
     @field_validator("starts_at", "ends_at")
     @classmethod
     def require_hour_boundary(cls, value: datetime, info: object) -> datetime:
-        """Require every evaluation boundary to be an exact UTC hour."""
+        """Require every evaluation boundary to align to a 1h or 5m candle start."""
         field_name = getattr(info, "field_name", "evaluation timestamp")
-        return _require_utc_hour(value, label=str(field_name))
+        return _require_utc_candle_boundary(value, label=str(field_name))
 
     @field_serializer("starts_at", "ends_at", when_used="json")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -99,9 +101,9 @@ class EvaluationWindow(_FrozenModel):
 
     @model_validator(mode="after")
     def require_nonempty_interval(self) -> Self:
-        """Require at least one completed hourly candle in the evaluation interval."""
-        if self.ends_at - self.starts_at < timedelta(hours=1):
-            raise ValueError("evaluation interval must contain at least one hourly candle")
+        """Require at least one completed 5m candle in the evaluation interval."""
+        if self.ends_at - self.starts_at < CandleInterval.FIVE_MINUTES.duration:
+            raise ValueError("evaluation interval must contain at least one candle")
         return self
 
 
@@ -114,8 +116,8 @@ class WarmupWindow(_FrozenModel):
     @field_validator("starts_at")
     @classmethod
     def require_hour_boundary(cls, value: datetime) -> datetime:
-        """Require the warmup boundary to be an exact UTC hour."""
-        return _require_utc_hour(value, label="warmup starts_at")
+        """Require the warmup boundary to align to a 1h or 5m candle start."""
+        return _require_utc_candle_boundary(value, label="warmup starts_at")
 
     @field_serializer("starts_at", when_used="json")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -250,15 +252,13 @@ class ResearchRunSpecification(_FrozenModel):
 
     @model_validator(mode="after")
     def require_derived_warmup_range(self) -> Self:
-        """Require warmup to end at evaluation start with exactly the declared hourly bars."""
+        """Require warmup to end at evaluation start with 1h or 5m bar spacing."""
         try:
-            expected_start = self.evaluation.starts_at - timedelta(hours=self.warmup.bars)
+            specification_bar_interval(self)
         except OverflowError as error:
-            raise ValueError("warmup range cannot represent the declared hourly bars") from error
-        if self.warmup.starts_at != expected_start:
-            raise ValueError(
-                "warmup starts_at must equal evaluation starts_at minus the declared warmup bars"
-            )
+            raise ValueError("warmup range cannot represent the declared bars") from error
+        except ValueError as error:
+            raise ValueError(str(error)) from error
         return self
 
     @model_validator(mode="after")
@@ -270,6 +270,23 @@ class ResearchRunSpecification(_FrozenModel):
         if not is_v2 and self.broker is not None:
             raise ValueError("broker assumptions require the backtest V2 contract")
         return self
+
+
+def specification_bar_interval(specification: ResearchRunSpecification) -> CandleInterval:
+    """Infer 1h or 5m from warmup spacing. Does not invent unsupported intervals."""
+    span = specification.evaluation.starts_at - specification.warmup.starts_at
+    for interval in CandleInterval:
+        if span == interval.duration * specification.warmup.bars:
+            return interval
+    raise ValueError(
+        "warmup starts_at must equal evaluation starts_at minus the declared warmup bars"
+    )
+
+
+def warmup_starts_at(evaluation_starts_at: datetime, bars: int, timeframe: str) -> datetime:
+    """Derive the warmup window start from one strategy timeframe."""
+    interval = CandleInterval(timeframe)
+    return evaluation_starts_at - interval.duration * bars
 
 
 def canonical_research_run_bytes(specification: ResearchRunSpecification) -> bytes:

@@ -18,6 +18,7 @@ _DIAGNOSTICS = _ROOT / "skills" / "thytrader-operator" / "references" / "diagnos
 _SCHEMAS = _ROOT / "skills" / "thytrader-operator" / "references" / "report-schemas.md"
 _RESEARCH_SKILL = _ROOT / "skills" / "thytrader-research" / "SKILL.md"
 _RUNTIME_SKILL = _ROOT / "skills" / "thytrader-runtime" / "SKILL.md"
+_DATA_SKILL = _ROOT / "skills" / "thytrader-data" / "SKILL.md"
 
 
 def test_operator_skill_matches_application_schema_and_routes() -> None:
@@ -38,6 +39,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/risk",
         "/reconciliation",
         "/runtime",
+        "/data-catalog",
+        "/products",
+        "/indicators",
         "/support-bundle",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
@@ -55,6 +59,17 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "Never deploys" in skill or "cannot deploy" in skill
     assert "--local" in skill
     assert "THYTRADER_API_BASE_URL" in skill or "loopback HTTP" in skill.lower()
+
+
+def test_data_skill_requires_confirm_and_forbids_interpolation() -> None:
+    """The data skill must gate ingest and deny trading plus interpolation."""
+    skill = _DATA_SKILL.read_text(encoding="utf-8")
+    assert "thytrader-data" in skill
+    assert "--confirm" in skill
+    assert "watch-add" in skill
+    assert "inspect-gaps" in skill
+    assert "Never interpolates" in skill or "never interpolated" in skill.lower()
+    assert "Never deploys" in skill or "cannot deploy" in skill.lower()
 
 
 def test_runtime_skill_requires_confirm_and_live_ack() -> None:

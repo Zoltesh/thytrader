@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from hashlib import sha256
 import json
 import secrets
@@ -26,6 +26,7 @@ from thytrader.research.models import (
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
+    warmup_starts_at,
 )
 from thytrader.research.publication import (
     PublishedResearchRunSpecification,
@@ -173,8 +174,11 @@ class PostgresBacktestSubmitter:
             ),
             warmup=WarmupWindow(
                 bars=strategy.definition.data_requirements.warmup_bars,
-                starts_at=request.evaluation_start
-                - timedelta(hours=strategy.definition.data_requirements.warmup_bars),
+                starts_at=warmup_starts_at(
+                    request.evaluation_start,
+                    strategy.definition.data_requirements.warmup_bars,
+                    strategy.definition.timeframe,
+                ),
             ),
             capital=CapitalAssumptions(
                 quote_currency="USD",

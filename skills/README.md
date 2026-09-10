@@ -12,6 +12,14 @@ Read-only diagnostics: health, redacted configuration, exchange permissions, mar
 - CLI: `uv run thytrader-operator` (HTTP by default; `--local` is explicit)
 - HTTP: `GET /api/v1/operator/...`
 
+## `thytrader-data`
+
+Confirmation-gated watchlist, complete-only ingest, and gap inspection. No paper, live, strategy, or backtest authority. Does not interpolate missing candles.
+
+- Skill: [`thytrader-data/SKILL.md`](thytrader-data/SKILL.md)
+- CLI: `uv run thytrader-data … --confirm`
+- HTTP: `/api/v1/data`
+
 ## `thytrader-research`
 
 Confirmation-gated drafts, immutable publication, and idempotent backtest submission. No paper, live, arming, or cancellation authority.

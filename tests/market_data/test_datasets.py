@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
 import os
@@ -83,6 +83,24 @@ def test_dataset_store_writes_complete_range_as_parquet_with_manifest(tmp_path: 
     frame = pl.read_parquet(manifest.files[0])
     assert frame.columns == ["starts_at", "open", "high", "low", "close", "volume"]
     assert frame.height == 3
+
+
+def test_dataset_store_writes_complete_five_minute_range(tmp_path: Path) -> None:
+    """Five-minute complete ranges publish under the 5m partition, not 1h."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(minutes=5 * index)) for index in range(3))
+    report = analyze_range(
+        candles,
+        CandleInterval.FIVE_MINUTES,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=15),
+        now=starts_at + timedelta(minutes=20),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "5m"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "5m")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
 
 
 def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:

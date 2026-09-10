@@ -27,7 +27,7 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `created_at` | Timezone-aware UTC creation instant. |
 | `strategy_fingerprint` | Exact published canonical strategy fingerprint. |
 | `dataset_fingerprint` | Exact verified immutable dataset fingerprint. |
-| `evaluation` | Non-empty, whole-hour UTC, half-open `[starts_at, ends_at)` interval. |
+| `evaluation` | Non-empty, 5-minute-aligned UTC, half-open `[starts_at, ends_at)` interval. 1h strategies still require hour-aligned windows derived from hourly warmup spacing. |
 | `warmup` | `bars` plus the exact derived `starts_at`; its interval is `[starts_at, evaluation.starts_at)`. |
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
 | `costs` | Maker/taker fee rates from zero through `0.1`, maker no greater than taker, and fixed slippage from zero through `1000` basis points. |

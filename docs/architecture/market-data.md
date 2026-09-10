@@ -19,11 +19,11 @@ GET /api/v1/market-data/feed?product_id=BTC-USD
 The range endpoint paginates through Coinbase's 350-candle limit using non-overlapping pages,
 validates every candle for UTC alignment, chronological order, OHLC consistency, and decimal
 exactness, and reports expected vs received candle counts, gaps, and a binary completeness result.
-It is bounded to 2,160 candles (90 days at 1h) and cannot request ranges ending in the future.
+It is bounded to 4,032 candles (14 days at 5m, 168 days at 1h) and cannot request ranges ending in the future.
 
-The request-time preview and range endpoints are diagnostics, not strategy inputs. The separate
-worker now maintains an immutable, fingerprint-addressed 1h historical dataset that future
-backtests can resolve through the internal verified reader:
+The worker now maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Confirmation-gated
+`POST /api/v1/data/ingest` shares `ingest_once` with the worker. Preview/range endpoints remain diagnostics,
+not strategy inputs.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -53,7 +53,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h` |
+| Timeframe | `1h` and `5m` for complete-only datasets and research; paper/live remain `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -198,11 +198,8 @@ withdrawal, leverage, derivatives, or optimization authority.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Additional timeframes** — extend the same complete-only maintenance contract to 5m, 15m, 30m,
-   6h, and 1d without weakening boundary or fingerprint semantics.
-2. **Additional ingestion targets** — expand the worker from one configured 1h product/range to
-   explicitly managed products and supported timeframes without weakening complete-only publication.
-3. **Diagnostics contract** — provide versioned machine-readable market-data health/data coverage
-   reports and a CLI before adding commands to `thytrader-operator/SKILL.md`.
+1. **Additional timeframes** — 5m research datasets and ingest are implemented; 15m, 30m, 6h, and 1d remain deferred.
+2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and 5m without weakening complete-only publication.
+3. **5m paper/live** — execution stays on closed 1h bars until 5m research coverage is trustworthy.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

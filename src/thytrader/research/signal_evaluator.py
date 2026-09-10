@@ -8,12 +8,17 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import ValidationError
 
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.indicators import (
     IndicatorCalculationError,
     calculate_indicator_rows,
     canonical_decimal,
 )
-from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
+from thytrader.research.models import (
+    ResearchRunSpecification,
+    research_run_fingerprint,
+    specification_bar_interval,
+)
 from thytrader.research.trace import (
     EntryConditionOutcome,
     IndicatorTraceValue,
@@ -118,6 +123,10 @@ def _verify_contract(
         raise SignalEvaluationError("Research run strategy identity failed verification.")
     if specification.warmup.bars != strategy.data_requirements.warmup_bars:
         raise SignalEvaluationError("Research run warmup does not match the strategy requirement.")
+    if specification_bar_interval(specification) is not parse_candle_interval(strategy.timeframe):
+        raise SignalEvaluationError(
+            "Research run bar spacing does not match the published strategy timeframe."
+        )
     return engine_contract_version
 
 
@@ -127,19 +136,18 @@ def _required_candles(
 ) -> tuple[Candle, ...]:
     """Select exact warmup/evaluation candles and reject duplicates, gaps, or malformed bars."""
     selected = _select_window_candles(specification, candles)
+    bar = specification_bar_interval(specification).duration
     expected_count = specification.warmup.bars + int(
-        (specification.evaluation.ends_at - specification.evaluation.starts_at) / timedelta(hours=1)
+        (specification.evaluation.ends_at - specification.evaluation.starts_at) / bar
     )
     if len(selected) != expected_count:
         raise SignalEvaluationError(
             "Signal evaluation candle coverage is incomplete or duplicated."
         )
     for index, candle in enumerate(selected):
-        expected_start = specification.warmup.starts_at + timedelta(hours=index)
+        expected_start = specification.warmup.starts_at + bar * index
         if candle.starts_at != expected_start:
-            raise SignalEvaluationError(
-                "Signal evaluation candles are not contiguous hourly UTC bars."
-            )
+            raise SignalEvaluationError("Signal evaluation candles are not contiguous UTC bars.")
         values = (candle.open, candle.high, candle.low, candle.close, candle.volume)
         if any(not _within_decimal_contract(value) for value in values):
             raise SignalEvaluationError("Signal evaluation candles violate OHLCV Decimal limits.")

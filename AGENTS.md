@@ -152,13 +152,15 @@ logs or querying PostgreSQL:
 
 - [`skills/thytrader-operator/SKILL.md`](skills/thytrader-operator/SKILL.md) — read-only diagnostics
   (`uv run thytrader-operator`, `GET /api/v1/operator/*`).
+- [`skills/thytrader-data/SKILL.md`](skills/thytrader-data/SKILL.md) — watchlist, ingest, and
+  gap-fill only, with `--confirm` on every mutation.
 - [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
   backtests only, with `--confirm` on every mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
   resume, and stop, with `--confirm` (live also `--i-understand-live`).
 
-Operator and research skills must not deploy, arm live trading, or cancel orders. Runtime control
-must not be folded into those skills.
+Operator and research skills must not deploy, arm live trading, or cancel orders. Data ingest must
+not be folded into those skills. Runtime control must not be folded into operator, data, or research.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

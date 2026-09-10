@@ -6,7 +6,8 @@ This roadmap sequences capabilities and safety gates. It is not a promise of dat
 
 Research authoring, publication, and V1/V2 backtests are implemented. Paper and live execution share
 one 1h candle-close worker, a paper maker broker, and a Coinbase Advanced Trade REST v3 JSON adapter
-(SDK used only as JWT transport). Remaining extras stay deferred: extra timeframes, trailing stops,
+(SDK used only as JWT transport). Remaining extras stay deferred: extra execution timeframes
+beyond 1h paper/live, trailing stops,
 native brackets/OCO, user-order WebSockets, walk-forward, and a risk-policy registry.
 
 The numbered phases below remain the capability map. Items marked complete are in the tree; unmarked
@@ -102,8 +103,8 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- Extend the same durable contract to additional timeframes (5m, 15m, 30m, 6h, 1d).
-- Multi-product scheduling and explicit gap-repair workflows beyond idempotent exact-range retries.
+- Extend the same durable contract to 15m, 30m, 6h, and 1d. 5m research ingest and backtests are implemented.
+- 5m paper/live execution after research coverage is proven.
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and

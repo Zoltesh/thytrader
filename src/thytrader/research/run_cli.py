@@ -26,6 +26,7 @@ from thytrader.research.models import (
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
+    warmup_starts_at,
 )
 
 if TYPE_CHECKING:
@@ -171,8 +172,11 @@ async def _publish(arguments: argparse.Namespace) -> str:
             ),
             warmup=WarmupWindow(
                 bars=strategy.definition.data_requirements.warmup_bars,
-                starts_at=arguments.evaluation_start
-                - timedelta(hours=strategy.definition.data_requirements.warmup_bars),
+                starts_at=warmup_starts_at(
+                    arguments.evaluation_start,
+                    strategy.definition.data_requirements.warmup_bars,
+                    strategy.definition.timeframe,
+                ),
             ),
             capital=CapitalAssumptions(
                 quote_currency="USD", initial_quote_balance=arguments.initial_quote_balance

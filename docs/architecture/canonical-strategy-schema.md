@@ -16,7 +16,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
-- 1h Coinbase USD spot, long only, one position, with EMA/SMA/RSI/ATR/volume-SMA indicators;
+- 1h Coinbase USD spot for paper/live; `1h` or `5m` for research datasets and backtests; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA indicators;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
   preferences;
@@ -93,7 +93,7 @@ entry-condition evaluation as defined in
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
 | `instrument` | object | Explicit product, never inherited from runtime. |
-| `timeframe` | enum | One of the supported candle intervals. |
+| `timeframe` | enum | `1h` or `5m`. Paper and live still require `1h`. |
 | `data_requirements` | object | Minimum bars and OHLCV fields needed for indicator warmup. |
 | `indicators` | array | Named indicator definitions (see below). |
 | `entry` | object | Signal conditions and entry constraints. |

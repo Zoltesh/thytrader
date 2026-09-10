@@ -8,6 +8,7 @@ from thytrader.market_data.freshness import (
     FreshnessStatus,
     evaluate_freshness,
 )
+from thytrader.market_data.models import CandleInterval
 
 
 def test_evaluate_freshness_boundary_conditions() -> None:
@@ -25,6 +26,21 @@ def test_evaluate_freshness_boundary_conditions() -> None:
     res_stale = evaluate_freshness(product_id="BTC-USD", newest_candle_at=candle_stale, now=now)
     assert res_stale.status == FreshnessStatus.STALE
     assert res_stale.age_seconds == 7500
+
+    fresh_5m = evaluate_freshness(
+        product_id="ETH-USD",
+        newest_candle_at=now - timedelta(seconds=899),
+        now=now,
+        interval=CandleInterval.FIVE_MINUTES,
+    )
+    stale_5m = evaluate_freshness(
+        product_id="ETH-USD",
+        newest_candle_at=now - timedelta(seconds=900),
+        now=now,
+        interval=CandleInterval.FIVE_MINUTES,
+    )
+    assert fresh_5m.status == FreshnessStatus.FRESH
+    assert stale_5m.status == FreshnessStatus.STALE
 
     # None -> UNKNOWN
     res_unknown = evaluate_freshness(product_id="BTC-USD", newest_candle_at=None, now=now)

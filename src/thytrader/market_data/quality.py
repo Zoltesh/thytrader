@@ -111,6 +111,32 @@ def analyze_range(
     )
 
 
+def missing_interval_starts(
+    candles: tuple[Candle, ...],
+    interval: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+) -> tuple[datetime, ...]:
+    """Return every expected bar start absent from one half-open UTC range.
+
+    Missing bars are listed, never interpolated. Callers classify why a start is
+    absent using worker state and a live exchange probe.
+    """
+    _require_utc(starts_at)
+    _require_utc(ends_at)
+    if starts_at >= ends_at or (ends_at - starts_at) % interval.duration != timedelta(0):
+        message = "Historical ranges must be non-empty and align to the selected interval."
+        raise CandleQualityError(message)
+    present = {candle.starts_at for candle in candles}
+    missing: list[datetime] = []
+    cursor = starts_at
+    while cursor < ends_at:
+        if cursor not in present:
+            missing.append(cursor)
+        cursor = cursor + interval.duration
+    return tuple(missing)
+
+
 def _validate_timestamps(candles: tuple[Candle, ...], interval: CandleInterval) -> None:
     """Reject duplicate, naive, or non-aligned upstream candle timestamps."""
     previous: datetime | None = None

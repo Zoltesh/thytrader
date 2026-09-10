@@ -3,23 +3,69 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from decimal import Decimal
 
+# Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
+# 4,032 five-minute bars is 14 days; 4,032 hourly bars is 168 days.
+MAX_HISTORICAL_INTERVAL_COUNT = 4_032
+
 
 class CandleInterval(StrEnum):
-    """Supported closed-candle intervals for the initial market-data preview."""
+    """Supported closed-candle intervals for research datasets and 1h execution."""
 
     ONE_HOUR = "1h"
+    FIVE_MINUTES = "5m"
 
     @property
     def duration(self) -> timedelta:
         """Return the exact duration represented by one interval."""
-        return timedelta(hours=1)
+        if self is CandleInterval.ONE_HOUR:
+            return timedelta(hours=1)
+        if self is CandleInterval.FIVE_MINUTES:
+            return timedelta(minutes=5)
+        message = f"Unsupported candle interval: {self.value}."
+        raise ValueError(message)
+
+    def align_closed_end(self, now: datetime) -> datetime:
+        """Return the exclusive end of the latest fully closed bar at ``now``."""
+        instant = now.astimezone(UTC).replace(second=0, microsecond=0)
+        if self is CandleInterval.ONE_HOUR:
+            return instant.replace(minute=0)
+        if self is CandleInterval.FIVE_MINUTES:
+            minute = (instant.minute // 5) * 5
+            return instant.replace(minute=minute)
+        message = f"Unsupported candle interval: {self.value}."
+        raise ValueError(message)
+
+    @property
+    def execution_supported(self) -> bool:
+        """Paper and live runtimes currently evaluate closed 1h bars only."""
+        return self is CandleInterval.ONE_HOUR
+
+
+def parse_candle_interval(value: str) -> CandleInterval:
+    """Parse a supported interval token or fail closed."""
+    try:
+        return CandleInterval(value)
+    except ValueError as error:
+        message = f"Unsupported candle interval: {value}."
+        raise ValueError(message) from error
+
+
+def interval_from_range(report: CandleRangeReport) -> CandleInterval:
+    """Infer the supported interval from one half-open range's requested span."""
+    if report.requested_candle_count < 1:
+        raise ValueError("A dataset range must request at least one candle.")
+    step = (report.ends_at - report.starts_at) / report.requested_candle_count
+    for interval in CandleInterval:
+        if interval.duration == step:
+            return interval
+    raise ValueError("Historical range does not match a supported candle interval.")
 
 
 @dataclass(frozen=True, slots=True)

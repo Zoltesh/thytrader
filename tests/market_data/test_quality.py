@@ -1,13 +1,18 @@
 """Behavioral tests for historical-candle quality analysis."""
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from thytrader.market_data.models import Candle, CandleInterval
-from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
+from thytrader.market_data.quality import (
+    CandleQualityError,
+    analyze_candles,
+    analyze_range,
+    missing_interval_starts,
+)
 
 
 def _candle(hour: int) -> Candle:
@@ -113,3 +118,34 @@ def test_quality_rejects_mixed_timezone_candles_before_sorting() -> None:
             CandleInterval.ONE_HOUR,
             now=datetime(2026, 7, 28, 3, tzinfo=UTC),
         )
+
+
+def test_missing_interval_starts_lists_absent_five_minute_bars() -> None:
+    """Gap inspection lists missing starts without interpolating prices."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 28, 0, 15, tzinfo=UTC)
+    present = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+        Candle(
+            starts_at=starts_at + timedelta(minutes=10),
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    missing = missing_interval_starts(
+        present,
+        CandleInterval.FIVE_MINUTES,
+        starts_at,
+        ends_at,
+    )
+    assert missing == (starts_at + timedelta(minutes=5),)

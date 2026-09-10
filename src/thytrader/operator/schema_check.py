@@ -78,6 +78,9 @@ def check_operator_schema(root: Path | None = None) -> SchemaCheckResult:
         "/risk",
         "/reconciliation",
         "/runtime",
+        "/data-catalog",
+        "/products",
+        "/indicators",
         "/support-bundle",
     ):
         if f"{OPERATOR_API_PREFIX}{suffix}" not in combined:

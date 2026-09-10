@@ -94,6 +94,32 @@ def _manifest() -> DatasetManifest:
     )
 
 
+def test_eligibility_accepts_five_minute_fill_lookahead() -> None:
+    """5m research runs require one extra 5m bar after evaluation, not an extra hour."""
+    published = _published_strategy()
+    definition = published.definition.model_copy(update={"timeframe": "5m"})
+    five_minute = PublishedStrategy(
+        strategy_fingerprint=strategy_fingerprint(definition),
+        definition=definition,
+    )
+    hourly_spaced = _run(five_minute)
+    run = hourly_spaced.model_copy(
+        update={
+            "warmup": WarmupWindow(
+                bars=50,
+                starts_at=hourly_spaced.evaluation.starts_at - timedelta(minutes=5 * 50),
+            )
+        }
+    )
+    manifest = replace(
+        _manifest(),
+        timeframe="5m",
+        starts_at="2026-07-09T19:50:00Z",
+        ends_at="2026-07-20T00:05:00Z",
+    )
+    verify_research_run_eligibility(run, five_minute, manifest)
+
+
 def test_eligibility_accepts_exact_verified_artifact_contract() -> None:
     """A compatible strategy, dataset, range, warmup, and fill lookahead are eligible."""
     published = _published_strategy()

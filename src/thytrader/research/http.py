@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from thytrader.agent_http import request_json
+from thytrader.agent_http import AgentHttpError, request_json
 from thytrader.research.mutation import ResearchMutationError
 
 if TYPE_CHECKING:
@@ -145,19 +145,42 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
         "backtest detail",
     )
     result = _as_object(body.get("result"), "backtest result")
+    strategy_fingerprint = result.get("strategy_fingerprint")
+    timeframe = "1h"
+    if isinstance(strategy_fingerprint, str):
+        try:
+            timeframe = _strategy_timeframe(base_url, strategy_fingerprint)
+        except AgentHttpError, ResearchMutationError:
+            timeframe = "1h"
     return _encode(
         {
             "result_fingerprint": body.get("result_fingerprint"),
             "run_fingerprint": result.get("run_fingerprint"),
-            "strategy_fingerprint": result.get("strategy_fingerprint"),
+            "strategy_fingerprint": strategy_fingerprint,
             "dataset_fingerprint": result.get("dataset_fingerprint"),
             "engine_contract_version": result.get("engine_contract_version"),
             "mode": "backtest",
-            "timeframe": "1h",
+            "timeframe": timeframe,
             "currency": "USD",
             "summary": result.get("summary"),
         }
     )
+
+
+def _strategy_timeframe(base_url: str, strategy_fingerprint: str) -> str:
+    """Read the published strategy timeframe without inventing unsupported intervals."""
+    source = _as_object(
+        request_json(
+            method="GET",
+            url=f"{base_url}/api/v1/strategies/source/{strategy_fingerprint}",
+        ),
+        "strategy source",
+    )
+    strategy = _as_object(source.get("strategy"), "published strategy")
+    timeframe = strategy.get("timeframe")
+    if timeframe == "5m":
+        return "5m"
+    return "1h"
 
 
 def _draft_entry(listing: dict[str, object], strategy_id: str) -> dict[str, object]:

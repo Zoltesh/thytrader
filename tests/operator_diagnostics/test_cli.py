@@ -21,7 +21,35 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "support-bundle" in output
     assert "runtime" in output
     assert "schema-check" in output
+    assert "data-catalog" in output
+    assert "products" in output
+    assert "indicators" in output
     assert "loopback HTTP" in output or "--local" in output
+
+
+def test_operator_local_indicators_and_products_are_healthy(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Indicators and the demo product catalog do not require PostgreSQL."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "indicators"])
+    assert raised.value.code == 0
+    indicators = json.loads(capsys.readouterr().out)
+    assert indicators["report_kind"] == "indicators"
+    kinds = {item["kind"] for item in indicators["payload"]["indicators"]}
+    assert kinds == {"ema", "sma", "rsi", "atr", "volume_sma"}
+
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "products"])
+    products = json.loads(capsys.readouterr().out)
+    assert products["report_kind"] == "products"
+    assert raised.value.code in {0, 1, 2}
+    if products["payload"].get("provider") == "demo" and raised.value.code == 0:
+        assert {item["product_id"] for item in products["payload"]["products"]} >= {
+            "BTC-USD",
+            "ETH-USD",
+            "SOL-USD",
+        }
 
 
 def test_operator_health_emits_json_and_nonzero_without_stack(

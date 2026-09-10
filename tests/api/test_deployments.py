@@ -259,6 +259,30 @@ def test_live_deployment_requires_credentials() -> None:
     assert allowed.json()["cash"] == "0"
 
 
+def test_five_minute_strategy_cannot_start_paper() -> None:
+    """Paper and live stay on 1h even when a 5m strategy is published."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "5m"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        denied = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+
+    assert denied.status_code == 409
+    assert "1h" in denied.json()["detail"]
+
+
 def test_unknown_fingerprint_is_not_found() -> None:
     """Deploying an unpublished fingerprint fails closed."""
     with _client(InMemoryPublicationStore(), InMemoryExecutionStore()) as client:

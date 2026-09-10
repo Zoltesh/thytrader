@@ -76,6 +76,24 @@ class MarketDataService:
             product_id, ends_at - timedelta(days=7), ends_at, ends_at
         )
 
+    async def get_range(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Return one provider-neutral explicit range for internal ingestion."""
+        provider = cast("HistoricalMarketDataProvider", self._provider)
+        return await provider.get_historical_range(
+            product_id,
+            interval,
+            starts_at,
+            ends_at,
+            now,
+        )
+
     async def get_hourly_range(
         self,
         product_id: str,
@@ -84,8 +102,7 @@ class MarketDataService:
         now: datetime,
     ) -> CandleRangeReport:
         """Return one provider-neutral explicit hourly range for internal ingestion."""
-        provider = cast("HistoricalMarketDataProvider", self._provider)
-        return await provider.get_historical_range(
+        return await self.get_range(
             product_id,
             CandleInterval.ONE_HOUR,
             starts_at,

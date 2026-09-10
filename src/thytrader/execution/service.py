@@ -44,6 +44,8 @@ async def create_deployment(
         raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
+    if definition.timeframe != "1h":
+        raise ExecutionConflictError("Paper and live deployments require the 1h timeframe.")
     existing = await store.list_by_strategy(str(definition.strategy_id))
     if any(item.mode is mode and item.status is DeploymentStatus.RUNNING for item in existing):
         raise ExecutionConflictError(

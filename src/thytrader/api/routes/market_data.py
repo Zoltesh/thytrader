@@ -82,7 +82,7 @@ class DatasetResponse(BaseModel):
 
     provider: str
     product_id: str
-    timeframe: Literal["1h"]
+    timeframe: Literal["1h", "5m"]
     starts_at: datetime
     ends_at: datetime
     received_candle_count: int
@@ -210,7 +210,7 @@ def _to_dataset_response(manifest: DatasetManifest) -> DatasetResponse:
     return DatasetResponse(
         provider=manifest.provider,
         product_id=manifest.product_id,
-        timeframe="1h",
+        timeframe=_browser_dataset_timeframe(manifest.timeframe),
         starts_at=datetime.fromisoformat(manifest.starts_at),
         ends_at=datetime.fromisoformat(manifest.ends_at),
         received_candle_count=manifest.received_candle_count,
@@ -218,12 +218,21 @@ def _to_dataset_response(manifest: DatasetManifest) -> DatasetResponse:
     )
 
 
+def _browser_dataset_timeframe(value: str) -> Literal["1h", "5m"]:
+    """Narrow a verified dataset timeframe to the browser catalog contract."""
+    if value == "5m":
+        return "5m"
+    if value == "1h":
+        return "1h"
+    raise ValueError("Dataset timeframe is not 1h or 5m.")
+
+
 def _to_preview_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:
     """Map one validated domain preview into its compact browser representation."""
     return MarketDataPreviewResponse(
         as_of=preview.as_of,
         product=ProductResponse.model_validate(preview.product),
-        timeframe=preview.interval.value,
+        timeframe="1h",
         quality=MarketDataQualityResponse(
             candle_count=preview.quality.candle_count,
             gap_count=preview.quality.gap_count,

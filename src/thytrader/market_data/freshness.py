@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.market_data.models import CandleInterval
+
 
 class FreshnessStatus(StrEnum):
     """Normalized freshness status for market data candles."""
@@ -16,8 +18,8 @@ class FreshnessStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
-# 1h candle + 5 minutes grace period = 2h 05m = 7500 seconds
-_HOURLY_FRESH_THRESHOLD_SECONDS = 7500
+# Two expected intervals plus a five-minute grace period.
+_FRESHNESS_GRACE_SECONDS = 300
 
 
 class _FrozenModel(BaseModel):
@@ -47,6 +49,7 @@ def evaluate_freshness(
     product_id: str,
     newest_candle_at: datetime | None,
     now: datetime,
+    interval: CandleInterval = CandleInterval.ONE_HOUR,
 ) -> MarketDataFreshness:
     """Evaluate candle freshness deterministically against UTC observation time."""
     if now.tzinfo is not UTC:
@@ -64,11 +67,12 @@ def evaluate_freshness(
     if newest_candle_at.tzinfo is not UTC:
         raise ValueError("newest_candle_at must be timezone-aware UTC")
 
+    threshold = int(interval.duration.total_seconds() * 2) + _FRESHNESS_GRACE_SECONDS
     age = int((now - newest_candle_at).total_seconds())
     if age < 0:
         # Candle timestamp is in the future - fail safe to stale/unknown
         status = FreshnessStatus.STALE
-    elif age < _HOURLY_FRESH_THRESHOLD_SECONDS:
+    elif age < threshold:
         status = FreshnessStatus.FRESH
     else:
         status = FreshnessStatus.STALE

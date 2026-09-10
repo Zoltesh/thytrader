@@ -12,8 +12,12 @@ from coinbase.rest import RESTClient
 
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.demo import DemoMarketData
+from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.watchlist import DisabledMarketDataWatchlistStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import DisabledAuditEventStore
@@ -24,6 +28,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
+from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -43,9 +48,10 @@ async def operator_diagnostics(
     """Yield diagnostics backed by PostgreSQL when configured, otherwise disabled stores."""
     resolved = settings or Settings()
     engine = None
+    dataset_store = DatasetStore(resolved.market_data_dataset_root)
+    market_data = _market_data_service(resolved)
     if resolved.database_url is not None:
         engine = create_engine(resolved.database_url)
-        dataset_store = DatasetStore(resolved.market_data_dataset_root)
         strategy_store = PostgresStrategyPublicationStore(engine)
         diagnostics = OperatorDiagnostics(
             settings=resolved,
@@ -62,6 +68,9 @@ async def operator_diagnostics(
             execution=PostgresExecutionStore(engine),
             audit=PostgresAuditEventStore(engine),
             engine=engine,
+            dataset_store=dataset_store,
+            watchlist=PostgresMarketDataWatchlistStore(engine),
+            market_data=market_data,
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -74,6 +83,9 @@ async def operator_diagnostics(
             backtests=DisabledBacktestResultStore(),
             execution=DisabledExecutionStore(),
             audit=DisabledAuditEventStore(),
+            dataset_store=dataset_store,
+            watchlist=DisabledMarketDataWatchlistStore(),
+            market_data=market_data,
         )
     try:
         yield diagnostics
@@ -92,3 +104,15 @@ def _portfolio_service(settings: Settings) -> PortfolioService:
         timeout=10,
     )
     return PortfolioService(CoinbaseAccount(client))
+
+
+def _market_data_service(settings: Settings) -> MarketDataService:
+    """Mirror API construction: Coinbase when credentials exist, otherwise demo."""
+    if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
+        return MarketDataService(DemoMarketData())
+    client = RESTClient(
+        api_key=settings.coinbase_api_key_name.get_secret_value(),
+        api_secret=settings.coinbase_api_private_key.get_secret_value(),
+        timeout=10,
+    )
+    return MarketDataService(CoinbaseMarketData(client))

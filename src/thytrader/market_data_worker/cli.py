@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 import logging
 import signal
 from typing import TYPE_CHECKING
@@ -16,11 +17,13 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.service import MarketDataService
+from thytrader.market_data.watchlist import ensure_default_watch_target
 from thytrader.market_data_worker.feed import run_public_market_feed
 from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
+from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 
@@ -41,12 +44,20 @@ async def run() -> None:
     engine = create_engine(settings.database_url)
     service, provider = _build_service(settings)
     state_store = PostgresMarketDataWorkerStateStore(engine)
+    watchlist = PostgresMarketDataWatchlistStore(engine)
     feed_store = PostgresMarketFeedStateStore(engine)
     audit_store = PostgresAuditEventStore(engine)
     live_feed = provider == "coinbase"
     try:
         try:
             await ping(engine)
+            await ensure_default_watch_target(
+                watchlist,
+                provider=provider,
+                product_id=settings.market_data_worker_product_id,
+                lookback_hours=settings.market_data_worker_lookback_hours,
+                now=datetime.now(UTC),
+            )
             await state_store.get(
                 provider,
                 settings.market_data_worker_product_id,
@@ -75,6 +86,7 @@ async def run() -> None:
                 lookback_hours=settings.market_data_worker_lookback_hours,
                 interval_seconds=settings.market_data_worker_interval_seconds,
                 on_readiness_changed=lambda ready: _set_readiness(readiness_file, ready),
+                watchlist=watchlist,
             ),
             run_public_market_feed(
                 stop_requested,

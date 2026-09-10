@@ -61,7 +61,7 @@ class DemoMarketData:
     async def get_recent_preview(
         self, product_id: str, interval: CandleInterval, now: datetime
     ) -> MarketDataPreview:
-        """Return deterministic completed hourly candles for one supported demo product."""
+        """Return deterministic completed candles for one supported demo product."""
         product = _product(product_id, interval)
         try:
             latest_start = now.replace(minute=0, second=0, microsecond=0) - interval.duration
@@ -83,7 +83,7 @@ class DemoMarketData:
         ends_at: datetime,
         now: datetime,
     ) -> CandleRangeReport:
-        """Return deterministic complete candles for one bounded hourly demo range."""
+        """Return deterministic complete candles for one bounded demo range."""
         _product(product_id, interval)
         try:
             count = (ends_at - starts_at) // interval.duration
@@ -102,8 +102,13 @@ def _product(product_id: str, interval: CandleInterval) -> MarketProduct:
     product = next(
         (candidate for candidate in _DEMO_PRODUCTS if candidate.product_id == product_id), None
     )
-    if product is None or interval is not CandleInterval.ONE_HOUR:
-        raise ValueError("Demo market data only supports catalog USD products on the 1h timeframe.")
+    if product is None or interval not in {
+        CandleInterval.ONE_HOUR,
+        CandleInterval.FIVE_MINUTES,
+    }:
+        raise ValueError(
+            "Demo market data only supports catalog USD products on 1h and 5m timeframes."
+        )
     return product
 
 
