@@ -39,6 +39,27 @@ def test_demo_five_minute_range_is_complete() -> None:
     assert report.quality.gap_count == 0
 
 
+def test_demo_five_minute_range_covers_more_than_legacy_interval_cap() -> None:
+    """Demo 5m history past 4,032 bars stays complete synthetic coverage, not interpolated."""
+    starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)
+    bar_count = 4_033
+    ends_at = starts_at + CandleInterval.FIVE_MINUTES.duration * bar_count
+    report = asyncio.run(
+        DemoMarketData().get_historical_range(
+            "ETH-USD",
+            CandleInterval.FIVE_MINUTES,
+            starts_at,
+            ends_at,
+            ends_at + CandleInterval.FIVE_MINUTES.duration,
+        )
+    )
+    assert report.complete is True
+    assert report.requested_candle_count == bar_count
+    assert report.quality.candle_count == bar_count
+    assert report.quality.gap_count == 0
+    assert report.quality.candles[0].starts_at == starts_at
+
+
 def test_demo_historical_range_maps_mixed_timezone_inputs() -> None:
     """A mixed-timezone historical request must not leak Python comparison errors."""
     with pytest.raises(ValueError, match="timestamp range"):
