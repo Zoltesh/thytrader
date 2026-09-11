@@ -150,6 +150,8 @@ async def test_paper_loop_places_maker_entry_once_then_fills() -> None:
     assert filled.deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
     assert filled.position is not None
     assert filled.fills
+    fill = filled.fills[0]
+    assert fill.fee == fill.price * fill.quantity * Decimal("0.001")
 
 
 @pytest.mark.anyio

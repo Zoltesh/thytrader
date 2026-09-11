@@ -17,13 +17,18 @@ class BrokerError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class SubmitResult:
-    """Immediate venue snapshot after create, cancel, or get."""
+    """Immediate venue snapshot after create, cancel, or get.
+
+    ``fill_fee`` is recorded only on the immediate FILLED path. Live Coinbase
+    acknowledgements leave it at zero; venue fees arrive later through fill ingest.
+    """
 
     status: OrderStatus
     venue_order_id: str
     filled_quantity: Decimal = Decimal("0")
     reject_reason: str | None = None
     fill_price: Decimal | None = None
+    fill_fee: Decimal = Decimal("0")
 
 
 class Broker(Protocol):
