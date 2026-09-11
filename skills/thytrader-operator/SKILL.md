@@ -68,7 +68,7 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 2. If stderr says the API version does not match the CLI, rebuild with `make run` (ask first).
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
-5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Backtest performance uses the published strategy timeframe; paper/live stay `1h`.
+5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Performance timeframe is the published strategy's clock for backtest, paper, and live. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked at last close; `MISSING_MARK` means open inventory was not marked.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
 8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, and live arming require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live also `--i-understand-live`).

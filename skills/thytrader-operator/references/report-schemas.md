@@ -16,7 +16,7 @@ Every JSON report includes:
 
 `reason_code` matches `^[A-Z][A-Z0-9_]{0,63}$`.
 
-Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live operator performance is a fill-count slice, not a full PnL engine.
+Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus a last-close mark for open inventory. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It omits cash, quantities, and order payloads.
 
