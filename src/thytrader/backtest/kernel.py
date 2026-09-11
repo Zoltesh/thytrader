@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import (
     ROUND_HALF_EVEN,
@@ -22,9 +22,11 @@ from thytrader.backtest.broker import (
     ConstantSpreadFillModel,
     FillModel,
     FillQuote,
+    MakerLimitFillModel,
     MarkFillModel,
 )
 from thytrader.backtest.models import (
+    BacktestEngineContract,
     BacktestExitFill,
     BacktestFill,
     BacktestResult,
@@ -45,14 +47,17 @@ from thytrader.research.models import (
     specification_bar_interval,
 )
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
-from thytrader.research.trace import EntryConditionOutcome, signal_trace_fingerprint
+from thytrader.research.trace import (
+    EntryConditionOutcome,
+    SignalTraceRecord,
+    signal_trace_fingerprint,
+)
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from thytrader.market_data.models import Candle
-    from thytrader.research.trace import SignalTraceRecord
 
 
 _SIMULATION_CONTEXT = Context(
@@ -83,6 +88,39 @@ class _OpenPosition:
     stop_price: Decimal
     target_price: Decimal
     entered_bar_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingMakerEntry:
+    """A close-limit buy waiting for a later bar to trade through, matching the worker."""
+
+    signal: SignalTraceRecord
+    limit_price: Decimal
+    quantity: Decimal
+    stop_price: Decimal
+    target_price: Decimal
+    waited_bars: int
+
+
+@dataclass(frozen=True, slots=True)
+class _MakerPosition:
+    """An open long whose take-profit rests only after the fill bar, matching the worker."""
+
+    entry: BacktestFill
+    stop_price: Decimal
+    target_price: Decimal
+    entered_bar_index: int
+    take_profit_resting: bool
+
+
+@dataclass(slots=True)
+class _MakerRuntime:
+    """Mutable maker-loop cash, pending order, position, and unfilled cooldown."""
+
+    cash: Decimal
+    pending: _PendingMakerEntry | None
+    position: _MakerPosition | None
+    cooldown_bars: int
 
 
 class _FillEvidence(TypedDict, total=False):
@@ -117,6 +155,8 @@ def _simulate_backtest(
 ) -> BacktestResult:
     """Simulate one published strategy with next-open taker fills and conservative OHLC exits."""
     specification, strategy = _validated_inputs(specification, strategy)
+    if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
+        return _simulate_maker_backtest(specification, strategy, candles)
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     fill_model = _fill_model(specification)
@@ -236,24 +276,27 @@ def _validated_inputs(
     return validated_specification, validated_strategy
 
 
-def _backtest_contract(
-    specification: ResearchRunSpecification,
-) -> Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]:
+def _backtest_contract(specification: ResearchRunSpecification) -> BacktestEngineContract:
     """Narrow one fully validated research run to an implemented backtest contract."""
     contract = specification.engine_contract_version
     if contract == "thytrader-bar-backtest-v1":
         return contract
     if contract == "thytrader-bar-backtest-v2":
         return contract
+    if contract == "thytrader-bar-backtest-v3":
+        return contract
     raise BacktestSimulationError("Backtest requires the backtest engine contract.")
 
 
 def _fill_model(specification: ResearchRunSpecification) -> FillModel:
     """Construct the one immutable pricing model selected by the published run."""
-    if _backtest_contract(specification) == "thytrader-bar-backtest-v1":
+    contract = _backtest_contract(specification)
+    if contract == "thytrader-bar-backtest-v1":
         return MarkFillModel()
     if specification.broker is None:
-        raise BacktestSimulationError("Backtest V2 broker assumptions are missing.")
+        raise BacktestSimulationError("Backtest broker assumptions are missing.")
+    if contract == "thytrader-bar-backtest-v3":
+        return MakerLimitFillModel()
     return ConstantSpreadFillModel(Decimal(specification.broker.spread_bps))
 
 
@@ -266,6 +309,369 @@ def _fill_evidence(quote: FillQuote) -> _FillEvidence:
         "executable_side": quote.executable_side,
         "spread_cost": canonical_decimal(quote.spread_cost),
     }
+
+
+def _simulate_maker_backtest(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+) -> BacktestResult:
+    """Simulate resting close-limit entries, unfilled expiry, and worker-ordered exits."""
+    interval = _bar_interval(specification, strategy)
+    bar = interval.duration
+    fill_model = _fill_model(specification)
+    try:
+        trace = evaluate_signal_trace(specification, strategy, candles)
+    except SignalEvaluationError as error:
+        raise BacktestSimulationError("Backtest signal inputs could not be verified.") from error
+    candle_by_start = _candle_map(specification, candles, interval)
+    initial_cash = Decimal(specification.capital.initial_quote_balance)
+    runtime = _MakerRuntime(cash=initial_cash, pending=None, position=None, cooldown_bars=0)
+    trades: list[BacktestTrade] = []
+    equity_curve: list[EquityPoint] = []
+    evaluation_records = {record.candle_starts_at: record for record in trace.records}
+    evaluation_span = specification.evaluation.ends_at - specification.evaluation.starts_at
+    evaluation_bars = int(evaluation_span / bar)
+    maker_fee_rate = Decimal(specification.costs.maker_fee_rate)
+    taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+
+    for offset in range(evaluation_bars + 1):
+        candle = candle_by_start[specification.evaluation.starts_at + bar * offset]
+        if runtime.cooldown_bars > 0:
+            runtime.cooldown_bars -= 1
+        _match_maker_entry(
+            runtime,
+            candle,
+            offset=offset,
+            strategy=strategy,
+            maker_fee_rate=maker_fee_rate,
+            fill_model=fill_model,
+        )
+        trade = _match_maker_take_profit(
+            runtime,
+            candle,
+            maker_fee_rate=maker_fee_rate,
+            fill_model=fill_model,
+            bar_duration=bar,
+        )
+        if trade is None:
+            trade = _manage_maker_position(
+                runtime,
+                candle,
+                offset=offset,
+                strategy=strategy,
+                taker_fee_rate=taker_fee_rate,
+                fill_model=fill_model,
+                bar_duration=bar,
+            )
+        if trade is not None:
+            trades.append(trade)
+            runtime.cooldown_bars = strategy.entry.cooldown_bars
+        if offset < evaluation_bars:
+            _maybe_rest_maker_entry(
+                runtime,
+                evaluation_records[candle.starts_at],
+                strategy=strategy,
+                maker_fee_rate=maker_fee_rate,
+                limit_price=candle.close,
+            )
+        equity_curve.append(
+            _equity_point(
+                candle.starts_at,
+                runtime.cash,
+                _maker_as_open_position(runtime.position),
+                fill_model.mark_price(candle.close),
+            )
+        )
+
+    if runtime.position is not None:
+        forced_exit, runtime.cash = _close_maker_position(
+            runtime.position,
+            candle_by_start[specification.evaluation.ends_at],
+            cash=runtime.cash,
+            raw_exit_price=candle_by_start[specification.evaluation.ends_at].close,
+            reason="evaluation_end",
+            fee_rate=taker_fee_rate,
+            fill_model=fill_model,
+            bar_duration=bar,
+        )
+        trades.append(forced_exit)
+        runtime.position = None
+        equity_curve[-1] = _equity_point(
+            forced_exit.exit.candle_starts_at,
+            runtime.cash,
+            None,
+            Decimal(forced_exit.exit.price),
+        )
+
+    return BacktestResult(
+        schema_version="1.0",
+        engine_contract_version="thytrader-bar-backtest-v3",
+        broker=specification.broker,
+        run_fingerprint=research_run_fingerprint(specification),
+        strategy_fingerprint=specification.strategy_fingerprint,
+        dataset_fingerprint=specification.dataset_fingerprint,
+        signal_trace_fingerprint=signal_trace_fingerprint(trace),
+        trades=tuple(trades),
+        equity_curve=tuple(equity_curve),
+        summary=_summary(
+            initial_cash,
+            runtime.cash,
+            trades,
+            equity_curve,
+            include_spread_cost=False,
+        ),
+    )
+
+
+def _match_maker_entry(
+    runtime: _MakerRuntime,
+    candle: Candle,
+    *,
+    offset: int,
+    strategy: StrategyDefinition,
+    maker_fee_rate: Decimal,
+    fill_model: FillModel,
+) -> None:
+    """Fill a resting buy when the closed bar trades through, else wait, cancel, or reprice."""
+    pending = runtime.pending
+    if pending is None or runtime.position is not None:
+        return
+    if candle.low <= pending.limit_price:
+        opened, runtime.cash = _open_maker_position(
+            pending,
+            candle,
+            cash=runtime.cash,
+            entry_bar_index=offset,
+            maker_fee_rate=maker_fee_rate,
+            fill_model=fill_model,
+        )
+        runtime.pending = None
+        runtime.position = opened
+        return
+    waited = pending.waited_bars + 1
+    if waited < strategy.execution.max_entry_wait_bars:
+        runtime.pending = replace(pending, waited_bars=waited)
+        return
+    if strategy.execution.on_unfilled_entry == "reprice":
+        runtime.pending = replace(pending, limit_price=candle.close, waited_bars=0)
+        return
+    runtime.pending = None
+    runtime.cooldown_bars = max(strategy.entry.cooldown_bars, 1)
+
+
+def _match_maker_take_profit(
+    runtime: _MakerRuntime,
+    candle: Candle,
+    *,
+    maker_fee_rate: Decimal,
+    fill_model: FillModel,
+    bar_duration: timedelta,
+) -> BacktestTrade | None:
+    """Fill a resting take-profit when a later bar's high trades through the target."""
+    position = runtime.position
+    if position is None or not position.take_profit_resting:
+        return None
+    if candle.high < position.target_price:
+        return None
+    trade, runtime.cash = _close_maker_position(
+        position,
+        candle,
+        cash=runtime.cash,
+        raw_exit_price=position.target_price,
+        reason="take_profit",
+        fee_rate=maker_fee_rate,
+        fill_model=fill_model,
+        bar_duration=bar_duration,
+    )
+    runtime.position = None
+    return trade
+
+
+def _manage_maker_position(
+    runtime: _MakerRuntime,
+    candle: Candle,
+    *,
+    offset: int,
+    strategy: StrategyDefinition,
+    taker_fee_rate: Decimal,
+    fill_model: FillModel,
+    bar_duration: timedelta,
+) -> BacktestTrade | None:
+    """Stop on the fill bar, time-exit at close, then rest take-profit for later bars."""
+    position = runtime.position
+    if position is None:
+        return None
+    bars_held = offset - position.entered_bar_index
+    if candle.low <= position.stop_price:
+        trade, runtime.cash = _close_maker_position(
+            position,
+            candle,
+            cash=runtime.cash,
+            raw_exit_price=min(candle.open, position.stop_price),
+            reason="stop_loss",
+            fee_rate=taker_fee_rate,
+            fill_model=fill_model,
+            bar_duration=bar_duration,
+        )
+        runtime.position = None
+        return trade
+    if bars_held >= strategy.exits.time_exit.max_bars_held:
+        trade, runtime.cash = _close_maker_position(
+            position,
+            candle,
+            cash=runtime.cash,
+            raw_exit_price=candle.close,
+            reason="time_exit",
+            fee_rate=taker_fee_rate,
+            fill_model=fill_model,
+            bar_duration=bar_duration,
+        )
+        runtime.position = None
+        return trade
+    runtime.position = replace(position, take_profit_resting=True)
+    return None
+
+
+def _maybe_rest_maker_entry(
+    runtime: _MakerRuntime,
+    record: SignalTraceRecord,
+    *,
+    strategy: StrategyDefinition,
+    maker_fee_rate: Decimal,
+    limit_price: Decimal,
+) -> None:
+    """Rest a post-only buy at the signal bar close when flat, off cooldown, and matched."""
+    if runtime.position is not None or runtime.pending is not None or runtime.cooldown_bars > 0:
+        return
+    if record.entry_condition is not EntryConditionOutcome.MATCHED:
+        return
+    runtime.pending = _size_maker_entry(
+        record,
+        strategy=strategy,
+        cash=runtime.cash,
+        limit_price=limit_price,
+        maker_fee_rate=maker_fee_rate,
+    )
+
+
+def _size_maker_entry(
+    signal: SignalTraceRecord,
+    *,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    limit_price: Decimal,
+    maker_fee_rate: Decimal,
+) -> _PendingMakerEntry | None:
+    """Size a resting long at the signal close using ATR risk, without filling yet."""
+    atr = _indicator_value(signal, strategy.exits.initial_stop.atr_indicator)
+    stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
+    if stop_distance <= 0 or limit_price <= 0:
+        return None
+    stop_price = limit_price - stop_distance
+    if stop_price <= 0:
+        return None
+    requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
+    risk_quantity = requested_risk / stop_distance
+    maximum_notional = min(
+        Decimal(strategy.sizing.max_quote_notional),
+        cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        cash / (Decimal("1") + maker_fee_rate),
+    )
+    notional = min(risk_quantity * limit_price, maximum_notional)
+    if notional < Decimal(strategy.sizing.min_quote_notional):
+        return None
+    quantity = notional / limit_price
+    target_price = limit_price + stop_distance * Decimal(strategy.exits.take_profit.multiple)
+    return _PendingMakerEntry(
+        signal=signal,
+        limit_price=limit_price,
+        quantity=quantity,
+        stop_price=stop_price,
+        target_price=target_price,
+        waited_bars=0,
+    )
+
+
+def _open_maker_position(
+    pending: _PendingMakerEntry,
+    candle: Candle,
+    *,
+    cash: Decimal,
+    entry_bar_index: int,
+    maker_fee_rate: Decimal,
+    fill_model: FillModel,
+) -> tuple[_MakerPosition | None, Decimal]:
+    """Fill the resting limit at the posted price with the published maker fee."""
+    entry_quote = fill_model.buy(pending.limit_price, Decimal("0"))
+    entry_price = entry_quote.price
+    notional = pending.quantity * entry_price
+    fee = notional * maker_fee_rate
+    if notional + fee > cash:
+        return None, cash
+    entry = BacktestFill(
+        candle_starts_at=candle.starts_at,
+        price=canonical_decimal(entry_price),
+        quantity=canonical_decimal(pending.quantity),
+        notional=canonical_decimal(notional),
+        fee=canonical_decimal(fee),
+        fee_rate=canonical_decimal(maker_fee_rate),
+        **_fill_evidence(entry_quote),
+    )
+    return (
+        _MakerPosition(
+            entry=entry,
+            stop_price=pending.stop_price,
+            target_price=pending.target_price,
+            entered_bar_index=entry_bar_index,
+            take_profit_resting=False,
+        ),
+        cash - notional - fee,
+    )
+
+
+def _close_maker_position(
+    position: _MakerPosition,
+    candle: Candle,
+    *,
+    cash: Decimal,
+    raw_exit_price: Decimal,
+    reason: Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"],
+    fee_rate: Decimal,
+    fill_model: FillModel,
+    bar_duration: timedelta,
+) -> tuple[BacktestTrade, Decimal]:
+    """Close a maker-path position through the shared fill ledger helper."""
+    synthetic = _OpenPosition(
+        entry=position.entry,
+        stop_price=position.stop_price,
+        target_price=position.target_price,
+        entered_bar_index=position.entered_bar_index,
+    )
+    return _close_position(
+        synthetic,
+        candle,
+        cash=cash,
+        bar_index=position.entered_bar_index,
+        raw_exit_price=raw_exit_price,
+        reason=reason,
+        taker_fee_rate=fee_rate,
+        slippage_bps=Decimal("0"),
+        fill_model=fill_model,
+        bar_duration=bar_duration,
+    )
+
+
+def _maker_as_open_position(position: _MakerPosition | None) -> _OpenPosition | None:
+    """Project maker state onto the V1 equity helper without sharing fill semantics."""
+    if position is None:
+        return None
+    return _OpenPosition(
+        entry=position.entry,
+        stop_price=position.stop_price,
+        target_price=position.target_price,
+        entered_bar_index=position.entered_bar_index,
+    )
 
 
 def _candle_map(

@@ -84,8 +84,30 @@ class _FrozenBacktestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+BacktestEngineContract = Literal[
+    "thytrader-bar-backtest-v1",
+    "thytrader-bar-backtest-v2",
+    "thytrader-bar-backtest-v3",
+]
+
+
+def _require_result_broker_evidence(
+    engine_contract_version: BacktestEngineContract,
+    broker: BrokerAssumptions | None,
+    *,
+    kind: Literal["backtest", "benchmark"],
+) -> None:
+    """Bind broker evidence to V2/V3 contracts and keep V1 results broker-free."""
+    if engine_contract_version == "thytrader-bar-backtest-v1":
+        if broker is not None:
+            raise ValueError(f"broker assumptions require a {kind} V2 or V3 result")
+        return
+    if broker is None:
+        raise ValueError(f"{kind} {engine_contract_version} results require broker assumptions")
+
+
 class BacktestFill(_FrozenBacktestModel):
-    """One modeled immediate marketable fill using a completed-candle price assumption."""
+    """One modeled fill using a completed-candle price assumption."""
 
     candle_starts_at: UtcDateTime
     price: ResultDecimalText
@@ -182,7 +204,7 @@ class BacktestResult(_FrozenBacktestModel):
     """Canonical full result from one immutable research-run simulation."""
 
     schema_version: Literal["1.0"]
-    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]
+    engine_contract_version: BacktestEngineContract
     broker: BrokerAssumptions | None = None
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
@@ -194,12 +216,8 @@ class BacktestResult(_FrozenBacktestModel):
 
     @model_validator(mode="after")
     def require_v2_broker_evidence(self) -> Self:
-        """Require V2 output to carry the same immutable broker facts as its source run."""
-        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
-        if is_v2 and self.broker is None:
-            raise ValueError("backtest V2 results require broker assumptions")
-        if not is_v2 and self.broker is not None:
-            raise ValueError("broker assumptions require a backtest V2 result")
+        """Require V2/V3 output to carry the same immutable broker facts as its source run."""
+        _require_result_broker_evidence(self.engine_contract_version, self.broker, kind="backtest")
         return self
 
 
@@ -211,7 +229,7 @@ class BacktestBenchmark(_FrozenBacktestModel):
     result_fingerprint: FingerprintText
     run_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
-    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]
+    engine_contract_version: BacktestEngineContract
     broker: BrokerAssumptions | None = None
     entry_candle_starts_at: UtcDateTime
     exit_candle_starts_at: UtcDateTime
@@ -243,11 +261,7 @@ class BacktestBenchmark(_FrozenBacktestModel):
     @model_validator(mode="after")
     def require_v2_broker_evidence(self) -> Self:
         """Keep derived benchmark broker evidence aligned with its execution contract."""
-        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
-        if is_v2 and self.broker is None:
-            raise ValueError("benchmark V2 results require broker assumptions")
-        if not is_v2 and self.broker is not None:
-            raise ValueError("broker assumptions require a benchmark V2 result")
+        _require_result_broker_evidence(self.engine_contract_version, self.broker, kind="benchmark")
         return self
 
     @model_validator(mode="after")

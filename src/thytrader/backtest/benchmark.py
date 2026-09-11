@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from thytrader.backtest.broker import ConstantSpreadFillModel, FillModel, MarkFillModel
+from thytrader.backtest.broker import (
+    ConstantSpreadFillModel,
+    FillModel,
+    MakerLimitFillModel,
+    MarkFillModel,
+)
 from thytrader.backtest.kernel import _SIMULATION_CONTEXT
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -174,7 +179,9 @@ def _fill_model(specification: ResearchRunSpecification) -> FillModel:
     if specification.engine_contract_version == "thytrader-bar-backtest-v1":
         return MarkFillModel()
     if specification.broker is None:
-        raise BacktestBenchmarkError("Benchmark V2 broker assumptions are missing.")
+        raise BacktestBenchmarkError("Benchmark broker assumptions are missing.")
+    if specification.engine_contract_version == "thytrader-bar-backtest-v3":
+        return MakerLimitFillModel()
     return ConstantSpreadFillModel(Decimal(specification.broker.spread_bps))
 
 

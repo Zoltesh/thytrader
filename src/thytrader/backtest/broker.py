@@ -102,3 +102,30 @@ class ConstantSpreadFillModel:
     def _half_spread_fraction(self) -> Decimal:
         """Return one side of the total declared basis-point spread as a price fraction."""
         return self.spread_bps / Decimal("20000")
+
+
+@dataclass(frozen=True, slots=True)
+class MakerLimitFillModel:
+    """V3 post-only broker: rest at the reference price and fill without modeled slippage."""
+
+    def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
+        """Fill a resting long entry at the posted limit, ignoring taker slippage."""
+        del slippage_bps
+        return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+
+    def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
+        """Fill a resting or marketable long exit at the posted reference price."""
+        del slippage_bps
+        return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+
+    def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
+        """Evaluate long exits against the same OHLC extreme the worker uses."""
+        return raw_price
+
+    def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
+        """Keep bar-extreme triggers identical to their raw OHLC reference prices."""
+        return executable_price
+
+    def mark_price(self, raw_price: Decimal) -> Decimal:
+        """Mark an open long at last close, matching V3 equity_marking."""
+        return raw_price

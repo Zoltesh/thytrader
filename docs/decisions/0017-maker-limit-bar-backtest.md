@@ -33,8 +33,9 @@ Unfilled expiry (`cancel` / `reprice`) and `max_entry_wait_bars` remain on the p
 `maker_fee_rate`. Take-profit in v3 matches the worker's resting exit, not v2 high-touch.
 
 V1 and v2 remain loadable and byte-identical. They still forbid maker fill timing and the v3 broker
-literals. Simulation of v3 is a later increment of the same contract; publishing a v3 run without an
-implemented kernel must fail closed rather than execute v1/v2 fills.
+literals. The kernel simulates v3 maker-limit fills, unfilled expiry, and worker-ordered exits. A
+v3 run still fail-closes if those broker/fill-timing fields are missing rather than executing v1/v2
+fills.
 
 ## Consequences
 
