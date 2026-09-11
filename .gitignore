@@ -19,6 +19,9 @@ dist/
 # Local semantic index
 .gitnexus/
 
+# Machine-local Cursor MCP (absolute Node/GitNexus paths)
+.cursor/mcp.json
+
 # Frontend dependencies and build output
 node_modules/
 .svelte-kit/
