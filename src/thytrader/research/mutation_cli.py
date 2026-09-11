@@ -18,6 +18,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     PostgresBacktestSubmitter,
 )
+from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
@@ -45,8 +46,26 @@ class ResearchCliError(RuntimeError):
     """Report a safe operator-facing research command failure."""
 
 
+def _shared_options() -> argparse.ArgumentParser:
+    """Global flags that may appear before or after the subcommand."""
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    shared.add_argument(
+        "--local",
+        action="store_true",
+        help="Use PostgreSQL stores instead of HTTP. Do not use as a silent API fallback.",
+    )
+    return shared
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the bounded research-mutation argument parser."""
+    shared = _shared_options()
+    trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-research",
         description=(
@@ -54,38 +73,64 @@ def _parser() -> argparse.ArgumentParser:
             "Mutations require --confirm. Default transport is the loopback HTTP API. "
             "This command has no paper or live authority."
         ),
-    )
-    parser.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
-    )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Use PostgreSQL stores instead of HTTP. Do not use as a silent API fallback.",
+        parents=[shared],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    create = subparsers.add_parser("create-draft", help="Create the conservative reference draft.")
+    create = subparsers.add_parser(
+        "create-draft",
+        parents=[trailing],
+        help="Create the conservative reference draft.",
+    )
+    create.add_argument(
+        "--product-id",
+        default="BTC-USD",
+        help="USD spot product. Default BTC-USD.",
+    )
+    create.add_argument(
+        "--timeframe",
+        default="1h",
+        choices=("1h", "5m"),
+        help="Research timeframe. Default 1h. Paper/live stay 1h.",
+    )
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    save = subparsers.add_parser("save-draft", help="Replace one draft from a JSON file.")
+    save = subparsers.add_parser(
+        "save-draft",
+        parents=[trailing],
+        help="Replace one draft from a JSON file.",
+    )
     save.add_argument("--file", required=True, help="Path to a StrategyDefinition JSON document.")
     save.add_argument("--revision", required=True, type=int, help="Expected durable revision.")
     save.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    publish = subparsers.add_parser("publish", help="Publish the matching durable draft.")
+    publish = subparsers.add_parser(
+        "publish",
+        parents=[trailing],
+        help="Publish the matching durable draft.",
+    )
     publish.add_argument("--strategy-id", required=True, help="Server-owned strategy UUID.")
     publish.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    submit = subparsers.add_parser("submit-backtest", help="Submit one idempotent research run.")
+    submit = subparsers.add_parser(
+        "submit-backtest",
+        parents=[trailing],
+        help="Submit one idempotent research run.",
+    )
     submit.add_argument(
         "--file",
         required=True,
         help="Path to a BacktestSubmissionRequest JSON document.",
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    listing = subparsers.add_parser("list-results", help="List immutable backtest summaries.")
+    listing = subparsers.add_parser(
+        "list-results",
+        parents=[trailing],
+        help="List immutable backtest summaries.",
+    )
     listing.add_argument("--strategy-fingerprint", default=None)
     listing.add_argument("--limit", type=int, default=20)
-    show = subparsers.add_parser("show-result", help="Show one immutable result summary.")
+    show = subparsers.add_parser(
+        "show-result",
+        parents=[trailing],
+        help="Show one immutable result summary.",
+    )
     show.add_argument("--result-fingerprint", required=True)
     return parser
 
@@ -133,7 +178,14 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
     settings = Settings()
     if arguments.command == "create-draft":
         _require_confirm(arguments.confirm)
-        return await _with_mutator(settings, _create_draft)
+        return await _with_mutator(
+            settings,
+            lambda mutator: _create_draft(
+                mutator,
+                product_id=arguments.product_id,
+                timeframe=arguments.timeframe,
+            ),
+        )
     if arguments.command == "save-draft":
         _require_confirm(arguments.confirm)
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
@@ -172,7 +224,11 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
     if arguments.command == "create-draft":
         _require_confirm(arguments.confirm)
-        return research_http.create_draft(base_url)
+        return research_http.create_draft(
+            base_url,
+            product_id=arguments.product_id,
+            timeframe=arguments.timeframe,
+        )
     if arguments.command == "save-draft":
         _require_confirm(arguments.confirm)
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
@@ -208,9 +264,14 @@ async def _with_mutator(
             await dispose(engine)
 
 
-async def _create_draft(mutator: ResearchMutator) -> str:
+async def _create_draft(
+    mutator: ResearchMutator,
+    *,
+    product_id: str,
+    timeframe: str,
+) -> str:
     """Create the reference draft and return identities."""
-    draft = await mutator.create_reference_draft()
+    draft = await mutator.create_reference_draft(product_id=product_id, timeframe=timeframe)
     return _encode(
         {
             "strategy_id": str(draft.definition.strategy_id),

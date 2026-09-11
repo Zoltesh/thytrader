@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from thytrader.persistence.portfolio_history import PortfolioHistoryStore
+    from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.portfolio.models import Portfolio
     from thytrader.runtime import RuntimeState
 
@@ -47,6 +48,7 @@ async def run_worker(
     history_store: PortfolioHistoryStore | None = None,
     audit_store: AuditEventStore | None = None,
     on_started: Callable[[], None] | None = None,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
 ) -> None:
     """Run until graceful shutdown, recording scheduled portfolio snapshots."""
     runtime.ready = True
@@ -62,6 +64,8 @@ async def run_worker(
         detail="Portfolio worker started successfully",
     )
 
+    if heartbeat_store is not None:
+        await heartbeat_store.touch("portfolio_worker", datetime.now(UTC))
     if history_store is not None:
         await _take_snapshot(portfolio_service, history_store, audit_store)
 
@@ -71,6 +75,8 @@ async def run_worker(
                 await asyncio.wait_for(stop_requested.wait(), timeout=interval)
             if stop_requested.is_set():
                 break
+            if heartbeat_store is not None:
+                await heartbeat_store.touch("portfolio_worker", datetime.now(UTC))
             if history_store is not None:
                 await _take_snapshot(portfolio_service, history_store, audit_store)
     finally:

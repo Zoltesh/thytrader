@@ -16,14 +16,19 @@ GET /api/v1/market-data/freshness?product_id=BTC-USD
 GET /api/v1/market-data/feed?product_id=BTC-USD
 ```
 
-The range endpoint paginates through Coinbase's 350-candle limit using non-overlapping pages,
-validates every candle for UTC alignment, chronological order, OHLC consistency, and decimal
-exactness, and reports expected vs received candle counts, gaps, and a binary completeness result.
-It is bounded to 4,032 candles (14 days at 5m, 168 days at 1h) and cannot request ranges ending in the future.
+The range endpoint paginates through Coinbase's 350-candle limit using **inclusive** page ends
+(Coinbase `end` is the last closed candle start, not an exclusive bound). Each page requests at most
+350 bars, keeps candles whose `starts_at` lies in `[page_start, inclusive_end]`, and advances
+`page_start` to `inclusive_end + duration`. Exclusive paging dropped the oldest bar on a full 5m
+page. The adapter still validates every candle for UTC alignment, chronological order, OHLC
+consistency, and decimal exactness, and reports expected vs received candle counts, gaps, and a
+binary completeness result. It is bounded to 4,032 candles (14 days at 5m, 168 days at 1h) and cannot
+request ranges ending in the future.
 
-The worker now maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Confirmation-gated
-`POST /api/v1/data/ingest` shares `ingest_once` with the worker. Preview/range endpoints remain diagnostics,
-not strategy inputs.
+The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets.
+`POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
+The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
+endpoints remain diagnostics, not strategy inputs.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -138,7 +143,8 @@ cannot block unrelated API requests.
 
 The manifest records schema version, provider, product, timeframe, requested range, expected and
 received counts, gap/missing facts, completion outcome, fingerprint, and relative Parquet files.
-The internal writer is deliberately not an API mutation endpoint. The separately supervised
+The internal writer is deliberately not an API mutation endpoint. Confirmation-gated
+`POST /api/v1/data/ingest` only sets `ingest_requested_at`. The separately supervised
 `thytrader-market-data-worker` process is the only component that turns validated provider ranges into
 durable datasets. It is distinct from `thytrader-worker`, which records portfolio valuation history.
 
@@ -153,7 +159,8 @@ hour update scheduling diagnostics without provider or dataset I/O. The overlap 
 upstream revision to replace the same canonical candle
 deterministically while continuity is revalidated across the whole resulting range.
 
-The worker claims each attempt in PostgreSQL before provider I/O. The atomic claim requires both a
+The worker claims each attempt in PostgreSQL before provider I/O. Operator-requested ingest skips
+backoff and is claimed as soon as the worker sees `ingest_requested_at`. The atomic claim requires both a
 newer attempt timestamp and the consecutive-failure count used to plan its backoff; a worker whose
 snapshot lost that comparison stops before contacting the provider. It publishes only when the exact
 requested increment and the cumulative result are both complete, contiguous, and gap-free. It reads

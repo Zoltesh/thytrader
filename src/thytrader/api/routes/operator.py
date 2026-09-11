@@ -6,10 +6,12 @@ from typing import Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_backtest_result_store,
+    get_database_engine,
     get_dataset_store,
     get_execution_store,
     get_history_store,
@@ -20,6 +22,7 @@ from thytrader.api.dependencies import (
     get_runtime_state,
     get_strategy_draft_store,
     get_strategy_publication_catalog,
+    get_worker_heartbeat_store,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
@@ -45,6 +48,7 @@ from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
+from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore  # noqa: TC001
 from thytrader.portfolio.service import PortfolioService  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
@@ -66,6 +70,8 @@ def get_operator_diagnostics(
     dataset_store: Annotated[DatasetStore, Depends(get_dataset_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
+    engine: Annotated[AsyncEngine | None, Depends(get_database_engine)],
+    heartbeat_store: Annotated[WorkerHeartbeatStore, Depends(get_worker_heartbeat_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -79,9 +85,11 @@ def get_operator_diagnostics(
         execution=execution,
         audit=audit,
         runtime=runtime,
+        engine=engine,
         dataset_store=dataset_store,
         watchlist=watchlist,
         market_data=market_data,
+        heartbeat_store=heartbeat_store,
     )
 
 

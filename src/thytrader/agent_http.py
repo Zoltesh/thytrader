@@ -71,13 +71,13 @@ def request_json(
             status = int(response.status)
             raw = response.read()
     except HTTPError as error:
-        raise AgentHttpError(_http_error_message(error.code, error.read())) from error
+        raise AgentHttpError(_http_error_message(error.code, error.read(), url=url)) from error
     except URLError as error:
         raise AgentHttpError(
             f"ThyTrader API is unreachable at {url}. Start thytrader-api or pass --local."
         ) from error
     if status >= 400:
-        raise AgentHttpError(_http_error_message(status, raw))
+        raise AgentHttpError(_http_error_message(status, raw, url=url))
     if not raw:
         return None
     try:
@@ -93,11 +93,38 @@ def _assert_loopback_request_url(url: str) -> None:
         raise AgentHttpError("Agent CLIs may only target a loopback ThyTrader API.")
 
 
-def _http_error_message(status: int, raw: bytes) -> str:
+def _http_error_message(status: int, raw: bytes, url: str | None = None) -> str:
     """Summarize one HTTP error body without dumping secrets or large payloads."""
+    if status == 404 and url is not None and _stale_image_missing_agent_routes(url):
+        return (
+            "HTTP 404: agent API routes are missing on a ready listener "
+            "(stale Compose image). Rebuild and restart with `make run`."
+        )
     text = raw.decode("utf-8", errors="replace")[:_MAX_ERROR_CHARS]
     detail = _extract_detail(text)
     return f"HTTP {status}: {detail}"
+
+
+def _stale_image_missing_agent_routes(url: str) -> bool:
+    """True when /health/ready works but a versioned agent route 404s."""
+    parsed = urlparse(url)
+    path = parsed.path or ""
+    if not path.startswith(
+        (
+            "/api/v1/operator/",
+            "/api/v1/data/",
+            "/api/v1/strategies",
+            "/api/v1/backtests",
+            "/api/v1/deployments",
+        )
+    ):
+        return False
+    ready_url = f"{parsed.scheme}://{parsed.netloc}/health/ready"
+    try:
+        with urlopen(ready_url, timeout=1.0) as response:  # noqa: S310
+            return 200 <= int(response.status) < 300
+    except HTTPError, URLError, OSError, TimeoutError, ValueError:
+        return False
 
 
 def _extract_detail(text: str) -> str:

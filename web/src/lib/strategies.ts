@@ -167,12 +167,13 @@ export function formatUtcInputValue(instant: Date): string {
  */
 export function datasetEvaluationWindow(
 	dataset: Dataset,
-	warmupBars: number
+	warmupBars: number,
+	timeframe: '1h' | '5m' = '1h'
 ): { min: string; max: string } {
-	const hour = 3_600_000;
+	const barMs = timeframe === '5m' ? 5 * 60_000 : 3_600_000;
 	return {
-		min: formatUtcInputValue(new Date(new Date(dataset.starts_at).getTime() + warmupBars * hour)),
-		max: formatUtcInputValue(new Date(new Date(dataset.ends_at).getTime() - hour))
+		min: formatUtcInputValue(new Date(new Date(dataset.starts_at).getTime() + warmupBars * barMs)),
+		max: formatUtcInputValue(new Date(new Date(dataset.ends_at).getTime() - barMs))
 	};
 }
 

@@ -168,6 +168,25 @@ def test_strategy_creation_returns_a_durable_conservative_draft() -> None:
     assert "fingerprint" not in payload
 
 
+def test_strategy_creation_accepts_product_and_five_minute_timeframe() -> None:
+    """Agents can create the reference draft for ETH-USD 5m research."""
+    draft_store = InMemoryStrategyDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryStrategyPublicationStore(draft_store),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies?product_id=ETH-USD&timeframe=5m")
+
+    assert response.status_code == 201, response.text
+    payload = response.json()["strategy"]
+    assert payload["instrument"]["product_id"] == "ETH-USD"
+    assert payload["timeframe"] == "5m"
+    assert payload["name"] == "ETH 5m EMA trend"
+
+
 def test_strategy_publication_turns_the_matching_draft_into_immutable_evidence() -> None:
     """A publication delegates the matching draft to the immutable store."""
     draft_store = InMemoryStrategyDraftStore()

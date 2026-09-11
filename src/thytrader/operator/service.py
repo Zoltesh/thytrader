@@ -13,6 +13,7 @@ from thytrader.execution.models import Deployment, DeploymentStatus, OrderStatus
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.watchlist import (
+    INGEST_REQUEST_POLL_SECONDS,
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
     MarketDataWatchTarget,
@@ -60,6 +61,7 @@ from thytrader.operator.models import (
     StrategiesReport,
     SupportBundlePayload,
     SupportBundleReport,
+    SupportedTimeframe,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
@@ -73,6 +75,7 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryStore,
     PortfolioHistoryUnavailableError,
 )
+from thytrader.persistence.worker_heartbeats import WorkerHeartbeatUnavailableError
 from thytrader.strategies.models import IndicatorKind
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
 
@@ -86,6 +89,7 @@ if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
+    from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
     from thytrader.portfolio.service import PortfolioService
     from thytrader.runtime import RuntimeState
     from thytrader.strategies.authoring import StrategyDraftStore
@@ -109,6 +113,7 @@ class OperatorDiagnostics:
     dataset_store: DatasetStore | None = None
     watchlist: MarketDataWatchlistStore | None = None
     market_data: MarketDataService | None = None
+    heartbeat_store: WorkerHeartbeatStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -117,15 +122,9 @@ class OperatorDiagnostics:
             await self._api_component(probe_api=probe_api),
             await self._database_component(),
             await self._history_component(),
-            _readiness_component("portfolio_worker", self.settings.worker_readiness_file),
-            _readiness_component(
-                "market_data_worker",
-                self.settings.market_data_worker_readiness_file,
-            ),
-            _readiness_component(
-                "execution_worker",
-                self.settings.execution_worker_readiness_file,
-            ),
+            await self._worker_component("portfolio_worker"),
+            await self._worker_component("market_data_worker"),
+            await self._worker_component("execution_worker"),
             await self._exchange_component(),
         ]
         warnings: list[str] = []
@@ -551,8 +550,8 @@ class OperatorDiagnostics:
             return ComponentReport(
                 name="database",
                 status=ReportStatus.DEGRADED,
-                reason_code="DATABASE_UNCONFIGURED",
-                detail="The diagnostics session has no database engine.",
+                reason_code="DATABASE_ENGINE_MISSING",
+                detail="PostgreSQL is configured but this process has no database engine.",
             )
         try:
             await ping(self.engine)
@@ -564,6 +563,74 @@ class OperatorDiagnostics:
                 detail="PostgreSQL did not answer a connectivity check.",
             )
         return ComponentReport(name="database", status=ReportStatus.HEALTHY, reason_code="READY")
+
+    async def _worker_component(self, name: WorkerName) -> ComponentReport:
+        """Prefer PostgreSQL heartbeats; fall back to readiness files only in local tests."""
+        if self.heartbeat_store is None:
+            return _readiness_component(name, self._readiness_path(name))
+        try:
+            last = await self.heartbeat_store.last_heartbeat(name)
+        except WorkerHeartbeatUnavailableError:
+            return ComponentReport(
+                name=name,
+                status=ReportStatus.DEGRADED,
+                reason_code="HEARTBEAT_UNAVAILABLE",
+                detail="Worker heartbeats require PostgreSQL.",
+            )
+        if last is None:
+            return ComponentReport(
+                name=name,
+                status=ReportStatus.DEGRADED,
+                reason_code="HEARTBEAT_MISSING",
+                detail="The worker has not recorded a heartbeat.",
+            )
+        age = (datetime.now(UTC) - last.astimezone(UTC)).total_seconds()
+        if age > self._heartbeat_stale_after(name):
+            return ComponentReport(
+                name=name,
+                status=ReportStatus.DEGRADED,
+                reason_code="HEARTBEAT_STALE",
+                detail=f"The last heartbeat was {int(age)}s ago.",
+            )
+        return ComponentReport(name=name, status=ReportStatus.HEALTHY, reason_code="READY")
+
+    def _readiness_path(self, name: WorkerName) -> Path | None:
+        """Return the Docker healthcheck file for one named worker."""
+        if name == "portfolio_worker":
+            return self.settings.worker_readiness_file
+        if name == "market_data_worker":
+            return self.settings.market_data_worker_readiness_file
+        return self.settings.execution_worker_readiness_file
+
+    def _heartbeat_stale_after(self, name: WorkerName) -> int:
+        """Allow two missed loops plus slack before a heartbeat is stale."""
+        slack = 30
+        if name == "portfolio_worker":
+            return 2 * self.settings.snapshot_interval_seconds + slack
+        if name == "market_data_worker":
+            return (
+                2
+                * min(
+                    self.settings.market_data_worker_interval_seconds,
+                    INGEST_REQUEST_POLL_SECONDS,
+                )
+                + slack
+            )
+        return 2 * self.settings.execution_worker_interval_seconds + slack
+
+    async def _strategy_timeframe(self, fingerprint: str) -> SupportedTimeframe:
+        """Copy 1h/5m from the published strategy; default 1h when it cannot be loaded."""
+        load = getattr(self.publications, "load", None)
+        if not callable(load):
+            return "1h"
+        try:
+            published = await load(fingerprint)
+        except Exception:  # noqa: BLE001 - missing strategy evidence stays a 1h placeholder.
+            return "1h"
+        timeframe = published.definition.timeframe
+        if timeframe in {"1h", "5m"}:
+            return timeframe
+        return "1h"
 
     async def _history_component(self) -> ComponentReport:
         """Treat missing portfolio history as incomplete telemetry, not health."""
@@ -871,7 +938,7 @@ class OperatorDiagnostics:
         )
         payload = PerformancePayload(
             mode="backtest",
-            timeframe="1h",
+            timeframe=await self._strategy_timeframe(result.strategy_fingerprint),
             strategy_fingerprint=result.strategy_fingerprint,
             dataset_fingerprint=result.dataset_fingerprint,
             engine_contract_version=result.engine_contract_version,

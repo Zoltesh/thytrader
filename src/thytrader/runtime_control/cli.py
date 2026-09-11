@@ -7,6 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
@@ -25,8 +26,21 @@ _CONFIRM_HELP = "Required for mutations. Live start also requires --i-understand
 _LIVE_HELP = "Required with --confirm to start live trading. Live spends real money."
 
 
+def _shared_options() -> argparse.ArgumentParser:
+    """Global flags that may appear before or after the subcommand."""
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    return shared
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the confirmation-gated runtime-control argument parser."""
+    shared = _shared_options()
+    trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",
         description=(
@@ -34,24 +48,32 @@ def _parser() -> argparse.ArgumentParser:
             "loopback HTTP API. Mutations require --confirm. Live start also "
             "requires --i-understand-live. This is not the operator or research CLI."
         ),
-    )
-    parser.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+        parents=[shared],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("list", help="List deployments without mutating them.")
-    show = subparsers.add_parser("show", help="Show one deployment snapshot.")
+    subparsers.add_parser(
+        "list",
+        parents=[trailing],
+        help="List deployments without mutating them.",
+    )
+    show = subparsers.add_parser("show", parents=[trailing], help="Show one deployment snapshot.")
     show.add_argument("deployment_id", help="Deployment UUID.")
-    start = subparsers.add_parser("start", help="Start one paper or live deployment.")
+    start = subparsers.add_parser(
+        "start",
+        parents=[trailing],
+        help="Start one paper or live deployment.",
+    )
     start.add_argument("--strategy-fingerprint", required=True)
     start.add_argument("--mode", required=True, choices=("paper", "live"))
     start.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
     start.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     start.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
     for action in ("pause", "resume", "stop"):
-        command = subparsers.add_parser(action, help=f"{action.title()} one deployment.")
+        command = subparsers.add_parser(
+            action,
+            parents=[trailing],
+            help=f"{action.title()} one deployment.",
+        )
         command.add_argument("deployment_id", help="Deployment UUID.")
         command.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser

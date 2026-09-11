@@ -101,10 +101,22 @@ market_data_watchlist = Table(
     Column("enabled", Boolean(), nullable=False, server_default="true"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("ingest_requested_at", DateTime(timezone=True), nullable=True),
     CheckConstraint("timeframe IN ('1h', '5m')", name="ck_market_data_watchlist_timeframe"),
     CheckConstraint(
         "lookback_hours >= 1 AND lookback_hours <= 2160",
         name="ck_market_data_watchlist_lookback_hours",
+    ),
+)
+
+worker_heartbeats = Table(
+    "worker_heartbeats",
+    metadata,
+    Column("worker_name", String(32), primary_key=True),
+    Column("heartbeat_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "worker_name IN ('portfolio_worker', 'market_data_worker', 'execution_worker')",
+        name="ck_worker_heartbeats_name",
     ),
 )
 

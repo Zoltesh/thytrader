@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
+    from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import StrategyPublicationStore
 
@@ -49,12 +50,15 @@ async def run_execution_worker(
     quote_reader: QuoteBalanceReader | None,
     interval_seconds: int,
     on_readiness_changed: Callable[[bool], None] | None = None,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown."""
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     try:
         while not stop_requested.is_set():
+            if heartbeat_store is not None:
+                await heartbeat_store.touch("execution_worker", datetime.now(UTC))
             await _run_cycle(
                 store=store,
                 publication_store=publication_store,

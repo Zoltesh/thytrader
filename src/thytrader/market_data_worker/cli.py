@@ -26,6 +26,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
+from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 
 _logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ async def run() -> None:
     watchlist = PostgresMarketDataWatchlistStore(engine)
     feed_store = PostgresMarketFeedStateStore(engine)
     audit_store = PostgresAuditEventStore(engine)
+    heartbeats = PostgresWorkerHeartbeatStore(engine)
     live_feed = provider == "coinbase"
     try:
         try:
@@ -87,6 +89,7 @@ async def run() -> None:
                 interval_seconds=settings.market_data_worker_interval_seconds,
                 on_readiness_changed=lambda ready: _set_readiness(readiness_file, ready),
                 watchlist=watchlist,
+                heartbeat_store=heartbeats,
             ),
             run_public_market_feed(
                 stop_requested,

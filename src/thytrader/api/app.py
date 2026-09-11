@@ -75,6 +75,11 @@ from thytrader.persistence.postgres_market_data_worker import PostgresMarketData
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
+from thytrader.persistence.worker_heartbeats import (
+    DisabledWorkerHeartbeatStore,
+    WorkerHeartbeatStore,
+)
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -147,6 +152,7 @@ def create_app(
         submitter = external_backtest_submitter
         execution = external_execution_store
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
+        heartbeat_store: WorkerHeartbeatStore | None = None
         needs_database = (
             store is None
             or audit_store is None
@@ -189,6 +195,7 @@ def create_app(
                 execution = PostgresExecutionStore(engine)
             if watchlist_store is None:
                 watchlist_store = PostgresMarketDataWatchlistStore(engine)
+            heartbeat_store = PostgresWorkerHeartbeatStore(engine)
             await _seed_default_watchlist(watchlist_store, resolved_settings)
         if benchmark_reader is None and isinstance(backtest_store, PostgresBacktestResultStore):
             benchmark_dataset_store = dataset_store or DatasetStore(
@@ -217,6 +224,8 @@ def create_app(
             publication_store or DisabledStrategyPublicationStore()
         )
         _app.state.execution_store = execution or DisabledExecutionStore()
+        _app.state.engine = engine
+        _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 
         runtime.ready = True
         try:

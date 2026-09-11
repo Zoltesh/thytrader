@@ -5,7 +5,7 @@ alwaysApply: true
 
 # ThyTrader agent operations
 
-When diagnosing a running instance, mutating research artifacts, ingesting market data, or controlling paper/live deployments, follow the skills of record:
+When diagnosing a running ThyTrader instance, mutating research artifacts, ingesting market data, or controlling paper/live deployments, follow the skills of record:
 
 - `skills/thytrader-operator/SKILL.md` — read-only diagnostics
 - `skills/thytrader-data/SKILL.md` — watchlist, ingest, gap-fill with `--confirm`
@@ -13,3 +13,10 @@ When diagnosing a running instance, mutating research artifacts, ingesting marke
 - `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
 
 Do not scrape logs, query PostgreSQL, print secrets, interpolate candles, or give operator/research/data skills trading authority.
+
+## Hard stop
+
+Operating a running instance is not a source-code task. Do not edit `src/`, `compose.yaml`,
+Dockerfiles, Alembic, or tests. Do not grep the tree for a patch. Report skill/CLI failures.
+Run `make run` only if the user asked to rebuild or restart, or if health/HTTP reports a stale
+Compose image. Prefer opening the `ops/` workspace instead of the git root.

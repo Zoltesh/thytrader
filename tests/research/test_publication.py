@@ -20,6 +20,8 @@ from thytrader.research.models import (
 )
 from thytrader.research.publication import (
     ResearchRunPublicationError,
+    dataset_evaluation_bounds,
+    evaluation_window_suggestion,
     verify_research_run_eligibility,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -210,4 +212,40 @@ def test_eligibility_rejects_incomplete_manifest_even_when_forged() -> None:
             _run(published),
             published,
             replace(_manifest(), complete=False),
+        )
+
+
+def test_dataset_evaluation_bounds_reserve_warmup_and_next_open() -> None:
+    """The suggested window starts after warmup and ends one bar before dataset end."""
+    start, end = dataset_evaluation_bounds(
+        dataset_starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+        dataset_ends_at=datetime(2026, 1, 10, tzinfo=UTC),
+        warmup_bars=2,
+        timeframe="1h",
+    )
+    assert start == datetime(2026, 1, 1, 2, tzinfo=UTC)
+    assert end == datetime(2026, 1, 9, 23, tzinfo=UTC)
+
+
+def test_evaluation_window_suggestion_includes_iso_range() -> None:
+    """Rejected dates must tell the caller a usable inclusive ISO window."""
+    text = evaluation_window_suggestion(
+        dataset_starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+        dataset_ends_at=datetime(2026, 1, 10, tzinfo=UTC),
+        warmup_bars=2,
+        timeframe="1h",
+    )
+    assert "Suggested range:" in text
+    assert "2026-01-01T02:00:00+00:00" in text
+    assert "2026-01-09T23:00:00+00:00" in text
+
+
+def test_dataset_evaluation_bounds_reject_a_too_short_range() -> None:
+    """Warmup plus next-open fill need at least warmup_bars + 2 candles."""
+    with pytest.raises(ResearchRunPublicationError, match="too short"):
+        dataset_evaluation_bounds(
+            dataset_starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+            dataset_ends_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+            warmup_bars=2,
+            timeframe="1h",
         )

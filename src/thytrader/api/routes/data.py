@@ -19,6 +19,7 @@ from thytrader.data_control.models import DataControlError, IngestRequest, Watch
 from thytrader.data_control.service import (
     add_watch_target,
     gap_payload,
+    ingest_status,
     ingest_target,
     inspect_gaps,
     list_watch_targets,
@@ -74,23 +75,19 @@ async def put_watch_target(
     return {"target": watch_payload(target)}
 
 
-@router.post("/ingest")
+@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def post_ingest(
     body: IngestRequest,
-    market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
-    dataset_store: Annotated[DatasetStore, Depends(get_dataset_store)],
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
 ) -> dict[str, object]:
-    """Publish one complete range through the same DatasetStore path as the worker."""
+    """Queue complete-only ingest for the market-data worker. Does not write Parquet."""
     try:
-        state = await ingest_target(
-            service=market_data,
-            dataset_store=dataset_store,
-            state_store=state_store,
+        target, state = await ingest_target(
             watchlist=watchlist,
+            state_store=state_store,
             audit=audit,
             settings=runtime.settings,
             product_id=body.product_id,
@@ -100,8 +97,43 @@ async def post_ingest(
     except DataControlError as error:
         raise _http_error(error) from None
     return {
+        "accepted": True,
         "product_id": body.product_id,
         "timeframe": body.timeframe,
+        "ingest_requested_at": (
+            target.ingest_requested_at.isoformat() if target.ingest_requested_at else None
+        ),
+        "state": worker_state_payload(state),
+    }
+
+
+@router.get("/ingest")
+async def get_ingest(
+    state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")],
+    timeframe: Annotated[Literal["1h", "5m"], Query()],
+) -> dict[str, object]:
+    """Return pending ingest request state and latest worker coverage."""
+    try:
+        target, state = await ingest_status(
+            watchlist=watchlist,
+            state_store=state_store,
+            settings=runtime.settings,
+            product_id=product_id,
+            timeframe=timeframe,
+        )
+    except DataControlError as error:
+        raise _http_error(error) from None
+    return {
+        "product_id": product_id,
+        "timeframe": timeframe,
+        "ingest_requested_at": (
+            target.ingest_requested_at.isoformat()
+            if target is not None and target.ingest_requested_at is not None
+            else None
+        ),
         "state": worker_state_payload(state),
     }
 

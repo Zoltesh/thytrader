@@ -113,9 +113,13 @@ skills/
 
 `thytrader-operator/SKILL.md` documents commands that exist: `thytrader-operator` and
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
-ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
+queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
 control. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
+
+Operating a running instance is a separate workspace: open [`ops/`](../ops/README.md), not the git
+root. Contributor GitNexus workflow stays in root `AGENTS.md`. Operating agents must not edit
+`src/`, Compose, Dockerfiles, Alembic, or tests.
 
 The operator skill tells agents to:
 

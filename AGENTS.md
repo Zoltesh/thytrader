@@ -147,17 +147,24 @@ Use an ADR for durable choices with meaningful alternatives. Supersede old ADRs 
 ## Operating a running instance
 
 When the user asks to diagnose ThyTrader, inspect paper/live *status*, create a strategy, publish,
-run a backtest, or deploy/pause/resume/stop paper or live, use the shipped skills instead of scraping
-logs or querying PostgreSQL:
+run a backtest, or deploy/pause/resume/stop paper or live, **open the [`ops/`](ops/README.md)
+workspace** and use the shipped skills instead of scraping logs, querying PostgreSQL, or editing
+source:
 
 - [`skills/thytrader-operator/SKILL.md`](skills/thytrader-operator/SKILL.md) — read-only diagnostics
   (`uv run thytrader-operator`, `GET /api/v1/operator/*`).
 - [`skills/thytrader-data/SKILL.md`](skills/thytrader-data/SKILL.md) — watchlist, ingest, and
-  gap-fill only, with `--confirm` on every mutation.
+  gap-fill only, with `--confirm` on every mutation. Ingest is a worker job (HTTP 202); the API
+  dataset volume stays read-only.
 - [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
   backtests only, with `--confirm` on every mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
   resume, and stop, with `--confirm` (live also `--i-understand-live`).
+
+Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests while operating a running
+instance. Report skill/CLI failures. Run `make run` only if the user asked to rebuild or restart, or
+if health/HTTP reports a stale Compose image. Run every `uv run thytrader-*` command from this
+repository root (the parent of `ops/`).
 
 Operator and research skills must not deploy, arm live trading, or cancel orders. Data ingest must
 not be folded into those skills. Runtime control must not be folded into operator, data, or research.

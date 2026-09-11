@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from thytrader.config import Settings
@@ -13,6 +14,10 @@ from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
+from thytrader.persistence.worker_heartbeats import (
+    DisabledWorkerHeartbeatStore,
+    InMemoryWorkerHeartbeatStore,
+)
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraft
@@ -39,10 +44,15 @@ class _RecordingDraftStore(DisabledStrategyDraftStore):
         return await super().create_draft(definition)
 
 
-def _diagnostics(*, drafts: DisabledStrategyDraftStore | None = None) -> OperatorDiagnostics:
+def _diagnostics(
+    *,
+    drafts: DisabledStrategyDraftStore | None = None,
+    settings: Settings | None = None,
+    heartbeat_store: DisabledWorkerHeartbeatStore | InMemoryWorkerHeartbeatStore | None = None,
+) -> OperatorDiagnostics:
     """Build diagnostics against demo portfolio and disabled durable stores."""
     return OperatorDiagnostics(
-        settings=Settings(_env_file=None),
+        settings=settings or Settings(_env_file=None),
         portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
@@ -51,6 +61,7 @@ def _diagnostics(*, drafts: DisabledStrategyDraftStore | None = None) -> Operato
         backtests=DisabledBacktestResultStore(),
         execution=DisabledExecutionStore(),
         audit=InMemoryAuditEventStore(),
+        heartbeat_store=heartbeat_store,
     )
 
 
@@ -102,3 +113,55 @@ def test_runtime_report_omits_cash_and_includes_deployments() -> None:
     assert "cash" not in dumped
     assert report.payload.deployments == ()
     assert report.redaction.balances_omitted is True
+
+
+def test_health_reports_engine_missing_when_url_is_set_without_engine() -> None:
+    """A configured database URL without an API engine is not treated as healthy."""
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql+asyncpg://thytrader:unused@127.0.0.1:9/thytrader",
+    )
+    report = asyncio.run(_diagnostics(settings=settings).health())
+    database = next(component for component in report.components if component.name == "database")
+    assert database.reason_code == "DATABASE_ENGINE_MISSING"
+    assert database.status is not ReportStatus.HEALTHY
+
+
+def test_health_reports_unavailable_heartbeats_from_disabled_store() -> None:
+    """Disabled heartbeat storage must not be treated as worker health."""
+    report = asyncio.run(_diagnostics(heartbeat_store=DisabledWorkerHeartbeatStore()).health())
+    workers = {
+        component.name: component.reason_code
+        for component in report.components
+        if component.name.endswith("_worker")
+    }
+    assert workers["portfolio_worker"] == "HEARTBEAT_UNAVAILABLE"
+    assert workers["market_data_worker"] == "HEARTBEAT_UNAVAILABLE"
+    assert workers["execution_worker"] == "HEARTBEAT_UNAVAILABLE"
+
+
+def test_health_reports_missing_and_fresh_heartbeats() -> None:
+    """Empty heartbeat rows are missing; a fresh touch is ready."""
+
+    async def _scenario() -> tuple[str, str]:
+        empty = InMemoryWorkerHeartbeatStore()
+        missing = await _diagnostics(heartbeat_store=empty).health()
+        await empty.touch("portfolio_worker", datetime.now(UTC))
+        await empty.touch("market_data_worker", datetime.now(UTC))
+        await empty.touch("execution_worker", datetime.now(UTC))
+        ready = await _diagnostics(heartbeat_store=empty).health()
+        missing_code = next(
+            component.reason_code
+            for component in missing.components
+            if component.name == "market_data_worker"
+        )
+        ready_code = next(
+            component.reason_code
+            for component in ready.components
+            if component.name == "market_data_worker"
+        )
+        return missing_code, ready_code
+
+    missing_code, ready_code = asyncio.run(_scenario())
+    assert missing_code == "HEARTBEAT_MISSING"
+    assert ready_code == "READY"

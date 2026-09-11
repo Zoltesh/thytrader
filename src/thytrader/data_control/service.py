@@ -26,7 +26,6 @@ from thytrader.market_data.worker_state import (
 from thytrader.market_data_worker.service import (
     bounded_lookback_start,
     fetch_historical_range,
-    ingest_once,
 )
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -99,44 +98,61 @@ async def add_watch_target(
 
 async def ingest_target(
     *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    state_store: MarketDataWorkerStateStore,
     watchlist: MarketDataWatchlistStore,
+    state_store: MarketDataWorkerStateStore,
     audit: AuditEventStore,
     settings: Settings,
     product_id: str,
     timeframe: str,
     now: datetime,
-) -> MarketDataWorkerState | None:
-    """Run the same complete-only publication path as the dedicated worker."""
+) -> tuple[MarketDataWatchTarget, MarketDataWorkerState | None]:
+    """Queue complete-only ingest for the market-data worker. Does not write Parquet."""
     interval = require_interval(timeframe)
     provider = ingestion_provider(settings)
     lookback_hours = await _lookback_hours(watchlist, settings, provider, product_id, interval)
     try:
-        await ingest_once(
-            service=service,
-            dataset_store=dataset_store,
-            state_store=state_store,
+        target = await watchlist.request_ingest(
             provider=provider,
             product_id=product_id,
+            timeframe=interval,
             lookback_hours=lookback_hours,
             now=now,
-            timeframe=interval,
-            retry_base_seconds=settings.market_data_worker_interval_seconds,
         )
         state = await state_store.get(provider, product_id, interval)
+    except (MarketDataWatchlistError, MarketDataWatchlistUnavailableError) as error:
+        raise DataControlError(str(error)) from error
     except MarketDataWorkerUnavailableError as error:
         raise DataControlError("Market-data worker state is unavailable.") from error
     await _audit(
         audit,
-        action="ingest",
+        action="ingest_requested",
         product_id=product_id,
-        detail=_ingest_audit_detail(interval.value, state),
+        detail=f"timeframe={interval.value} lookback_hours={lookback_hours}",
         provider=provider,
         now=now,
     )
-    return state
+    return target, state
+
+
+async def ingest_status(
+    *,
+    watchlist: MarketDataWatchlistStore,
+    state_store: MarketDataWorkerStateStore,
+    settings: Settings,
+    product_id: str,
+    timeframe: str,
+) -> tuple[MarketDataWatchTarget | None, MarketDataWorkerState | None]:
+    """Return the current ingest request flag and worker coverage state."""
+    interval = require_interval(timeframe)
+    provider = ingestion_provider(settings)
+    try:
+        target = await watchlist.get(provider, product_id, interval)
+        state = await state_store.get(provider, product_id, interval)
+    except MarketDataWatchlistUnavailableError as error:
+        raise DataControlError("Market-data watchlist is unavailable.") from error
+    except MarketDataWorkerUnavailableError as error:
+        raise DataControlError("Market-data worker state is unavailable.") from error
+    return target, state
 
 
 async def inspect_gaps(
@@ -263,14 +279,6 @@ def _observation_for(
     return GapObservation(starts_at=start, cause=cause)
 
 
-def _ingest_audit_detail(timeframe: str, state: MarketDataWorkerState | None) -> str:
-    """Redacted ingest outcome for the audit log."""
-    if state is None:
-        return f"timeframe={timeframe} status=unknown"
-    complete = "complete" if state.complete else "incomplete"
-    return f"timeframe={timeframe} status={state.status.value} coverage={complete}"
-
-
 async def _audit(
     audit: AuditEventStore,
     *,
@@ -302,6 +310,9 @@ def watch_payload(target: MarketDataWatchTarget) -> dict[str, object]:
         "lookback_hours": target.lookback_hours,
         "enabled": target.enabled,
         "updated_at": target.updated_at.isoformat(),
+        "ingest_requested_at": (
+            target.ingest_requested_at.isoformat() if target.ingest_requested_at else None
+        ),
     }
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -11,11 +12,14 @@ from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore
 from thytrader.market_data.worker_state import InMemoryMarketDataWorkerStateStore
+from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.operator.models import SCHEMA_VERSION
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from fastapi import FastAPI
 
 
 def _client(tmp_path: Path) -> TestClient:
@@ -29,9 +33,36 @@ def _client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
+async def _run_worker_cycle(app: FastAPI) -> None:
+    """Let the dedicated worker consume one queued ingest request."""
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        run_market_data_worker(
+            stop,
+            service=app.state.market_data_service,
+            dataset_store=app.state.dataset_store,
+            state_store=app.state.market_data_state_store,
+            provider="demo",
+            product_id="ETH-USD",
+            lookback_hours=1,
+            interval_seconds=1,
+            watchlist=app.state.market_data_watchlist_store,
+        )
+    )
+    await asyncio.sleep(0.3)
+    stop.set()
+    await task
+
+
 def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
-    """Agents can watch ETH 5m and publish a complete demo range."""
-    with _client(tmp_path) as client:
+    """Agents can watch ETH 5m; the worker publishes a complete demo range."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
         added = client.put(
             "/api/v1/data/watchlist",
             json={
@@ -45,16 +76,22 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
             "/api/v1/data/ingest",
             json={"product_id": "ETH-USD", "timeframe": "5m"},
         )
+        assert added.status_code == 200, added.text
+        assert ingest.status_code == 202, ingest.text
+        assert ingest.json()["accepted"] is True
+        assert ingest.json()["ingest_requested_at"] is not None
+        asyncio.run(_run_worker_cycle(app))
+        status = client.get("/api/v1/data/ingest?product_id=ETH-USD&timeframe=5m")
         catalog = client.get("/api/v1/operator/data-catalog")
         indicators = client.get("/api/v1/operator/indicators")
         products = client.get("/api/v1/operator/products")
 
-    assert added.status_code == 200, added.text
     assert added.json()["target"]["product_id"] == "ETH-USD"
     assert added.json()["target"]["timeframe"] == "5m"
-    assert ingest.status_code == 200, ingest.text
-    assert ingest.json()["state"]["complete"] is True
-    assert ingest.json()["state"]["status"] == "succeeded"
+    assert status.status_code == 200, status.text
+    assert status.json()["ingest_requested_at"] is None
+    assert status.json()["state"]["complete"] is True
+    assert status.json()["state"]["status"] == "succeeded"
     assert catalog.status_code == 200
     assert catalog.json()["schema_version"] == SCHEMA_VERSION
     assert catalog.json()["report_kind"] == "data_catalog"

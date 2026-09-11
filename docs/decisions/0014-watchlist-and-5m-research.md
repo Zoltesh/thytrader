@@ -1,6 +1,6 @@
 # 0014: Watchlist ingest and 5m research datasets
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0015](0015-worker-owned-ingest-and-ops-workspace.md)
 - Date: 2026-09-10
 
 ## Context
@@ -34,4 +34,5 @@ forbidden. The dedicated market-data worker is the publication path; one-shot in
 - Fold ingest into `thytrader-operator`: rejected because operator is read-only.
 - Fold ingest into `thytrader-research`: rejected because research is drafts/backtests only.
 - Write a second Parquet publisher for API ingest: rejected; share `ingest_once`.
+  ADR 0015 keeps that shared function and makes the market-data worker its only caller.
 - Enable 5m paper/live with the research timeframe: rejected until 5m research is proven.

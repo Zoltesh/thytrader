@@ -16,6 +16,17 @@ Schema version: `thytrader-operator-report-v1` (`schema_version` on every JSON r
 
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want process stores instead of HTTP. Do not fall back from HTTP to PostgreSQL if the API is down.
 
+JSON is the default CLI output. Do not add `--format json` to every command.
+
+## Hard stop
+
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
+Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
+with `make run` when the user asked to rebuild, or when health/HTTP says the Compose image is stale
+(version mismatch, or 404 on agent routes while `/health/ready` is 200). Open the `ops/` workspace
+instead of the git root. Run every `uv run thytrader-*` command from the repository root (the parent
+of `ops/`).
+
 ## Commands
 
 Prefer the CLI. HTTP is the same contract on loopback.
@@ -37,7 +48,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 
-`--format json` is the default agent contract. `--format text` is a short summary.
+`--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
@@ -48,17 +59,19 @@ Machine-readable envelope: [operator-report-v1.schema.json](references/operator-
 - `2` overall `failed` (schema-check mismatch is also `2`)
 - argparse usage errors use the interpreter's usual non-zero code
 
-Missing telemetry is never treated as healthy.
+Missing telemetry is never treated as healthy. Worker health is PostgreSQL heartbeats, not Docker
+`/tmp` readiness files. Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
 1. Verify CLI help and run `health` first.
-2. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
-3. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
-4. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer.
-5. Treat `partial_result_warnings` as incomplete evidence, not as health.
-6. Separate verified report fields from hypotheses.
-7. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, and live arming require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live also `--i-understand-live`).
+2. If stderr says the API version does not match the CLI, rebuild with `make run` (ask first).
+3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
+4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
+5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Backtest performance uses the published strategy timeframe; paper/live stay `1h`.
+6. Treat `partial_result_warnings` as incomplete evidence, not as health.
+7. Separate verified report fields from hypotheses.
+8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, and live arming require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live also `--i-understand-live`).
 
 ## Forbidden
 
@@ -67,5 +80,6 @@ Missing telemetry is never treated as healthy.
 - Browser clicking as a substitute for these endpoints
 - Paper or live order control
 - Silently using `--local` because HTTP failed
+- Editing application source to "fix" a running instance
 
 See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](references/report-schemas.md).

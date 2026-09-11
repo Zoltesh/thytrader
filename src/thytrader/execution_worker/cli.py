@@ -23,6 +23,7 @@ from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 
 _logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ async def run() -> None:
     engine = create_engine(settings.database_url)
     store = PostgresExecutionStore(engine)
     publication_store = PostgresStrategyPublicationStore(engine)
+    heartbeats = PostgresWorkerHeartbeatStore(engine)
     market_data, live_broker, quote_reader = _build_live_dependencies(settings)
     try:
         try:
@@ -70,6 +72,7 @@ async def run() -> None:
             on_readiness_changed=lambda ready: _set_readiness(
                 settings.execution_worker_readiness_file, ready
             ),
+            heartbeat_store=heartbeats,
         )
         _logger.info("execution_worker_stopped")
     finally:

@@ -9,7 +9,9 @@ import sys
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader import __version__
 from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
@@ -24,8 +26,32 @@ if TYPE_CHECKING:
     from thytrader.operator.service import OperatorDiagnostics
 
 
+def _shared_options() -> argparse.ArgumentParser:
+    """Global flags that may appear before or after the subcommand."""
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--format",
+        choices=("json", "text"),
+        default="json",
+        help="json is the agent contract; text is a short human summary.",
+    )
+    shared.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    shared.add_argument(
+        "--local",
+        action="store_true",
+        help="Query local stores instead of HTTP. Do not use as a silent API fallback.",
+    )
+    return shared
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the read-only operator argument parser."""
+    shared = _shared_options()
+    trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-operator",
         description=(
@@ -33,28 +59,29 @@ def _parser() -> argparse.ArgumentParser:
             "This command cannot place, edit, or cancel orders, or arm live trading. "
             "Default transport is the loopback HTTP API; --local uses process stores."
         ),
-    )
-    parser.add_argument(
-        "--format",
-        choices=("json", "text"),
-        default="json",
-        help="json is the agent contract; text is a short human summary.",
-    )
-    parser.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
-    )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Query local stores instead of HTTP. Do not use as a silent API fallback.",
+        parents=[shared],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("health", help="API, workers, database, and exchange health.")
-    subparsers.add_parser("configuration", help="Redacted configuration validity.")
-    subparsers.add_parser("exchange", help="Coinbase connectivity and permissions.")
-    market = subparsers.add_parser("market-data", help="1h or 5m freshness and gap report.")
+    subparsers.add_parser(
+        "health",
+        parents=[trailing],
+        help="API, workers, database, and exchange health.",
+    )
+    subparsers.add_parser(
+        "configuration",
+        parents=[trailing],
+        help="Redacted configuration validity.",
+    )
+    subparsers.add_parser(
+        "exchange",
+        parents=[trailing],
+        help="Coinbase connectivity and permissions.",
+    )
+    market = subparsers.add_parser(
+        "market-data",
+        parents=[trailing],
+        help="1h or 5m freshness and gap report.",
+    )
     market.add_argument(
         "--product-id",
         default=None,
@@ -66,22 +93,55 @@ def _parser() -> argparse.ArgumentParser:
         choices=("1h", "5m"),
         help="Candle interval. Default 1h.",
     )
-    subparsers.add_parser("products", help="Enabled USD spot products from the current catalog.")
-    subparsers.add_parser("data-catalog", help="Local datasets, watchlist, and coverage.")
-    subparsers.add_parser("indicators", help="Implemented indicator kinds and period bounds.")
-    subparsers.add_parser("strategies", help="Draft, publication, and runtime status.")
+    subparsers.add_parser(
+        "products",
+        parents=[trailing],
+        help="Enabled USD spot products from the current catalog.",
+    )
+    subparsers.add_parser(
+        "data-catalog",
+        parents=[trailing],
+        help="Local datasets, watchlist, and coverage.",
+    )
+    subparsers.add_parser(
+        "indicators",
+        parents=[trailing],
+        help="Implemented indicator kinds and period bounds.",
+    )
+    subparsers.add_parser(
+        "strategies",
+        parents=[trailing],
+        help="Draft, publication, and runtime status.",
+    )
     performance = subparsers.add_parser(
         "performance",
+        parents=[trailing],
         help="Backtest or runtime performance slice.",
     )
     performance.add_argument("--result-fingerprint", default=None)
     performance.add_argument("--deployment-id", default=None)
-    subparsers.add_parser("risk", help="Pause and mismatch findings.")
-    subparsers.add_parser("reconciliation", help="Unknown orders and mismatch findings.")
-    runtime = subparsers.add_parser("runtime", help="Paper/live status without trading.")
+    subparsers.add_parser("risk", parents=[trailing], help="Pause and mismatch findings.")
+    subparsers.add_parser(
+        "reconciliation",
+        parents=[trailing],
+        help="Unknown orders and mismatch findings.",
+    )
+    runtime = subparsers.add_parser(
+        "runtime",
+        parents=[trailing],
+        help="Paper/live status without trading.",
+    )
     runtime.add_argument("--deployment-id", default=None)
-    subparsers.add_parser("support-bundle", help="Redacted bundle of the supported reports.")
-    subparsers.add_parser("schema-check", help="Verify skill docs match SCHEMA_VERSION.")
+    subparsers.add_parser(
+        "support-bundle",
+        parents=[trailing],
+        help="Redacted bundle of the supported reports.",
+    )
+    subparsers.add_parser(
+        "schema-check",
+        parents=[trailing],
+        help="Verify skill docs match SCHEMA_VERSION.",
+    )
     return parser
 
 
@@ -183,6 +243,11 @@ def _run_http(arguments: argparse.Namespace) -> int:
         command=arguments.command,
         query=_query(arguments),
     )
+    if report.application_version != __version__:
+        sys.stderr.write(
+            f"API version {report.application_version} does not match CLI {__version__}. "
+            "Rebuild and restart with `make run`.\n"
+        )
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
     return exit_code_for(report.overall_status)
 

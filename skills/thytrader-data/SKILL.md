@@ -22,15 +22,28 @@ Supported research timeframes: `1h` and `5m`. Paper and live stay on `1h`.
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
 
+Ingest is a **job**. `POST /api/v1/data/ingest` returns **202** and sets a watchlist flag. The
+market-data worker (`thytrader-market-data-worker`) is the only process that writes Parquet. The
+API dataset volume stays read-only. The CLI polls `GET /api/v1/data/ingest` until the flag clears
+or 120s elapse.
+
+## Hard stop
+
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
+Do not grep the tree or patch Python to make ingest writable in the API. Report failures through this
+skill. Rebuild or restart only with `make run` when the user asked, or when HTTP 404 on `/api/v1/data`
+coincides with a ready `/health/ready` (stale Compose image). Open the `ops/` workspace instead of
+the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
+
 ## Commands
 
 | Need | Command |
 |---|---|
 | List the watchlist | `uv run thytrader-data watchlist-list` |
 | Watch a product/timeframe | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --confirm` |
-| Ingest one complete range | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
+| Queue ingest (CLI polls the worker) | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
 | Classify missing bars | `uv run thytrader-data inspect-gaps --product-id ETH-USD --timeframe 5m` |
-| Re-run complete-only ingest | `uv run thytrader-data fill-gaps --product-id ETH-USD --timeframe 5m --confirm` |
+| Re-queue complete-only ingest | `uv run thytrader-data fill-gaps --product-id ETH-USD --timeframe 5m --confirm` |
 
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
 
@@ -43,7 +56,7 @@ Gap `cause` values:
 - `exchange_unavailable` — a live probe did not receive that bar from Coinbase
 - `incomplete_local` — an ingest attempt ran but did not publish a complete range
 
-`fill-gaps` is the same publication path as `ingest`. It does not invent prices for missing bars.
+`fill-gaps` queues the same worker publication path as `ingest`. It does not invent prices for missing bars.
 
 ## Confirmation
 
@@ -55,7 +68,8 @@ Gap `cause` values:
 ## Workflow
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
-2. `watch-add` then `ingest` for a new product or `5m`.
+2. `watch-add` then `ingest` for a new product or `5m`. Wait for the CLI poll; do not treat 202 as
+   published Parquet.
 3. `inspect-gaps` if coverage is incomplete. Classify; do not interpolate.
 4. `fill-gaps --confirm` to retry complete-only publication.
 5. `uv run thytrader-operator indicators` before designing a study.
@@ -66,6 +80,7 @@ Gap `cause` values:
 
 - Deployments, pause/resume/stop, Coinbase orders, risk-limit edits, kill switches
 - Direct PostgreSQL or Parquet writes outside this CLI
+- Making the API dataset volume writable so the API process can publish Parquet
 - Treating preview `GET /api/v1/market-data/preview` as a dataset
 - Inventing indicators that are not in `thytrader-operator indicators`
 - Arming 5m paper or live trading

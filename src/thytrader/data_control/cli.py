@@ -7,6 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.data_control.client import (
     add_watch,
@@ -24,8 +25,21 @@ if TYPE_CHECKING:
 _CONFIRM_HELP = "Required for watchlist and ingest mutations."
 
 
+def _shared_options() -> argparse.ArgumentParser:
+    """Global flags that may appear before or after the subcommand."""
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    return shared
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the confirmation-gated data-control argument parser."""
+    shared = _shared_options()
+    trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-data",
         description=(
@@ -33,29 +47,39 @@ def _parser() -> argparse.ArgumentParser:
             "the loopback HTTP API. Mutations require --confirm. This is not the "
             "operator, research, or runtime CLI. It does not place orders."
         ),
-    )
-    parser.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+        parents=[shared],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("watchlist-list", help="List watched products and timeframes.")
-    watch_add = subparsers.add_parser("watch-add", help="Watch one USD spot product and timeframe.")
+    subparsers.add_parser(
+        "watchlist-list",
+        parents=[trailing],
+        help="List watched products and timeframes.",
+    )
+    watch_add = subparsers.add_parser(
+        "watch-add",
+        parents=[trailing],
+        help="Watch one USD spot product and timeframe.",
+    )
     _target_args(watch_add)
     watch_add.add_argument("--lookback-hours", type=int, default=168)
     watch_add.add_argument("--disabled", action="store_true", help="Store the target as disabled.")
     watch_add.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     ingest_cmd = subparsers.add_parser(
         "ingest",
-        help="Fetch and publish one complete range through DatasetStore.",
+        parents=[trailing],
+        help="Queue complete-only ingest for the market-data worker.",
     )
     _target_args(ingest_cmd)
     ingest_cmd.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    gaps = subparsers.add_parser("inspect-gaps", help="Classify missing bars without writing.")
+    gaps = subparsers.add_parser(
+        "inspect-gaps",
+        parents=[trailing],
+        help="Classify missing bars without writing.",
+    )
     _target_args(gaps)
     fill = subparsers.add_parser(
         "fill-gaps",
+        parents=[trailing],
         help="Re-run complete-only ingest. Does not interpolate missing bars.",
     )
     _target_args(fill)

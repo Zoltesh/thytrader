@@ -40,3 +40,19 @@ def test_recommendation_uses_first_failed_reason() -> None:
         reason_code="DATABASE_UNREACHABLE",
     )
     assert "PostgreSQL" in recommend_next_action((failed,))
+
+
+def test_recommendation_for_engine_missing_and_stale_heartbeat() -> None:
+    """New health codes must tell operators to rebuild or restart workers."""
+    engine_missing = ComponentReport(
+        name="database",
+        status=ReportStatus.DEGRADED,
+        reason_code="DATABASE_ENGINE_MISSING",
+    )
+    stale = ComponentReport(
+        name="market_data_worker",
+        status=ReportStatus.DEGRADED,
+        reason_code="HEARTBEAT_STALE",
+    )
+    assert "make run" in recommend_next_action((engine_missing,))
+    assert "heartbeat" in recommend_next_action((stale,)).lower()

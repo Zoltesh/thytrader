@@ -40,9 +40,14 @@ class ResearchMutator:
     results: BacktestResultReader
     audit: AuditEventStore
 
-    async def create_reference_draft(self) -> StrategyDraft:
+    async def create_reference_draft(
+        self,
+        *,
+        product_id: str = "BTC-USD",
+        timeframe: str = "1h",
+    ) -> StrategyDraft:
         """Persist the conservative reference draft and record an audit event."""
-        definition = create_reference_draft()
+        definition = create_reference_draft(product_id=product_id, timeframe=timeframe)
         draft = await self.drafts.create_draft(definition)
         await self._audit("create_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
         return draft

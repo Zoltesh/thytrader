@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import select
@@ -15,8 +16,6 @@ from thytrader.market_data.watchlist import (
 from thytrader.persistence.schema import market_data_watchlist
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from sqlalchemy.engine import Row
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -80,6 +79,7 @@ class PostgresMarketDataWatchlistStore:
             "enabled": target.enabled,
             "created_at": target.updated_at,
             "updated_at": target.updated_at,
+            "ingest_requested_at": target.ingest_requested_at,
         }
         statement = insert(market_data_watchlist).values(**values)
         statement = statement.on_conflict_do_update(
@@ -97,6 +97,65 @@ class PostgresMarketDataWatchlistStore:
             raise MarketDataWatchlistError("Watch target could not be persisted.")
         return stored
 
+    async def request_ingest(
+        self,
+        *,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+        lookback_hours: int,
+        now: datetime,
+    ) -> MarketDataWatchTarget:
+        """Create or update one target and set ingest_requested_at."""
+        requested_at = now.astimezone(UTC)
+        existing = await self.get(provider, product_id, timeframe)
+        if existing is None:
+            return await self.upsert(
+                MarketDataWatchTarget(
+                    provider=provider,
+                    product_id=product_id,
+                    timeframe=timeframe,
+                    lookback_hours=lookback_hours,
+                    enabled=True,
+                    updated_at=requested_at,
+                    ingest_requested_at=requested_at,
+                )
+            )
+        statement = (
+            market_data_watchlist.update()
+            .where(
+                market_data_watchlist.c.provider == provider,
+                market_data_watchlist.c.product_id == product_id,
+                market_data_watchlist.c.timeframe == timeframe.value,
+            )
+            .values(ingest_requested_at=requested_at, updated_at=requested_at)
+        )
+        async with self._engine.begin() as connection:
+            await connection.execute(statement)
+        stored = await self.get(provider, product_id, timeframe)
+        if stored is None:
+            raise MarketDataWatchlistError("Watch target could not be persisted.")
+        return stored
+
+    async def clear_ingest_request(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+    ) -> None:
+        """Clear a pending ingest request when the row exists."""
+        statement = (
+            market_data_watchlist.update()
+            .where(
+                market_data_watchlist.c.provider == provider,
+                market_data_watchlist.c.product_id == product_id,
+                market_data_watchlist.c.timeframe == timeframe.value,
+            )
+            .values(ingest_requested_at=None)
+        )
+        async with self._engine.begin() as connection:
+            await connection.execute(statement)
+
 
 def _to_target(row: Row[tuple[object, ...]]) -> MarketDataWatchTarget:
     """Reconstruct one typed watch target from a SQLAlchemy row."""
@@ -109,7 +168,8 @@ def _to_target(row: Row[tuple[object, ...]]) -> MarketDataWatchTarget:
             lookback_hours=cast("int", values["lookback_hours"]),
             enabled=cast("bool", values["enabled"]),
             updated_at=cast("datetime", values["updated_at"]),
-            created_at=cast("datetime", values["created_at"]),
+            created_at=cast("datetime | None", values.get("created_at")),
+            ingest_requested_at=cast("datetime | None", values.get("ingest_requested_at")),
         )
     except (KeyError, TypeError, ValueError) as error:
         message = "Market-data watchlist has malformed persisted state."

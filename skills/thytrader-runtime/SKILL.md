@@ -16,6 +16,16 @@ HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
 
+Paper and live stay on closed **1h** bars. Do not start a 5m runtime.
+
+## Hard stop
+
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
+Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
+with `make run` when the user asked, or when HTTP 404 on `/api/v1/deployments` coincides with a ready
+`/health/ready` (stale Compose image). Open the `ops/` workspace instead of the git root. Run every
+`uv run thytrader-*` command from the repository root (the parent of `ops/`).
+
 ## Commands
 
 | Need | Command |
@@ -53,3 +63,4 @@ Underlying HTTP:
 - Direct PostgreSQL access
 - Cancelling individual Coinbase orders or changing risk-policy configuration (out of scope)
 - Treating a timeout as proof the start/pause/stop failed; `show` the deployment and reconcile before retrying
+- Editing application source to arm, pause, or change execution on a running instance

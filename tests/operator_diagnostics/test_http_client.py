@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from email.message import Message
 import json
+from typing import Protocol
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -24,6 +26,12 @@ from thytrader.operator.models import (
     HealthReport,
     ReportStatus,
 )
+
+
+class _HasFullUrl(Protocol):
+    """urllib Request-shaped object used by the patched urlopen helper."""
+
+    full_url: str
 
 
 def test_require_loopback_base_url_accepts_localhost() -> None:
@@ -73,6 +81,36 @@ def test_fetch_operator_report_validates_health_envelope() -> None:
     assert isinstance(report, HealthReport)
     assert report.schema_version == SCHEMA_VERSION
     assert report.report_kind == "health"
+
+
+def test_request_json_404_on_ready_api_hints_rebuild() -> None:
+    """A stale Compose image that still answers /health/ready must tell operators to rebuild."""
+    missing = HTTPError(
+        "http://127.0.0.1:8200/api/v1/operator/health",
+        404,
+        "Not Found",
+        hdrs=Message(),
+        fp=MagicMock(),
+    )
+    missing.read = MagicMock(return_value=b'{"detail":"Not Found"}')
+    ready = MagicMock()
+    ready.status = 200
+    ready.read.return_value = b'{"status":"ready"}'
+    ready.__enter__.return_value = ready
+    ready.__exit__.return_value = None
+
+    def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> MagicMock:
+        del timeout
+        url = request if isinstance(request, str) else request.full_url
+        if url.endswith("/health/ready"):
+            return ready
+        raise missing
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
+        pytest.raises(AgentHttpError, match="make run"),
+    ):
+        request_json(method="GET", url="http://127.0.0.1:8200/api/v1/operator/health")
 
 
 def test_default_api_base_url_is_loopback() -> None:

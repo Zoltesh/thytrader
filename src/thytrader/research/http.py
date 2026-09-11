@@ -15,10 +15,18 @@ if TYPE_CHECKING:
     from thytrader.strategies.models import StrategyDefinition
 
 
-def create_draft(base_url: str) -> str:
+def create_draft(
+    base_url: str,
+    *,
+    product_id: str = "BTC-USD",
+    timeframe: str = "1h",
+) -> str:
     """POST the conservative reference draft through the strategies API."""
+    url = f"{base_url}/api/v1/strategies"
+    if product_id != "BTC-USD" or timeframe != "1h":
+        url = f"{url}?product_id={product_id}&timeframe={timeframe}"
     body = _as_object(
-        request_json(method="POST", url=f"{base_url}/api/v1/strategies"),
+        request_json(method="POST", url=url),
         "create-draft response",
     )
     strategy = _as_object(body.get("strategy"), "created strategy")

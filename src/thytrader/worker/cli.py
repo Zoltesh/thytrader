@@ -22,6 +22,7 @@ from thytrader.persistence.portfolio_history import (
 )
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
+from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
@@ -46,7 +47,7 @@ async def run() -> None:
     loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
 
     portfolio_service = _build_portfolio_service(settings)
-    history_store, audit_store, engine = await _build_stores(settings)
+    history_store, audit_store, engine, heartbeats = await _build_stores(settings)
 
     readiness_file = settings.worker_readiness_file
     try:
@@ -58,6 +59,7 @@ async def run() -> None:
             history_store=history_store,
             audit_store=audit_store,
             on_started=lambda: _mark_ready(readiness_file),
+            heartbeat_store=heartbeats,
         )
         logger.info("worker_stopped")
     finally:
@@ -99,10 +101,15 @@ def _build_portfolio_service(settings: Settings) -> PortfolioService:
 
 async def _build_stores(
     settings: Settings,
-) -> tuple[PortfolioHistoryStore, AuditEventStore, AsyncEngine | None]:
+) -> tuple[
+    PortfolioHistoryStore,
+    AuditEventStore,
+    AsyncEngine | None,
+    PostgresWorkerHeartbeatStore | None,
+]:
     """Create PostgreSQL stores when configured, or disabled."""
     if settings.database_url is None:
-        return DisabledPortfolioHistoryStore(), DisabledAuditEventStore(), None
+        return DisabledPortfolioHistoryStore(), DisabledAuditEventStore(), None, None
 
     engine = create_engine(settings.database_url)
     try:
@@ -111,7 +118,12 @@ async def _build_stores(
         await dispose(engine)
         logger.exception("Worker database connectivity check failed")
         raise
-    return PostgresPortfolioHistoryStore(engine), PostgresAuditEventStore(engine), engine
+    return (
+        PostgresPortfolioHistoryStore(engine),
+        PostgresAuditEventStore(engine),
+        engine,
+        PostgresWorkerHeartbeatStore(engine),
+    )
 
 
 def main() -> None:

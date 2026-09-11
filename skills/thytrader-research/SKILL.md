@@ -16,11 +16,19 @@ Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://
 
 Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`, `POST /api/v1/backtests`) remain valid. The agent-facing mutation path is `uv run thytrader-research` with `--confirm`.
 
+## Hard stop
+
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
+Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
+with `make run` when the user asked, or when HTTP 404 on `/api/v1/strategies` or `/api/v1/backtests`
+coincides with a ready `/health/ready` (stale Compose image). Open the `ops/` workspace instead of
+the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
+
 ## Commands
 
 | Need | Command |
 |---|---|
-| Create the conservative reference draft | `uv run thytrader-research create-draft --confirm` |
+| Create the conservative reference draft | `uv run thytrader-research create-draft [--product-id ETH-USD] [--timeframe 5m] --confirm` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
@@ -28,6 +36,14 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 
 `list-results` and `show-result` are read-only and do not use `--confirm`.
+
+`create-draft` defaults to `BTC-USD` / `1h`. Pass `--product-id` and `--timeframe` (`1h` or `5m`) for
+another USD spot product. Paper and live deployments still require `1h`.
+
+`submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
+dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
+supplied dates do not fit, the API returns 422 with a suggested ISO range. Do not invent a window
+that the catalog cannot cover.
 
 ## Confirmation
 
@@ -41,5 +57,6 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 - Direct PostgreSQL access as the public agent contract
 - Treating a backtest as a live or paper fill
 - Archiving as part of this skill (out of scope)
+- Editing application source to change strategy or backtest semantics on a running instance
 
 Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests; paper and live deployments still require `1h`.

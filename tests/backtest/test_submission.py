@@ -66,6 +66,21 @@ def _request(**overrides: Unpack[_RequestOverrides]) -> BacktestSubmissionReques
     return BacktestSubmissionRequest.model_validate(fields)
 
 
+def test_submission_allows_omitted_evaluation_window() -> None:
+    """Agents may omit dates so the server fills the dataset's usable window."""
+    fields: _RequestOverrides = {
+        "strategy_fingerprint": "sha256:" + "a" * 64,
+        "dataset_fingerprint": "sha256:" + "b" * 64,
+        "initial_quote_balance": "10000",
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "10",
+    }
+    request = BacktestSubmissionRequest.model_validate(fields)
+    assert request.evaluation_start is None
+    assert request.evaluation_end is None
+
+
 def test_v1_submission_rejects_spread() -> None:
     """The V1 contract has no broker block; a spread value is a caller error."""
     with pytest.raises(ValidationError, match="spread_bps requires"):
@@ -123,6 +138,8 @@ def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
     fingerprint = _execution_fingerprint(request)
 
     assert fingerprint.startswith("sha256:")
+    assert request.evaluation_end is not None
+    assert request.evaluation_start is not None
     # Recompute the canonical payload to confirm the broker block participates.
     payload = {
         "bar_execution": {
@@ -184,7 +201,7 @@ async def test_dataset_coverage_failure_maps_to_caller_rejection(
     monkeypatch.setattr(submitter, "_run_store", run_store, raising=False)
     monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
 
-    with pytest.raises(BacktestSubmissionRejectedError, match="does not fit the selected dataset"):
+    with pytest.raises(BacktestSubmissionRejectedError, match="no warmup coverage"):
         await submitter.submit(_request())
 
     assert dataset_store.load_candles_calls == 0
@@ -202,7 +219,7 @@ async def test_dataset_integrity_failure_maps_to_caller_rejection(
     monkeypatch.setattr(submitter, "_run_store", run_store, raising=False)
     monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
 
-    with pytest.raises(BacktestSubmissionRejectedError, match="does not fit the selected dataset"):
+    with pytest.raises(BacktestSubmissionRejectedError, match="verified complete artifact"):
         await submitter.submit(_request())
 
 
@@ -265,6 +282,16 @@ class _UnusedDatasetStore:
 
     def __init__(self) -> None:
         self.load_candles_calls = 0
+
+    def load_manifest(self, content_fingerprint: str) -> object:
+        """Return coverage facts so window fill can run without reading candles."""
+        del content_fingerprint
+
+        class _Manifest:
+            starts_at = "2026-07-01T00:00:00+00:00"
+            ends_at = "2026-09-01T00:00:00+00:00"
+
+        return _Manifest()
 
     def load_candles(self, content_fingerprint: str) -> tuple[()]:
         """Record the forbidden candle load."""

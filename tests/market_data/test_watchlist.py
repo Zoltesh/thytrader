@@ -75,4 +75,37 @@ def test_ensure_default_watch_target_is_idempotent() -> None:
         assert listed[0].product_id == "BTC-USD"
         assert listed[0].timeframe is CandleInterval.ONE_HOUR
 
+
+def test_request_ingest_sets_flag_without_clearing_lookback() -> None:
+    """Queued ingest is a watchlist flag the worker can consume."""
+
+    async def exercise() -> None:
+        store = InMemoryMarketDataWatchlistStore()
+        now = datetime(2026, 9, 11, tzinfo=UTC)
+        await store.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="ETH-USD",
+                timeframe=CandleInterval.FIVE_MINUTES,
+                lookback_hours=168,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        requested = await store.request_ingest(
+            provider="demo",
+            product_id="ETH-USD",
+            timeframe=CandleInterval.FIVE_MINUTES,
+            lookback_hours=24,
+            now=now,
+        )
+        assert requested.lookback_hours == 168
+        assert requested.ingest_requested_at == now
+        await store.clear_ingest_request("demo", "ETH-USD", CandleInterval.FIVE_MINUTES)
+        cleared = await store.get("demo", "ETH-USD", CandleInterval.FIVE_MINUTES)
+        assert cleared is not None
+        assert cleared.ingest_requested_at is None
+
+    asyncio.run(exercise())
+
     asyncio.run(exercise())

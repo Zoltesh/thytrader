@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from thytrader.api.dependencies import (
@@ -279,9 +279,17 @@ async def create_strategy_draft(
         StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
 ) -> StrategyCreatedResponse:
     """Create and durably save the conservative reference draft without trading authority."""
-    definition = create_reference_draft()
+    try:
+        definition = create_reference_draft(product_id=product_id, timeframe=timeframe)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from None
     try:
         draft = await draft_store.create_draft(definition)
     except RuntimeError, TypeError, ValueError:

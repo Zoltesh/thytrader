@@ -2,7 +2,7 @@
 
 Distributable skills that operate a running ThyTrader instance through supported, versioned interfaces. They must not scrape logs, query PostgreSQL, or import private internals.
 
-Product of record is this directory. Cursor auto-discovery pointers live under `.cursor/skills/` and must not diverge from these contracts.
+Product of record is this directory. Cursor auto-discovery pointers live under `.cursor/skills/` and must not diverge from these contracts. Operating agents should open [`ops/`](../ops/README.md) so they load these skills without the contributor GitNexus workflow.
 
 ## `thytrader-operator`
 
@@ -14,7 +14,7 @@ Read-only diagnostics: health, redacted configuration, exchange permissions, mar
 
 ## `thytrader-data`
 
-Confirmation-gated watchlist, complete-only ingest, and gap inspection. No paper, live, strategy, or backtest authority. Does not interpolate missing candles.
+Confirmation-gated watchlist, complete-only ingest jobs, and gap inspection. No paper, live, strategy, or backtest authority. Does not interpolate missing candles. `POST /api/v1/data/ingest` returns 202; the market-data worker writes Parquet.
 
 - Skill: [`thytrader-data/SKILL.md`](thytrader-data/SKILL.md)
 - CLI: `uv run thytrader-data … --confirm`

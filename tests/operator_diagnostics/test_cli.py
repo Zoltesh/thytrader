@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
+from unittest.mock import patch
 
 import pytest
 
 from thytrader.operator.cli import main
-from thytrader.operator.models import SCHEMA_VERSION
+from thytrader.operator.models import (
+    SCHEMA_VERSION,
+    STANDARD_REDACTION,
+    HealthPayload,
+    HealthReport,
+    ReportStatus,
+)
 
 
 def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -81,12 +89,51 @@ def test_operator_http_failure_does_not_fall_back_to_local_stores() -> None:
     assert "unreachable" in str(raised.value).lower()
 
 
+def test_operator_accepts_format_after_subcommand(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Parent flags such as --format may follow the subcommand."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "health", "--format", "json"])
+    assert raised.value.code in {1, 2}
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["report_kind"] == "health"
+
+
 def test_operator_rejects_local_and_base_url_together() -> None:
     """HTTP and store-backed modes are exclusive."""
     with pytest.raises(SystemExit) as raised:
         main(["--local", "--base-url", "http://127.0.0.1:8200", "health"])
     assert raised.value.code != 0
     assert "either" in str(raised.value).lower()
+
+
+def test_operator_http_version_mismatch_hints_rebuild(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A running API from an older image must tell operators to rebuild."""
+    report = HealthReport(
+        application_version="0.0.0",
+        generated_at=datetime.now(UTC),
+        overall_status=ReportStatus.DEGRADED,
+        components=(),
+        redaction=STANDARD_REDACTION,
+        recommended_next_action="Rebuild and restart with `make run`.",
+        payload=HealthPayload(
+            api_probed=True,
+            database_configured=False,
+            coinbase_credentials_configured=False,
+        ),
+    )
+    with (
+        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["health"])
+    captured = capsys.readouterr()
+    assert raised.value.code == 1
+    assert "make run" in captured.err
+    assert json.loads(captured.out)["application_version"] == "0.0.0"
 
 
 def test_operator_schema_check_passes_in_this_checkout(

@@ -19,7 +19,7 @@ class MarketDataWatchlistError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class MarketDataWatchTarget:
-    """One provider/product/timeframe the worker and one-shot ingest should cover."""
+    """One provider/product/timeframe the worker should cover."""
 
     provider: str
     product_id: str
@@ -28,6 +28,7 @@ class MarketDataWatchTarget:
     enabled: bool
     updated_at: datetime
     created_at: datetime | None = None
+    ingest_requested_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Reject empty identities and out-of-range lookbacks."""
@@ -39,6 +40,14 @@ class MarketDataWatchTarget:
             self.updated_at
         ):
             raise MarketDataWatchlistError("Watch timestamps must be timezone-aware UTC.")
+        if self.ingest_requested_at is not None and (
+            self.ingest_requested_at.tzinfo is None
+            or self.ingest_requested_at.utcoffset() != UTC.utcoffset(self.ingest_requested_at)
+        ):
+            raise MarketDataWatchlistError("Watch timestamps must be timezone-aware UTC.")
+
+
+INGEST_REQUEST_POLL_SECONDS = 5
 
 
 @runtime_checkable
@@ -64,6 +73,27 @@ class MarketDataWatchlistStore(Protocol):
 
     async def upsert(self, target: MarketDataWatchTarget) -> MarketDataWatchTarget:
         """Insert or replace one watch target."""
+        ...
+
+    async def request_ingest(
+        self,
+        *,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+        lookback_hours: int,
+        now: datetime,
+    ) -> MarketDataWatchTarget:
+        """Mark one target so the market-data worker runs ingest_once promptly."""
+        ...
+
+    async def clear_ingest_request(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+    ) -> None:
+        """Clear a pending ingest request after the worker starts an attempt."""
         ...
 
 
@@ -93,6 +123,29 @@ class DisabledMarketDataWatchlistStore:
         del target
         raise MarketDataWatchlistUnavailableError("Market-data watchlist is unavailable.")
 
+    async def request_ingest(
+        self,
+        *,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+        lookback_hours: int,
+        now: datetime,
+    ) -> MarketDataWatchTarget:
+        """Reject ingest requests because durable state is unavailable."""
+        del provider, product_id, timeframe, lookback_hours, now
+        raise MarketDataWatchlistUnavailableError("Market-data watchlist is unavailable.")
+
+    async def clear_ingest_request(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+    ) -> None:
+        """Reject ingest-request clears because durable state is unavailable."""
+        del provider, product_id, timeframe
+        raise MarketDataWatchlistUnavailableError("Market-data watchlist is unavailable.")
+
 
 class InMemoryMarketDataWatchlistStore:
     """Deterministic watchlist used by tests and database-free API harnesses."""
@@ -119,7 +172,7 @@ class InMemoryMarketDataWatchlistStore:
         return self._targets.get((provider, product_id, timeframe))
 
     async def upsert(self, target: MarketDataWatchTarget) -> MarketDataWatchTarget:
-        """Insert or replace one in-memory watch target."""
+        """Insert or replace one in-memory watch target without clearing ingest requests."""
         key = (target.provider, target.product_id, target.timeframe)
         prior = self._targets.get(key)
         stored = MarketDataWatchTarget(
@@ -130,9 +183,60 @@ class InMemoryMarketDataWatchlistStore:
             enabled=target.enabled,
             updated_at=target.updated_at,
             created_at=prior.created_at if prior is not None else target.updated_at,
+            ingest_requested_at=(
+                prior.ingest_requested_at if prior is not None else target.ingest_requested_at
+            ),
         )
         self._targets[key] = stored
         return stored
+
+    async def request_ingest(
+        self,
+        *,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+        lookback_hours: int,
+        now: datetime,
+    ) -> MarketDataWatchTarget:
+        """Create or update one target and set ingest_requested_at."""
+        key = (provider, product_id, timeframe)
+        prior = self._targets.get(key)
+        requested_at = now.astimezone(UTC)
+        stored = MarketDataWatchTarget(
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            lookback_hours=lookback_hours if prior is None else prior.lookback_hours,
+            enabled=True if prior is None else prior.enabled,
+            updated_at=requested_at,
+            created_at=prior.created_at if prior is not None else requested_at,
+            ingest_requested_at=requested_at,
+        )
+        self._targets[key] = stored
+        return stored
+
+    async def clear_ingest_request(
+        self,
+        provider: str,
+        product_id: str,
+        timeframe: CandleInterval,
+    ) -> None:
+        """Clear a pending ingest request when the row exists."""
+        key = (provider, product_id, timeframe)
+        prior = self._targets.get(key)
+        if prior is None:
+            return
+        self._targets[key] = MarketDataWatchTarget(
+            provider=prior.provider,
+            product_id=prior.product_id,
+            timeframe=prior.timeframe,
+            lookback_hours=prior.lookback_hours,
+            enabled=prior.enabled,
+            updated_at=prior.updated_at,
+            created_at=prior.created_at,
+            ingest_requested_at=None,
+        )
 
 
 def parse_watch_timeframe(value: str) -> CandleInterval:

@@ -83,6 +83,54 @@ def verify_research_run_eligibility(
         )
 
 
+def dataset_evaluation_bounds(
+    *,
+    dataset_starts_at: datetime,
+    dataset_ends_at: datetime,
+    warmup_bars: int,
+    timeframe: str,
+) -> tuple[datetime, datetime]:
+    """Return the inclusive evaluation window one complete dataset can support.
+
+    Warmup bars must sit before the window and one extra bar after it is required
+    for the final next-open fill.
+    """
+    interval = parse_candle_interval(timeframe)
+    evaluation_start = dataset_starts_at + interval.duration * warmup_bars
+    evaluation_end = dataset_ends_at - interval.duration
+    if evaluation_start >= evaluation_end:
+        raise ResearchRunPublicationError(
+            "The selected dataset is too short for this strategy's warmup and next-open fill. "
+            f"Need at least {warmup_bars + 2} {timeframe} bars."
+        )
+    return evaluation_start, evaluation_end
+
+
+def evaluation_window_suggestion(
+    *,
+    dataset_starts_at: datetime,
+    dataset_ends_at: datetime,
+    warmup_bars: int,
+    timeframe: str,
+) -> str:
+    """Explain a rejected window and suggest a usable ISO range."""
+    try:
+        start, end = dataset_evaluation_bounds(
+            dataset_starts_at=dataset_starts_at,
+            dataset_ends_at=dataset_ends_at,
+            warmup_bars=warmup_bars,
+            timeframe=timeframe,
+        )
+    except ResearchRunPublicationError as error:
+        return str(error)
+    return (
+        "The evaluation window does not fit the selected dataset. "
+        f"evaluation_end must be at or before {end.isoformat()} "
+        f"(dataset end minus one {timeframe} bar). "
+        f"Suggested range: {start.isoformat()} to {end.isoformat()}."
+    )
+
+
 def _parse_canonical_utc(value: str) -> datetime:
     """Parse the canonical UTC timestamps supplied by a verified dataset manifest."""
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))

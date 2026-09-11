@@ -16,10 +16,21 @@ EXIT_USAGE = 3
 
 _RECOMMENDATIONS: dict[str, str] = {
     "DATABASE_UNCONFIGURED": "Set THYTRADER_DATABASE_URL and apply migrations, then re-run health.",
+    "DATABASE_ENGINE_MISSING": (
+        "Rebuild and restart with `make run` so the API can ping PostgreSQL."
+    ),
     "DATABASE_UNREACHABLE": "Verify PostgreSQL is running and THYTRADER_DATABASE_URL is valid.",
     "API_NOT_READY": "Wait for thytrader-api startup, then GET /health/ready.",
     "API_UNREACHABLE": "Start thytrader-api on the configured loopback port and retry.",
-    "NOT_READY": "Start the named worker process and confirm its readiness file exists.",
+    "NOT_READY": "Start the named worker process and confirm it is heartbeating.",
+    "HEARTBEAT_UNAVAILABLE": (
+        "Set THYTRADER_DATABASE_URL and apply migrations (0016) so operator health "
+        "can see worker heartbeats."
+    ),
+    "HEARTBEAT_MISSING": (
+        "Start the named worker process. Docker /tmp readiness files are not health."
+    ),
+    "HEARTBEAT_STALE": "Restart the named worker; its last heartbeat is older than two loops.",
     "EXCHANGE_UNAVAILABLE": "Check Coinbase connectivity without printing credentials.",
     "MARKET_DATA_STATE_UNAVAILABLE": "Confirm the market-data worker can write PostgreSQL state.",
     "MARKET_DATA_NEVER_RUN": "Start thytrader-market-data-worker and wait for verified coverage.",

@@ -23,7 +23,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - **Architecture documents** describe system boundaries and durable technical direction.
 - **Decision records** explain important choices, alternatives, and consequences.
 - **Roadmap documents** sequence work without pretending dates or scope are guaranteed.
-- **`AGENTS.md`** gives coding agents repository-specific operating instructions.
+- **`AGENTS.md`** gives coding agents repository-specific operating instructions. Operating a running instance uses [`ops/`](../ops/README.md).
 - **`skills/`** contains distributable operator, data, research, and runtime skills. See [`skills/README.md`](../skills/README.md).
 
 ## Updating the documentation

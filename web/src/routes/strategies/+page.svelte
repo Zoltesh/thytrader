@@ -322,7 +322,11 @@
 		);
 		if (dataset === undefined) return;
 		const warmup = viewModel?.warmup_bars ?? 0;
-		const bounds = datasetEvaluationWindow(dataset, warmup);
+		const bounds = datasetEvaluationWindow(
+			dataset,
+			warmup,
+			viewModel?.timeframe === '5m' ? '5m' : '1h'
+		);
 		launchForm.evaluation_start = bounds.min;
 		launchForm.evaluation_end = bounds.max;
 	}
@@ -332,7 +336,11 @@
 			(candidate) => candidate.content_fingerprint === launchForm.dataset_fingerprint
 		);
 		if (dataset === undefined) return null;
-		return datasetEvaluationWindow(dataset, viewModel?.warmup_bars ?? 0);
+		return datasetEvaluationWindow(
+			dataset,
+			viewModel?.warmup_bars ?? 0,
+			viewModel?.timeframe === '5m' ? '5m' : '1h'
+		);
 	}
 
 	function launchWindowHint(): string | null {

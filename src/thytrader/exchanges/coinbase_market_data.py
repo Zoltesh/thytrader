@@ -142,29 +142,50 @@ class CoinbaseMarketData:
         candles: list[Candle] = []
         page_start = starts_at
         while page_start < ends_at:
-            page_end = min(
-                _safe_shift(
-                    page_start,
-                    interval.duration * _CANDLE_PAGE_LIMIT,
-                    "Coinbase historical range cannot represent a page boundary.",
-                ),
-                ends_at,
-            )
+            inclusive_end = _inclusive_page_end(page_start, ends_at, interval.duration)
             response = await asyncio.to_thread(
                 self._client.get_candles,
                 product_id,
                 str(int(page_start.timestamp())),
-                str(int(page_end.timestamp())),
+                str(int(inclusive_end.timestamp())),
                 _granularity(interval),
                 _CANDLE_PAGE_LIMIT,
             )
             page_candles = _parse_candles(response.to_dict())
-            candles.extend(candle for candle in page_candles if candle.starts_at != page_end)
-            page_start = page_end
+            candles.extend(
+                candle
+                for candle in page_candles
+                if page_start <= candle.starts_at <= inclusive_end and candle.starts_at < ends_at
+            )
+            page_start = _safe_shift(
+                inclusive_end,
+                interval.duration,
+                "Coinbase historical range cannot represent a page boundary.",
+            )
         try:
             return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
         except CandleQualityError as error:
             raise CoinbaseMarketDataError(str(error)) from error
+
+
+def _inclusive_page_end(page_start: datetime, ends_at: datetime, duration: timedelta) -> datetime:
+    """Return Coinbase's inclusive last candle start for one 350-bar page.
+
+    Domain ranges are half-open ``[starts_at, ends_at)``. Coinbase ``end`` is the
+    last included candle start, and a full page keeps the newest 350 bars in that
+    inclusive window. Requesting the exclusive domain end therefore drops the
+    earliest closed bar on every full 5m page.
+    """
+    remaining = (ends_at - page_start) // duration
+    inclusive_count = min(_CANDLE_PAGE_LIMIT, remaining)
+    if inclusive_count < 1:
+        message = "Historical range is outside the supported closed-candle request bounds."
+        raise CoinbaseMarketDataError(message)
+    return _safe_shift(
+        page_start,
+        duration * (inclusive_count - 1),
+        "Coinbase historical range cannot represent a page boundary.",
+    )
 
 
 def _granularity(interval: CandleInterval) -> str:

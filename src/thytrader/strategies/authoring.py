@@ -128,20 +128,29 @@ def create_revised_draft(
     return StrategyDefinition.model_validate(payload)
 
 
-def create_reference_draft(*, now: datetime | None = None) -> StrategyDefinition:
+def create_reference_draft(
+    *,
+    now: datetime | None = None,
+    product_id: str = "BTC-USD",
+    timeframe: str = "1h",
+) -> StrategyDefinition:
     """Construct one server-identified reference draft for the durable authoring boundary."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)
     created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
+    if timeframe not in {"1h", "5m"}:
+        message = "Reference drafts support only 1h and 5m timeframes."
+        raise ValueError(message)
+    instrument = _instrument_for_product(product_id)
     return StrategyDefinition(
         schema_version="1.0",
         strategy_id=_uuid7(created_at),
         version=1,
-        name="BTC hourly EMA trend",
+        name=_reference_name(instrument.product_id, timeframe),
         description="Reference research strategy; not trading authority.",
         status=StrategyStatus.DRAFT,
         created_at=created_at,
-        instrument=Instrument(product_id="BTC-USD", base_currency="BTC", quote_currency="USD"),
-        timeframe="1h",
+        instrument=instrument,
+        timeframe=timeframe,
         data_requirements=DataRequirements(
             warmup_bars=50,
             required_fields=("open", "high", "low", "close", "volume"),
@@ -211,6 +220,28 @@ def create_reference_draft(*, now: datetime | None = None) -> StrategyDefinition
         ),
         metadata=StrategyMetadata(tags=("reference",), notes=()),
     )
+
+
+def _instrument_for_product(product_id: str) -> Instrument:
+    """Build a USD spot instrument from a product id such as ETH-USD."""
+    normalized = product_id.strip().upper()
+    if "-" not in normalized:
+        message = "product_id must be a USD spot identifier such as ETH-USD."
+        raise ValueError(message)
+    base, quote = normalized.split("-", 1)
+    if quote != "USD":
+        message = "product_id must be a USD spot identifier such as ETH-USD."
+        raise ValueError(message)
+    return Instrument(product_id=normalized, base_currency=base, quote_currency="USD")
+
+
+def _reference_name(product_id: str, timeframe: str) -> str:
+    """Keep the historical BTC 1h title; otherwise name the product and bar size."""
+    if product_id == "BTC-USD" and timeframe == "1h":
+        return "BTC hourly EMA trend"
+    pretty = "hourly" if timeframe == "1h" else timeframe
+    base = product_id.split("-", 1)[0]
+    return f"{base} {pretty} EMA trend"
 
 
 def _uuid7(created_at: datetime) -> UUID:

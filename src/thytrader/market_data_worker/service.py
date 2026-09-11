@@ -14,7 +14,11 @@ from thytrader.market_data.models import (
     CandleInterval,
     CandleRangeReport,
 )
-from thytrader.market_data.watchlist import MarketDataWatchlistStore, MarketDataWatchTarget
+from thytrader.market_data.watchlist import (
+    INGEST_REQUEST_POLL_SECONDS,
+    MarketDataWatchlistStore,
+    MarketDataWatchTarget,
+)
 from thytrader.market_data.worker_state import (
     MarketDataMaintenanceKind,
     MarketDataWorkerAttempt,
@@ -32,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from thytrader.market_data.datasets import DatasetStore
+    from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 
 
 class IntervalRangeService(Protocol):
@@ -184,6 +189,7 @@ async def run_market_data_worker(
     on_readiness_changed: Callable[[bool], None] | None = None,
     watchlist: MarketDataWatchlistStore | None = None,
     timeframe: CandleInterval = CandleInterval.ONE_HOUR,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
 ) -> None:
     """Run scheduled ingestion until a supervisor requests graceful shutdown."""
     if on_readiness_changed is not None:
@@ -192,6 +198,8 @@ async def run_market_data_worker(
     try:
         while not stop_requested.is_set():
             cycle_now = now_factory()
+            if heartbeat_store is not None:
+                await heartbeat_store.touch("market_data_worker", cycle_now.astimezone(UTC))
             targets = await _cycle_targets(
                 watchlist,
                 provider=provider,
@@ -209,6 +217,7 @@ async def run_market_data_worker(
                 cycle_now=cycle_now,
                 verified_targets=verified_targets,
                 stop_requested=stop_requested,
+                watchlist=watchlist,
             )
             if stop_requested.is_set() or wait_seconds is None:
                 continue
@@ -451,11 +460,14 @@ async def _cycle_targets(
     lookback_hours: int,
     now: datetime,
 ) -> tuple[MarketDataWatchTarget, ...]:
-    """Prefer the enabled watchlist, otherwise the single configured default."""
+    """Prefer enabled or requested watchlist rows, otherwise the configured default."""
     if watchlist is not None:
-        enabled = await watchlist.list_enabled()
-        if enabled:
-            return enabled
+        listed = await watchlist.list_all()
+        due = tuple(
+            target for target in listed if target.enabled or target.ingest_requested_at is not None
+        )
+        if due:
+            return due
     return (
         MarketDataWatchTarget(
             provider=provider,
@@ -478,19 +490,21 @@ async def _ingest_due_targets(
     cycle_now: datetime,
     verified_targets: set[tuple[str, CandleInterval]],
     stop_requested: asyncio.Event,
+    watchlist: MarketDataWatchlistStore | None = None,
 ) -> int | None:
-    """Ingest due targets. None means backoff sleep already completed."""
-    if len(targets) == 1 and await _wait_single_backoff(
-        state_store, targets[0], cycle_now, stop_requested
-    ):
-        return None
+    """Ingest due targets. None means the caller should immediately re-check stop."""
     for target in targets:
         if stop_requested.is_set():
             break
         prior = await _load_validated_state(
             state_store, target.provider, target.product_id, target.timeframe
         )
-        if _in_backoff(prior, cycle_now):
+        requested = target.ingest_requested_at is not None
+        if requested and watchlist is not None:
+            await watchlist.clear_ingest_request(
+                target.provider, target.product_id, target.timeframe
+            )
+        if _in_backoff(prior, cycle_now) and not requested:
             continue
         key = (target.product_id, target.timeframe)
         await ingest_once(
@@ -507,27 +521,6 @@ async def _ingest_due_targets(
         )
         verified_targets.add(key)
     return await _next_wait_seconds(state_store, targets, cycle_now, interval_seconds)
-
-
-async def _wait_single_backoff(
-    state_store: MarketDataWorkerStateStore,
-    target: MarketDataWatchTarget,
-    cycle_now: datetime,
-    stop_requested: asyncio.Event,
-) -> bool:
-    """Preserve single-target retry sleeping used by existing worker tests."""
-    prior = await _load_validated_state(
-        state_store, target.provider, target.product_id, target.timeframe
-    )
-    if not _in_backoff(prior, cycle_now) or prior is None or prior.next_retry_at is None:
-        return False
-    wait_seconds = max(
-        1,
-        int((prior.next_retry_at - cycle_now.astimezone(UTC)).total_seconds()),
-    )
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(stop_requested.wait(), timeout=wait_seconds)
-    return True
 
 
 def _in_backoff(state: MarketDataWorkerState | None, now: datetime) -> bool:
@@ -557,7 +550,7 @@ async def _next_wait_seconds(
                 wait_seconds,
                 max(1, int((state.next_retry_at - now).total_seconds())),
             )
-    return max(1, wait_seconds)
+    return max(1, min(wait_seconds, INGEST_REQUEST_POLL_SECONDS))
 
 
 def _matches_complete_request(

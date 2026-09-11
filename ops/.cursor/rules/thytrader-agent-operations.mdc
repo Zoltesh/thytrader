@@ -1,0 +1,26 @@
+---
+description: Operate a running ThyTrader instance with shipped skills only. Never edit source.
+alwaysApply: true
+---
+
+# ThyTrader operations (ops workspace)
+
+Follow the skills of record (symlinked from this workspace):
+
+- `thytrader-operator` — read-only diagnostics
+- `thytrader-data` — watchlist, ingest, gap-fill with `--confirm`
+- `thytrader-research` — drafts, publish, backtests with `--confirm`
+- `thytrader-runtime` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
+
+Run `uv run thytrader-*` from the repository root (parent of `ops/`).
+
+## Hard stop
+
+Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
+Do not grep the tree for a patch. Do not change Python, Compose, or Docker to work around ingest,
+paging, or health.
+Report failures. Run `make run` only if the user asked to rebuild or restart, or if operator health
+/ HTTP reports a stale Compose image.
+
+Do not scrape logs, query PostgreSQL, print secrets, interpolate candles, or give
+operator/research/data skills trading authority.

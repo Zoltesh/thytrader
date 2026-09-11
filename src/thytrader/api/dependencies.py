@@ -2,6 +2,7 @@
 
 # FastAPI resolves these dependency annotations at runtime.
 from fastapi import Request  # noqa: TC002
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.execution.store import ExecutionStore
@@ -14,6 +15,7 @@ from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
+from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.authoring import (
@@ -162,5 +164,25 @@ def get_execution_store(request: Request) -> ExecutionStore:
     store = getattr(request.app.state, "execution_store", None)
     if not isinstance(store, ExecutionStore):
         message = "Execution store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_database_engine(request: Request) -> AsyncEngine | None:
+    """Return the lifespan-owned engine when PostgreSQL was initialized."""
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        return None
+    if not isinstance(engine, AsyncEngine):
+        message = "Database engine is unavailable."
+        raise TypeError(message)
+    return engine
+
+
+def get_worker_heartbeat_store(request: Request) -> WorkerHeartbeatStore:
+    """Return worker heartbeat storage attached during app startup."""
+    store = getattr(request.app.state, "worker_heartbeat_store", None)
+    if not isinstance(store, WorkerHeartbeatStore):
+        message = "Worker heartbeat store is unavailable."
         raise TypeError(message)
     return store

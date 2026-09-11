@@ -47,6 +47,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
     assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
 
 
 def test_research_skill_requires_confirm_and_forbids_trading() -> None:
@@ -55,7 +57,12 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "thytrader-research" in skill
     assert "--confirm" in skill
     assert "create-draft" in skill
+    assert "--product-id" in skill
+    assert "--timeframe" in skill
     assert "submit-backtest" in skill
+    assert "evaluation_start" in skill
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
     assert "Never deploys" in skill or "cannot deploy" in skill
     assert "--local" in skill
     assert "THYTRADER_API_BASE_URL" in skill or "loopback HTTP" in skill.lower()
@@ -70,6 +77,10 @@ def test_data_skill_requires_confirm_and_forbids_interpolation() -> None:
     assert "inspect-gaps" in skill
     assert "Never interpolates" in skill or "never interpolated" in skill.lower()
     assert "Never deploys" in skill or "cannot deploy" in skill.lower()
+    assert "202" in skill
+    assert "market-data worker" in skill.lower() or "thytrader-market-data-worker" in skill
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
 
 
 def test_runtime_skill_requires_confirm_and_live_ack() -> None:
@@ -82,6 +93,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "pause" in skill
     assert "/api/v1/deployments" in skill
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
 
 
 def test_committed_json_schema_matches_envelope_contract() -> None:

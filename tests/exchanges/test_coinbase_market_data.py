@@ -147,8 +147,20 @@ class StubCoinbaseMarketClient:
         )
 
 
+_GRANULARITY_SECONDS = {"ONE_HOUR": 60 * 60, "FIVE_MINUTE": 5 * 60}
+
+
+def _inclusive_epochs(start: str, end: str, granularity: str, limit: int) -> list[int]:
+    """Mimic Coinbase: inclusive end, newest ``limit`` bars when the window is wider."""
+    step = _GRANULARITY_SECONDS[granularity]
+    epochs = list(range(int(start), int(end) + step, step))
+    if len(epochs) > limit:
+        return epochs[-limit:]
+    return epochs
+
+
 class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
-    """SDK-shaped client that generates every requested hourly candle for paging tests."""
+    """SDK-shaped client that generates requested candles with Coinbase inclusive-end semantics."""
 
     def get_candles(
         self,
@@ -158,7 +170,7 @@ class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
         granularity: str,
         limit: int | None = None,
     ) -> StubResponse:
-        """Return exact candles in the requested half-open epoch interval."""
+        """Return exact candles in the requested inclusive epoch interval."""
         assert limit is not None
         self.candle_calls.append((product_id, start, end, granularity, limit))
         return StubResponse(
@@ -172,14 +184,14 @@ class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
                         "close": "105",
                         "volume": "12.5",
                     }
-                    for epoch in range(int(start), int(end), 60 * 60)
+                    for epoch in _inclusive_epochs(start, end, granularity, limit)
                 ]
             }
         )
 
 
 class BoundaryCandleCoinbaseMarketClient(PagedCoinbaseMarketClient):
-    """SDK-shaped client that includes Coinbase's extra end-boundary candle."""
+    """SDK-shaped client that includes Coinbase's extra candle after the inclusive end."""
 
     def get_candles(
         self,
@@ -189,14 +201,15 @@ class BoundaryCandleCoinbaseMarketClient(PagedCoinbaseMarketClient):
         granularity: str,
         limit: int | None = None,
     ) -> StubResponse:
-        """Return requested candles plus an open candle at the exclusive range boundary."""
+        """Return requested candles plus the next bar after Coinbase's inclusive end."""
         response = super().get_candles(product_id, start, end, granularity, limit)
         payload = response.to_dict()
         candles = payload["candles"]
         assert isinstance(candles, list)
+        step = _GRANULARITY_SECONDS[granularity]
         candles.append(
             {
-                "start": end,
+                "start": str(int(end) + step),
                 "open": "105",
                 "high": "110",
                 "low": "100",
@@ -318,17 +331,48 @@ def test_coinbase_market_data_pages_explicit_hourly_range_without_losing_coverag
         (
             "BTC-USD",
             str(int(starts_at.timestamp())),
-            str(int((starts_at + CandleInterval.ONE_HOUR.duration * 350).timestamp())),
+            str(int((starts_at + CandleInterval.ONE_HOUR.duration * 349).timestamp())),
             "ONE_HOUR",
             350,
         ),
         (
             "BTC-USD",
             str(int((starts_at + CandleInterval.ONE_HOUR.duration * 350).timestamp())),
-            str(int(ends_at.timestamp())),
+            str(int((ends_at - CandleInterval.ONE_HOUR.duration).timestamp())),
             "ONE_HOUR",
             350,
         ),
+    ]
+
+
+def test_coinbase_market_data_keeps_oldest_bar_on_full_five_minute_page() -> None:
+    """A 350-bar 5m page must not drop the first closed bar to Coinbase's newest-350 cap."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.FIVE_MINUTES.duration * 350
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.FIVE_MINUTES,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.FIVE_MINUTES.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 350
+    assert report.quality.candle_count == 350
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.FIVE_MINUTES.duration * 349).timestamp())),
+            "FIVE_MINUTE",
+            350,
+        )
     ]
 
 
@@ -366,19 +410,22 @@ def test_coinbase_market_data_maps_recent_lower_boundary_overflow() -> None:
 
 
 def test_coinbase_market_data_maps_historical_page_boundary_overflow() -> None:
-    """A maximum-date range must not leak page arithmetic OverflowError."""
+    """A maximum-date closed range must not leak page arithmetic OverflowError."""
     ends_at = datetime.max.replace(tzinfo=UTC)
+    starts_at = ends_at - timedelta(hours=1)
 
-    with pytest.raises(CoinbaseMarketDataError, match="represent"):
-        asyncio.run(
-            CoinbaseMarketData(EmptyCandleCoinbaseMarketClient()).get_historical_range(
-                "BTC-USD",
-                CandleInterval.ONE_HOUR,
-                ends_at - timedelta(hours=1),
-                ends_at,
-                ends_at,
-            )
+    report = asyncio.run(
+        CoinbaseMarketData(EmptyCandleCoinbaseMarketClient()).get_historical_range(
+            "BTC-USD",
+            CandleInterval.ONE_HOUR,
+            starts_at,
+            ends_at,
+            ends_at,
         )
+    )
+
+    assert report.complete is False
+    assert report.quality.candle_count == 0
 
 
 @pytest.mark.parametrize("candle_start", ["9" * 30, "²"])
