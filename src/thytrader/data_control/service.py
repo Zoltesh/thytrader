@@ -227,19 +227,18 @@ def _local_starts(
     product_id: str,
     interval: CandleInterval,
 ) -> set[datetime]:
-    """Return verified local bar starts for one target, if a complete dataset exists."""
-    latest = {
-        (item.provider, item.product_id, item.timeframe): item
-        for item in dataset_store.list_latest_verified()
-    }
-    manifest = latest.get((provider, product_id, interval.value))
-    if manifest is None:
-        return set()
-    try:
-        candles = dataset_store.load_candles(manifest.content_fingerprint)
-    except Exception:  # noqa: BLE001 - corrupt local files are treated as uncovered.
-        return set()
-    return {candle.starts_at for candle in candles}
+    """Return bar starts from every verified island for this target, not only the latest suffix."""
+    identity = (provider, product_id, interval.value)
+    starts: set[datetime] = set()
+    for manifest in dataset_store.list_verified():
+        if (manifest.provider, manifest.product_id, manifest.timeframe) != identity:
+            continue
+        try:
+            candles = dataset_store.load_candles(manifest.content_fingerprint)
+        except Exception:  # noqa: BLE001, S112 - corrupt islands are skipped, not interpolated.
+            continue
+        starts.update(candle.starts_at for candle in candles)
+    return starts
 
 
 async def _probe_starts(

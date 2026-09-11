@@ -25,7 +25,9 @@ consistency, and decimal exactness, and reports expected vs received candle coun
 binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One-hour watches stay
 `min(requested, 2,160 hours)` and cannot request ranges ending in the future.
 
-The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets.
+The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Initial
+backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
+are never interpolated. Latest verified coverage is the newest contiguous complete island.
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
 endpoints remain diagnostics, not strategy inputs.
