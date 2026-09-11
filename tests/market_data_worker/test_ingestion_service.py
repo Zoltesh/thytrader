@@ -21,7 +21,12 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerStatus,
     MarketDataWorkerSuccess,
 )
-from thytrader.market_data_worker.service import _next_retry_at, ingest_once, run_market_data_worker
+from thytrader.market_data_worker.service import (
+    _next_retry_at,
+    _utc_day_chunks,
+    ingest_once,
+    run_market_data_worker,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,6 +52,50 @@ class _StubRangeService:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+
+class _CompleteWindowService:
+    """Provider stub that returns complete candles for whatever window is requested."""
+
+    def __init__(self, *, missing: frozenset[datetime] = frozenset()) -> None:
+        self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
+        self._missing = missing
+
+    async def get_range(
+        self,
+        product_id: str,
+        timeframe: CandleInterval,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Return a complete range, omitting any configured missing bar starts."""
+        del now
+        self.requests.append((product_id, timeframe, starts_at, ends_at))
+        count = int((ends_at - starts_at) / timeframe.duration)
+        candles = tuple(
+            Candle(
+                starts_at=starts_at + timeframe.duration * index,
+                open=Decimal("100"),
+                high=Decimal("110"),
+                low=Decimal("90"),
+                close=Decimal("105"),
+                volume=Decimal("12.5"),
+            )
+            for index in range(count)
+            if starts_at + timeframe.duration * index not in self._missing
+        )
+        return analyze_range(candles, timeframe, starts_at, ends_at, now=ends_at)
+
+    async def get_hourly_range(
+        self,
+        product_id: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Hourly tests can use the same complete-window generator."""
+        return await self.get_range(product_id, CandleInterval.ONE_HOUR, starts_at, ends_at, now)
 
 
 def _report(*, starts_at: datetime, candle_count: int) -> CandleRangeReport:
@@ -76,7 +125,7 @@ def test_ingest_once_publishes_verified_complete_range_and_success_state(tmp_pat
     """One successful attempt publishes through DatasetStore and records exact coverage facts."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         service = _StubRangeService([report])
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -199,7 +248,7 @@ def test_ingest_once_rejects_forged_naive_persisted_coverage(tmp_path: Path) -> 
     """A forged persisted coverage timestamp must fail before worker comparisons or I/O."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         state_store = InMemoryMarketDataWorkerStateStore()
         attempt = MarketDataWorkerAttempt(
@@ -225,7 +274,7 @@ def test_ingest_once_rejects_forged_naive_persisted_coverage(tmp_path: Path) -> 
         )
         state = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
         assert state is not None
-        object.__setattr__(state, "covered_ends_at", datetime.fromisoformat("2026-07-29T02:00:00"))
+        object.__setattr__(state, "covered_ends_at", datetime.fromisoformat("2026-07-29T03:00:00"))
         service = _StubRangeService([])
 
         with pytest.raises(MarketDataWorkerError, match="UTC"):
@@ -248,7 +297,7 @@ def test_ingest_once_rejects_forged_negative_persisted_failure_count(tmp_path: P
     """A malformed persisted retry counter must fail before provider or dataset I/O."""
 
     async def exercise() -> None:
-        now = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        now = datetime(2026, 7, 29, 3, tzinfo=UTC)
         state_store = InMemoryMarketDataWorkerStateStore()
         attempt = MarketDataWorkerAttempt(
             provider="coinbase",
@@ -284,7 +333,7 @@ def test_ingest_once_rejects_forged_coverage_count_before_provider_io(tmp_path: 
     """A complete persisted range must retain the exact count implied by its interval."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         state_store = InMemoryMarketDataWorkerStateStore()
         attempt = MarketDataWorkerAttempt(
             provider="coinbase",
@@ -333,7 +382,7 @@ def test_ingest_once_rejects_coverage_without_success_before_provider_io(tmp_pat
     """Persisted verified coverage must retain the success instant that established it."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         state_store = InMemoryMarketDataWorkerStateStore()
         attempt = MarketDataWorkerAttempt(
             provider="coinbase",
@@ -381,7 +430,7 @@ def test_ingest_once_rejects_failed_state_without_retry_deadline(tmp_path: Path)
     """A failed persisted state must not bypass durable retry scheduling before provider I/O."""
 
     async def exercise() -> None:
-        attempted_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        attempted_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         state_store = InMemoryMarketDataWorkerStateStore()
         attempt = MarketDataWorkerAttempt(
             provider="coinbase",
@@ -425,7 +474,7 @@ def test_ingest_once_records_redacted_failure_without_publishing(tmp_path: Path)
     """Provider failures remain durable and publish no misleading dataset or coverage facts."""
 
     async def exercise() -> None:
-        now = datetime(2026, 7, 29, 2, 17, tzinfo=UTC)
+        now = datetime(2026, 7, 29, 3, 17, tzinfo=UTC)
         service = _StubRangeService([RuntimeError("upstream body with sensitive details")])
         state_store = InMemoryMarketDataWorkerStateStore()
 
@@ -457,7 +506,7 @@ def test_ingest_once_persists_exponential_retry_schedule(tmp_path: Path) -> None
     """Repeated provider failures durably increase retry delay with a bounded base."""
 
     async def exercise() -> None:
-        first_at = datetime(2026, 7, 29, 2, 17, tzinfo=UTC)
+        first_at = datetime(2026, 7, 29, 3, 17, tzinfo=UTC)
         service = _StubRangeService([RuntimeError("first"), RuntimeError("second")])
         state_store = InMemoryMarketDataWorkerStateStore()
         dataset_store = DatasetStore(tmp_path)
@@ -500,7 +549,7 @@ def test_ingest_once_rejects_incomplete_report_without_publishing(tmp_path: Path
     """A provider report that is not complete must never reach DatasetStore publication."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         complete_report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         service = _StubRangeService([replace(complete_report, complete=False)])
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -528,7 +577,7 @@ def test_ingest_once_recovery_clears_failure_and_preserves_last_success(tmp_path
     """A later successful retry replaces failure diagnostics with verified coverage evidence."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         service = _StubRangeService([RuntimeError("temporary"), report])
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -567,7 +616,7 @@ def test_ingest_once_extends_last_verified_dataset_with_one_candle_overlap(tmp_p
     """Later cycles fetch only overlap plus missing candles and publish cumulative coverage."""
 
     async def exercise() -> None:
-        first_end = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        first_end = datetime(2026, 7, 29, 3, tzinfo=UTC)
         initial = _report(starts_at=first_end - timedelta(hours=3), candle_count=3)
         incremental = _report(starts_at=first_end - timedelta(hours=1), candle_count=3)
         service = _StubRangeService([initial, incremental])
@@ -615,10 +664,8 @@ def test_incremental_revision_reuses_unchanged_day_partitions(tmp_path: Path) ->
     """Cumulative hourly updates must not rewrite every historical day on each cycle."""
 
     async def exercise() -> None:
-        first_end = datetime(2026, 7, 29, 2, tzinfo=UTC)
-        initial = _report(starts_at=first_end - timedelta(hours=30), candle_count=30)
-        incremental = _report(starts_at=first_end - timedelta(hours=1), candle_count=3)
-        service = _StubRangeService([initial, incremental])
+        first_end = datetime(2026, 7, 29, 3, tzinfo=UTC)
+        service = _CompleteWindowService()
         state_store = InMemoryMarketDataWorkerStateStore()
         dataset_store = DatasetStore(tmp_path)
 
@@ -668,7 +715,7 @@ def test_ingest_once_does_not_republish_when_dataset_is_current(
     """A steady-state cycle performs no provider, publication, or dataset-scan work."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         service = _StubRangeService([report])
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -764,7 +811,7 @@ def test_ingest_once_reconciles_current_state_with_verified_dataset(tmp_path: Pa
     """A restart must not report current when its authoritative dataset cannot be verified."""
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
         service = _StubRangeService([report])
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -832,9 +879,9 @@ def test_new_attempt_preserves_previous_failure_until_verified_success() -> None
             provider="coinbase",
             product_id="BTC-USD",
             timeframe=CandleInterval.ONE_HOUR,
-            attempted_at=datetime(2026, 7, 29, 2, tzinfo=UTC),
+            attempted_at=datetime(2026, 7, 29, 3, tzinfo=UTC),
             requested_starts_at=datetime(2026, 7, 28, 23, tzinfo=UTC),
-            requested_ends_at=datetime(2026, 7, 29, 2, tzinfo=UTC),
+            requested_ends_at=datetime(2026, 7, 29, 3, tzinfo=UTC),
         )
         await store.record_attempt(first)
         await store.record_failure(
@@ -865,7 +912,7 @@ def test_market_data_worker_readiness_tracks_only_its_own_run_loop(tmp_path: Pat
     """The dedicated worker reports ready while active and clears readiness on shutdown."""
 
     async def exercise() -> None:
-        now = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        now = datetime(2026, 7, 29, 3, tzinfo=UTC)
         report = _report(starts_at=now - timedelta(hours=3), candle_count=3)
         stop = asyncio.Event()
         readiness: list[bool] = []
@@ -962,7 +1009,7 @@ def test_stale_failure_snapshot_cannot_claim_a_new_attempt() -> None:
 
     async def exercise() -> None:
         store = InMemoryMarketDataWorkerStateStore()
-        first_at = datetime(2026, 7, 29, 2, tzinfo=UTC)
+        first_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         first = MarketDataWorkerAttempt(
             provider="coinbase",
             product_id="BTC-USD",
@@ -1030,5 +1077,165 @@ def test_rejected_attempt_claim_stops_before_provider_io(
 
         assert service.requests == []
         assert not tuple((tmp_path / "manifests").glob("*.json"))
+
+    asyncio.run(exercise())
+
+
+def test_utc_day_chunks_split_half_open_range_at_midnight() -> None:
+    """Initial backfill windows must split on UTC days without inventing bars."""
+    starts_at = datetime(2026, 7, 27, 21, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
+
+    assert _utc_day_chunks(starts_at, ends_at) == (
+        (starts_at, datetime(2026, 7, 28, tzinfo=UTC)),
+        (datetime(2026, 7, 28, tzinfo=UTC), datetime(2026, 7, 29, tzinfo=UTC)),
+        (datetime(2026, 7, 29, tzinfo=UTC), ends_at),
+    )
+
+
+def test_initial_backfill_stitches_complete_utc_days(tmp_path: Path) -> None:
+    """Complete consecutive UTC days become one fingerprint-addressed island."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 31, tzinfo=UTC)
+        service = _CompleteWindowService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=ends_at + timedelta(minutes=5),
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert state.complete is True
+        assert state.covered_starts_at == datetime(2026, 7, 28, tzinfo=UTC)
+        assert state.covered_ends_at == ends_at
+        assert state.expected_candle_count == 72
+        assert len(service.requests) == 3
+        assert service.requests[0][2:4] == (
+            datetime(2026, 7, 28, tzinfo=UTC),
+            datetime(2026, 7, 29, tzinfo=UTC),
+        )
+        assert service.requests[1][2:4] == (
+            datetime(2026, 7, 28, 23, tzinfo=UTC),
+            datetime(2026, 7, 30, tzinfo=UTC),
+        )
+
+    asyncio.run(exercise())
+
+
+def test_initial_backfill_skips_incomplete_days_and_keeps_newest_island(
+    tmp_path: Path,
+) -> None:
+    """A hole is classified by skipping that day; later complete days remain the latest island."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 31, tzinfo=UTC)
+        hole = datetime(2026, 7, 29, 12, tzinfo=UTC)
+        service = _CompleteWindowService(missing=frozenset({hole}))
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=ends_at + timedelta(minutes=5),
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert state.covered_starts_at == datetime(2026, 7, 30, tzinfo=UTC)
+        assert state.covered_ends_at == ends_at
+        assert state.expected_candle_count == 24
+        fingerprints = {path.stem for path in (tmp_path / "manifests").glob("*.json")}
+        assert len(fingerprints) >= 2
+        verified = dataset_store.load_candles(state.content_fingerprint or "")
+        assert all(candle.starts_at != hole for candle in verified)
+        assert verified[0].starts_at == datetime(2026, 7, 30, tzinfo=UTC)
+
+    asyncio.run(exercise())
+
+
+def test_five_minute_backfill_skips_incomplete_day_without_interpolation(
+    tmp_path: Path,
+) -> None:
+    """A missing 5m bar must not be synthesized; later complete days still publish."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
+        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
+        service = _CompleteWindowService(missing=frozenset({hole}))
+        state_store = InMemoryMarketDataWorkerStateStore()
+
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=48,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=CandleInterval.FIVE_MINUTES,
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FIVE_MINUTES)
+        assert state is not None
+        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_ends_at == ends_at
+        assert state.expected_candle_count == 288
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert all(candle.starts_at != hole for candle in verified)
+
+    asyncio.run(exercise())
+
+
+def test_incremental_after_chunked_backfill_keeps_one_bar_overlap(tmp_path: Path) -> None:
+    """Forward incremental still fetches one-bar overlap after a multi-day initial backfill."""
+
+    async def exercise() -> None:
+        first_end = datetime(2026, 7, 31, tzinfo=UTC)
+        service = _CompleteWindowService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=first_end + timedelta(minutes=5),
+        )
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=first_end + timedelta(hours=2, minutes=5),
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.maintenance_kind == "incremental"
+        assert service.requests[-1][2:4] == (
+            first_end - timedelta(hours=1),
+            first_end + timedelta(hours=2),
+        )
+        assert state.covered_ends_at == first_end + timedelta(hours=2)
 
     asyncio.run(exercise())

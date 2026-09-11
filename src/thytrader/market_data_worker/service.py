@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import logging
 import random
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from thytrader.market_data.models import (
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -35,7 +36,7 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from thytrader.market_data.datasets import DatasetStore
+    from thytrader.market_data.datasets import DatasetManifest, DatasetStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 
 
@@ -96,7 +97,7 @@ async def ingest_once(
     jitter_factory: Callable[[], float] = random.random,
     verify_current_dataset: bool = True,
 ) -> None:
-    """Retrieve, verify, publish, and durably report one bounded complete range."""
+    """Retrieve, verify, and publish complete coverage, chunking initial backfill by UTC day."""
     ends_at = timeframe.align_closed_end(now)
     prior = await _load_validated_state(state_store, provider, product_id, timeframe)
     if await _reconcile_current_coverage(
@@ -139,38 +140,34 @@ async def ingest_once(
         prior.consecutive_failures if prior is not None else 0,
         jitter_factory(),
     )
-    try:
-        report = await fetch_historical_range(
-            service, product_id, timeframe, starts_at, ends_at, ends_at
+    if maintenance_kind is MarketDataMaintenanceKind.INCREMENTAL:
+        extend_fingerprint = (
+            prior.content_fingerprint if prior is not None and prior.complete else None
         )
-    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        await _record_failure(
-            state_store,
-            attempt,
-            code="provider_unavailable",
-            message="Historical market-data retrieval failed.",
-            next_retry_at=retry_at,
+        await _ingest_planned_range(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            attempt=attempt,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            extend_fingerprint=extend_fingerprint,
+            retry_at=retry_at,
         )
-        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
         return
-    if not _matches_complete_request(report, attempt):
-        await _record_failure(
-            state_store,
-            attempt,
-            code="incomplete_range",
-            message="Historical market-data range was incomplete or inconsistent.",
-            next_retry_at=retry_at,
-        )
-        _logger.warning("market_data_ingestion_failed code=incomplete_range")
-        return
-    await _publish_verified_range(
+    await _ingest_chunked_backfill(
+        service=service,
         dataset_store=dataset_store,
         state_store=state_store,
         provider=provider,
         product_id=product_id,
-        prior=prior,
+        timeframe=timeframe,
         attempt=attempt,
-        report=report,
+        starts_at=starts_at,
+        ends_at=ends_at,
         retry_at=retry_at,
     )
 
@@ -404,29 +401,83 @@ def _plan_range(
     )
 
 
-async def _publish_verified_range(
+@dataclass(frozen=True, slots=True)
+class _ChunkProgress:
+    """Newest published island plus the fingerprint used to extend the current run."""
+
+    newest: DatasetManifest | None
+    island_fingerprint: str | None
+    status: Literal["ok", "incomplete", "provider_unavailable", "persist_failed"]
+
+
+def _utc_day_chunks(
+    starts_at: datetime, ends_at: datetime
+) -> tuple[tuple[datetime, datetime], ...]:
+    """Split a half-open range into UTC-day windows, oldest first, without interpolation."""
+    if starts_at >= ends_at:
+        return ()
+    chunks: list[tuple[datetime, datetime]] = []
+    cursor = starts_at
+    while cursor < ends_at:
+        day_start = cursor.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = _safe_shift(
+            day_start,
+            timedelta(days=1),
+            "Market-data worker cannot represent a UTC-day chunk boundary.",
+        )
+        chunk_end = ends_at if next_day >= ends_at else next_day
+        chunks.append((cursor, chunk_end))
+        cursor = chunk_end
+    return tuple(chunks)
+
+
+async def _ingest_planned_range(
     *,
+    service: HistoricalRangeService,
     dataset_store: DatasetStore,
     state_store: MarketDataWorkerStateStore,
     provider: str,
     product_id: str,
-    prior: MarketDataWorkerState | None,
+    timeframe: CandleInterval,
     attempt: MarketDataWorkerAttempt,
-    report: CandleRangeReport,
+    starts_at: datetime,
+    ends_at: datetime,
+    extend_fingerprint: str | None,
     retry_at: datetime,
 ) -> None:
-    """Write or extend Parquet through DatasetStore and record success."""
+    """Fetch one exact window, publish if complete, otherwise fail closed."""
     try:
-        published = (
-            dataset_store.extend(prior.content_fingerprint, report)
-            if prior is not None
-            and prior.complete
-            and prior.content_fingerprint is not None
-            and prior.covered_ends_at is not None
-            else dataset_store.write(provider, product_id, report)
+        report = await fetch_historical_range(
+            service, product_id, timeframe, starts_at, ends_at, ends_at
         )
-        verified = dataset_store.load_verified(published.manifest_path)
-    except Exception:  # noqa: BLE001 - persistence boundary is intentionally fail-closed.
+    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
+        await _record_failure(
+            state_store,
+            attempt,
+            code="provider_unavailable",
+            message="Historical market-data retrieval failed.",
+            next_retry_at=retry_at,
+        )
+        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
+        return
+    if not _matches_complete_request(report, starts_at, ends_at):
+        await _record_failure(
+            state_store,
+            attempt,
+            code="incomplete_range",
+            message="Historical market-data range was incomplete or inconsistent.",
+            next_retry_at=retry_at,
+        )
+        _logger.warning("market_data_ingestion_failed code=incomplete_range")
+        return
+    verified = _persist_complete_range(
+        dataset_store=dataset_store,
+        provider=provider,
+        product_id=product_id,
+        extend_fingerprint=extend_fingerprint,
+        report=report,
+    )
+    if verified is None:
         await _record_failure(
             state_store,
             attempt,
@@ -434,8 +485,145 @@ async def _publish_verified_range(
             message="Validated market-data publication failed.",
             next_retry_at=retry_at,
         )
-        _logger.warning("market_data_ingestion_failed code=dataset_persistence_failed")
         return
+    await _record_island_success(state_store, attempt, verified)
+
+
+async def _ingest_chunked_backfill(
+    *,
+    service: HistoricalRangeService,
+    dataset_store: DatasetStore,
+    state_store: MarketDataWorkerStateStore,
+    provider: str,
+    product_id: str,
+    timeframe: CandleInterval,
+    attempt: MarketDataWorkerAttempt,
+    starts_at: datetime,
+    ends_at: datetime,
+    retry_at: datetime,
+) -> None:
+    """Publish complete UTC-day chunks oldest-first; keep the newest contiguous island."""
+    newest: DatasetManifest | None = None
+    island_fingerprint: str | None = None
+    for chunk_start, chunk_end in _utc_day_chunks(starts_at, ends_at):
+        progress = await _ingest_one_chunk(
+            service=service,
+            dataset_store=dataset_store,
+            provider=provider,
+            product_id=product_id,
+            timeframe=timeframe,
+            closed_end=ends_at,
+            chunk_start=chunk_start,
+            chunk_end=chunk_end,
+            island_fingerprint=island_fingerprint,
+            newest=newest,
+        )
+        newest = progress.newest
+        island_fingerprint = progress.island_fingerprint
+        if progress.status in {"provider_unavailable", "persist_failed"}:
+            if newest is not None:
+                await _record_island_success(state_store, attempt, newest)
+                return
+            code = (
+                "provider_unavailable"
+                if progress.status == "provider_unavailable"
+                else "dataset_persistence_failed"
+            )
+            await _record_failure(
+                state_store,
+                attempt,
+                code=code,
+                message=(
+                    "Historical market-data retrieval failed."
+                    if code == "provider_unavailable"
+                    else "Validated market-data publication failed."
+                ),
+                next_retry_at=retry_at,
+            )
+            return
+    if newest is None:
+        await _record_failure(
+            state_store,
+            attempt,
+            code="incomplete_range",
+            message="Historical market-data range was incomplete or inconsistent.",
+            next_retry_at=retry_at,
+        )
+        _logger.warning("market_data_ingestion_failed code=incomplete_range")
+        return
+    await _record_island_success(state_store, attempt, newest)
+
+
+async def _ingest_one_chunk(
+    *,
+    service: HistoricalRangeService,
+    dataset_store: DatasetStore,
+    provider: str,
+    product_id: str,
+    timeframe: CandleInterval,
+    closed_end: datetime,
+    chunk_start: datetime,
+    chunk_end: datetime,
+    island_fingerprint: str | None,
+    newest: DatasetManifest | None,
+) -> _ChunkProgress:
+    """Fetch one UTC-day chunk and publish it when the provider range is complete."""
+    fetch_start = chunk_start
+    if island_fingerprint is not None:
+        fetch_start = _safe_shift(
+            chunk_start,
+            -timeframe.duration,
+            "Market-data worker cannot represent a chunk overlap start.",
+        )
+    try:
+        report = await fetch_historical_range(
+            service, product_id, timeframe, fetch_start, chunk_end, closed_end
+        )
+    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
+        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
+        return _ChunkProgress(newest, island_fingerprint, "provider_unavailable")
+    if not _matches_complete_request(report, fetch_start, chunk_end):
+        _logger.warning("market_data_ingestion_failed code=chunk_incomplete")
+        return _ChunkProgress(newest, None, "incomplete")
+    verified = _persist_complete_range(
+        dataset_store=dataset_store,
+        provider=provider,
+        product_id=product_id,
+        extend_fingerprint=island_fingerprint,
+        report=report,
+    )
+    if verified is None:
+        return _ChunkProgress(newest, island_fingerprint, "persist_failed")
+    return _ChunkProgress(verified, verified.content_fingerprint, "ok")
+
+
+def _persist_complete_range(
+    *,
+    dataset_store: DatasetStore,
+    provider: str,
+    product_id: str,
+    extend_fingerprint: str | None,
+    report: CandleRangeReport,
+) -> DatasetManifest | None:
+    """Write or extend one complete range; return None when publication fails closed."""
+    try:
+        published = (
+            dataset_store.extend(extend_fingerprint, report)
+            if extend_fingerprint is not None
+            else dataset_store.write(provider, product_id, report)
+        )
+        return dataset_store.load_verified(published.manifest_path)
+    except Exception:  # noqa: BLE001 - persistence boundary is intentionally fail-closed.
+        _logger.warning("market_data_ingestion_failed code=dataset_persistence_failed")
+        return None
+
+
+async def _record_island_success(
+    state_store: MarketDataWorkerStateStore,
+    attempt: MarketDataWorkerAttempt,
+    verified: DatasetManifest,
+) -> None:
+    """Record worker coverage for the newest complete contiguous published island."""
     await state_store.record_success(
         MarketDataWorkerSuccess(
             attempt=attempt,
@@ -555,13 +743,14 @@ async def _next_wait_seconds(
 
 def _matches_complete_request(
     report: CandleRangeReport,
-    attempt: MarketDataWorkerAttempt,
+    starts_at: datetime,
+    ends_at: datetime,
 ) -> bool:
-    """Require the service report to match the worker's exact complete request."""
+    """Require the service report to match one exact complete half-open range."""
     return (
         report.complete
-        and report.starts_at == attempt.requested_starts_at
-        and report.ends_at == attempt.requested_ends_at
+        and report.starts_at == starts_at
+        and report.ends_at == ends_at
         and report.requested_candle_count == report.quality.candle_count
         and report.quality.gap_count == 0
         and report.quality.missing_intervals == 0
