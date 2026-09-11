@@ -1,4 +1,4 @@
-"""Paper-maker fill matching against closed 1h candles."""
+"""Paper-maker fill matching against closed candles."""
 
 from __future__ import annotations
 

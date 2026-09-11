@@ -191,7 +191,7 @@ async def _apply_buy_fill(
         await store.save_deployment(paused)
         await store.save_position(None, deployment_id=deployment.id)
         return await store.get_deployment(deployment.id)
-    entered_bar = fill.filled_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    entered_bar = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
     position = Position(
         deployment_id=deployment.id,
         quantity=fill.quantity,

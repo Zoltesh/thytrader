@@ -104,7 +104,7 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 #### Remaining
 
 - Extend the same durable contract to 15m, 30m, 6h, and 1d. 5m research ingest and backtests are implemented.
-- 5m paper/live execution after research coverage is proven.
+- 5m live execution after paper on the same published 5m clock is proven.
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and

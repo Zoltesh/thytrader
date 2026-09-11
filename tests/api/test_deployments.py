@@ -259,8 +259,8 @@ def test_live_deployment_requires_credentials() -> None:
     assert allowed.json()["cash"] == "0"
 
 
-def test_five_minute_strategy_cannot_start_paper() -> None:
-    """Paper and live stay on 1h even when a 5m strategy is published."""
+def test_five_minute_strategy_can_start_paper_but_not_live() -> None:
+    """Paper may evaluate closed 5m bars; live stays 1h-only."""
     publication = InMemoryPublicationStore()
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "5m"})
@@ -270,7 +270,7 @@ def test_five_minute_strategy_cannot_start_paper() -> None:
     )
 
     with _client(publication, execution) as client:
-        denied = client.post(
+        paper = client.post(
             "/api/v1/deployments",
             json={
                 "strategy_fingerprint": fingerprint,
@@ -278,9 +278,22 @@ def test_five_minute_strategy_cannot_start_paper() -> None:
                 "paper_starting_cash": "10000",
             },
         )
+        live = client.post(
+            "/api/v1/deployments",
+            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+        )
 
-    assert denied.status_code == 409
-    assert "1h" in denied.json()["detail"]
+    with _client(publication, execution, live_credentials=True) as client:
+        live_with_keys = client.post(
+            "/api/v1/deployments",
+            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+        )
+
+    assert paper.status_code == 201
+    assert paper.json()["mode"] == "paper"
+    assert live.status_code == 409
+    assert live_with_keys.status_code == 409
+    assert "1h" in live_with_keys.json()["detail"]
 
 
 def test_unknown_fingerprint_is_not_found() -> None:

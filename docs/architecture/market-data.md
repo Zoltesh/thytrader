@@ -60,7 +60,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h` and `5m` for complete-only datasets and research; paper/live remain `1h` |
+| Timeframe | `1h` and `5m` for complete-only datasets, research, and **paper**; live remains `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -209,6 +209,6 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
 
 1. **Additional timeframes** — 5m research datasets and ingest are implemented; 15m, 30m, 6h, and 1d remain deferred.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and 5m without weakening complete-only publication.
-3. **5m paper/live** — execution stays on closed 1h bars until 5m research coverage is trustworthy.
+3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

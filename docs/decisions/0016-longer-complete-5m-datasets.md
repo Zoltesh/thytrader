@@ -44,7 +44,7 @@ later sequenced work; this ADR does not arm 5m execution.
 - First backfill of a 90-day 5m target issues many Coinbase pages and takes longer; it stays on the
   market-data worker.
 - A hole in the middle of lookback splits islands; paper freshness uses the newest complete suffix.
-- 5m paper/live, maker-aware backtest, and paper PnL remain separate sequenced decisions. 15m / 30m
+- 5m paper, maker-aware backtest, and paper PnL were sequenced separately; 5m paper is [0018](0018-5m-paper-not-live.md). 15m / 30m
   / 1d intervals are still not implemented.
 
 ## Alternatives considered

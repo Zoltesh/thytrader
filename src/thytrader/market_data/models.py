@@ -17,7 +17,7 @@ MAX_HISTORICAL_INTERVAL_COUNT = 25_920
 
 
 class CandleInterval(StrEnum):
-    """Supported closed-candle intervals for research datasets and 1h execution."""
+    """Supported closed-candle intervals for research datasets and paper execution."""
 
     ONE_HOUR = "1h"
     FIVE_MINUTES = "5m"
@@ -45,8 +45,8 @@ class CandleInterval(StrEnum):
 
     @property
     def execution_supported(self) -> bool:
-        """Paper and live runtimes currently evaluate closed 1h bars only."""
-        return self is CandleInterval.ONE_HOUR
+        """Paper evaluates closed 1h or 5m bars; live remains 1h-only at the deployment gate."""
+        return self in {CandleInterval.ONE_HOUR, CandleInterval.FIVE_MINUTES}
 
 
 def parse_candle_interval(value: str) -> CandleInterval:

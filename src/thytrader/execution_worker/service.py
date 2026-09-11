@@ -1,4 +1,4 @@
-"""Continuously evaluate deployed strategies against closed 1h candles."""
+"""Continuously evaluate deployed strategies against closed candles."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
 from thytrader.execution.models import DeploymentMode, DeploymentStatus, with_runtime
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -148,10 +149,12 @@ async def _process_one(
     product, candles, expected_last = await _closed_window(market_data, strategy)
     if not candles:
         return
+    interval = parse_candle_interval(strategy.timeframe)
     due = new_closed_bars(
         candles,
         last_evaluated_bar=deployment.last_evaluated_bar,
         expected_last_start=expected_last,
+        bar_duration=interval.duration,
     )
     if due is None:
         paused = with_runtime(
@@ -243,9 +246,10 @@ def new_closed_bars(
     *,
     last_evaluated_bar: datetime | None,
     expected_last_start: datetime,
+    bar_duration: timedelta,
 ) -> tuple[Candle, ...] | None:
     """Return newly closed bars in order, or None when the window is gapped or stale."""
-    if not candles or not _hourly_contiguous(candles):
+    if not candles or not _contiguous(candles, bar_duration):
         return None
     latest = candles[-1]
     if latest.starts_at != expected_last_start:
@@ -253,19 +257,19 @@ def new_closed_bars(
     if last_evaluated_bar is None:
         return (latest,)
     due = tuple(candle for candle in candles if candle.starts_at > last_evaluated_bar)
-    expected = last_evaluated_bar + timedelta(hours=1)
+    expected = last_evaluated_bar + bar_duration
     for candle in due:
         if candle.starts_at != expected:
             return None
-        expected = candle.starts_at + timedelta(hours=1)
+        expected = candle.starts_at + bar_duration
     return due
 
 
-def _hourly_contiguous(candles: Sequence[Candle]) -> bool:
-    """Return whether candle starts are consecutive UTC hours."""
+def _contiguous(candles: Sequence[Candle], bar_duration: timedelta) -> bool:
+    """Return whether candle starts are consecutive closed bars of one interval."""
     previous: datetime | None = None
     for candle in candles:
-        if previous is not None and candle.starts_at - previous != timedelta(hours=1):
+        if previous is not None and candle.starts_at - previous != bar_duration:
             return False
         previous = candle.starts_at
     return True
@@ -275,16 +279,16 @@ async def _closed_window(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-    """Fetch warmup plus the latest fully closed 1h bar."""
+    """Fetch warmup plus the latest fully closed bar on the strategy interval."""
     now = datetime.now(UTC)
-    ends_at = now.replace(minute=0, second=0, microsecond=0)
-    last_closed_end = ends_at
-    last_closed_start = last_closed_end - timedelta(hours=1)
+    interval = parse_candle_interval(strategy.timeframe)
+    last_closed_end = interval.align_closed_end(now)
+    last_closed_start = last_closed_end - interval.duration
     warmup = strategy.data_requirements.warmup_bars
-    starts_at = last_closed_start - timedelta(hours=warmup)
-    preview = await market_data.get_hourly_preview(strategy.instrument.product_id)
-    report = await market_data.get_hourly_range(
-        strategy.instrument.product_id, starts_at, last_closed_end, now
+    starts_at = last_closed_start - interval.duration * warmup
+    preview = await market_data.get_preview(strategy.instrument.product_id, interval)
+    report = await market_data.get_range(
+        strategy.instrument.product_id, interval, starts_at, last_closed_end, now
     )
     candles = tuple(
         candle

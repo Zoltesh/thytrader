@@ -7,9 +7,9 @@ repository and release lifecycle, while API and worker processes provide fault a
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
 implemented. Today, the browser and HTTP API provide portfolio, market-data, strategy authoring,
-backtests, and paper/live deployments of a published 1h strategy. The portfolio worker takes
-snapshots; the market-data worker maintains verified 1h datasets; the execution worker evaluates
-closed 1h candles and submits maker orders through a paper broker or Coinbase Advanced Trade REST v3.
+backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h). The portfolio worker takes
+snapshots; the market-data worker maintains verified 1h and 5m datasets; the execution worker evaluates
+closed 1h or 5m candles and submits maker orders through a paper broker or Coinbase Advanced Trade REST v3.
 
 ```text
 SvelteKit web UI
@@ -93,10 +93,10 @@ Core automation is not implemented with cron. Containers or a service manager su
 The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
 market-data worker is independently supervised and owns historical market-data ingestion/publication
 plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
-execution run in `thytrader-execution-worker`, which polls closed 1h candles over REST and talks to a
+execution run in `thytrader-execution-worker`, which polls closed 1h or 5m candles over REST and talks to a
 paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
 fill matching but blocks new entries; stop cancels resting orders. The worker replays contiguous
-missed closed hours after downtime and pauses when the latest bar is missing or gapped. User-order
+missed closed bars after downtime and pauses when the latest bar is missing or gapped. User-order
 WebSockets and trailing-stop workers remain deferred.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
