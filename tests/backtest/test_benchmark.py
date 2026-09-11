@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle
     from thytrader.research.models import ResearchRunSpecification
 
-from .test_kernel import _candles, _run, _strategy, _v2_run
+from .test_kernel import _candles, _run, _strategy, _v2_run, _v3_run
 
 
 class _SingleResultReader:
@@ -146,6 +146,20 @@ def test_buy_and_hold_v2_discloses_spread_and_is_not_part_of_result_identity() -
     assert benchmark.maximum_drawdown_fraction == (
         "0.2906968307911976368594936983967447349956266584351173365477163108"
     )
+    assert canonical_backtest_result_bytes(result) == before
+    assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
+
+
+def test_buy_and_hold_v3_uses_the_maker_fill_model_without_rewriting_result_bytes() -> None:
+    """V3 buy-and-hold follows last-close marks and must not mutate canonical result identity."""
+    strategy = _strategy()
+    specification = _v3_run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    before = canonical_backtest_result_bytes(result)
+    benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
+
+    assert benchmark.engine_contract_version == "thytrader-bar-backtest-v3"
+    assert benchmark.broker == result.broker
     assert canonical_backtest_result_bytes(result) == before
     assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
 

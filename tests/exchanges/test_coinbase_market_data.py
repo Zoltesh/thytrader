@@ -10,7 +10,7 @@ from thytrader.exchanges.coinbase_market_data import (
     CoinbaseMarketData,
     CoinbaseMarketDataError,
 )
-from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT, CandleInterval
 
 
 class StubResponse:
@@ -374,6 +374,48 @@ def test_coinbase_market_data_keeps_oldest_bar_on_full_five_minute_page() -> Non
             350,
         )
     ]
+
+
+def test_coinbase_market_data_pages_five_minute_range_past_legacy_interval_cap() -> None:
+    """A 5m range longer than 4,032 bars must page at 350 without dropping the oldest bar."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    bar_count = 4_033
+    ends_at = starts_at + CandleInterval.FIVE_MINUTES.duration * bar_count
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.FIVE_MINUTES,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.FIVE_MINUTES.duration,
+        )
+    )
+
+    assert report.requested_candle_count == bar_count
+    assert report.quality.candle_count == bar_count
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert len(client.candle_calls) == 12
+    assert {call[4] for call in client.candle_calls} == {350}
+
+
+def test_coinbase_market_data_rejects_five_minute_range_past_product_cap() -> None:
+    """The product interval cap still fail-closes one request that exceeds 25,920 bars."""
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.FIVE_MINUTES.duration * (MAX_HISTORICAL_INTERVAL_COUNT + 1)
+
+    with pytest.raises(CoinbaseMarketDataError, match="supported closed-candle"):
+        asyncio.run(
+            CoinbaseMarketData(EmptyCandleCoinbaseMarketClient()).get_historical_range(
+                "BTC-USD",
+                CandleInterval.FIVE_MINUTES,
+                starts_at,
+                ends_at,
+                now=ends_at + CandleInterval.FIVE_MINUTES.duration,
+            )
+        )
 
 
 def test_coinbase_market_data_ignores_open_candle_at_exclusive_range_boundary() -> None:

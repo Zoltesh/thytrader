@@ -63,11 +63,13 @@ class MarketDataService:
             )
         )
 
+    async def get_preview(self, product_id: str, interval: CandleInterval) -> MarketDataPreview:
+        """Return one selected product's read-only preview at a UTC instant."""
+        return await self._provider.get_recent_preview(product_id, interval, datetime.now(UTC))
+
     async def get_hourly_preview(self, product_id: str) -> MarketDataPreview:
         """Return one selected product's read-only hourly preview at a UTC instant."""
-        return await self._provider.get_recent_preview(
-            product_id, CandleInterval.ONE_HOUR, datetime.now(UTC)
-        )
+        return await self.get_preview(product_id, CandleInterval.ONE_HOUR)
 
     async def get_recent_hourly_range(self, product_id: str) -> CandleRangeReport:
         """Return a seven-day closed hourly range for dashboard completeness diagnostics."""

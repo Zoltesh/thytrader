@@ -356,6 +356,56 @@ def test_backtest_v2_requires_immutable_broker_assumptions() -> None:
         ResearchRunSpecification.model_validate({**v1.model_dump(mode="python"), "broker": broker})
 
 
+def test_backtest_v3_requires_resting_maker_assumptions() -> None:
+    """Maker-limit fills are a new contract; v1/v2 must not accept those literals."""
+    v1 = ResearchRunSpecification.model_validate(
+        {
+            **_reference_run().model_dump(mode="python"),
+            "engine_contract_version": "thytrader-bar-backtest-v1",
+        }
+    )
+    v3_broker = BrokerAssumptions(
+        price_model="post_only_limit",
+        spread_bps="0",
+        fill_policy="resting_limit",
+        trigger_evaluation="bar_extreme",
+        equity_marking="last_close",
+    )
+    v3 = ResearchRunSpecification.model_validate(
+        {
+            **v1.model_dump(mode="python"),
+            "broker": v3_broker,
+            "bar_execution": BarExecutionAssumptions(
+                signal_timing="completed_candle_close",
+                fill_timing="resting_maker_limit",
+                limit_at="completed_close",
+            ),
+            "engine_contract_version": "thytrader-bar-backtest-v3",
+        }
+    )
+
+    assert v3.bar_execution.fill_timing == "resting_maker_limit"
+    assert v3.bar_execution.limit_at == "completed_close"
+    assert v3.broker is not None
+    assert v3.broker.fill_policy == "resting_limit"
+    assert research_run_fingerprint(v1) != research_run_fingerprint(v3)
+    with pytest.raises(ValidationError, match="requires broker"):
+        ResearchRunSpecification.model_validate(
+            {
+                **v1.model_dump(mode="python"),
+                "bar_execution": v3.bar_execution,
+                "engine_contract_version": "thytrader-bar-backtest-v3",
+            }
+        )
+    with pytest.raises(ValidationError, match="require the backtest V3 contract"):
+        ResearchRunSpecification.model_validate(
+            {
+                **v1.model_dump(mode="python"),
+                "bar_execution": v3.bar_execution,
+            }
+        )
+
+
 def test_run_spec_rejects_boolean_integers_and_numeric_timestamps() -> None:
     """Pydantic coercion must not turn JSON booleans or epochs into canonical run facts."""
     run = _reference_run()

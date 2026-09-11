@@ -124,6 +124,29 @@ def _v2_run(strategy: StrategyDefinition, spread_bps: str) -> ResearchRunSpecifi
     )
 
 
+def _v3_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
+    """Build one V3 run with resting maker-limit identity, not next-open taker fills."""
+    v1 = _run(strategy)
+    return ResearchRunSpecification.model_validate(
+        {
+            **v1.model_dump(mode="python"),
+            "broker": BrokerAssumptions(
+                price_model="post_only_limit",
+                spread_bps="0",
+                fill_policy="resting_limit",
+                trigger_evaluation="bar_extreme",
+                equity_marking="last_close",
+            ),
+            "bar_execution": BarExecutionAssumptions(
+                signal_timing="completed_candle_close",
+                fill_timing="resting_maker_limit",
+                limit_at="completed_close",
+            ),
+            "engine_contract_version": "thytrader-bar-backtest-v3",
+        }
+    )
+
+
 def _candles() -> tuple[Candle, ...]:
     """Return warmup, one signal, one filled target, and one required final fill candle."""
     start = datetime(2026, 8, 1, tzinfo=UTC)
@@ -265,6 +288,171 @@ def test_simulation_rejects_unrepresentable_terminal_boundary_with_controlled_er
 
     with pytest.raises(BacktestSimulationError, match=r"candles|coverage"):
         simulate_backtest(run, strategy, candles)
+
+
+def test_v3_fills_when_the_next_bar_trades_through_the_close_limit() -> None:
+    """A close-time signal rests at that close and fills only when a later low trades through."""
+    strategy = _strategy()
+    result = simulate_backtest(_v3_run(strategy), strategy, _candles())
+
+    assert result.engine_contract_version == "thytrader-bar-backtest-v3"
+    assert result.broker is not None
+    assert result.broker.fill_policy == "resting_limit"
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.entry.candle_starts_at == datetime(2026, 8, 1, 3, tzinfo=UTC)
+    assert trade.entry.price == "14"
+    assert trade.entry.fee_rate == "0.001"
+    assert Decimal(trade.entry.fee) > Decimal("0")
+
+
+def test_v3_cancels_an_unfilled_entry_after_max_entry_wait_bars() -> None:
+    """Bars that never trade through the limit expire the resting buy instead of filling it."""
+    strategy = _strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "13", "14"),
+        ("16", "17", "15", "16"),
+        ("18", "19", "17", "18"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    result = simulate_backtest(_v3_run(strategy), strategy, candles)
+
+    assert result.trades == ()
+    assert result.summary.trade_count == 0
+    assert result.summary.final_equity == "10000"
+
+
+def test_v3_reprices_an_unfilled_entry_at_the_expiry_bar_close() -> None:
+    """After max wait, a reprice rests at the current close and can fill on a later bar."""
+    strategy = StrategyDefinition.model_validate(
+        {
+            **_strategy().model_dump(mode="python"),
+            "execution": {
+                "entry_preference": "maker_only",
+                "max_entry_wait_bars": 2,
+                "on_unfilled_entry": "reprice",
+            },
+        }
+    )
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "13", "14"),
+        ("16", "17", "15", "16"),
+        ("18", "19", "17", "18"),
+        ("18", "19", "17.5", "18"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    run = _v3_run(strategy).model_copy(
+        update={
+            "strategy_fingerprint": strategy_fingerprint(strategy),
+            "evaluation": EvaluationWindow(
+                starts_at=datetime(2026, 8, 1, 2, tzinfo=UTC),
+                ends_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
+            ),
+        }
+    )
+    result = simulate_backtest(run, strategy, candles)
+
+    assert result.trades[0].entry.candle_starts_at == datetime(2026, 8, 1, 5, tzinfo=UTC)
+    assert result.trades[0].entry.price == "18"
+    assert result.trades[0].entry.fee_rate == "0.001"
+
+
+def test_v3_stops_on_the_fill_bar_when_the_low_trades_through_the_stop() -> None:
+    """The worker checks stop on the fill bar; v3 must not wait for the next open."""
+    strategy = _strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("14", "15", "1", "10"),
+        ("10", "11", "9", "10"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    result = simulate_backtest(_v3_run(strategy), strategy, candles)
+
+    assert result.trades[0].entry.candle_starts_at == datetime(2026, 8, 1, 3, tzinfo=UTC)
+    assert result.trades[0].exit.reason == "stop_loss"
+    assert result.trades[0].exit.candle_starts_at == datetime(2026, 8, 1, 3, tzinfo=UTC)
+    assert result.trades[0].exit.fee_rate == "0.002"
+    assert Decimal(result.trades[0].exit.price) < Decimal(result.trades[0].entry.price)
+    assert Decimal(result.trades[0].exit.price) > Decimal("1")
+
+
+def test_v3_take_profit_fills_as_a_resting_limit_on_a_later_bar() -> None:
+    """Take-profit rests after the fill bar and fills when a later high trades through."""
+    strategy = _strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("14", "15", "13.5", "14"),
+        ("14", "40", "13", "20"),
+        ("20", "21", "19", "20"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    run = _v3_run(strategy).model_copy(
+        update={
+            "evaluation": EvaluationWindow(
+                starts_at=datetime(2026, 8, 1, 2, tzinfo=UTC),
+                ends_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
+            )
+        }
+    )
+    result = simulate_backtest(run, strategy, candles)
+
+    assert result.trades[0].entry.price == "14"
+    assert result.trades[0].exit.reason == "take_profit"
+    assert result.trades[0].exit.candle_starts_at == datetime(2026, 8, 1, 4, tzinfo=UTC)
+    assert result.trades[0].exit.fee_rate == "0.001"
+    assert Decimal(result.trades[0].exit.price) > Decimal(result.trades[0].entry.price)
 
 
 def test_v2_zero_spread_preserves_v1_economics_and_records_executable_evidence() -> None:

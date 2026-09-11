@@ -1,13 +1,13 @@
 # 0014: Watchlist ingest and 5m research datasets
 
-- Status: Accepted — superseded in part by [0015](0015-worker-owned-ingest-and-ops-workspace.md)
+- Status: Accepted — superseded in part by [0015](0015-worker-owned-ingest-and-ops-workspace.md), [0016](0016-longer-complete-5m-datasets.md), and [0018](0018-5m-paper-not-live.md)
 - Date: 2026-09-10
 
 ## Context
 
 Agents need to see which Coinbase USD products have local historical coverage, add products, fill
-holes, list implemented indicators, and run 5m backtests. Paper and live execution remain a 1h
-closed-bar worker. Historical candles are Parquet plus manifests, not PostgreSQL. Interpolation is
+holes, list implemented indicators, and run 5m backtests. Live execution remains a 1h closed-bar
+worker; paper may share the published 5m clock ([0018](0018-5m-paper-not-live.md)). Historical candles are Parquet plus manifests, not PostgreSQL. Interpolation is
 forbidden. The dedicated market-data worker is the publication path; one-shot ingest must share it.
 
 ## Decision
@@ -23,10 +23,13 @@ forbidden. The dedicated market-data worker is the publication path; one-shot in
 
 ## Consequences
 
-- Seven-day 5m lookbacks fit the Coinbase range cap after raising it to 4,032 intervals.
+- Seven-day 5m lookbacks originally fit a 4,032-interval cap. [0016](0016-longer-complete-5m-datasets.md)
+  raises that cap and publishes complete UTC-day chunks so 5m research can cover the existing 90-day
+  lookback without interpolation.
 - Incomplete exchange ranges stay unpublished; `inspect-gaps` classifies `not_fetched`,
   `exchange_unavailable`, and `incomplete_local`.
-- 5m paper/live is deferred until research coverage is trustworthy.
+- 5m paper is allowed on closed 5m bars of a published strategy; live remains 1h. See
+  [0018](0018-5m-paper-not-live.md).
 - A missing watchlist table (pre-migration) fails watch mutations closed.
 
 ## Alternatives considered
@@ -35,4 +38,5 @@ forbidden. The dedicated market-data worker is the publication path; one-shot in
 - Fold ingest into `thytrader-research`: rejected because research is drafts/backtests only.
 - Write a second Parquet publisher for API ingest: rejected; share `ingest_once`.
   ADR 0015 keeps that shared function and makes the market-data worker its only caller.
-- Enable 5m paper/live with the research timeframe: rejected until 5m research is proven.
+- Enable 5m paper/live with the research timeframe: 5m **paper** accepted in [0018](0018-5m-paper-not-live.md);
+  5m live remains rejected.

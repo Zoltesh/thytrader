@@ -22,10 +22,12 @@ The range endpoint paginates through Coinbase's 350-candle limit using **inclusi
 `page_start` to `inclusive_end + duration`. Exclusive paging dropped the oldest bar on a full 5m
 page. The adapter still validates every candle for UTC alignment, chronological order, OHLC
 consistency, and decimal exactness, and reports expected vs received candle counts, gaps, and a
-binary completeness result. It is bounded to 4,032 candles (14 days at 5m, 168 days at 1h) and cannot
-request ranges ending in the future.
+binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One-hour watches stay
+`min(requested, 2,160 hours)` and cannot request ranges ending in the future.
 
-The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets.
+The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Initial
+backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
+are never interpolated. Latest verified coverage is the newest contiguous complete island.
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
 endpoints remain diagnostics, not strategy inputs.
@@ -58,7 +60,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h` and `5m` for complete-only datasets and research; paper/live remain `1h` |
+| Timeframe | `1h` and `5m` for complete-only datasets, research, and **paper**; live remains `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -207,6 +209,6 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
 
 1. **Additional timeframes** — 5m research datasets and ingest are implemented; 15m, 30m, 6h, and 1d remain deferred.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and 5m without weakening complete-only publication.
-3. **5m paper/live** — execution stays on closed 1h bars until 5m research coverage is trustworthy.
+3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

@@ -147,7 +147,7 @@ The operator skill tells agents to:
 |---|---|
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. HTTP by default. |
-| Paper runtime | Read-only paper-session status/fill counts through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. |
+| Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation or research skill. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**

@@ -1,20 +1,32 @@
-"""Paper-maker fill matching against closed 1h candles."""
+"""Paper-maker fill matching against closed candles."""
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import SubmitResult
 from thytrader.execution.ids import utc_now, uuid7
+from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE, paper_fill_fee
 from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
+    from decimal import Decimal
+
     from thytrader.market_data.models import Candle
 
 
 class PaperBroker:
     """Simulate post-only limits and immediate marketable fills without a venue."""
+
+    def __init__(
+        self,
+        *,
+        maker_fee_rate: Decimal = PAPER_MAKER_FEE_RATE,
+        taker_fee_rate: Decimal = PAPER_TAKER_FEE_RATE,
+    ) -> None:
+        """Bind the documented paper maker/taker schedule used on recorded fills."""
+        self.maker_fee_rate = maker_fee_rate
+        self.taker_fee_rate = taker_fee_rate
 
     async def place_order(
         self,
@@ -36,6 +48,13 @@ class PaperBroker:
                 venue_order_id=client_order_id,
                 filled_quantity=quantity,
                 fill_price=price,
+                fill_fee=paper_fill_fee(
+                    kind=kind,
+                    price=price,
+                    quantity=quantity,
+                    maker_fee_rate=self.maker_fee_rate,
+                    taker_fee_rate=self.taker_fee_rate,
+                ),
             )
         return SubmitResult(status=OrderStatus.OPEN, venue_order_id=client_order_id)
 
@@ -82,6 +101,12 @@ class PaperBroker:
             venue_fill_id=f"paper:{order.client_order_id}:{candle.starts_at.isoformat()}",
             price=order.price,
             quantity=order.quantity,
-            fee=Decimal("0"),
+            fee=paper_fill_fee(
+                kind=order.kind,
+                price=order.price,
+                quantity=order.quantity,
+                maker_fee_rate=self.maker_fee_rate,
+                taker_fee_rate=self.taker_fee_rate,
+            ),
             filled_at=candle.starts_at,
         )

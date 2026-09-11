@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import BrokerError
@@ -19,6 +18,7 @@ from thytrader.execution.models import (
 )
 
 if TYPE_CHECKING:
+    from decimal import Decimal
     from uuid import UUID
 
     from thytrader.execution.broker import Broker
@@ -107,7 +107,7 @@ async def submit_intent(
             venue_fill_id=f"{result.venue_order_id}:immediate",
             price=result.fill_price,
             quantity=result.filled_quantity or quantity,
-            fee=Decimal("0"),
+            fee=result.fill_fee,
             filled_at=utc_now(),
         )
         await store.save_fill(fill)

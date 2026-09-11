@@ -11,12 +11,13 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
 # Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
-# 4,032 five-minute bars is 14 days; 4,032 hourly bars is 168 days.
-MAX_HISTORICAL_INTERVAL_COUNT = 4_032
+# 25,920 five-minute bars is 90 days; 25,920 hourly bars is 1,080 days, but 1h
+# watches stay min(requested, 2,160 hours) via the existing lookback maximum.
+MAX_HISTORICAL_INTERVAL_COUNT = 25_920
 
 
 class CandleInterval(StrEnum):
-    """Supported closed-candle intervals for research datasets and 1h execution."""
+    """Supported closed-candle intervals for research datasets and paper execution."""
 
     ONE_HOUR = "1h"
     FIVE_MINUTES = "5m"
@@ -44,8 +45,8 @@ class CandleInterval(StrEnum):
 
     @property
     def execution_supported(self) -> bool:
-        """Paper and live runtimes currently evaluate closed 1h bars only."""
-        return self is CandleInterval.ONE_HOUR
+        """Paper evaluates closed 1h or 5m bars; live remains 1h-only at the deployment gate."""
+        return self in {CandleInterval.ONE_HOUR, CandleInterval.FIVE_MINUTES}
 
 
 def parse_candle_interval(value: str) -> CandleInterval:

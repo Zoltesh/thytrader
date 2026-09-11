@@ -16,6 +16,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyPublicationError,
@@ -44,8 +45,7 @@ async def create_deployment(
         raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
-    if definition.timeframe != "1h":
-        raise ExecutionConflictError("Paper and live deployments require the 1h timeframe.")
+    _require_execution_timeframe(mode, definition.timeframe)
     existing = await store.list_by_strategy(str(definition.strategy_id))
     if any(item.mode is mode and item.status is DeploymentStatus.RUNNING for item in existing):
         raise ExecutionConflictError(
@@ -103,6 +103,15 @@ async def _load_published(
         return await loader(strategy_fingerprint)
     except StrategyPublicationError as error:
         raise ExecutionStoreError(str(error) or "Published strategy was not found.") from error
+
+
+def _require_execution_timeframe(mode: DeploymentMode, timeframe: str) -> None:
+    """Allow 5m paper; keep live on closed 1h bars."""
+    interval = parse_candle_interval(timeframe)
+    if mode is DeploymentMode.LIVE and interval is not CandleInterval.ONE_HOUR:
+        raise ExecutionConflictError("Live deployments require the 1h timeframe.")
+    if not interval.execution_supported:
+        raise ExecutionConflictError("Paper deployments require a 1h or 5m timeframe.")
 
 
 def parse_decimal(value: str | None) -> Decimal | None:

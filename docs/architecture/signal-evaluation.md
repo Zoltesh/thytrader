@@ -26,6 +26,8 @@ Research-run schema `1.0` accepts three explicit engine-contract identifiers:
   V1 fill, PnL, and persistence policy in [bar-level backtest simulation](backtest-simulation.md).
 - `thytrader-bar-backtest-v2` selects that same signal stage plus the V2 constant-spread stress model.
   It requires immutable broker assumptions in the run; signal evaluation still has no broker authority.
+- `thytrader-bar-backtest-v3` selects that same signal stage plus the maker-limit simulator. Signal
+  evaluation still has no broker authority.
 
 The engine identifier is part of canonical run identity. Selecting an executable contract therefore
 creates a different run fingerprint even when every other request field is unchanged.

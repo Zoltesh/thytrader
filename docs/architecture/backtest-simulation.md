@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic long-only bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. Both are research-only components: neither can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
+`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic long-only bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and long-only single-position rule while resting maker limits the way the paper/live worker does. All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
 
 `thytrader-bar-v1` remains request-only and `thytrader-bar-signal-v1` remains signal-trace-only. They fail closed at this simulator boundary: a backtest requires a separately published run carrying the backtest engine contract, so old immutable request bytes never acquire new fill/PnL meaning.
 
@@ -28,9 +28,11 @@ The result stores these immutable source identities:
 - published research-run fingerprint;
 - published strategy fingerprint;
 - immutable dataset fingerprint; and
-- `thytrader-bar-backtest-v1` or `thytrader-bar-backtest-v2` engine-contract version; and
+- `thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, or `thytrader-bar-backtest-v3` engine-contract version; and
 - for V2, a fully resolved broker-assumptions block containing the constant spread, full-fill policy,
-  bid-side trigger policy, and bid-close equity-marking policy.
+  bid-side trigger policy, and bid-close equity-marking policy; and
+- for V3, a fully resolved broker-assumptions block containing post-only limits, resting-limit fills,
+  bar-extreme triggers, and last-close equity marking.
 
 Canonical result JSON is sorted, compact UTF-8 JSON. Its SHA-256 fingerprint is the result identity. The authoritative service independently re-evaluates the signal trace and result persistence rejects a trace whose identity or source identities do not match the result. Publication revalidates unchecked in-memory models, source-row identities, canonical bytes, and the stored fingerprint on every load. Results are append-only and idempotent by result fingerprint; multiple engine versions may derive different results from the same run without rewriting earlier evidence.
 
@@ -72,6 +74,20 @@ Every V2 entry and exit records its raw reference price, executable side, and pe
 
 The first schema profile explicitly disables trailing stops. No trailing-stop behavior is implied by this engine.
 
+### V3 resting maker-limit model
+
+`thytrader-bar-backtest-v3` is a new engine contract. It does not reinterpret v1 or v2. Paper and live rest a post-only buy at the completed bar's close, wait up to `max_entry_wait_bars`, cancel or reprice if unfilled, and can stop on the fill bar. V3 simulates that loop:
+
+1. A `matched` close-time signal rests a buy at that candle's close. It does not fill at the next open.
+2. A later bar fills the resting buy if and only if `low <= limit`, at the posted limit, with the published **maker** fee and no modeled slippage.
+3. Unfilled bars increment the wait. When the wait reaches `max_entry_wait_bars`, the order cancels (`on_unfilled_entry=cancel`, with at least one bar of cooldown) or reprices at the expiry bar's close (`reprice`, keeping the original quantity, stop, and target).
+4. After a fill, the same bar may stop if `low <= stop`. The stop is a marketable sell at `min(open, stop)` with the **taker** fee, matching the worker. Take-profit is **not** eligible on the fill bar because the worker places that rest after matching.
+5. On later bars, a resting take-profit fills when `high >= target`, at the target, with the maker fee. If the same later bar also trades through the stop, the resting take-profit match runs first, matching `_match_resting_orders` before `_manage_position`.
+6. A time exit that has reached `max_bars_held` completed bars after entry sells at that candle's close with the taker fee.
+7. Equity marks at last close. The required extra candle after evaluation end may fill a resting entry or take-profit. An open position at that boundary still closes as `evaluation_end` so the ledger is complete.
+
+V3 results carry the published post-only broker block. `total_spread_cost` stays omitted: v3 is not the v2 spread-stress contract. Existing v1 and v2 canonical documents remain byte-identical.
+
 ## Result fields
 
 Every closed trade has exact entry/exit fills, notional, fee, fee rate, exit reason, gross PnL, net PnL, and holding bars. The equity curve contains cash, base quantity, mark price, and equity at every evaluation boundary plus the final required next-open boundary.
@@ -90,13 +106,13 @@ trading authority.
 
 - `GET /api/v1/backtests` returns a bounded newest-first page of summaries. Each row carries the result/run/strategy/dataset fingerprints, the engine-contract version, the publication timestamp, and the immutable `summary` metrics block. Summary metrics are projected from the canonical document server-side, so a list query never materializes a full trade ledger or equity curve. It accepts at most one source-fingerprint filter (`run_fingerprint`, `strategy_fingerprint`, or `dataset_fingerprint`), `limit` (1–100, default 50), and `offset` (≥ 0).
 - `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification.
-- `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns a versioned `thytrader-buy-and-hold-v1` comparison derived from the same reverified result, source run, and immutable dataset. It buys at the first evaluation candle open, marks at completed evaluation closes, and liquidates at the published final next-open boundary using the source run's taker fee, fixed slippage, and V1/V2 fill assumptions. The response includes source identities, entry/exit evidence, modeled costs, return, maximum drawdown, and a canonical `benchmark_fingerprint` covering every other derived field; the API revalidates that identity before serialization. It is not part of canonical result bytes.
+- `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns a versioned `thytrader-buy-and-hold-v1` comparison derived from the same reverified result, source run, and immutable dataset. It buys at the first evaluation candle open, marks at completed evaluation closes, and liquidates at the published final next-open boundary using the source run's taker fee, fixed slippage, and the run's V1/V2/V3 fill model. The response includes source identities, entry/exit evidence, modeled costs, return, maximum drawdown, and a canonical `benchmark_fingerprint` covering every other derived field; the API revalidates that identity before serialization. It is not part of canonical result bytes.
 - `POST /api/v1/backtests` requires an immutable strategy fingerprint, verified dataset fingerprint,
-  exact UTC evaluation period, capital, maker/taker fees, fixed slippage, and an explicit V1 or V2
-  engine contract. V1 rejects a spread field; V2 requires a bounded constant `spread_bps` value and
-  publishes the same canonical broker block and execution fingerprint shape as the CLI. Request
-  validation rejects invalid period, financial, and engine/broker combinations before source binding
-  or publication. Equivalent browser and CLI assumptions reuse the same immutable run.
+  exact UTC evaluation period, capital, maker/taker fees, fixed slippage, and an explicit V1, V2, or
+  V3 engine contract. V1 and V3 reject a spread field; V2 requires a bounded constant `spread_bps`
+  value. V3 publishes the post-only resting-limit broker block. Equivalent browser and CLI assumptions
+  reuse the same immutable run, except the research-run CLI still publishes only V1/V2 until a later
+  increment adds the V3 flag.
 
 The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. A submission whose evaluation window cannot fit the selected dataset (missing warmup coverage before the window, or missing next-candle-open coverage after it) is a caller error, not an outage: `POST /api/v1/backtests` answers `422 backtest_window_rejected` with a plain-language explanation, and only genuine infrastructure failures keep the redacted `503`. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
 
@@ -104,7 +120,6 @@ The strategies page collapses cumulative dataset revisions to the latest verifie
 
 ## Explicitly not in this slice
 
-- limit/maker order-book matching, latency distributions, rejections, or partial fills;
 - observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
 - trailing stops;

@@ -24,11 +24,10 @@ The first executable [signal evaluator](signal-evaluation.md) requires
 `thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
 semantics, and emits a canonical per-candle entry-condition trace without lookahead. Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
-[`thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` simulator](backtest-simulation.md)
+[`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
 turns an eligible published run into an immutable long-only, single-position trade ledger, equity
-curve, drawdown series, cost evidence, and result summary. The backtest kernel stays research-only
-(next-open taker). Paper and live use a separate candle-close execution loop that honors published
-`execution.entry_preference`, `max_entry_wait_bars`, and `on_unfilled_entry`.
+curve, drawdown series, cost evidence, and result summary. V1/V2 stay next-open taker. V3 rests
+maker limits the way paper and live do. The kernel still has no order authority.
 
 The browser API can author durable revision-guarded drafts, publish immutable strategy evidence,
 archive publications through append-only markers, submit reproducible backtests, and inspect stored
@@ -54,11 +53,12 @@ plain-English summary, live validation errors, the required warmup/data window, 
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
 `thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` engines actually consume (entry
 conditions, indicators, risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
-take profit, time exit) from declared schema fields neither engine models (entry cooldown,
-maker-only/marketable preference, entry wait and unfilled policy, trailing stops). V2 alone supports
-an explicit constant-spread stress assumption. Both engines fill every simulated entry at the next
-bar open unconditionally, so unsupported fields can be declared but must never be read as backtested
-behavior.
+take profit, time exit) from declared schema fields those next-open engines ignore (entry cooldown,
+maker-only/marketable preference, entry wait and unfilled policy, trailing stops). `thytrader-bar-backtest-v3`
+consumes maker-only close-limit entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops,
+and resting take-profit, matching the paper worker. V2 alone supports an explicit constant-spread
+stress assumption. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
+does not. Trailing stops remain schema-present and disabled.
 
 The library's read-only detail surface exposes Insight, Research, and Versions tabs for every
 strategy identity. Insight always shows the same summary, validation, warmup/data, unsaved/read-only

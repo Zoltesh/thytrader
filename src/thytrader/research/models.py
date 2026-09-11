@@ -173,20 +173,21 @@ class CostAssumptions(_FrozenModel):
 
 
 class BarExecutionAssumptions(_FrozenModel):
-    """Fixed no-lookahead timing convention for the first bar-level engine contract."""
+    """Fixed no-lookahead timing. V1/V2 use next-open fills; V3 rests a close-limit."""
 
     signal_timing: Literal["completed_candle_close"]
-    fill_timing: Literal["next_candle_open"]
+    fill_timing: Literal["next_candle_open", "resting_maker_limit"]
+    limit_at: Literal["completed_close"] | None = None
 
 
 class BrokerAssumptions(_FrozenModel):
-    """Fully disclosed deterministic V2 broker assumptions, independent of ambient configuration."""
+    """Fully disclosed deterministic broker assumptions, independent of ambient configuration."""
 
-    price_model: Literal["constant_spread_bps"]
+    price_model: Literal["constant_spread_bps", "post_only_limit"]
     spread_bps: DecimalText
-    fill_policy: Literal["full"]
-    trigger_evaluation: Literal["bid_side"]
-    equity_marking: Literal["bid_close"]
+    fill_policy: Literal["full", "resting_limit"]
+    trigger_evaluation: Literal["bid_side", "bar_extreme"]
+    equity_marking: Literal["bid_close", "last_close"]
 
     @field_validator("spread_bps")
     @classmethod
@@ -216,6 +217,7 @@ class ResearchRunSpecification(_FrozenModel):
         "thytrader-bar-signal-v1",
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
+        "thytrader-bar-backtest-v3",
     ]
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
@@ -262,14 +264,54 @@ class ResearchRunSpecification(_FrozenModel):
         return self
 
     @model_validator(mode="after")
-    def require_broker_for_v2_only(self) -> Self:
-        """Require disclosed broker assumptions only for the spread-aware V2 contract."""
-        is_v2 = self.engine_contract_version == "thytrader-bar-backtest-v2"
-        if is_v2 and self.broker is None:
-            raise ValueError("backtest V2 requires broker assumptions")
-        if not is_v2 and self.broker is not None:
-            raise ValueError("broker assumptions require the backtest V2 contract")
+    def require_broker_for_spread_and_maker_contracts(self) -> Self:
+        """Bind broker and fill-timing literals to the engine contract that owns them."""
+        if self.engine_contract_version == "thytrader-bar-backtest-v3":
+            _require_v3_maker_assumptions(self)
+            return self
+        if (
+            self.bar_execution.fill_timing != "next_candle_open"
+            or self.bar_execution.limit_at is not None
+        ):
+            raise ValueError("resting maker fills require the backtest V3 contract")
+        _require_v2_broker_exclusivity(self)
         return self
+
+
+def _require_v3_maker_assumptions(specification: ResearchRunSpecification) -> None:
+    """V3 identity includes resting close-limit fills and the post-only broker block."""
+    if (
+        specification.bar_execution.fill_timing != "resting_maker_limit"
+        or specification.bar_execution.limit_at != "completed_close"
+    ):
+        raise ValueError("backtest V3 requires resting_maker_limit at completed_close")
+    broker = specification.broker
+    if broker is None:
+        raise ValueError("backtest V3 requires broker assumptions")
+    if (
+        broker.price_model != "post_only_limit"
+        or broker.fill_policy != "resting_limit"
+        or broker.trigger_evaluation != "bar_extreme"
+        or broker.equity_marking != "last_close"
+    ):
+        raise ValueError("backtest V3 requires post-only resting-limit broker assumptions")
+
+
+def _require_v2_broker_exclusivity(specification: ResearchRunSpecification) -> None:
+    """V2 is the only non-v3 contract that may carry a constant-spread broker block."""
+    is_v2 = specification.engine_contract_version == "thytrader-bar-backtest-v2"
+    if is_v2 and specification.broker is None:
+        raise ValueError("backtest V2 requires broker assumptions")
+    if not is_v2 and specification.broker is not None:
+        raise ValueError("broker assumptions require the backtest V2 contract")
+    broker = specification.broker
+    if broker is not None and (
+        broker.price_model != "constant_spread_bps"
+        or broker.fill_policy != "full"
+        or broker.trigger_evaluation != "bid_side"
+        or broker.equity_marking != "bid_close"
+    ):
+        raise ValueError("backtest V2 requires full-fill constant-spread broker assumptions")
 
 
 def specification_bar_interval(specification: ResearchRunSpecification) -> CandleInterval:

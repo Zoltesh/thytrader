@@ -47,8 +47,11 @@ the git root. Run every `uv run thytrader-*` command from the repository root (t
 
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
 
-Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days). Five-minute ingest is
-capped at the same complete-range limit as Coinbase (4,032 bars, 14 days of 5m).
+Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days) and may be set up to
+2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). Initial
+backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
+days stay holes. `inspect-gaps` classifies those holes and never interpolates. Latest verified
+coverage is the newest contiguous complete island; older complete islands stay addressable.
 
 Gap `cause` values:
 

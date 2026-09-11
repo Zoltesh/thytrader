@@ -9,7 +9,8 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from thytrader import __version__
-from thytrader.execution.models import Deployment, DeploymentStatus, OrderStatus
+from thytrader.execution.ledger import ledger_from_snapshot
+from thytrader.execution.models import Deployment, DeploymentMode, DeploymentStatus, OrderStatus
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.watchlist import (
@@ -80,12 +81,14 @@ from thytrader.strategies.models import IndicatorKind
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
 
 if TYPE_CHECKING:
+    from decimal import Decimal
     from pathlib import Path
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.config import Settings
+    from thytrader.execution.ledger import DeploymentLedger
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
@@ -967,7 +970,7 @@ class OperatorDiagnostics:
         deployment_id: UUID,
         now: datetime,
     ) -> PerformanceReport:
-        """Summarize paper or live fills without implying a full accounting engine."""
+        """Summarize paper or live PnL from recorded fills and a disclosed last close."""
         try:
             snapshot = await self.execution.get_deployment(deployment_id)
         except Exception:  # noqa: BLE001 - store failures are redacted at this boundary.
@@ -979,40 +982,53 @@ class OperatorDiagnostics:
             )
             return _empty_performance(now, (component,))
         deployment = snapshot.deployment
-        component = ComponentReport(
-            name="performance",
-            status=ReportStatus.DEGRADED,
-            reason_code="RUNTIME_SLICE",
-            detail="Paper/live operator performance reports fill counts, not a full PnL engine.",
-        )
+        timeframe = await self._strategy_timeframe(deployment.strategy_fingerprint)
+        mark = await self._last_close_mark(deployment.product_id, timeframe)
+        ledger = ledger_from_snapshot(snapshot, mark_price=mark)
+        component, warnings = _deployment_ledger_component(deployment, ledger)
         payload = PerformancePayload(
-            mode="live" if deployment.mode.value == "live" else "paper",
-            timeframe="1h",
+            mode="live" if deployment.mode is DeploymentMode.LIVE else "paper",
+            timeframe=timeframe,
             strategy_fingerprint=deployment.strategy_fingerprint,
             dataset_fingerprint=None,
             engine_contract_version=None,
-            fee_treatment="venue or paper broker fees on recorded fills; PnL not computed here",
+            fee_treatment=_runtime_fee_treatment(deployment.mode),
             result_fingerprint=None,
             deployment_id=deployment.id,
-            trade_count=len(snapshot.fills),
-            total_net_pnl=None,
-            total_return_fraction=None,
-            maximum_drawdown_fraction=None,
+            trade_count=ledger.trade_count,
+            total_net_pnl=ledger.total_net_pnl_text(),
+            total_return_fraction=ledger.total_return_fraction_text(),
+            maximum_drawdown_fraction=ledger.maximum_drawdown_fraction_text(),
             total_spread_cost=None,
             evaluation_bars=None,
         )
         return PerformanceReport(
             application_version=__version__,
             generated_at=now,
-            overall_status=ReportStatus.DEGRADED,
+            overall_status=component.status,
             components=(component,),
             redaction=STANDARD_REDACTION,
-            partial_result_warnings=(
-                "Paper and live performance is a fill-count slice until a dedicated ledger exists.",
-            ),
+            partial_result_warnings=warnings,
             recommended_next_action=recommend_next_action((component,)),
             payload=payload,
         )
+
+    async def _last_close_mark(
+        self, product_id: str, timeframe: SupportedTimeframe
+    ) -> Decimal | None:
+        """Return the last closed candle close for the strategy interval, if one exists."""
+        if self.market_data is None:
+            return None
+        try:
+            preview = await self.market_data.get_preview(
+                product_id, parse_candle_interval(timeframe)
+            )
+        except Exception:  # noqa: BLE001 - missing marks stay omitted, not invented.
+            return None
+        candles = preview.quality.candles
+        if not candles:
+            return None
+        return candles[-1].close
 
     async def _risk_findings(self) -> tuple[tuple[RiskFinding, ...], list[ComponentReport]]:
         """Collect pause and mismatch observations from deployments."""
@@ -1321,6 +1337,70 @@ def _runtime_slice(
         tuple(item for item in risk_findings if item.deployment_id == deployment_id),
         tuple(item for item in recon_findings if item.deployment_id == deployment_id),
         extra,
+    )
+
+
+def _runtime_fee_treatment(mode: DeploymentMode) -> str:
+    """Describe how paper versus live fees enter the fill ledger."""
+    if mode is DeploymentMode.PAPER:
+        return (
+            "documented paper schedule: 0.001 maker / 0.002 taker on recorded fills; "
+            "last-close mark for open inventory"
+        )
+    return (
+        "venue fees recorded on fills; last-close mark for open inventory; "
+        "live fee API is not queried here"
+    )
+
+
+def _deployment_ledger_component(
+    deployment: Deployment, ledger: DeploymentLedger
+) -> tuple[ComponentReport, tuple[str, ...]]:
+    """Classify fill-ledger completeness without inventing missing marks or fills."""
+    if not ledger.mark_complete:
+        return (
+            ComponentReport(
+                name="performance",
+                status=ReportStatus.DEGRADED,
+                reason_code="MISSING_MARK",
+                detail=(
+                    "Open inventory has no last-close mark; total PnL is omitted "
+                    "rather than invented."
+                ),
+            ),
+            ("Open inventory is unmarked; total PnL is omitted rather than invented.",),
+        )
+    if deployment.mismatch_detail:
+        return (
+            ComponentReport(
+                name="performance",
+                status=ReportStatus.DEGRADED,
+                reason_code="STATE_MISMATCH",
+                detail=deployment.mismatch_detail[:500],
+            ),
+            ("Pause or mismatch stays operator risk; PnL uses recorded fills and the last close.",),
+        )
+    if deployment.status is DeploymentStatus.PAUSED:
+        return (
+            ComponentReport(
+                name="performance",
+                status=ReportStatus.DEGRADED,
+                reason_code="DEPLOYMENT_PAUSED",
+                detail="The deployment is paused; PnL still reflects recorded fills.",
+            ),
+            ("The deployment is paused; PnL still reflects recorded fills.",),
+        )
+    return (
+        ComponentReport(
+            name="performance",
+            status=ReportStatus.HEALTHY,
+            reason_code="FILL_LEDGER",
+            detail="Metrics are a fill ledger marked at the last closed candle close.",
+        ),
+        (
+            "Maximum drawdown walks fill-event marks plus the current last close; "
+            "it is not a bar equity curve.",
+        ),
     )
 
 
