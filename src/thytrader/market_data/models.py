@@ -11,8 +11,9 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
 # Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
-# 4,032 five-minute bars is 14 days; 4,032 hourly bars is 168 days.
-MAX_HISTORICAL_INTERVAL_COUNT = 4_032
+# 25,920 five-minute bars is 90 days; 25,920 hourly bars is 1,080 days, but 1h
+# watches stay min(requested, 2,160 hours) via the existing lookback maximum.
+MAX_HISTORICAL_INTERVAL_COUNT = 25_920
 
 
 class CandleInterval(StrEnum):

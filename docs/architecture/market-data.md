@@ -22,8 +22,8 @@ The range endpoint paginates through Coinbase's 350-candle limit using **inclusi
 `page_start` to `inclusive_end + duration`. Exclusive paging dropped the oldest bar on a full 5m
 page. The adapter still validates every candle for UTC alignment, chronological order, OHLC
 consistency, and decimal exactness, and reports expected vs received candle counts, gaps, and a
-binary completeness result. It is bounded to 4,032 candles (14 days at 5m, 168 days at 1h) and cannot
-request ranges ending in the future.
+binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One-hour watches stay
+`min(requested, 2,160 hours)` and cannot request ranges ending in the future.
 
 The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets.
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
