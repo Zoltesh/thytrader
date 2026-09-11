@@ -124,6 +124,29 @@ def _v2_run(strategy: StrategyDefinition, spread_bps: str) -> ResearchRunSpecifi
     )
 
 
+def _v3_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
+    """Build one V3 run with resting maker-limit identity, not next-open taker fills."""
+    v1 = _run(strategy)
+    return ResearchRunSpecification.model_validate(
+        {
+            **v1.model_dump(mode="python"),
+            "broker": BrokerAssumptions(
+                price_model="post_only_limit",
+                spread_bps="0",
+                fill_policy="resting_limit",
+                trigger_evaluation="bar_extreme",
+                equity_marking="last_close",
+            ),
+            "bar_execution": BarExecutionAssumptions(
+                signal_timing="completed_candle_close",
+                fill_timing="resting_maker_limit",
+                limit_at="completed_close",
+            ),
+            "engine_contract_version": "thytrader-bar-backtest-v3",
+        }
+    )
+
+
 def _candles() -> tuple[Candle, ...]:
     """Return warmup, one signal, one filled target, and one required final fill candle."""
     start = datetime(2026, 8, 1, tzinfo=UTC)
@@ -265,6 +288,13 @@ def test_simulation_rejects_unrepresentable_terminal_boundary_with_controlled_er
 
     with pytest.raises(BacktestSimulationError, match=r"candles|coverage"):
         simulate_backtest(run, strategy, candles)
+
+
+def test_v3_run_is_rejected_until_the_maker_kernel_exists() -> None:
+    """V3 identity is valid; executing it as v1/v2 next-open fills must fail closed."""
+    strategy = _strategy()
+    with pytest.raises(BacktestSimulationError, match="backtest engine contract"):
+        simulate_backtest(_v3_run(strategy), strategy, _candles())
 
 
 def test_v2_zero_spread_preserves_v1_economics_and_records_executable_evidence() -> None:

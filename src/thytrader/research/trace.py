@@ -115,6 +115,7 @@ class SignalTrace(_FrozenTraceModel):
         "thytrader-bar-signal-v1",
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
+        "thytrader-bar-backtest-v3",
     ]
     indicator_ids: tuple[IndicatorId, ...] = Field(min_length=1)
     records: tuple[SignalTraceRecord, ...] = Field(min_length=1)

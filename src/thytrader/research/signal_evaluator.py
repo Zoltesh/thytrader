@@ -108,7 +108,12 @@ def _canonical_optional(value: Decimal | None) -> str | None:
 def _verify_contract(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
-) -> Literal["thytrader-bar-signal-v1", "thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"]:
+) -> Literal[
+    "thytrader-bar-signal-v1",
+    "thytrader-bar-backtest-v1",
+    "thytrader-bar-backtest-v2",
+    "thytrader-bar-backtest-v3",
+]:
     """Require an executable engine contract and immutable strategy identity."""
     engine_contract_version = specification.engine_contract_version
     if engine_contract_version == "thytrader-bar-v1":
@@ -117,6 +122,7 @@ def _verify_contract(
         "thytrader-bar-signal-v1",
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
+        "thytrader-bar-backtest-v3",
     }:
         raise AssertionError("Research run engine contract literal is invalid.")
     if strategy_fingerprint(strategy) != specification.strategy_fingerprint:

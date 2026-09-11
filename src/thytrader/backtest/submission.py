@@ -55,9 +55,11 @@ class BacktestSubmissionRequest(BaseModel):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
-    engine_contract_version: Literal["thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"] = (
-        "thytrader-bar-backtest-v1"
-    )
+    engine_contract_version: Literal[
+        "thytrader-bar-backtest-v1",
+        "thytrader-bar-backtest-v2",
+        "thytrader-bar-backtest-v3",
+    ] = "thytrader-bar-backtest-v1"
     spread_bps: str | None = None
 
     @model_validator(mode="after")
@@ -196,10 +198,7 @@ class PostgresBacktestSubmitter:
                 fixed_slippage_bps=request.fixed_slippage_bps,
             ),
             broker=_broker_from_request(request),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
+            bar_execution=_bar_execution_from_request(request),
             engine_contract_version=request.engine_contract_version,
             random_seed=0,
         )
@@ -311,9 +310,17 @@ def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None
 
 
 def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumptions | None:
-    """Resolve V2-only broker inputs, mirroring the CLI contract exactly."""
+    """Resolve contract-specific broker inputs, mirroring the CLI contract exactly."""
     if request.engine_contract_version == "thytrader-bar-backtest-v1":
         return None
+    if request.engine_contract_version == "thytrader-bar-backtest-v3":
+        return BrokerAssumptions(
+            price_model="post_only_limit",
+            spread_bps="0",
+            fill_policy="resting_limit",
+            trigger_evaluation="bar_extreme",
+            equity_marking="last_close",
+        )
     if request.spread_bps is None:
         message = "spread_bps is required for the thytrader-bar-backtest-v2 contract"
         raise ValueError(message)
@@ -326,14 +333,28 @@ def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumption
     )
 
 
+def _bar_execution_from_request(request: BacktestSubmissionRequest) -> BarExecutionAssumptions:
+    """Bind fill timing to the selected engine contract."""
+    if request.engine_contract_version == "thytrader-bar-backtest-v3":
+        return BarExecutionAssumptions(
+            signal_timing="completed_candle_close",
+            fill_timing="resting_maker_limit",
+            limit_at="completed_close",
+        )
+    return BarExecutionAssumptions(
+        signal_timing="completed_candle_close",
+        fill_timing="next_candle_open",
+    )
+
+
 def _require_valid_broker_inputs(request: BacktestSubmissionRequest) -> None:
     """Reject mismatched engine and spread combinations before any publication."""
-    if request.engine_contract_version == "thytrader-bar-backtest-v1":
-        if request.spread_bps is not None:
-            raise ValueError("spread_bps requires the thytrader-bar-backtest-v2 contract")
+    if request.engine_contract_version == "thytrader-bar-backtest-v2":
+        if request.spread_bps is None:
+            raise ValueError("spread_bps is required for the thytrader-bar-backtest-v2 contract")
         return
-    if request.spread_bps is None:
-        raise ValueError("spread_bps is required for the thytrader-bar-backtest-v2 contract")
+    if request.spread_bps is not None:
+        raise ValueError("spread_bps requires the thytrader-bar-backtest-v2 contract")
 
 
 def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
@@ -350,10 +371,9 @@ def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
     )
     broker = _broker_from_request(request)
     payload = {
-        "bar_execution": {
-            "fill_timing": "next_candle_open",
-            "signal_timing": "completed_candle_close",
-        },
+        "bar_execution": _bar_execution_from_request(request).model_dump(
+            mode="json", exclude_none=True
+        ),
         "broker": None if broker is None else broker.model_dump(mode="json"),
         "capital": capital.model_dump(mode="json"),
         "costs": costs.model_dump(mode="json"),

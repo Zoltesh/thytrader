@@ -129,6 +129,22 @@ def test_execution_fingerprint_distinguishes_engine_and_spread() -> None:
     assert _execution_fingerprint(v2_spread8) != _execution_fingerprint(v2_spread12)
 
 
+def test_v3_submission_rejects_spread_and_builds_resting_limit_broker() -> None:
+    """V3 is post-only; a v2 spread value is a caller error, not a silent mix-in."""
+    with pytest.raises(ValidationError, match="spread_bps requires"):
+        _request(engine_contract_version="thytrader-bar-backtest-v3", spread_bps="5")
+    request = _request(engine_contract_version="thytrader-bar-backtest-v3")
+    broker = _broker_from_request(request)
+    assert broker is not None
+    assert broker.model_dump(mode="python") == {
+        "price_model": "post_only_limit",
+        "spread_bps": "0",
+        "fill_policy": "resting_limit",
+        "trigger_evaluation": "bar_extreme",
+        "equity_marking": "last_close",
+    }
+
+
 def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
     """The hash payload carries the broker block so CLI and browser dedupe together."""
     request = _request(
