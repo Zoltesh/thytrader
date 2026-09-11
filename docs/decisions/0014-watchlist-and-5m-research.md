@@ -1,6 +1,6 @@
 # 0014: Watchlist ingest and 5m research datasets
 
-- Status: Accepted — superseded in part by [0015](0015-worker-owned-ingest-and-ops-workspace.md)
+- Status: Accepted — superseded in part by [0015](0015-worker-owned-ingest-and-ops-workspace.md) and [0016](0016-longer-complete-5m-datasets.md)
 - Date: 2026-09-10
 
 ## Context
@@ -23,7 +23,9 @@ forbidden. The dedicated market-data worker is the publication path; one-shot in
 
 ## Consequences
 
-- Seven-day 5m lookbacks fit the Coinbase range cap after raising it to 4,032 intervals.
+- Seven-day 5m lookbacks originally fit a 4,032-interval cap. [0016](0016-longer-complete-5m-datasets.md)
+  raises that cap and publishes complete UTC-day chunks so 5m research can cover the existing 90-day
+  lookback without interpolation.
 - Incomplete exchange ranges stay unpublished; `inspect-gaps` classifies `not_fetched`,
   `exchange_unavailable`, and `incomplete_local`.
 - 5m paper/live is deferred until research coverage is trustworthy.
