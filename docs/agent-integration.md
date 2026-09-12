@@ -75,6 +75,30 @@ Each operation requires explicit user confirmation, returns stable artifact iden
 audit event once audit recording exists. It may not deploy a strategy, start/stop paper execution,
 arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform direct storage access.
 
+### Planned: Safe mode vs YOLO mode
+
+**Not shipped.** Default remains Safe mode: mutations use `--confirm`, and live start also requires
+`--i-understand-live`.
+
+**YOLO mode (planned, default OFF)** is an operator-enabled opt-in so agents can skip per-action
+confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.
+
+Constraints for a future implementation:
+
+- Opt-in configuration; never the silent default for observation skills.
+- Scope tiers (e.g. data + research eligible; paper separately gated; live keeps a hard gate unless
+  a distinct live-YOLO arming design is accepted).
+- Audit every skipped confirmation.
+- Do not collapse operator / data / research / runtime authority into one unrestricted skill.
+
+See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
+
+### Planned: orchestration skill
+
+A higher-level playbook skill may sequence data → research → optional paper by calling existing
+CLIs. It inherits the same Safe / YOLO confirmation rules and must not grant live authority by
+inheritance.
+
 ## Stable diagnostics schema
 
 Every machine-readable report should include:

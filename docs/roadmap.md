@@ -23,6 +23,29 @@ Phase 5 extras are still future work.
 6. **Operator/agent integration:** ✅ HTTP-first diagnostics and research CLIs, plus a separate
    confirmation-gated `thytrader-runtime` skill for paper/live control.
 
+## Next capability waves (planned)
+
+These waves are **not shipped**. They sequence work toward agent-driven multi-timeframe portfolio
+automation. Detail: [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
+
+1. **Finish remaining Phase 2A timeframes** — 15m, 30m, 6h, 1d under the same complete-only contract;
+   harden agent data loops (`watch_complete` clarity).
+2. **Multi-timeframe strategy semantics** — combined HTF + LTF conditions; schema and engines beyond
+   a single `timeframe` field.
+3. **Wider fail-closed indicator catalog** — expand without TA-library passthrough.
+4. **Portfolio + risk-policy registry** — multi-position and cross-strategy exposure / capital
+   allocation (beyond one instrument, one position).
+5. **Research rigor tooling** — walk-forward / out-of-sample, richer templates, clearer engine
+   support matrix.
+6. **Agent orchestration + YOLO opt-in** — playbook skill over existing CLIs; default remains
+   `--confirm`; planned YOLO mode (default off) skips confirmation on allowed tiers; live keeps a
+   hard gate. See [agent integration](agent-integration.md).
+7. **Live extras** — 5m live, trailing stops, user-order WebSockets, native OCO, after paper /
+   restart / reconcile gates stay green.
+8. **Experiential memory / hindsight** — deferred until after the core trading loop is trustworthy.
+
+Remote / SaaS exposure remains explicitly deprioritized for this sequence.
+
 ## Phase 0: Repository foundation — ✅ Complete
 
 - Architecture and product documentation.
@@ -228,3 +251,6 @@ authority merely because it can inspect a system.
 artifacts using supported HTTP interfaces without database access, secret exposure, or implicit
 trading authority. Paper/live control is a third confirmation-gated surface, not part of operator or
 research skills.
+
+Further agent E2E orchestration and YOLO opt-in are **planned** under [Next capability waves](#next-capability-waves-planned),
+not part of the Phase 6 exit gate.
