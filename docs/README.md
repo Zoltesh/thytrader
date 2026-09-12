@@ -17,6 +17,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — running-instance evidence against the 5m research–paper plan (stale Compose, 14-day clip, v3 422, 5m paper 409)
+- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — **planned** multi-TF, portfolio, orchestration, and YOLO opt-in (not shipped)
 
 ## Document roles
 
