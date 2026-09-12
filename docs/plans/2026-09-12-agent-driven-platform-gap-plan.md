@@ -1,154 +1,102 @@
-# Agent-Driven Platform Gap Plan
+# Agent-driven platform gap plan (2026-09-12)
 
-> Status: **planned / proposed** (docs-only). Captures Brayden's product direction and the remaining
-> capability gaps relative to what is shipped today.
-> Branch baseline: `main` at `7c8e69d`.
-> Does **not** claim YOLO mode, multi-timeframe combined strategies, multi-asset portfolio risk, or
-> experiential memory as implemented.
+**Status: planned / proposed.** Nothing in this document is shipped unless the live
+roadmap or architecture docs already mark it complete.
 
-## 1. Goals
+## Intent
 
-Agent operators should drive ThyTrader end-to-end easily: collect missing data, ensure no gaps, compute
-indicators, evaluate strategies across multiple timeframes (individually and combined), and manage an
-entire portfolio rather than a single asset.
+ThyTrader should become a local-first workstation that **agent operators can drive
+end to end**: collect and heal market data, research and publish strategies, backtest
+with honest assumptions, paper, then (when armed) live — across a **portfolio**, not
+only a single asset, with multi-timeframe strategies and a growing indicator set.
 
-The longer product ambition is a comprehensive auto-trader that applies proven strategies, with a
-framework that can learn and grow. Experiential memory / hindsight remains deferred until the core
-trading loop (data → research → paper → guarded live) is trustworthy.
+Remote / SaaS exposure is **out of scope for this plan**.
 
-**Remote-safe exposure is explicitly not a priority right now.** Do not expand remote-access or hosted
-SaaS work in this plan.
+Experiential memory / hindsight (operator-managed facts and lessons) is a **later**
+concern, after the trading loop is trustworthy. Audit trails and immutable research
+evidence are not that memory system.
 
-## 2. Shipped baseline (narrow — do not overstate)
+## Shipped baseline (narrow but real)
 
-As of the branch baseline, ThyTrader ships a narrow vertical slice:
+- Skills: `thytrader-operator` (read-only), `thytrader-data` (watchlist / ingest /
+  gaps), `thytrader-research` (draft → publish → backtest), `thytrader-runtime`
+  (paper/live with `--confirm`; live also `--i-understand-live`).
+- Market data: complete-only Parquet for **1h** and **5m**; `inspect-gaps` /
+  `fill-gaps`; no interpolation.
+- Indicators: EMA, SMA, RSI, ATR, volume SMA only.
+- Strategy: one instrument, long-only, max concurrent positions = 1.
+- Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
 
-| Area | Shipped today |
+See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
+
+## Gaps relative to the intent
+
+| Area | Gap |
 |---|---|
-| Agent surfaces | Operator, data, research, and runtime skills/CLIs with clear authority boundaries |
-| Market data | Complete-only `1h` and `5m` datasets; inspect/fill gaps; no interpolation |
-| Indicators | EMA, SMA, RSI, ATR, volume SMA (fail-closed registry) |
-| Strategy / position | Single-instrument, long-only; one `timeframe` per strategy |
-| Execution clocks | Live `1h`; paper + research `1h` or `5m` |
-| Backtests | Single-position V1/V2/V3 engines; deterministic, immutable results |
-| Safety default | Confirmation-gated mutations (`--confirm`); live start also requires `--i-understand-live` |
+| Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
+| Data coverage | 15m / 30m / 6h / 1d deferred; agents babysit watchlist → ingest → gaps |
+| Indicators | Tiny fail-closed catalog; no broad TA passthrough |
+| Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
+| Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
+| Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
+| Live extras | 5m live, trailing stops, user-order WS, native OCO deferred |
+| Memory | Not in product docs; deferred by design |
 
-This is enough for a careful operator or agent to research and paper-trade one published strategy on
-one product. It is **not** yet an agent-driven multi-asset portfolio platform.
+## Planned: Safe mode vs YOLO mode
 
-## 3. Product direction (Brayden)
+**Default remains Safe mode:** mutations require explicit `--confirm` (and live
+start requires `--i-understand-live`). Observation skills stay read-only.
 
-1. **E2E agent operability** — an agent should complete the full loop without friction that exists only
-   because authority is split across four CLIs, while still preserving those boundaries.
-2. **Data completeness first** — agents collect missing history, inspect gaps, and refuse to trade on
-   incomplete islands.
-3. **Multi-timeframe** — use timeframes individually today; combine HTF+LTF conditions as a first-class
-   strategy semantic (planned).
-4. **Portfolio scope** — manage exposure and capital across assets and strategies, not one position at a
-   time.
-5. **Proven strategies, then learning** — auto-apply researched strategies; memory/hindsight only after
-   the loop is green.
-6. **Local-first posture** — remote-safe exposure stays out of scope for this plan.
+**YOLO mode (planned, default OFF):** an operator-enabled opt-in that lets agents
+skip per-action confirmation on **allowed** surfaces so end-to-end automation is
+easy when the operator wants that flexibility.
 
-## 4. YOLO mode (NEW — planned opt-in)
+Design constraints (to implement later; not shipped):
 
-**Default remains confirmation-gated.** Every mutation skill/CLI keeps `--confirm` (or equivalent) as
-the safe path. Observation skills stay read-only.
+1. Configuration / mode flag defaults to off; enabling is an explicit operator act.
+2. Scope tiers: data + research may be YOLO-eligible; paper may be separately
+   gated; **live start keeps a hard gate** even when YOLO is on unless a distinct
+   live-YOLO arming step is explicitly designed and accepted.
+3. Every skipped confirmation must write an audit event.
+4. YOLO must never become the silent default of read-only observation skills.
+5. Authority boundaries between operator / data / research / runtime stay separate;
+   YOLO does not collapse skills into one unrestricted trading agent.
 
-**YOLO / no-confirm mode** is an **operator-enabled opt-in** so agents can skip per-action confirmation
-on allowed surfaces and complete E2E work without repetitive gates. It is **not shipped**. Document it
-as planned in agent-integration and skills policy.
+Document CLIs and skills as supporting both postures once the flag exists.
 
-### Proposed safety design (not implemented)
+## Planned: Agent orchestration
 
-| Control | Proposal |
-|---|---|
-| Config / mode flag | Explicit operator arming; **default OFF** |
-| Scope tiers | e.g. data + research may be YOLO-eligible; paper control may be a separate tier |
-| Live hard gate | Live start still requires `--i-understand-live` (or equivalent) even when YOLO is on, unless a **separate** live-yolo arming flag is explicitly set |
-| Audit | Every skipped confirmation records an audit event (who/what/when/surface) |
-| Observation purity | YOLO must **never** become the silent default of `thytrader-operator` or other read-only skills |
-| Skill docs | Dual-mode (safe vs yolo) called out as planned; shipped skills stay confirm-gated until code lands |
+A higher-level orchestration skill (or playbook) should sequence:
 
-YOLO reduces friction; it does not collapse research, paper, and live into one skill, and it does not
-grant trading authority to observation.
+`data healthy → draft/publish → backtest → (optional) paper`
 
-## 5. Gap plan — sequenced roadmap
+while calling the existing CLIs. It must not grant live authority by inheritance.
+YOLO only changes confirmation friction inside allowed tiers.
 
-Documented as **next work**, not complete. Order is intentional: trustworthy data and strategy
-semantics before portfolio risk, agent orchestration, and live extras.
+## Build order
 
-1. **Finish Phase 2A timeframes + harden agent data loop**  
-   Add `15m`, `30m`, `6h`, `1d` under the same complete-only contract. Clarify `watch_complete` vs
-   island `complete` so agents do not confuse lookback coverage with publication success.
+1. Finish Phase 2A timeframes (15m, 30m, 6h, 1d) and harden the agent data loop
+   (`watch_complete` clarity, fewer stale-image footguns).
+2. Multi-timeframe strategy semantics (schema + engines for combined TFs).
+3. Widen the indicator catalog under the same fail-closed deterministic contract.
+4. Portfolio + risk-policy registry (multi-position, cross-strategy exposure,
+   capital allocation).
+5. Research rigor: walk-forward / OOS, templates, clearer engine-support matrix.
+6. Agent orchestration skill + YOLO opt-in (safe default; live hard-gated).
+7. Live extras (5m live, trailing, WS, OCO) after paper/restart/reconcile stays green.
+8. Memory / hindsight last.
 
-2. **Multi-timeframe strategy semantics**  
-   Schema + engines for HTF+LTF combined conditions. Today each strategy has one `timeframe`. Combined
-   semantics are planned; do not document them as available.
+## Non-goals (this plan)
 
-3. **Widen indicator catalog**  
-   Expand the fail-closed deterministic registry beyond EMA/SMA/RSI/ATR/volume SMA. Unknown indicators
-   continue to reject publication.
+- Hosted multi-tenant SaaS / remote-first exposure.
+- Derivatives, leverage, multi-exchange.
+- Unrestricted agent live trading without an explicit arming design.
+- Shipping experiential memory before the core loop is trustworthy.
 
-4. **Portfolio + risk registry**  
-   Multi-position support, cross-strategy exposure, and capital allocation across assets. Replaces the
-   single-position long-only ceiling for portfolio ambition.
+## Related docs
 
-5. **Research rigor tooling**  
-   Walk-forward / out-of-sample workflows, reusable templates, and a clearer engine support matrix so
-   agents and humans know what each engine actually consumes.
-
-6. **Agent orchestration skill(s) + YOLO opt-in**  
-   Thin orchestration on top of the four CLIs for E2E ease **without** collapsing authority boundaries.
-   Include the YOLO design above as operator posture, default off.
-
-7. **Live extras (after paper/restart/reconcile stay green)**  
-   `5m` live, trailing stops, user-order WebSockets, native OCO/brackets — only after the shared
-   worker path remains healthy under restart, stale-data, and reconciliation drills.
-
-8. **Memory / hindsight (later)**  
-   Experiential memory is not a substitute for gaps 1–7. Defer until the core loop is trustworthy.
-
-## 6. Build order (summary)
-
-```text
-2A timeframes + data-loop clarity
-        → multi-TF strategy semantics
-        → indicator catalog widen
-        → portfolio + risk registry
-        → research rigor (walk-forward/OOS/templates)
-        → orchestration skill + YOLO opt-in (default off)
-        → live extras (5m live, trailing, WS, OCO)
-        → memory/hindsight (later)
-```
-
-Each wave should ship as a usable, tested increment with docs that keep shipped vs planned explicit.
-
-## 7. Non-goals (this plan)
-
-- Remote-safe exposure, hosted multi-tenant SaaS, or expanding public network surface.
-- Claiming YOLO, multi-TF combined strategies, or portfolio risk as already implemented.
-- Experiential memory / hindsight as a near-term substitute for data, research, or execution gaps.
-- Collapsing operator / data / research / runtime authority into one unconstrained agent surface.
-- Derivatives, leverage, multi-exchange, or HFT claims.
-
-## 8. Doc touchpoints
-
-| Document | Role |
-|---|---|
-| This plan | Primary gap + YOLO design |
-| [`docs/roadmap.md`](../roadmap.md) | Next capability waves pointer |
-| [`docs/agent-integration.md`](../agent-integration.md) | Planned dual-mode (safe vs yolo) + orchestration |
-| [`docs/product/vision.md`](../product/vision.md) | Direction language for portfolio + agent E2E |
-| Architecture overviews | Short “Future direction” notes only |
-| [`skills/README.md`](../../skills/README.md) | Planned YOLO + orchestration note |
-
-## 9. Success criteria for later implementation PRs
-
-Implementation work that closes these gaps should:
-
-- keep confirmation-gated mode as the default;
-- leave YOLO off unless explicitly armed, with audit of skipped confirms;
-- keep live start hard-gated even under YOLO unless a separate live-yolo arming exists;
-- refuse incomplete data and unknown indicators (fail closed);
-- update this plan and the roadmap wave list when a wave actually ships.
+- `docs/roadmap.md` — capability waves pointer
+- `docs/agent-integration.md` — safety model + planned YOLO
+- `docs/product/vision.md` — product principles and V1 scope
+- `docs/architecture/market-data.md`, `strategy-and-backtesting.md`,
+  `canonical-strategy-schema.md` — shipped contracts
