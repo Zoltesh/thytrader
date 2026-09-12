@@ -26,6 +26,8 @@ from thytrader.market_data.worker_state import (
 from thytrader.market_data_worker.service import (
     bounded_lookback_start,
     fetch_historical_range,
+    island_covers_watch,
+    watch_expected_candle_count,
 )
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -320,13 +322,42 @@ def gap_payload(item: GapObservation) -> dict[str, str]:
     return {"starts_at": item.starts_at.isoformat(), "cause": item.cause.value}
 
 
-def worker_state_payload(state: MarketDataWorkerState | None) -> dict[str, object]:
+def worker_state_payload(
+    state: MarketDataWorkerState | None,
+    *,
+    lookback_hours: int | None = None,
+    interval: CandleInterval | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
     """Serialize durable ingest outcome without candle payloads."""
+    watch_complete: bool | None = None
+    watch_expected: int | None = None
+    if lookback_hours is not None and interval is not None:
+        closed_end = interval.align_closed_end(now or datetime.now(UTC))
+        watch_expected = watch_expected_candle_count(lookback_hours, interval, closed_end)
+        if state is not None:
+            watch_complete = island_covers_watch(
+                covered_starts_at=state.covered_starts_at,
+                covered_ends_at=state.covered_ends_at,
+                island_complete=state.complete,
+                lookback_hours=lookback_hours,
+                interval=interval,
+                closed_end=closed_end,
+            )
+        else:
+            watch_complete = False
     if state is None:
-        return {"status": "never_run", "complete": False}
+        return {
+            "status": "never_run",
+            "complete": False,
+            "watch_complete": watch_complete,
+            "watch_expected_candle_count": watch_expected,
+        }
     return {
         "status": state.status.value,
         "complete": state.complete,
+        "watch_complete": watch_complete,
+        "watch_expected_candle_count": watch_expected,
         "failure_code": state.failure_code,
         "covered_starts_at": (
             state.covered_starts_at.isoformat() if state.covered_starts_at else None

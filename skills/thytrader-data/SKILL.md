@@ -17,7 +17,7 @@ authority.
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`).
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
-Supported research timeframes: `1h` and `5m`. Paper and live stay on `1h`.
+Supported research and paper timeframes: `1h` and `5m`. Live stays on `1h`. Do not start 5m live.
 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
@@ -25,15 +25,17 @@ and classified, never interpolated.
 Ingest is a **job**. `POST /api/v1/data/ingest` returns **202** and sets a watchlist flag. The
 market-data worker (`thytrader-market-data-worker`) is the only process that writes Parquet. The
 API dataset volume stays read-only. The CLI polls `GET /api/v1/data/ingest` until the flag clears
-or 120s elapse.
+(after the worker finishes `ingest_once`) or 45 minutes elapse. A 90-day 5m prefix walk can take
+minutes; do not treat a fast 202 as published coverage.
 
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
 Do not grep the tree or patch Python to make ingest writable in the API. Report failures through this
 skill. Rebuild or restart only with `make run` when the user asked, or when HTTP 404 on `/api/v1/data`
-coincides with a ready `/health/ready` (stale Compose image). Open the `ops/` workspace instead of
-the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
+coincides with a ready `/health/ready`, or when `thytrader-operator health` stderr reports a version
+or ops-contract mismatch (stale Compose image). Open the `ops/` workspace instead of the git root.
+Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
 
@@ -50,8 +52,13 @@ the git root. Run every `uv run thytrader-*` command from the repository root (t
 Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days) and may be set up to
 2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). Initial
 backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
-days stay holes. `inspect-gaps` classifies those holes and never interpolates. Latest verified
-coverage is the newest contiguous complete island; older complete islands stay addressable.
+days stay holes. When lookback starts before an existing complete island, the worker prepends
+complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. `inspect-gaps` classifies
+holes across the **watch** window, not only the current island, and never interpolates.
+
+`complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that
+island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 2160` is
+not done.
 
 Gap `cause` values:
 
@@ -71,13 +78,14 @@ Gap `cause` values:
 ## Workflow
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
+   Judge `watch_complete`, not only `complete`.
 2. `watch-add` then `ingest` for a new product or `5m`. Wait for the CLI poll; do not treat 202 as
    published Parquet.
-3. `inspect-gaps` if coverage is incomplete. Classify; do not interpolate.
-4. `fill-gaps --confirm` to retry complete-only publication.
+3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate.
+4. `fill-gaps --confirm` to retry complete-only publication, including prefix backfill.
 5. `uv run thytrader-operator indicators` before designing a study.
-6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper/live remain 1h-only via
-   `skills/thytrader-runtime/SKILL.md`.
+6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper may be 1h or 5m; live stays 1h
+   via `skills/thytrader-runtime/SKILL.md`.
 
 ## Forbidden
 
@@ -86,4 +94,5 @@ Gap `cause` values:
 - Making the API dataset volume writable so the API process can publish Parquet
 - Treating preview `GET /api/v1/market-data/preview` as a dataset
 - Inventing indicators that are not in `thytrader-operator indicators`
-- Arming 5m paper or live trading
+- Interpolating missing candles
+- Starting 5m live trading

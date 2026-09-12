@@ -65,8 +65,9 @@ immutable markers rather than a mutation of the content-addressed publication ro
 
 Paper and live share one execution worker and the same published strategy semantics. Live mode is the
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
-from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes,
-trailing stops, native brackets/OCO, user-order WebSockets, and a risk-policy registry.
+from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes
+beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, and a
+risk-policy registry.
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:

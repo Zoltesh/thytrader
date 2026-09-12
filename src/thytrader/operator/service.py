@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Literal
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from sqlalchemy import text
+
 from thytrader import __version__
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import Deployment, DeploymentMode, DeploymentStatus, OrderStatus
@@ -24,6 +26,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
 )
+from thytrader.market_data_worker.service import island_covers_watch, watch_expected_candle_count
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
@@ -63,6 +66,7 @@ from thytrader.operator.models import (
     SupportBundlePayload,
     SupportBundleReport,
     SupportedTimeframe,
+    current_ops_contract,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
@@ -146,6 +150,8 @@ class OperatorDiagnostics:
                 api_probed=probe_api or self.runtime is not None,
                 database_configured=self.settings.database_url is not None,
                 coinbase_credentials_configured=_credentials_configured(self.settings),
+                ops_contract=current_ops_contract(),
+                applied_schema_revision=await self._applied_schema_revision(),
             ),
         )
 
@@ -566,6 +572,21 @@ class OperatorDiagnostics:
                 detail="PostgreSQL did not answer a connectivity check.",
             )
         return ComponentReport(name="database", status=ReportStatus.HEALTHY, reason_code="READY")
+
+    async def _applied_schema_revision(self) -> str | None:
+        """Read Alembic's version_num without exposing connection strings."""
+        if self.engine is None:
+            return None
+        try:
+            async with self.engine.connect() as connection:
+                result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+                row = result.first()
+        except Exception:  # noqa: BLE001 - missing revision is reported as unknown, not a secret.
+            return None
+        if row is None:
+            return None
+        value = row[0]
+        return value if isinstance(value, str) else None
 
     async def _worker_component(self, name: WorkerName) -> ComponentReport:
         """Prefer PostgreSQL heartbeats; fall back to readiness files only in local tests."""
@@ -1560,16 +1581,36 @@ def _coverage_row(
         missing = state.missing_intervals
     else:
         missing = _manifest_int(manifest, "missing_intervals")
+    lookback_hours = watched.lookback_hours if watched is not None else None
+    closed_end = interval.align_closed_end(now)
+    watch_expected = (
+        watch_expected_candle_count(lookback_hours, interval, closed_end)
+        if lookback_hours is not None
+        else None
+    )
+    covered_start = _coverage_start(state, manifest)
+    watch_complete = (
+        island_covers_watch(
+            covered_starts_at=covered_start,
+            covered_ends_at=newest,
+            island_complete=complete is True,
+            lookback_hours=lookback_hours,
+            interval=interval,
+            closed_end=closed_end,
+        )
+        if lookback_hours is not None
+        else None
+    )
     return DatasetCoverageRow(
         provider=provider,
         product_id=product_id,
         timeframe=interval.value,
         watched=watched is not None and watched.enabled,
-        lookback_hours=watched.lookback_hours if watched is not None else None,
+        lookback_hours=lookback_hours,
         worker_status=state.status.value if state is not None else None,
         complete=complete,
         freshness_status=freshness.status.value,
-        covered_starts_at=_coverage_start(state, manifest),
+        covered_starts_at=covered_start,
         covered_ends_at=newest,
         expected_candle_count=_coverage_expected(state, manifest),
         received_candle_count=_coverage_received(state, manifest),
@@ -1577,6 +1618,8 @@ def _coverage_row(
         missing_intervals=missing,
         content_fingerprint=_coverage_fingerprint(state, manifest),
         sparsity=_coverage_sparsity(complete, gap_count, missing),
+        watch_complete=watch_complete,
+        watch_expected_candle_count=watch_expected,
     )
 
 

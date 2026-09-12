@@ -21,7 +21,8 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
 Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
 with `make run` when the user asked, or when HTTP 404 on `/api/v1/strategies` or `/api/v1/backtests`
-coincides with a ready `/health/ready` (stale Compose image). Open the `ops/` workspace instead of
+coincides with a ready `/health/ready`, or when health stderr reports a version or ops-contract
+mismatch (stale Compose image). Open the `ops/` workspace instead of
 the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
@@ -38,7 +39,11 @@ the git root. Run every `uv run thytrader-*` command from the repository root (t
 `list-results` and `show-result` are read-only and do not use `--confirm`.
 
 `create-draft` defaults to `BTC-USD` / `1h`. Pass `--product-id` and `--timeframe` (`1h` or `5m`) for
-another USD spot product. Paper and live deployments still require `1h`.
+another USD spot product. Paper may start that published 1h or 5m fingerprint; live still requires
+`1h`. `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
+level with `greater_than*` / `less_than*` and a `literal`. `save-draft` prints the first Pydantic
+validation message; do not treat a generic “failed safely” string as success. HTTP 422 that still
+lists only backtest v1/v2 is a stale Compose image — rebuild with `make run`.
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
@@ -59,4 +64,4 @@ that the catalog cannot cover.
 - Archiving as part of this skill (out of scope)
 - Editing application source to change strategy or backtest semantics on a running instance
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests; paper and live deployments still require `1h`.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests and paper; live deployments still require `1h`. Prefer `thytrader-bar-backtest-v3` when comparing to paper maker fills.

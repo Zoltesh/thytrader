@@ -24,7 +24,8 @@ a different job: skills, confirmation flags, and `make run` — not source edits
 - `POST /api/v1/data/ingest` returns 202 and sets `ingest_requested_at` on the watchlist. It does not
   call `ingest_once`. The market-data worker is the only caller of `ingest_once`. The API dataset
   volume stays read-only.
-- `thytrader-data ingest` / `fill-gaps` poll `GET /api/v1/data/ingest` until the flag clears or 120s.
+- `thytrader-data ingest` / `fill-gaps` poll `GET /api/v1/data/ingest` until the worker clears
+  `ingest_requested_at` after `ingest_once`, or 45 minutes elapse.
 - Coinbase historical paging uses an inclusive page `end` (last closed start, cap 350) and advances
   `page_start` to `inclusive_end + duration`.
 - Operator health pings the API's SQLAlchemy engine when a database URL is set. Worker health prefers
@@ -33,7 +34,7 @@ a different job: skills, confirmation flags, and `make run` — not source edits
 - Ship `ops/` as the Cursor workspace for operating a running instance. Product skills stay in
   `skills/`; `ops/.cursor/skills/` symlinks to them. Operating agents must not edit `src/`, Compose,
   Dockerfiles, Alembic, or tests. Rebuild with `make run` only when the user asks or when a ready
-  listener is missing agent routes / mismatches the CLI version.
+  listener is missing agent routes, mismatches the CLI version, or mismatches the ops contract.
 
 ## Consequences
 

@@ -27,10 +27,14 @@ binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One
 
 The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Initial
 backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
-are never interpolated. Latest verified coverage is the newest contiguous complete island.
+are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
+island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
+the first hole. Latest verified coverage is the newest contiguous complete island.
+`complete` is that island. `watch_complete` is whether the island spans the configured lookback.
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
-endpoints remain diagnostics, not strategy inputs.
+endpoints remain diagnostics, not strategy inputs. The worker clears `ingest_requested_at` after
+`ingest_once` returns, so CLI polling waits for the walk, not only for queue acceptance.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -152,12 +156,13 @@ durable datasets. It is distinct from `thytrader-worker`, which records portfoli
 
 ## Worker lifecycle and durable diagnostics
 
-The market-data worker aligns each cycle to the last complete UTC hour. Its first cycle requests a
-configurable bounded 1h lookback. Later cycles plan from durable verified coverage, request only one
-overlap candle plus missing closed candles, and merge the validated response into a new cumulative
-immutable revision. After restart, the worker first honors any persisted retry deadline and verifies
+The market-data worker aligns each cycle to the last complete bar of the watch timeframe. Its first
+cycle requests a bounded lookback. Later cycles plan from durable verified coverage: forward
+incremental (one-bar overlap), or prefix backfill when the watch starts before the island.
+After restart, the worker first honors any persisted retry deadline and verifies
 the current immutable dataset before trusting durable coverage. Later cycles inside the same covered
-hour update scheduling diagnostics without provider or dataset I/O. The overlap permits a delayed
+window update scheduling diagnostics without provider or dataset I/O when the island already covers
+the watch. The overlap permits a delayed
 upstream revision to replace the same canonical candle
 deterministically while continuity is revalidated across the whole resulting range.
 

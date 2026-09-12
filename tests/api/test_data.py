@@ -85,6 +85,32 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         catalog = client.get("/api/v1/operator/data-catalog")
         indicators = client.get("/api/v1/operator/indicators")
         products = client.get("/api/v1/operator/products")
+        rows = catalog.json()["payload"]["datasets"]
+        eth_five = next(
+            row for row in rows if row["product_id"] == "ETH-USD" and row["timeframe"] == "5m"
+        )
+        assert eth_five["complete"] is True
+        assert eth_five["watch_complete"] is True
+        assert status.json()["state"]["watch_complete"] is True
+        lengthened = client.put(
+            "/api/v1/data/watchlist",
+            json={
+                "product_id": "ETH-USD",
+                "timeframe": "5m",
+                "lookback_hours": 2160,
+                "enabled": True,
+            },
+        )
+        assert lengthened.status_code == 200, lengthened.text
+        catalog_after = client.get("/api/v1/operator/data-catalog")
+        longer = next(
+            row
+            for row in catalog_after.json()["payload"]["datasets"]
+            if row["product_id"] == "ETH-USD" and row["timeframe"] == "5m"
+        )
+        assert longer["complete"] is True
+        assert longer["watch_complete"] is False
+        assert longer["watch_expected_candle_count"] > longer["expected_candle_count"]
 
     assert added.json()["target"]["product_id"] == "ETH-USD"
     assert added.json()["target"]["timeframe"] == "5m"
@@ -95,11 +121,6 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
     assert catalog.status_code == 200
     assert catalog.json()["schema_version"] == SCHEMA_VERSION
     assert catalog.json()["report_kind"] == "data_catalog"
-    rows = catalog.json()["payload"]["datasets"]
-    assert any(
-        row["product_id"] == "ETH-USD" and row["timeframe"] == "5m" and row["complete"] is True
-        for row in rows
-    )
     kinds = {item["kind"] for item in indicators.json()["payload"]["indicators"]}
     assert kinds == {"ema", "sma", "rsi", "atr", "volume_sma"}
     product_ids = {item["product_id"] for item in products.json()["payload"]["products"]}

@@ -33,7 +33,6 @@ Worker components use PostgreSQL heartbeats (`portfolio_worker`, `market_data_wo
 engine ping when `THYTRADER_DATABASE_URL` is set (`DATABASE_UNCONFIGURED`, `DATABASE_ENGINE_MISSING`,
 or `DATABASE_UNREACHABLE`).
 
-If the CLI stderr reports an application version mismatch, or an agent route returns 404 while
-`GET /health/ready` is 200, rebuild with `make run`.
+If the CLI stderr reports an application version mismatch, an ops-contract mismatch, or an agent route returns 404 while `GET /health/ready` is 200, rebuild with `make run`. Package version `0.1.0` is not enough to prove the running image matches this CLI.
 
 CLI equivalents are listed in `SKILL.md`. Process entry point: `thytrader-operator`.

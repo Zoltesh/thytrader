@@ -32,10 +32,10 @@ bounded verify-then-persist TOCTOU window under that assumption. A binding row r
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
 Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
-API/UI, immutable strategy publication, completed reproducible backtest results, and read-only result
-inspection. Not yet implemented: other sizing/stop/trailing variants, richer human summaries,
-broker/accounting simulation realism beyond the current deterministic backtest engine, paper execution,
-or live execution. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+API/UI, immutable strategy publication, completed reproducible backtest results (including
+`thytrader-bar-backtest-v3` maker-limit fills), paper execution on closed 1h or 5m bars, and live
+execution on closed 1h bars. Not yet implemented: other sizing/stop/trailing variants, richer human
+summaries, or 5m live. Published `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
@@ -93,7 +93,7 @@ entry-condition evaluation as defined in
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
 | `instrument` | object | Explicit product, never inherited from runtime. |
-| `timeframe` | enum | `1h` or `5m`. Paper and live still require `1h`. |
+| `timeframe` | enum | `1h` or `5m`. Paper may use either; live still requires `1h`. |
 | `data_requirements` | object | Minimum bars and OHLCV fields needed for indicator warmup. |
 | `indicators` | array | Named indicator definitions (see below). |
 | `entry` | object | Signal conditions and entry constraints. |
@@ -202,13 +202,15 @@ the strategy fingerprint. No condition reordering or boolean-algebra simplificat
 | `greater_than_or_equal` | Left ≥ right. |
 | `less_than_or_equal` | Left ≤ right. |
 | `equals` | Left == right. |
-| `crosses_above` | Left was ≤ right on previous bar and > right on current bar. |
-| `crosses_below` | Left was ≥ right on previous bar and < right on current bar. |
+| `crosses_above` | Left was ≤ right on previous bar and > right on current bar. Both operands must be indicators. |
+| `crosses_below` | Left was ≥ right on previous bar and < right on current bar. Both operands must be indicators. |
 
 ### Bar evaluation semantics
 
 - Signals are evaluated **only when a candle closes** (never on incomplete/current bar).
-- A crossover compares the last **two completed bars**.
+- A crossover compares the last **two completed bars** and requires two indicator operands. Compare
+  an indicator to a constant with `greater_than*` / `less_than*` and a `literal`; there is no
+  constant-series indicator.
 - No indicator value or condition may reference data from a future bar.
 - If any required indicator value is undefined (insufficient warmup), the entire condition group
   evaluates to **no signal**, not an error.

@@ -14,10 +14,16 @@ from thytrader.agent_http import AgentHttpError, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.http import fetch_operator_report
+from thytrader.operator.models import HealthReport
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
 from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics
 from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
+from thytrader.ops_contract import (
+    EXPECTED_SCHEMA_REVISION,
+    STALE_IMAGE_REBUILD,
+    ops_contract_matches,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -233,6 +239,32 @@ async def _run_local(arguments: argparse.Namespace) -> int:
     return exit_code_for(report.overall_status)
 
 
+def _warn_stale_api(report: OperatorEnvelope) -> None:
+    """Write rebuild guidance when HTTP version or ops contract is stale."""
+    if report.application_version != __version__:
+        sys.stderr.write(
+            f"API version {report.application_version} does not match CLI {__version__}. "
+            f"{STALE_IMAGE_REBUILD}\n"
+        )
+        return
+    if not isinstance(report, HealthReport):
+        return
+    contract = report.payload.ops_contract
+    mapping = None if contract is None else contract.model_dump(mode="json")
+    if not ops_contract_matches(mapping):
+        sys.stderr.write(
+            "API ops contract does not match this CLI (stale Compose image). "
+            f"{STALE_IMAGE_REBUILD}\n"
+        )
+        return
+    applied = report.payload.applied_schema_revision
+    if applied is not None and applied != EXPECTED_SCHEMA_REVISION:
+        sys.stderr.write(
+            f"API database schema revision {applied} does not match expected "
+            f"{EXPECTED_SCHEMA_REVISION}. {STALE_IMAGE_REBUILD}\n"
+        )
+
+
 def _run_http(arguments: argparse.Namespace) -> int:
     """Fetch one report from the loopback API without opening PostgreSQL."""
     settings = Settings()
@@ -243,11 +275,7 @@ def _run_http(arguments: argparse.Namespace) -> int:
         command=arguments.command,
         query=_query(arguments),
     )
-    if report.application_version != __version__:
-        sys.stderr.write(
-            f"API version {report.application_version} does not match CLI {__version__}. "
-            "Rebuild and restart with `make run`.\n"
-        )
+    _warn_stale_api(report)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
     return exit_code_for(report.overall_status)
 

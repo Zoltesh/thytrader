@@ -8,7 +8,8 @@ from thytrader.agent_http import request_json
 from thytrader.data_control.models import DataControlError
 
 DATA_API_PREFIX = "/api/v1/data"
-_INGEST_TIMEOUT_SECONDS = 120.0
+_INGEST_POLL_TIMEOUT_SECONDS = 2700.0
+_DATA_HTTP_TIMEOUT_SECONDS = 300.0
 _INGEST_POLL_SECONDS = 1.0
 
 
@@ -49,9 +50,9 @@ def ingest(
         method="POST",
         url=f"{base_url}{DATA_API_PREFIX}/ingest",
         payload={"product_id": product_id, "timeframe": timeframe},
-        timeout=_INGEST_TIMEOUT_SECONDS,
+        timeout=_DATA_HTTP_TIMEOUT_SECONDS,
     )
-    deadline = time.monotonic() + _INGEST_TIMEOUT_SECONDS
+    deadline = time.monotonic() + _INGEST_POLL_TIMEOUT_SECONDS
     while True:
         payload = ingest_status(base_url, product_id=product_id, timeframe=timeframe)
         if not _ingest_pending(payload):
@@ -75,7 +76,7 @@ def ingest_status(
     return request_json(
         method="GET",
         url=(f"{base_url}{DATA_API_PREFIX}/ingest?product_id={product_id}&timeframe={timeframe}"),
-        timeout=_INGEST_TIMEOUT_SECONDS,
+        timeout=_DATA_HTTP_TIMEOUT_SECONDS,
     )
 
 
@@ -89,7 +90,7 @@ def inspect_gaps(
     return request_json(
         method="GET",
         url=(f"{base_url}{DATA_API_PREFIX}/gaps?product_id={product_id}&timeframe={timeframe}"),
-        timeout=_INGEST_TIMEOUT_SECONDS,
+        timeout=_DATA_HTTP_TIMEOUT_SECONDS,
     )
 
 

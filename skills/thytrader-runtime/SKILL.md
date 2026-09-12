@@ -23,7 +23,8 @@ Paper may start on closed **1h or 5m** bars of a published strategy. Live stays 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
 Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
 with `make run` when the user asked, or when HTTP 404 on `/api/v1/deployments` coincides with a ready
-`/health/ready` (stale Compose image). Open the `ops/` workspace instead of the git root. Run every
+`/health/ready`, or when `thytrader-operator health` stderr reports a version or ops-contract
+mismatch (stale Compose image). Open the `ops/` workspace instead of the git root. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands

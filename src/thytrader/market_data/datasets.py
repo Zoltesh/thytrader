@@ -300,7 +300,7 @@ class DatasetStore:
         return self.load_verified(self._manifest_path(content_fingerprint))
 
     def extend(self, content_fingerprint: str, report: CandleRangeReport) -> DatasetManifest:
-        """Publish a cumulative revision by merging a verified dataset with one overlap range."""
+        """Publish a cumulative revision by merging a verified overlap that expands start or end."""
         _validate_report_for_publication(report)
         prior = self.load_verified(self._manifest_path(content_fingerprint))
         prior_file_rows = {file: _parquet_rows(file) for file in prior.files}
@@ -312,17 +312,24 @@ class DatasetStore:
         if interval_from_range(report) is not interval:
             message = "Dataset extension timeframe must match the prior dataset."
             raise DatasetStoreError(message)
-        if report.starts_at >= prior_end or report.ends_at <= prior_end:
-            message = "Dataset extension must overlap and advance the prior verified range."
+        overlaps = report.starts_at < prior_end and report.ends_at > prior_start
+        expands = report.starts_at < prior_start or report.ends_at > prior_end
+        if not overlaps or not expands:
+            message = (
+                "Dataset extension must overlap the prior verified range and expand "
+                "its start or end."
+            )
             raise DatasetStoreError(message)
         merged = {candle.starts_at: candle for candle in prior_candles}
         merged.update({candle.starts_at: candle for candle in report.quality.candles})
+        combined_start = min(prior_start, report.starts_at)
+        combined_end = max(prior_end, report.ends_at)
         combined = analyze_range(
             tuple(merged.values()),
             interval,
-            prior_start,
-            report.ends_at,
-            report.ends_at,
+            combined_start,
+            combined_end,
+            combined_end,
         )
         if not combined.complete:
             message = "Dataset extension did not produce complete contiguous coverage."

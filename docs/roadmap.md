@@ -4,10 +4,11 @@ This roadmap sequences capabilities and safety gates. It is not a promise of dat
 
 ## Current delivery focus: paper and live share one worker
 
-Research authoring, publication, and V1/V2 backtests are implemented. Paper and live execution share
-one 1h candle-close worker, a paper maker broker, and a Coinbase Advanced Trade REST v3 JSON adapter
+Research authoring, publication, and V1/V2/V3 backtests are implemented. Paper and live execution share
+one candle-close worker (paper `1h` or `5m`, live `1h`), a paper maker broker, and a Coinbase Advanced
+Trade REST v3 JSON adapter
 (SDK used only as JWT transport). Remaining extras stay deferred: extra execution timeframes
-beyond 1h paper/live, trailing stops,
+beyond 5m paper / 1h live, trailing stops,
 native brackets/OCO, user-order WebSockets, walk-forward, and a risk-policy registry.
 
 The numbered phases below remain the capability map. Items marked complete are in the tree; unmarked
@@ -16,7 +17,7 @@ Phase 5 extras are still future work.
 1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
 2. **Observe through supported agent interfaces:** ✅ `thytrader-operator` CLI/API and skill — no trading authority.
 3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests only).
-4. **Automate in paper mode:** ✅ 1h candle-close paper loop, Deploy tab, pause/resume/stop.
+4. **Automate in paper mode:** ✅ 1h and 5m candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
    exist; remaining live extras (WebSockets, native OCO, trailing stops) stay deferred.
 6. **Operator/agent integration:** ✅ HTTP-first diagnostics and research CLIs, plus a separate

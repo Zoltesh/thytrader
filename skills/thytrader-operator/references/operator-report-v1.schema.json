@@ -90,7 +90,17 @@
       "minLength": 1
     },
     "payload": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "ops_contract": {
+          "type": ["object", "null"],
+          "description": "Health only. Missing or unequal to this CLI means a stale Compose image."
+        },
+        "applied_schema_revision": {
+          "type": ["string", "null"]
+        }
+      }
     }
   }
 }
