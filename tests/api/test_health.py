@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.ops_contract import OPS_CONTRACT_ID
 
 
 def test_liveness_reports_the_running_api() -> None:
@@ -18,6 +19,7 @@ def test_liveness_reports_the_running_api() -> None:
         "service": "api",
         "status": "ok",
         "version": "0.1.0",
+        "ops_contract_id": OPS_CONTRACT_ID,
     }
 
 
@@ -33,6 +35,7 @@ def test_readiness_reports_ready_after_startup() -> None:
         "service": "api",
         "status": "ready",
         "version": "0.1.0",
+        "ops_contract_id": OPS_CONTRACT_ID,
     }
 
 
@@ -47,4 +50,5 @@ def test_readiness_rejects_traffic_before_startup() -> None:
         "service": "api",
         "status": "not_ready",
         "version": "0.1.0",
+        "ops_contract_id": OPS_CONTRACT_ID,
     }

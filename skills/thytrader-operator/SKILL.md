@@ -23,7 +23,7 @@ JSON is the default CLI output. Do not add `--format json` to every command.
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
 Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
 with `make run` when the user asked to rebuild, or when health/HTTP says the Compose image is stale
-(version mismatch, or 404 on agent routes while `/health/ready` is 200). Open the `ops/` workspace
+(version mismatch, ops-contract mismatch, or 404 on agent routes while `/health/ready` is 200). Open the `ops/` workspace
 instead of the git root. Run every `uv run thytrader-*` command from the repository root (the parent
 of `ops/`).
 
@@ -65,7 +65,7 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 ## Workflow
 
 1. Verify CLI help and run `health` first.
-2. If stderr says the API version does not match the CLI, rebuild with `make run` (ask first).
+2. If stderr says the API version or ops contract does not match the CLI, rebuild with `make run` (ask first). Package version `0.1.0` is not enough.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Performance timeframe is the published strategy's clock for backtest, paper, and live. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked at last close; `MISSING_MARK` means open inventory was not marked.

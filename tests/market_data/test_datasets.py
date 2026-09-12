@@ -60,6 +60,21 @@ def _extension_report(now: datetime) -> CandleRangeReport:
     )
 
 
+def _prefix_report() -> CandleRangeReport:
+    """Build one complete overlapping range that prepends two hourly bars onto the fixture."""
+    return analyze_range(
+        (
+            _candle_at(datetime(2026, 6, 30, 22, tzinfo=UTC)),
+            _candle_at(datetime(2026, 6, 30, 23, tzinfo=UTC)),
+            _candle(0),
+        ),
+        CandleInterval.ONE_HOUR,
+        starts_at=datetime(2026, 6, 30, 22, tzinfo=UTC),
+        ends_at=datetime(2026, 7, 1, 1, tzinfo=UTC),
+        now=datetime(2026, 7, 1, 4, tzinfo=UTC),
+    )
+
+
 def test_dataset_store_writes_complete_range_as_parquet_with_manifest(tmp_path: Path) -> None:
     """A complete range must produce a partitioned Parquet file and fingerprinted JSON manifest."""
     manifest = DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
@@ -207,6 +222,19 @@ def test_dataset_store_extends_valid_stale_report(tmp_path: Path) -> None:
     assert extended.ends_at == "2026-07-01T05:00:00Z"
     assert extended.expected_candle_count == 5
     assert len(store.load_candles(extended.content_fingerprint)) == 5
+
+
+def test_dataset_store_extends_by_prepending_overlapping_earlier_range(tmp_path: Path) -> None:
+    """Prefix backfill must expand the island start without dropping the existing suffix."""
+    store = DatasetStore(tmp_path)
+    prior = store.write("coinbase", "BTC-USD", _complete_report())
+
+    prefixed = store.extend(prior.content_fingerprint, _prefix_report())
+
+    assert prefixed.starts_at == "2026-06-30T22:00:00Z"
+    assert prefixed.ends_at == "2026-07-01T03:00:00Z"
+    assert prefixed.expected_candle_count == 5
+    assert len(store.load_candles(prefixed.content_fingerprint)) == 5
 
 
 def test_dataset_store_fingerprint_includes_dataset_identity(tmp_path: Path) -> None:

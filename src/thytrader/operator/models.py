@@ -9,6 +9,8 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.ops_contract import expected_ops_contract
+
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"
 REPORT_KINDS: tuple[str, ...] = (
@@ -84,12 +86,30 @@ class OperatorEnvelope(_FrozenModel):
         return value.astimezone(UTC)
 
 
+class OpsContractPayload(_FrozenModel):
+    """Content identity for CLI versus running API comparison."""
+
+    id: str = Field(min_length=1, max_length=64)
+    max_historical_interval_count: int = Field(ge=1)
+    backtest_engines: tuple[str, ...]
+    paper_timeframes: tuple[SupportedTimeframe, ...]
+    live_timeframes: tuple[SupportedTimeframe, ...]
+    expected_schema_revision: str = Field(min_length=1, max_length=32)
+
+
+def current_ops_contract() -> OpsContractPayload:
+    """Build the ops contract this checkout implements."""
+    return OpsContractPayload.model_validate(expected_ops_contract())
+
+
 class HealthPayload(_FrozenModel):
     """Process coverage included in the health report."""
 
     api_probed: bool
     database_configured: bool
     coinbase_credentials_configured: bool
+    ops_contract: OpsContractPayload | None = None
+    applied_schema_revision: str | None = None
 
 
 class HealthReport(OperatorEnvelope):
@@ -368,6 +388,8 @@ class DatasetCoverageRow(_FrozenModel):
     missing_intervals: int | None
     content_fingerprint: str | None
     sparsity: Literal["none", "unknown", "gapped"]
+    watch_complete: bool | None = None
+    watch_expected_candle_count: int | None = None
 
 
 class DataCatalogPayload(_FrozenModel):

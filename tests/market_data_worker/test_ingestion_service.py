@@ -25,7 +25,9 @@ from thytrader.market_data_worker.service import (
     _next_retry_at,
     _utc_day_chunks,
     ingest_once,
+    island_covers_watch,
     run_market_data_worker,
+    watch_expected_candle_count,
 )
 
 if TYPE_CHECKING:
@@ -754,6 +756,82 @@ def test_ingest_once_does_not_republish_when_dataset_is_current(
         assert state.next_retry_at == ends_at + timedelta(minutes=50)
 
     asyncio.run(exercise())
+
+
+def test_ingest_once_prefix_backfill_rewinds_when_lookback_grows(
+    tmp_path: Path,
+) -> None:
+    """Raising watch lookback after a complete island must prepend, not freeze the start."""
+
+    async def exercise() -> None:
+        first_end = datetime(2026, 8, 3, tzinfo=UTC)
+        service = _CompleteWindowService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=24,
+            now=first_end + timedelta(minutes=5),
+        )
+        first = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert first is not None
+        assert first.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert first.complete is True
+
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=72,
+            now=first_end + timedelta(minutes=6),
+        )
+        second = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert second is not None
+        assert second.maintenance_kind == "prefix_backfill"
+        assert second.covered_starts_at == datetime(2026, 7, 31, tzinfo=UTC)
+        assert second.covered_ends_at == first_end
+        assert second.expected_candle_count == 72
+        assert second.complete is True
+
+    asyncio.run(exercise())
+
+
+def test_island_covers_watch_distinguishes_short_complete_islands() -> None:
+    """Island completeness is not the same as covering the configured watch lookback."""
+    closed_end = datetime(2026, 8, 3, tzinfo=UTC)
+    island_start = datetime(2026, 8, 2, tzinfo=UTC)
+    interval = CandleInterval.FIVE_MINUTES
+    assert (
+        island_covers_watch(
+            covered_starts_at=island_start,
+            covered_ends_at=closed_end,
+            island_complete=True,
+            lookback_hours=24,
+            interval=interval,
+            closed_end=closed_end,
+        )
+        is True
+    )
+    assert (
+        island_covers_watch(
+            covered_starts_at=island_start,
+            covered_ends_at=closed_end,
+            island_complete=True,
+            lookback_hours=72,
+            interval=interval,
+            closed_end=closed_end,
+        )
+        is False
+    )
+    assert watch_expected_candle_count(24, interval, closed_end) == 288
+    assert watch_expected_candle_count(72, interval, closed_end) == 864
 
 
 def test_market_data_worker_honors_persisted_retry_deadline_before_first_attempt(

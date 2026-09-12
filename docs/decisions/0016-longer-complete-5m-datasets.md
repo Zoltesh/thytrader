@@ -17,8 +17,8 @@ clipped window. `ingest_once` also requires the **entire** requested range to be
 publishing anything; a 90-day atomic fetch fails closed on any hole.
 
 Coinbase already pages at 350 candles with inclusive page ends (ADR 0015). The 4,032 figure is a
-product bound, not a paging limit. Interpolation remains forbidden. Paper and live stay 1h until
-later sequenced work; this ADR does not arm 5m execution.
+product bound, not a paging limit. Interpolation remains forbidden. 5m paper is [0018](0018-5m-paper-not-live.md);
+this ADR does not arm 5m live.
 
 `bounded_lookback_start` is a high-blast-radius helper: `inspect_gaps` and `_plan_range` /
 `ingest_once` share it.
@@ -35,6 +35,11 @@ later sequenced work; this ADR does not arm 5m execution.
   interpolated; `inspect-gaps` classifies them.
 - Latest-verified coverage is the newest contiguous complete island. Older complete islands stay
   fingerprint-addressable. Incremental forward ingest stays one-bar overlap.
+- Raising the cap does **not** by itself rewind an existing complete island. When the watch
+  lookback starts before `covered_starts_at`, ingest plans `prefix_backfill`: prepend complete
+  UTC-day chunks newest-first onto that island, stop at the first hole, and do not interpolate.
+- `complete` remains island completeness. Catalog and ingest status also report `watch_complete`
+  and `watch_expected_candle_count` for the configured lookback.
 - Completeness is enforced **per chunk**, not on the whole lookback before any publish.
 
 ## Consequences
@@ -44,6 +49,7 @@ later sequenced work; this ADR does not arm 5m execution.
 - First backfill of a 90-day 5m target issues many Coinbase pages and takes longer; it stays on the
   market-data worker.
 - A hole in the middle of lookback splits islands; paper freshness uses the newest complete suffix.
+- Existing 14-day complete 5m islands stay frozen until prefix backfill runs against a longer watch.
 - 5m paper, maker-aware backtest, and paper PnL were sequenced separately; 5m paper is [0018](0018-5m-paper-not-live.md). 15m / 30m
   / 1d intervals are still not implemented.
 

@@ -15,7 +15,12 @@ from thytrader.api.dependencies import (
     get_market_data_watchlist_store,
     get_runtime_state,
 )
-from thytrader.data_control.models import DataControlError, IngestRequest, WatchTargetRequest
+from thytrader.data_control.models import (
+    DataControlError,
+    IngestRequest,
+    WatchTargetRequest,
+    require_interval,
+)
 from thytrader.data_control.service import (
     add_watch_target,
     gap_payload,
@@ -103,7 +108,12 @@ async def post_ingest(
         "ingest_requested_at": (
             target.ingest_requested_at.isoformat() if target.ingest_requested_at else None
         ),
-        "state": worker_state_payload(state),
+        "state": worker_state_payload(
+            state,
+            lookback_hours=target.lookback_hours,
+            interval=require_interval(body.timeframe),
+            now=datetime.now(UTC),
+        ),
     }
 
 
@@ -134,7 +144,12 @@ async def get_ingest(
             if target is not None and target.ingest_requested_at is not None
             else None
         ),
-        "state": worker_state_payload(state),
+        "state": worker_state_payload(
+            state,
+            lookback_hours=None if target is None else target.lookback_hours,
+            interval=require_interval(timeframe),
+            now=datetime.now(UTC),
+        ),
     }
 
 

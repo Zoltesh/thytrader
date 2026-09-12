@@ -97,7 +97,7 @@ export type MarketDataIngestionState = {
 	expected_latest_boundary: string;
 	next_attempt_at: string | null;
 	dataset_revision: number;
-	maintenance_kind: 'initial_backfill' | 'incremental' | null;
+	maintenance_kind: 'initial_backfill' | 'incremental' | 'prefix_backfill' | null;
 	coverage: {
 		starts_at: string;
 		ends_at: string;

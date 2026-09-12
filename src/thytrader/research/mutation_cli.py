@@ -10,6 +10,8 @@ import sys
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from thytrader.agent_http import AgentHttpError, resolve_api_base_url
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.submission import (
@@ -22,6 +24,7 @@ from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
+from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
@@ -44,6 +47,27 @@ _CONFIRM_HELP = (
 
 class ResearchCliError(RuntimeError):
     """Report a safe operator-facing research command failure."""
+
+
+def _validation_error_message(error: ValidationError) -> str:
+    """Return the first semantic Pydantic error without wrapping it as a safe no-op."""
+    issues = error.errors()
+    if not issues:
+        return "Document failed validation."
+    return str(issues[0].get("msg", "Document failed validation."))
+
+
+def _agent_http_error_message(message: str) -> str:
+    """Hint a rebuild when a stale API rejects the current backtest engine."""
+    lowered = message.lower()
+    lists_old_engines = (
+        "thytrader-bar-backtest-v1" in lowered
+        and "thytrader-bar-backtest-v2" in lowered
+        and "thytrader-bar-backtest-v3" not in lowered
+    )
+    if "422" in message and lists_old_engines:
+        return f"{message} {STALE_IMAGE_REBUILD}"
+    return message
 
 
 def _shared_options() -> argparse.ArgumentParser:
@@ -90,7 +114,7 @@ def _parser() -> argparse.ArgumentParser:
         "--timeframe",
         default="1h",
         choices=("1h", "5m"),
-        help="Research timeframe. Default 1h. Paper/live stay 1h.",
+        help="Research timeframe. Default 1h. Paper may be 1h or 5m; live stays 1h.",
     )
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     save = subparsers.add_parser(
@@ -378,6 +402,26 @@ def _encode(payload: object) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+def _command_output(arguments: argparse.Namespace) -> str:
+    """Dispatch one research command and map domain failures to CLI exits."""
+    try:
+        if arguments.local:
+            return asyncio.run(_dispatch_local(arguments))
+        return _dispatch_http(arguments)
+    except ResearchCliError as error:
+        raise SystemExit(str(error)) from error
+    except AgentHttpError as error:
+        raise SystemExit(_agent_http_error_message(str(error))) from error
+    except ResearchMutationError as error:
+        raise SystemExit(str(error)) from error
+    except BacktestSubmissionRejectedError as error:
+        raise SystemExit(str(error)) from error
+    except BacktestSubmissionError as error:
+        raise SystemExit("Backtest submission is unavailable.") from error
+    except ValidationError as error:
+        raise SystemExit(_validation_error_message(error)) from error
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Run one research command; mutations require --confirm."""
     parser = _parser()
@@ -388,20 +432,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if arguments.local and arguments.base_url:
         raise SystemExit("Use either --local or --base-url, not both.")
     try:
-        if arguments.local:
-            output = asyncio.run(_dispatch_local(arguments))
-        else:
-            output = _dispatch_http(arguments)
-    except ResearchCliError as error:
-        raise SystemExit(str(error)) from error
-    except AgentHttpError as error:
-        raise SystemExit(str(error)) from error
-    except ResearchMutationError as error:
-        raise SystemExit(str(error)) from error
-    except BacktestSubmissionRejectedError as error:
-        raise SystemExit(str(error)) from error
-    except BacktestSubmissionError as error:
-        raise SystemExit("Backtest submission is unavailable.") from error
+        output = _command_output(arguments)
     except Exception as error:
         message = "Research command failed safely; paper and live state were not changed."
         raise SystemExit(message) from error

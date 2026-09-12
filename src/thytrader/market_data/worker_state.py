@@ -31,6 +31,7 @@ class MarketDataMaintenanceKind(StrEnum):
 
     INITIAL_BACKFILL = "initial_backfill"
     INCREMENTAL = "incremental"
+    PREFIX_BACKFILL = "prefix_backfill"
 
 
 @dataclass(frozen=True, slots=True)

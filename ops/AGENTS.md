@@ -19,6 +19,7 @@ Do not search the tree for a code fix. Do not make the API dataset volume writab
 Do not interpolate missing candles. Do not print `.env` or secrets.
 
 Report skill and CLI failures. Rebuild or restart only with `make run` from the repository root
-when the user asked, or when health/HTTP says the Compose image is stale.
+when the user asked, or when health/HTTP says the Compose image is stale (version mismatch,
+ops-contract mismatch, or 404 on agent routes while `/health/ready` is 200).
 
 There is no GitNexus contributor workflow in this workspace.

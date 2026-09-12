@@ -84,7 +84,7 @@ class IngestionStateResponse(BaseModel):
     expected_latest_boundary: datetime
     next_attempt_at: datetime | None
     dataset_revision: int
-    maintenance_kind: Literal["initial_backfill", "incremental"] | None
+    maintenance_kind: Literal["initial_backfill", "incremental", "prefix_backfill"] | None
 
 
 class FreshnessResponse(BaseModel):

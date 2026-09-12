@@ -11,6 +11,8 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from thytrader.ops_contract import OPS_CONTRACT_ID
+
 _REPOSITORY_ROOT = Path(__file__).parents[2]
 
 
@@ -60,6 +62,7 @@ def test_api_process_serves_liveness_until_sigterm() -> None:
             "service": "api",
             "status": "ok",
             "version": "0.1.0",
+            "ops_contract_id": OPS_CONTRACT_ID,
         }
 
         process.send_signal(signal.SIGTERM)

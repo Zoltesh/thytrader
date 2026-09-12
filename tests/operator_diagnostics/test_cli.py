@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from thytrader import __version__
 from thytrader.operator.cli import main
 from thytrader.operator.models import (
     SCHEMA_VERSION,
@@ -15,7 +16,9 @@ from thytrader.operator.models import (
     HealthPayload,
     HealthReport,
     ReportStatus,
+    current_ops_contract,
 )
+from thytrader.ops_contract import EXPECTED_SCHEMA_REVISION, OPS_CONTRACT_ID
 
 
 def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -63,14 +66,18 @@ def test_operator_local_indicators_and_products_are_healthy(
 def test_operator_health_emits_json_and_nonzero_without_stack(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Health JSON is still a v1 report when local workers are not running."""
+    """Health JSON is still a v1 report; a running local stack may be healthy."""
     with pytest.raises(SystemExit) as raised:
         main(["--local", "health"])
-    assert raised.value.code in {1, 2}
+    assert raised.value.code in {0, 1, 2}
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["report_kind"] == "health"
-    assert payload["overall_status"] in {"degraded", "failed"}
+    if raised.value.code == 0:
+        assert payload["overall_status"] == "healthy"
+        assert payload["payload"]["ops_contract"]["id"] == OPS_CONTRACT_ID
+    else:
+        assert payload["overall_status"] in {"degraded", "failed"}
 
 
 def test_operator_rejects_non_loopback_base_url() -> None:
@@ -95,7 +102,7 @@ def test_operator_accepts_format_after_subcommand(
     """Parent flags such as --format may follow the subcommand."""
     with pytest.raises(SystemExit) as raised:
         main(["--local", "health", "--format", "json"])
-    assert raised.value.code in {1, 2}
+    assert raised.value.code in {0, 1, 2}
     payload = json.loads(capsys.readouterr().out)
     assert payload["report_kind"] == "health"
 
@@ -134,6 +141,65 @@ def test_operator_http_version_mismatch_hints_rebuild(
     assert raised.value.code == 1
     assert "make run" in captured.err
     assert json.loads(captured.out)["application_version"] == "0.0.0"
+
+
+def test_operator_http_missing_ops_contract_hints_rebuild(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A healthy 0.1.0 API without the ops contract is a stale Compose image."""
+    report = HealthReport(
+        application_version=__version__,
+        generated_at=datetime.now(UTC),
+        overall_status=ReportStatus.HEALTHY,
+        components=(),
+        redaction=STANDARD_REDACTION,
+        recommended_next_action="No action required.",
+        payload=HealthPayload(
+            api_probed=True,
+            database_configured=False,
+            coinbase_credentials_configured=False,
+        ),
+    )
+    with (
+        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["health"])
+    captured = capsys.readouterr()
+    assert raised.value.code == 0
+    assert "ops contract" in captured.err
+    assert "make run" in captured.err
+    assert json.loads(captured.out)["payload"]["ops_contract"] is None
+
+
+def test_operator_http_matching_ops_contract_does_not_hint_rebuild(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A current API that advertises this checkout's contract must stay silent on stderr."""
+    report = HealthReport(
+        application_version=__version__,
+        generated_at=datetime.now(UTC),
+        overall_status=ReportStatus.HEALTHY,
+        components=(),
+        redaction=STANDARD_REDACTION,
+        recommended_next_action="No action required.",
+        payload=HealthPayload(
+            api_probed=True,
+            database_configured=False,
+            coinbase_credentials_configured=False,
+            ops_contract=current_ops_contract(),
+            applied_schema_revision=EXPECTED_SCHEMA_REVISION,
+        ),
+    )
+    with (
+        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["health"])
+    captured = capsys.readouterr()
+    assert raised.value.code == 0
+    assert captured.err == ""
+    assert json.loads(captured.out)["payload"]["ops_contract"]["id"] == OPS_CONTRACT_ID
 
 
 def test_operator_schema_check_passes_in_this_checkout(
