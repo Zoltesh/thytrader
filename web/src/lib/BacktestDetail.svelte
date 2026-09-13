@@ -15,6 +15,7 @@
 	} from '$lib/backtests';
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
+	import { formatUtcTimestamp } from '$lib/time';
 
 	let {
 		detail,
@@ -48,7 +49,10 @@
 		<div>
 			<button type="button" onclick={onBack}>← All backtests</button>
 			<h2>Simulation result</h2>
-			<p>Historical evidence only · this page cannot submit orders.</p>
+			<p>
+				Historical evidence only · immutable published result · this page cannot submit orders or
+				regenerate the run.
+			</p>
 		</div>
 	</div>
 	{#if loading}<div class="empty"><div class="skeleton"></div></div>
@@ -216,11 +220,11 @@
 						><tbody
 							>{#each result.trades as trade, index (index)}<tr
 									><td
-										>{new Date(trade.entry.candle_starts_at).toLocaleString()}<small
+										>{formatUtcTimestamp(trade.entry.candle_starts_at)}<small
 											>{trade.entry.price}</small
 										></td
 									><td
-										>{new Date(trade.exit.candle_starts_at).toLocaleString()}<small
+										>{formatUtcTimestamp(trade.exit.candle_starts_at)}<small
 											>{trade.exit.price}</small
 										></td
 									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td

@@ -341,11 +341,66 @@ export function formatFillFee(fill: Pick<BacktestFill, 'fee' | 'fee_rate'>): str
 	return `${amount} (${formatDisplayFeeRate(fill.fee_rate)})`;
 }
 
-export async function fetchBacktests(signal?: AbortSignal): Promise<BacktestList> {
-	const response = await fetch('/api/v1/backtests', {
-		headers: { Accept: 'application/json' },
-		signal
-	});
+/** Default newest-first page size matching `GET /api/v1/backtests` (limit 1–100, default 50). */
+export const BACKTEST_LIST_DEFAULT_LIMIT = 50;
+
+export const RESULT_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+export type BacktestListQuery = {
+	limit?: number;
+	offset?: number;
+};
+
+export function formatBacktestListBound(
+	listing: Pick<BacktestList, 'limit' | 'offset' | 'returned'>
+): string {
+	/** Disclose the newest-first page bound without implying a complete archive. */
+	const { returned, offset } = listing;
+	if (offset === 0) {
+		return `Showing ${returned} (newest)`;
+	}
+	return `Showing ${returned} (newest-first, offset ${offset})`;
+}
+
+export function backtestListPageIsFull(listing: Pick<BacktestList, 'limit' | 'returned'>): boolean {
+	return listing.returned === listing.limit;
+}
+
+export function formatListSpreadCue(totalSpreadCost: string | null | undefined): string | null {
+	/** Surface recorded modeled spread on a list row; omit when the API did not record one. */
+	if (!isRecordedDecimal(totalSpreadCost)) {
+		return null;
+	}
+	return `spread ${formatUsd(totalSpreadCost)} recorded`;
+}
+
+export function parseResultFingerprintParam(value: string | null): string | null {
+	/** Accept only canonical sha256 result identities from `?result=`. */
+	if (value === null || RESULT_FINGERPRINT_PATTERN.exec(value) === null) {
+		return null;
+	}
+	return value;
+}
+
+export async function fetchBacktests(
+	query: BacktestListQuery = {},
+	signal?: AbortSignal
+): Promise<BacktestList> {
+	const params = new URLSearchParams();
+	if (query.limit !== undefined) {
+		params.set('limit', String(query.limit));
+	}
+	if (query.offset !== undefined) {
+		params.set('offset', String(query.offset));
+	}
+	const search = params.toString();
+	const response = await fetch(
+		search === '' ? '/api/v1/backtests' : `/api/v1/backtests?${search}`,
+		{
+			headers: { Accept: 'application/json' },
+			signal
+		}
+	);
 	if (!response.ok) {
 		const body = (await response.json().catch(() => ({}))) as ApiError;
 		throw new Error(body.detail?.message ?? 'Backtest results are unavailable.');

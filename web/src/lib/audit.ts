@@ -25,7 +25,10 @@ export interface AuditPersistenceErrorResponse {
 	};
 }
 
-export async function fetchAuditEvents(limit = 50): Promise<AuditEventItem[]> {
+/** Newest-first UI/API bound for `/audit`; not a complete trail. */
+export const AUDIT_EVENT_LIST_LIMIT = 50;
+
+export async function fetchAuditEvents(limit = AUDIT_EVENT_LIST_LIMIT): Promise<AuditEventItem[]> {
 	const response = await fetch(`/api/v1/audit-events?limit=${limit}`, {
 		headers: { Accept: 'application/json' }
 	});

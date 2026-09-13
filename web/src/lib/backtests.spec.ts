@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+	backtestListPageIsFull,
+	formatBacktestListBound,
 	formatBrokerAssumptions,
 	formatEngineFillAssumptions,
 	formatFillFee,
+	formatListSpreadCue,
 	formatPercent,
 	formatPublishedCosts,
 	formatSameBarPolicy,
 	formatSpreadCostNote,
+	parseResultFingerprintParam,
 	shortFingerprint,
 	type BacktestSummary
 } from './backtests';
@@ -150,5 +154,30 @@ describe('backtest presentation', () => {
 		expect(formatSpreadCostNote('thytrader-bar-backtest-v2', null)).toBe(
 			'Total modeled spread cost was not recorded on this result.'
 		);
+	});
+
+	it('discloses the newest-first list bound without claiming completeness', () => {
+		expect(formatBacktestListBound({ limit: 50, offset: 0, returned: 1 })).toBe(
+			'Showing 1 (newest)'
+		);
+		expect(formatBacktestListBound({ limit: 50, offset: 50, returned: 10 })).toBe(
+			'Showing 10 (newest-first, offset 50)'
+		);
+		expect(backtestListPageIsFull({ limit: 50, returned: 50 })).toBe(true);
+		expect(backtestListPageIsFull({ limit: 50, returned: 49 })).toBe(false);
+	});
+
+	it('shows a list spread cue only when modeled spread was recorded', () => {
+		expect(formatListSpreadCue('0.10')).toBe('spread $0.10 recorded');
+		expect(formatListSpreadCue(null)).toBeNull();
+		expect(formatListSpreadCue(undefined)).toBeNull();
+		expect(formatListSpreadCue('')).toBeNull();
+	});
+
+	it('accepts only canonical result fingerprints from the query string', () => {
+		const fingerprint = `sha256:${'a'.repeat(64)}`;
+		expect(parseResultFingerprintParam(fingerprint)).toBe(fingerprint);
+		expect(parseResultFingerprintParam('sha256:not-a-fingerprint')).toBeNull();
+		expect(parseResultFingerprintParam(null)).toBeNull();
 	});
 });

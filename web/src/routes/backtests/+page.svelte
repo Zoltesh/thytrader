@@ -1,11 +1,16 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import BacktestDetail from '$lib/BacktestDetail.svelte';
 	import BacktestPanel from '$lib/BacktestPanel.svelte';
 	import {
+		BACKTEST_LIST_DEFAULT_LIMIT,
 		fetchBacktest,
 		fetchBacktestBenchmark,
 		fetchBacktests,
+		parseResultFingerprintParam,
 		type BacktestBenchmark,
 		type BacktestDetail as BacktestDetailData,
 		type BacktestList
@@ -14,6 +19,7 @@
 	let listing: BacktestList | null = $state(null);
 	let listingAvailability = $state<'ready' | 'unavailable' | 'failed'>('ready');
 	let listingLoading = $state(true);
+	let listOffset = $state(0);
 	let selected: BacktestDetailData | null = $state(null);
 	let selectedFingerprint = $state<string | null>(null);
 	let detailLoading = $state(false);
@@ -23,11 +29,16 @@
 	let benchmarkError = $state<string | null>(null);
 	let selectionRequest = 0;
 
+	const inspecting = $derived(selectedFingerprint !== null);
+
 	async function loadList(): Promise<void> {
 		listingLoading = true;
 		listingAvailability = 'ready';
 		try {
-			listing = await fetchBacktests();
+			listing = await fetchBacktests({
+				limit: BACKTEST_LIST_DEFAULT_LIMIT,
+				offset: listOffset
+			});
 		} catch (caught) {
 			listing = null;
 			const message = caught instanceof Error ? caught.message : '';
@@ -66,7 +77,19 @@
 		}
 	}
 
-	function selectBacktest(fingerprint: string): void {
+	function resetInspection(): void {
+		selectionRequest += 1;
+		selectedFingerprint = null;
+		selected = null;
+		detailError = null;
+		detailLoading = false;
+		benchmark = null;
+		benchmarkError = null;
+		benchmarkLoading = false;
+	}
+
+	function beginInspection(fingerprint: string): void {
+		if (selectedFingerprint === fingerprint) return;
 		const requestId = ++selectionRequest;
 		selectedFingerprint = fingerprint;
 		selected = null;
@@ -79,21 +102,51 @@
 		void loadSelectedBenchmark(fingerprint, requestId);
 	}
 
-	function clearSelection(): void {
-		selectionRequest += 1;
-		selectedFingerprint = null;
-		selected = null;
-		detailError = null;
-		detailLoading = false;
-		benchmark = null;
-		benchmarkError = null;
-		benchmarkLoading = false;
+	function syncResultQuery(fingerprint: string | null): void {
+		const next =
+			fingerprint === null
+				? resolve('/backtests')
+				: resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`);
+		const current = `${page.url.pathname}${page.url.search}`;
+		if (next === current) return;
+		if (fingerprint === null) {
+			replaceState(resolve('/backtests'), {});
+			return;
+		}
+		replaceState(resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`), {});
 	}
+
+	function selectBacktest(fingerprint: string): void {
+		syncResultQuery(fingerprint);
+	}
+
+	function clearSelection(): void {
+		syncResultQuery(null);
+	}
+
+	function showOlder(): void {
+		if (listing === null || listing.returned !== listing.limit) return;
+		listOffset = listing.offset + listing.limit;
+		void loadList();
+	}
+
+	function showNewer(): void {
+		if (listOffset <= 0) return;
+		listOffset = Math.max(0, listOffset - BACKTEST_LIST_DEFAULT_LIMIT);
+		void loadList();
+	}
+
+	$effect(() => {
+		const fingerprint = parseResultFingerprintParam(page.url.searchParams.get('result'));
+		if (fingerprint !== null) {
+			beginInspection(fingerprint);
+			return;
+		}
+		resetInspection();
+	});
 
 	onMount(() => {
 		void loadList();
-		const fingerprint = new URLSearchParams(window.location.search).get('result');
-		if (fingerprint?.match(/^sha256:[0-9a-f]{64}$/)) selectBacktest(fingerprint);
 	});
 </script>
 
@@ -106,10 +159,21 @@
 			<h1>Backtests</h1>
 			<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
 		</div>
-		<button class="refresh" type="button" onclick={loadList} disabled={listingLoading}
+		<button
+			class="refresh"
+			type="button"
+			onclick={loadList}
+			disabled={listingLoading}
+			aria-label={inspecting
+				? 'Reload published backtest list without changing this immutable result'
+				: 'Refresh published backtest results'}
 			><span class:spinning={listingLoading}>↻</span>{listingLoading
-				? 'Refreshing…'
-				: 'Refresh results'}</button
+				? inspecting
+					? 'Reloading list…'
+					: 'Refreshing…'
+				: inspecting
+					? 'Reload list'
+					: 'Refresh results'}</button
 		>
 	</section>
 	{#if selectedFingerprint !== null}<BacktestDetail
@@ -122,8 +186,11 @@
 			onBack={clearSelection}
 		/>{:else}<BacktestPanel
 			entries={listing?.entries ?? []}
+			bound={listing}
 			loading={listingLoading}
 			availability={listingAvailability}
 			onSelect={(fingerprint) => void selectBacktest(fingerprint)}
+			onOlder={showOlder}
+			onNewer={showNewer}
 		/>{/if}
 </main>
