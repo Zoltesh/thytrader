@@ -407,8 +407,8 @@
 								/></label
 							>
 							<div class="hint">
-								V1 is Coinbase USD spot, 1h candles, long-only. Other markets arrive with later
-								runtimes.
+								V1 is Coinbase USD spot, long-only. Research and paper: 1h or 5m (this draft uses
+								{model.timeframe} candles). Live execution remains 1h-only.
 							</div>
 						</section>
 					{:else if activeSection === 'indicators'}
@@ -614,7 +614,9 @@
 					</div>
 					<div class="inspector-block">
 						<h3>Required data</h3>
-						<p>{model.warmup_bars} completed 1h bars (OHLCV) before the first signal.</p>
+						<p>
+							{model.warmup_bars} completed {model.timeframe} bars (OHLCV) before the first signal.
+						</p>
 					</div>
 					<div class="inspector-block">
 						<h3>Unsaved changes</h3>
@@ -695,6 +697,19 @@
 						<option value={choice.key}>{choice.label}</option>
 					{/each}
 				</select>
+				{#if comparison.left.indicator === undefined}
+					<input
+						class="literal"
+						inputmode="decimal"
+						value={comparison.left.literal ?? ''}
+						oninput={(event) => {
+							comparison.left = { literal: (event.currentTarget as HTMLInputElement).value };
+							markDirty();
+						}}
+						placeholder="value"
+						aria-label="Left literal value"
+					/>
+				{/if}
 				<select bind:value={comparison.operator} onchange={markDirty} aria-label="Operator">
 					{#each operators as operator (operator.value)}
 						<option value={operator.value}>{operator.label}</option>
@@ -722,7 +737,7 @@
 							markDirty();
 						}}
 						placeholder="value"
-						aria-label="Literal value"
+						aria-label="Right literal value"
 					/>
 				{/if}
 				<button

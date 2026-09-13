@@ -104,6 +104,9 @@ test('loads a draft into the builder with sections, rule tree, and inspector sum
 	const summary = page.locator('.inspector-block').first();
 	await expect(summary).toContainText('fast crosses above slow');
 	await expect(summary).toContainText('rsi ≥ 50');
+	await expect(
+		page.getByText('50 completed 1h bars (OHLCV) before the first signal.')
+	).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
 });
 
@@ -154,6 +157,48 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 	expect(saved.strategy.name).toBe('Renamed in builder');
 	expect(saved.revision).toBe(1);
 	await expect(page.getByText(`Saved ${new Date().toLocaleTimeString()}`)).toBeVisible();
+});
+
+test('required data and market hint follow the draft timeframe', async ({ page }) => {
+	const fiveMinuteDraft = { ...draft, timeframe: '5m' };
+	const fiveMinuteEntry = { ...libraryEntry, timeframe: '5m' };
+	void page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) =>
+		route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } })
+	);
+	void page.route('**/api/v1/strategies', async (route) => {
+		if (route.request().method() !== 'GET') {
+			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
+			return;
+		}
+		await route.fulfill({ json: { strategies: [fiveMinuteEntry] } });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
+	await expect(
+		page.getByText('50 completed 5m bars (OHLCV) before the first signal.')
+	).toBeVisible();
+	await expect(page.getByText('completed 1h bars')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Market and data' }).click();
+	await expect(page.getByText(/Research and paper:\s*1h or 5m/)).toBeVisible();
+	await expect(page.getByText(/this draft uses\s+5m candles/)).toBeVisible();
+	await expect(page.getByText(/Live execution remains 1h-only/)).toBeVisible();
+});
+
+test('shows a literal editor when the left operand is a literal value', async ({ page }) => {
+	mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	const firstLeft = page.getByLabel('Left operand').first();
+	await expect(firstLeft).toHaveValue('indicator:fast');
+	await expect(page.getByLabel('Left literal value')).toHaveCount(0);
+	await expect(page.getByLabel('Right literal value')).toHaveValue('50');
+	await firstLeft.selectOption('literal');
+	const leftLiteral = page.getByLabel('Left literal value');
+	await expect(leftLiteral).toBeVisible();
+	await leftLiteral.fill('42');
+	await expect(leftLiteral).toHaveValue('42');
+	await firstLeft.selectOption('indicator:fast');
+	await expect(page.getByLabel('Left literal value')).toHaveCount(0);
 });
 
 test('refuses to open a builder for a published or archived identity', async ({ page }) => {

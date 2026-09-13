@@ -148,14 +148,14 @@ export function latestDatasets(datasets: Dataset[]): Dataset[] {
 
 /**
  * Parse one zone-less `datetime-local` input value as the UTC instant it
- * represents. The launch form labels both fields UTC hours, so local-time
+ * represents. The launch form labels both fields UTC, so local-time
  * interpretation would silently shift the identity-bearing evaluation window.
  */
 export function parseUtcInputValue(value: string): Date {
 	return new Date(`${value}Z`);
 }
 
-/** Format one instant as a zone-less `datetime-local` string in UTC hours. */
+/** Format one instant as a zone-less `datetime-local` string in UTC. */
 export function formatUtcInputValue(instant: Date): string {
 	return instant.toISOString().slice(0, 16);
 }
@@ -175,6 +175,19 @@ export function datasetEvaluationWindow(
 		min: formatUtcInputValue(new Date(new Date(dataset.starts_at).getTime() + warmupBars * barMs)),
 		max: formatUtcInputValue(new Date(new Date(dataset.ends_at).getTime() - barMs))
 	};
+}
+
+/**
+ * Describe the inclusive UTC evaluation window a dataset can support.
+ * Names the strategy timeframe so 5m windows are not labeled as hours.
+ */
+export function researchWindowHint(
+	bounds: { min: string; max: string },
+	warmupBars: number,
+	timeframe: string
+): string {
+	const barTimeframe = timeframe.trim() === '' ? '1h' : timeframe;
+	return `Usable window for this dataset: ${bounds.min.replace('T', ' ')} → ${bounds.max.replace('T', ' ')} (UTC, ${barTimeframe} bars). It must fit inside the dataset with ${warmupBars} warmup bars before it and one candle after it.`;
 }
 
 export type DraftResponse = { strategy: StrategyDraft; revision: number; summary: string };
