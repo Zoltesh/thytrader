@@ -216,6 +216,26 @@ export function isHonestLineValuePoint(point: HonestLinePoint): point is HonestL
 	return 'value' in point;
 }
 
+export function honestLineSegments(points: readonly HonestLinePoint[]): HonestLineValuePoint[][] {
+	/** Split valued runs so a chart library cannot draw Y across whitespace holes. */
+	const segments: HonestLineValuePoint[][] = [];
+	let current: HonestLineValuePoint[] = [];
+	for (const point of points) {
+		if (isHonestLineValuePoint(point)) {
+			current.push(point);
+			continue;
+		}
+		if (current.length > 0) {
+			segments.push(current);
+			current = [];
+		}
+	}
+	if (current.length > 0) {
+		segments.push(current);
+	}
+	return segments;
+}
+
 export function utcTimestampSeconds(iso: string): number | null {
 	/** Convert an ISO timestamp to a Lightweight Charts UTCTimestamp (seconds). */
 	const milliseconds = Date.parse(iso);

@@ -5,11 +5,9 @@
 		LineSeries,
 		createChart,
 		type IChartApi,
-		type LineData,
-		type UTCTimestamp,
-		type WhitespaceData
+		type UTCTimestamp
 	} from 'lightweight-charts';
-	import { formatUsd, isHonestLineValuePoint, type HonestLinePoint } from '$lib/portfolio';
+	import { formatUsd, honestLineSegments, type HonestLinePoint } from '$lib/portfolio';
 
 	type ChartSample = {
 		time: number;
@@ -48,6 +46,7 @@
 	const whitespaceCount = $derived(
 		series.reduce((count, point) => count + ('value' in point ? 0 : 1), 0)
 	);
+	const segmentCount = $derived(honestLineSegments(series).length);
 
 	$effect(() => {
 		const el = host;
@@ -86,16 +85,32 @@
 				priceFormatter: (price: number) => formatAxisUsd(price)
 			}
 		});
-		const lineSeries = chart.addSeries(LineSeries, {
+		const lineOptions = {
 			color: '#5ce1b5',
 			crosshairMarkerVisible: true,
 			lastValueVisible: false,
-			lineWidth: 2,
+			lineWidth: 2 as const,
 			pointMarkersRadius: 3,
 			pointMarkersVisible: pointMarkers,
 			priceLineVisible: false
+		};
+		const spacer = chart.addSeries(LineSeries, {
+			...lineOptions,
+			crosshairMarkerVisible: false,
+			lineVisible: false,
+			pointMarkersVisible: false
 		});
-		lineSeries.setData(toLightweightSeries(points));
+		spacer.setData(points.map((point) => ({ time: point.time as UTCTimestamp })));
+		for (const segment of honestLineSegments(points)) {
+			const segmentSeries = chart.addSeries(LineSeries, {
+				...lineOptions,
+				lineVisible: segment.length >= 2,
+				pointMarkersVisible: pointMarkers || segment.length === 1
+			});
+			segmentSeries.setData(
+				segment.map((point) => ({ time: point.time as UTCTimestamp, value: point.value }))
+			);
+		}
 		chart.timeScale().fitContent();
 
 		chart.subscribeCrosshairMove((param) => {
@@ -111,16 +126,6 @@
 			chart.remove();
 		};
 	});
-
-	function toLightweightSeries(
-		points: readonly HonestLinePoint[]
-	): Array<LineData<UTCTimestamp> | WhitespaceData<UTCTimestamp>> {
-		return points.map((point) =>
-			isHonestLineValuePoint(point)
-				? { time: point.time as UTCTimestamp, value: point.value }
-				: { time: point.time as UTCTimestamp }
-		);
-	}
 
 	function formatAxisUsd(price: number): string {
 		/** Axis ticks are finite chart geometry, not the stored decimal amount. */
@@ -144,6 +149,7 @@
 		data-sample-count={samples.length}
 		data-logical-bar-count={series.length}
 		data-whitespace-count={whitespaceCount}
+		data-segment-count={segmentCount}
 		role="img"
 		aria-label={ariaLabel}
 	></div>

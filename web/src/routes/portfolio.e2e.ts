@@ -526,6 +526,7 @@ test('places history points by wall-clock time and notes an orphan post-gap snap
 	await expect(chart.locator('canvas').first()).toBeVisible();
 	await expect(chart).toHaveAttribute('data-sample-count', '3');
 	await expect(chart).toHaveAttribute('data-has-gaps', 'true');
+	await expect(chart).toHaveAttribute('data-segment-count', '2');
 	const logicalBars = Number(await chart.getAttribute('data-logical-bar-count'));
 	const whitespace = Number(await chart.getAttribute('data-whitespace-count'));
 	expect(logicalBars).toBeGreaterThan(3);
@@ -551,6 +552,7 @@ test('does not show a gap note for contiguous snapshots', async ({ page }) => {
 	await expect(chart).toBeVisible();
 	await expect(chart.locator('canvas').first()).toBeVisible();
 	await expect(chart).toHaveAttribute('data-has-gaps', 'false');
+	await expect(chart).toHaveAttribute('data-segment-count', '1');
 	await expect(chart).toHaveAttribute('data-sample-count', '3');
 	await expect(chart).toHaveAttribute('data-logical-bar-count', '3');
 	await expect(

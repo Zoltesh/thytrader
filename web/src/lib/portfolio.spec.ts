@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	chartHasGaps,
 	formatUsd,
+	honestLineSegments,
 	isHistoryStale,
 	isHonestLineValuePoint,
 	MAX_PORTFOLIO_CHART_WHITESPACE,
@@ -179,6 +180,7 @@ describe('portfolioHistoryChartModel', () => {
 		expect(data.hasGaps).toBe(true);
 		expect(chartHasGaps(data.samples)).toBe(true);
 		expect(valuedRunLengths(data.series)).toEqual([2, 1]);
+		expect(honestLineSegments(data.series).map((segment) => segment.length)).toEqual([2, 1]);
 		expect(data.whitespaceCount).toBeGreaterThan(0);
 		expect(middleIndex / lastIndex).toBeCloseTo(5 / 60);
 		expect(data.series[lastIndex]?.time).toBe(lastTime);
