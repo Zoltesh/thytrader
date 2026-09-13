@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	chartData,
+	chartHasGaps,
 	chartSegments,
 	formatUsd,
 	isHistoryStale,
@@ -101,10 +102,67 @@ describe('chartData', () => {
 			entry('130', '2026-07-27T11:05:00Z')
 		];
 
-		const segments = chartSegments(chartData(entries, 760, 220, 40, 600));
+		const data = chartData(entries, 760, 220, 40, 600);
+		const segments = chartSegments(data);
 
 		expect(segments).toHaveLength(2);
 		expect(segments.every((segment) => segment.split(' ').length === 2)).toBe(true);
+		expect(data.hasGaps).toBe(true);
+		expect(chartHasGaps(data.coordinates)).toBe(true);
+	});
+
+	it('places X by wall-clock time so a long gap occupies more space than nearby samples', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T11:00:00Z'),
+			entry('120', '2026-07-27T14:00:00Z')
+		];
+		const result = chartData(entries, 760, 220, 40);
+		const xs = result.coordinates.map((coordinate) => coordinate.x);
+		const padding = 40;
+		const chartW = 680;
+
+		expect(xs[0]).toBe(padding);
+		expect(xs[1]).toBe(padding + chartW * 0.25);
+		expect(xs[2]).toBe(padding + chartW);
+		// Index spacing would put the middle sample at 50% instead of 25%.
+		expect(xs[1]).toBeLessThan(padding + chartW * 0.5);
+	});
+
+	it('keeps equally spaced snapshots equally spaced on X', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T11:00:00Z'),
+			entry('120', '2026-07-27T12:00:00Z')
+		];
+		const result = chartData(entries, 760, 220, 40, 3600);
+		const xs = result.coordinates.map((coordinate) => coordinate.x);
+
+		expect(xs[1] - xs[0]).toBeCloseTo(xs[2] - xs[1]);
+		expect(result.hasGaps).toBe(false);
+	});
+
+	it('keeps an orphan post-gap snapshot as a dot, without Y interpolation, and reports the gap', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T10:05:00Z'),
+			entry('120', '2026-07-27T11:00:00Z')
+		];
+		const data = chartData(entries, 760, 220, 40, 300);
+		const segments = chartSegments(data);
+		const xs = data.coordinates.map((coordinate) => coordinate.x);
+		const padding = 40;
+		const chartW = 680;
+
+		expect(data.coordinates).toHaveLength(3);
+		expect(data.coordinates[2]?.gapBefore).toBe(true);
+		expect(data.hasGaps).toBe(true);
+		expect(chartHasGaps(data.coordinates)).toBe(true);
+		expect(segments).toHaveLength(1);
+		expect(segments[0]?.split(' ')).toHaveLength(2);
+		expect(xs[1]).toBeCloseTo(padding + chartW * (5 / 60));
+		expect(xs[2]).toBe(padding + chartW);
+		expect(data.coordinates[2]?.y).not.toBe(data.coordinates[1]?.y);
 	});
 });
 

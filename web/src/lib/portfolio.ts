@@ -192,6 +192,8 @@ export function decimalChartGeometry(amounts: readonly string[]): {
  * Compute chart coordinates from history entries.
  * Returns SVG path data, min/max values, and axis labels.
  * Entries are assumed oldest-first (caller reverses if needed).
+ * X positions follow wall-clock time so missed observations occupy space;
+ * Y is never interpolated across worker gaps.
  */
 export function chartData(
 	entries: HistoryEntry[],
@@ -208,6 +210,7 @@ export function chartData(
 	max: number;
 	minAmount: string;
 	maxAmount: string;
+	hasGaps: boolean;
 } {
 	if (entries.length < 2) {
 		return {
@@ -218,7 +221,8 @@ export function chartData(
 			min: 0,
 			max: 0,
 			minAmount: '0',
-			maxAmount: '0'
+			maxAmount: '0',
+			hasGaps: false
 		};
 	}
 
@@ -227,17 +231,13 @@ export function chartData(
 	const { values, min, max, minAmount, maxAmount, positions } = decimalChartGeometry(amounts);
 	const chartW = width - padding * 2;
 	const chartH = height - padding * 2;
+	const progress = wallClockProgress(dates);
 
 	const coordinates = values.map((value, i) => {
-		const x = padding + (chartW * i) / (values.length - 1);
-		const y = padding + chartH - positions[i] * chartH;
-		const priorDate = i > 0 ? Date.parse(dates[i - 1]) : Number.NaN;
-		const currentDate = Date.parse(dates[i]);
-		const gapBefore =
-			i > 0 &&
-			Number.isFinite(priorDate) &&
-			Number.isFinite(currentDate) &&
-			currentDate - priorDate > samplingIntervalSeconds * 2 * 1000;
+		const x = padding + chartW * (progress[i] ?? 0);
+		const y = padding + chartH - (positions[i] ?? 0) * chartH;
+		const priorDate = i > 0 ? dates[i - 1] : undefined;
+		const gapBefore = isMissedSnapshotGap(dates[i], priorDate, samplingIntervalSeconds);
 		return { x, y, value, amount: amounts[i], date: dates[i], gapBefore };
 	});
 
@@ -245,7 +245,22 @@ export function chartData(
 		.map((coordinate) => `${coordinate.x.toFixed(1)},${coordinate.y.toFixed(1)}`)
 		.join(' ');
 
-	return { points, values, dates, coordinates, min, max, minAmount, maxAmount };
+	return {
+		points,
+		values,
+		dates,
+		coordinates,
+		min,
+		max,
+		minAmount,
+		maxAmount,
+		hasGaps: chartHasGaps(coordinates)
+	};
+}
+
+export function chartHasGaps(coordinates: readonly ChartCoordinate[]): boolean {
+	/** True when any snapshot follows a missed observation interval, including orphan dots. */
+	return coordinates.some((coordinate) => coordinate.gapBefore);
 }
 
 export function chartSegments(data: ReturnType<typeof chartData>): string[] {
@@ -264,7 +279,57 @@ export function chartSegments(data: ReturnType<typeof chartData>): string[] {
 	if (segment.length > 0) {
 		segments.push(segment.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
 	}
+	// One-point runs stay as dots; polylines need two vertices and must not fill gaps.
 	return segments.filter((segmentPoints) => segmentPoints.split(' ').length >= 2);
+}
+
+function wallClockProgress(dates: readonly string[]): number[] {
+	/** Map snapshot timestamps onto [0, 1] by elapsed time, not sample index. */
+	const lastIndex = dates.length - 1;
+	if (lastIndex < 0) {
+		return [];
+	}
+	if (lastIndex === 0) {
+		return [0];
+	}
+	const times = dates.map((date) => Date.parse(date));
+	const start = times[0];
+	const end = times[lastIndex];
+	if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+		return times.map((_, index) => index / lastIndex);
+	}
+	if (end === start) {
+		return times.map(() => 0);
+	}
+	const span = end - start;
+	return times.map((time, index) => {
+		if (!Number.isFinite(time)) {
+			return index / lastIndex;
+		}
+		const progress = (time - start) / span;
+		if (!Number.isFinite(progress)) {
+			return index / lastIndex;
+		}
+		return Math.min(1, Math.max(0, progress));
+	});
+}
+
+function isMissedSnapshotGap(
+	currentDate: string | undefined,
+	priorDate: string | undefined,
+	samplingIntervalSeconds: number
+): boolean {
+	/** Detect a worker downtime hole from adjacent snapshot timestamps. */
+	if (currentDate === undefined || priorDate === undefined) {
+		return false;
+	}
+	const priorMs = Date.parse(priorDate);
+	const currentMs = Date.parse(currentDate);
+	return (
+		Number.isFinite(priorMs) &&
+		Number.isFinite(currentMs) &&
+		currentMs - priorMs > samplingIntervalSeconds * 2 * 1000
+	);
 }
 
 export function portfolioChange(entries: HistoryEntry[]): PortfolioChange | null {

@@ -195,7 +195,7 @@
 					>{lastDate}</text
 				>
 			</svg>
-			{#if segments.length > 1}<p class="gap-note">
+			{#if data.hasGaps}<p class="gap-note">
 					Gaps indicate missed worker observations; the line is intentionally not interpolated.
 				</p>{/if}
 		</div>
