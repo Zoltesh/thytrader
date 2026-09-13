@@ -1,8 +1,10 @@
 # Fee-tier suggested defaults for research and paper (2026-09-13)
 
-**Status: planned / not shipped.** Fee-tier *visibility* is already shipped (Phase 1:
-`exchanges/fees.py`, `GET /api/v1/fees`, dashboard fee panel). This plan adds using that
-tier as an **editable suggested default** for maker/taker rates in backtests and paper.
+**Status: shipped (research prefill).** Fee-tier *visibility* was already shipped (Phase 1:
+`exchanges/fees.py`, `GET /api/v1/fees`, dashboard fee panel). Research launch fields now
+prefill maker/taker from the operator's Coinbase fee-tier snapshot mapped through a versioned
+schedule. Paper deploy has no maker/taker fields; paper keeps the documented `0.001` / `0.002`
+fill schedule. Live venue billing is unchanged.
 
 ## Intent
 
@@ -18,46 +20,35 @@ modeled fees are live venue fills.
 - Presenting suggested rates as "observed Coinbase fees" on result screens.
 - Blocking research when credentials/demo mode cannot fetch a tier.
 
-## Shipped today
+## Shipped
 
 - Read-only fee tier + 30-day volume + freshness/`as_of` on the dashboard.
 - Research runs require explicit `maker_fee_rate` / `taker_fee_rate` in the immutable
-  research-run / backtest submission contract.
+  research-run / backtest submission contract. Submitted rates are fingerprinted; the run
+  does not store a live pointer to the current Coinbase tier.
 - Result UI may project `CostAssumptions` and must not label them as observed Coinbase fees
   (`docs/architecture/backtest-simulation.md`).
+- Versioned schedule `coinbase-advanced-spot-fees-v1` (`as_of` 2026-09-13) in
+  `exchanges/fee_schedule.py`. Live `GET /api/v1/fees` adds `suggested_maker_fee_rate` /
+  `suggested_taker_fee_rate` plus source metadata (Coinbase tier id, schedule version,
+  `fetched_at`). Demo or missing credentials keep the dashboard snapshot but set
+  `suggestion_source=unavailable` (`demo_or_missing_credentials`) with null suggested rates.
+- Research launch prefills those suggested rates when present, keeps fields editable, labels
+  Suggested vs Custom vs stale, and never overwrites in-progress edits. Blank required fields
+  when the suggestion is unavailable. V1/V2 copy states next-open fills use the taker rate
+  even when the strategy prefers maker.
+- Paper deploy exposes no maker/taker fields. Paper fills keep the documented `0.001` maker
+  / `0.002` taker schedule.
 
-## Planned behavior
+## Remaining / out of scope
 
-1. **Prefill only** — Research (and paper cost fields if exposed) open with maker/taker
-   derived from the latest fee-tier snapshot mapped through Coinbase's published schedule.
-2. **Always editable** — operator may set custom rates; custom wins for that submission.
-3. **Fingerprint what was used** — published runs store the exact rates submitted, not a
-   live pointer to "current tier."
-4. **Honest labels** — UI shows e.g. "Suggested from Coinbase fee tier (as of …)" vs
-   "Custom." Never imply backtest/paper fees *are* Coinbase fills.
-5. **Demo / missing credentials** — documented fallback (blank required fields or explicit
-   placeholder rates); do not invent a fake tier.
-6. **No silent mid-edit refresh** — if tier updates while a form is open, offer refresh or
-   show stale-suggestion; do not overwrite in-progress edits without consent.
-7. **Engine honesty** — V1 next-open fills remain taker-like in the bar contract even when
-   the strategy prefers maker; defaults must not lie about which leg uses which rate.
-
-## Implementation sketch (for Thy Builder)
-
-- Map tier → maker/taker decimal rates from a versioned, tested schedule table (`as_of`).
-- API: suggestion endpoint or extend fees payload with `suggested_maker_fee_rate` /
-  `suggested_taker_fee_rate` + source metadata (tier id, schedule version, fetched_at).
-- Thin web: Research (and paper if applicable) prefill + override + source chip.
-- Docs/skills: update research skill when shipped; keep shipped vs planned split until then.
-
-## Priority
-
-Small UX increment. May ship in parallel with remaining Phase 7 timeframe work (30m / 6h / 1d).
-See `docs/roadmap.md` Phase 7.1. 15m complete-only datasets are a separate Phase 7 slice and
-do not include this fee-tier prefill.
+- Paper cost fields on Deploy (not exposed; do not invent them).
+- Changing live Coinbase fee billing.
+- Silently mutating published fingerprints when the tier changes.
+- Claiming observed Coinbase fees on result screens.
 
 ## Exit gate
 
-With credentials, Research shows suggested rates from tier with override; without credentials,
-fail closed to an honest fallback; every submitted run fingerprints the rates used; UI copy
-never claims observed Coinbase fills for research/paper costs.
+Met for research: credentials → suggested rates with override; demo/missing → honest blank
+fallback; submitted runs fingerprint the rates used; UI copy never claims observed Coinbase
+fills for research/paper costs.

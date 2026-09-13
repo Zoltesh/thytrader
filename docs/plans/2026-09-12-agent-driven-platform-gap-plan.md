@@ -26,8 +26,9 @@ evidence are not that memory system.
 - Indicators: EMA, SMA, RSI, ATR, volume SMA only.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
-- Fee **tier visibility** shipped; fee-tier → research/paper **suggested defaults** planned
-  ([fee-tier plan](2026-09-13-fee-tier-research-defaults.md)).
+- Fee **tier visibility** and research **suggested defaults** shipped
+  ([fee-tier plan](2026-09-13-fee-tier-research-defaults.md)). Paper deploy has no maker/taker
+  fields; paper keeps the documented `0.001` / `0.002` schedule.
 
 See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 
@@ -37,7 +38,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
 | Data coverage | 30m / 6h / 1d deferred; 15m datasets shipped (not a strategy clock); agents babysit watchlist → ingest → gaps |
-| Fee UX | Tier visible; not yet suggested defaults into research/paper |
+| Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
 | Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
 | Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
@@ -78,7 +79,7 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 1. **Phase 7** — Remaining timeframes after 15m datasets: 30m, 6h, 1d + data-loop harden.
    15m complete-only ingest/publish/verify/catalog is shipped; it is not a strategy/paper/live clock.
-2. **Phase 7.1** — Fee-tier suggested defaults for research/paper (parallel-friendly).
+2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Multi-timeframe strategy semantics.
 4. **Phase 9** — Wider fail-closed indicator catalog.
 5. **Phase 10** — Portfolio + risk-policy registry.

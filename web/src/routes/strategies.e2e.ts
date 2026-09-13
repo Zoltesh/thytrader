@@ -106,6 +106,51 @@ async function mockLibrary(
 	});
 }
 
+function suggestedFeeProfile(
+	overrides: Record<string, string | null> = {}
+): Record<string, string | null> {
+	return {
+		taker_fee_rate: '0.0040',
+		maker_fee_rate: '0.0025',
+		usd_volume_30d: '25000.00',
+		fee_tier: 'Tier 2 ($10k-$50k)',
+		as_of: '2026-09-13T16:00:00Z',
+		source: 'coinbase',
+		suggested_maker_fee_rate: '0.0025',
+		suggested_taker_fee_rate: '0.0040',
+		suggestion_source: 'coinbase_fee_schedule',
+		suggestion_unavailable_reason: null,
+		suggestion_fee_tier: 'Tier 2 ($10k-$50k)',
+		suggestion_schedule_tier_id: 'usd-10k-50k',
+		suggestion_schedule_version: 'coinbase-advanced-spot-fees-v1',
+		suggestion_schedule_as_of: '2026-09-13',
+		suggestion_fetched_at: '2026-09-13T16:00:00Z',
+		...overrides
+	};
+}
+
+async function mockFees(
+	page: import('@playwright/test').Page,
+	payload: Record<string, string | null>,
+	status = 200
+): Promise<void> {
+	await page.route('**/api/v1/fees', async (route) => {
+		if (status !== 200) {
+			await route.fulfill({
+				status,
+				json: {
+					detail: {
+						code: 'fees_unavailable',
+						message: 'Fee profile is temporarily unavailable.'
+					}
+				}
+			});
+			return;
+		}
+		await route.fulfill({ json: payload });
+	});
+}
+
 test('shows an empty library with create and import actions when no strategies exist', async ({
 	page
 }) => {
@@ -592,10 +637,13 @@ test('research tab launches a backtest with engine and spread and lists version 
 		]
 	};
 	await mockLibrary(page, [researchEntry]);
+	await mockFees(page, suggestedFeeProfile());
 	let launchBody: {
 		engine_contract_version: string;
 		spread_bps: string | null;
 		strategy_fingerprint: string;
+		maker_fee_rate: string;
+		taker_fee_rate: string;
 	} | null = null;
 	await page.route(
 		(url) =>
@@ -683,6 +731,14 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(page.getByText('Results by version')).not.toBeVisible();
 	await page.getByRole('tab', { name: 'Research' }).click();
 	await expect(page.getByText('Launch backtest')).toBeVisible();
+	await expect(page.getByTestId('research-fee-source')).toContainText(
+		'Suggested from Coinbase fee tier'
+	);
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0040');
+	await expect(
+		page.getByText('These are modeled research assumptions, not observed Coinbase fills.')
+	).toBeVisible();
 	await expect(page.getByText('Results by version')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Version 1', exact: false })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Version 2', exact: false })).toBeVisible();
@@ -706,10 +762,14 @@ test('research tab launches a backtest with engine and spread and lists version 
 		engine_contract_version: string;
 		spread_bps: string | null;
 		strategy_fingerprint: string;
+		maker_fee_rate: string;
+		taker_fee_rate: string;
 	};
 	expect(sent.engine_contract_version).toBe('thytrader-bar-backtest-v2');
 	expect(sent.spread_bps).toBe('8');
 	expect(sent.strategy_fingerprint).toBe(secondFingerprint);
+	expect(sent.maker_fee_rate).toBe('0.0025');
+	expect(sent.taker_fee_rate).toBe('0.0040');
 });
 
 test('research tab loads every result page for an exact strategy version', async ({ page }) => {
@@ -793,6 +853,129 @@ test('research tab preserves inspector evidence when the dataset catalog fails',
 
 	await expect(page.getByRole('alert')).toContainText('Verified datasets are unavailable.');
 	await expect(page.getByRole('button', { name: 'Run backtest' })).toBeDisabled();
+});
+
+test('research maker/taker prefills from fee-tier suggestion and keeps custom override', async ({
+	page
+}) => {
+	await mockLibrary(page, [publishedEntry]);
+	await mockFees(page, suggestedFeeProfile());
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
+		route.fulfill({ json: { datasets: [] } })
+	);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	await page
+		.getByRole('toolbar', { name: 'Row actions' })
+		.getByRole('button', { name: 'View' })
+		.click();
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByTestId('research-fee-source')).toContainText(
+		'Suggested from Coinbase fee tier'
+	);
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	await page.getByLabel('Maker fee rate').fill('0.001');
+	await expect(page.getByTestId('research-fee-source')).toHaveText('Custom');
+	await page.getByRole('button', { name: 'Apply suggested rates' }).click();
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	await expect(page.getByTestId('research-fee-source')).toContainText(
+		'Suggested from Coinbase fee tier'
+	);
+});
+
+test('research fees stay blank when the Coinbase fee tier cannot be suggested', async ({
+	page
+}) => {
+	await mockLibrary(page, [publishedEntry]);
+	await mockFees(page, {}, 502);
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
+		route.fulfill({ json: { datasets: [] } })
+	);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	await page
+		.getByRole('toolbar', { name: 'Row actions' })
+		.getByRole('button', { name: 'View' })
+		.click();
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByTestId('research-fee-source')).toHaveText(
+		'Coinbase fee-tier suggestion unavailable. Enter modeled rates.'
+	);
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('');
+	await expect(page.getByLabel('Taker fee rate')).toHaveValue('');
+});
+
+test('research does not overwrite in-progress fee edits when the suggestion refreshes', async ({
+	page
+}) => {
+	await mockLibrary(page, [publishedEntry]);
+	let generation = 0;
+	await page.route('**/api/v1/fees', async (route) => {
+		const fetchedAt = generation === 0 ? '2026-09-13T16:00:00Z' : '2026-09-13T18:00:00Z';
+		const maker = generation === 0 ? '0.0025' : '0.0015';
+		const taker = generation === 0 ? '0.0040' : '0.0025';
+		await route.fulfill({
+			json: suggestedFeeProfile({
+				suggested_maker_fee_rate: maker,
+				suggested_taker_fee_rate: taker,
+				suggestion_fetched_at: fetchedAt,
+				as_of: fetchedAt
+			})
+		});
+	});
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
+		route.fulfill({ json: { datasets: [] } })
+	);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	await page
+		.getByRole('toolbar', { name: 'Row actions' })
+		.getByRole('button', { name: 'View' })
+		.click();
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	generation = 1;
+	await page.getByRole('tab', { name: 'Insight' }).click();
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByTestId('research-fee-source')).toContainText('stale');
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	await page.getByRole('button', { name: 'Refresh suggestion' }).click();
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0015');
+	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0025');
+	await expect(page.getByTestId('research-fee-source')).not.toContainText('stale');
 });
 
 test('opening the inspector does not request the dataset catalog', async ({ page }) => {

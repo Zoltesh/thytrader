@@ -71,7 +71,11 @@ strategy identity. Insight always shows the same summary, validation, warmup/dat
 state, and V1/V2 support matrix as the builder. Research requires an explicit immutable published
 version, verified dataset, half-open evaluation period, exact initial capital, maker/taker fees,
 fixed slippage, and engine contract; V2 additionally requires an explicit constant total bid-ask
-spread. It walks the bounded results API until every stored result for each exact version is loaded,
+spread. Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
+exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or missing
+credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
+observed Coinbase fills. V1/V2 next-open fills still use the taker rate even when the strategy
+prefers maker. It walks the bounded results API until every stored result for each exact version is loaded,
 groups complete history by version, and compares the newest result across versions. Drafts must be
 published before research submission. Dataset-catalog and per-version result failures remain
 independently visible. Versions lists the complete immutable published history for one strategy

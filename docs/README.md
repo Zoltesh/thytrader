@@ -18,7 +18,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — running-instance evidence against the 5m research–paper plan (stale Compose, 14-day clip, v3 422, 5m paper 409)
 - [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (not shipped unless marked complete)
-- [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **planned** Phase 7.1 research/paper maker/taker prefill
+- [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **shipped** Phase 7.1 research maker/taker prefill (paper deploy has no cost fields)
 
 ## Document roles
 

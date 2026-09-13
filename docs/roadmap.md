@@ -40,16 +40,18 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
 **Exit gate:** each timeframe has verified fingerprint-addressed datasets usable as research
 inputs once strategy/runtime contracts explicitly allow that TF.
 
-## Phase 7.1: Fee-tier suggested defaults for research/paper — 📋 Planned
+## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
-Prefill Research (and paper cost fields if exposed) with maker/taker rates derived from the
-shipped Coinbase fee-tier snapshot; keep fields editable; fingerprint rates actually used;
-honest "suggested vs custom" labels. Design: [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
+Prefill Research with maker/taker rates derived from the shipped Coinbase fee-tier snapshot
+mapped through versioned schedule `coinbase-advanced-spot-fees-v1`; fields stay editable;
+submitted runs fingerprint the rates actually used; honest "suggested vs custom" labels.
+Paper deploy has no cost fields; paper keeps the documented `0.001` / `0.002` schedule.
+Live venue billing is unchanged. Design:
+[fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-May ship in parallel with Phase 7 slices. Does **not** change live venue billing.
-
-**Exit gate:** credentials → suggested rates with override; demo/missing → honest fallback;
-submitted runs fingerprint rates; UI never claims observed Coinbase fills for research/paper costs.
+**Exit gate met:** credentials → suggested rates with override; demo/missing → blank required
+fields; submitted runs fingerprint rates; UI never claims observed Coinbase fills for
+research/paper costs.
 
 ## Phase 8: Multi-timeframe strategy semantics — 📋 Planned
 
