@@ -52,8 +52,9 @@ modeled fees are live venue fills.
 
 ## Priority
 
-Small UX increment. May ship in parallel with Phase 7 timeframe work, or immediately after
-the next 15m dataset increment. See `docs/roadmap.md` Phase 7.1.
+Small UX increment. May ship in parallel with remaining Phase 7 timeframe work (30m / 6h / 1d).
+See `docs/roadmap.md` Phase 7.1. 15m complete-only datasets are a separate Phase 7 slice and
+do not include this fee-tier prefill.
 
 ## Exit gate
 

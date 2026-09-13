@@ -17,6 +17,7 @@ from thytrader.data_control.client import (
     list_watchlist,
 )
 from thytrader.data_control.models import DataControlError
+from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 
 if TYPE_CHECKING:
@@ -88,9 +89,9 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _target_args(parser: argparse.ArgumentParser) -> None:
-    """Require a USD spot product and 1h or 5m timeframe."""
+    """Require a USD spot product and a complete-only dataset timeframe."""
     parser.add_argument("--product-id", required=True, help="USD spot product such as ETH-USD.")
-    parser.add_argument("--timeframe", required=True, choices=("1h", "5m"))
+    parser.add_argument("--timeframe", required=True, choices=DATASET_TIMEFRAMES)
 
 
 def _require_confirm(confirm: bool) -> None:

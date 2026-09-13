@@ -11,7 +11,13 @@ from pydantic import BaseModel, ConfigDict, field_serializer
 
 from thytrader.api.dependencies import get_dataset_store, get_market_data_service
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore  # noqa: TC001
-from thytrader.market_data.models import CandleRangeReport, MarketDataPreview  # noqa: TC001
+from thytrader.market_data.models import (
+    CandleRangeReport,
+    DatasetTimeframe,
+    MarketDataPreview,
+    as_dataset_timeframe,
+    parse_candle_interval,
+)
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
@@ -82,7 +88,7 @@ class DatasetResponse(BaseModel):
 
     provider: str
     product_id: str
-    timeframe: Literal["1h", "5m"]
+    timeframe: DatasetTimeframe
     starts_at: datetime
     ends_at: datetime
     received_candle_count: int
@@ -218,13 +224,12 @@ def _to_dataset_response(manifest: DatasetManifest) -> DatasetResponse:
     )
 
 
-def _browser_dataset_timeframe(value: str) -> Literal["1h", "5m"]:
+def _browser_dataset_timeframe(value: str) -> DatasetTimeframe:
     """Narrow a verified dataset timeframe to the browser catalog contract."""
-    if value == "5m":
-        return "5m"
-    if value == "1h":
-        return "1h"
-    raise ValueError("Dataset timeframe is not 1h or 5m.")
+    try:
+        return as_dataset_timeframe(parse_candle_interval(value))
+    except ValueError as error:
+        raise ValueError("Dataset timeframe is not 1h, 5m, or 15m.") from error
 
 
 def _to_preview_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:

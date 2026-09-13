@@ -50,8 +50,9 @@ this ADR does not arm 5m live.
   market-data worker.
 - A hole in the middle of lookback splits islands; paper freshness uses the newest complete suffix.
 - Existing 14-day complete 5m islands stay frozen until prefix backfill runs against a longer watch.
-- 5m paper, maker-aware backtest, and paper PnL were sequenced separately; 5m paper is [0018](0018-5m-paper-not-live.md). 15m / 30m
-  / 1d intervals are still not implemented.
+- 5m paper, maker-aware backtest, and paper PnL were sequenced separately; 5m paper is [0018](0018-5m-paper-not-live.md).
+  This ADR did not add 15m / 30m / 1d. Fifteen-minute complete-only datasets are [0020](0020-complete-only-15m-datasets.md).
+  30m / 6h / 1d remain deferred.
 
 ## Alternatives considered
 

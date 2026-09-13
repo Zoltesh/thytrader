@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -15,12 +15,21 @@ if TYPE_CHECKING:
 # watches stay min(requested, 2,160 hours) via the existing lookback maximum.
 MAX_HISTORICAL_INTERVAL_COUNT = 25_920
 
+DatasetTimeframe = Literal["1h", "5m", "15m"]
+DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = ("1h", "5m", "15m")
+DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m)$"
+
 
 class CandleInterval(StrEnum):
-    """Supported closed-candle intervals for research datasets and paper execution."""
+    """Closed-candle intervals for complete-only historical datasets.
+
+    Dataset ingest, catalog, and verification accept 1h, 5m, and 15m. Paper still
+    evaluates only 1h or 5m; live remains 1h-only at the deployment gate.
+    """
 
     ONE_HOUR = "1h"
     FIVE_MINUTES = "5m"
+    FIFTEEN_MINUTES = "15m"
 
     @property
     def duration(self) -> timedelta:
@@ -29,6 +38,8 @@ class CandleInterval(StrEnum):
             return timedelta(hours=1)
         if self is CandleInterval.FIVE_MINUTES:
             return timedelta(minutes=5)
+        if self is CandleInterval.FIFTEEN_MINUTES:
+            return timedelta(minutes=15)
         message = f"Unsupported candle interval: {self.value}."
         raise ValueError(message)
 
@@ -39,6 +50,9 @@ class CandleInterval(StrEnum):
             return instant.replace(minute=0)
         if self is CandleInterval.FIVE_MINUTES:
             minute = (instant.minute // 5) * 5
+            return instant.replace(minute=minute)
+        if self is CandleInterval.FIFTEEN_MINUTES:
+            minute = (instant.minute // 15) * 15
             return instant.replace(minute=minute)
         message = f"Unsupported candle interval: {self.value}."
         raise ValueError(message)
@@ -56,6 +70,18 @@ def parse_candle_interval(value: str) -> CandleInterval:
     except ValueError as error:
         message = f"Unsupported candle interval: {value}."
         raise ValueError(message) from error
+
+
+def as_dataset_timeframe(interval: CandleInterval) -> DatasetTimeframe:
+    """Narrow a candle interval to the dataset catalog token."""
+    if interval is CandleInterval.ONE_HOUR:
+        return "1h"
+    if interval is CandleInterval.FIVE_MINUTES:
+        return "5m"
+    if interval is CandleInterval.FIFTEEN_MINUTES:
+        return "15m"
+    message = f"Unsupported candle interval: {interval.value}."
+    raise ValueError(message)
 
 
 def interval_from_range(report: CandleRangeReport) -> CandleInterval:

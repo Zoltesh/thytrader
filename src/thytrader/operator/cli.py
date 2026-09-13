@@ -13,6 +13,7 @@ from thytrader import __version__
 from thytrader.agent_http import AgentHttpError, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.models import HealthReport
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
@@ -86,7 +87,7 @@ def _parser() -> argparse.ArgumentParser:
     market = subparsers.add_parser(
         "market-data",
         parents=[trailing],
-        help="1h or 5m freshness and gap report.",
+        help="1h, 5m, or 15m freshness and gap report.",
     )
     market.add_argument(
         "--product-id",
@@ -96,8 +97,8 @@ def _parser() -> argparse.ArgumentParser:
     market.add_argument(
         "--timeframe",
         default="1h",
-        choices=("1h", "5m"),
-        help="Candle interval. Default 1h.",
+        choices=DATASET_TIMEFRAMES,
+        help="Dataset candle interval. Default 1h.",
     )
     subparsers.add_parser(
         "products",

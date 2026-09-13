@@ -21,8 +21,8 @@ evidence are not that memory system.
 - Skills: `thytrader-operator` (read-only), `thytrader-data` (watchlist / ingest /
   gaps), `thytrader-research` (draft → publish → backtest), `thytrader-runtime`
   (paper/live with `--confirm`; live also `--i-understand-live`).
-- Market data: complete-only Parquet for **1h** and **5m**; `inspect-gaps` /
-  `fill-gaps`; no interpolation.
+- Market data: complete-only Parquet for **1h**, **5m**, and **15m**; `inspect-gaps` /
+  `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m` (live `1h`).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA only.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
@@ -36,7 +36,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
-| Data coverage | 15m / 30m / 6h / 1d deferred; agents babysit watchlist → ingest → gaps |
+| Data coverage | 30m / 6h / 1d deferred; 15m datasets shipped (not a strategy clock); agents babysit watchlist → ingest → gaps |
 | Fee UX | Tier visible; not yet suggested defaults into research/paper |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
 | Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
@@ -76,7 +76,8 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 ## Build order (roadmap Phases 7–14)
 
-1. **Phase 7** — Remaining 2A timeframes (15m first, then 30m, 6h, 1d) + data-loop harden.
+1. **Phase 7** — Remaining timeframes after 15m datasets: 30m, 6h, 1d + data-loop harden.
+   15m complete-only ingest/publish/verify/catalog is shipped; it is not a strategy/paper/live clock.
 2. **Phase 7.1** — Fee-tier suggested defaults for research/paper (parallel-friendly).
 3. **Phase 8** — Multi-timeframe strategy semantics.
 4. **Phase 9** — Wider fail-closed indicator catalog.

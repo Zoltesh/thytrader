@@ -149,3 +149,34 @@ def test_missing_interval_starts_lists_absent_five_minute_bars() -> None:
         ends_at,
     )
     assert missing == (starts_at + timedelta(minutes=5),)
+
+
+def test_missing_interval_starts_lists_absent_fifteen_minute_bars() -> None:
+    """15m gap inspection lists missing starts without interpolating prices."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 28, 0, 45, tzinfo=UTC)
+    present = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+        Candle(
+            starts_at=starts_at + timedelta(minutes=30),
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    missing = missing_interval_starts(
+        present,
+        CandleInterval.FIFTEEN_MINUTES,
+        starts_at,
+        ends_at,
+    )
+    assert missing == (starts_at + timedelta(minutes=15),)

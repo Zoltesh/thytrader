@@ -9,6 +9,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.ops_contract import expected_ops_contract
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
@@ -163,11 +164,11 @@ class ExchangeReport(OperatorEnvelope):
 
 
 class MarketDataPayload(_FrozenModel):
-    """Durable 1h ingestion coverage for one product."""
+    """Durable ingestion coverage for one product and dataset timeframe."""
 
     product_id: str
     provider: str | None
-    timeframe: SupportedTimeframe = "1h"
+    timeframe: DatasetTimeframe = "1h"
     worker_status: str | None
     complete: bool | None
     freshness_status: str
@@ -374,7 +375,7 @@ class DatasetCoverageRow(_FrozenModel):
 
     provider: str | None
     product_id: str
-    timeframe: SupportedTimeframe
+    timeframe: DatasetTimeframe
     watched: bool
     lookback_hours: int | None
     worker_status: str | None
@@ -393,10 +394,10 @@ class DatasetCoverageRow(_FrozenModel):
 
 
 class DataCatalogPayload(_FrozenModel):
-    """Agent-visible dataset catalog for 1h and 5m coverage."""
+    """Agent-visible dataset catalog for 1h, 5m, and 15m coverage."""
 
     datasets: tuple[DatasetCoverageRow, ...]
-    supported_timeframes: tuple[SupportedTimeframe, ...] = ("1h", "5m")
+    supported_timeframes: tuple[DatasetTimeframe, ...] = DATASET_TIMEFRAMES
 
 
 class DataCatalogReport(OperatorEnvelope):

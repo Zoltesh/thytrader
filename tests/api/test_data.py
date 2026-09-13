@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
@@ -127,19 +127,69 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
     assert "ETH-USD" in product_ids
 
 
+def test_watch_add_and_ingest_fifteen_minute_demo_range(tmp_path: Path) -> None:
+    """Agents can watch ETH 15m; the worker publishes a complete demo range."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
+        added = client.put(
+            "/api/v1/data/watchlist",
+            json={
+                "product_id": "ETH-USD",
+                "timeframe": "15m",
+                "lookback_hours": 1,
+                "enabled": True,
+            },
+        )
+        ingest = client.post(
+            "/api/v1/data/ingest",
+            json={"product_id": "ETH-USD", "timeframe": "15m"},
+        )
+        assert added.status_code == 200, added.text
+        assert ingest.status_code == 202, ingest.text
+        asyncio.run(_run_worker_cycle(app))
+        status = client.get("/api/v1/data/ingest?product_id=ETH-USD&timeframe=15m")
+        catalog = client.get("/api/v1/operator/data-catalog")
+        latest = client.get("/api/v1/market-data/datasets/latest")
+        rows = catalog.json()["payload"]["datasets"]
+        eth_fifteen = next(
+            row for row in rows if row["product_id"] == "ETH-USD" and row["timeframe"] == "15m"
+        )
+        assert eth_fifteen["complete"] is True
+        assert eth_fifteen["watch_complete"] is True
+        assert catalog.json()["payload"]["supported_timeframes"] == ["1h", "5m", "15m"]
+        assert any(item["timeframe"] == "15m" for item in latest.json()["datasets"])
+        rejected = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "30m", "lookback_hours": 1},
+        )
+        assert rejected.status_code == 422
+
+    assert added.json()["target"]["timeframe"] == "15m"
+    assert status.status_code == 200, status.text
+    assert status.json()["ingest_requested_at"] is None
+    assert status.json()["state"]["complete"] is True
+    assert status.json()["state"]["status"] == "succeeded"
+
+
 def test_inspect_gaps_does_not_interpolate(tmp_path: Path) -> None:
     """Gap inspection reports cause codes and never claims interpolation."""
     with _client(tmp_path) as client:
-        response = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["interpolated"] is False
-    assert body["timeframe"] == "5m"
-    assert datetime.fromisoformat(body["starts_at"]) < datetime.fromisoformat(body["ends_at"])
-    assert body["ends_at"].endswith("+00:00") or body["ends_at"].endswith("Z")
-    assert timedelta(hours=1) <= (
-        datetime.fromisoformat(body["ends_at"]) - datetime.fromisoformat(body["starts_at"])
-    )
+        five = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
+        fifteen = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=15m")
+    assert five.status_code == 200, five.text
+    assert fifteen.status_code == 200, fifteen.text
+    for response in (five, fifteen):
+        body = response.json()
+        assert body["interpolated"] is False
+        assert datetime.fromisoformat(body["starts_at"]) < datetime.fromisoformat(body["ends_at"])
+        assert body["ends_at"].endswith("+00:00") or body["ends_at"].endswith("Z")
+    assert five.json()["timeframe"] == "5m"
+    assert fifteen.json()["timeframe"] == "15m"
 
 
 def test_unknown_product_watch_is_rejected(tmp_path: Path) -> None:

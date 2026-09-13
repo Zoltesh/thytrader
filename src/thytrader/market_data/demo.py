@@ -105,9 +105,10 @@ def _product(product_id: str, interval: CandleInterval) -> MarketProduct:
     if product is None or interval not in {
         CandleInterval.ONE_HOUR,
         CandleInterval.FIVE_MINUTES,
+        CandleInterval.FIFTEEN_MINUTES,
     }:
         raise ValueError(
-            "Demo market data only supports catalog USD products on 1h and 5m timeframes."
+            "Demo market data only supports catalog USD products on 1h, 5m, and 15m timeframes."
         )
     return product
 

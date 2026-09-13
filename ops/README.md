@@ -10,6 +10,6 @@ them here.
 
 Rebuild or restart the stack with `make run` from the repository root only when the user asked, or
 when operator health / HTTP reports a stale Compose image (version mismatch, ops-contract mismatch,
-or 404 on agent routes while `/health/ready` is 200). Apply migration `0016` as part of that rebuild.
+or 404 on agent routes while `/health/ready` is 200). Apply migration `0017` as part of that rebuild.
 
 See `AGENTS.md` in this folder for the hard stop.

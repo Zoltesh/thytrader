@@ -273,6 +273,17 @@ def test_audit_runtime_category_migration_follows_research() -> None:
     assert "ck_audit_events_category" in content
 
 
+def test_watchlist_fifteen_minute_migration_follows_ingest_jobs() -> None:
+    """The seventeenth migration must widen watchlist timeframes to 15m datasets."""
+    content = Path("alembic/versions/0017_watchlist_fifteen_minute_datasets.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0017"' in content
+    assert 'down_revision = "0016"' in content
+    assert "15m" in content
+    assert "ck_market_data_watchlist_timeframe" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

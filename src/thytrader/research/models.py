@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.models import CandleInterval, parse_candle_interval
 
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -318,6 +318,8 @@ def specification_bar_interval(specification: ResearchRunSpecification) -> Candl
     """Infer 1h or 5m from warmup spacing. Does not invent unsupported intervals."""
     span = specification.evaluation.starts_at - specification.warmup.starts_at
     for interval in CandleInterval:
+        if not interval.execution_supported:
+            continue
         if span == interval.duration * specification.warmup.bars:
             return interval
     raise ValueError(
@@ -327,7 +329,9 @@ def specification_bar_interval(specification: ResearchRunSpecification) -> Candl
 
 def warmup_starts_at(evaluation_starts_at: datetime, bars: int, timeframe: str) -> datetime:
     """Derive the warmup window start from one strategy timeframe."""
-    interval = CandleInterval(timeframe)
+    interval = parse_candle_interval(timeframe)
+    if not interval.execution_supported:
+        raise ValueError("warmup windows require a 1h or 5m strategy timeframe.")
     return evaluation_starts_at - interval.duration * bars
 
 

@@ -102,7 +102,7 @@ market_data_watchlist = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("ingest_requested_at", DateTime(timezone=True), nullable=True),
-    CheckConstraint("timeframe IN ('1h', '5m')", name="ck_market_data_watchlist_timeframe"),
+    CheckConstraint("timeframe IN ('1h', '5m', '15m')", name="ck_market_data_watchlist_timeframe"),
     CheckConstraint(
         "lookback_hours >= 1 AND lookback_hours <= 2160",
         name="ck_market_data_watchlist_lookback_hours",

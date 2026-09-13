@@ -121,7 +121,7 @@ async def get_operator_exchange(
 async def get_operator_market_data(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
     product_id: Annotated[str | None, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = None,
-    timeframe: Annotated[str, Query(pattern=r"^(1h|5m)$")] = "1h",
+    timeframe: Annotated[str, Query(pattern=r"^(1h|5m|15m)$")] = "1h",
 ) -> MarketDataReport:
     """Return freshness and gap evidence for one USD spot product and timeframe."""
     return await diagnostics.market_data_report(product_id, timeframe)

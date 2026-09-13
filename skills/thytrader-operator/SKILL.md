@@ -36,7 +36,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Health | `uv run thytrader-operator health` | `GET /api/v1/operator/health` |
 | Configuration | `uv run thytrader-operator configuration` | `GET /api/v1/operator/configuration` |
 | Exchange | `uv run thytrader-operator exchange` | `GET /api/v1/operator/exchange` |
-| Market data | `uv run thytrader-operator market-data [--product-id BTC-USD] [--timeframe 1h\|5m]` | `GET /api/v1/operator/market-data` |
+| Market data | `uv run thytrader-operator market-data [--product-id BTC-USD] [--timeframe 1h\|5m\|15m]` | `GET /api/v1/operator/market-data` |
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | Products | `uv run thytrader-operator products` | `GET /api/v1/operator/products` |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |

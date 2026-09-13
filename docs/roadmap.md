@@ -23,20 +23,19 @@ Completed capability checklist (Phases 0–6):
 
 Remote / SaaS exposure remains explicitly deprioritized.
 
-## Phase 7: Remaining market-data timeframes — 🚧 Next
+## Phase 7: Remaining market-data timeframes — 🚧 In progress
 
 Extend the same durable complete-only Parquet + manifest + verify contract beyond 1h/5m.
 
 ### Iterative slices (ship separately)
 
-1. **15m datasets** (next) — worker ingest/publish/verify/catalog + thin diagnostics. Same
-   complete-only rules; no candle interpolation. **Do not** silently widen strategy
-   `timeframe` enum or paper/live clocks to 15m in the same change (schema/runtime today:
-   strategy TF `1h`|`5m`, live `1h` only).
-2. **30m datasets**
-3. **6h datasets**
-4. **1d datasets**
-5. Harden agent data loops (`watch_complete` clarity, fewer stale Compose footguns).
+1. **15m datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
+   Same complete-only rules; no candle interpolation. Strategy `timeframe` and paper/live
+   clocks stay `1h`|`5m` (live `1h` only). 15m is not a research or execution clock.
+2. **30m datasets** — 📋 Planned
+3. **6h datasets** — 📋 Planned
+4. **1d datasets** — 📋 Planned
+5. Harden agent data loops (`watch_complete` clarity, fewer stale Compose footguns) — 📋 Planned
 
 **Exit gate:** each timeframe has verified fingerprint-addressed datasets usable as research
 inputs once strategy/runtime contracts explicitly allow that TF.
@@ -167,8 +166,9 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- Extend the same durable contract to 15m, 30m, 6h, and 1d under **Phase 7** (15m next
-  incremental slice). 5m research ingest and backtests are implemented.
+- Extend the same durable contract to 30m, 6h, and 1d under **Phase 7**. 5m research ingest
+  and backtests are implemented. 15m complete-only datasets are implemented (dataset-only;
+  not a strategy, paper, or live clock).
 - 5m live execution after paper on the same published 5m clock is proven (**Phase 13**).
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset

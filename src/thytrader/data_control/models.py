@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.models import (
+    DATASET_TIMEFRAME_PATTERN,
+    CandleInterval,
+    parse_candle_interval,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -36,7 +40,7 @@ class WatchTargetRequest(_FrozenModel):
     """Add or replace one ingestion watch target."""
 
     product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
-    timeframe: str = Field(pattern=r"^(1h|5m)$")
+    timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
     lookback_hours: int = Field(default=168, ge=1, le=2_160)
     enabled: bool = True
 
@@ -45,7 +49,7 @@ class IngestRequest(_FrozenModel):
     """Run one complete-only ingest for a watched or named target."""
 
     product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
-    timeframe: str = Field(pattern=r"^(1h|5m)$")
+    timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +61,7 @@ class GapObservation:
 
 
 def require_interval(value: str) -> CandleInterval:
-    """Parse 1h or 5m or fail closed."""
+    """Parse a dataset timeframe (1h, 5m, or 15m) or fail closed."""
     try:
         interval = parse_candle_interval(value)
     except ValueError as error:

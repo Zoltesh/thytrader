@@ -39,6 +39,24 @@ def test_demo_five_minute_range_is_complete() -> None:
     assert report.quality.gap_count == 0
 
 
+def test_demo_fifteen_minute_range_is_complete() -> None:
+    """Demo 15m ranges are complete synthetic bars, never interpolated."""
+    starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 8, 1, 1, tzinfo=UTC)
+    report = asyncio.run(
+        DemoMarketData().get_historical_range(
+            "ETH-USD",
+            CandleInterval.FIFTEEN_MINUTES,
+            starts_at,
+            ends_at,
+            datetime(2026, 8, 1, 2, tzinfo=UTC),
+        )
+    )
+    assert report.complete is True
+    assert report.requested_candle_count == 4
+    assert report.quality.gap_count == 0
+
+
 def test_demo_five_minute_range_covers_more_than_legacy_interval_cap() -> None:
     """Demo 5m history past 4,032 bars stays complete synthetic coverage, not interpolated."""
     starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)

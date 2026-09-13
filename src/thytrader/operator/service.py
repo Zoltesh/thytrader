@@ -14,7 +14,7 @@ from thytrader import __version__
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import Deployment, DeploymentMode, DeploymentStatus, OrderStatus
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
-from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
     MarketDataWatchlistStore,
@@ -778,7 +778,7 @@ class OperatorDiagnostics:
         payload = MarketDataPayload(
             product_id=product_id,
             provider=provider,
-            timeframe=interval.value,
+            timeframe=as_dataset_timeframe(interval),
             worker_status=state.status.value,
             complete=state.complete,
             freshness_status=freshness.status.value,
@@ -1254,7 +1254,7 @@ def _empty_market_data(
     return MarketDataPayload(
         product_id=product_id,
         provider=None,
-        timeframe=interval.value,
+        timeframe=as_dataset_timeframe(interval),
         worker_status=None,
         complete=None,
         freshness_status=freshness.value,
@@ -1551,7 +1551,7 @@ def _merge_coverage_rows(
 
 
 def _supported_timeframe_token(value: str) -> str | None:
-    """Return 1h or 5m, otherwise omit the catalog row."""
+    """Return a dataset timeframe token, otherwise omit the catalog row."""
     try:
         return parse_candle_interval(value).value
     except ValueError:
@@ -1604,7 +1604,7 @@ def _coverage_row(
     return DatasetCoverageRow(
         provider=provider,
         product_id=product_id,
-        timeframe=interval.value,
+        timeframe=as_dataset_timeframe(interval),
         watched=watched is not None and watched.enabled,
         lookback_hours=lookback_hours,
         worker_status=state.status.value if state is not None else None,
