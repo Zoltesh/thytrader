@@ -170,8 +170,10 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulation result')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
-	await expect(page.getByRole('button', { name: 'Reload list' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Refresh results' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: /Refresh published backtest results/ })
+	).toHaveCount(0);
 	await expect(
 		page.getByText(
 			'Historical evidence only · immutable published result · this page cannot submit orders or regenerate the run.'
@@ -670,7 +672,7 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBeNull();
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
-	await expect(page.getByRole('button', { name: 'Reload list' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
 });
 
 test('discloses a full newest-first page and can load older results', async ({ page }) => {

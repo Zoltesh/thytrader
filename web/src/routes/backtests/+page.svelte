@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { replaceState } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
@@ -103,24 +103,28 @@
 	}
 
 	function syncResultQuery(fingerprint: string | null): void {
-		const next =
-			fingerprint === null
-				? resolve('/backtests')
-				: resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`);
 		const current = `${page.url.pathname}${page.url.search}`;
-		if (next === current) return;
 		if (fingerprint === null) {
-			replaceState(resolve('/backtests'), {});
+			if (current === resolve('/backtests')) return;
+			void goto(resolve('/backtests'), { replaceState: true, keepFocus: true, noScroll: true });
 			return;
 		}
-		replaceState(resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`), {});
+		const next = resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`);
+		if (current === next) return;
+		void goto(resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`), {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true
+		});
 	}
 
 	function selectBacktest(fingerprint: string): void {
+		beginInspection(fingerprint);
 		syncResultQuery(fingerprint);
 	}
 
 	function clearSelection(): void {
+		resetInspection();
 		syncResultQuery(null);
 	}
 
