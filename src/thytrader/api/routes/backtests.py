@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -45,6 +45,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
+from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
@@ -84,11 +85,12 @@ class BacktestSubmissionResponse(BaseModel):
 
 
 class BacktestDetailResponse(BaseModel):
-    """One fully reverified immutable simulation result."""
+    """One fully reverified immutable simulation result plus published run costs."""
 
     model_config = ConfigDict(from_attributes=True)
     result: BacktestResult
     result_fingerprint: str
+    costs: CostAssumptions | None = None
 
 
 class BacktestBenchmarkResponse(BaseModel):
@@ -109,6 +111,26 @@ class BacktestErrorResponse(BaseModel):
     """FastAPI-compatible error envelope for backtest-result failures."""
 
     detail: BacktestErrorDetail
+
+
+@runtime_checkable
+class _BacktestSourceRunLoader(Protocol):
+    """Optional store capability used only to project published cost assumptions."""
+
+    async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
+        """Return the verified source run for one loaded result."""
+        ...
+
+
+async def _published_costs_projection(
+    store: BacktestResultReader,
+    result: BacktestResult,
+) -> CostAssumptions | None:
+    """Copy source-run CostAssumptions onto the HTTP wrapper without altering result identity."""
+    if not isinstance(store, _BacktestSourceRunLoader):
+        return None
+    specification = await store.load_source_specification(result)
+    return CostAssumptions.model_validate(specification.costs.model_dump(mode="python"))
 
 
 def _fingerprint_or_none(value: str | None) -> str | None:
@@ -304,6 +326,7 @@ async def get_backtest(
     try:
         result = await store.load(result_fingerprint)
         verified_result_fingerprint = backtest_result_fingerprint(result)
+        costs = await _published_costs_projection(store, result)
     except BacktestResultNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -336,7 +359,11 @@ async def get_backtest(
                 "message": "Backtest results are unavailable.",
             },
         )
-    return BacktestDetailResponse(result=result, result_fingerprint=result_fingerprint)
+    return BacktestDetailResponse(
+        result=result,
+        result_fingerprint=result_fingerprint,
+        costs=costs,
+    )
 
 
 def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryResponse:

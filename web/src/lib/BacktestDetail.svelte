@@ -3,7 +3,12 @@
 		backtestEquityPath,
 		compareDecimalStrings,
 		formatBrokerAssumptions,
+		formatEngineFillAssumptions,
+		formatFillFee,
 		formatPercent,
+		formatPublishedCosts,
+		formatSameBarPolicy,
+		formatSpreadCostNote,
 		shortFingerprint,
 		type BacktestBenchmark,
 		type BacktestDetail
@@ -30,6 +35,11 @@
 	const result = $derived(detail?.result ?? null);
 	const equityPath = $derived(
 		backtestEquityPath(result?.equity_curve.map((point) => point.equity) ?? [])
+	);
+	const spreadCostNote = $derived(
+		result
+			? formatSpreadCostNote(result.engine_contract_version, result.summary.total_spread_cost)
+			: null
 	);
 </script>
 
@@ -76,7 +86,7 @@
 			</article>
 			<article>
 				<small>Profit factor</small><strong>{result.summary.profit_factor ?? 'N/A'}</strong><span
-					>Stop-first same-bar policy</span
+					>{formatSameBarPolicy(result.engine_contract_version)}</span
 				>
 			</article>
 		</div>
@@ -139,20 +149,16 @@
 					>
 				</div>{/if}
 		</div>
-		<div class="assumptions">
+		<div class="assumptions" data-testid="modeled-assumptions">
 			<strong>Modeled assumptions</strong>
-			<span>{formatBrokerAssumptions(result.broker)}</span>
-			<small
-				>Long-only, one position · completed close → next-open taker fill · adverse fixed slippage ·
-				time exit before intrabar exits · stop first if stop and target collide · terminal force
-				close.</small
+			<span>{formatBrokerAssumptions(result.broker, result.engine_contract_version)}</span>
+			<span data-testid="published-costs"
+				>{formatPublishedCosts(detail.costs, result.engine_contract_version)}</span
 			>
-			{#if result.summary.total_spread_cost !== undefined && result.summary.total_spread_cost !== null}
-				<small
-					>Total modeled spread cost: {formatUsd(result.summary.total_spread_cost)}. This is a
-					disclosed stress assumption, not observed bid/ask data.</small
-				>
-			{/if}
+			<small data-testid="fill-assumptions"
+				>{formatEngineFillAssumptions(result.engine_contract_version)}</small
+			>
+			{#if spreadCostNote}<small>{spreadCostNote}</small>{/if}
 		</div>
 		<div class="equity-panel">
 			<div class="panel-heading">
@@ -170,7 +176,7 @@
 			<div class="panel-heading">
 				<div>
 					<h3>Trade ledger</h3>
-					<p>Exact modeled entry and exit fills</p>
+					<p>Modeled entry and exit fills (not venue fills)</p>
 				</div>
 				<span>{result.trades.length} closed {result.trades.length === 1 ? 'trade' : 'trades'}</span>
 			</div>
@@ -195,7 +201,7 @@
 											>{trade.exit.price}</small
 										></td
 									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td
-										>{formatUsd(trade.entry.fee)} / {formatUsd(trade.exit.fee)}</td
+										>{formatFillFee(trade.entry)} / {formatFillFee(trade.exit)}</td
 									><td
 										>{trade.entry.executable_side === 'ask' &&
 										trade.exit.executable_side === 'bid' &&

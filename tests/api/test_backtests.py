@@ -215,6 +215,24 @@ class InMemoryBacktestResultReader:
             raise BacktestResultNotFoundError("missing") from None
 
 
+class CostProjectingBacktestResultReader(InMemoryBacktestResultReader):
+    """In-memory reader that can project published CostAssumptions like Postgres."""
+
+    def __init__(
+        self,
+        results: tuple[BacktestResult, ...],
+        specification: ResearchRunSpecification,
+    ) -> None:
+        """Index results and keep the source run used for cost projection."""
+        super().__init__(results)
+        self._specification = specification
+
+    async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
+        """Return the fixture run without re-simulating."""
+        del result
+        return self._specification
+
+
 class MismatchedBacktestResultReader(InMemoryBacktestResultReader):
     """Reader that deliberately returns a valid result for the wrong requested identity."""
 
@@ -358,6 +376,31 @@ def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
     assert payload["summary"]["total_spread_cost"] == result.summary.total_spread_cost
     assert payload["trades"][0]["entry"]["executable_side"] == "ask"
     assert payload["trades"][0]["exit"]["executable_side"] == "bid"
+    assert detail_response.json()["costs"] is None
+
+
+def test_backtests_detail_projects_published_cost_assumptions() -> None:
+    """Detail HTTP wrapper exposes source-run costs without mutating canonical result bytes."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=CostProjectingBacktestResultReader((result,), specification),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/backtests/{fingerprint}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["costs"] == {
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "10",
+    }
+    assert "costs" not in payload["result"]
 
 
 def test_backtests_detail_rejects_mismatched_reader_identity() -> None:

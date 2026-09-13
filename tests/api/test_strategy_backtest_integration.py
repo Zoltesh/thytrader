@@ -88,6 +88,12 @@ def test_browser_strategy_workflow_publishes_and_reuses_immutable_backtest(
             assert detail.json()["result"]["run_fingerprint"] == run_fingerprint
             assert detail.json()["result"]["strategy_fingerprint"] == strategy_fingerprint
             assert detail.json()["result"]["dataset_fingerprint"] == manifest
+            assert detail.json()["costs"] == {
+                "maker_fee_rate": "0.001",
+                "taker_fee_rate": "0.002",
+                "fixed_slippage_bps": "10",
+            }
+            assert "costs" not in detail.json()["result"]
 
             second = client.post("/api/v1/backtests", json=request)
             assert second.status_code == 201, second.text

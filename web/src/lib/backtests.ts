@@ -1,10 +1,15 @@
 import {
 	compareDecimalStrings,
 	decimalChartGeometry,
-	formatPercent as formatExactPercent
+	formatPercent as formatExactPercent,
+	formatUsd
 } from './portfolio';
 
 export { compareDecimalStrings };
+
+const ENGINE_V1 = 'thytrader-bar-backtest-v1';
+const ENGINE_V2 = 'thytrader-bar-backtest-v2';
+const ENGINE_V3 = 'thytrader-bar-backtest-v3';
 
 export type BacktestSummary = {
 	initial_equity: string;
@@ -26,14 +31,21 @@ export type BacktestSummary = {
 	total_spread_cost?: string | null;
 };
 
-export type EngineContractVersion = 'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2';
+export type EngineContractVersion =
+	'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2' | 'thytrader-bar-backtest-v3';
 
 export type BrokerAssumptions = {
-	price_model: 'constant_spread_bps';
+	price_model: 'constant_spread_bps' | 'post_only_limit' | (string & {});
 	spread_bps: string;
-	fill_policy: 'full';
-	trigger_evaluation: 'bid_side';
-	equity_marking: 'bid_close';
+	fill_policy: 'full' | 'resting_limit' | (string & {});
+	trigger_evaluation: 'bid_side' | 'bar_extreme' | (string & {});
+	equity_marking: 'bid_close' | 'last_close' | (string & {});
+};
+
+export type CostAssumptions = {
+	maker_fee_rate?: string | null;
+	taker_fee_rate?: string | null;
+	fixed_slippage_bps?: string | null;
 };
 
 export type BacktestSummaryEntry = {
@@ -59,7 +71,7 @@ export type BacktestFill = {
 	quantity: string;
 	notional: string;
 	fee: string;
-	fee_rate: string;
+	fee_rate?: string | null;
 	reference_price?: string | null;
 	executable_side?: 'ask' | 'bid' | 'mark' | null;
 	spread_cost?: string | null;
@@ -99,6 +111,7 @@ export type BacktestResult = {
 export type BacktestDetail = {
 	result: BacktestResult;
 	result_fingerprint: string;
+	costs?: CostAssumptions | null;
 };
 
 export type BacktestBenchmark = {
@@ -157,9 +170,138 @@ export function shortFingerprint(fingerprint: string): string {
 	return `${fingerprint.slice(0, 16)}…${fingerprint.slice(-8)}`;
 }
 
-export function formatBrokerAssumptions(broker?: BrokerAssumptions | null): string {
-	if (!broker) return 'Legacy V1 mark-price execution; no modeled spread evidence was recorded.';
-	return `${broker.spread_bps} bps constant spread · ${broker.fill_policy} fills · ${broker.trigger_evaluation.replace('_', '-')} exits · ${broker.equity_marking.replace('_', '-')}`;
+function isRecordedDecimal(value: string | null | undefined): value is string {
+	return typeof value === 'string' && value.length > 0;
+}
+
+function formatPolicyToken(value: string): string {
+	return value.replaceAll('_', '-');
+}
+
+function formatDisplayFeeRate(rate: string): string {
+	try {
+		return formatPercent(rate);
+	} catch {
+		return rate;
+	}
+}
+
+export function formatBrokerAssumptions(
+	broker?: BrokerAssumptions | null,
+	engineContractVersion?: string | null
+): string {
+	const engine = engineContractVersion ?? '';
+	if (engine !== ENGINE_V1 && engine !== ENGINE_V2 && engine !== ENGINE_V3) {
+		return engine
+			? `Unknown engine contract ${engine}; broker assumptions are not labeled.`
+			: 'Engine contract is missing; broker assumptions are not labeled.';
+	}
+	if (engine === ENGINE_V1) {
+		if (broker) {
+			return 'Unexpected broker block on a V1 result; broker assumptions are not labeled.';
+		}
+		return 'V1 mark-price execution; no modeled spread evidence was recorded.';
+	}
+	if (!broker) {
+		return engine === ENGINE_V2
+			? 'V2 requires disclosed broker assumptions; none were recorded.'
+			: 'V3 requires disclosed post-only broker assumptions; none were recorded.';
+	}
+	if (engine === ENGINE_V2) {
+		if (broker.price_model !== 'constant_spread_bps') {
+			return `Unrecognized V2 price model ${broker.price_model}; broker assumptions are not labeled.`;
+		}
+		if (!isRecordedDecimal(broker.spread_bps)) {
+			return 'V2 constant-spread model is missing spread_bps; a spread is not labeled.';
+		}
+		return `${broker.spread_bps} bps constant spread · ${formatPolicyToken(broker.fill_policy)} fills · ${formatPolicyToken(broker.trigger_evaluation)} exits · ${formatPolicyToken(broker.equity_marking)}`;
+	}
+	if (broker.price_model !== 'post_only_limit') {
+		return `Unrecognized V3 price model ${broker.price_model}; broker assumptions are not labeled.`;
+	}
+	const fillPolicy = isRecordedDecimal(broker.fill_policy)
+		? formatPolicyToken(broker.fill_policy)
+		: 'unrecorded';
+	const trigger = isRecordedDecimal(broker.trigger_evaluation)
+		? formatPolicyToken(broker.trigger_evaluation)
+		: 'unrecorded';
+	const equity = isRecordedDecimal(broker.equity_marking)
+		? formatPolicyToken(broker.equity_marking)
+		: 'unrecorded';
+	return `post-only limit · ${fillPolicy} fills · ${trigger} triggers · ${equity} marking`;
+}
+
+export function formatEngineFillAssumptions(engineContractVersion?: string | null): string {
+	if (engineContractVersion === ENGINE_V1 || engineContractVersion === ENGINE_V2) {
+		return 'Long-only, one position · completed close → next-open taker fill · adverse fixed slippage · time exit before intrabar exits · stop first if stop and target collide · terminal force close.';
+	}
+	if (engineContractVersion === ENGINE_V3) {
+		return 'Long-only, one position · completed close rests a post-only buy at that close · later bar fills at the posted limit with maker fee and no modeled entry slippage · same-bar stop is a marketable taker fill · take-profit is not eligible on the fill bar · later bars may rest take-profit at the target with maker fee · time exit at close with taker fee · terminal force close.';
+	}
+	return engineContractVersion
+		? `Unknown engine contract ${engineContractVersion}; this page will not invent fill semantics.`
+		: 'Engine contract is missing; this page will not invent fill semantics.';
+}
+
+export function formatPublishedCosts(
+	costs?: CostAssumptions | null,
+	engineContractVersion?: string | null
+): string {
+	if (!costs) {
+		return 'Published maker/taker fee rates and fixed_slippage_bps are not included in this response.';
+	}
+	const maker = isRecordedDecimal(costs.maker_fee_rate)
+		? `maker ${formatDisplayFeeRate(costs.maker_fee_rate)}`
+		: 'maker fee not recorded';
+	const taker = isRecordedDecimal(costs.taker_fee_rate)
+		? `taker ${formatDisplayFeeRate(costs.taker_fee_rate)}`
+		: 'taker fee not recorded';
+	const slippage = isRecordedDecimal(costs.fixed_slippage_bps)
+		? `fixed slippage ${costs.fixed_slippage_bps} bps`
+		: 'fixed_slippage_bps not recorded';
+	const base = `${maker} · ${taker} · ${slippage} (published research-run CostAssumptions, not observed Coinbase fees)`;
+	if (engineContractVersion === ENGINE_V3 && isRecordedDecimal(costs.fixed_slippage_bps)) {
+		return `${base}. V3 modeled fills do not apply this slippage.`;
+	}
+	return base;
+}
+
+export function formatSpreadCostNote(
+	engineContractVersion: string | null | undefined,
+	totalSpreadCost: string | null | undefined
+): string | null {
+	if (engineContractVersion === ENGINE_V3) {
+		if (!isRecordedDecimal(totalSpreadCost)) return null;
+		return `Recorded spread cost: ${formatUsd(totalSpreadCost)}. V3 is not the constant-spread stress contract; this is not observed bid/ask data.`;
+	}
+	if (engineContractVersion === ENGINE_V2) {
+		if (!isRecordedDecimal(totalSpreadCost)) {
+			return 'Total modeled spread cost was not recorded on this result.';
+		}
+		return `Total modeled spread cost: ${formatUsd(totalSpreadCost)}. This is a disclosed stress assumption, not observed bid/ask data.`;
+	}
+	if (isRecordedDecimal(totalSpreadCost)) {
+		return `Total modeled spread cost: ${formatUsd(totalSpreadCost)}. This is a disclosed stress assumption, not observed bid/ask data.`;
+	}
+	return null;
+}
+
+export function formatSameBarPolicy(engineContractVersion?: string | null): string {
+	if (engineContractVersion === ENGINE_V1 || engineContractVersion === ENGINE_V2) {
+		return 'Stop-first same-bar policy';
+	}
+	if (engineContractVersion === ENGINE_V3) {
+		return 'Fill-bar stop; take-profit waits';
+	}
+	return 'Same-bar policy unlabeled';
+}
+
+export function formatFillFee(fill: Pick<BacktestFill, 'fee' | 'fee_rate'>): string {
+	const amount = formatUsd(fill.fee);
+	if (!isRecordedDecimal(fill.fee_rate)) {
+		return `${amount} (fee rate not recorded)`;
+	}
+	return `${amount} (${formatDisplayFeeRate(fill.fee_rate)})`;
 }
 
 export async function fetchBacktests(signal?: AbortSignal): Promise<BacktestList> {
