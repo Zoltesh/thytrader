@@ -834,3 +834,152 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
 });
+
+test('deploy tab shows accurate timeframe copy and blocks live 5m with visible reason', async ({
+	page
+}) => {
+	const fiveMinEntry = {
+		...publishedEntry,
+		timeframe: '5m'
+	};
+	await mockLibrary(page, [fiveMinEntry]);
+	const fiveMinDraft = { ...draft, timeframe: '5m', status: 'published' };
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: fiveMinDraft } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	await page.route('**/api/v1/deployments', async (route) =>
+		route.fulfill({ json: { deployments: [] } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Deploy' }).click();
+
+	await expect(page.getByText(/Paper:\s*1h or 5m.*Live:\s*1h only/i)).toBeVisible();
+
+	await page.getByLabel('Mode').selectOption('paper');
+	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();
+
+	await page.getByLabel('Mode').selectOption('live');
+	await expect(page.getByRole('button', { name: 'Arm live trading…' })).toBeDisabled();
+	await expect(page.getByText(/Live deployment requires 1h.*This strategy uses 5m/i)).toBeVisible();
+});
+
+test('live start button is visually distinct and confirms with fingerprint and timeframe', async ({
+	page
+}) => {
+	await mockLibrary(page, [publishedEntry]);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	await page.route('**/api/v1/deployments', async (route) =>
+		route.fulfill({ json: { deployments: [] } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Deploy' }).click();
+
+	await page.getByLabel('Mode').selectOption('paper');
+	const paperButton = page.getByRole('button', { name: 'Start deployment' });
+	await expect(paperButton).toBeVisible();
+	await expect(paperButton).not.toHaveClass(/live-danger/);
+
+	await page.getByLabel('Mode').selectOption('live');
+	const liveButton = page.getByRole('button', { name: 'Arm live trading…' });
+	await expect(liveButton).toBeVisible();
+	await expect(liveButton).toHaveClass(/live-danger/);
+
+	page.on('dialog', async (dialog) => {
+		expect(dialog.type()).toBe('confirm');
+		const message = dialog.message();
+		expect(message).toContain('ARM LIVE TRADING');
+		expect(message).toContain('REAL spot orders');
+		expect(message).toContain('Coinbase API keys');
+		expect(message).toContain('v1');
+		expect(message).toContain(fingerprint.slice(0, 32));
+		expect(message).toContain('1h');
+		expect(message).toContain('BTC-USD');
+		await dialog.dismiss();
+	});
+
+	await liveButton.click();
+	await page.waitForTimeout(100);
+});
+
+test('resuming a paused live deployment requires explicit confirmation', async ({ page }) => {
+	await mockLibrary(page, [publishedEntry]);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+
+	const liveDeployment = {
+		id: '01985cf0-7b60-7000-8000-000000000222',
+		strategy_fingerprint: fingerprint,
+		strategy_id: strategyId,
+		product_id: 'BTC-USD',
+		mode: 'live',
+		status: 'paused',
+		phase: 'flat',
+		cash: '10000',
+		paper_starting_cash: null,
+		last_evaluated_bar: '2026-08-14T12:00:00+00:00',
+		last_signal: null,
+		mismatch_detail: null,
+		pending_entry_bars: 0,
+		bars_held: 0,
+		created_at: '2026-08-14T12:00:00+00:00',
+		updated_at: '2026-08-14T13:00:00+00:00',
+		position: null,
+		orders: [],
+		fills: []
+	};
+
+	let resumeCalled = false;
+	await page.route('**/api/v1/deployments', async (route) =>
+		route.fulfill({ json: { deployments: [liveDeployment] } })
+	);
+	await page.route('**/api/v1/deployments/*/resume', async (route) => {
+		resumeCalled = true;
+		await route.fulfill({ json: { ...liveDeployment, status: 'running' } });
+	});
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await expect(page.getByRole('heading', { name: 'live · paused · flat' })).toBeVisible();
+
+	page.on('dialog', async (dialog) => {
+		expect(dialog.type()).toBe('confirm');
+		const message = dialog.message();
+		expect(message).toContain('RESUME LIVE TRADING');
+		expect(message).toContain('RE-ARM');
+		expect(message).toContain('Coinbase');
+		await dialog.dismiss();
+	});
+
+	await page.getByRole('button', { name: 'Resume' }).click();
+	await page.waitForTimeout(100);
+	expect(resumeCalled).toBe(false);
+});
