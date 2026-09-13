@@ -250,9 +250,9 @@
 			{/if}
 			{#if ingestionAvailability === 'ready' && ingestion?.coverage}
 				<strong
-					>{ingestion.status === 'succeeded' ? '' : 'Last verified coverage · '}{ingestion.fresh
-						? 'Fresh · complete'
-						: 'Stale · complete'}</strong
+					>{ingestion.status === 'succeeded' ? '' : 'Last verified coverage · '}{titleCase(
+						ingestion.freshness
+					)} · {ingestion.coverage_status.replace('_', ' ')}</strong
 				>
 				<span
 					>{ingestion.coverage.received_candle_count} /
@@ -260,12 +260,6 @@
 				>
 				<small>Fingerprint {ingestion.coverage.content_fingerprint.slice(0, 22)}…</small>
 				{#if ingestion.freshness && ingestion.coverage_status}
-					<strong
-						>{titleCase(ingestion.freshness)} · {ingestion.coverage_status.replace(
-							'_',
-							' '
-						)}</strong
-					>
 					{#if ingestion.dataset_revision > 0}
 						<span
 							>Revision {ingestion.dataset_revision} · {ingestion.maintenance_kind?.replace(
