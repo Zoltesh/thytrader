@@ -87,7 +87,7 @@ def _parser() -> argparse.ArgumentParser:
     market = subparsers.add_parser(
         "market-data",
         parents=[trailing],
-        help="1h, 5m, or 15m freshness and gap report.",
+        help="1h, 5m, 15m, or 30m freshness and gap report.",
     )
     market.add_argument(
         "--product-id",

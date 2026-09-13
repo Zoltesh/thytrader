@@ -151,6 +151,7 @@ _GRANULARITY_SECONDS = {
     "ONE_HOUR": 60 * 60,
     "FIVE_MINUTE": 5 * 60,
     "FIFTEEN_MINUTE": 15 * 60,
+    "THIRTY_MINUTE": 30 * 60,
 }
 
 
@@ -431,6 +432,37 @@ def test_coinbase_market_data_keeps_oldest_bar_on_full_fifteen_minute_page() -> 
             str(int(starts_at.timestamp())),
             str(int((starts_at + CandleInterval.FIFTEEN_MINUTES.duration * 349).timestamp())),
             "FIFTEEN_MINUTE",
+            350,
+        )
+    ]
+
+
+def test_coinbase_market_data_keeps_oldest_bar_on_full_thirty_minute_page() -> None:
+    """A 350-bar 30m page must not drop the first closed bar to Coinbase's newest-350 cap."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.THIRTY_MINUTES.duration * 350
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.THIRTY_MINUTES,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.THIRTY_MINUTES.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 350
+    assert report.quality.candle_count == 350
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.THIRTY_MINUTES.duration * 349).timestamp())),
+            "THIRTY_MINUTE",
             350,
         )
     ]

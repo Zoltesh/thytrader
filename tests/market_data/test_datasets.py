@@ -136,6 +136,24 @@ def test_dataset_store_writes_complete_fifteen_minute_range(tmp_path: Path) -> N
     assert loaded == candles
 
 
+def test_dataset_store_writes_complete_thirty_minute_range(tmp_path: Path) -> None:
+    """Thirty-minute complete ranges publish under the 30m partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(minutes=30 * index)) for index in range(3))
+    report = analyze_range(
+        candles,
+        CandleInterval.THIRTY_MINUTES,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=90),
+        now=starts_at + timedelta(minutes=120),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "30m"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "30m")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+
+
 def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:
     """Backtest callers can resolve exact typed candles from an immutable fingerprint."""
     store = DatasetStore(tmp_path)
