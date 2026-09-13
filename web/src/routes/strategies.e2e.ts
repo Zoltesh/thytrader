@@ -967,7 +967,11 @@ test('deploy tab shows accurate timeframe copy and blocks live 5m with visible r
 	await page.locator('table tbody tr').first().click();
 	await page.getByRole('tab', { name: 'Deploy' }).click();
 
-	await expect(page.getByText(/Paper:\s*1h or 5m.*Live:\s*1h only/i)).toBeVisible();
+	const deployCopy = page.getByRole('heading', { name: 'Deploy', exact: true }).locator('..');
+	await expect(deployCopy).toContainText('Paper:');
+	await expect(deployCopy).toContainText('1h or 5m');
+	await expect(deployCopy).toContainText('Live:');
+	await expect(deployCopy).toContainText('1h only');
 
 	await page.getByLabel('Mode').selectOption('paper');
 	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();
