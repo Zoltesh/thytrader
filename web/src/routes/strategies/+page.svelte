@@ -572,8 +572,15 @@
 
 	async function deployStrategy(): Promise<void> {
 		if (deployMode === 'live') {
+			const selectedVersion = publishedVersionsFor(viewEntry!).find(
+				(v) => v.strategy_fingerprint === deployFingerprint
+			);
+			const versionLabel = selectedVersion
+				? `v${selectedVersion.version}`
+				: deployFingerprint.slice(0, 18);
+			const timeframe = viewModel?.timeframe ?? viewEntry?.timeframe ?? '1h';
 			const confirmed = window.confirm(
-				'Start LIVE trading on Coinbase? This places real spot orders for the selected published version.'
+				`ARM LIVE TRADING on Coinbase?\n\nThis will place REAL spot orders using your Coinbase API keys.\n\nStrategy: ${viewEntry?.name ?? 'Unknown'}\nVersion: ${versionLabel}\nFingerprint: ${deployFingerprint.slice(0, 32)}...\nTimeframe: ${timeframe}\nMarket: ${viewEntry?.product_id ?? 'Unknown'}\n\nYou are solely responsible for all trades and market risk.`
 			);
 			if (!confirmed) return;
 		}
@@ -595,9 +602,16 @@
 	}
 
 	async function changeDeployment(id: string, action: 'pause' | 'resume' | 'stop'): Promise<void> {
+		const deployment = strategyDeployments.find((d) => d.id === id);
 		if (action === 'stop') {
 			const confirmed = window.confirm(
 				'Stop this deployment permanently? Resting orders will be canceled.'
+			);
+			if (!confirmed) return;
+		}
+		if (action === 'resume' && deployment?.mode === 'live') {
+			const confirmed = window.confirm(
+				'RESUME LIVE TRADING on Coinbase?\n\nThis will RE-ARM real spot order submission using your Coinbase API keys.\n\nYou are solely responsible for all trades and market risk.'
 			);
 			if (!confirmed) return;
 		}
@@ -1333,10 +1347,13 @@
 					>
 				{/if}
 			{:else if viewEntry && researchTab === 'deploy'}
+				{@const strategyTimeframe = viewModel?.timeframe ?? viewEntry.timeframe}
+				{@const isLiveBlocked = deployMode === 'live' && strategyTimeframe !== '1h'}
 				<div class="view-block">
 					<h3>Deploy</h3>
 					<p class="view-note">
-						Starts the 1h candle-close runtime. Paper simulates maker fills; live places Coinbase
+						Starts the strategy runtime on closed candles. <strong>Paper:</strong> 1h or 5m
+						(strategy clock); simulates maker fills. <strong>Live:</strong> 1h only; places real Coinbase
 						spot orders.
 					</p>
 					{#if publishedVersionsFor(viewEntry).length === 0}
@@ -1359,6 +1376,12 @@
 								</select></label
 							>
 						</div>
+						{#if isLiveBlocked}
+							<p class="view-problem" role="alert">
+								Live deployment requires 1h strategies. This strategy uses {strategyTimeframe} candles.
+								Paper deployments support 1h or 5m.
+							</p>
+						{/if}
 						{#if deployMode === 'paper'}
 							<label class="deploy-cash"
 								>Paper starting cash (USD)
@@ -1367,11 +1390,16 @@
 						{/if}
 						<button
 							class="launch-button"
+							class:live-danger={deployMode === 'live'}
 							type="button"
-							disabled={deploying || !deployFingerprint}
+							disabled={deploying || !deployFingerprint || isLiveBlocked}
 							onclick={() => void deployStrategy()}
 						>
-							{deploying ? 'Starting…' : 'Start deployment'}
+							{deploying
+								? 'Starting…'
+								: deployMode === 'live'
+									? 'Arm live trading…'
+									: 'Start deployment'}
 						</button>
 						{#if deployError}
 							<p class="view-problem" role="alert">{deployError}</p>
@@ -1863,6 +1891,14 @@
 		font: inherit;
 		font-size: 13px;
 		cursor: pointer;
+	}
+	.launch-button.live-danger {
+		background: #8c3636;
+		color: #ffe0e0;
+		font-weight: 600;
+	}
+	.launch-button.live-danger:hover:not(:disabled) {
+		background: #a54040;
 	}
 	.launch-button:disabled {
 		opacity: 0.55;
