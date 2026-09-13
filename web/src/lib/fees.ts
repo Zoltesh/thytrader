@@ -18,6 +18,20 @@ export interface FeeErrorResponse {
 	};
 }
 
+/**
+ * Format `FeeProfile.as_of` for the fees panel, or null when it is absent or invalid.
+ */
+export function formatFeeProfileAsOf(asOf: string): string | null {
+	if (asOf.trim() === '') {
+		return null;
+	}
+	const milliseconds = Date.parse(asOf);
+	if (!Number.isFinite(milliseconds)) {
+		return null;
+	}
+	return new Date(milliseconds).toLocaleString();
+}
+
 export async function fetchFeeProfile(): Promise<FeeProfile> {
 	const response = await fetch('/api/v1/fees', {
 		headers: { Accept: 'application/json' }

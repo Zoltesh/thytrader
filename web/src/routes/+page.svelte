@@ -19,7 +19,7 @@
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
-	import { fetchFeeProfile, type FeeProfile } from '$lib/fees';
+	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
 
 	let portfolio: Portfolio | null = $state(null);
 	let loading = $state(true);
@@ -309,6 +309,12 @@
 				<div>
 					<h2>Fee Tier & Costs</h2>
 					<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
+					{#if feeProfile}
+						{@const asOfLabel = formatFeeProfileAsOf(feeProfile.as_of)}
+						{#if asOfLabel !== null}
+							<p>As of <time datetime={feeProfile.as_of}>{asOfLabel}</time></p>
+						{/if}
+					{/if}
 				</div>
 				{#if feeProfile}
 					<span class="badge tier-badge">{feeProfile.fee_tier}</span>

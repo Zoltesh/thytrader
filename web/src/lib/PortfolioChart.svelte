@@ -1,6 +1,7 @@
 <script lang="ts">
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import {
+		formatConfiguredSamplingInterval,
 		formatUsd,
 		isHistoryStale,
 		portfolioChange,
@@ -44,14 +45,6 @@
 		entries.length > 0 ? new Date(entries[0].as_of).toLocaleString() : ''
 	);
 
-	function formatInterval(seconds: number): string {
-		/** Format a configured sampling interval without implying a fixed cadence. */
-		if (seconds % 3600 === 0) {
-			return `${seconds / 3600}h`;
-		}
-		return `${Math.round(seconds / 60)} min`;
-	}
-
 	function changeDirectionLabel(direction: 'gain' | 'loss' | 'flat'): string {
 		if (direction === 'gain') return 'up';
 		if (direction === 'loss') return 'down';
@@ -64,7 +57,7 @@
 		<div>
 			<h2>Portfolio history</h2>
 			<p>
-				{entries.length} sampled {entries.length === 1 ? 'snapshot' : 'snapshots'} · every {formatInterval(
+				{entries.length} sampled {entries.length === 1 ? 'snapshot' : 'snapshots'} · target interval {formatConfiguredSamplingInterval(
 					samplingIntervalSeconds
 				)}
 			</p>
