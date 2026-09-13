@@ -100,11 +100,13 @@ A normal `docker compose down` preserves PostgreSQL and immutable market-data vo
 
 Open `http://127.0.0.1:5175/strategies` after the local stack is healthy. The strategy library lists
 every strategy identity with its market and timeframe, latest version, draft/published/archived
-status, the newest backtest bound to any of its immutable versions, and its explicit paper/live
-status. Paper and live report `unavailable` because no execution runtime exists yet; the columns
-appear only after those runtimes deliver real status. From the library you can create the
-conservative reference draft, clone a published strategy into a fresh draft identity, import a
-complete strategy definition JSON as a new draft, and archive an immutable publication.
+status, the newest backtest bound to any of its immutable versions, and its paper/live column: newest
+deployment status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
+`unavailable` means no runtime of that mode, not a missing execution worker. Clicking a paper/live
+cell opens the existing inspector on Deploy. From the library you can create the conservative
+reference draft, clone a published strategy into a fresh draft identity (Clone stays ungated), import
+a complete strategy definition JSON as a new draft, and archive an immutable publication after
+confirming the latest published version and fingerprint.
 
 Draft and publication semantics are unchanged: saves carry an opaque revision and reject stale
 browser tabs rather than overwriting newer edits. The builder at `/strategies/{strategy_id}` opens
@@ -118,9 +120,9 @@ version and compares the latest result across versions; dataset and per-version 
 visible without hiding strategy evidence. **Validate & publish immutable version** (via
 `POST /api/v1/strategies/{strategy_id}/publish`) atomically consumes that mutable draft and records
 canonical strategy evidence; it does not start paper or live trading. A published version can be
-archived from the library: that appends a permanent archive marker and hides it from active
-selection without changing its fingerprint or canonical bytes. Backtests require a verified dataset
-fingerprint and remain deterministic research artifacts.
+archived from the library after confirmation: that appends a permanent archive marker and hides it
+from active selection without changing its fingerprint or canonical bytes. Backtests require a
+verified dataset fingerprint and remain deterministic research artifacts.
 
 The execution worker evaluates published paper and live deployments against closed 1h candles about
 every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
