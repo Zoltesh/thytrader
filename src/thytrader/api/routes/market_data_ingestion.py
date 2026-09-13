@@ -21,7 +21,7 @@ from thytrader.market_data.feed_state import (
 from thytrader.market_data.freshness import (
     evaluate_freshness,
 )
-from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.models import CandleInterval, DatasetTimeframe
 from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerStateStore,
@@ -69,7 +69,7 @@ class IngestionStateResponse(BaseModel):
 
     provider: str
     product_id: str
-    timeframe: Literal["1h", "5m"]
+    timeframe: DatasetTimeframe
     status: Literal["never_run", "running", "succeeded", "failed"]
     last_attempt_at: datetime | None
     last_success_at: datetime | None
@@ -128,7 +128,7 @@ async def get_market_data_freshness(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
-    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
+    timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> FreshnessResponse:
     """Return explicit market data freshness evaluated against newest verified candle."""
     now = datetime.now(UTC)
@@ -204,7 +204,7 @@ async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
-    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
+    timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> IngestionStateResponse:
     """Return durable ingestion evidence without initiating or mutating worker activity."""
     try:

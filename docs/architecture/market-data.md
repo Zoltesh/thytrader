@@ -25,7 +25,7 @@ consistency, and decimal exactness, and reports expected vs received candle coun
 binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One-hour watches stay
 `min(requested, 2,160 hours)` and cannot request ranges ending in the future.
 
-The worker maintains immutable, fingerprint-addressed 1h and 5m historical datasets. Initial
+The worker maintains immutable, fingerprint-addressed 1h, 5m, and 15m historical datasets. Initial
 backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
 are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
 island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
@@ -64,7 +64,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h` and `5m` for complete-only datasets, research, and **paper**; live remains `1h` |
+| Timeframe | `1h`, `5m`, and `15m` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h` |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -212,8 +212,10 @@ withdrawal, leverage, derivatives, or optimization authority.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Additional timeframes** — 5m research datasets and ingest are implemented; 15m, 30m, 6h, and 1d remain deferred.
-2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and 5m without weakening complete-only publication.
+1. **Additional timeframes** — 5m research datasets and 15m complete-only datasets (Phase 7 slice 1)
+   are implemented; 30m, 6h, and 1d remain planned Phase 7 slices. Strategy, paper, and live clocks
+   do not accept `15m`.
+2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, and 15m without weakening complete-only publication.
 3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

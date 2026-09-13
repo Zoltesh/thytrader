@@ -8,7 +8,7 @@ repository and release lifecycle, while API and worker processes provide fault a
 The diagram describes the **target system shape**, not a claim that every responsibility is already
 implemented. Today, the browser and HTTP API provide portfolio, market-data, strategy authoring,
 backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h). The portfolio worker takes
-snapshots; the market-data worker maintains verified 1h and 5m datasets; the execution worker evaluates
+snapshots; the market-data worker maintains verified 1h, 5m, and 15m datasets; the execution worker evaluates
 closed 1h or 5m candles and submits maker orders through a paper broker or Coinbase Advanced Trade REST v3.
 
 ```text

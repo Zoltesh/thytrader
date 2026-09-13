@@ -240,7 +240,7 @@ class InMemoryMarketDataWatchlistStore:
 
 
 def parse_watch_timeframe(value: str) -> CandleInterval:
-    """Parse 1h or 5m watchlist timeframes."""
+    """Parse 1h, 5m, or 15m watchlist timeframes."""
     try:
         return parse_candle_interval(value)
     except ValueError as error:

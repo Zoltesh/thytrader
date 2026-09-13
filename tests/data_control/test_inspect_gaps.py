@@ -104,6 +104,41 @@ def test_inspect_gaps_five_minute_thirty_day_lookback_is_not_clipped(tmp_path: P
     asyncio.run(exercise())
 
 
+def test_inspect_gaps_fifteen_minute_thirty_day_lookback_is_not_clipped(tmp_path: Path) -> None:
+    """A 720-hour 15m watch must classify the full 2,880-bar window."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="ETH-USD",
+                timeframe=CandleInterval.FIFTEEN_MINUTES,
+                lookback_hours=720,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        starts_at, ends_at, gaps, warning = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="ETH-USD",
+            timeframe="15m",
+            now=now,
+        )
+        assert ends_at - starts_at == timedelta(hours=720)
+        assert (ends_at - starts_at) // CandleInterval.FIFTEEN_MINUTES.duration == 2_880
+        assert len(gaps) == 2_880
+        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
+        assert warning is not None
+
+    asyncio.run(exercise())
+
+
 def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
     tmp_path: Path,
 ) -> None:
