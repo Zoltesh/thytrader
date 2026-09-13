@@ -2,7 +2,9 @@ import {
 	compareDecimalStrings,
 	decimalChartGeometry,
 	formatPercent as formatExactPercent,
-	formatUsd
+	formatUsd,
+	utcTimestampSeconds,
+	type HonestLinePoint
 } from './portfolio';
 
 export { compareDecimalStrings };
@@ -150,20 +152,55 @@ export function formatPercent(fraction: string): string {
 	return formatExactPercent(fraction);
 }
 
-export function backtestEquityPath(equities: readonly string[]): string {
-	/** Build a finite SVG path after exact decimal equity-range calculations. */
-	if (equities.length < 2) return '';
-	const { positions } = decimalChartGeometry(equities);
-	const width = 760;
-	const height = 180;
-	const padding = 26;
-	return positions
-		.map((position, index) => {
-			const x = padding + ((width - padding * 2) * index) / (positions.length - 1);
-			const y = height - padding - position * (height - padding * 2);
-			return `${x.toFixed(1)},${y.toFixed(1)}`;
-		})
-		.join(' ');
+export type BacktestEquitySample = {
+	time: number;
+	amount: string;
+	date: string;
+	value: number;
+};
+
+export type BacktestEquityChartModel = {
+	series: HonestLinePoint[];
+	samples: BacktestEquitySample[];
+	minAmount: string;
+	maxAmount: string;
+};
+
+const EMPTY_BACKTEST_EQUITY_MODEL: BacktestEquityChartModel = {
+	series: [],
+	samples: [],
+	minAmount: '0',
+	maxAmount: '0'
+};
+
+export function backtestEquityChartModel(points: readonly EquityPoint[]): BacktestEquityChartModel {
+	/** Build a time-ordered mark-to-model series; Y uses finite chart geometry only. */
+	const dated: Array<{ date: string; amount: string; time: number }> = [];
+	const usedTimes = new Set<number>();
+	for (const point of points) {
+		const time = utcTimestampSeconds(point.candle_starts_at);
+		if (time === null || usedTimes.has(time)) continue;
+		usedTimes.add(time);
+		dated.push({ date: point.candle_starts_at, amount: point.equity, time });
+	}
+	if (dated.length < 2) {
+		return EMPTY_BACKTEST_EQUITY_MODEL;
+	}
+	dated.sort((left, right) => left.time - right.time);
+
+	const { values, minAmount, maxAmount } = decimalChartGeometry(dated.map((entry) => entry.amount));
+	const samples: BacktestEquitySample[] = dated.map((entry, index) => ({
+		time: entry.time,
+		amount: entry.amount,
+		date: entry.date,
+		value: values[index] ?? 0
+	}));
+	return {
+		series: samples.map((sample) => ({ time: sample.time, value: sample.value })),
+		samples,
+		minAmount,
+		maxAmount
+	};
 }
 
 export function shortFingerprint(fingerprint: string): string {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const demoPortfolio = {
 	as_of: '2026-07-27T22:15:00Z',
@@ -29,6 +29,42 @@ const demoPortfolio = {
 	],
 	unvalued_assets: []
 };
+
+type HistorySnapshot = {
+	as_of: string;
+	total_value: { amount: string; currency: 'USD' };
+};
+
+function historyEntry(amount: string, asOf: string): HistorySnapshot {
+	return { as_of: asOf, total_value: { amount, currency: 'USD' } };
+}
+
+async function openPortfolioWithHistory(
+	page: Page,
+	history: { status: number } | { entries: HistorySnapshot[]; sampling_interval_seconds?: number }
+): Promise<void> {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({ json: demoPortfolio });
+	});
+	await page.route('**/api/v1/portfolio/history**', async (route) => {
+		if ('status' in history) {
+			await route.fulfill({
+				status: history.status,
+				json: { detail: { code: 'persistence_unavailable', message: 'unavailable' } }
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				entries: history.entries,
+				range: '24h',
+				sampling_interval_seconds: history.sampling_interval_seconds ?? 300
+			}
+		});
+	});
+	await page.goto('/');
+	await expect(page.getByRole('heading', { name: 'Portfolio history' })).toBeVisible();
+}
 
 test('shows a practical demo portfolio and detected extra permissions', async ({ page }) => {
 	await page.route('**/api/v1/portfolio', async (route) => {
@@ -426,4 +462,102 @@ test('shows controlled feed failure state when the feed endpoint fails', async (
 	await page.goto('/');
 
 	await expect(page.getByText('Feed: unavailable')).toBeVisible();
+});
+
+test('shows empty history copy and does not invent snapshots on refresh', async ({ page }) => {
+	await openPortfolioWithHistory(page, { entries: [] });
+
+	await expect(page.getByText('No snapshots exist in this range yet.')).toBeVisible();
+	await expect(
+		page.getByText(
+			'The worker records live portfolios automatically; Refresh never creates chart points.'
+		)
+	).toBeVisible();
+
+	await page.getByRole('button', { name: 'Refresh portfolio' }).click();
+
+	await expect(page.getByText('No snapshots exist in this range yet.')).toBeVisible();
+	await expect(page.getByTestId('portfolio-history-chart')).toHaveCount(0);
+});
+
+test('shows single-snapshot history copy until a line can be drawn', async ({ page }) => {
+	await openPortfolioWithHistory(page, {
+		entries: [historyEntry('100', '2026-07-27T10:00:00Z')]
+	});
+
+	await expect(page.getByText('One snapshot is available.')).toBeVisible();
+	await expect(
+		page.getByText('A line appears after the next successful scheduled observation.')
+	).toBeVisible();
+	await expect(page.getByTestId('portfolio-history-chart')).toHaveCount(0);
+});
+
+test('shows unavailable history copy when persistence is disabled', async ({ page }) => {
+	await openPortfolioWithHistory(page, { status: 503 });
+
+	await expect(
+		page.getByText('Portfolio history is unavailable on this installation.')
+	).toBeVisible();
+	await expect(
+		page.getByText('Start the full local stack to enable durable scheduled snapshots.')
+	).toBeVisible();
+});
+
+test('shows failed history copy when the history API errors', async ({ page }) => {
+	await openPortfolioWithHistory(page, { status: 502 });
+
+	await expect(page.getByText('Portfolio history could not be loaded.')).toBeVisible();
+	await expect(page.getByText('Try again after the API and worker report healthy.')).toBeVisible();
+});
+
+test('places history points by wall-clock time and notes an orphan post-gap snapshot', async ({
+	page
+}) => {
+	await openPortfolioWithHistory(page, {
+		entries: [
+			historyEntry('120', '2026-07-27T11:00:00Z'),
+			historyEntry('110', '2026-07-27T10:05:00Z'),
+			historyEntry('100', '2026-07-27T10:00:00Z')
+		]
+	});
+
+	const chart = page.getByTestId('portfolio-history-chart');
+	await expect(chart).toBeVisible();
+	await expect(chart.locator('canvas').first()).toBeVisible();
+	await expect(chart).toHaveAttribute('data-sample-count', '3');
+	await expect(chart).toHaveAttribute('data-has-gaps', 'true');
+	await expect(chart).toHaveAttribute('data-segment-count', '2');
+	const logicalBars = Number(await chart.getAttribute('data-logical-bar-count'));
+	const whitespace = Number(await chart.getAttribute('data-whitespace-count'));
+	expect(logicalBars).toBeGreaterThan(3);
+	expect(whitespace).toBeGreaterThan(0);
+	await expect(
+		page.getByText(
+			'Gaps indicate missed worker observations; the line is intentionally not interpolated.'
+		)
+	).toBeVisible();
+});
+
+test('does not show a gap note for contiguous snapshots', async ({ page }) => {
+	await openPortfolioWithHistory(page, {
+		entries: [
+			historyEntry('120', '2026-07-27T12:00:00Z'),
+			historyEntry('110', '2026-07-27T11:00:00Z'),
+			historyEntry('100', '2026-07-27T10:00:00Z')
+		],
+		sampling_interval_seconds: 3600
+	});
+
+	const chart = page.getByTestId('portfolio-history-chart');
+	await expect(chart).toBeVisible();
+	await expect(chart.locator('canvas').first()).toBeVisible();
+	await expect(chart).toHaveAttribute('data-has-gaps', 'false');
+	await expect(chart).toHaveAttribute('data-segment-count', '1');
+	await expect(chart).toHaveAttribute('data-sample-count', '3');
+	await expect(chart).toHaveAttribute('data-logical-bar-count', '3');
+	await expect(
+		page.getByText(
+			'Gaps indicate missed worker observations; the line is intentionally not interpolated.'
+		)
+	).toHaveCount(0);
 });

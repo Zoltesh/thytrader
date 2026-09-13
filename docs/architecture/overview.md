@@ -33,7 +33,7 @@ Execution worker ------------------------+
 
 - SvelteKit, Svelte 5, and strict TypeScript.
 - Desktop-first responsive interface.
-- TradingView Lightweight Charts is the preferred initial real-time charting library.
+- TradingView Lightweight Charts (canvas) renders portfolio history and backtest equity. Portfolio gaps stay visible on a wall-clock time scale with no Y interpolation; backtest equity is labeled as mark-to-model research evidence. Market-data diagnostics stay non-charted.
 - The browser never receives exchange secrets.
 - Typed clients should be generated from FastAPI's OpenAPI contract where practical.
 
