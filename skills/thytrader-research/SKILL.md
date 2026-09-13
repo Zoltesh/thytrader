@@ -25,6 +25,23 @@ coincides with a ready `/health/ready`, or when health stderr reports a version 
 mismatch (stale Compose image). Open the `ops/` workspace instead of
 the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
+## When to pick backtest engine V1 vs V2 vs V3
+
+These are **parallel research contracts**, not product releases. V3 does not obsolete V1 or V2.
+Each run fingerprints its engine; results stay comparable only within the same contract. Full
+semantics: `docs/architecture/backtest-simulation.md`. Do not confuse them with Coinbase Advanced
+Trade REST **v3** (live order API).
+
+| Engine | Use when | Not for |
+|---|---|---|
+| `thytrader-bar-backtest-v1` | Fast baseline: signal on close → fill at **next open** as marketable/taker-style (fixed slippage + taker fee). Good first pass and cheap compare. | Matching paper/live maker-limit behavior; spread-stress sweeps |
+| `thytrader-bar-backtest-v2` | Same event order as V1, plus explicit constant **`spread_bps` stress** (not observed Coinbase bid/ask). Compare the same strategy at 0 / 10 / 25 / 50 bps. `spread_bps=0` matches V1 economics. | Claiming live fill quality; maker-rest realism |
+| `thytrader-bar-backtest-v3` | Closest to **paper/live**: post-only limit at signal close, wait/cancel/reprice, maker fees on limits, taker on stops. Prefer when comparing to paper maker fills. | Spread-stress sweeps (no `spread_bps`); assuming V3 “replaces” older V1/V2 evidence |
+
+Default guidance for agents: pick the engine the user named; if they ask “compare to paper,” use V3;
+if they ask “does the idea survive friction,” use V2; if they want a quick smoke baseline, use V1.
+Never treat a backtest as a paper or live fill.
+
 ## Commands
 
 | Need | Command |
@@ -48,7 +65,8 @@ lists only backtest v1/v2 is a stale Compose image — rebuild with `make run`.
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
 supplied dates do not fit, the API returns 422 with a suggested ISO range. Do not invent a window
-that the catalog cannot cover.
+that the catalog cannot cover. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
+`…-v2`, or `…-v3`) per the table above.
 
 ## Confirmation
 
@@ -64,4 +82,4 @@ that the catalog cannot cover.
 - Archiving as part of this skill (out of scope)
 - Editing application source to change strategy or backtest semantics on a running instance
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests and paper; live deployments still require `1h`. Prefer `thytrader-bar-backtest-v3` when comparing to paper maker fills.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests and paper; live deployments still require `1h`.
