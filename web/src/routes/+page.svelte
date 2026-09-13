@@ -45,9 +45,6 @@
 	let feeProfile: FeeProfile | null = $state(null);
 	let feesLoading = $state(true);
 	let feesAvailability: 'ready' | 'unavailable' = $state('ready');
-	const feeAsOfLabel = $derived(
-		feeProfile === null ? null : formatFeeProfileAsOf(feeProfile.as_of)
-	);
 
 	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
@@ -312,8 +309,11 @@
 				<div>
 					<h2>Fee Tier & Costs</h2>
 					<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
-					{#if feeProfile !== null && feeAsOfLabel !== null}
-						<p>As of <time datetime={feeProfile.as_of}>{feeAsOfLabel}</time></p>
+					{#if feeProfile}
+						{@const asOfLabel = formatFeeProfileAsOf(feeProfile.as_of)}
+						{#if asOfLabel !== null}
+							<p>As of <time datetime={feeProfile.as_of}>{asOfLabel}</time></p>
+						{/if}
 					{/if}
 				</div>
 				{#if feeProfile}
