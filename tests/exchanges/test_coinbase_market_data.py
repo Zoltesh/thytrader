@@ -147,7 +147,11 @@ class StubCoinbaseMarketClient:
         )
 
 
-_GRANULARITY_SECONDS = {"ONE_HOUR": 60 * 60, "FIVE_MINUTE": 5 * 60}
+_GRANULARITY_SECONDS = {
+    "ONE_HOUR": 60 * 60,
+    "FIVE_MINUTE": 5 * 60,
+    "FIFTEEN_MINUTE": 15 * 60,
+}
 
 
 def _inclusive_epochs(start: str, end: str, granularity: str, limit: int) -> list[int]:
