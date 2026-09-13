@@ -27,25 +27,27 @@ const summary = {
 };
 
 test('shows a published backtest summary then its immutable detail', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						published_at: '2026-08-03T17:25:34Z',
-						summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -160,8 +162,25 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await page.goto('/backtests');
 	await expect(page.getByRole('heading', { name: 'Backtests', exact: true })).toBeVisible();
 	await expect(page.getByText('Published backtests')).toBeVisible();
+	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 1 (newest)');
+	await expect(page.getByTestId('backtest-list-engine')).toHaveText('thytrader-bar-backtest-v2');
+	await expect(page.getByTestId('backtest-list-spread')).toHaveText('spread $0.10 recorded');
+	await expect(page.getByTestId('backtest-list-published')).toHaveText('2026-08-03 17:25:34 UTC');
+	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
+	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: /Refresh published backtest results/ })
+	).toHaveCount(0);
+	await expect(
+		page.getByText(
+			'Historical evidence only · immutable published result · this page cannot submit orders or regenerate the run.'
+		)
+	).toBeVisible();
+	await expect(page.getByText('2026-08-01 03:00:00 UTC')).toBeVisible();
+	await expect(page.getByText('2026-08-01 04:00:00 UTC')).toBeVisible();
 	await expect(page.getByText('Modeled assumptions')).toBeVisible();
 	await expect(page.getByText('10 bps constant spread')).toBeVisible();
 	await expect(page.getByTestId('published-costs')).toContainText('maker 0.10%');
@@ -191,25 +210,27 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 		...summary,
 		total_spread_cost: null
 	};
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v3',
-						published_at: '2026-08-03T17:25:34Z',
-						summary: v3Summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v3',
+							published_at: '2026-08-03T17:25:34Z',
+							summary: v3Summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -300,6 +321,8 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 		});
 	});
 	await page.goto('/backtests');
+	await expect(page.getByTestId('backtest-list-engine')).toHaveText('thytrader-bar-backtest-v3');
+	await expect(page.getByTestId('backtest-list-spread')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulation result')).toBeVisible();
 	await expect(page.getByTestId('modeled-assumptions')).toContainText('post-only limit');
@@ -315,25 +338,27 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 });
 
 test('keeps immutable detail visible when the benchmark request fails', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						published_at: '2026-08-03T17:25:34Z',
-						summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -377,33 +402,36 @@ test('keeps immutable detail visible when the benchmark request fails', async ({
 });
 
 test('explains an empty result list', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({ json: { entries: [], limit: 50, offset: 0, returned: 0 } })
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) => route.fulfill({ json: { entries: [], limit: 50, offset: 0, returned: 0 } })
 	);
 	await page.goto('/backtests');
 	await expect(page.getByText('No backtest results are published yet.')).toBeVisible();
 });
 
 test('renders immutable detail before a slow benchmark finishes', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						published_at: '2026-08-03T17:25:34Z',
-						summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -447,25 +475,27 @@ test('renders immutable detail before a slow benchmark finishes', async ({ page 
 });
 
 test('shows distinct empty copy when a result has no equity observations', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						published_at: '2026-08-03T17:25:34Z',
-						summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -511,25 +541,27 @@ test('shows distinct empty copy when a result has no equity observations', async
 });
 
 test('shows single-point equity copy until a curve can be drawn', async ({ page }) => {
-	await page.route('**/api/v1/backtests', async (route) =>
-		route.fulfill({
-			json: {
-				entries: [
-					{
-						result_fingerprint: fingerprint,
-						run_fingerprint: runFingerprint,
-						strategy_fingerprint: strategyFingerprint,
-						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						published_at: '2026-08-03T17:25:34Z',
-						summary
-					}
-				],
-				limit: 50,
-				offset: 0,
-				returned: 1
-			}
-		})
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
 	);
 	await page.route('**/api/v1/backtests/**', async (route) => {
 		if (route.request().url().endsWith('/benchmark')) {
@@ -580,4 +612,105 @@ test('shows single-point equity copy until a curve can be drawn', async ({ page 
 		page.getByText('A curve appears when the result includes at least two evaluation boundaries.')
 	).toBeVisible();
 	await expect(page.getByTestId('backtest-equity-chart')).toHaveCount(0);
+});
+
+test('keeps ?result= in sync on select and clear', async ({ page }) => {
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) =>
+			route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit: 50,
+					offset: 0,
+					returned: 1
+				}
+			})
+	);
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					detail: { code: 'backtests_unavailable', message: 'Backtest benchmark is unavailable.' }
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [],
+					trades: []
+				}
+			}
+		});
+	});
+	await page.goto(`/backtests?result=${encodeURIComponent(fingerprint)}`);
+	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
+	await page.getByRole('button', { name: '← All backtests' }).click();
+	await expect(page.getByText('Published backtests')).toBeVisible();
+	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBeNull();
+	await page.getByRole('button', { name: /Inspect/ }).click();
+	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
+	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
+});
+
+test('discloses a full newest-first page and can load older results', async ({ page }) => {
+	const entries = Array.from({ length: 51 }, (_, index) => ({
+		result_fingerprint: `sha256:${index.toString(16).padStart(64, '0')}`,
+		run_fingerprint: runFingerprint,
+		strategy_fingerprint: strategyFingerprint,
+		dataset_fingerprint: datasetFingerprint,
+		engine_contract_version: 'thytrader-bar-backtest-v2',
+		published_at: '2026-08-03T17:25:34Z',
+		summary
+	}));
+	await page.route(
+		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
+		async (route) => {
+			const parsed = new URL(route.request().url());
+			const limit = Number(parsed.searchParams.get('limit') ?? '50');
+			const offset = Number(parsed.searchParams.get('offset') ?? '0');
+			const pageEntries = entries.slice(offset, offset + limit);
+			await route.fulfill({
+				json: {
+					entries: pageEntries,
+					limit,
+					offset,
+					returned: pageEntries.length
+				}
+			});
+		}
+	);
+	await page.goto('/backtests');
+	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 50 (newest)');
+	await expect(page.getByTestId('backtest-list-truncated')).toContainText(
+		'Older immutable results may exist'
+	);
+	await page.getByRole('button', { name: 'Older' }).click();
+	await expect(page.getByTestId('backtest-list-bound')).toHaveText(
+		'Showing 1 (newest-first, offset 50)'
+	);
+	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Newer' })).toBeEnabled();
 });

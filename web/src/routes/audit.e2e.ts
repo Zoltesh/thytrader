@@ -35,6 +35,11 @@ test('renders audit events list with categories, outcomes, and details', async (
 	await page.goto('/audit');
 
 	await expect(page.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
+	await expect(page.getByText('it is not the complete trail')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Latest 50' })).toBeVisible();
+	await expect(page.getByTestId('audit-list-bound')).toHaveText(
+		'Showing 2 (latest 50, newest first)'
+	);
 	await expect(page.getByText('portfolio_snapshot_recorded')).toBeVisible();
 	await expect(page.getByText('worker_started')).toBeVisible();
 	await expect(page.getByText('Snapshot recorded total_value=98542.17 USD')).toBeVisible();

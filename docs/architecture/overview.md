@@ -37,6 +37,7 @@ Execution worker ------------------------+
   content only. The context pill is a static environment label, not a health
   signal. Primary nav stays reachable on narrow desktop widths.
 - TradingView Lightweight Charts (canvas) renders portfolio history and backtest equity. Portfolio gaps stay visible on a wall-clock time scale with no Y interpolation; backtest equity is labeled as mark-to-model research evidence. Market-data diagnostics stay non-charted.
+- Backtest discovery discloses its newest-first page bound and deep-links an open immutable result with `?result=`. The audit trail UI labels its latest-50 bound so the page is not read as a complete archive.
 - The browser never receives exchange secrets.
 - Typed clients should be generated from FastAPI's OpenAPI contract where practical.
 

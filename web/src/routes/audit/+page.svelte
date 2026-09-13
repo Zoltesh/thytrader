@@ -1,21 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { fetchAuditEvents, type AuditEventItem } from '$lib/audit';
+	import { AUDIT_EVENT_LIST_LIMIT, fetchAuditEvents, type AuditEventItem } from '$lib/audit';
+	import { formatUtcTimestamp } from '$lib/time';
 
 	let events: AuditEventItem[] = $state([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	function formatUtcTimestamp(value: string): string {
-		/** Render an audit instant explicitly and deterministically in UTC. */
-		return `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
-	}
-
 	async function loadEvents(): Promise<void> {
 		loading = true;
 		error = null;
 		try {
-			events = await fetchAuditEvents(50);
+			events = await fetchAuditEvents(AUDIT_EVENT_LIST_LIMIT);
 		} catch (caught) {
 			events = [];
 			error = caught instanceof Error ? caught.message : 'Audit event storage is unavailable.';
@@ -40,6 +36,7 @@
 			<h1>Audit trail</h1>
 			<p class="lede">
 				Append-only operational history of worker snapshots, connections, and health transitions.
+				This page shows the latest {AUDIT_EVENT_LIST_LIMIT} events; it is not the complete trail.
 			</p>
 		</div>
 		<button class="refresh" type="button" onclick={loadEvents} disabled={loading}>
@@ -76,8 +73,10 @@
 		<section class="audit-panel">
 			<div class="panel-heading">
 				<div>
-					<h2>Recent Events</h2>
-					<p>{events.length} observations (newest first)</p>
+					<h2>Latest {AUDIT_EVENT_LIST_LIMIT}</h2>
+					<p data-testid="audit-list-bound">
+						Showing {events.length} (latest {AUDIT_EVENT_LIST_LIMIT}, newest first)
+					</p>
 				</div>
 			</div>
 			<div class="table-wrap">
