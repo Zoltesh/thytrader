@@ -13,11 +13,12 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Security and trading-risk baseline](security-and-risk.md)
-- [Delivery roadmap](roadmap.md)
+- [Delivery roadmap](roadmap.md) — Phases 0–6 shipped slice; **Phases 7–14** next for iterative Builder work
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — running-instance evidence against the 5m research–paper plan (stale Compose, 14-day clip, v3 422, 5m paper 409)
-- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — **planned** multi-TF, portfolio, orchestration, and YOLO opt-in (not shipped)
+- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (not shipped unless marked complete)
+- [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **planned** Phase 7.1 research/paper maker/taker prefill
 
 ## Document roles
 
