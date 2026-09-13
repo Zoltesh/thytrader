@@ -1,7 +1,7 @@
 # Agent-driven platform gap plan (2026-09-12)
 
-**Status: planned / proposed.** Nothing in this document is shipped unless the live
-roadmap or architecture docs already mark it complete.
+**Status: accepted as roadmap Phases 7–14 (planned / not shipped unless marked complete).**
+Definitive implementer sequence: [`docs/roadmap.md`](../roadmap.md).
 
 ## Intent
 
@@ -26,6 +26,8 @@ evidence are not that memory system.
 - Indicators: EMA, SMA, RSI, ATR, volume SMA only.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
+- Fee **tier visibility** shipped; fee-tier → research/paper **suggested defaults** planned
+  ([fee-tier plan](2026-09-13-fee-tier-research-defaults.md)).
 
 See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 
@@ -35,6 +37,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
 | Data coverage | 15m / 30m / 6h / 1d deferred; agents babysit watchlist → ingest → gaps |
+| Fee UX | Tier visible; not yet suggested defaults into research/paper |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
 | Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
 | Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
@@ -62,8 +65,6 @@ Design constraints (to implement later; not shipped):
 5. Authority boundaries between operator / data / research / runtime stay separate;
    YOLO does not collapse skills into one unrestricted trading agent.
 
-Document CLIs and skills as supporting both postures once the flag exists.
-
 ## Planned: Agent orchestration
 
 A higher-level orchestration skill (or playbook) should sequence:
@@ -73,18 +74,17 @@ A higher-level orchestration skill (or playbook) should sequence:
 while calling the existing CLIs. It must not grant live authority by inheritance.
 YOLO only changes confirmation friction inside allowed tiers.
 
-## Build order
+## Build order (roadmap Phases 7–14)
 
-1. Finish Phase 2A timeframes (15m, 30m, 6h, 1d) and harden the agent data loop
-   (`watch_complete` clarity, fewer stale-image footguns).
-2. Multi-timeframe strategy semantics (schema + engines for combined TFs).
-3. Widen the indicator catalog under the same fail-closed deterministic contract.
-4. Portfolio + risk-policy registry (multi-position, cross-strategy exposure,
-   capital allocation).
-5. Research rigor: walk-forward / OOS, templates, clearer engine-support matrix.
-6. Agent orchestration skill + YOLO opt-in (safe default; live hard-gated).
-7. Live extras (5m live, trailing, WS, OCO) after paper/restart/reconcile stays green.
-8. Memory / hindsight last.
+1. **Phase 7** — Remaining 2A timeframes (15m first, then 30m, 6h, 1d) + data-loop harden.
+2. **Phase 7.1** — Fee-tier suggested defaults for research/paper (parallel-friendly).
+3. **Phase 8** — Multi-timeframe strategy semantics.
+4. **Phase 9** — Wider fail-closed indicator catalog.
+5. **Phase 10** — Portfolio + risk-policy registry.
+6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
+7. **Phase 12** — Agent orchestration + YOLO opt-in.
+8. **Phase 13** — Live extras (5m live, trailing, WS, OCO).
+9. **Phase 14** — Memory / hindsight last.
 
 ## Non-goals (this plan)
 
@@ -95,7 +95,8 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 ## Related docs
 
-- `docs/roadmap.md` — capability waves pointer
+- `docs/roadmap.md` — definitive Phases 7–14
+- `docs/plans/2026-09-13-fee-tier-research-defaults.md` — fee default design
 - `docs/agent-integration.md` — safety model + planned YOLO
 - `docs/product/vision.md` — product principles and V1 scope
 - `docs/architecture/market-data.md`, `strategy-and-backtesting.md`,
