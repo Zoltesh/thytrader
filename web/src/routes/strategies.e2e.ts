@@ -132,6 +132,41 @@ test('lists every strategy with market, version, status, backtest, and paper/liv
 	await expect(page.getByRole('link', { name: /8\.50% · 5 trades/ })).toBeVisible();
 });
 
+test('research window hint names the strategy timeframe instead of UTC hours', async ({ page }) => {
+	const fiveMinEntry = { ...publishedEntry, timeframe: '5m' };
+	await mockLibrary(page, [fiveMinEntry]);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, timeframe: '5m', status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	await page.route('**/api/v1/market-data/datasets/latest', async (route) =>
+		route.fulfill({
+			json: {
+				datasets: [
+					{
+						product_id: 'BTC-USD',
+						starts_at: '2026-06-01T00:00:00Z',
+						ends_at: '2026-08-01T00:00:00Z',
+						content_fingerprint: `sha256:${'f'.repeat(64)}`
+					}
+				]
+			}
+		})
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(page.getByText(/\(UTC, 5m bars\)/)).toBeVisible();
+	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
+});
+
 test('links the latest backtest result to the backtests detail view', async ({ page }) => {
 	await mockLibrary(page, [publishedEntry]);
 	await page.goto('/strategies');
@@ -400,6 +435,15 @@ test('versions tab lists history, exports, diffs, and revises into draft v2', as
 	await expect(diffTable.getByText('Recovered BTC trend draft')).toBeVisible();
 	await expect(diffTable.getByText('Renamed trend draft')).toBeVisible();
 
+	// Same From/To is a selection problem, not a load failure.
+	await page.getByLabel('To version').selectOption('1');
+	await expect(page.getByText('Select two different versions to compare.')).toBeVisible();
+	await expect(
+		page.getByText('Could not load the selected versions for comparison.')
+	).not.toBeVisible();
+	await page.getByLabel('To version').selectOption('2');
+	await expect(diffTable).toBeVisible();
+
 	// Edit into next draft creates draft v3 on the same identity.
 	await page
 		.getByRole('table', { name: 'Published version history' })
@@ -408,6 +452,65 @@ test('versions tab lists history, exports, diffs, and revises into draft v2', as
 		.click();
 	await expect.poll(() => reviseFingerprint).toBe(fingerprint);
 	await expect(page.getByRole('alert')).not.toBeVisible();
+});
+
+test('semantic diff reports a load error only when version fetch fails', async ({ page }) => {
+	const secondFingerprint = `sha256:${'c'.repeat(64)}`;
+	const versionsEntry = {
+		...publishedEntry,
+		latest_version: 2,
+		latest_fingerprint: secondFingerprint,
+		published_versions: [
+			{ version: 1, strategy_fingerprint: fingerprint },
+			{ version: 2, strategy_fingerprint: secondFingerprint }
+		]
+	};
+	await mockLibrary(page, [versionsEntry]);
+	await page.route(`**/api/v1/strategies/${versionsEntry.strategy_id}/history`, async (route) =>
+		route.fulfill({
+			json: {
+				strategy_id: versionsEntry.strategy_id,
+				latest_version: 2,
+				next_version: 3,
+				versions: [
+					{
+						version: 1,
+						strategy_fingerprint: fingerprint,
+						published: true,
+						archived: false,
+						archived_at: null,
+						backtest: null
+					},
+					{
+						version: 2,
+						strategy_fingerprint: secondFingerprint,
+						published: true,
+						archived: false,
+						archived_at: null,
+						backtest: null
+					}
+				],
+				draft: null
+			}
+		})
+	);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await expect(page.getByText('Plain-English summary')).toBeVisible();
+
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ status: 500, json: { detail: 'source unavailable' } })
+	);
+	await page.getByRole('tab', { name: 'Versions' }).click();
+	await expect(
+		page.getByText('Could not load the selected versions for comparison.')
+	).toBeVisible();
+	await expect(page.getByText('Select two different versions to compare.')).toHaveCount(0);
 });
 
 test('research tab launches a backtest with engine and spread and lists version results', async ({
@@ -523,6 +626,8 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(page.getByRole('table', { name: 'Latest result comparison' })).toBeVisible();
 	await expect(page.getByLabel('Strategy version')).toHaveValue(secondFingerprint);
 	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
+	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 
 	// Fill launch form with V2 + spread and submit.
 	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v2');

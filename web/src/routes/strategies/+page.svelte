@@ -17,6 +17,7 @@
 		listDatasets,
 		listStrategies,
 		parseUtcInputValue,
+		researchWindowHint,
 		reviseStrategy,
 		submitBacktest,
 		toBuilderModel,
@@ -346,7 +347,11 @@
 	function launchWindowHint(): string | null {
 		const bounds = launchWindowBounds();
 		if (bounds === null) return null;
-		return `Usable window for this dataset: ${bounds.min.replace('T', ' ')} → ${bounds.max.replace('T', ' ')} (UTC hours). It must fit inside the dataset with ${viewModel?.warmup_bars ?? 0} warmup bars before it and one candle after it.`;
+		return researchWindowHint(
+			bounds,
+			viewModel?.warmup_bars ?? 0,
+			viewModel?.timeframe ?? viewEntry?.timeframe ?? '1h'
+		);
 	}
 
 	async function loadVersionHistory(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
@@ -393,24 +398,31 @@
 		return model;
 	}
 
-	async function currentDiff(): Promise<SemanticDiff | null> {
-		if (!viewEntry || !versionHistory) return null;
+	type SemanticDiffView =
+		| { status: 'same-version' }
+		| { status: 'unavailable' }
+		| { status: 'ready'; diff: SemanticDiff };
+
+	async function currentDiff(): Promise<SemanticDiffView> {
+		if (!viewEntry || !versionHistory) return { status: 'unavailable' };
 		const fromVersion = versionHistory.versions.find(
-			(version) => version.version === diffSelection.from
+			(version) => version.version === Number(diffSelection.from)
 		);
 		const toVersion = versionHistory.versions.find(
-			(version) => version.version === diffSelection.to
+			(version) => version.version === Number(diffSelection.to)
 		);
-		if (fromVersion === undefined || toVersion === undefined) return null;
-		if (diffSelection.from === diffSelection.to) return null;
+		if (fromVersion === undefined || toVersion === undefined) return { status: 'unavailable' };
+		if (Number(diffSelection.from) === Number(diffSelection.to)) {
+			return { status: 'same-version' };
+		}
 		try {
 			const [before, after] = await Promise.all([
 				loadDiffModel(viewEntry, fromVersion.strategy_fingerprint),
 				loadDiffModel(viewEntry, toVersion.strategy_fingerprint)
 			]);
-			return semanticDiff(before, after);
+			return { status: 'ready', diff: semanticDiff(before, after) };
 		} catch {
-			return null;
+			return { status: 'unavailable' };
 		}
 	}
 
@@ -1307,15 +1319,17 @@
 							</div>
 							{#await currentDiff()}
 								<p class="view-note">Comparing versions…</p>
-							{:then diff}
-								{#if diff === null}
+							{:then result}
+								{#if result.status === 'same-version'}
+									<p class="view-note">Select two different versions to compare.</p>
+								{:else if result.status === 'unavailable'}
 									<p class="view-problem" role="alert">
 										Could not load the selected versions for comparison.
 									</p>
-								{:else if diff.changes.length === 0}
+								{:else if result.status === 'ready' && result.diff.changes.length === 0}
 									<p class="view-note">These versions are semantically equivalent.</p>
-								{:else}
-									<p class="view-note">{diff.summary}</p>
+								{:else if result.status === 'ready'}
+									<p class="view-note">{result.diff.summary}</p>
 									<table class="results-table diff-table" aria-label="Semantic diff">
 										<thead>
 											<tr>
@@ -1325,7 +1339,7 @@
 											</tr>
 										</thead>
 										<tbody>
-											{#each diff.changes as change (change.path + change.kind)}
+											{#each result.diff.changes as change (change.path + change.kind)}
 												<tr>
 													<td>{change.label}</td>
 													<td><code>{change.from === '' ? '—' : change.from}</code></td>
