@@ -237,12 +237,15 @@ def test_reference_strategy_has_stable_canonical_fingerprint() -> None:
 
 
 def test_strategy_accepts_five_minute_research_timeframe() -> None:
-    """Research strategies may bind 5m datasets; 15m remains unsupported."""
+    """Research strategies may bind 5m datasets; 15m and 30m remain unsupported."""
     payload = reference_payload()
     payload["timeframe"] = "5m"
     definition = StrategyDefinition.model_validate(payload)
     assert definition.timeframe == "5m"
     payload["timeframe"] = "15m"
+    with pytest.raises(ValidationError):
+        StrategyDefinition.model_validate(payload)
+    payload["timeframe"] = "30m"
     with pytest.raises(ValidationError):
         StrategyDefinition.model_validate(payload)
 

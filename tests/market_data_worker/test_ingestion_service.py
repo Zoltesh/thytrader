@@ -283,6 +283,67 @@ def test_ingest_once_publishes_complete_fifteen_minute_range(tmp_path: Path) -> 
     asyncio.run(exercise())
 
 
+def test_ingest_once_publishes_complete_thirty_minute_range(tmp_path: Path) -> None:
+    """Thirty-minute ingest uses get_range and writes under the 30m partition."""
+
+    class _ThirtyMinuteService:
+        """Stub that only implements the multi-interval range boundary."""
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
+
+        async def get_range(
+            self,
+            product_id: str,
+            timeframe: CandleInterval,
+            starts_at: datetime,
+            ends_at: datetime,
+            now: datetime,
+        ) -> CandleRangeReport:
+            """Return a complete 30m range for the requested window."""
+            self.requests.append((product_id, timeframe, starts_at, ends_at))
+            count = int((ends_at - starts_at) / timeframe.duration)
+            candles = tuple(
+                Candle(
+                    starts_at=starts_at + timeframe.duration * index,
+                    open=Decimal("100"),
+                    high=Decimal("110"),
+                    low=Decimal("90"),
+                    close=Decimal("105"),
+                    volume=Decimal("12.5"),
+                )
+                for index in range(count)
+            )
+            return analyze_range(candles, timeframe, starts_at, ends_at, now=now)
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 2, 30, tzinfo=UTC)
+        service = _ThirtyMinuteService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=1,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=CandleInterval.THIRTY_MINUTES,
+        )
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.THIRTY_MINUTES)
+        assert state is not None
+        assert state.complete is True
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert service.requests[0][1] is CandleInterval.THIRTY_MINUTES
+        manifests = tuple((tmp_path / "manifests").glob("*.json"))
+        assert len(manifests) == 1
+        assert "30m" in manifests[0].read_text()
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert verified[0].starts_at == ends_at - timedelta(hours=1)
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_rejects_unrepresentable_initial_range(tmp_path: Path) -> None:
     """A minimum-date initial backfill must fail as a controlled worker error."""
 
@@ -1367,6 +1428,39 @@ def test_fifteen_minute_backfill_skips_incomplete_day_without_interpolation(
         assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
         assert state.covered_ends_at == ends_at
         assert state.expected_candle_count == 96
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert all(candle.starts_at != hole for candle in verified)
+
+    asyncio.run(exercise())
+
+
+def test_thirty_minute_backfill_skips_incomplete_day_without_interpolation(
+    tmp_path: Path,
+) -> None:
+    """A missing 30m bar must not be synthesized; later complete days still publish."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
+        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
+        service = _CompleteWindowService(missing=frozenset({hole}))
+        state_store = InMemoryMarketDataWorkerStateStore()
+
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=48,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=CandleInterval.THIRTY_MINUTES,
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.THIRTY_MINUTES)
+        assert state is not None
+        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_ends_at == ends_at
+        assert state.expected_candle_count == 48
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
 
