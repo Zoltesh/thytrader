@@ -83,7 +83,7 @@ shutdown released every project port and left no running project container.
 - Account balances, portfolio valuation (Decimal-precise), and demo fallback.
 - Scheduled snapshot worker: startup observation, configurable interval, demo skip, error retry.
 - Persisted portfolio valuation history with append-only snapshots.
-- Read-only history chart with range filtering (24H/7D/30D/All), gain/loss, gap handling, and freshness.
+- Read-only history chart with range filtering (24H/7D/30D/All), gain/loss, gap handling, and freshness. Portfolio history and backtest equity use TradingView Lightweight Charts; missed snapshot duration stays visible and is not interpolated.
 - Dashboard with connection status, staleness indicators, and redacted diagnostics.
 - API `/health/ready` and `/health/live` endpoints.
 - Secret redaction in logs, test fixtures, and API responses.

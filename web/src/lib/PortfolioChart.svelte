@@ -1,10 +1,10 @@
 <script lang="ts">
+	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import {
-		chartData,
-		chartSegments,
 		formatUsd,
 		isHistoryStale,
 		portfolioChange,
+		portfolioHistoryChartModel,
 		type HistoryEntry,
 		type HistoryRange
 	} from '$lib/portfolio';
@@ -27,35 +27,21 @@
 		onRangeChange: (range: HistoryRange) => void;
 	} = $props();
 
-	let highlightedIndex = $state<number | null>(null);
-
 	const ranges: { value: HistoryRange; label: string }[] = [
 		{ value: '24h', label: '24H' },
 		{ value: '7d', label: '7D' },
 		{ value: '30d', label: '30D' },
 		{ value: 'all', label: 'All' }
 	];
-	const width = 760;
-	const height = 220;
-	const padding = 40;
 	const chartEntries = $derived([...entries].reverse());
-	const data = $derived(chartData(chartEntries, width, height, padding, samplingIntervalSeconds));
-	const segments = $derived(chartSegments(data));
+	const model = $derived(portfolioHistoryChartModel(chartEntries, samplingIntervalSeconds));
 	const current = $derived(entries.length > 0 ? entries[0].total_value.amount : '0');
-	const high = $derived(data.maxAmount);
-	const low = $derived(data.minAmount);
+	const high = $derived(model.maxAmount);
+	const low = $derived(model.minAmount);
 	const change = $derived(portfolioChange(entries));
 	const workerStale = $derived(isHistoryStale(entries, samplingIntervalSeconds));
 	const latestSnapshot = $derived(
 		entries.length > 0 ? new Date(entries[0].as_of).toLocaleString() : ''
-	);
-	const firstDate = $derived(
-		chartEntries.length > 0 ? new Date(chartEntries[0].as_of).toLocaleString() : ''
-	);
-	const lastDate = $derived(
-		chartEntries.length > 0
-			? new Date(chartEntries[chartEntries.length - 1].as_of).toLocaleString()
-			: ''
 	);
 
 	function formatInterval(seconds: number): string {
@@ -64,6 +50,12 @@
 			return `${seconds / 3600}h`;
 		}
 		return `${Math.round(seconds / 60)} min`;
+	}
+
+	function changeDirectionLabel(direction: 'gain' | 'loss' | 'flat'): string {
+		if (direction === 'gain') return 'up';
+		if (direction === 'loss') return 'down';
+		return 'unchanged';
 	}
 </script>
 
@@ -110,7 +102,7 @@
 					class:loss={change.direction === 'loss'}
 					class="stat change"
 				>
-					<small>Range change</small>
+					<small>Range change ({changeDirectionLabel(change.direction)})</small>
 					<strong
 						>{change.direction === 'gain' ? '+' : change.direction === 'loss' ? '−' : ''}{formatUsd(
 							change.amount.startsWith('-') ? change.amount.slice(1) : change.amount
@@ -148,54 +140,16 @@
 		</div>
 	{:else}
 		<div class="chart-area">
-			<svg viewBox="0 0 {width} {height}" class="chart" aria-label="Portfolio value over time">
-				{#each [0, 0.25, 0.5, 0.75, 1] as tick (tick)}
-					<line
-						x1={padding}
-						y1={padding + (height - padding * 2) * tick}
-						x2={width - padding}
-						y2={padding + (height - padding * 2) * tick}
-						stroke="#1d2426"
-						stroke-width="1"
-					/>
-				{/each}
-				{#each segments as segment (segment)}
-					<polyline points={segment} fill="none" stroke="#5ce1b5" stroke-width="2.5" />
-				{/each}
-				{#each data.coordinates as point, index (point.date)}
-					<circle
-						cx={point.x}
-						cy={point.y}
-						r={highlightedIndex === index ? 5 : 3}
-						fill="#5ce1b5"
-						role="button"
-						tabindex="0"
-						aria-label={`${formatUsd(point.amount)} at ${new Date(point.date).toLocaleString()}`}
-						onmouseenter={() => (highlightedIndex = index)}
-						onmouseleave={() => (highlightedIndex = null)}
-						onfocus={() => (highlightedIndex = index)}
-						onblur={() => (highlightedIndex = null)}
-					/>
-				{/each}
-				{#if highlightedIndex !== null && data.coordinates[highlightedIndex]}
-					{@const point = data.coordinates[highlightedIndex]}
-					<g
-						class="tooltip"
-						pointer-events="none"
-						transform="translate({point.x}, {Math.max(20, point.y - 14)})"
-					>
-						<rect x="-85" y="-30" width="170" height="28" rx="4" />
-						<text text-anchor="middle" y="-12"
-							>{formatUsd(point.amount)} · {new Date(point.date).toLocaleString()}</text
-						>
-					</g>
-				{/if}
-				<text x={padding} y={height - 10} class="axis-label">{firstDate}</text>
-				<text x={width - padding} y={height - 10} text-anchor="end" class="axis-label"
-					>{lastDate}</text
-				>
-			</svg>
-			{#if segments.length > 1}<p class="gap-note">
+			<LightweightLineChart
+				series={model.series}
+				samples={model.samples}
+				height={220}
+				pointMarkers={true}
+				hasGaps={model.hasGaps}
+				ariaLabel="Portfolio value over time"
+				testId="portfolio-history-chart"
+			/>
+			{#if model.hasGaps}<p class="gap-note">
 					Gaps indicate missed worker observations; the line is intentionally not interpolated.
 				</p>{/if}
 		</div>
@@ -251,8 +205,7 @@
 		background: #263436;
 		color: #b8e8d8;
 	}
-	.range-controls button:focus-visible,
-	circle:focus-visible {
+	.range-controls button:focus-visible {
 		outline: 2px solid #b8e8d8;
 		outline-offset: 2px;
 	}
@@ -312,14 +265,6 @@
 	.chart-area {
 		padding: 20px 24px;
 	}
-	.chart {
-		width: 100%;
-		height: auto;
-		display: block;
-	}
-	.chart circle {
-		cursor: crosshair;
-	}
 	.chart-empty {
 		padding: 40px 24px;
 		text-align: center;
@@ -332,26 +277,6 @@
 	.chart-empty small {
 		color: #697578;
 		font-size: 12px;
-	}
-	.axis-label {
-		fill: #657174;
-		font:
-			10px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-	}
-	.tooltip rect {
-		fill: #101617;
-		stroke: #4c5c5e;
-	}
-	.tooltip text {
-		fill: #e2eeee;
-		font:
-			9px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
 	}
 	.chart-skeleton {
 		height: 200px;

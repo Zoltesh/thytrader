@@ -109,6 +109,13 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 							base_quantity: '0',
 							mark_price: '14',
 							equity: '10000'
+						},
+						{
+							candle_starts_at: '2026-08-01T04:00:00Z',
+							cash: '10198.15',
+							base_quantity: '0',
+							mark_price: '27',
+							equity: '10198.15'
 						}
 					],
 					trades: [
@@ -170,6 +177,13 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(
 		page.getByText('Buy at 14.01 · liquidate at 26.99 · 2 evaluated bars')
 	).toBeVisible();
+	await expect(
+		page.getByText(
+			'Mark-to-model research equity at each evaluation boundary — not live prices or profit theater.'
+		)
+	).toBeVisible();
+	await expect(page.getByTestId('backtest-equity-chart')).toBeVisible();
+	await expect(page.getByTestId('backtest-equity-chart').locator('canvas').first()).toBeVisible();
 });
 
 test('describes V3 post-only fills without constant-spread or next-open copy', async ({ page }) => {
@@ -430,4 +444,140 @@ test('renders immutable detail before a slow benchmark finishes', async ({ page 
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulation result')).toBeVisible({ timeout: 1000 });
 	await expect(page.getByText('Loading benchmark comparison…')).toBeVisible();
+});
+
+test('shows distinct empty copy when a result has no equity observations', async ({ page }) => {
+	await page.route('**/api/v1/backtests', async (route) =>
+		route.fulfill({
+			json: {
+				entries: [
+					{
+						result_fingerprint: fingerprint,
+						run_fingerprint: runFingerprint,
+						strategy_fingerprint: strategyFingerprint,
+						dataset_fingerprint: datasetFingerprint,
+						engine_contract_version: 'thytrader-bar-backtest-v2',
+						published_at: '2026-08-03T17:25:34Z',
+						summary
+					}
+				],
+				limit: 50,
+				offset: 0,
+				returned: 1
+			}
+		})
+	);
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					detail: { code: 'backtests_unavailable', message: 'Backtest benchmark is unavailable.' }
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '10',
+						fill_policy: 'full',
+						trigger_evaluation: 'bid_side',
+						equity_marking: 'bid_close'
+					},
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [],
+					trades: []
+				}
+			}
+		});
+	});
+	await page.goto('/backtests');
+	await page.getByRole('button', { name: /Inspect/ }).click();
+	await expect(
+		page.getByText('No equity observations were recorded for this result.')
+	).toBeVisible();
+	await expect(page.getByTestId('backtest-equity-chart')).toHaveCount(0);
+	await expect(page.getByText('One equity observation is available.')).toHaveCount(0);
+});
+
+test('shows single-point equity copy until a curve can be drawn', async ({ page }) => {
+	await page.route('**/api/v1/backtests', async (route) =>
+		route.fulfill({
+			json: {
+				entries: [
+					{
+						result_fingerprint: fingerprint,
+						run_fingerprint: runFingerprint,
+						strategy_fingerprint: strategyFingerprint,
+						dataset_fingerprint: datasetFingerprint,
+						engine_contract_version: 'thytrader-bar-backtest-v2',
+						published_at: '2026-08-03T17:25:34Z',
+						summary
+					}
+				],
+				limit: 50,
+				offset: 0,
+				returned: 1
+			}
+		})
+	);
+	await page.route('**/api/v1/backtests/**', async (route) => {
+		if (route.request().url().endsWith('/benchmark')) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					detail: { code: 'backtests_unavailable', message: 'Backtest benchmark is unavailable.' }
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v2',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '10',
+						fill_policy: 'full',
+						trigger_evaluation: 'bid_side',
+						equity_marking: 'bid_close'
+					},
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [
+						{
+							candle_starts_at: '2026-08-01T02:00:00Z',
+							cash: '10000',
+							base_quantity: '0',
+							mark_price: '14',
+							equity: '10000'
+						}
+					],
+					trades: []
+				}
+			}
+		});
+	});
+	await page.goto('/backtests');
+	await page.getByRole('button', { name: /Inspect/ }).click();
+	await expect(page.getByText('One equity observation is available.')).toBeVisible();
+	await expect(
+		page.getByText('A curve appears when the result includes at least two evaluation boundaries.')
+	).toBeVisible();
+	await expect(page.getByTestId('backtest-equity-chart')).toHaveCount(0);
 });

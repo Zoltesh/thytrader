@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {
-		backtestEquityPath,
+		backtestEquityChartModel,
 		compareDecimalStrings,
 		formatBrokerAssumptions,
 		formatEngineFillAssumptions,
@@ -13,6 +13,7 @@
 		type BacktestBenchmark,
 		type BacktestDetail
 	} from '$lib/backtests';
+	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
 
 	let {
@@ -33,9 +34,8 @@
 		onBack: () => void;
 	} = $props();
 	const result = $derived(detail?.result ?? null);
-	const equityPath = $derived(
-		backtestEquityPath(result?.equity_curve.map((point) => point.equity) ?? [])
-	);
+	const equityModel = $derived(backtestEquityChartModel(result?.equity_curve ?? []));
+	const equityPointCount = $derived(result?.equity_curve.length ?? 0);
 	const spreadCostNote = $derived(
 		result
 			? formatSpreadCostNote(result.engine_contract_version, result.summary.total_spread_cost)
@@ -164,13 +164,36 @@
 			<div class="panel-heading">
 				<div>
 					<h3>Equity curve</h3>
-					<p>Mark-to-market equity at each evaluation boundary</p>
+					<p>
+						Mark-to-model research equity at each evaluation boundary — not live prices or profit
+						theater.
+					</p>
 				</div>
-				<span>{result.equity_curve.length} points</span>
+				<span>{equityPointCount} {equityPointCount === 1 ? 'point' : 'points'}</span>
 			</div>
-			{#if equityPath}<svg viewBox="0 0 760 180" role="img" aria-label="Backtest equity curve"
-					><polyline points={equityPath} fill="none" stroke="#5ce1b5" stroke-width="3" /></svg
-				>{:else}<div class="empty"><p>One equity observation is available.</p></div>{/if}
+			{#if equityPointCount === 0}
+				<div class="empty">
+					<p>No equity observations were recorded for this result.</p>
+					<small>The trade ledger remains the fill audit; this chart does not invent a path.</small>
+				</div>
+			{:else if equityPointCount === 1}
+				<div class="empty">
+					<p>One equity observation is available.</p>
+					<small>A curve appears when the result includes at least two evaluation boundaries.</small
+					>
+				</div>
+			{:else}
+				<div class="equity-chart">
+					<LightweightLineChart
+						series={equityModel.series}
+						samples={equityModel.samples}
+						height={180}
+						pointMarkers={false}
+						ariaLabel="Backtest mark-to-model equity curve"
+						testId="backtest-equity-chart"
+					/>
+				</div>
+			{/if}
 		</div>
 		<div class="ledger">
 			<div class="panel-heading">
@@ -365,11 +388,8 @@
 		color: #778386;
 		font-size: 12px;
 	}
-	.equity-panel svg {
-		display: block;
-		width: 100%;
-		height: 190px;
-		padding: 14px 20px 6px;
+	.equity-chart {
+		padding: 14px 20px 16px;
 	}
 	.table-wrap {
 		overflow-x: auto;
@@ -418,6 +438,10 @@
 		margin: 0 0 6px;
 		color: #aeb9bb;
 		font-size: 14px;
+	}
+	.empty small {
+		color: #697578;
+		font-size: 12px;
 	}
 	.skeleton {
 		height: 60px;

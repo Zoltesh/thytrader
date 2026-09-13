@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
-	chartData,
-	chartSegments,
+	chartHasGaps,
 	formatUsd,
 	isHistoryStale,
+	isHonestLineValuePoint,
+	MAX_PORTFOLIO_CHART_WHITESPACE,
 	permissionLabel,
 	portfolioChange,
+	portfolioHistoryChartModel,
 	type HistoryEntry
 } from './portfolio';
 
@@ -24,39 +26,60 @@ describe('portfolio presentation', () => {
 	});
 });
 
-describe('chartData', () => {
+describe('portfolioHistoryChartModel', () => {
 	function entry(amount: string, asOf: string): HistoryEntry {
 		return { as_of: asOf, total_value: { amount, currency: 'USD' } };
 	}
 
+	function valuedRunLengths(
+		series: ReturnType<typeof portfolioHistoryChartModel>['series']
+	): number[] {
+		const runs: number[] = [];
+		let length = 0;
+		for (const point of series) {
+			if (isHonestLineValuePoint(point)) {
+				length += 1;
+				continue;
+			}
+			if (length > 0) {
+				runs.push(length);
+				length = 0;
+			}
+		}
+		if (length > 0) runs.push(length);
+		return runs;
+	}
+
 	it('returns empty result for fewer than 2 entries', () => {
-		const result = chartData([entry('100', '2026-07-27T10:00:00Z')], 760, 220, 40);
-		expect(result.points).toBe('');
-		expect(result.values).toEqual([]);
+		const result = portfolioHistoryChartModel([entry('100', '2026-07-27T10:00:00Z')]);
+		expect(result.series).toEqual([]);
+		expect(result.samples).toEqual([]);
+		expect(result.hasGaps).toBe(false);
 	});
 
-	it('computes SVG points for a normal dataset', () => {
+	it('computes finite values for a normal dataset', () => {
 		const entries = [
 			entry('100', '2026-07-27T10:00:00Z'),
 			entry('200', '2026-07-27T11:00:00Z'),
 			entry('150', '2026-07-27T12:00:00Z')
 		];
-		const result = chartData(entries, 760, 220, 40);
-		expect(result.values).toEqual([100, 200, 150]);
-		expect(result.min).toBe(100);
-		expect(result.max).toBe(200);
-		expect(result.points.split(' ')).toHaveLength(3);
-		expect(result.dates).toHaveLength(3);
+		const result = portfolioHistoryChartModel(entries, 3600);
+		expect(result.samples.map((sample) => sample.value)).toEqual([100, 200, 150]);
+		expect(result.minAmount).toBe('100');
+		expect(result.maxAmount).toBe('200');
+		expect(result.series).toHaveLength(3);
+		expect(result.hasGaps).toBe(false);
 	});
 
 	it('handles flat line where all values are identical', () => {
 		const entries = [entry('500', '2026-07-27T10:00:00Z'), entry('500', '2026-07-27T11:00:00Z')];
-		const result = chartData(entries, 760, 220, 40);
-		expect(result.min).toBe(500);
-		expect(result.max).toBe(500);
-		expect(result.points).toBeTruthy();
-		// Both points should be at the same Y (bottom of chart area since range collapses to 1)
-		expect(result.points.split(' ')).toHaveLength(2);
+		const result = portfolioHistoryChartModel(entries, 3600);
+		expect(result.minAmount).toBe('500');
+		expect(result.maxAmount).toBe('500');
+		expect(result.series).toHaveLength(2);
+		expect(
+			result.series.every((point) => isHonestLineValuePoint(point) && Number.isFinite(point.value))
+		).toBe(true);
 	});
 
 	it('handles exact decimal strings with high precision', () => {
@@ -64,33 +87,28 @@ describe('chartData', () => {
 			entry('12345.678901', '2026-07-27T10:00:00Z'),
 			entry('98765.432109', '2026-07-27T11:00:00Z')
 		];
-		const result = chartData(entries, 760, 220, 40);
-		expect(result.min).toBeCloseTo(12345.678901);
-		expect(result.max).toBeCloseTo(98765.432109);
+		const result = portfolioHistoryChartModel(entries);
+		expect(result.samples[0]?.value).toBeCloseTo(12345.678901);
+		expect(result.samples[1]?.value).toBeCloseTo(98765.432109);
 		expect(result.minAmount).toBe('12345.678901');
 		expect(result.maxAmount).toBe('98765.432109');
-		expect(result.coordinates[0].amount).toBe('12345.678901');
-		expect(result.points.split(' ')).toHaveLength(2);
+		expect(result.samples[0]?.amount).toBe('12345.678901');
 	});
 
-	it('keeps huge and tiny exact amounts finite in SVG geometry', () => {
+	it('keeps huge and tiny exact amounts finite in chart geometry', () => {
 		const tiny = `0.${'0'.repeat(500)}1`;
 		const huge = `1${'0'.repeat(500)}`;
-		const result = chartData(
+		const result = portfolioHistoryChartModel(
 			[entry(tiny, '2026-07-27T10:00:00Z'), entry(huge, '2026-07-27T11:00:00Z')],
-			760,
-			220,
-			40
+			3600
 		);
 
-		expect(result.values.every(Number.isFinite)).toBe(true);
-		expect(result.coordinates.every(({ x, y, value }) => Number.isFinite(x + y + value))).toBe(
-			true
-		);
-		expect(result.points).not.toContain('Infinity');
+		expect(result.samples.every((sample) => Number.isFinite(sample.value))).toBe(true);
 		expect(result.minAmount).toBe(tiny);
 		expect(result.maxAmount).toBe(huge);
-		expect(result.coordinates[0].y).toBeGreaterThan(result.coordinates[1].y);
+		const first = result.samples[0];
+		const last = result.samples[1];
+		expect(first?.value).toBeLessThan(last?.value ?? Number.POSITIVE_INFINITY);
 	});
 
 	it('splits visual segments when snapshots have a worker-downtime gap', () => {
@@ -101,10 +119,83 @@ describe('chartData', () => {
 			entry('130', '2026-07-27T11:05:00Z')
 		];
 
-		const segments = chartSegments(chartData(entries, 760, 220, 40, 600));
+		const data = portfolioHistoryChartModel(entries, 300);
 
-		expect(segments).toHaveLength(2);
-		expect(segments.every((segment) => segment.split(' ').length === 2)).toBe(true);
+		expect(valuedRunLengths(data.series)).toEqual([2, 2]);
+		expect(data.hasGaps).toBe(true);
+		expect(chartHasGaps(data.samples)).toBe(true);
+		expect(data.whitespaceCount).toBeGreaterThan(0);
+	});
+
+	it('places X by wall-clock time so a long gap occupies more space than nearby samples', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T11:00:00Z'),
+			entry('120', '2026-07-27T14:00:00Z')
+		];
+		const result = portfolioHistoryChartModel(entries, 3600);
+		const firstTime = result.samples[0]?.time ?? 0;
+		const middleTime = result.samples[1]?.time ?? 0;
+		const lastTime = result.samples[2]?.time ?? 0;
+		const middleIndex = result.series.findIndex((point) => point.time === middleTime);
+		const lastIndex = result.series.length - 1;
+
+		expect(result.series[0]?.time).toBe(firstTime);
+		expect(result.series[lastIndex]?.time).toBe(lastTime);
+		expect(middleIndex / lastIndex).toBeCloseTo(0.25);
+		expect(middleIndex).toBeLessThan(lastIndex / 2);
+		expect(result.whitespaceCount).toBeGreaterThan(0);
+	});
+
+	it('keeps equally spaced snapshots equally spaced on X', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T11:00:00Z'),
+			entry('120', '2026-07-27T12:00:00Z')
+		];
+		const result = portfolioHistoryChartModel(entries, 3600);
+		const times = result.series.map((point) => point.time);
+
+		expect(times[1]! - times[0]!).toBe(times[2]! - times[1]!);
+		expect(result.hasGaps).toBe(false);
+		expect(result.whitespaceCount).toBe(0);
+	});
+
+	it('keeps an orphan post-gap snapshot as a valued point, without Y interpolation, and reports the gap', () => {
+		const entries = [
+			entry('100', '2026-07-27T10:00:00Z'),
+			entry('110', '2026-07-27T10:05:00Z'),
+			entry('120', '2026-07-27T11:00:00Z')
+		];
+		const data = portfolioHistoryChartModel(entries, 300);
+		const firstTime = data.samples[0]?.time ?? 0;
+		const middleTime = data.samples[1]?.time ?? 0;
+		const lastTime = data.samples[2]?.time ?? 0;
+		const middleIndex = data.series.findIndex((point) => point.time === middleTime);
+		const lastIndex = data.series.length - 1;
+
+		expect(data.samples).toHaveLength(3);
+		expect(data.samples[2]?.gapBefore).toBe(true);
+		expect(data.hasGaps).toBe(true);
+		expect(chartHasGaps(data.samples)).toBe(true);
+		expect(valuedRunLengths(data.series)).toEqual([2, 1]);
+		expect(data.whitespaceCount).toBeGreaterThan(0);
+		expect(middleIndex / lastIndex).toBeCloseTo(5 / 60);
+		expect(data.series[lastIndex]?.time).toBe(lastTime);
+		expect(data.series[0]?.time).toBe(firstTime);
+		expect(data.samples[2]?.value).not.toBe(data.samples[1]?.value);
+		const afterMiddle = data.series[middleIndex + 1];
+		expect(afterMiddle && !isHonestLineValuePoint(afterMiddle)).toBe(true);
+	});
+
+	it('caps whitespace for a multi-year hole while still breaking the line', () => {
+		const entries = [entry('100', '2020-01-01T00:00:00Z'), entry('110', '2024-01-01T00:00:00Z')];
+		const data = portfolioHistoryChartModel(entries, 300);
+
+		expect(data.hasGaps).toBe(true);
+		expect(data.whitespaceCount).toBeGreaterThan(0);
+		expect(data.whitespaceCount).toBeLessThanOrEqual(MAX_PORTFOLIO_CHART_WHITESPACE);
+		expect(valuedRunLengths(data.series)).toEqual([1, 1]);
 	});
 });
 

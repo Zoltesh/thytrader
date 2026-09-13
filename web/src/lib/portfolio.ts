@@ -115,14 +115,38 @@ export type MarketDataIngestionState = {
 	} | null;
 };
 
-export type ChartCoordinate = {
-	x: number;
-	y: number;
-	value: number;
+/** UTC-second line point that Lightweight Charts can plot without inventing a Y value. */
+export type HonestLineValuePoint = {
+	readonly time: number;
+	readonly value: number;
+};
+
+/** UTC-second whitespace that occupies wall-clock space and breaks the line. */
+export type HonestLineGapPoint = {
+	readonly time: number;
+};
+
+export type HonestLinePoint = HonestLineValuePoint | HonestLineGapPoint;
+
+export type PortfolioHistorySample = {
+	time: number;
 	amount: string;
 	date: string;
+	value: number;
 	gapBefore: boolean;
 };
+
+export type PortfolioHistoryChartModel = {
+	series: HonestLinePoint[];
+	samples: PortfolioHistorySample[];
+	hasGaps: boolean;
+	whitespaceCount: number;
+	minAmount: string;
+	maxAmount: string;
+};
+
+/** Cap on inserted whitespace so a multi-year hole cannot explode the canvas. */
+export const MAX_PORTFOLIO_CHART_WHITESPACE = 4000;
 
 export type PortfolioChange = {
 	amount: string;
@@ -188,83 +212,163 @@ export function decimalChartGeometry(amounts: readonly string[]): {
 	};
 }
 
-/**
- * Compute chart coordinates from history entries.
- * Returns SVG path data, min/max values, and axis labels.
- * Entries are assumed oldest-first (caller reverses if needed).
- */
-export function chartData(
-	entries: HistoryEntry[],
-	width: number,
-	height: number,
-	padding: number,
-	samplingIntervalSeconds = 300
-): {
-	points: string;
-	values: number[];
-	dates: string[];
-	coordinates: ChartCoordinate[];
-	min: number;
-	max: number;
-	minAmount: string;
-	maxAmount: string;
-} {
-	if (entries.length < 2) {
-		return {
-			points: '',
-			values: [],
-			dates: [],
-			coordinates: [],
-			min: 0,
-			max: 0,
-			minAmount: '0',
-			maxAmount: '0'
-		};
-	}
-
-	const amounts = entries.map((e) => e.total_value.amount);
-	const dates = entries.map((e) => e.as_of);
-	const { values, min, max, minAmount, maxAmount, positions } = decimalChartGeometry(amounts);
-	const chartW = width - padding * 2;
-	const chartH = height - padding * 2;
-
-	const coordinates = values.map((value, i) => {
-		const x = padding + (chartW * i) / (values.length - 1);
-		const y = padding + chartH - positions[i] * chartH;
-		const priorDate = i > 0 ? Date.parse(dates[i - 1]) : Number.NaN;
-		const currentDate = Date.parse(dates[i]);
-		const gapBefore =
-			i > 0 &&
-			Number.isFinite(priorDate) &&
-			Number.isFinite(currentDate) &&
-			currentDate - priorDate > samplingIntervalSeconds * 2 * 1000;
-		return { x, y, value, amount: amounts[i], date: dates[i], gapBefore };
-	});
-
-	const points = coordinates
-		.map((coordinate) => `${coordinate.x.toFixed(1)},${coordinate.y.toFixed(1)}`)
-		.join(' ');
-
-	return { points, values, dates, coordinates, min, max, minAmount, maxAmount };
+export function isHonestLineValuePoint(point: HonestLinePoint): point is HonestLineValuePoint {
+	return 'value' in point;
 }
 
-export function chartSegments(data: ReturnType<typeof chartData>): string[] {
-	const segments: string[] = [];
-	let segment: ChartCoordinate[] = [];
+export function utcTimestampSeconds(iso: string): number | null {
+	/** Convert an ISO timestamp to a Lightweight Charts UTCTimestamp (seconds). */
+	const milliseconds = Date.parse(iso);
+	if (!Number.isFinite(milliseconds)) return null;
+	return Math.floor(milliseconds / 1000);
+}
 
-	for (const coordinate of data.coordinates) {
-		if (coordinate.gapBefore && segment.length > 0) {
-			segments.push(
-				segment.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
-			);
-			segment = [];
+export function isMissedSnapshotGap(
+	currentDate: string | undefined,
+	priorDate: string | undefined,
+	samplingIntervalSeconds: number
+): boolean {
+	/** Detect a worker downtime hole from adjacent snapshot timestamps. */
+	if (currentDate === undefined || priorDate === undefined || samplingIntervalSeconds <= 0) {
+		return false;
+	}
+	const priorMs = Date.parse(priorDate);
+	const currentMs = Date.parse(currentDate);
+	return (
+		Number.isFinite(priorMs) &&
+		Number.isFinite(currentMs) &&
+		currentMs - priorMs > samplingIntervalSeconds * 2 * 1000
+	);
+}
+
+export function chartHasGaps(samples: readonly { gapBefore: boolean }[]): boolean {
+	/** True when any snapshot follows a missed observation interval, including orphan dots. */
+	return samples.some((sample) => sample.gapBefore);
+}
+
+const EMPTY_PORTFOLIO_CHART_MODEL: PortfolioHistoryChartModel = {
+	series: [],
+	samples: [],
+	hasGaps: false,
+	whitespaceCount: 0,
+	minAmount: '0',
+	maxAmount: '0'
+};
+
+/**
+ * Build a Lightweight Charts series from oldest-first history entries.
+ *
+ * X follows wall-clock time: missed sampling intervals become whitespace bars so a
+ * long outage occupies more space than nearby samples. Y is never interpolated
+ * across those holes; orphan post-gap snapshots remain as valued points.
+ */
+export function portfolioHistoryChartModel(
+	entries: readonly HistoryEntry[],
+	samplingIntervalSeconds = 300
+): PortfolioHistoryChartModel {
+	const dated: Array<{ date: string; amount: string; time: number }> = [];
+	for (const entry of entries) {
+		const time = utcTimestampSeconds(entry.as_of);
+		if (time === null) continue;
+		dated.push({ date: entry.as_of, amount: entry.total_value.amount, time });
+	}
+	if (dated.length < 2) {
+		return EMPTY_PORTFOLIO_CHART_MODEL;
+	}
+
+	const amounts = dated.map((entry) => entry.amount);
+	const { values, minAmount, maxAmount } = decimalChartGeometry(amounts);
+	const samples: PortfolioHistorySample[] = dated.map((entry, index) => ({
+		time: entry.time,
+		amount: entry.amount,
+		date: entry.date,
+		value: values[index] ?? 0,
+		gapBefore: isMissedSnapshotGap(
+			entry.date,
+			index > 0 ? dated[index - 1]?.date : undefined,
+			samplingIntervalSeconds
+		)
+	}));
+
+	const gapDurationsSeconds = samples.flatMap((sample, index) => {
+		if (!sample.gapBefore || index === 0) return [];
+		const prior = samples[index - 1];
+		if (prior === undefined) return [];
+		return [Math.max(0, sample.time - prior.time)];
+	});
+	const stepSeconds = whitespaceStepSeconds(gapDurationsSeconds, samplingIntervalSeconds);
+	const series: HonestLinePoint[] = [];
+	const usedTimes = new Set<number>();
+	let whitespaceCount = 0;
+
+	for (let index = 0; index < samples.length; index += 1) {
+		const sample = samples[index];
+		if (sample === undefined) continue;
+		if (index > 0 && sample.gapBefore) {
+			const prior = samples[index - 1];
+			if (prior !== undefined) {
+				whitespaceCount += appendGapWhitespace(
+					series,
+					usedTimes,
+					prior.time,
+					sample.time,
+					stepSeconds
+				);
+			}
 		}
-		segment.push(coordinate);
+		if (usedTimes.has(sample.time)) continue;
+		series.push({ time: sample.time, value: sample.value });
+		usedTimes.add(sample.time);
 	}
-	if (segment.length > 0) {
-		segments.push(segment.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
+
+	return {
+		series,
+		samples,
+		hasGaps: chartHasGaps(samples),
+		whitespaceCount,
+		minAmount,
+		maxAmount
+	};
+}
+
+function whitespaceStepSeconds(
+	gapDurationsSeconds: readonly number[],
+	samplingIntervalSeconds: number
+): number {
+	/** Choose a uniform gap fill so hole duration stays visible without exploding bar count. */
+	const sampled = Math.max(1, samplingIntervalSeconds);
+	if (gapDurationsSeconds.length === 0) return sampled;
+	const totalGapSeconds = gapDurationsSeconds.reduce((sum, duration) => sum + duration, 0);
+	const estimated = Math.floor(totalGapSeconds / sampled);
+	if (estimated <= MAX_PORTFOLIO_CHART_WHITESPACE) return sampled;
+	return Math.max(sampled, Math.ceil(totalGapSeconds / MAX_PORTFOLIO_CHART_WHITESPACE));
+}
+
+function appendGapWhitespace(
+	series: HonestLinePoint[],
+	usedTimes: Set<number>,
+	priorTime: number,
+	currentTime: number,
+	stepSeconds: number
+): number {
+	/** Insert time-only bars between snapshots so LWC cannot draw a Y line across the hole. */
+	const step = Math.max(1, stepSeconds);
+	let inserted = 0;
+	for (let time = priorTime + step; time < currentTime; time += step) {
+		if (usedTimes.has(time)) continue;
+		series.push({ time });
+		usedTimes.add(time);
+		inserted += 1;
 	}
-	return segments.filter((segmentPoints) => segmentPoints.split(' ').length >= 2);
+	if (inserted === 0) {
+		const midpoint = Math.floor((priorTime + currentTime) / 2);
+		if (midpoint > priorTime && midpoint < currentTime && !usedTimes.has(midpoint)) {
+			series.push({ time: midpoint });
+			usedTimes.add(midpoint);
+			inserted = 1;
+		}
+	}
+	return inserted;
 }
 
 export function portfolioChange(entries: HistoryEntry[]): PortfolioChange | null {
