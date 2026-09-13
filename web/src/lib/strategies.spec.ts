@@ -38,7 +38,8 @@ describe('archiveConfirmMessage', () => {
 		expect(message).toContain('Recovered BTC trend draft');
 		expect(message).toContain('Version: v1');
 		expect(message).toContain(`Fingerprint: ${fingerprint}`);
-		expect(message).toContain('hides that version from active selection');
+		expect(message.indexOf('Version: v1')).toBeLessThan(message.indexOf('This hides'));
+		expect(message).toContain('hides the latest published fingerprint from active selection');
 		expect(message).not.toContain('delete');
 	});
 });

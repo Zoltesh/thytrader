@@ -66,12 +66,12 @@ export function archiveConfirmMessage(input: {
 }): string {
 	const version = input.latest_version === null ? 'unknown version' : `v${input.latest_version}`;
 	return [
-		`Archive the latest published fingerprint of ${input.name}?`,
-		'',
-		'This hides that version from active selection. Canonical evidence stays immutable; historical references remain valid. Older published versions are unchanged.',
+		`Archive ${input.name}?`,
 		'',
 		`Version: ${version}`,
-		`Fingerprint: ${input.latest_fingerprint}`
+		`Fingerprint: ${input.latest_fingerprint}`,
+		'',
+		'This hides the latest published fingerprint from active selection. Canonical evidence stays immutable; older published versions are unchanged.'
 	].join('\n');
 }
 
