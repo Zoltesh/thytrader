@@ -109,7 +109,8 @@ def _product(product_id: str, interval: CandleInterval) -> MarketProduct:
         CandleInterval.THIRTY_MINUTES,
     }:
         raise ValueError(
-            "Demo market data only supports catalog USD products on 1h, 5m, 15m, and 30m timeframes."
+            "Demo market data only supports catalog USD products on 1h, 5m, 15m, "
+            "and 30m timeframes."
         )
     return product
 
