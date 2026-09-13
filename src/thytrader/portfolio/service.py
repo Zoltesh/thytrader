@@ -19,6 +19,11 @@ class PortfolioService:
         self._exchange = exchange
         self._demo = demo
 
+    @property
+    def demo(self) -> bool:
+        """Whether this service is using credential-less demo exchange data."""
+        return self._demo
+
     async def get_portfolio(self) -> Portfolio:
         """Fetch balances, value direct USD markets, and report all permissions."""
         balances = await self._exchange.list_balances()

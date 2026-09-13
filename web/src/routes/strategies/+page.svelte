@@ -4,6 +4,16 @@
 	import { formatPercent } from '$lib/backtests';
 	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
+		RESEARCH_FEE_ENGINE_NOTE,
+		fetchFeeProfile,
+		formatFeeProfileAsOf,
+		formatResearchFeeSourceChip,
+		readResearchFeeSuggestion,
+		researchFeeFieldSource,
+		shouldPrefillResearchFeeRates,
+		type ResearchFeeSuggestion
+	} from '$lib/fees';
+	import {
 		archiveConfirmMessage,
 		archivePublishedStrategy,
 		createDraft,
@@ -86,8 +96,8 @@
 		evaluation_start: '',
 		evaluation_end: '',
 		initial_quote_balance: '10000',
-		maker_fee_rate: '0.001',
-		taker_fee_rate: '0.002',
+		maker_fee_rate: '',
+		taker_fee_rate: '',
 		fixed_slippage_bps: '10',
 		// The docs make the engine contract explicit and required; no silent default.
 		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
@@ -115,6 +125,30 @@
 	let deployFingerprint = $state('');
 	let deployMode = $state<'paper' | 'live'>('paper');
 	let deployCash = $state('10000');
+	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
+	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
+	let feeSuggestionLoading = $state(false);
+	let feeFieldsTouched = $state(false);
+	let feeSuggestionRequestId = 0;
+	const feeFieldSource = $derived(
+		researchFeeFieldSource({
+			makerFeeRate: launchForm.maker_fee_rate,
+			takerFeeRate: launchForm.taker_fee_rate,
+			applied: appliedFeeSuggestion,
+			latest: latestFeeSuggestion,
+			loading: feeSuggestionLoading
+		})
+	);
+	const feeSourceChip = $derived(
+		formatResearchFeeSourceChip(
+			feeFieldSource,
+			appliedFeeSuggestion !== null
+				? formatFeeProfileAsOf(appliedFeeSuggestion.fetchedAt)
+				: latestFeeSuggestion !== null
+					? formatFeeProfileAsOf(latestFeeSuggestion.fetchedAt)
+					: null
+		)
+	);
 
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
@@ -167,6 +201,51 @@
 		datasetsRequested = true;
 		void loadLaunchDatasets(entry, viewRequestId);
 	});
+
+	function showResearchTab(): void {
+		researchTab = 'research';
+		void loadFeeSuggestion();
+	}
+
+	function applyFeeSuggestion(suggestion: ResearchFeeSuggestion): void {
+		launchForm.maker_fee_rate = suggestion.makerFeeRate;
+		launchForm.taker_fee_rate = suggestion.takerFeeRate;
+		appliedFeeSuggestion = suggestion;
+		feeFieldsTouched = false;
+	}
+
+	function onFeeFieldInput(): void {
+		feeFieldsTouched = true;
+	}
+
+	async function loadFeeSuggestion(): Promise<void> {
+		const requestId = ++feeSuggestionRequestId;
+		feeSuggestionLoading = true;
+		try {
+			const profile = await fetchFeeProfile();
+			if (requestId !== feeSuggestionRequestId) return;
+			const suggestion = readResearchFeeSuggestion(profile);
+			latestFeeSuggestion = suggestion;
+			if (
+				shouldPrefillResearchFeeRates({
+					makerFeeRate: launchForm.maker_fee_rate,
+					takerFeeRate: launchForm.taker_fee_rate,
+					touched: feeFieldsTouched,
+					suggestion
+				}) &&
+				suggestion !== null
+			) {
+				applyFeeSuggestion(suggestion);
+			}
+		} catch {
+			if (requestId !== feeSuggestionRequestId) return;
+			latestFeeSuggestion = null;
+		} finally {
+			if (requestId === feeSuggestionRequestId) {
+				feeSuggestionLoading = false;
+			}
+		}
+	}
 
 	$effect(() => {
 		if (researchTab !== 'deploy' || viewEntry === null) return;
@@ -262,6 +341,10 @@
 		if (!viewEntry || selectedStrategyFingerprint === '' || launching) return;
 		if (launchForm.engine === '') {
 			launchError = 'Select an engine contract before launching.';
+			return;
+		}
+		if (launchForm.maker_fee_rate.trim() === '' || launchForm.taker_fee_rate.trim() === '') {
+			launchError = 'Enter modeled maker and taker fee rates before launching.';
 			return;
 		}
 		launching = true;
@@ -933,7 +1016,7 @@
 					type="button"
 					role="tab"
 					aria-selected={researchTab === 'research'}
-					onclick={() => (researchTab = 'research')}>Research</button
+					onclick={() => showResearchTab()}>Research</button
 				>
 				<button
 					class="drawer-tab"
@@ -1075,20 +1158,55 @@
 								<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
 							>
 							<label
-								>Maker fee rate
-								<input inputmode="decimal" bind:value={launchForm.maker_fee_rate} /></label
-							>
-						</div>
-						<div class="launch-grid">
-							<label
-								>Taker fee rate
-								<input inputmode="decimal" bind:value={launchForm.taker_fee_rate} /></label
-							>
-							<label
 								>Fixed slippage (bps)
 								<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
 							>
 						</div>
+						<div class="launch-grid">
+							<label
+								>Maker fee rate
+								<input
+									inputmode="decimal"
+									bind:value={launchForm.maker_fee_rate}
+									oninput={onFeeFieldInput}
+								/></label
+							>
+							<label
+								>Taker fee rate
+								<input
+									inputmode="decimal"
+									bind:value={launchForm.taker_fee_rate}
+									oninput={onFeeFieldInput}
+								/></label
+							>
+						</div>
+						<div class="fee-source-row">
+							<span
+								class="fee-source-chip"
+								class:custom={feeFieldSource === 'custom'}
+								class:stale={feeFieldSource === 'stale-suggestion'}
+								data-testid="research-fee-source"
+								title={latestFeeSuggestion !== null
+									? `Schedule ${latestFeeSuggestion.scheduleVersion}${latestFeeSuggestion.scheduleTierId === '' ? '' : `, band ${latestFeeSuggestion.scheduleTierId}`}`
+									: undefined}>{feeSourceChip}</span
+							>
+							{#if latestFeeSuggestion !== null && feeFieldSource === 'stale-suggestion'}
+								{@const suggestion = latestFeeSuggestion}
+								<button
+									class="secondary fee-source-action"
+									type="button"
+									onclick={() => applyFeeSuggestion(suggestion)}>Refresh suggestion</button
+								>
+							{:else if latestFeeSuggestion !== null && feeFieldSource === 'custom'}
+								{@const suggestion = latestFeeSuggestion}
+								<button
+									class="secondary fee-source-action"
+									type="button"
+									onclick={() => applyFeeSuggestion(suggestion)}>Apply suggested rates</button
+								>
+							{/if}
+						</div>
+						<p class="view-note">{RESEARCH_FEE_ENGINE_NOTE}</p>
 						{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
 						<button
 							class="refresh launch-button"
@@ -1098,7 +1216,9 @@
 								selectedStrategyFingerprint === '' ||
 								launchForm.dataset_fingerprint === '' ||
 								launchForm.evaluation_start === '' ||
-								launchForm.evaluation_end === ''}
+								launchForm.evaluation_end === '' ||
+								launchForm.maker_fee_rate.trim() === '' ||
+								launchForm.taker_fee_rate.trim() === ''}
 						>
 							{launching ? 'Running simulation…' : 'Run backtest'}
 						</button>
@@ -1932,6 +2052,34 @@
 	}
 	.field-error {
 		color: #f0a3a3;
+	}
+	.fee-source-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+	}
+	.fee-source-chip {
+		display: inline-flex;
+		align-items: center;
+		border: 1px solid #303a3c;
+		border-radius: 999px;
+		padding: 4px 10px;
+		font-size: 11px;
+		color: #aeb9bb;
+		background: #101617;
+	}
+	.fee-source-chip.custom {
+		color: #d8e1e2;
+		border-color: #3d4a4c;
+	}
+	.fee-source-chip.stale {
+		color: #e0c48a;
+		border-color: #5c4e2f;
+	}
+	.fee-source-action {
+		font-size: 12px;
+		padding: 4px 10px;
 	}
 	.launch-button {
 		justify-self: start;

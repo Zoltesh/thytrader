@@ -30,6 +30,15 @@ def test_fees_endpoint_demo_service_returns_fee_profile() -> None:
     assert data["maker_fee_rate"] == "0.0040"
     assert data["usd_volume_30d"] == "15250.00"
     assert data["source"] == "coinbase"
+    assert data["suggested_maker_fee_rate"] is None
+    assert data["suggested_taker_fee_rate"] is None
+    assert data["suggestion_source"] == "unavailable"
+    assert data["suggestion_unavailable_reason"] == "demo_or_missing_credentials"
+    assert data["suggestion_fee_tier"] is None
+    assert data["suggestion_schedule_tier_id"] is None
+    assert data["suggestion_schedule_version"] is None
+    assert data["suggestion_schedule_as_of"] is None
+    assert data["suggestion_fetched_at"] is None
 
 
 def test_fees_endpoint_service_failure_returns_redacted_502() -> None:
@@ -198,3 +207,49 @@ def test_fees_endpoint_rejects_forged_zero_offset_non_utc_datetime() -> None:
 
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == "fees_unavailable"
+
+
+def test_fees_endpoint_live_service_returns_schedule_suggestions() -> None:
+    """With credentials, GET /api/v1/fees prefills research rates from the pinned schedule."""
+
+    class LiveFeeExchange:
+        async def list_balances(self) -> Any:
+            return ()
+
+        async def get_permissions(self) -> Any:
+            return ()
+
+        async def get_usd_price(self, currency: str) -> Any:
+            del currency
+            return None
+
+        async def get_fee_profile(self) -> Any:
+            return SimpleNamespace(
+                taker_fee_rate=Decimal("0.0040"),
+                maker_fee_rate=Decimal("0.0025"),
+                usd_volume_30d=Decimal("25000"),
+                fee_tier="Tier 2 ($10k-$50k)",
+                as_of=datetime(2026, 9, 13, 16, 0, tzinfo=UTC),
+                source="coinbase",
+            )
+
+    service = PortfolioService(LiveFeeExchange(), demo=False)  # type: ignore[arg-type]
+    app = create_app(Settings(_env_file=None), portfolio_service=service)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/fees")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["fee_tier"] == "Tier 2 ($10k-$50k)"
+    assert data["maker_fee_rate"] == "0.0025"
+    assert data["taker_fee_rate"] == "0.0040"
+    assert data["suggested_maker_fee_rate"] == "0.0025"
+    assert data["suggested_taker_fee_rate"] == "0.0040"
+    assert data["suggestion_source"] == "coinbase_fee_schedule"
+    assert data["suggestion_unavailable_reason"] is None
+    assert data["suggestion_fee_tier"] == "Tier 2 ($10k-$50k)"
+    assert data["suggestion_schedule_tier_id"] == "usd-10k-50k"
+    assert data["suggestion_schedule_version"] == "coinbase-advanced-spot-fees-v1"
+    assert data["suggestion_schedule_as_of"] == "2026-09-13"
+    assert data["suggestion_fetched_at"] == "2026-09-13T16:00:00Z"

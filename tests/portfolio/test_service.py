@@ -67,3 +67,11 @@ def test_portfolio_values_balances_and_accepts_extra_permissions() -> None:
     assert portfolio.assets[1].value is not None
     assert portfolio.assets[1].value.amount == Decimal("36000.0")
     assert portfolio.unvalued_assets == ("OBSCURE",)
+
+
+def test_demo_flag_is_readable_for_research_fee_suggestions() -> None:
+    """Fee suggestions fail closed on demo; live services expose demo=False."""
+    demo_service = PortfolioService(StubExchangeAccount(), demo=True)
+    live_service = PortfolioService(StubExchangeAccount(), demo=False)
+    assert demo_service.demo is True
+    assert live_service.demo is False

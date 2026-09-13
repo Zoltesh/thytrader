@@ -68,6 +68,18 @@ supplied dates do not fit, the API returns 422 with a suggested ISO range. Do no
 that the catalog cannot cover. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
 `…-v2`, or `…-v3`) per the table above.
 
+## Maker/taker rates
+
+`GET /api/v1/fees` includes `suggested_maker_fee_rate` / `suggested_taker_fee_rate` when Coinbase
+credentials are present (`suggestion_source=coinbase_fee_schedule`, plus tier id, schedule version,
+and `fetched_at`). Copy those into `submit-backtest` JSON unless the operator supplied custom rates.
+Demo or missing credentials set `suggestion_source=unavailable` — do **not** use dashboard demo
+`maker_fee_rate` / `taker_fee_rate` as research defaults, and do not invent a tier. The request must
+still include explicit rates; submitted runs fingerprint those values. They are modeled
+`CostAssumptions`, not observed Coinbase fills. V1/V2 next-open fills use the **taker** rate even
+when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the documented
+`0.001` maker / `0.002` taker schedule.
+
 ## Confirmation
 
 - Never run `create-draft`, `save-draft`, `publish`, or `submit-backtest` unless the user explicitly asked for that mutation **and** `--confirm` is present.

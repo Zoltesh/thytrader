@@ -112,7 +112,10 @@ trading authority.
   V3 engine contract. V1 and V3 reject a spread field; V2 requires a bounded constant `spread_bps`
   value. V3 publishes the post-only resting-limit broker block. Equivalent browser and CLI assumptions
   reuse the same immutable run, except the research-run CLI still publishes only V1/V2 until a later
-  increment adds the V3 flag.
+  increment adds the V3 flag. The Research form may prefill maker/taker from `GET /api/v1/fees`
+  `suggested_*` fields (pinned Coinbase schedule, labeled as a suggestion). Custom rates win. Those
+  values become the published CostAssumptions; they are not observed Coinbase fills. Demo or missing
+  credentials omit suggestions so the operator must enter modeled rates.
 
 The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. A submission whose evaluation window cannot fit the selected dataset (missing warmup coverage before the window, or missing next-candle-open coverage after it) is a caller error, not an outage: `POST /api/v1/backtests` answers `422 backtest_window_rejected` with a plain-language explanation, and only genuine infrastructure failures keep the redacted `503`. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
 
