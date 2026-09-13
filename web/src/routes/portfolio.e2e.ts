@@ -88,7 +88,15 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
 	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$98,542.17')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
+	const assetsHeading = page.getByRole('heading', { name: 'Assets' });
+	const feesHeading = page.getByRole('heading', { name: 'Fee Tier & Costs' });
+	await expect(assetsHeading).toBeVisible();
+	await expect(feesHeading).toBeVisible();
+	const assetsBox = await assetsHeading.boundingBox();
+	const feesBox = await feesHeading.boundingBox();
+	expect(assetsBox).not.toBeNull();
+	expect(feesBox).not.toBeNull();
+	expect(assetsBox!.y).toBeLessThan(feesBox!.y);
 	await expect(page.getByText('0.60%')).toBeVisible();
 	await expect(page.getByText('0.40%')).toBeVisible();
 	await expect(page.getByText('Tier 1')).toBeVisible();
@@ -297,7 +305,6 @@ test('shows durable market-data worker coverage and freshness evidence', async (
 	await page.goto('/');
 
 	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
-	await expect(page.getByText('Fresh · complete')).toBeVisible();
 	await expect(page.getByText('Candle: fresh')).toBeVisible();
 	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 	await expect(page.getByText('Demo dataset')).toBeVisible();
@@ -319,6 +326,13 @@ test('keeps redacted market-data worker failures visible', async ({ page }) => {
 				requested_starts_at: '2026-07-22T02:00:00Z',
 				requested_ends_at: '2026-07-29T02:00:00Z',
 				fresh: false,
+				enabled: true,
+				freshness: 'stale',
+				coverage_status: 'complete',
+				expected_latest_boundary: '2026-07-29T01:00:00Z',
+				next_attempt_at: null,
+				dataset_revision: 3,
+				maintenance_kind: 'incremental',
 				coverage: {
 					starts_at: '2026-07-22T01:00:00Z',
 					ends_at: '2026-07-29T01:00:00Z',
@@ -396,6 +410,13 @@ test('keeps worker evidence visible when the recent-candle preview fails', async
 				requested_starts_at: '2026-07-22T02:00:00Z',
 				requested_ends_at: '2026-07-29T02:00:00Z',
 				fresh: true,
+				enabled: true,
+				freshness: 'current',
+				coverage_status: 'complete',
+				expected_latest_boundary: '2026-07-29T02:00:00Z',
+				next_attempt_at: '2026-07-29T02:10:00Z',
+				dataset_revision: 4,
+				maintenance_kind: 'incremental',
 				coverage: {
 					starts_at: '2026-07-22T02:00:00Z',
 					ends_at: '2026-07-29T02:00:00Z',
@@ -414,7 +435,7 @@ test('keeps worker evidence visible when the recent-candle preview fails', async
 	await page.goto('/');
 
 	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
-	await expect(page.getByText('Fresh · complete')).toBeVisible();
+	await expect(page.getByText('Current · complete')).toBeVisible();
 });
 
 test('shows controlled freshness failure state when the freshness endpoint fails', async ({

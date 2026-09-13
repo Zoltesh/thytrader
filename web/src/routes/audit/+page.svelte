@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { resolve } from '$app/paths';
 	import { fetchAuditEvents, type AuditEventItem } from '$lib/audit';
 
 	let events: AuditEventItem[] = $state([]);
@@ -34,166 +33,84 @@
 	<title>Audit trail · ThyTrader</title>
 </svelte:head>
 
-<div class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve('/')} aria-label="ThyTrader home">
-			<span class="brand-mark">T</span>
-			<span>ThyTrader</span>
-		</a>
-		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a>
-			<a href={resolve('/strategies')}>Strategies</a>
-			<a href={resolve('/backtests')}>Backtests</a>
-			<a class="active" href={resolve('/audit')}>Audit</a>
-		</nav>
-		<div class="local-pill"><span></span> Local workstation</div>
-	</header>
+<main>
+	<section class="hero">
+		<div>
+			<p class="eyebrow">Operational audit log</p>
+			<h1>Audit trail</h1>
+			<p class="lede">
+				Append-only operational history of worker snapshots, connections, and health transitions.
+			</p>
+		</div>
+		<button class="refresh" type="button" onclick={loadEvents} disabled={loading}>
+			<span class:spinning={loading}>↻</span>
+			{loading ? 'Refreshing…' : 'Refresh audit log'}
+		</button>
+	</section>
 
-	<main>
-		<section class="hero">
+	{#if error}
+		<div class="error-banner" role="alert">
 			<div>
-				<p class="eyebrow">Operational audit log</p>
-				<h1>Audit trail</h1>
-				<p class="lede">
-					Append-only operational history of worker snapshots, connections, and health transitions.
-				</p>
+				<strong>Couldn't load audit events</strong>
+				<p>{error}</p>
 			</div>
-			<button class="refresh" type="button" onclick={loadEvents} disabled={loading}>
-				<span class:spinning={loading}>↻</span>
-				{loading ? 'Refreshing…' : 'Refresh audit log'}
-			</button>
+			<button type="button" onclick={loadEvents}>Try again</button>
+		</div>
+	{/if}
+
+	{#if loading && events.length === 0}
+		<section class="loading-card" aria-label="Loading audit events">
+			<div class="skeleton wide"></div>
+			<div class="skeleton"></div>
+			<div class="skeleton"></div>
 		</section>
-
-		{#if error}
-			<div class="error-banner" role="alert">
+	{:else if !error && events.length === 0}
+		<section class="empty-state">
+			<h3>No audit events recorded</h3>
+			<p>
+				Operational audit events will appear here once the worker or API registers connection and
+				snapshot activities.
+			</p>
+		</section>
+	{:else if events.length > 0}
+		<section class="audit-panel">
+			<div class="panel-heading">
 				<div>
-					<strong>Couldn't load audit events</strong>
-					<p>{error}</p>
+					<h2>Recent Events</h2>
+					<p>{events.length} observations (newest first)</p>
 				</div>
-				<button type="button" onclick={loadEvents}>Try again</button>
 			</div>
-		{/if}
-
-		{#if loading && events.length === 0}
-			<section class="loading-card" aria-label="Loading audit events">
-				<div class="skeleton wide"></div>
-				<div class="skeleton"></div>
-				<div class="skeleton"></div>
-			</section>
-		{:else if !error && events.length === 0}
-			<section class="empty-state">
-				<h3>No audit events recorded</h3>
-				<p>
-					Operational audit events will appear here once the worker or API registers connection and
-					snapshot activities.
-				</p>
-			</section>
-		{:else if events.length > 0}
-			<section class="audit-panel">
-				<div class="panel-heading">
-					<div>
-						<h2>Recent Events</h2>
-						<p>{events.length} observations (newest first)</p>
-					</div>
-				</div>
-				<div class="table-wrap">
-					<table>
-						<thead>
+			<div class="table-wrap">
+				<table>
+					<thead>
+						<tr>
+							<th>Timestamp (UTC)</th>
+							<th>Category</th>
+							<th>Action</th>
+							<th>Outcome</th>
+							<th>Provider / Product</th>
+							<th>Detail</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each events as event (event.id)}
 							<tr>
-								<th>Timestamp (UTC)</th>
-								<th>Category</th>
-								<th>Action</th>
-								<th>Outcome</th>
-								<th>Provider / Product</th>
-								<th>Detail</th>
+								<td class="timestamp">{formatUtcTimestamp(event.occurred_at)}</td>
+								<td><span class="badge category">{event.category}</span></td>
+								<td><code>{event.action}</code></td>
+								<td><span class="badge outcome {event.outcome}">{event.outcome}</span></td>
+								<td>{event.provider ?? '-'}{event.product_id ? ` / ${event.product_id}` : ''}</td>
+								<td class="detail-cell">{event.detail || '-'}</td>
 							</tr>
-						</thead>
-						<tbody>
-							{#each events as event (event.id)}
-								<tr>
-									<td class="timestamp">{formatUtcTimestamp(event.occurred_at)}</td>
-									<td><span class="badge category">{event.category}</span></td>
-									<td><code>{event.action}</code></td>
-									<td><span class="badge outcome {event.outcome}">{event.outcome}</span></td>
-									<td>{event.provider ?? '-'}{event.product_id ? ` / ${event.product_id}` : ''}</td>
-									<td class="detail-cell">{event.detail || '-'}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</section>
-		{/if}
-	</main>
-</div>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	{/if}
+</main>
 
 <style>
-	.shell {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 1.5rem;
-		display: flex;
-		flex-direction: column;
-		gap: 2rem;
-	}
-	.topbar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		border-bottom: 1px solid var(--border-color, #2d3748);
-		padding-bottom: 1rem;
-	}
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		text-decoration: none;
-		color: var(--text-color, #f7fafc);
-		font-weight: 700;
-		font-size: 1.25rem;
-	}
-	.brand-mark {
-		background: #3182ce;
-		color: #fff;
-		width: 2rem;
-		height: 2rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 0.375rem;
-		font-weight: 800;
-	}
-	nav {
-		display: flex;
-		gap: 1.5rem;
-	}
-	nav a {
-		text-decoration: none;
-		color: #a0aec0;
-		font-weight: 500;
-		transition: color 0.15s;
-	}
-	nav a:hover,
-	nav a.active {
-		color: #63b3ed;
-	}
-	.local-pill {
-		font-size: 0.8125rem;
-		color: #a0aec0;
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		background: #1a202c;
-		padding: 0.25rem 0.625rem;
-		border-radius: 9999px;
-		border: 1px solid #2d3748;
-	}
-	.local-pill span {
-		width: 0.5rem;
-		height: 0.5rem;
-		background: #48bb78;
-		border-radius: 50%;
-	}
 	.hero {
 		display: flex;
 		justify-content: space-between;

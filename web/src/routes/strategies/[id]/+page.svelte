@@ -303,335 +303,321 @@
 
 <svelte:head><title>Strategy builder · ThyTrader</title></svelte:head>
 
-<div class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve('/')} aria-label="ThyTrader home"
-			><span class="brand-mark">T</span><span>ThyTrader</span></a
-		>
-		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a>
-			<a class="active" href={resolve('/strategies')}>Strategies</a>
-			<a href={resolve('/backtests')}>Backtests</a>
-			<a href={resolve('/audit')}>Audit</a>
-		</nav>
-		<div class="local-pill"><span></span> Research only</div>
-	</header>
-	<main>
-		{#if loading}
-			<div class="loading-card"><div class="skeleton wide"></div></div>
-		{:else if publishedNotice}
-			<div class="error-banner" role="status">
-				<div>
-					<strong>Published</strong>
-					<p>{publishedNotice}</p>
-				</div>
-				<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+<main>
+	{#if loading}
+		<div class="loading-card"><div class="skeleton wide"></div></div>
+	{:else if publishedNotice}
+		<div class="error-banner" role="status">
+			<div>
+				<strong>Published</strong>
+				<p>{publishedNotice}</p>
 			</div>
-		{:else if error}
-			<div class="error-banner" role="alert">
-				<div>
-					<strong>Builder unavailable</strong>
-					<p>{error}</p>
-				</div>
-				<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+		</div>
+	{:else if error}
+		<div class="error-banner" role="alert">
+			<div>
+				<strong>Builder unavailable</strong>
+				<p>{error}</p>
 			</div>
-		{:else if model}
-			<section class="builder-head">
-				<div>
-					<p class="eyebrow">Draft v{model.version}</p>
-					<h1>{model.name}</h1>
-				</div>
-				<div class="head-actions">
-					{#if dirty}<span class="dirty-pill">Unsaved changes</span>{/if}
-					{#if savedAt}<span class="saved">Saved {savedAt}</span>{/if}
-					<button
-						class="secondary"
-						type="button"
-						onclick={save}
-						disabled={saving || validationErrors.length > 0}
-						>{saving ? 'Saving…' : 'Save draft'}</button
-					>
-					<button
-						class="refresh"
-						type="button"
-						onclick={publish}
-						disabled={publishing || validationErrors.length > 0}
-						>{publishing ? 'Publishing…' : 'Validate & publish immutable version'}</button
-					>
-				</div>
-			</section>
-			<div class="builder-grid">
-				<div class="sections">
-					<nav aria-label="Builder sections">
-						{#each sections as section (section.id)}
-							<button
-								class="section-tab"
-								class:active={activeSection === section.id}
-								type="button"
-								onclick={() => (activeSection = section.id)}>{section.label}</button
-							>
-						{/each}
-					</nav>
+			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+		</div>
+	{:else if model}
+		<section class="builder-head">
+			<div>
+				<p class="eyebrow">Draft v{model.version}</p>
+				<h1>{model.name}</h1>
+			</div>
+			<div class="head-actions">
+				{#if dirty}<span class="dirty-pill">Unsaved changes</span>{/if}
+				{#if savedAt}<span class="saved">Saved {savedAt}</span>{/if}
+				<button
+					class="secondary"
+					type="button"
+					onclick={save}
+					disabled={saving || validationErrors.length > 0}
+					>{saving ? 'Saving…' : 'Save draft'}</button
+				>
+				<button
+					class="refresh"
+					type="button"
+					onclick={publish}
+					disabled={publishing || validationErrors.length > 0}
+					>{publishing ? 'Publishing…' : 'Validate & publish immutable version'}</button
+				>
+			</div>
+		</section>
+		<div class="builder-grid">
+			<div class="sections">
+				<nav aria-label="Builder sections">
+					{#each sections as section (section.id)}
+						<button
+							class="section-tab"
+							class:active={activeSection === section.id}
+							type="button"
+							onclick={() => (activeSection = section.id)}>{section.label}</button
+						>
+					{/each}
+				</nav>
 
-					{#if activeSection === 'overview'}
-						<section class="panel">
-							<h2>Overview</h2>
-							<label>Strategy name<input bind:value={model.name} oninput={markDirty} /></label>
+				{#if activeSection === 'overview'}
+					<section class="panel">
+						<h2>Overview</h2>
+						<label>Strategy name<input bind:value={model.name} oninput={markDirty} /></label>
+						<label
+							>Thesis / description
+							<textarea
+								bind:value={model.description}
+								rows={3}
+								oninput={markDirty}
+								placeholder="What market behavior does this capture, and when should it not trade?"
+							></textarea></label
+						>
+						<div class="hint">
+							Identity note: the name is part of the immutable published fingerprint.
+						</div>
+					</section>
+				{:else if activeSection === 'market'}
+					<section class="panel">
+						<h2>Market and data</h2>
+						<div class="grid-two">
+							<label>Product<input value={model.product_id} disabled /></label>
+							<label>Timeframe<input value={model.timeframe} disabled /></label>
+						</div>
+						<label
+							>Warmup bars (required history before signals)
+							<input
+								type="number"
+								min="1"
+								bind:value={model.warmup_bars}
+								oninput={markDirty}
+							/></label
+						>
+						<div class="hint">
+							V1 is Coinbase USD spot, long-only. Research and paper: 1h or 5m (this draft uses
+							{model.timeframe} candles). Live execution remains 1h-only.
+						</div>
+					</section>
+				{:else if activeSection === 'indicators'}
+					<section class="panel">
+						<h2>Indicators</h2>
+						{#each model.indicators as indicator, index (index)}
+							<div class="indicator-row">
+								<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
+								<label
+									>Kind
+									<select
+										bind:value={indicator.kind}
+										onchange={() => onIndicatorKindChange(indicator)}
+									>
+										<option value="ema">EMA</option>
+										<option value="sma">SMA</option>
+										<option value="rsi">RSI</option>
+										<option value="atr">ATR</option>
+										<option value="volume_sma">Volume SMA</option>
+									</select></label
+								>
+								<label
+									>Period<input
+										type="number"
+										min="2"
+										bind:value={indicator.parameters.period}
+										oninput={markDirty}
+									/></label
+								>
+								<button class="secondary" type="button" onclick={() => removeIndicator(index)}
+									>Remove</button
+								>
+							</div>
+						{/each}
+						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
+						<div class="hint">
+							ATR uses high/low/close. RSI and ATR periods cap at 100. Inputs are fixed per kind in
+							V1.
+						</div>
+					</section>
+				{:else if activeSection === 'entry'}
+					<section class="panel">
+						<h2>Entry conditions</h2>
+						<div class="rule-tree">
+							{#if model.entry.when}
+								{@render conditionNode(model.entry.when, model.entry.when, 0)}
+							{/if}
+						</div>
+						<label class="cooldown-row"
+							>Re-entry cooldown (bars, declared — not yet modeled by the backtester)
+							<input
+								type="number"
+								min="0"
+								bind:value={model.cooldown_bars}
+								oninput={markDirty}
+							/></label
+						>
+					</section>
+				{:else if activeSection === 'exits'}
+					<section class="panel">
+						<h2>Exit conditions and protective stops</h2>
+						<div class="grid-two">
 							<label
-								>Thesis / description
-								<textarea
-									bind:value={model.description}
-									rows={3}
-									oninput={markDirty}
-									placeholder="What market behavior does this capture, and when should it not trade?"
-								></textarea></label
+								>Initial stop — ATR indicator
+								<select bind:value={model.exits.initial_stop.atr_indicator} onchange={markDirty}>
+									{#each model.indicators.filter((candidate) => candidate.kind === 'atr') as atr (atr.id)}
+										<option value={atr.id}>{atr.id} (ATR)</option>
+									{/each}
+									{#if !model.indicators.some((candidate) => candidate.kind === 'atr')}
+										<option value="">No ATR indicator defined</option>
+									{/if}
+								</select></label
 							>
-							<div class="hint">
-								Identity note: the name is part of the immutable published fingerprint.
-							</div>
-						</section>
-					{:else if activeSection === 'market'}
-						<section class="panel">
-							<h2>Market and data</h2>
-							<div class="grid-two">
-								<label>Product<input value={model.product_id} disabled /></label>
-								<label>Timeframe<input value={model.timeframe} disabled /></label>
-							</div>
 							<label
-								>Warmup bars (required history before signals)
+								>Initial stop — ATR multiple
+								<input
+									inputmode="decimal"
+									bind:value={model.exits.initial_stop.multiple}
+									oninput={markDirty}
+								/></label
+							>
+						</div>
+						<div class="grid-two">
+							<label
+								>Take profit — reward/risk multiple
+								<input
+									inputmode="decimal"
+									bind:value={model.exits.take_profit.multiple}
+									oninput={markDirty}
+								/></label
+							>
+							<span></span>
+						</div>
+						<div class="grid-two">
+							<label
+								>Time exit — max bars held
 								<input
 									type="number"
 									min="1"
-									bind:value={model.warmup_bars}
+									bind:value={model.exits.time_exit.max_bars_held}
 									oninput={markDirty}
 								/></label
 							>
-							<div class="hint">
-								V1 is Coinbase USD spot, long-only. Research and paper: 1h or 5m (this draft uses
-								{model.timeframe} candles). Live execution remains 1h-only.
-							</div>
-						</section>
-					{:else if activeSection === 'indicators'}
-						<section class="panel">
-							<h2>Indicators</h2>
-							{#each model.indicators as indicator, index (index)}
-								<div class="indicator-row">
-									<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
-									<label
-										>Kind
-										<select
-											bind:value={indicator.kind}
-											onchange={() => onIndicatorKindChange(indicator)}
-										>
-											<option value="ema">EMA</option>
-											<option value="sma">SMA</option>
-											<option value="rsi">RSI</option>
-											<option value="atr">ATR</option>
-											<option value="volume_sma">Volume SMA</option>
-										</select></label
-									>
-									<label
-										>Period<input
-											type="number"
-											min="2"
-											bind:value={indicator.parameters.period}
-											oninput={markDirty}
-										/></label
-									>
-									<button class="secondary" type="button" onclick={() => removeIndicator(index)}
-										>Remove</button
-									>
-								</div>
-							{/each}
-							<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
-							<div class="hint">
-								ATR uses high/low/close. RSI and ATR periods cap at 100. Inputs are fixed per kind
-								in V1.
-							</div>
-						</section>
-					{:else if activeSection === 'entry'}
-						<section class="panel">
-							<h2>Entry conditions</h2>
-							<div class="rule-tree">
-								{#if model.entry.when}
-									{@render conditionNode(model.entry.when, model.entry.when, 0)}
-								{/if}
-							</div>
-							<label class="cooldown-row"
-								>Re-entry cooldown (bars, declared — not yet modeled by the backtester)
+							<label>Trailing stop<input value="disabled (V1)" disabled /></label>
+						</div>
+					</section>
+				{:else if activeSection === 'sizing'}
+					<section class="panel">
+						<h2>Position sizing</h2>
+						<label
+							>Risk fraction of equity per trade
+							<input
+								inputmode="decimal"
+								bind:value={model.sizing.risk_fraction}
+								oninput={markDirty}
+							/></label
+						>
+						<div class="grid-two">
+							<label
+								>Minimum USD notional
+								<input
+									inputmode="decimal"
+									bind:value={model.sizing.min_quote_notional}
+									oninput={markDirty}
+								/></label
+							>
+							<label
+								>Maximum USD notional
+								<input
+									inputmode="decimal"
+									bind:value={model.sizing.max_quote_notional}
+									oninput={markDirty}
+								/></label
+							>
+						</div>
+					</section>
+				{:else if activeSection === 'limits'}
+					<section class="panel">
+						<h2>Portfolio limits</h2>
+						<label
+							>Max strategy exposure (fraction of equity)
+							<input
+								inputmode="decimal"
+								bind:value={model.portfolio_limits.max_strategy_exposure_fraction}
+								oninput={markDirty}
+							/></label
+						>
+						<div class="hint">V1 allows exactly one concurrent position per strategy.</div>
+					</section>
+				{:else if activeSection === 'execution'}
+					<section class="panel">
+						<h2>Execution preferences</h2>
+						<label
+							>Entry preference
+							<select bind:value={model.execution.entry_preference} onchange={markDirty}>
+								<option value="maker_only">Maker only</option>
+								<option value="marketable_limit">Marketable limit</option>
+							</select></label
+						>
+						<div class="grid-two">
+							<label
+								>Max entry wait (bars)
 								<input
 									type="number"
-									min="0"
-									bind:value={model.cooldown_bars}
+									min="1"
+									bind:value={model.execution.max_entry_wait_bars}
 									oninput={markDirty}
 								/></label
 							>
-						</section>
-					{:else if activeSection === 'exits'}
-						<section class="panel">
-							<h2>Exit conditions and protective stops</h2>
-							<div class="grid-two">
-								<label
-									>Initial stop — ATR indicator
-									<select bind:value={model.exits.initial_stop.atr_indicator} onchange={markDirty}>
-										{#each model.indicators.filter((candidate) => candidate.kind === 'atr') as atr (atr.id)}
-											<option value={atr.id}>{atr.id} (ATR)</option>
-										{/each}
-										{#if !model.indicators.some((candidate) => candidate.kind === 'atr')}
-											<option value="">No ATR indicator defined</option>
-										{/if}
-									</select></label
-								>
-								<label
-									>Initial stop — ATR multiple
-									<input
-										inputmode="decimal"
-										bind:value={model.exits.initial_stop.multiple}
-										oninput={markDirty}
-									/></label
-								>
-							</div>
-							<div class="grid-two">
-								<label
-									>Take profit — reward/risk multiple
-									<input
-										inputmode="decimal"
-										bind:value={model.exits.take_profit.multiple}
-										oninput={markDirty}
-									/></label
-								>
-								<span></span>
-							</div>
-							<div class="grid-two">
-								<label
-									>Time exit — max bars held
-									<input
-										type="number"
-										min="1"
-										bind:value={model.exits.time_exit.max_bars_held}
-										oninput={markDirty}
-									/></label
-								>
-								<label>Trailing stop<input value="disabled (V1)" disabled /></label>
-							</div>
-						</section>
-					{:else if activeSection === 'sizing'}
-						<section class="panel">
-							<h2>Position sizing</h2>
 							<label
-								>Risk fraction of equity per trade
-								<input
-									inputmode="decimal"
-									bind:value={model.sizing.risk_fraction}
-									oninput={markDirty}
-								/></label
-							>
-							<div class="grid-two">
-								<label
-									>Minimum USD notional
-									<input
-										inputmode="decimal"
-										bind:value={model.sizing.min_quote_notional}
-										oninput={markDirty}
-									/></label
-								>
-								<label
-									>Maximum USD notional
-									<input
-										inputmode="decimal"
-										bind:value={model.sizing.max_quote_notional}
-										oninput={markDirty}
-									/></label
-								>
-							</div>
-						</section>
-					{:else if activeSection === 'limits'}
-						<section class="panel">
-							<h2>Portfolio limits</h2>
-							<label
-								>Max strategy exposure (fraction of equity)
-								<input
-									inputmode="decimal"
-									bind:value={model.portfolio_limits.max_strategy_exposure_fraction}
-									oninput={markDirty}
-								/></label
-							>
-							<div class="hint">V1 allows exactly one concurrent position per strategy.</div>
-						</section>
-					{:else if activeSection === 'execution'}
-						<section class="panel">
-							<h2>Execution preferences</h2>
-							<label
-								>Entry preference
-								<select bind:value={model.execution.entry_preference} onchange={markDirty}>
-									<option value="maker_only">Maker only</option>
-									<option value="marketable_limit">Marketable limit</option>
+								>On unfilled entry
+								<select bind:value={model.execution.on_unfilled_entry} onchange={markDirty}>
+									<option value="cancel">Cancel</option>
+									<option value="reprice">Reprice</option>
 								</select></label
 							>
-							<div class="grid-two">
-								<label
-									>Max entry wait (bars)
-									<input
-										type="number"
-										min="1"
-										bind:value={model.execution.max_entry_wait_bars}
-										oninput={markDirty}
-									/></label
-								>
-								<label
-									>On unfilled entry
-									<select bind:value={model.execution.on_unfilled_entry} onchange={markDirty}>
-										<option value="cancel">Cancel</option>
-										<option value="reprice">Reprice</option>
-									</select></label
-								>
-							</div>
-							<div class="warn">
-								The current backtester fills every entry at the next bar open. These preferences are
-								declared for future runtimes and are shown as unsupported in the inspector.
-							</div>
-						</section>
+						</div>
+						<div class="warn">
+							The current backtester fills every entry at the next bar open. These preferences are
+							declared for future runtimes and are shown as unsupported in the inspector.
+						</div>
+					</section>
+				{/if}
+			</div>
+
+			<aside class="inspector" aria-label="Strategy inspector">
+				<h2>Inspector</h2>
+				<div class="inspector-block">
+					<h3>Plain-English summary</h3>
+					<p>{summaryText()}</p>
+				</div>
+				<div class="inspector-block">
+					<h3>Validation</h3>
+					{#if validationErrors.length === 0}
+						<p class="ok">No problems detected.</p>
+					{:else}
+						<ul class="problems">
+							{#each validationErrors as problem (problem)}
+								<li>{problem}</li>
+							{/each}
+						</ul>
 					{/if}
 				</div>
-
-				<aside class="inspector" aria-label="Strategy inspector">
-					<h2>Inspector</h2>
-					<div class="inspector-block">
-						<h3>Plain-English summary</h3>
-						<p>{summaryText()}</p>
-					</div>
-					<div class="inspector-block">
-						<h3>Validation</h3>
-						{#if validationErrors.length === 0}
-							<p class="ok">No problems detected.</p>
-						{:else}
-							<ul class="problems">
-								{#each validationErrors as problem (problem)}
-									<li>{problem}</li>
-								{/each}
-							</ul>
-						{/if}
-					</div>
-					<div class="inspector-block">
-						<h3>Required data</h3>
-						<p>
-							{model.warmup_bars} completed {model.timeframe} bars (OHLCV) before the first signal.
-						</p>
-					</div>
-					<div class="inspector-block">
-						<h3>Unsaved changes</h3>
-						{#if dirty}<p class="warn">This draft has unsaved edits.</p>
-						{:else}<p class="ok">All edits saved.</p>{/if}
-					</div>
-					<div class="inspector-block">
-						<h3>Engine support</h3>
-						<EngineSupportMatrix />
-					</div>
-				</aside>
-			</div>
-		{/if}
-	</main>
-</div>
+				<div class="inspector-block">
+					<h3>Required data</h3>
+					<p>
+						{model.warmup_bars} completed {model.timeframe} bars (OHLCV) before the first signal.
+					</p>
+				</div>
+				<div class="inspector-block">
+					<h3>Unsaved changes</h3>
+					{#if dirty}<p class="warn">This draft has unsaved edits.</p>
+					{:else}<p class="ok">All edits saved.</p>{/if}
+				</div>
+				<div class="inspector-block">
+					<h3>Engine support</h3>
+					<EngineSupportMatrix />
+				</div>
+			</aside>
+		</div>
+	{/if}
+</main>
 
 {#snippet conditionNode(condition: ConditionDraft, parent: object, depth: number)}
 	{@const index = childIndex(condition, parent)}

@@ -753,116 +753,102 @@
 
 <svelte:head><title>Strategies · ThyTrader</title></svelte:head>
 
-<div class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve('/')} aria-label="ThyTrader home"
-			><span class="brand-mark">T</span><span>ThyTrader</span></a
+<main>
+	<section class="hero">
+		<div>
+			<p class="eyebrow">Conservative research</p>
+			<h1>Strategy library</h1>
+			<p class="lede">
+				Every strategy identity with its latest evidence. Paper and live runtimes start from the
+				Deploy tab on a published version.
+			</p>
+		</div>
+	</section>
+	<section class="top-actions" aria-label="Library actions">
+		<button class="refresh" type="button" onclick={createNew} disabled={pendingAction !== null}
+			>{pendingAction === 'create' ? 'Creating…' : 'New strategy'}</button
 		>
-		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a>
-			<a class="active" href={resolve('/strategies')}>Strategies</a>
-			<a href={resolve('/backtests')}>Backtests</a>
-			<a href={resolve('/audit')}>Audit</a>
-		</nav>
-		<div class="local-pill"><span></span> Research only</div>
-	</header>
-	<main>
-		<section class="hero">
+		<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
+	</section>
+	{#if error}<div class="error-banner" role="alert">
 			<div>
-				<p class="eyebrow">Conservative research</p>
-				<h1>Strategy library</h1>
-				<p class="lede">
-					Every strategy identity with its latest evidence. Paper and live runtimes start from the
-					Deploy tab on a published version.
+				<strong>Research operation unavailable</strong>
+				<p>{error}</p>
+			</div>
+			<button type="button" onclick={loadLibrary}>Retry library load</button>
+		</div>{/if}
+	<section class="library-card" aria-label="Strategy library">
+		{#if loading}
+			<div class="loading-region"><div class="skeleton wide"></div></div>
+		{:else if entries.length === 0}
+			<div class="empty-state">
+				<p>No strategies yet.</p>
+				<p class="empty-hint">
+					Use <strong>New strategy</strong> above to create a conservative reference draft, or import
+					a strategy definition you exported elsewhere.
 				</p>
 			</div>
-		</section>
-		<section class="top-actions" aria-label="Library actions">
-			<button class="refresh" type="button" onclick={createNew} disabled={pendingAction !== null}
-				>{pendingAction === 'create' ? 'Creating…' : 'New strategy'}</button
-			>
-			<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
-		</section>
-		{#if error}<div class="error-banner" role="alert">
-				<div>
-					<strong>Research operation unavailable</strong>
-					<p>{error}</p>
-				</div>
-				<button type="button" onclick={loadLibrary}>Retry library load</button>
-			</div>{/if}
-		<section class="library-card" aria-label="Strategy library">
-			{#if loading}
-				<div class="loading-region"><div class="skeleton wide"></div></div>
-			{:else if entries.length === 0}
-				<div class="empty-state">
-					<p>No strategies yet.</p>
-					<p class="empty-hint">
-						Use <strong>New strategy</strong> above to create a conservative reference draft, or import
-						a strategy definition you exported elsewhere.
-					</p>
-				</div>
-			{:else}
-				<div class="table-scroll">
-					<table>
-						<thead>
-							<tr>
-								<th scope="col">Name</th>
-								<th scope="col">Market / timeframe</th>
-								<th scope="col">Latest version</th>
-								<th scope="col">Status</th>
-								<th scope="col">Latest backtest</th>
-								<th scope="col">Paper / live</th>
+		{:else}
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr>
+							<th scope="col">Name</th>
+							<th scope="col">Market / timeframe</th>
+							<th scope="col">Latest version</th>
+							<th scope="col">Status</th>
+							<th scope="col">Latest backtest</th>
+							<th scope="col">Paper / live</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each entries as entry (entry.strategy_id)}
+							<tr
+								data-strategy-id={entry.strategy_id}
+								class:hover-row={hoveredId === entry.strategy_id}
+								onmouseenter={(event) => showBar(event, entry)}
+								onmouseleave={scheduleHide}
+								onclick={(event) => {
+									if ((event.target as HTMLElement).closest('a, button')) return;
+									openView(entry);
+								}}
+							>
+								<td>
+									<span class="strategy-name">{entry.name}</span>
+								</td>
+								<td>{entry.product_id} · {entry.timeframe}</td>
+								<td>
+									{entry.latest_version ?? '—'}{#if entry.latest_fingerprint}
+										<code class="fingerprint">{entry.latest_fingerprint.slice(0, 18)}…</code>{/if}
+								</td>
+								<td>
+									<span class="status-pill" data-status={entry.status}>{entry.status}</span>
+								</td>
+								<td>
+									{#if entry.backtest}
+										<a
+											href={resolve(
+												`/backtests?result=${encodeURIComponent(entry.backtest.result_fingerprint)}`
+											)}
+										>
+											{formatReturn(entry)} · {entry.backtest.summary.trade_count} trades ·
+											{formatDate(entry.backtest.published_at)}
+										</a>
+									{:else}
+										<span class="muted">None yet</span>
+									{/if}
+								</td>
+								<td>
+									<span class="muted">{entry.paper_live.paper} / {entry.paper_live.live}</span>
+								</td>
 							</tr>
-						</thead>
-						<tbody>
-							{#each entries as entry (entry.strategy_id)}
-								<tr
-									data-strategy-id={entry.strategy_id}
-									class:hover-row={hoveredId === entry.strategy_id}
-									onmouseenter={(event) => showBar(event, entry)}
-									onmouseleave={scheduleHide}
-									onclick={(event) => {
-										if ((event.target as HTMLElement).closest('a, button')) return;
-										openView(entry);
-									}}
-								>
-									<td>
-										<span class="strategy-name">{entry.name}</span>
-									</td>
-									<td>{entry.product_id} · {entry.timeframe}</td>
-									<td>
-										{entry.latest_version ?? '—'}{#if entry.latest_fingerprint}
-											<code class="fingerprint">{entry.latest_fingerprint.slice(0, 18)}…</code>{/if}
-									</td>
-									<td>
-										<span class="status-pill" data-status={entry.status}>{entry.status}</span>
-									</td>
-									<td>
-										{#if entry.backtest}
-											<a
-												href={resolve(
-													`/backtests?result=${encodeURIComponent(entry.backtest.result_fingerprint)}`
-												)}
-											>
-												{formatReturn(entry)} · {entry.backtest.summary.trade_count} trades ·
-												{formatDate(entry.backtest.published_at)}
-											</a>
-										{:else}
-											<span class="muted">None yet</span>
-										{/if}
-									</td>
-									<td>
-										<span class="muted">{entry.paper_live.paper} / {entry.paper_live.live}</span>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</section>
-	</main>
-</div>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</section>
+</main>
 
 {#if showImport}
 	<div class="import-backdrop">
