@@ -29,6 +29,12 @@ turns an eligible published run into an immutable long-only, single-position tra
 curve, drawdown series, cost evidence, and result summary. V1/V2 stay next-open taker. V3 rests
 maker limits the way paper and live do. The kernel still has no order authority.
 
+**Engine contracts are not product releases.** V1 (next-open baseline), V2 (same as V1 plus constant
+spread stress), and V3 (maker-limit realism aligned with paper/live) remain valid in parallel; V3 does
+not retire V1/V2 evidence. Operator when-to-pick guidance lives in
+[`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md). Do not confuse these
+engine ids with Coinbase Advanced Trade REST v3.
+
 The browser API can author durable revision-guarded drafts, publish immutable strategy evidence,
 archive publications through append-only markers, submit reproducible backtests, and inspect stored
 immutable results. These narrow UI/API contracts preserve fingerprint verification, result
