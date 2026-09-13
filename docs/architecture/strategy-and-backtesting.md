@@ -84,8 +84,11 @@ identity from one selected immutable version, rejecting conflicting open drafts 
 publication remains immutable and history-preserving. Clone stays a separate-identity action at the
 library level. The Deploy tab starts paper or live runtimes for a published version, shows phase,
 position, orders, fills, and reject reasons, and pause/resume/stop the execution worker. Live start
-and stop ask for confirmation. Pause keeps protective exits running; stop cancels resting orders. The library
-paper/live column reflects the newest deployment status per mode.
+and stop ask for confirmation. Pause keeps protective exits running; stop cancels resting orders. The
+library hover Archive action confirms the latest published version and fingerprint before appending
+an archive marker; Clone stays ungated. The library paper/live column shows newest paper then live
+status (`unavailable`, `running`, `paused`, or `stopped`) with a column legend; the cell opens the
+Deploy tab.
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 

@@ -129,6 +129,11 @@ test('lists every strategy with market, version, status, backtest, and paper/liv
 	await expect(statusPills.first()).toHaveAttribute('data-status', 'published');
 	await expect(statusPills.last()).toHaveAttribute('data-status', 'draft');
 	await expect(page.getByText('unavailable / unavailable').first()).toBeVisible();
+	await expect(page.getByText('unavailable · running · paused · stopped')).toBeVisible();
+	await expect(page.getByRole('columnheader', { name: /Paper \/ live/ })).toHaveAttribute(
+		'title',
+		/unavailable = no runtime/
+	);
 	await expect(page.getByRole('link', { name: /8\.50% · 5 trades/ })).toBeVisible();
 });
 
@@ -165,6 +170,32 @@ test('research window hint names the strategy timeframe instead of UTC hours', a
 	await page.getByRole('tab', { name: 'Research' }).click();
 	await expect(page.getByText(/\(UTC, 5m bars\)/)).toBeVisible();
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
+});
+
+test('paper/live status opens the Deploy tab', async ({ page }) => {
+	const runningEntry = {
+		...publishedEntry,
+		paper_live: { paper: 'running', live: 'paused' }
+	};
+	await mockLibrary(page, [runningEntry]);
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	await page.route('**/api/v1/deployments', async (route) =>
+		route.fulfill({ json: { deployments: [] } })
+	);
+	await page.goto('/strategies');
+	const status = page.getByRole('button', { name: 'running / paused' });
+	await expect(status).toHaveAttribute('title', /Paper: running\. Live: paused/);
+	await status.click();
+	await expect(page.getByRole('dialog', { name: 'Strategy inspector' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Deploy', exact: true })).toBeVisible();
 });
 
 test('links the latest backtest result to the backtests detail view', async ({ page }) => {
@@ -235,9 +266,43 @@ test('archives a published strategy and refreshes the library', async ({ page })
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().hover();
 	const toolbar = page.getByRole('toolbar', { name: 'Row actions' });
+	page.once('dialog', async (dialog) => {
+		expect(dialog.type()).toBe('confirm');
+		const message = dialog.message();
+		expect(message).toContain('Recovered BTC trend draft');
+		expect(message).toContain('Version: v1');
+		expect(message).toContain(fingerprint);
+		await dialog.accept();
+	});
 	await toolbar.getByRole('button', { name: 'Archive' }).click();
 	await expect(page.locator('.status-pill[data-status="archived"]')).toBeVisible();
 	await expect(page.getByRole('alert')).not.toBeVisible();
+});
+
+test('archive confirm cancel leaves the published fingerprint in place', async ({ page }) => {
+	let archiveCalls = 0;
+	await mockLibrary(page, [publishedEntry]);
+	await page.route('**/api/v1/strategies/*/archive', async (route) => {
+		archiveCalls += 1;
+		await route.fulfill({
+			json: { strategy_fingerprint: fingerprint, archived_at: '2026-08-28T12:00:00Z' }
+		});
+	});
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().hover();
+	page.once('dialog', async (dialog) => {
+		expect(dialog.message()).toContain('Version: v1');
+		expect(dialog.message()).toContain(fingerprint);
+		await dialog.dismiss();
+	});
+	await page
+		.getByRole('toolbar', { name: 'Row actions' })
+		.getByRole('button', { name: 'Archive' })
+		.click();
+	await page.waitForTimeout(100);
+	expect(archiveCalls).toBe(0);
+	await expect(page.locator('.status-pill[data-status="published"]')).toBeVisible();
 });
 
 test('shows a hover action bar with status-appropriate actions and edge-safe positioning', async ({

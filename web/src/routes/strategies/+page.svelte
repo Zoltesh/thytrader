@@ -4,6 +4,7 @@
 	import { formatPercent } from '$lib/backtests';
 	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
+		archiveConfirmMessage,
 		archivePublishedStrategy,
 		createDraft,
 		clonePublishedStrategy,
@@ -16,6 +17,10 @@
 		latestDatasets,
 		listDatasets,
 		listStrategies,
+		PAPER_LIVE_STATUS_LEGEND,
+		PAPER_LIVE_STATUS_TITLE,
+		paperLiveStatusLabel,
+		paperLiveStatusTitle,
 		parseUtcInputValue,
 		researchWindowHint,
 		reviseStrategy,
@@ -488,13 +493,16 @@
 		}
 	}
 
-	async function openView(entry: StrategyLibraryEntry): Promise<void> {
+	async function openView(
+		entry: StrategyLibraryEntry,
+		tab: 'insight' | 'research' | 'versions' | 'deploy' = 'insight'
+	): Promise<void> {
 		const requestId = ++viewRequestId;
 		viewEntry = entry;
 		viewModel = null;
 		viewError = null;
 		viewLoading = true;
-		researchTab = 'insight';
+		researchTab = tab;
 		versionResults = [];
 		launchError = null;
 		launching = false;
@@ -681,6 +689,14 @@
 
 	async function archive(entry: StrategyLibraryEntry): Promise<void> {
 		if (pendingAction || !entry.latest_fingerprint) return;
+		const confirmed = window.confirm(
+			archiveConfirmMessage({
+				name: entry.name,
+				latest_version: entry.latest_version,
+				latest_fingerprint: entry.latest_fingerprint
+			})
+		);
+		if (!confirmed) return;
 		pendingAction = `archive:${entry.strategy_id}`;
 		error = null;
 		try {
@@ -798,7 +814,10 @@
 							<th scope="col">Latest version</th>
 							<th scope="col">Status</th>
 							<th scope="col">Latest backtest</th>
-							<th scope="col">Paper / live</th>
+							<th class="paper-live-col" scope="col" title={PAPER_LIVE_STATUS_TITLE}>
+								Paper / live
+								<span class="col-legend">{PAPER_LIVE_STATUS_LEGEND}</span>
+							</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -839,7 +858,14 @@
 									{/if}
 								</td>
 								<td>
-									<span class="muted">{entry.paper_live.paper} / {entry.paper_live.live}</span>
+									<button
+										class="paper-live-status"
+										type="button"
+										title={paperLiveStatusTitle(entry.paper_live)}
+										onclick={() => void openView(entry, 'deploy')}
+									>
+										{paperLiveStatusLabel(entry.paper_live)}
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -1587,6 +1613,32 @@
 		font-weight: 500;
 		font-size: 12px;
 		white-space: nowrap;
+	}
+	th.paper-live-col {
+		white-space: normal;
+	}
+	.col-legend {
+		display: block;
+		margin-top: 4px;
+		color: #77888b;
+		font-size: 10px;
+		font-weight: 400;
+		white-space: nowrap;
+	}
+	.paper-live-status {
+		appearance: none;
+		border: 0;
+		background: transparent;
+		color: #77888b;
+		font: inherit;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+	}
+	.paper-live-status:hover,
+	.paper-live-status:focus-visible {
+		color: #d8e1e2;
+		text-decoration: underline;
 	}
 	tbody tr:last-child td {
 		border-bottom: none;
