@@ -2,49 +2,89 @@
 
 This roadmap sequences capabilities and safety gates. It is not a promise of dates. Each phase should produce a usable, tested vertical increment rather than a collection of disconnected scaffolds.
 
-## Current delivery focus: paper and live share one worker
+## Current delivery focus: Phases 7+ (iterative)
 
-Research authoring, publication, and V1/V2/V3 backtests are implemented. Paper and live execution share
-one candle-close worker (paper `1h` or `5m`, live `1h`), a paper maker broker, and a Coinbase Advanced
-Trade REST v3 JSON adapter
-(SDK used only as JWT transport). Remaining extras stay deferred: extra execution timeframes
-beyond 5m paper / 1h live, trailing stops,
-native brackets/OCO, user-order WebSockets, walk-forward, and a risk-policy registry.
+Phases 0–6 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
+operator/data/research/runtime skills). **Thy Builder should implement the next unshipped
+Phase 7+ slice in order**, one vertical increment at a time. Phases 7–14 below are the
+definitive sequence (not a wish list). Detail: [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
+and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-The numbered phases below remain the capability map. Items marked complete are in the tree; unmarked
-Phase 5 extras are still future work.
+Completed capability checklist (Phases 0–6):
 
 1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
 2. **Observe through supported agent interfaces:** ✅ `thytrader-operator` CLI/API and skill — no trading authority.
 3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests only).
 4. **Automate in paper mode:** ✅ 1h and 5m candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
-   exist; remaining live extras (WebSockets, native OCO, trailing stops) stay deferred.
+   exist; remaining live extras stay in Phase 13.
 6. **Operator/agent integration:** ✅ HTTP-first diagnostics and research CLIs, plus a separate
    confirmation-gated `thytrader-runtime` skill for paper/live control.
 
-## Next capability waves (planned)
+Remote / SaaS exposure remains explicitly deprioritized.
 
-These waves are **not shipped**. They sequence work toward agent-driven multi-timeframe portfolio
-automation. Detail: [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
+## Phase 7: Remaining market-data timeframes — 🚧 Next
 
-1. **Finish remaining Phase 2A timeframes** — 15m, 30m, 6h, 1d under the same complete-only contract;
-   harden agent data loops (`watch_complete` clarity).
-2. **Multi-timeframe strategy semantics** — combined HTF + LTF conditions; schema and engines beyond
-   a single `timeframe` field.
-3. **Wider fail-closed indicator catalog** — expand without TA-library passthrough.
-4. **Portfolio + risk-policy registry** — multi-position and cross-strategy exposure / capital
-   allocation (beyond one instrument, one position).
-5. **Research rigor tooling** — walk-forward / out-of-sample, richer templates, clearer engine
-   support matrix.
-6. **Agent orchestration + YOLO opt-in** — playbook skill over existing CLIs; default remains
-   `--confirm`; planned YOLO mode (default off) skips confirmation on allowed tiers; live keeps a
-   hard gate. See [agent integration](agent-integration.md).
-7. **Live extras** — 5m live, trailing stops, user-order WebSockets, native OCO, after paper /
-   restart / reconcile gates stay green.
-8. **Experiential memory / hindsight** — deferred until after the core trading loop is trustworthy.
+Extend the same durable complete-only Parquet + manifest + verify contract beyond 1h/5m.
 
-Remote / SaaS exposure remains explicitly deprioritized for this sequence.
+### Iterative slices (ship separately)
+
+1. **15m datasets** (next) — worker ingest/publish/verify/catalog + thin diagnostics. Same
+   complete-only rules; no candle interpolation. **Do not** silently widen strategy
+   `timeframe` enum or paper/live clocks to 15m in the same change (schema/runtime today:
+   strategy TF `1h`|`5m`, live `1h` only).
+2. **30m datasets**
+3. **6h datasets**
+4. **1d datasets**
+5. Harden agent data loops (`watch_complete` clarity, fewer stale Compose footguns).
+
+**Exit gate:** each timeframe has verified fingerprint-addressed datasets usable as research
+inputs once strategy/runtime contracts explicitly allow that TF.
+
+## Phase 7.1: Fee-tier suggested defaults for research/paper — 📋 Planned
+
+Prefill Research (and paper cost fields if exposed) with maker/taker rates derived from the
+shipped Coinbase fee-tier snapshot; keep fields editable; fingerprint rates actually used;
+honest "suggested vs custom" labels. Design: [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
+
+May ship in parallel with Phase 7 slices. Does **not** change live venue billing.
+
+**Exit gate:** credentials → suggested rates with override; demo/missing → honest fallback;
+submitted runs fingerprint rates; UI never claims observed Coinbase fills for research/paper costs.
+
+## Phase 8: Multi-timeframe strategy semantics — 📋 Planned
+
+Combined HTF + LTF conditions (schema + engines) beyond a single `timeframe` field. Requires
+Phase 7 datasets for the TFs involved.
+
+## Phase 9: Wider fail-closed indicator catalog — 📋 Planned
+
+Expand the bounded indicator registry without TA-library passthrough; same deterministic
+warmup and no-lookahead rules.
+
+## Phase 10: Portfolio + risk-policy registry — 📋 Planned
+
+Multi-position and cross-strategy exposure / capital allocation beyond one instrument and
+`max_concurrent_positions = 1`.
+
+## Phase 11: Research rigor tooling — 📋 Planned
+
+Walk-forward / out-of-sample workflows, richer templates, clearer engine-support matrix.
+
+## Phase 12: Agent orchestration + YOLO opt-in — 📋 Planned
+
+Playbook skill over existing CLIs. Default remains `--confirm`. Planned YOLO mode (default
+off) skips confirmation on allowed tiers; live keeps a hard gate. See [agent integration](agent-integration.md).
+
+## Phase 13: Live extras — 📋 Planned
+
+5m live (after paper on that clock is proven), trailing stops, user-order WebSockets, native
+OCO/brackets — after paper/restart/reconcile gates stay green.
+
+## Phase 14: Experiential memory / hindsight — 📋 Deferred
+
+Operator-managed facts and lessons. Only after the core trading loop is trustworthy. Not a
+substitute for audit trails or immutable research evidence.
 
 ## Phase 0: Repository foundation — ✅ Complete
 
@@ -127,8 +167,9 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- Extend the same durable contract to 15m, 30m, 6h, and 1d. 5m research ingest and backtests are implemented.
-- 5m live execution after paper on the same published 5m clock is proven.
+- Extend the same durable contract to 15m, 30m, 6h, and 1d under **Phase 7** (15m next
+  incremental slice). 5m research ingest and backtests are implemented.
+- 5m live execution after paper on the same published 5m clock is proven (**Phase 13**).
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
@@ -252,5 +293,5 @@ artifacts using supported HTTP interfaces without database access, secret exposu
 trading authority. Paper/live control is a third confirmation-gated surface, not part of operator or
 research skills.
 
-Further agent E2E orchestration and YOLO opt-in are **planned** under [Next capability waves](#next-capability-waves-planned),
-not part of the Phase 6 exit gate.
+Further agent E2E orchestration and YOLO opt-in are **Phase 12**, not part of the Phase 6 exit gate.
+See [Phases 7–14](#phase-7-remaining-market-data-timeframes--next).
