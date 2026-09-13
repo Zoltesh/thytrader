@@ -20,7 +20,7 @@ Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics c
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It omits cash, quantities, and order payloads.
 
-The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h` and `5m`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report.
+The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, and `15m`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report. Strategy, paper, and live clocks remain `1h` or `5m` (live `1h`).
 
 Health `payload.ops_contract` names the CLI/API content identity (`id`, engines, paper/live timeframes, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 
