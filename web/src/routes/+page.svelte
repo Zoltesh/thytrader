@@ -19,7 +19,7 @@
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
-	import { fetchFeeProfile, type FeeProfile } from '$lib/fees';
+	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
 
 	let portfolio: Portfolio | null = $state(null);
 	let loading = $state(true);
@@ -45,6 +45,9 @@
 	let feeProfile: FeeProfile | null = $state(null);
 	let feesLoading = $state(true);
 	let feesAvailability: 'ready' | 'unavailable' = $state('ready');
+	const feeAsOfLabel = $derived(
+		feeProfile === null ? null : formatFeeProfileAsOf(feeProfile.as_of)
+	);
 
 	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
@@ -309,6 +312,9 @@
 				<div>
 					<h2>Fee Tier & Costs</h2>
 					<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
+					{#if feeProfile !== null && feeAsOfLabel !== null}
+						<p>As of <time datetime={feeProfile.as_of}>{feeAsOfLabel}</time></p>
+					{/if}
 				</div>
 				{#if feeProfile}
 					<span class="badge tier-badge">{feeProfile.fee_tier}</span>

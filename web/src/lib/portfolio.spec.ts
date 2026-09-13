@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	chartHasGaps,
+	formatConfiguredSamplingInterval,
 	formatUsd,
 	honestLineSegments,
 	isHistoryStale,
@@ -241,5 +242,10 @@ describe('history presentation', () => {
 		const entries = [entry('100', '2026-07-27T12:00:00Z')];
 
 		expect(isHistoryStale(entries, 300, now)).toBe(true);
+	});
+
+	it('formats configured sampling as a duration, not a guaranteed cadence', () => {
+		expect(formatConfiguredSamplingInterval(300)).toBe('5 min');
+		expect(formatConfiguredSamplingInterval(3600)).toBe('1h');
 	});
 });

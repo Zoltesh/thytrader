@@ -100,6 +100,9 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(page.getByText('0.60%')).toBeVisible();
 	await expect(page.getByText('0.40%')).toBeVisible();
 	await expect(page.getByText('Tier 1')).toBeVisible();
+	await expect(
+		page.getByText(`As of ${new Date('2026-08-17T12:00:00Z').toLocaleString()}`)
+	).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76000000');
 	await expect(page.getByRole('row', { name: /Ethereum ETH/ })).toContainText('$7,342.17');
 	await expect(page.getByText('View', { exact: true })).toBeVisible();
@@ -137,6 +140,9 @@ test('loads demo portfolio through the real SvelteKit and FastAPI processes', as
 	await expect(page.getByText('$99,792.17')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
 	await expect(page.getByText('0.60%')).toBeVisible();
+	await expect(
+		page.getByText(`As of ${new Date('2026-08-17T12:00:00Z').toLocaleString()}`)
+	).toBeVisible();
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toBeVisible();
 });
 
@@ -161,6 +167,7 @@ test('shows controlled unavailable state when fees request fails with 502', asyn
 	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
 	await expect(page.getByText('Fee profile is temporarily unavailable.')).toBeVisible();
+	await expect(page.getByText(/As of /)).toHaveCount(0);
 });
 
 test('refreshes the portfolio and presents a redacted connection error', async ({ page }) => {
@@ -483,6 +490,24 @@ test('shows controlled feed failure state when the feed endpoint fails', async (
 	await page.goto('/');
 
 	await expect(page.getByText('Feed: unavailable')).toBeVisible();
+});
+
+test('labels history sampling as a target interval rather than a guaranteed cadence', async ({
+	page
+}) => {
+	await openPortfolioWithHistory(page, {
+		entries: [
+			historyEntry('120', '2026-07-27T12:00:00Z'),
+			historyEntry('110', '2026-07-27T11:00:00Z'),
+			historyEntry('100', '2026-07-27T10:00:00Z')
+		],
+		sampling_interval_seconds: 3600
+	});
+
+	const history = page.getByRole('region', { name: 'Portfolio value history' });
+	await expect(history).toContainText('3 sampled snapshots');
+	await expect(history).toContainText('target interval 1h');
+	await expect(history).not.toContainText('every');
 });
 
 test('shows empty history copy and does not invent snapshots on refresh', async ({ page }) => {

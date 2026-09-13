@@ -520,6 +520,18 @@ function formatDecimal(units: bigint, scale: number): string {
 	return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
 }
 
+/**
+ * Format the configured snapshot sampling interval without implying it is met.
+ *
+ * Hours are shown only when the configured value is an exact hour multiple.
+ */
+export function formatConfiguredSamplingInterval(seconds: number): string {
+	if (seconds % 3600 === 0) {
+		return `${seconds / 3600}h`;
+	}
+	return `${Math.round(seconds / 60)} min`;
+}
+
 export function isHistoryStale(
 	entries: HistoryEntry[],
 	samplingIntervalSeconds: number,
