@@ -31,6 +31,50 @@ export type StrategyLibraryBacktest = {
 
 export type StrategyLibraryPaperLive = { paper: string; live: string };
 
+/** Newest paper then live status tokens shown in the library column. */
+export const PAPER_LIVE_STATUS_LEGEND = 'unavailable · running · paused · stopped';
+
+/**
+ * Explain the library paper/live column: two tokens, newest deployment per mode.
+ * `unavailable` means no runtime of that mode, not an unknown health signal.
+ */
+export const PAPER_LIVE_STATUS_TITLE =
+	'Paper then live. Newest deployment per mode. unavailable = no runtime; running = active; paused = halted (protective exits continue); stopped = ended.';
+
+/**
+ * Visible library cell text: paper status, then live status.
+ */
+export function paperLiveStatusLabel(paperLive: StrategyLibraryPaperLive): string {
+	return `${paperLive.paper} / ${paperLive.live}`;
+}
+
+/**
+ * Tooltip for one library paper/live cell. Names both modes so the slash is not opaque.
+ */
+export function paperLiveStatusTitle(paperLive: StrategyLibraryPaperLive): string {
+	return `Paper: ${paperLive.paper}. Live: ${paperLive.live}. Opens Deploy.`;
+}
+
+/**
+ * Confirm copy for archiving the latest published fingerprint from the hover toolbar.
+ * Names version and fingerprint identity; archive is an append-only hide, not a delete.
+ */
+export function archiveConfirmMessage(input: {
+	name: string;
+	latest_version: number | null;
+	latest_fingerprint: string;
+}): string {
+	const version = input.latest_version === null ? 'unknown version' : `v${input.latest_version}`;
+	return [
+		`Archive the latest published fingerprint of ${input.name}?`,
+		'',
+		'This hides that version from active selection. Canonical evidence stays immutable; historical references remain valid. Older published versions are unchanged.',
+		'',
+		`Version: ${version}`,
+		`Fingerprint: ${input.latest_fingerprint}`
+	].join('\n');
+}
+
 export type StrategyPublishedVersion = {
 	version: number;
 	strategy_fingerprint: string;
