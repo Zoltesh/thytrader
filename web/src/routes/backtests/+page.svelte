@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { resolve } from '$app/paths';
 	import BacktestDetail from '$lib/BacktestDetail.svelte';
 	import BacktestPanel from '$lib/BacktestPanel.svelte';
 	import {
@@ -100,45 +99,31 @@
 
 <svelte:head><title>Backtests · ThyTrader</title></svelte:head>
 
-<div class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve('/')} aria-label="ThyTrader home"
-			><span class="brand-mark">T</span><span>ThyTrader</span></a
+<main>
+	<section class="hero">
+		<div>
+			<p class="eyebrow">Research evidence</p>
+			<h1>Backtests</h1>
+			<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
+		</div>
+		<button class="refresh" type="button" onclick={loadList} disabled={listingLoading}
+			><span class:spinning={listingLoading}>↻</span>{listingLoading
+				? 'Refreshing…'
+				: 'Refresh results'}</button
 		>
-		<nav aria-label="Primary navigation">
-			<a href={resolve('/')}>Portfolio</a>
-			<a href={resolve('/strategies')}>Strategies</a>
-			<a class="active" href={resolve('/backtests')}>Backtests</a>
-			<a href={resolve('/audit')}>Audit</a>
-		</nav>
-		<div class="local-pill"><span></span> Local workstation</div>
-	</header>
-	<main>
-		<section class="hero">
-			<div>
-				<p class="eyebrow">Research evidence</p>
-				<h1>Backtests</h1>
-				<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
-			</div>
-			<button class="refresh" type="button" onclick={loadList} disabled={listingLoading}
-				><span class:spinning={listingLoading}>↻</span>{listingLoading
-					? 'Refreshing…'
-					: 'Refresh results'}</button
-			>
-		</section>
-		{#if selectedFingerprint !== null}<BacktestDetail
-				detail={selected}
-				{benchmark}
-				{benchmarkLoading}
-				{benchmarkError}
-				loading={detailLoading}
-				error={detailError}
-				onBack={clearSelection}
-			/>{:else}<BacktestPanel
-				entries={listing?.entries ?? []}
-				loading={listingLoading}
-				availability={listingAvailability}
-				onSelect={(fingerprint) => void selectBacktest(fingerprint)}
-			/>{/if}
-	</main>
-</div>
+	</section>
+	{#if selectedFingerprint !== null}<BacktestDetail
+			detail={selected}
+			{benchmark}
+			{benchmarkLoading}
+			{benchmarkError}
+			loading={detailLoading}
+			error={detailError}
+			onBack={clearSelection}
+		/>{:else}<BacktestPanel
+			entries={listing?.entries ?? []}
+			loading={listingLoading}
+			availability={listingAvailability}
+			onSelect={(fingerprint) => void selectBacktest(fingerprint)}
+		/>{/if}
+</main>

@@ -28,11 +28,13 @@ a {
 	min-height: 100vh;
 }
 .topbar {
-	height: 72px;
+	min-height: 72px;
+	height: auto;
 	display: flex;
 	align-items: center;
-	gap: 48px;
-	padding: 0 5vw;
+	flex-wrap: wrap;
+	gap: 12px 48px;
+	padding: 12px 5vw;
 	border-bottom: 1px solid #20282a;
 	background: rgba(8, 11, 13, 0.88);
 	backdrop-filter: blur(14px);
@@ -57,35 +59,43 @@ a {
 	background: #5ce1b5;
 	font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
-nav {
+.topbar nav {
 	display: flex;
-	gap: 28px;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px 28px;
+	min-width: 0;
+	flex: 1 1 240px;
+	overflow-x: auto;
 	color: #778386;
 	font-size: 14px;
 }
-nav a {
+.topbar nav a {
 	color: inherit;
 	text-decoration: none;
+	white-space: nowrap;
 }
-nav .active {
+.topbar nav .active,
+.topbar nav a[aria-current='page'] {
 	color: #e9edf1;
 }
 .local-pill {
 	margin-left: auto;
+	flex-shrink: 0;
 	color: #98a4a7;
 	font-size: 12px;
 	border: 1px solid #283234;
 	border-radius: 999px;
 	padding: 7px 11px;
 }
+/* Neutral marker: this pill is an environment label, not a health light. */
 .local-pill span {
 	display: inline-block;
 	width: 7px;
 	height: 7px;
 	margin-right: 7px;
 	border-radius: 50%;
-	background: #5ce1b5;
-	box-shadow: 0 0 10px #5ce1b5;
+	background: #657174;
 }
 main {
 	width: min(1180px, 90vw);
@@ -265,6 +275,7 @@ article small {
 }
 .asset-panel {
 	overflow: hidden;
+	margin-bottom: 16px;
 }
 .panel-heading {
 	display: flex;
@@ -380,8 +391,11 @@ td:first-child {
 	}
 }
 @media (max-width: 800px) {
-	nav {
-		display: none;
+	.topbar {
+		gap: 10px 24px;
+	}
+	.topbar nav {
+		gap: 10px 20px;
 	}
 	main {
 		padding-top: 38px;
@@ -464,7 +478,7 @@ td:first-child {
 
 @media (max-width: 520px) {
 	.topbar {
-		padding: 0 20px;
+		padding: 12px 20px;
 	}
 	.local-pill {
 		display: none;

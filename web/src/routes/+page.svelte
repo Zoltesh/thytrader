@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { resolve } from '$app/paths';
 	import MarketDataPanel, {
 		type FreshnessState,
 		type MarketFeedState
@@ -203,188 +202,169 @@
 
 <svelte:head><title>Your portfolio · ThyTrader</title></svelte:head>
 
-<div class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve('/')} aria-label="ThyTrader home">
-			<span class="brand-mark">T</span>
-			<span>ThyTrader</span>
-		</a>
-		<nav aria-label="Primary navigation">
-			<a class="active" href={resolve('/')}>Portfolio</a>
-			<a href={resolve('/strategies')}>Strategies</a>
-			<a href={resolve('/backtests')}>Backtests</a>
-			<a href={resolve('/audit')}>Audit</a>
-		</nav>
-		<div class="local-pill"><span></span> Local workstation</div>
-	</header>
+<main>
+	<section class="hero">
+		<div>
+			<p class="eyebrow">Coinbase overview</p>
+			<h1>Your portfolio</h1>
+			<p class="lede">Balances and estimated value from your connected Coinbase account.</p>
+		</div>
+		<button class="refresh" type="button" onclick={loadPortfolio} disabled={loading}>
+			<span class:spinning={loading}>↻</span>
+			{loading ? 'Refreshing…' : 'Refresh portfolio'}
+		</button>
+	</section>
 
-	<main>
-		<section class="hero">
+	{#if error}
+		<div class="error-banner" role="alert">
 			<div>
-				<p class="eyebrow">Coinbase overview</p>
-				<h1>Your portfolio</h1>
-				<p class="lede">Balances and estimated value from your connected Coinbase account.</p>
+				<strong>Couldn't refresh Coinbase</strong>
+				<p>{error}</p>
 			</div>
-			<button class="refresh" type="button" onclick={loadPortfolio} disabled={loading}>
-				<span class:spinning={loading}>↻</span>
-				{loading ? 'Refreshing…' : 'Refresh portfolio'}
-			</button>
+			<button type="button" onclick={loadPortfolio}>Try again</button>
+		</div>
+	{/if}
+
+	{#if loading && !portfolio}
+		<section class="loading-card" aria-label="Loading portfolio">
+			<div class="skeleton wide"></div>
+			<div class="skeleton"></div>
+			<div class="skeleton"></div>
+		</section>
+	{:else if portfolio}
+		{#if portfolio.demo}
+			<div class="demo-banner">
+				<div><span class="demo-dot"></span><strong>Demo data</strong></div>
+				<p>Add Coinbase credentials to <code>.env</code> to display your live balances.</p>
+			</div>
+		{/if}
+
+		<section class="summary-grid">
+			<article class="value-card">
+				<p>Estimated portfolio value</p>
+				<strong>{formatUsd(portfolio.total_value.amount)}</strong>
+				<span>USD estimate</span>
+			</article>
+			<article class="connection-card">
+				<div class="card-heading">
+					<p>Coinbase connection</p>
+					<span class="status {portfolio.connection.status}">{portfolio.connection.status}</span>
+				</div>
+				<strong
+					>{portfolio.connection.status === 'connected' ? 'Connected' : 'Ready to preview'}</strong
+				>
+				<small>Updated {new Date(portfolio.as_of).toLocaleString()}</small>
+			</article>
+			<article class="permissions-card">
+				<p>Detected permissions</p>
+				<div class="permissions">
+					{#each portfolio.connection.permissions as permission (permission)}
+						<span>{permissionLabel(permission)}</span>
+					{/each}
+				</div>
+				<small>Additional permissions do not block connection.</small>
+			</article>
 		</section>
 
-		{#if error}
-			<div class="error-banner" role="alert">
+		<section class="asset-panel">
+			<div class="panel-heading">
 				<div>
-					<strong>Couldn't refresh Coinbase</strong>
-					<p>{error}</p>
+					<h2>Assets</h2>
+					<p>{portfolio.assets.length} balances with value</p>
 				</div>
-				<button type="button" onclick={loadPortfolio}>Try again</button>
+				<span>Estimated in USD</span>
 			</div>
-		{/if}
+			<div class="table-wrap">
+				<table>
+					<thead
+						><tr
+							><th>Asset</th><th>Available</th><th>On hold</th><th>Total</th><th>Est. value</th></tr
+						></thead
+					>
+					<tbody>
+						{#each portfolio.assets as asset (asset.currency)}
+							<tr>
+								<td
+									><div class="asset-name">
+										<span class="coin">{asset.currency.slice(0, 1)}</span>
+										<div><strong>{asset.name}</strong><small>{asset.currency}</small></div>
+									</div></td
+								>
+								<td>{asset.available}</td><td>{asset.hold}</td><td>{asset.total}</td>
+								<td class="asset-value"
+									>{asset.value ? formatUsd(asset.value.amount) : 'Unavailable'}</td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			{#if portfolio.unvalued_assets.length}
+				<p class="unvalued">No direct USD valuation: {portfolio.unvalued_assets.join(', ')}</p>
+			{/if}
+		</section>
 
-		{#if loading && !portfolio}
-			<section class="loading-card" aria-label="Loading portfolio">
-				<div class="skeleton wide"></div>
-				<div class="skeleton"></div>
-				<div class="skeleton"></div>
-			</section>
-		{:else if portfolio}
-			{#if portfolio.demo}
-				<div class="demo-banner">
-					<div><span class="demo-dot"></span><strong>Demo data</strong></div>
-					<p>Add Coinbase credentials to <code>.env</code> to display your live balances.</p>
+		<section class="fees-panel">
+			<div class="panel-heading">
+				<div>
+					<h2>Fee Tier & Costs</h2>
+					<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
+				</div>
+				{#if feeProfile}
+					<span class="badge tier-badge">{feeProfile.fee_tier}</span>
+				{/if}
+			</div>
+			{#if feesLoading}
+				<div class="loading-state"><p>Loading fee profile…</p></div>
+			{:else if feeProfile}
+				<div class="fees-grid">
+					<article class="fee-card">
+						<p>Taker fee rate</p>
+						<strong>{formatPercent(feeProfile.taker_fee_rate)}</strong>
+						<span>Market orders / taker</span>
+					</article>
+					<article class="fee-card">
+						<p>Maker fee rate</p>
+						<strong>{formatPercent(feeProfile.maker_fee_rate)}</strong>
+						<span>Limit orders / maker</span>
+					</article>
+					<article class="fee-card">
+						<p>30-day trailing volume</p>
+						<strong>{formatUsd(feeProfile.usd_volume_30d)}</strong>
+						<span>USD spot volume</span>
+					</article>
+				</div>
+			{:else if feesAvailability === 'unavailable'}
+				<div class="unavailable-state">
+					<p>Fee profile is temporarily unavailable.</p>
 				</div>
 			{/if}
+		</section>
 
-			<section class="summary-grid">
-				<article class="value-card">
-					<p>Estimated portfolio value</p>
-					<strong>{formatUsd(portfolio.total_value.amount)}</strong>
-					<span>USD estimate</span>
-				</article>
-				<article class="connection-card">
-					<div class="card-heading">
-						<p>Coinbase connection</p>
-						<span class="status {portfolio.connection.status}">{portfolio.connection.status}</span>
-					</div>
-					<strong
-						>{portfolio.connection.status === 'connected'
-							? 'Connected'
-							: 'Ready to preview'}</strong
-					>
-					<small>Updated {new Date(portfolio.as_of).toLocaleString()}</small>
-				</article>
-				<article class="permissions-card">
-					<p>Detected permissions</p>
-					<div class="permissions">
-						{#each portfolio.connection.permissions as permission (permission)}
-							<span>{permissionLabel(permission)}</span>
-						{/each}
-					</div>
-					<small>Additional permissions do not block connection.</small>
-				</article>
-			</section>
+		<PortfolioChart
+			entries={history}
+			loading={historyLoading}
+			availability={historyAvailability}
+			selectedRange={historyRange}
+			{samplingIntervalSeconds}
+			onRangeChange={(range) => void loadHistory(range)}
+		/>
 
-			<section class="fees-panel">
-				<div class="panel-heading">
-					<div>
-						<h2>Fee Tier & Costs</h2>
-						<p>Coinbase Advanced Trade 30-day volume and execution rates</p>
-					</div>
-					{#if feeProfile}
-						<span class="badge tier-badge">{feeProfile.fee_tier}</span>
-					{/if}
-				</div>
-				{#if feesLoading}
-					<div class="loading-state"><p>Loading fee profile…</p></div>
-				{:else if feeProfile}
-					<div class="fees-grid">
-						<article class="fee-card">
-							<p>Taker fee rate</p>
-							<strong>{formatPercent(feeProfile.taker_fee_rate)}</strong>
-							<span>Market orders / taker</span>
-						</article>
-						<article class="fee-card">
-							<p>Maker fee rate</p>
-							<strong>{formatPercent(feeProfile.maker_fee_rate)}</strong>
-							<span>Limit orders / maker</span>
-						</article>
-						<article class="fee-card">
-							<p>30-day trailing volume</p>
-							<strong>{formatUsd(feeProfile.usd_volume_30d)}</strong>
-							<span>USD spot volume</span>
-						</article>
-					</div>
-				{:else if feesAvailability === 'unavailable'}
-					<div class="unavailable-state">
-						<p>Fee profile is temporarily unavailable.</p>
-					</div>
-				{/if}
-			</section>
-
-			<PortfolioChart
-				entries={history}
-				loading={historyLoading}
-				availability={historyAvailability}
-				selectedRange={historyRange}
-				{samplingIntervalSeconds}
-				onRangeChange={(range) => void loadHistory(range)}
-			/>
-
-			<MarketDataPanel
-				preview={marketDataPreview}
-				range={marketDataRange}
-				ingestion={marketDataIngestion}
-				ingestionAvailability={marketDataIngestionAvailability}
-				rangeAvailability={marketDataRangeAvailability}
-				freshness={marketFreshness}
-				freshnessAvailability={marketFreshnessAvailability}
-				feed={marketFeed}
-				feedAvailability={marketFeedAvailability}
-				products={marketProducts}
-				selectedProductId={selectedMarketProductId}
-				loading={marketDataLoading}
-				availability={marketDataAvailability}
-				onProductChange={(productId) => void loadMarketData(productId)}
-			/>
-
-			<section class="asset-panel">
-				<div class="panel-heading">
-					<div>
-						<h2>Assets</h2>
-						<p>{portfolio.assets.length} balances with value</p>
-					</div>
-					<span>Estimated in USD</span>
-				</div>
-				<div class="table-wrap">
-					<table>
-						<thead
-							><tr
-								><th>Asset</th><th>Available</th><th>On hold</th><th>Total</th><th>Est. value</th
-								></tr
-							></thead
-						>
-						<tbody>
-							{#each portfolio.assets as asset (asset.currency)}
-								<tr>
-									<td
-										><div class="asset-name">
-											<span class="coin">{asset.currency.slice(0, 1)}</span>
-											<div><strong>{asset.name}</strong><small>{asset.currency}</small></div>
-										</div></td
-									>
-									<td>{asset.available}</td><td>{asset.hold}</td><td>{asset.total}</td>
-									<td class="asset-value"
-										>{asset.value ? formatUsd(asset.value.amount) : 'Unavailable'}</td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-				{#if portfolio.unvalued_assets.length}
-					<p class="unvalued">No direct USD valuation: {portfolio.unvalued_assets.join(', ')}</p>
-				{/if}
-			</section>
-		{/if}
-	</main>
-</div>
+		<MarketDataPanel
+			preview={marketDataPreview}
+			range={marketDataRange}
+			ingestion={marketDataIngestion}
+			ingestionAvailability={marketDataIngestionAvailability}
+			rangeAvailability={marketDataRangeAvailability}
+			freshness={marketFreshness}
+			freshnessAvailability={marketFreshnessAvailability}
+			feed={marketFeed}
+			feedAvailability={marketFeedAvailability}
+			products={marketProducts}
+			selectedProductId={selectedMarketProductId}
+			loading={marketDataLoading}
+			availability={marketDataAvailability}
+			onProductChange={(productId) => void loadMarketData(productId)}
+		/>
+	{/if}
+</main>

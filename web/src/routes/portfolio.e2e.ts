@@ -88,7 +88,15 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(page.getByRole('heading', { name: 'Your portfolio' })).toBeVisible();
 	await expect(page.getByText('Demo data', { exact: true })).toBeVisible();
 	await expect(page.getByText('$98,542.17')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Fee Tier & Costs' })).toBeVisible();
+	const assetsHeading = page.getByRole('heading', { name: 'Assets' });
+	const feesHeading = page.getByRole('heading', { name: 'Fee Tier & Costs' });
+	await expect(assetsHeading).toBeVisible();
+	await expect(feesHeading).toBeVisible();
+	const assetsBox = await assetsHeading.boundingBox();
+	const feesBox = await feesHeading.boundingBox();
+	expect(assetsBox).not.toBeNull();
+	expect(feesBox).not.toBeNull();
+	expect(assetsBox!.y).toBeLessThan(feesBox!.y);
 	await expect(page.getByText('0.60%')).toBeVisible();
 	await expect(page.getByText('0.40%')).toBeVisible();
 	await expect(page.getByText('Tier 1')).toBeVisible();
