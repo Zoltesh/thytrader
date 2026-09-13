@@ -469,7 +469,9 @@ test('shows empty history copy and does not invent snapshots on refresh', async 
 
 	await expect(page.getByText('No snapshots exist in this range yet.')).toBeVisible();
 	await expect(
-		page.getByText('The worker records live portfolios automatically; Refresh never creates chart points.')
+		page.getByText(
+			'The worker records live portfolios automatically; Refresh never creates chart points.'
+		)
 	).toBeVisible();
 
 	await page.getByRole('button', { name: 'Refresh portfolio' }).click();
@@ -493,7 +495,9 @@ test('shows single-snapshot history copy until a line can be drawn', async ({ pa
 test('shows unavailable history copy when persistence is disabled', async ({ page }) => {
 	await openPortfolioWithHistory(page, { status: 503 });
 
-	await expect(page.getByText('Portfolio history is unavailable on this installation.')).toBeVisible();
+	await expect(
+		page.getByText('Portfolio history is unavailable on this installation.')
+	).toBeVisible();
 	await expect(
 		page.getByText('Start the full local stack to enable durable scheduled snapshots.')
 	).toBeVisible();
@@ -526,7 +530,9 @@ test('places history points by wall-clock time and notes an orphan post-gap snap
 	expect(xs[1]).toBeCloseTo(40 + 680 * (5 / 60), 5);
 	expect(xs[1]).toBeLessThan(200);
 	await expect(
-		page.getByText('Gaps indicate missed worker observations; the line is intentionally not interpolated.')
+		page.getByText(
+			'Gaps indicate missed worker observations; the line is intentionally not interpolated.'
+		)
 	).toBeVisible();
 });
 
@@ -542,7 +548,8 @@ test('does not show a gap note for contiguous snapshots', async ({ page }) => {
 
 	await expect(page.locator('svg.chart circle')).toHaveCount(3);
 	await expect(
-		page.getByText('Gaps indicate missed worker observations; the line is intentionally not interpolated.')
+		page.getByText(
+			'Gaps indicate missed worker observations; the line is intentionally not interpolated.'
+		)
 	).toHaveCount(0);
 });
-
