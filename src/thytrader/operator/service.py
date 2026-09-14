@@ -1645,7 +1645,12 @@ def _coverage_row(
         gap_count=gap_count,
         missing_intervals=missing,
         content_fingerprint=_coverage_fingerprint(state, manifest),
-        sparsity=_coverage_sparsity(complete, gap_count, missing),
+        sparsity=_coverage_sparsity(
+            complete,
+            gap_count,
+            missing,
+            watch_complete=watch_complete,
+        ),
         watch_expected_candle_count=watch_expected,
     )
 
@@ -1654,8 +1659,16 @@ def _coverage_sparsity(
     complete: bool | None,
     gap_count: int | None,
     missing: int | None,
+    *,
+    watch_complete: bool | None = None,
 ) -> Literal["none", "unknown", "gapped"]:
-    """Classify local coverage holes without interpolating prices."""
+    """Classify watch-window holes without interpolating prices.
+
+    Island completeness with zero island gaps is not ``none`` when the
+    configured watch still has missing bars (``watch_complete`` is false).
+    """
+    if watch_complete is False:
+        return "gapped"
     if complete and not gap_count and not missing:
         return "none"
     if gap_count or missing or complete is False:

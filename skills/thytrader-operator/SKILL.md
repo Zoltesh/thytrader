@@ -65,7 +65,7 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 ## Workflow
 
 1. Verify CLI help and run `health` first.
-2. If stderr says the API version or ops contract does not match the CLI, rebuild with `make run` (ask first). Package version `0.1.0` is not enough.
+2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the

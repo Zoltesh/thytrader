@@ -1,5 +1,10 @@
 # Ops field report: 5m BTC-USD data → research → paper
 
+> **Historical (2026-09-11).** Keep this report as evidence. Do not treat it as a current
+> running-instance diagnosis. HEAD now fails closed on a missing ops contract (ADR 0019 / 0024),
+> uses `watch_complete` as the data-loop completion decision (ADR 0024), ships maker-limit
+> backtest v3 (ADR 0017), and allows 5m paper (ADR 0018).
+>
 > **Audience:** the agent implementing [2026-09-11-gitnexus-plan-5m-research-paper.md](./2026-09-11-gitnexus-plan-5m-research-paper.md) and ADRs 0016–0018.
 > **Authoring workspace:** `ops/` (running instance). No `src/`, Compose, Alembic, or test edits were made.
 > **When:** 2026-09-11, approximately 22:22–22:29 UTC (16:22–16:29 MDT).

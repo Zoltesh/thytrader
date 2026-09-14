@@ -19,6 +19,10 @@ from thytrader.market_data.feed_state import (
     MarketFeedState,
 )
 from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.watchlist import (
+    InMemoryMarketDataWatchlistStore,
+    MarketDataWatchTarget,
+)
 from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     InMemoryMarketDataWorkerStateStore,
@@ -62,6 +66,7 @@ def test_ingestion_diagnostics_report_never_run_without_manufactured_coverage() 
     assert body["coverage"] is None
     assert body["fresh"] is None
     assert body["failure"] is None
+    assert body["watch_complete"] is False
 
 
 def test_ingestion_diagnostics_expose_verified_success_evidence() -> None:
@@ -104,6 +109,7 @@ def test_ingestion_diagnostics_expose_verified_success_evidence() -> None:
     assert body["fresh"] is True
     assert body["enabled"] is True
     assert body["freshness"] == "current"
+    assert body["watch_complete"] is True
     assert body["coverage_status"] == "complete"
     assert body["expected_latest_boundary"] is not None
     assert body["next_attempt_at"] is not None
@@ -119,6 +125,66 @@ def test_ingestion_diagnostics_expose_verified_success_evidence() -> None:
         "content_fingerprint": "sha256:" + "a" * 64,
     }
     assert body["failure"] is None
+
+
+def test_ingestion_diagnostics_mark_short_island_watch_incomplete() -> None:
+    """A complete 7-day island is not watch-complete when lookback is 90 days."""
+
+    async def seed(
+        store: InMemoryMarketDataWorkerStateStore,
+        watchlist: InMemoryMarketDataWatchlistStore,
+    ) -> None:
+        ends_at = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        attempt = MarketDataWorkerAttempt(
+            provider="demo",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            attempted_at=ends_at + timedelta(minutes=5),
+            requested_starts_at=ends_at - timedelta(days=7),
+            requested_ends_at=ends_at,
+        )
+        await store.record_attempt(attempt)
+        await store.record_success(
+            MarketDataWorkerSuccess(
+                attempt=attempt,
+                covered_starts_at=attempt.requested_starts_at,
+                covered_ends_at=attempt.requested_ends_at,
+                expected_candle_count=168,
+                received_candle_count=168,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "a" * 64,
+            )
+        )
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="BTC-USD",
+                timeframe=CandleInterval.ONE_HOUR,
+                lookback_hours=2160,
+                enabled=True,
+                updated_at=ends_at,
+            )
+        )
+
+    store = InMemoryMarketDataWorkerStateStore()
+    watchlist = InMemoryMarketDataWatchlistStore()
+    asyncio.run(seed(store, watchlist))
+    app = create_app(
+        Settings(_env_file=None),
+        market_data_state_store=store,
+        market_data_watchlist_store=watchlist,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/market-data/ingestion?product_id=BTC-USD")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["coverage"]["complete"] is True
+    assert body["watch_complete"] is False
+    assert body["coverage_status"] == "gap_detected"
+    assert list(body).index("watch_complete") < list(body).index("coverage_status")
 
 
 def test_ingestion_diagnostics_mark_unverified_dataset_unavailable() -> None:

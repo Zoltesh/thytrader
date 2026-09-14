@@ -371,7 +371,11 @@ class ProductsReport(OperatorEnvelope):
 
 
 class DatasetCoverageRow(_FrozenModel):
-    """Local verified coverage plus watchlist and worker facts for one target."""
+    """Local verified coverage plus watchlist and worker facts for one target.
+
+    ``sparsity`` is ``gapped`` when ``watch_complete`` is false, even if the
+    published island itself has zero gaps.
+    """
 
     provider: str | None
     product_id: str

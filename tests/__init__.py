@@ -1,0 +1,1 @@
+"""ThyTrader automated tests."""

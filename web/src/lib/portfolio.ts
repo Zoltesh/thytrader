@@ -93,6 +93,7 @@ export type MarketDataIngestionState = {
 	fresh: boolean | null;
 	enabled: boolean;
 	freshness: 'current' | 'delayed' | 'stale' | 'unknown';
+	watch_complete: boolean | null;
 	coverage_status: 'complete' | 'gap_detected' | 'unavailable';
 	expected_latest_boundary: string;
 	next_attempt_at: string | null;

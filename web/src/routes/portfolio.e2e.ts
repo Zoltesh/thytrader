@@ -291,6 +291,7 @@ test('shows durable market-data worker coverage and freshness evidence', async (
 				fresh: true,
 				enabled: true,
 				freshness: 'current',
+				watch_complete: true,
 				coverage_status: 'complete',
 				expected_latest_boundary: '2026-07-29T02:00:00Z',
 				next_attempt_at: '2026-07-29T02:10:00Z',
@@ -337,6 +338,7 @@ test('keeps redacted market-data worker failures visible', async ({ page }) => {
 				fresh: false,
 				enabled: true,
 				freshness: 'stale',
+				watch_complete: true,
 				coverage_status: 'complete',
 				expected_latest_boundary: '2026-07-29T01:00:00Z',
 				next_attempt_at: null,
@@ -421,6 +423,7 @@ test('keeps worker evidence visible when the recent-candle preview fails', async
 				fresh: true,
 				enabled: true,
 				freshness: 'current',
+				watch_complete: true,
 				coverage_status: 'complete',
 				expected_latest_boundary: '2026-07-29T02:00:00Z',
 				next_attempt_at: '2026-07-29T02:10:00Z',
@@ -445,6 +448,50 @@ test('keeps worker evidence visible when the recent-candle preview fails', async
 
 	await expect(page.getByText('Durable ingestion worker')).toBeVisible();
 	await expect(page.getByText('Current · complete')).toBeVisible();
+});
+
+test('shows watch incompleteness when the island does not span the watch', async ({ page }) => {
+	await page.route('**/api/v1/market-data/ingestion*', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				provider: 'demo',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				status: 'succeeded',
+				last_attempt_at: '2026-07-29T02:05:00Z',
+				last_success_at: '2026-07-29T02:05:00Z',
+				requested_starts_at: '2026-07-22T02:00:00Z',
+				requested_ends_at: '2026-07-29T02:00:00Z',
+				fresh: true,
+				enabled: true,
+				freshness: 'current',
+				watch_complete: false,
+				coverage_status: 'gap_detected',
+				expected_latest_boundary: '2026-07-29T02:00:00Z',
+				next_attempt_at: '2026-07-29T02:10:00Z',
+				dataset_revision: 4,
+				maintenance_kind: 'incremental',
+				coverage: {
+					starts_at: '2026-07-22T02:00:00Z',
+					ends_at: '2026-07-29T02:00:00Z',
+					expected_candle_count: 168,
+					received_candle_count: 168,
+					gap_count: 0,
+					missing_intervals: 0,
+					complete: true,
+					content_fingerprint: `sha256:${'c'.repeat(64)}`
+				},
+				failure: null
+			})
+		});
+	});
+
+	await page.goto('/');
+
+	await expect(page.getByText('Current · watch incomplete')).toBeVisible();
+	await expect(page.getByText('168 / 168 candles')).toBeVisible();
 });
 
 test('shows controlled freshness failure state when the freshness endpoint fails', async ({

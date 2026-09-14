@@ -65,7 +65,8 @@ holes across the **watch** window, not only the current island, and never interp
 
 `complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that
 island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 2160` is
-not done.
+not done. Catalog `sparsity` is `gapped` in that case. `GET /api/v1/market-data/datasets` lists
+island fingerprints; it is not the watch-completeness surface.
 
 Gap `cause` values:
 

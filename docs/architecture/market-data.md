@@ -33,6 +33,8 @@ the first hole. Latest verified coverage is the newest contiguous complete islan
 island. `watch_complete` is the agent completion decision: it is true only when the complete island
 spans the configured half-open watch window. Catalog, ingest status, gap inspection, and operator
 data-catalog payloads put `watch_complete` on the decision surface before `complete`.
+`GET /api/v1/market-data/datasets` and `/datasets/latest` list fingerprint-addressed island
+publications; they are not a watch-completeness surface.
 `inspect-gaps` classifies missing bars across the full watch window as `not_fetched`,
 `exchange_unavailable`, or `incomplete_local`; it never interpolates, and a clean short island does
 not produce `gap_count: 0` for an incomplete watch.
@@ -52,7 +54,7 @@ endpoints remain diagnostics, not strategy inputs. The worker clears `ingest_req
   missing intervals, and marks a preview stale after two expected intervals.
 - Malformed upstream product/candle payloads fail the complete request rather than silently
   returning partial or repaired data.
-- The dashboard visibly distinguishes complete, gap-detected, stale, and unavailable data.
+- The dashboard visibly distinguishes complete, gap-detected, watch-incomplete, stale, and unavailable data.
 
 The first three responses report request-time data-source facts. The ingestion endpoint separately
 reports durable evidence from the supervised worker: last attempt/success, requested and verified
