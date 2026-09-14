@@ -41,7 +41,7 @@ from thytrader.strategies.publication import DisabledStrategyPublicationStore, P
 
 if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
-    from thytrader.strategies.publication import StrategyPublicationStore
+    from thytrader.strategies.publication import StrategyPublicationCatalog
 
 
 class _CloseProvider:
@@ -100,7 +100,7 @@ class _TimeframeCatalog(DisabledStrategyPublicationStore):
 def _diagnostics(
     *,
     execution: ExecutionStore,
-    publications: StrategyPublicationStore | None = None,
+    publications: StrategyPublicationCatalog | None = None,
     market_data: MarketDataService | None = None,
 ) -> OperatorDiagnostics:
     """Build diagnostics against an in-memory execution store."""
