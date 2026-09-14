@@ -77,7 +77,10 @@ def _candles(count: int, *, low_offset: Decimal = Decimal("1")) -> tuple[Candle,
 
 
 async def _running_snapshot(
-    store: InMemoryExecutionStore, strategy: StrategyDefinition
+    store: InMemoryExecutionStore,
+    strategy: StrategyDefinition,
+    *,
+    cash: Decimal = Decimal("10000"),
 ) -> DeploymentSnapshot:
     """Insert one running paper deployment and return its snapshot."""
     now = utc_now()
@@ -88,8 +91,8 @@ async def _running_snapshot(
         product_id="BTC-USD",
         mode=DeploymentMode.PAPER,
         status=DeploymentStatus.RUNNING,
-        paper_starting_cash=Decimal("10000"),
-        cash=Decimal("10000"),
+        paper_starting_cash=cash,
+        cash=cash,
         phase=RuntimePhase.FLAT,
         created_at=now,
         updated_at=now,
@@ -152,6 +155,59 @@ async def test_paper_loop_places_maker_entry_once_then_fills() -> None:
     assert filled.fills
     fill = filled.fills[0]
     assert fill.fee == fill.price * fill.quantity * Decimal("0.001")
+
+
+def _cash_capped_always_entry_strategy() -> StrategyDefinition:
+    """Published always-true strategy whose risk and exposure bind at full cash."""
+    strategy = _always_entry_strategy()
+    payload = strategy.model_dump(mode="python")
+    payload["sizing"]["max_quote_notional"] = "100000"
+    payload["sizing"]["risk_fraction"] = "0.25"
+    payload["portfolio_limits"]["max_strategy_exposure_fraction"] = "1"
+    return StrategyDefinition.model_validate(payload)
+
+
+@pytest.mark.anyio
+async def test_cash_capped_paper_entry_does_not_go_cash_negative() -> None:
+    """A cash-capped maker entry must leave cash non-negative after the paper fill fee."""
+    store = InMemoryExecutionStore()
+    strategy = _cash_capped_always_entry_strategy()
+    starting_cash = Decimal("100")
+    snapshot = await _running_snapshot(store, strategy, cash=starting_cash)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert pending.deployment.phase is RuntimePhase.PENDING_ENTRY
+    last = warmup[-1]
+    fill_bar = Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    filled = await process_closed_bar(
+        pending,
+        strategy=strategy,
+        product=_product(),
+        candles=(*warmup, fill_bar),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert filled.fills
+    fill = filled.fills[0]
+    spent = fill.price * fill.quantity + fill.fee
+    assert fill.fee > 0
+    assert filled.deployment.cash >= 0
+    assert filled.deployment.cash + spent == starting_cash
+    assert spent <= starting_cash
 
 
 @pytest.mark.anyio

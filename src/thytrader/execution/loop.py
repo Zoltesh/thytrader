@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now
+from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE
 from thytrader.execution.models import (
     DeploymentSnapshot,
     DeploymentStatus,
@@ -591,6 +592,7 @@ async def _submit_sized_entry(
         entry_price=entry_price,
         atr=atr,
         product=product,
+        fee_rate=PAPER_MAKER_FEE_RATE,
     )
     if sized is None:
         return snapshot
