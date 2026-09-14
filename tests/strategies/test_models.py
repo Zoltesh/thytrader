@@ -627,6 +627,138 @@ def test_volume_sma_period_contributes_to_required_warmup() -> None:
     StrategyDefinition.model_validate(payload)
 
 
+def test_strategy_accepts_highest_lowest_and_stdev_with_locked_inputs() -> None:
+    """Phase 9 single-output kinds publish with their registry-locked sources."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {
+                "id": "channel_high",
+                "kind": "highest",
+                "input": "high",
+                "parameters": {"period": 20},
+            },
+            {"id": "channel_low", "kind": "lowest", "input": "low", "parameters": {"period": 20}},
+            {"id": "close_stdev", "kind": "stdev", "input": "close", "parameters": {"period": 20}},
+        )
+    )
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "ema_fast"},
+                "operator": "crosses_above",
+                "right": {"indicator": "channel_high"},
+            },
+            {
+                "left": {"indicator": "close_stdev"},
+                "operator": "greater_than",
+                "right": {"literal": "10"},
+            },
+            {
+                "left": {"indicator": "ema_slow"},
+                "operator": "greater_than",
+                "right": {"indicator": "channel_low"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["channel_high"].kind.value == "highest"
+    assert by_id["channel_high"].input == "high"
+    assert by_id["channel_low"].kind.value == "lowest"
+    assert by_id["channel_low"].input == "low"
+    assert by_id["close_stdev"].kind.value == "stdev"
+    assert by_id["close_stdev"].input == "close"
+
+
+def test_highest_lowest_stdev_reject_wrong_sources_unknown_kinds_and_fields() -> None:
+    """Unknown kinds, extra fields, and unlocked inputs fail closed."""
+    wrong_highest = reference_payload()
+    _object_list(wrong_highest["indicators"]).append(
+        {"id": "channel_high", "kind": "highest", "input": "close", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="highest input must be high"):
+        StrategyDefinition.model_validate(wrong_highest)
+
+    wrong_lowest = reference_payload()
+    _object_list(wrong_lowest["indicators"]).append(
+        {"id": "channel_low", "kind": "lowest", "input": "high", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="lowest input must be low"):
+        StrategyDefinition.model_validate(wrong_lowest)
+
+    wrong_stdev = reference_payload()
+    _object_list(wrong_stdev["indicators"]).append(
+        {"id": "close_stdev", "kind": "stdev", "input": "volume", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="stdev input must be close"):
+        StrategyDefinition.model_validate(wrong_stdev)
+
+    unknown_kind = reference_payload()
+    _object_list(unknown_kind["indicators"]).append(
+        {"id": "macd", "kind": "macd", "input": "close", "parameters": {"period": 12}}
+    )
+    with pytest.raises(ValidationError, match="macd"):
+        StrategyDefinition.model_validate(unknown_kind)
+
+    extra_parameter = reference_payload()
+    _object_list(extra_parameter["indicators"]).append(
+        {
+            "id": "close_stdev",
+            "kind": "stdev",
+            "input": "close",
+            "parameters": {"period": 20, "ddof": 1},
+        }
+    )
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        StrategyDefinition.model_validate(extra_parameter)
+
+    missing_high = reference_payload()
+    _object_list(missing_high["indicators"]).append(
+        {"id": "channel_high", "kind": "highest", "input": "high", "parameters": {"period": 20}}
+    )
+    missing_high["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="required_fields"):
+        StrategyDefinition.model_validate(missing_high)
+
+
+def test_htf_filter_accepts_highest_lowest_and_stdev() -> None:
+    """HTF filter indicators use the same locked catalog as LTF, still research-only."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {"id": "htf_high", "kind": "highest", "input": "high", "parameters": {"period": 20}},
+        {"id": "htf_low", "kind": "lowest", "input": "low", "parameters": {"period": 20}},
+        {"id": "htf_stdev", "kind": "stdev", "input": "close", "parameters": {"period": 20}},
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_stdev"},
+                "operator": "greater_than",
+                "right": {"literal": "1"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "highest",
+        "lowest",
+        "stdev",
+    ]
+
+
 def test_strategy_identity_helpers_revalidate_copied_models() -> None:
     """Canonical strategy identities reject instances forged by unchecked model copies."""
     strategy = StrategyDefinition.model_validate(reference_payload())

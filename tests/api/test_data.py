@@ -145,7 +145,16 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
     assert catalog.json()["schema_version"] == SCHEMA_VERSION
     assert catalog.json()["report_kind"] == "data_catalog"
     kinds = {item["kind"] for item in indicators.json()["payload"]["indicators"]}
-    assert kinds == {"ema", "sma", "rsi", "atr", "volume_sma"}
+    assert kinds == {
+        "ema",
+        "sma",
+        "rsi",
+        "atr",
+        "volume_sma",
+        "highest",
+        "lowest",
+        "stdev",
+    }
     product_ids = {item["product_id"] for item in products.json()["payload"]["products"]}
     assert "ETH-USD" in product_ids
 

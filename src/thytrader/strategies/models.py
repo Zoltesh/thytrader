@@ -122,13 +122,28 @@ class IndicatorParameters(_FrozenModel):
 
 
 class IndicatorKind(StrEnum):
-    """Indicators supported by the first canonical reference profile."""
+    """Fail-closed single-output kinds in the canonical indicator registry."""
 
     EMA = "ema"
     SMA = "sma"
     RSI = "rsi"
     ATR = "atr"
     VOLUME_SMA = "volume_sma"
+    HIGHEST = "highest"
+    LOWEST = "lowest"
+    STDEV = "stdev"
+
+
+_SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
+    IndicatorKind.EMA: "close",
+    IndicatorKind.SMA: "close",
+    IndicatorKind.RSI: "close",
+    IndicatorKind.VOLUME_SMA: "volume",
+    IndicatorKind.HIGHEST: "high",
+    IndicatorKind.LOWEST: "low",
+    IndicatorKind.STDEV: "close",
+}
+_SHORT_PERIOD_KINDS = frozenset({IndicatorKind.RSI, IndicatorKind.ATR})
 
 
 class IndicatorDefinition(_FrozenModel):
@@ -137,7 +152,7 @@ class IndicatorDefinition(_FrozenModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     kind: IndicatorKind
     input: (
-        Literal["close", "volume"]
+        Literal["high", "low", "close", "volume"]
         | tuple[
             Literal["high"],
             Literal["low"],
@@ -148,18 +163,17 @@ class IndicatorDefinition(_FrozenModel):
 
     @model_validator(mode="after")
     def validate_kind_period(self) -> Self:
-        """Apply conservative V1 period bounds by indicator kind."""
-        maximum = 100 if self.kind in {IndicatorKind.RSI, IndicatorKind.ATR} else 500
+        """Apply conservative V1 period bounds and locked inputs by indicator kind."""
+        maximum = 100 if self.kind in _SHORT_PERIOD_KINDS else 500
         if self.parameters.period > maximum:
             raise ValueError(f"{self.kind.name} period exceeds {maximum}")
         if self.kind is IndicatorKind.ATR:
             if self.input != ("high", "low", "close"):
                 raise ValueError("ATR input must be high, low, close in canonical order")
-        elif self.kind is IndicatorKind.VOLUME_SMA:
-            if self.input != "volume":
-                raise ValueError("volume_sma input must be volume")
-        elif self.input != "close":
-            raise ValueError(f"{self.kind.value} input must be close")
+            return self
+        expected = _SINGLE_SOURCE_INPUT[self.kind]
+        if self.input != expected:
+            raise ValueError(f"{self.kind.value} input must be {expected}")
         return self
 
 

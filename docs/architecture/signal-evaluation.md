@@ -80,6 +80,25 @@ The first value is defined after exactly `period` observations. Each value is th
 the current observation and previous `period - 1` observations. SMA consumes close; volume SMA
 consumes volume.
 
+### Highest and lowest
+
+`highest` consumes high. `lowest` consumes low. The first value is defined after exactly `period`
+observations. Each value is the maximum or minimum of the current observation and previous
+`period - 1` observations, scanned oldest to newest. The window includes the current completed bar
+and never a future bar.
+
+### Stdev
+
+`stdev` consumes close. The first value is defined after exactly `period` observations. Each value
+is the **population** standard deviation of the inclusive window:
+
+1. `mean` is the chronological left-fold sum of the window divided by `period`;
+2. `variance` is the chronological left-fold sum of `(x - mean)^2` divided by `period`;
+3. `stdev` is the engine-context square root of that variance.
+
+A non-positive variance after that fold yields `0` (flat windows are defined, not undefined). This
+is not sample stdev (`N-1`) and not a TA-library `stdev`.
+
 ### EMA
 
 EMA consumes close. The first value is the arithmetic mean of the first `period` closes. Later values

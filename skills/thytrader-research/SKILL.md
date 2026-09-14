@@ -62,7 +62,11 @@ another USD spot product. Paper may start that published 1h or 5m fingerprint; l
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
 declares `htf_filter`, and must omit it otherwise. Research engines V1/V2/V3 evaluate last-completed
-HTF bars only. Paper and live reject those fingerprints. 5m live remains deferred. `crosses_above` /
+HTF bars only. Paper and live reject those fingerprints. 5m live remains deferred.
+
+Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
+Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
+(close, population). Do not invent MACD, Bollinger, or other kinds. `crosses_above` /
 `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`. `save-draft` prints the first Pydantic
 validation message; do not treat a generic “failed safely” string as success. HTTP 422 that still

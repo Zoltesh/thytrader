@@ -48,7 +48,22 @@ def test_operator_local_indicators_and_products_are_healthy(
     indicators = json.loads(capsys.readouterr().out)
     assert indicators["report_kind"] == "indicators"
     kinds = {item["kind"] for item in indicators["payload"]["indicators"]}
-    assert kinds == {"ema", "sma", "rsi", "atr", "volume_sma"}
+    assert kinds == {
+        "ema",
+        "sma",
+        "rsi",
+        "atr",
+        "volume_sma",
+        "highest",
+        "lowest",
+        "stdev",
+    }
+    by_kind = {item["kind"]: item for item in indicators["payload"]["indicators"]}
+    assert by_kind["highest"]["inputs"] == ["high"]
+    assert by_kind["lowest"]["inputs"] == ["low"]
+    assert by_kind["stdev"]["inputs"] == ["close"]
+    assert by_kind["highest"]["period_max"] == 500
+    assert by_kind["stdev"]["period_min"] == 2
 
     with pytest.raises(SystemExit) as raised:
         main(["--local", "products"])

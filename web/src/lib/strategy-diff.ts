@@ -1,4 +1,5 @@
-import type { BuilderModel, ConditionDraft, IndicatorDraft } from './strategies';
+import type { BuilderModel, ConditionDraft, IndicatorDraft, IndicatorKindValue } from './strategies';
+import { INDICATOR_KIND_OPTIONS } from './strategies';
 
 export type FieldChange = {
 	path: string;
@@ -23,13 +24,9 @@ const OPERATOR_LABELS: Record<string, string> = {
 	equals: '='
 };
 
-const KIND_LABELS: Record<IndicatorDraft['kind'], string> = {
-	ema: 'EMA',
-	sma: 'SMA',
-	rsi: 'RSI',
-	atr: 'ATR',
-	volume_sma: 'Volume SMA'
-};
+const KIND_LABELS: Record<IndicatorKindValue, string> = Object.fromEntries(
+	INDICATOR_KIND_OPTIONS.map((option) => [option.kind, option.label])
+) as Record<IndicatorKindValue, string>;
 
 type ComparisonLike = {
 	left: { indicator?: string; literal?: string };

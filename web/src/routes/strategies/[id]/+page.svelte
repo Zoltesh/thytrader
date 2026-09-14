@@ -12,6 +12,7 @@
 		listStrategies,
 		defaultHtfFilter,
 		validHtfTimeframes,
+		INDICATOR_KIND_OPTIONS,
 		type BuilderModel,
 		type ConditionDraft,
 		type IndicatorDraft,
@@ -170,6 +171,8 @@
 	function indicatorInputFor(kind: IndicatorDraft['kind']): IndicatorInput {
 		if (kind === 'atr') return ['high', 'low', 'close'];
 		if (kind === 'volume_sma') return 'volume';
+		if (kind === 'highest') return 'high';
+		if (kind === 'lowest') return 'low';
 		return 'close';
 	}
 
@@ -447,11 +450,9 @@
 										bind:value={indicator.kind}
 										onchange={() => onIndicatorKindChange(indicator)}
 									>
-										<option value="ema">EMA</option>
-										<option value="sma">SMA</option>
-										<option value="rsi">RSI</option>
-										<option value="atr">ATR</option>
-										<option value="volume_sma">Volume SMA</option>
+										{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
+											<option value={option.kind}>{option.label}</option>
+										{/each}
 									</select></label
 								>
 								<label
@@ -469,8 +470,9 @@
 						{/each}
 						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 						<div class="hint">
-							ATR uses high/low/close. RSI and ATR periods cap at 100. Inputs are fixed per kind in
-							V1.
+							ATR uses high/low/close. Highest uses high. Lowest uses low. Stdev uses close. RSI
+							and ATR periods cap at 100. Inputs are fixed per kind. MACD and Bollinger are not
+							shipped.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
@@ -526,11 +528,9 @@
 											bind:value={indicator.kind}
 											onchange={() => onIndicatorKindChange(indicator)}
 										>
-											<option value="ema">EMA</option>
-											<option value="sma">SMA</option>
-											<option value="rsi">RSI</option>
-											<option value="atr">ATR</option>
-											<option value="volume_sma">Volume SMA</option>
+											{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
+												<option value={option.kind}>{option.label}</option>
+											{/each}
 										</select></label
 									>
 									<label
