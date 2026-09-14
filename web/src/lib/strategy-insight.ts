@@ -92,6 +92,8 @@ function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 		);
 	}
 	if (indicator.kind === 'volume_sma') return indicator.input === 'volume';
+	if (indicator.kind === 'highest') return indicator.input === 'high';
+	if (indicator.kind === 'lowest') return indicator.input === 'low';
 	return indicator.input === 'close';
 }
 
@@ -366,10 +368,22 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		note: 'evaluated on completed candles, no lookahead'
 	},
 	{
-		label: 'Indicators: EMA, SMA, RSI, ATR, volume SMA',
+		label: 'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev',
 		v1: true,
 		v2: true,
-		note: 'exact Decimal arithmetic'
+		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter'
+	},
+	{
+		label: 'MACD / Bollinger (multi-series outputs)',
+		v1: false,
+		v2: false,
+		note: 'not shipped; no referenceable series-id contract'
+	},
+	{
+		label: 'Per-indicator timeframes',
+		v1: false,
+		v2: false,
+		note: 'out of Phase 9; LTF uses top-level timeframe, HTF stays inside htf_filter'
 	},
 	{
 		label: 'Risk-fraction sizing with notional bounds',

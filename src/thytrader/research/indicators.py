@@ -63,25 +63,41 @@ def _indicator_values(
     candles: Sequence[Candle],
 ) -> tuple[Decimal | None, ...]:
     """Dispatch one declarative definition to its exact implemented calculation."""
-    if indicator.kind in {IndicatorKind.SMA, IndicatorKind.VOLUME_SMA}:
-        values = (
-            tuple(candle.close for candle in candles)
-            if indicator.kind is IndicatorKind.SMA
-            else tuple(candle.volume for candle in candles)
-        )
-        return _simple_moving_average(values, indicator.parameters.period)
+    period = indicator.parameters.period
     if indicator.kind is IndicatorKind.ATR:
-        return _average_true_range(candles, indicator.parameters.period)
+        return _average_true_range(candles, period)
+    series = _locked_source_series(indicator, candles)
+    if indicator.kind in {IndicatorKind.SMA, IndicatorKind.VOLUME_SMA}:
+        return _simple_moving_average(series, period)
     if indicator.kind is IndicatorKind.EMA:
-        return _exponential_moving_average(
-            tuple(candle.close for candle in candles),
-            indicator.parameters.period,
-        )
+        return _exponential_moving_average(series, period)
     if indicator.kind is IndicatorKind.RSI:
-        return _relative_strength_index(
-            tuple(candle.close for candle in candles),
-            indicator.parameters.period,
-        )
+        return _relative_strength_index(series, period)
+    if indicator.kind is IndicatorKind.HIGHEST:
+        return _rolling_extreme(series, period, maximum=True)
+    if indicator.kind is IndicatorKind.LOWEST:
+        return _rolling_extreme(series, period, maximum=False)
+    if indicator.kind is IndicatorKind.STDEV:
+        return _rolling_population_stdev(series, period)
+    raise IndicatorCalculationError(
+        f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+    )
+
+
+def _locked_source_series(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> tuple[Decimal, ...]:
+    """Return the single OHLCV field locked by one non-ATR indicator kind."""
+    source = indicator.input
+    if source == "close":
+        return tuple(candle.close for candle in candles)
+    if source == "volume":
+        return tuple(candle.volume for candle in candles)
+    if source == "high":
+        return tuple(candle.high for candle in candles)
+    if source == "low":
+        return tuple(candle.low for candle in candles)
     raise IndicatorCalculationError(
         f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
     )
@@ -99,6 +115,50 @@ def _simple_moving_average(
             continue
         window = values[index + 1 - period : index + 1]
         result.append(sum(window, start=Decimal(0)) / Decimal(period))
+    return tuple(result)
+
+
+def _rolling_extreme(
+    values: Sequence[Decimal],
+    period: int,
+    *,
+    maximum: bool,
+) -> tuple[Decimal | None, ...]:
+    """Return a rolling max or min after exactly one full inclusive window."""
+    result: list[Decimal | None] = []
+    for index in range(len(values)):
+        if index + 1 < period:
+            result.append(None)
+            continue
+        window = values[index + 1 - period : index + 1]
+        extreme = window[0]
+        for value in window[1:]:
+            replace = value > extreme if maximum else value < extreme
+            if replace:
+                extreme = value
+        result.append(extreme)
+    return tuple(result)
+
+
+def _rolling_population_stdev(
+    values: Sequence[Decimal],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return population stdev of each inclusive window under engine Decimal rules."""
+    result: list[Decimal | None] = []
+    period_decimal = Decimal(period)
+    for index in range(len(values)):
+        if index + 1 < period:
+            result.append(None)
+            continue
+        window = values[index + 1 - period : index + 1]
+        mean = sum(window, start=Decimal(0)) / period_decimal
+        sum_sq = Decimal(0)
+        for value in window:
+            delta = value - mean
+            sum_sq += delta * delta
+        variance = sum_sq / period_decimal
+        result.append(Decimal(0) if variance <= 0 else variance.sqrt())
     return tuple(result)
 
 

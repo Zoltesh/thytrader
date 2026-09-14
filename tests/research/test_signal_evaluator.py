@@ -272,6 +272,166 @@ def test_atr_and_volume_sma_have_explicit_initialization_vectors() -> None:
     assert [row["volume"] for row in rows] == [None, Decimal("3"), Decimal("6")]
 
 
+def test_highest_lowest_and_stdev_warmup_decimal_and_no_lookahead() -> None:
+    """New catalog kinds stay undefined until period bars and never read future candles."""
+    indicators = (
+        IndicatorDefinition(
+            id="channel_high",
+            kind=IndicatorKind.HIGHEST,
+            input="high",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="channel_low",
+            kind=IndicatorKind.LOWEST,
+            input="low",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="close_stdev",
+            kind=IndicatorKind.STDEV,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("1"), Decimal("2"), Decimal("0.5"), Decimal("1"), Decimal("1")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("1.5"),
+            Decimal("2"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("4"),
+            Decimal("5"),
+            Decimal("3.5"),
+            Decimal("4"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=3),
+            Decimal("8"),
+            Decimal("9"),
+            Decimal("0.25"),
+            Decimal("8"),
+            Decimal("1"),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    assert [row["channel_high"] for row in rows] == [None, Decimal("3"), Decimal("5"), Decimal("9")]
+    assert [row["channel_low"] for row in rows] == [
+        None,
+        Decimal("0.5"),
+        Decimal("1.5"),
+        Decimal("0.25"),
+    ]
+    assert [row["close_stdev"] for row in rows] == [
+        None,
+        Decimal("0.5"),
+        Decimal("1"),
+        Decimal("2"),
+    ]
+    assert [row["channel_high"] for row in prefix_rows] == [None, Decimal("3"), Decimal("5")]
+    assert [row["channel_low"] for row in prefix_rows] == [None, Decimal("0.5"), Decimal("1.5")]
+    assert [row["close_stdev"] for row in prefix_rows] == [None, Decimal("0.5"), Decimal("1")]
+
+    flat = tuple(
+        Candle(
+            start + timedelta(hours=index),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("1"),
+        )
+        for index in range(3)
+    )
+    assert calculate_indicator_rows((indicators[2],), flat)[-1]["close_stdev"] == Decimal("0")
+
+
+def test_stdev_uses_population_left_fold_and_half_even_sqrt() -> None:
+    """Stdev divides by period, folds oldest-to-newest, and uses engine sqrt rounding."""
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    indicator = IndicatorDefinition(
+        id="close_stdev",
+        kind=IndicatorKind.STDEV,
+        input="close",
+        parameters=IndicatorParameters(period=3),
+    )
+    uneven = tuple(
+        Candle(start + timedelta(hours=index), value, value, value, value, Decimal("1"))
+        for index, value in enumerate((Decimal("1"), Decimal("2"), Decimal("4")))
+    )
+    rows = calculate_indicator_rows((indicator,), uneven)
+    assert [row["close_stdev"] for row in rows][:2] == [None, None]
+    assert rows[-1]["close_stdev"] == Decimal(
+        "1.247219128924647128527916244105516433918673269259575648767915156"
+    )
+
+    wide = tuple(Decimal(value) for value in ("1E64", "4", "4"))
+    wide_candles = tuple(
+        Candle(start + timedelta(hours=index), value, value, value, value, Decimal("1"))
+        for index, value in enumerate(wide)
+    )
+    wide_rows = calculate_indicator_rows((indicator,), wide_candles)
+    assert wide_rows[-1]["close_stdev"] == Decimal(
+        "4714045207910316829338962414032326928565572917923160243922265791"
+    )
+
+
+def test_entry_conditions_can_reference_highest_lowest_and_stdev() -> None:
+    """Published strategies may compare and cross the new single-output indicator ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        {"id": "channel_high", "kind": "highest", "input": "high", "parameters": {"period": 2}},
+        {"id": "channel_low", "kind": "lowest", "input": "low", "parameters": {"period": 2}},
+        {"id": "close_stdev", "kind": "stdev", "input": "close", "parameters": {"period": 2}},
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "close_stdev"},
+                "operator": "greater_than",
+                "right": {"literal": "0.75"},
+            },
+            {
+                "left": {"indicator": "sma"},
+                "operator": "less_than",
+                "right": {"indicator": "channel_high"},
+            },
+            {
+                "left": {"indicator": "sma"},
+                "operator": "greater_than",
+                "right": {"indicator": "channel_low"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+
+    assert [record.entry_condition for record in trace.records] == ["matched", "matched"]
+    assert [record.indicator_values[3].indicator_id for record in trace.records] == [
+        "close_stdev",
+        "close_stdev",
+    ]
+    assert [record.indicator_values[3].value for record in trace.records] == ["1", "1.5"]
+
+
 def test_engine_decimal_results_ignore_ambient_decimal_precision() -> None:
     """Process-level Decimal settings must not alter deterministic trace bytes."""
     strategy = _strategy()

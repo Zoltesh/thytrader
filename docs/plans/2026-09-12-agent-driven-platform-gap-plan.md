@@ -23,7 +23,8 @@ evidence are not that memory system.
   (paper/live with `--confirm`; live also `--i-understand-live`).
 - Market data: complete-only Parquet for **1h**, **5m**, **15m**, **30m**, **6h**, and **1d**; `inspect-gaps` /
   `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m` (live `1h`).
-- Indicators: EMA, SMA, RSI, ATR, volume SMA only.
+- Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, and stdev (Phase 9 first slice).
+  MACD/Bollinger and per-indicator timeframes are not shipped.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
 - Fee **tier visibility** and research **suggested defaults** shipped
@@ -39,7 +40,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
 | Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks) |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
-| Indicators | Tiny fail-closed catalog; no broad TA passthrough |
+| Indicators | Tiny fail-closed catalog; Phase 9 first slice added highest/lowest/stdev. No TA passthrough, no MACD/Bollinger, no per-indicator TF |
 | Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
 | Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
 | Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
@@ -81,7 +82,8 @@ YOLO only changes confirmation friction inside allowed tiers.
    These complete-only datasets are not strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation remains later.
-4. **Phase 9** — Wider fail-closed indicator catalog.
+4. **Phase 9** — First slice shipped (`highest`/`lowest`/`stdev`). Further kinds and multi-series
+   outputs remain.
 5. **Phase 10** — Portfolio + risk-policy registry.
 6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
 7. **Phase 12** — Agent orchestration + YOLO opt-in.

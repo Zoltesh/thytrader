@@ -22,7 +22,8 @@ identity-bearing engine-contract value. Only the new value is executable by the 
 The first executable engine:
 
 1. reloads and reverifies the exact published run, strategy, dataset manifest, and Parquet candles;
-2. calculates the canonical EMA, SMA, RSI, ATR, and volume-SMA catalog sequentially under the isolated
+2. calculates the canonical catalog (EMA, SMA, RSI, ATR, volume SMA, plus the ADR 0026
+   `highest`/`lowest`/`stdev` kinds) sequentially under the isolated
    `decimal64-half-even-v1` context: 64 significant digits, `ROUND_HALF_EVEN`, fixed exponent bounds,
    a defined subnormal output range, chronological left-fold accumulation, and traps for invalid
    operations, division by zero, and overflow;
@@ -42,8 +43,8 @@ costs, and results remain outside this engine.
 - Existing immutable `thytrader-bar-v1` publications remain loadable but fail closed if evaluation is
   requested.
 - Executable requests receive distinct fingerprints because the engine-contract value is identity-bearing.
-- Future indicator changes require another explicit engine-contract version rather than changing V1
-  results in place.
+- Future indicator **formula** changes require another explicit engine-contract version rather than
+  changing V1 results in place. Additive catalog kinds (ADR 0026) do not bump the engine identifier.
 - The same published request and verified artifacts recreate byte-identical trace output independent of
   ambient Decimal precision.
 - At acceptance time, only a read-only CLI existed for executable publications; later research-workspace

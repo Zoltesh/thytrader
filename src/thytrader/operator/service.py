@@ -1522,6 +1522,24 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
             period_min=2,
             period_max=500,
         ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.HIGHEST.value,
+            inputs=("high",),
+            period_min=2,
+            period_max=500,
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.LOWEST.value,
+            inputs=("low",),
+            period_min=2,
+            period_max=500,
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.STDEV.value,
+            inputs=("close",),
+            period_min=2,
+            period_max=500,
+        ),
     )
 
 

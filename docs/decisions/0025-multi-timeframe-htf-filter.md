@@ -6,7 +6,7 @@
   [0008](0008-deterministic-signal-evaluation.md), [0009](0009-deterministic-bar-level-backtest-engine.md),
   [0018](0018-5m-paper-not-live.md), [0020](0020-complete-only-15m-datasets.md),
   [0021](0021-complete-only-30m-datasets.md), [0022](0022-complete-only-6h-datasets.md),
-  [0023](0023-complete-only-1d-datasets.md)
+  [0023](0023-complete-only-1d-datasets.md), [0026](0026-phase-9-single-output-indicator-catalog.md)
 
 ## Context
 
@@ -46,8 +46,9 @@ Rules:
 - HTF timeframe ∈ `{15m, 30m, 1h, 6h, 1d}`, strictly coarser than LTF, and an integer multiple of LTF
   duration. `5m` LTF may use `15m`/`30m`/`1h`/`6h`/`1d`. `1h` LTF may use `6h`/`1d` only.
 - HTF `when` may reference only HTF indicators. LTF `entry.when` and the ATR stop may reference only
-  LTF indicators. Indicator ids are unique across both lists. Indicator kinds remain EMA/SMA/RSI/ATR/
-  `volume_sma`.
+  LTF indicators. Indicator ids are unique across both lists. Indicator kinds are the fail-closed
+  catalog current at evaluation (EMA/SMA/RSI/ATR/`volume_sma` at acceptance; extended by
+  [ADR 0026](0026-phase-9-single-output-indicator-catalog.md)).
 - Combined entry is the tri-state AND of HTF filter and LTF entry (undefined in either input is
   undefined).
 - Evaluation uses closed candles only. At LTF close `T`, HTF values come from the last HTF bar whose
@@ -74,6 +75,8 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
 - Paper/live remain single-clock until a later slice binds HTF candles in the execution worker.
 - Support matrices must list research V1/V2/V3 as supporting HTF filters and paper/live as rejecting
   them.
+- The indicator catalog later gained `highest`, `lowest`, and `stdev` ([ADR 0026](0026-phase-9-single-output-indicator-catalog.md))
+  without changing HTF alignment or adding per-indicator timeframes.
 
 ## Alternatives considered
 

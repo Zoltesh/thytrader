@@ -2,10 +2,11 @@
 
 This roadmap sequences capabilities and safety gates. It is not a promise of dates. Each phase should produce a usable, tested vertical increment rather than a collection of disconnected scaffolds.
 
-## Current delivery focus: Phases 9+ (iterative)
+## Current delivery focus: Phase 9 remaining, then 10+ (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
-operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). **Thy
+operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
+first indicator slice (`highest`/`lowest`/`stdev`) is shipped. **Thy
 Builder should implement the next unshipped Phase 9+ slice in order**, one vertical increment
 at a time. Phases 7–14 below are the definitive sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
@@ -73,10 +74,26 @@ HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strateg
 Phase 13. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF candles are not in this
 slice.
 
-## Phase 9: Wider fail-closed indicator catalog — 📋 Planned
+## Phase 9: Wider fail-closed indicator catalog — 🚧 First slice shipped
 
 Expand the bounded indicator registry without TA-library passthrough; same deterministic
 warmup and no-lookahead rules.
+
+### Iterative slices (ship separately)
+
+1. **Single-output rolling extremes and stdev** — ✅ Shipped ([ADR 0026](decisions/0026-phase-9-single-output-indicator-catalog.md)):
+   `highest` (high, period 2–500), `lowest` (low, period 2–500), and population `stdev` (close,
+   period 2–500). Same `decimal64-half-even-v1` left-fold, inclusive current bar, insufficient
+   warmup → undefined/null (not 0), tri-state conditions. Research V1/V2/V3, paper, and live share
+   the LTF catalog. HTF may declare the same kinds inside `htf_filter`; paper/live still reject that
+   block. No MACD/Bollinger. No per-indicator timeframes. 5m live remains Phase 13.
+2. **Further fail-closed single-output kinds** — 📋 Planned, still no TA passthrough.
+3. **Multi-series outputs (MACD, Bollinger)** — 📋 Deferred until referenceable series ids exist.
+4. **Per-indicator timeframes** — 📋 Out of Phase 9 (ADR 0025).
+
+**This-slice exit gate met:** the three kinds are named in the ADR, implemented in the registry and
+evaluator, referenced from conditions/crossovers, and listed honestly in the operator catalog and
+engine-support matrix.
 
 ## Phase 10: Portfolio + risk-policy registry — 📋 Planned
 
@@ -205,7 +222,7 @@ readiness, and graceful shutdown.
 - ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
-- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, and volume SMA.
+- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, and stdev.
 - ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
 - ✅ Conservative reference EMA trend profile with durable browser draft recovery, typed authoring API,
   immutable publication, verified-dataset backtest workflow, and bounded human-readable summary.

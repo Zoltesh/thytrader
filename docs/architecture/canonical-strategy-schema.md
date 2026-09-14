@@ -16,7 +16,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
-- 1h Coinbase USD spot for live; `1h` or `5m` for research, backtests, and paper; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA indicators;
+- 1h Coinbase USD spot for live; `1h` or `5m` for research, backtests, and paper; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev` indicators;
 - optional `htf_filter` (ADR 0025) for research V1/V2/V3: HTF `when` AND-ed with LTF entry using the last completed HTF bar; paper and live reject that block;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
@@ -140,18 +140,23 @@ Indicators are named, typed definitions with stable IDs for referencing in condi
 | `rsi` | `close` | `period` (2–100) | 0–100 per bar | `period + 1` |
 | `atr` | `high, low, close` | `period` (2–100) | single value per bar | `period` |
 | `volume_sma` | `volume` | `period` (2–500) | single value per bar | `period` |
+| `highest` | `high` | `period` (2–500) | single value per bar | `period` |
+| `lowest` | `low` | `period` (2–500) | single value per bar | `period` |
+| `stdev` | `close` | `period` (2–500) | single value per bar | `period` |
 
 Rules:
 
 - IDs must be unique within a strategy.
-- Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. ATR uses the
-  canonical ordered array `["high", "low", "close"]` because all three fields are required.
+- Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. Each shipped kind
+  locks that field: EMA/SMA/RSI/`stdev` use `close`; `highest` uses `high`; `lowest` uses `low`;
+  `volume_sma` uses `volume`. ATR uses the canonical ordered array `["high", "low", "close"]`.
 - Parameters are decimal strings for monetary fields, integers for periods.
 - An indicator with insufficient warmup data produces no value (not zero, not an error); conditions
   referencing an undefined value evaluate to no-signal.
 
 No broad TA-library passthrough is allowed. Every supported indicator has a defined specification,
-warmup requirement, and invalid-data behavior.
+warmup requirement, and invalid-data behavior. MACD, Bollinger bands, and other multi-series outputs
+are not in this catalog ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md)).
 
 ## Conditions
 

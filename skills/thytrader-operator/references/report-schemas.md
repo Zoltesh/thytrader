@@ -24,7 +24,7 @@ The `data_catalog` payload lists local verified Parquet datasets joined with the
 
 Health `payload.ops_contract` names the CLI/API content identity (`id`, engines, paper/live timeframes, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 
-The `products` payload lists enabled USD spot products. The `indicators` payload lists implemented kinds only: ema, sma, rsi, atr, volume_sma.
+The `products` payload lists enabled USD spot products. The `indicators` payload lists implemented kinds only: ema, sma, rsi, atr, volume_sma, highest, lowest, stdev. Highest is locked to high, lowest to low, stdev to close. MACD, Bollinger, and other kinds are not present.
 
 The support-bundle `payload` nests the other reports unchanged (it does not nest `runtime`, `data_catalog`, `products`, or `indicators`).
 
