@@ -109,7 +109,17 @@ export type DraftVersionResponse = { strategy: StrategyDraft; revision: number }
 export type IndicatorInput = 'close' | 'volume' | 'high' | 'low' | ['high', 'low', 'close'];
 
 export type IndicatorKindValue =
-	'ema' | 'sma' | 'rsi' | 'atr' | 'volume_sma' | 'highest' | 'lowest' | 'stdev';
+	| 'ema'
+	| 'sma'
+	| 'rsi'
+	| 'atr'
+	| 'volume_sma'
+	| 'highest'
+	| 'lowest'
+	| 'stdev'
+	| 'roc'
+	| 'williams_r'
+	| 'cci';
 
 export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label: string }[] = [
 	{ kind: 'ema', label: 'EMA' },
@@ -119,7 +129,10 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'volume_sma', label: 'Volume SMA' },
 	{ kind: 'highest', label: 'Highest high' },
 	{ kind: 'lowest', label: 'Lowest low' },
-	{ kind: 'stdev', label: 'Stdev' }
+	{ kind: 'stdev', label: 'Stdev' },
+	{ kind: 'roc', label: 'ROC' },
+	{ kind: 'williams_r', label: 'Williams %R' },
+	{ kind: 'cci', label: 'CCI' }
 ];
 
 export type IndicatorDraft = {

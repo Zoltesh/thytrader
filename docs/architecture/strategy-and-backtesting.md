@@ -7,7 +7,7 @@ A strategy is an immutable, versioned document validated by backend-owned schema
 The complete V1 field-level contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](canonical-strategy-schema.md). That document is the implementation-facing specification; this document covers the runtime and simulation design.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
-(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, and stdev) and bounded recursive AND/OR/NOT conditions, publishes exact
+(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, and CCI) and bounded recursive AND/OR/NOT conditions, publishes exact
 canonical content immutably, and durably associates that strategy fingerprint with an independently
 verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
 guarded drafts, publication, and archive markers. Paper and live execution consume the same published
@@ -22,7 +22,8 @@ PostgreSQL publication is binding-gated and every load reverifies both source ar
 
 The first executable [signal evaluator](signal-evaluation.md) requires
 `thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
-semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
+semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md),
+[ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
 `htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
 Research V1/V2/V3 consume that signal stage. Paper and live reject HTF-filter strategies. Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
@@ -60,7 +61,7 @@ ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspect
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
 `thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` engines actually consume (entry
-conditions, optional HTF filter, indicators (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev), risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
+conditions, optional HTF filter, indicators (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI), risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
 take profit, time exit) from declared schema fields those next-open engines ignore (entry cooldown,
 maker-only/marketable preference, entry wait and unfilled policy, trailing stops). `thytrader-bar-backtest-v3`
 consumes the same HTF signal stage plus maker-only close-limit entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops,

@@ -23,7 +23,7 @@ The first executable engine:
 
 1. reloads and reverifies the exact published run, strategy, dataset manifest, and Parquet candles;
 2. calculates the canonical catalog (EMA, SMA, RSI, ATR, volume SMA, plus the ADR 0026
-   `highest`/`lowest`/`stdev` kinds) sequentially under the isolated
+   `highest`/`lowest`/`stdev` kinds and the ADR 0027 `roc`/`williams_r`/`cci` kinds) sequentially under the isolated
    `decimal64-half-even-v1` context: 64 significant digits, `ROUND_HALF_EVEN`, fixed exponent bounds,
    a defined subnormal output range, chronological left-fold accumulation, and traps for invalid
    operations, division by zero, and overflow;

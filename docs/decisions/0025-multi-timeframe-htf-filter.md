@@ -48,7 +48,8 @@ Rules:
 - HTF `when` may reference only HTF indicators. LTF `entry.when` and the ATR stop may reference only
   LTF indicators. Indicator ids are unique across both lists. Indicator kinds are the fail-closed
   catalog current at evaluation (EMA/SMA/RSI/ATR/`volume_sma` at acceptance; extended by
-  [ADR 0026](0026-phase-9-single-output-indicator-catalog.md)).
+  [ADR 0026](0026-phase-9-single-output-indicator-catalog.md) and
+  [ADR 0027](0027-phase-9-roc-williams-cci.md)).
 - Combined entry is the tri-state AND of HTF filter and LTF entry (undefined in either input is
   undefined).
 - Evaluation uses closed candles only. At LTF close `T`, HTF values come from the last HTF bar whose
@@ -76,6 +77,7 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
 - Support matrices must list research V1/V2/V3 as supporting HTF filters and paper/live as rejecting
   them.
 - The indicator catalog later gained `highest`, `lowest`, and `stdev` ([ADR 0026](0026-phase-9-single-output-indicator-catalog.md))
+  and `roc`, `williams_r`, and `cci` ([ADR 0027](0027-phase-9-roc-williams-cci.md))
   without changing HTF alignment or adding per-indicator timeframes.
 
 ## Alternatives considered

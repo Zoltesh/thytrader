@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from thytrader.strategies.models import IndicatorKind
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from thytrader.market_data.models import Candle
     from thytrader.strategies.models import IndicatorDefinition
@@ -64,21 +64,13 @@ def _indicator_values(
 ) -> tuple[Decimal | None, ...]:
     """Dispatch one declarative definition to its exact implemented calculation."""
     period = indicator.parameters.period
-    if indicator.kind is IndicatorKind.ATR:
-        return _average_true_range(candles, period)
+    hlc_calculator = _HLC_CALCULATORS.get(indicator.kind)
+    if hlc_calculator is not None:
+        return hlc_calculator(candles, period)
     series = _locked_source_series(indicator, candles)
-    if indicator.kind in {IndicatorKind.SMA, IndicatorKind.VOLUME_SMA}:
-        return _simple_moving_average(series, period)
-    if indicator.kind is IndicatorKind.EMA:
-        return _exponential_moving_average(series, period)
-    if indicator.kind is IndicatorKind.RSI:
-        return _relative_strength_index(series, period)
-    if indicator.kind is IndicatorKind.HIGHEST:
-        return _rolling_extreme(series, period, maximum=True)
-    if indicator.kind is IndicatorKind.LOWEST:
-        return _rolling_extreme(series, period, maximum=False)
-    if indicator.kind is IndicatorKind.STDEV:
-        return _rolling_population_stdev(series, period)
+    series_calculator = _SERIES_CALCULATORS.get(indicator.kind)
+    if series_calculator is not None:
+        return series_calculator(series, period)
     raise IndicatorCalculationError(
         f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
     )
@@ -216,6 +208,69 @@ def _relative_strength_index(
     return tuple(result)
 
 
+def _rate_of_change(
+    values: Sequence[Decimal],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return percent change versus the close exactly ``period`` bars ago."""
+    result: list[Decimal | None] = []
+    hundred = Decimal(100)
+    for index, value in enumerate(values):
+        if index < period:
+            result.append(None)
+            continue
+        past = values[index - period]
+        if past == 0:
+            result.append(None)
+            continue
+        result.append(hundred * (value - past) / past)
+    return tuple(result)
+
+
+def _williams_percent_r(
+    candles: Sequence[Candle],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return Williams %R from the inclusive high/low window and current close."""
+    highest = _rolling_extreme(tuple(candle.high for candle in candles), period, maximum=True)
+    lowest = _rolling_extreme(tuple(candle.low for candle in candles), period, maximum=False)
+    minus_hundred = Decimal(-100)
+    result: list[Decimal | None] = []
+    for candle, high_value, low_value in zip(candles, highest, lowest, strict=True):
+        if high_value is None or low_value is None:
+            result.append(None)
+            continue
+        span = high_value - low_value
+        if span == 0:
+            result.append(None)
+            continue
+        result.append((high_value - candle.close) / span * minus_hundred)
+    return tuple(result)
+
+
+def _commodity_channel_index(
+    candles: Sequence[Candle],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return CCI from typical price, shipped SMA, and population mean deviation."""
+    typical = tuple((candle.high + candle.low + candle.close) / Decimal(3) for candle in candles)
+    means = _simple_moving_average(typical, period)
+    period_decimal = Decimal(period)
+    lambert = Decimal("0.015")
+    result: list[Decimal | None] = []
+    for index, mean in enumerate(means):
+        if mean is None:
+            result.append(None)
+            continue
+        window = typical[index + 1 - period : index + 1]
+        mad = sum((abs(value - mean) for value in window), start=Decimal(0)) / period_decimal
+        if mad == 0:
+            result.append(None)
+            continue
+        result.append((typical[index] - mean) / (lambert * mad))
+    return tuple(result)
+
+
 def _average_true_range(
     candles: Sequence[Candle],
     period: int,
@@ -243,3 +298,36 @@ def _average_true_range(
             previous_atr = (previous_atr * Decimal(period - 1) + true_range) / Decimal(period)
         result.append(previous_atr)
     return tuple(result)
+
+
+def _rolling_highest(values: Sequence[Decimal], period: int) -> tuple[Decimal | None, ...]:
+    """Return a rolling max after exactly one full inclusive window."""
+    return _rolling_extreme(values, period, maximum=True)
+
+
+def _rolling_lowest(values: Sequence[Decimal], period: int) -> tuple[Decimal | None, ...]:
+    """Return a rolling min after exactly one full inclusive window."""
+    return _rolling_extreme(values, period, maximum=False)
+
+
+_HLC_CALCULATORS: dict[
+    IndicatorKind,
+    Callable[[Sequence[Candle], int], tuple[Decimal | None, ...]],
+] = {
+    IndicatorKind.ATR: _average_true_range,
+    IndicatorKind.WILLIAMS_R: _williams_percent_r,
+    IndicatorKind.CCI: _commodity_channel_index,
+}
+_SERIES_CALCULATORS: dict[
+    IndicatorKind,
+    Callable[[Sequence[Decimal], int], tuple[Decimal | None, ...]],
+] = {
+    IndicatorKind.SMA: _simple_moving_average,
+    IndicatorKind.VOLUME_SMA: _simple_moving_average,
+    IndicatorKind.EMA: _exponential_moving_average,
+    IndicatorKind.RSI: _relative_strength_index,
+    IndicatorKind.HIGHEST: _rolling_highest,
+    IndicatorKind.LOWEST: _rolling_lowest,
+    IndicatorKind.STDEV: _rolling_population_stdev,
+    IndicatorKind.ROC: _rate_of_change,
+}

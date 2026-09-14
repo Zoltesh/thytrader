@@ -62,7 +62,8 @@ division by zero, and overflow. Input values must have adjusted exponents in `[-
 Calculated values may use the context's subnormal range down to `Etiny=-6206`; trace values must be
 exactly representable by that context and therefore cannot carry a stored exponent below `-6206`.
 Ambient process Decimal settings cannot affect output. Trace values use plain non-exponent decimal
-strings with insignificant trailing zeros removed; negative zero is rendered as `0`.
+strings with an optional leading minus and insignificant trailing zeros removed; negative zero is
+rendered as `0`.
 
 This is distinct from exchange quantity and price quantization, which belongs to the future broker
 boundary. The research evaluator does not create exchange-domain amounts.
@@ -98,6 +99,34 @@ is the **population** standard deviation of the inclusive window:
 
 A non-positive variance after that fold yields `0` (flat windows are defined, not undefined). This
 is not sample stdev (`N-1`) and not a TA-library `stdev`.
+
+### ROC
+
+`roc` consumes close. The first value is defined after `period + 1` closes because the lookback is
+exactly `period` completed bars ago. Each defined value is:
+
+`roc = 100 * (close - close[period]) / close[period]`
+
+A lookback close of `0` yields undefined, not infinity. This is not a TA-library `roc`.
+
+### Williams %R
+
+`williams_r` consumes high, low, and close. The first value is defined after exactly `period`
+observations. The inclusive window reuses the shipped rolling max/min left-folds. Each defined value
+divides `(highest_high - close)` by `(highest_high - lowest_low)`, then multiplies by `-100`. A zero
+window range yields undefined, not `0`.
+
+### CCI
+
+`cci` consumes high, low, and close. Typical price is `(high + low + close) / 3`. The first value is
+defined after exactly `period` typical prices. Each defined value uses the shipped SMA left-fold of
+typical price and a population mean absolute deviation (chronological `abs(TP - SMA)` sum divided by
+`period`). Then:
+
+`cci = (TP - SMA(TP)) / (0.015 * MAD)`
+
+The Lambert product completes before the divide. A zero MAD yields undefined, not infinity. This is
+not a TA-library `cci`.
 
 ### EMA
 
@@ -156,6 +185,10 @@ Each trace records:
 - one unique, strictly increasing record per evaluation candle;
 - every declared indicator's canonical value or explicit `null` exactly once in that sequence; and
 - the final entry-condition outcome: `matched`, `not_matched`, or `undefined`.
+
+Canonical indicator values are plain decimal text, optionally signed, with no exponent notation and
+no trailing zeros ([ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md) extended the unsigned
+pattern so ROC and Williams %R can be traced).
 
 Canonical trace JSON uses sorted keys, compact separators, UTF-8, and UTC `Z` timestamps. The complete
 trace is addressed by SHA-256. Trace fields are frozen, unknown-field rejecting, and strict about

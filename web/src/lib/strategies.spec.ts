@@ -114,7 +114,10 @@ describe('indicator kind picker', () => {
 			'volume_sma',
 			'highest',
 			'lowest',
-			'stdev'
+			'stdev',
+			'roc',
+			'williams_r',
+			'cci'
 		]);
 		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).not.toContain('macd');
 	});

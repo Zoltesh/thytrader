@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
 import json
 from pathlib import Path
 from typing import cast
@@ -432,6 +432,180 @@ def test_entry_conditions_can_reference_highest_lowest_and_stdev() -> None:
     assert [record.indicator_values[3].value for record in trace.records] == ["1", "1.5"]
 
 
+def test_roc_williams_r_and_cci_warmup_decimal_and_no_lookahead() -> None:
+    """Slice 2 kinds stay undefined until warmup and never read future candles."""
+    indicators = (
+        IndicatorDefinition(
+            id="close_roc",
+            kind=IndicatorKind.ROC,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="willr",
+            kind=IndicatorKind.WILLIAMS_R,
+            input=("high", "low", "close"),
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="cci_14",
+            kind=IndicatorKind.CCI,
+            input=("high", "low", "close"),
+            parameters=IndicatorParameters(period=2),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("1"), Decimal("2"), Decimal("0.5"), Decimal("1"), Decimal("1")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("1.5"),
+            Decimal("2"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("4"),
+            Decimal("5"),
+            Decimal("3.5"),
+            Decimal("4"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=3),
+            Decimal("8"),
+            Decimal("9"),
+            Decimal("0.25"),
+            Decimal("8"),
+            Decimal("1"),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    assert [row["close_roc"] for row in rows] == [
+        None,
+        None,
+        Decimal("300"),
+        Decimal("300"),
+    ]
+    with localcontext(Context(prec=64, rounding=ROUND_HALF_EVEN, Emin=-6143, Emax=6144)):
+        willr_second = Decimal(-200) / Decimal(7)
+        willr_third = Decimal(-80) / Decimal(7)
+        cci_second = Decimal(200) / Decimal(3)
+    assert [row["willr"] for row in rows] == [
+        None,
+        Decimal("-40"),
+        willr_second,
+        willr_third,
+    ]
+    assert [row["cci_14"] for row in rows][:2] == [None, cci_second]
+    assert [row["close_roc"] for row in prefix_rows] == [None, None, Decimal("300")]
+    assert [row["willr"] for row in prefix_rows] == [None, Decimal("-40"), willr_second]
+    assert prefix_rows[-1]["cci_14"] == rows[2]["cci_14"]
+
+    zero_lookback = tuple(
+        Candle(
+            start + timedelta(hours=index),
+            Decimal(close),
+            Decimal("1"),
+            Decimal("1"),
+            Decimal(close),
+            Decimal("1"),
+        )
+        for index, close in enumerate(("0", "1", "2"))
+    )
+    assert calculate_indicator_rows((indicators[0],), zero_lookback)[-1]["close_roc"] is None
+
+    flat = tuple(
+        Candle(
+            start + timedelta(hours=index),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("1"),
+        )
+        for index in range(3)
+    )
+    assert calculate_indicator_rows((indicators[1],), flat)[-1]["willr"] is None
+    assert calculate_indicator_rows((indicators[2],), flat)[-1]["cci_14"] is None
+
+
+def test_entry_conditions_can_reference_roc_williams_r_and_cci() -> None:
+    """Published strategies may compare the Phase 9 slice 2 indicator ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        {"id": "close_roc", "kind": "roc", "input": "close", "parameters": {"period": 2}},
+        {
+            "id": "willr",
+            "kind": "williams_r",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+        {
+            "id": "cci_14",
+            "kind": "cci",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["data_requirements"]["warmup_bars"] = 3
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "close_roc"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+            {
+                "left": {"indicator": "willr"},
+                "operator": "less_than",
+                "right": {"literal": "0"},
+            },
+            {
+                "left": {"indicator": "cci_14"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    run = _run(strategy).model_copy(
+        update={
+            "warmup": WarmupWindow(
+                bars=3,
+                starts_at=datetime(2026, 7, 9, 23, tzinfo=UTC),
+            )
+        }
+    )
+    prior = Candle(
+        datetime(2026, 7, 9, 23, tzinfo=UTC),
+        Decimal("1"),
+        Decimal("2"),
+        Decimal("0.5"),
+        Decimal("1"),
+        Decimal("1"),
+    )
+    trace = evaluate_signal_trace(run, strategy, (prior, *_candles()))
+
+    assert [record.indicator_values[1].indicator_id for record in trace.records] == [
+        "close_roc",
+        "close_roc",
+    ]
+    assert all(record.indicator_values[1].value is not None for record in trace.records)
+
+
 def test_engine_decimal_results_ignore_ambient_decimal_precision() -> None:
     """Process-level Decimal settings must not alter deterministic trace bytes."""
     strategy = _strategy()
@@ -657,6 +831,14 @@ def test_trace_rejects_values_below_decimal64_etiny() -> None:
 
     with pytest.raises(ValidationError, match="Decimal envelope"):
         IndicatorTraceValue(indicator_id="atr", value=below_etiny)
+
+
+def test_trace_accepts_signed_canonical_indicator_values() -> None:
+    """ROC and Williams %R traces may carry a single leading minus."""
+    assert IndicatorTraceValue(indicator_id="close_roc", value="-50").value == "-50"
+    assert IndicatorTraceValue(indicator_id="willr", value="-40").value == "-40"
+    with pytest.raises(ValidationError):
+        IndicatorTraceValue(indicator_id="close_roc", value="--50")
 
 
 def test_trace_identity_requires_strictly_increasing_records() -> None:
