@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+
+import { expect, test } from '../e2e/harness';
 
 const demoPortfolio = {
 	as_of: '2026-07-27T22:15:00Z',

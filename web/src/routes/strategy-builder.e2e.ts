@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../e2e/harness';
 
 const strategyId = '01985cf0-7b60-7000-8000-000000000007';
 const fingerprint = `sha256:${'c'.repeat(64)}`;
@@ -79,11 +79,11 @@ const libraryEntry = {
 	updated_at: draft.created_at
 };
 
-function mockDraftStorage(page: import('@playwright/test').Page): void {
-	void page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) =>
-		route.fulfill({ json: { strategy: draft, revision: 1 } })
-	);
-	void page.route('**/api/v1/strategies', async (route) => {
+async function mockDraftStorage(page: import('@playwright/test').Page): Promise<void> {
+	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
+		await route.fulfill({ json: { strategy: draft, revision: 1 } });
+	});
+	await page.route('**/api/v1/strategies', async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -95,7 +95,7 @@ function mockDraftStorage(page: import('@playwright/test').Page): void {
 test('loads a draft into the builder with sections, rule tree, and inspector summary', async ({
 	page
 }) => {
-	mockDraftStorage(page);
+	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Indicators' })).toBeVisible();
@@ -111,7 +111,7 @@ test('loads a draft into the builder with sections, rule tree, and inspector sum
 });
 
 test('marks unsaved changes and blocks saving when validation fails', async ({ page }) => {
-	mockDraftStorage(page);
+	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	await page.getByLabel('Strategy name').fill('');
 	await expect(page.locator('.dirty-pill')).toBeVisible();
@@ -120,7 +120,7 @@ test('marks unsaved changes and blocks saving when validation fails', async ({ p
 });
 
 test('flags engine settings the current backtester does not model', async ({ page }) => {
-	mockDraftStorage(page);
+	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	const engineMatrix = page.getByRole('table', { name: 'Engine support matrix' });
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
@@ -162,10 +162,10 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 test('required data and market hint follow the draft timeframe', async ({ page }) => {
 	const fiveMinuteDraft = { ...draft, timeframe: '5m' };
 	const fiveMinuteEntry = { ...libraryEntry, timeframe: '5m' };
-	void page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) =>
-		route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } })
-	);
-	void page.route('**/api/v1/strategies', async (route) => {
+	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
+		await route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } });
+	});
+	await page.route('**/api/v1/strategies', async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -185,7 +185,7 @@ test('required data and market hint follow the draft timeframe', async ({ page }
 });
 
 test('shows a literal editor when the left operand is a literal value', async ({ page }) => {
-	mockDraftStorage(page);
+	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	await page.getByRole('button', { name: 'Entry conditions' }).click();
 	const firstLeft = page.getByLabel('Left operand').first();
@@ -202,16 +202,16 @@ test('shows a literal editor when the left operand is a literal value', async ({
 });
 
 test('refuses to open a builder for a published or archived identity', async ({ page }) => {
-	void page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) =>
-		route.fulfill({ json: { strategy: draft, revision: 1 } })
-	);
-	void page.route('**/api/v1/strategies', async (route) =>
-		route.fulfill({
+	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
+		await route.fulfill({ json: { strategy: draft, revision: 1 } });
+	});
+	await page.route('**/api/v1/strategies', async (route) => {
+		await route.fulfill({
 			json: {
 				strategies: [{ ...libraryEntry, status: 'published', latest_fingerprint: fingerprint }]
 			}
-		})
-	);
+		});
+	});
 	await page.goto(`/strategies/${strategyId}`);
 	await expect(page.getByRole('alert')).toContainText(
 		'published or archived; its builder is read-only history'
