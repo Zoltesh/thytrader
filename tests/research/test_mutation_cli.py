@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.http_fakes import matching_ready_payload, stale_ready_payload, urlopen_ready_then
 from thytrader.agent_http import AgentHttpError
 from thytrader.research.mutation_cli import main
 
@@ -69,7 +70,10 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
             "thytrader.research.mutation_cli.BacktestSubmissionRequest.model_validate",
             return_value=object(),
         ),
-        patch("thytrader.research.mutation_cli.require_matching_ops_contract"),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
         patch(
             "thytrader.research.http.submit_backtest",
             side_effect=AgentHttpError(
@@ -90,8 +94,8 @@ def test_research_cli_refuses_stale_ops_contract_before_command() -> None:
     """Every HTTP research command stops when the ready API contract is stale."""
     with (
         patch(
-            "thytrader.research.mutation_cli.require_matching_ops_contract",
-            side_effect=AgentHttpError("stale Compose image. Rebuild with `make run`."),
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(stale_ready_payload()),
         ),
         patch("thytrader.research.http.create_draft") as request,
         pytest.raises(SystemExit, match="make run"),

@@ -28,10 +28,16 @@ errors.
   dataset timeframe (`1h`, `5m`, `15m`, `30m`, `6h`, and `1d`) as `not_fetched`,
   `exchange_unavailable`, or `incomplete_local`. It never interpolates. A clean island cannot turn an
   incomplete watch into `gap_count: 0`.
-- Every HTTP command in `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights
-  `/health/ready` and requires the full ops contract to equal the contract compiled into the CLI.
-  Local confirmation, live acknowledgement, document validation, and other no-I/O safety checks
-  still run before the preflight.
+- Every HTTP command in `thytrader-operator`, `thytrader-data`, `thytrader-research`, and
+  `thytrader-runtime` preflights `/health/ready` and requires the full ops contract to equal the
+  contract compiled into the CLI. Local confirmation, live acknowledgement, document validation, and
+  other no-I/O safety checks still run before the preflight. Operator HTTP fails closed before
+  printing a report; it does not warn on stderr after a successful payload.
+- Catalog `sparsity` is `gapped` when `watch_complete` is false, even if the published island has
+  zero gaps. Dashboard ingestion copy uses the same watch decision from
+  `GET /api/v1/market-data/ingestion`.
+- `GET /api/v1/market-data/datasets` remains fingerprint-addressed island history. Watch completeness
+  lives on catalog, ingest status, and `inspect-gaps`.
 - A missing or unequal ops contract, or an agent route returning 404 while `/health/ready` returns
   200, is one stale-image signal: rebuild and restart with `make run`. The CLIs do not default-fill a
   missing contract and do not use matching package version `0.1.0` as evidence of image identity.

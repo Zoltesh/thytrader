@@ -29,14 +29,17 @@ Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 - `live_timeframes` (`1h`)
 - `expected_schema_revision` (`0020`)
 
-A missing payload is a mismatch. The operator CLI writes the same rebuild hint used for version
-mismatch: rebuild with `make run`. Bump `OPS_CONTRACT_ID` whenever those facts
+A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
+`thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`
+and fails closed on a missing or unequal contract. The operator CLI does not print a
+report plus a stderr warning. Bump `OPS_CONTRACT_ID` whenever those facts
 change. Do not treat matching `0.1.0` as proof the running image matches this CLI.
 
 ## Consequences
 
 - An ops agent can tell a healthy old `0.1.0` image from this checkout without scraping OpenAPI.
 - Skills and `ops/` treat version mismatch, ops-contract mismatch, and 404-on-ready as stale image.
+  Agent CLIs exit before printing a successful payload.
 - Schema revision `0020` remaining on the database while HEAD expects it is not by itself a content
   identity; the contract still lists it so a skipped migration is visible when present.
 

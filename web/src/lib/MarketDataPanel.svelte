@@ -252,7 +252,9 @@
 				<strong
 					>{ingestion.status === 'succeeded' ? '' : 'Last verified coverage · '}{titleCase(
 						ingestion.freshness
-					)} · {ingestion.coverage_status.replace('_', ' ')}</strong
+					)} · {ingestion.watch_complete === false
+						? 'watch incomplete'
+						: ingestion.coverage_status.replace('_', ' ')}</strong
 				>
 				<span
 					>{ingestion.coverage.received_candle_count} /

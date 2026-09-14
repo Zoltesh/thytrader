@@ -11,6 +11,7 @@ from pydantic import BaseModel, field_validator
 
 from thytrader.api.dependencies import (
     get_market_data_state_store,
+    get_market_data_watchlist_store,
     get_market_feed_state_store,
     get_runtime_state,
 )
@@ -22,12 +23,17 @@ from thytrader.market_data.freshness import (
     evaluate_freshness,
 )
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe
+from thytrader.market_data.watchlist import (
+    MarketDataWatchlistStore,
+    MarketDataWatchlistUnavailableError,
+)
 from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
     validate_market_data_worker_state,
 )
+from thytrader.market_data_worker.service import island_covers_watch
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
@@ -65,7 +71,12 @@ class IngestionFailureResponse(BaseModel):
 
 
 class IngestionStateResponse(BaseModel):
-    """Durable worker lifecycle, freshness, coverage, and failure evidence."""
+    """Durable worker lifecycle, freshness, coverage, and failure evidence.
+
+    ``watch_complete`` is the agent decision field. ``coverage_status`` is
+    ``complete`` only when the published island is contiguous and spans the
+    configured watch lookback.
+    """
 
     provider: str
     product_id: str
@@ -80,6 +91,7 @@ class IngestionStateResponse(BaseModel):
     failure: IngestionFailureResponse | None
     enabled: bool
     freshness: Literal["current", "delayed", "stale", "unknown"]
+    watch_complete: bool | None = None
     coverage_status: Literal["complete", "gap_detected", "unavailable"]
     expected_latest_boundary: datetime
     next_attempt_at: datetime | None
@@ -202,6 +214,7 @@ async def get_market_feed_state(
 @router.get("/ingestion", response_model=IngestionStateResponse)
 async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
@@ -217,6 +230,13 @@ async def get_ingestion_state(
         raise _unavailable() from None
     except Exception:  # noqa: BLE001 - persistence details are redacted at the API boundary.
         raise _unavailable() from None
+    lookback_hours = await _lookback_hours(
+        watchlist,
+        provider=provider,
+        product_id=product_id,
+        interval=interval,
+        default_hours=runtime.settings.market_data_worker_lookback_hours,
+    )
     if state is None:
         expected_boundary = interval.align_closed_end(datetime.now(UTC))
         return IngestionStateResponse(
@@ -234,6 +254,7 @@ async def get_ingestion_state(
             enabled=True,
             freshness="unknown",
             coverage_status="unavailable",
+            watch_complete=False,
             expected_latest_boundary=expected_boundary,
             next_attempt_at=None,
             dataset_revision=0,
@@ -244,6 +265,7 @@ async def get_ingestion_state(
             state,
             now=datetime.now(UTC),
             interval_seconds=runtime.settings.market_data_worker_interval_seconds,
+            lookback_hours=lookback_hours,
         )
     except Exception as error:  # noqa: BLE001 - mapping failures are redacted at the API boundary.
         _logger.warning("Ingestion state mapping failed: %s", type(error).__name__)
@@ -255,6 +277,7 @@ def _to_response(
     *,
     now: datetime,
     interval_seconds: int,
+    lookback_hours: int,
 ) -> IngestionStateResponse:
     """Map durable state to redacted browser-safe freshness and coverage facts."""
     coverage = _coverage(state)
@@ -270,13 +293,22 @@ def _to_response(
     expected_boundary = state.timeframe.align_closed_end(now)
     freshness = _freshness(state.covered_ends_at, expected_boundary, state.timeframe)
     fresh = freshness in {"current", "delayed"} if state.covered_ends_at is not None else None
+    watch_complete = island_covers_watch(
+        covered_starts_at=state.covered_starts_at,
+        covered_ends_at=state.covered_ends_at,
+        island_complete=state.complete,
+        lookback_hours=lookback_hours,
+        interval=state.timeframe,
+        closed_end=expected_boundary,
+    )
     coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
         "unavailable"
         if state.failure_code == "dataset_verification_failed"
         else "complete"
-        if coverage is not None and state.complete
+        if coverage is not None and state.complete and watch_complete
         else "gap_detected"
         if state.failure_code == "incomplete_range"
+        or (coverage is not None and state.complete and not watch_complete)
         else "unavailable"
     )
     next_attempt_at = state.next_retry_at or state.last_attempt_at + timedelta(
@@ -297,11 +329,30 @@ def _to_response(
         enabled=state.enabled,
         freshness=freshness,
         coverage_status=coverage_status,
+        watch_complete=watch_complete,
         expected_latest_boundary=expected_boundary,
         next_attempt_at=next_attempt_at,
         dataset_revision=state.dataset_revision,
         maintenance_kind=state.maintenance_kind.value,
     )
+
+
+async def _lookback_hours(
+    watchlist: MarketDataWatchlistStore,
+    *,
+    provider: str,
+    product_id: str,
+    interval: CandleInterval,
+    default_hours: int,
+) -> int:
+    """Prefer the watchlist lookback, otherwise the worker setting."""
+    try:
+        target = await watchlist.get(provider, product_id, interval)
+    except MarketDataWatchlistUnavailableError:
+        return default_hours
+    if target is not None:
+        return target.lookback_hours
+    return default_hours
 
 
 def _freshness(

@@ -91,6 +91,7 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         )
         assert eth_five["complete"] is True
         assert eth_five["watch_complete"] is True
+        assert eth_five["sparsity"] == "none"
         assert status.json()["state"]["watch_complete"] is True
         assert eth_five["expected_candle_count"] == 4_032
         covered_start = datetime.fromisoformat(eth_five["covered_starts_at"])
@@ -114,6 +115,7 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         )
         assert longer["complete"] is True
         assert longer["watch_complete"] is False
+        assert longer["sparsity"] == "gapped"
         assert longer["watch_expected_candle_count"] > longer["expected_candle_count"]
         gap_report = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
         assert gap_report.status_code == 200, gap_report.text

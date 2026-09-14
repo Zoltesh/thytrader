@@ -56,18 +56,18 @@ arming, cancellation, or kill-switch authority.
 
 Prefer a versioned `thytrader` operator CLI backed by the same application services as a read-only HTTP API. The CLI talks to that API on loopback by default.
 
-Potential command groups, to be implemented before referenced by a real skill:
+Shipped command groups:
 
-- health summary;
-- redacted configuration validation;
-- exchange connectivity and permission validation;
-- market-data freshness and gap report;
-- strategy status and performance report;
-- risk-state and recent-trigger report;
-- order/fill reconciliation report;
-- support bundle generation with deterministic redaction.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, support-bundle, schema-check.
+- `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
+- `thytrader-research` — drafts, publish, backtests (`--confirm`).
+- `thytrader-runtime` — paper/live start, pause, resume, stop (`--confirm`; live also `--i-understand-live`).
 
-Outputs should support both human-readable text and a documented JSON schema. Commands should return meaningful exit codes so agents can distinguish healthy, degraded, and failed states.
+Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
+
+Every HTTP command preflights `/health/ready` and fails closed on a missing or unequal ops contract. Matching package version `0.1.0` is not current-image evidence.
+
+Outputs support both human-readable text and a documented JSON schema. Commands return meaningful exit codes so agents can distinguish healthy, degraded, and failed states.
 
 ## Safety model
 

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from thytrader.agent_http import AgentHttpError
+from tests.http_fakes import stale_ready_payload, urlopen_ready_then
 from thytrader.runtime_control.cli import main
 
 
@@ -79,8 +79,8 @@ def test_runtime_cli_refuses_stale_ops_contract_before_command() -> None:
     """Every runtime command stops when the ready API does not match this checkout."""
     with (
         patch(
-            "thytrader.runtime_control.cli.require_matching_ops_contract",
-            side_effect=AgentHttpError("stale Compose image. Rebuild with `make run`."),
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(stale_ready_payload()),
         ),
         patch("thytrader.runtime_control.cli.list_deployments") as request,
         pytest.raises(SystemExit, match="make run"),

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.http_fakes import matching_ready_payload, stale_ready_payload, urlopen_ready_then
 from thytrader import __version__
 from thytrader.operator.cli import main
 from thytrader.operator.models import (
@@ -130,10 +131,10 @@ def test_operator_rejects_local_and_base_url_together() -> None:
     assert "either" in str(raised.value).lower()
 
 
-def test_operator_http_version_mismatch_hints_rebuild(
+def test_operator_http_version_mismatch_fails_closed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A running API from an older image must tell operators to rebuild."""
+    """A running API from an older image must fail before printing a report."""
     report = HealthReport(
         application_version="0.0.0",
         generated_at=datetime.now(UTC),
@@ -145,46 +146,45 @@ def test_operator_http_version_mismatch_hints_rebuild(
             api_probed=True,
             database_configured=False,
             coinbase_credentials_configured=False,
+            ops_contract=current_ops_contract(),
+            applied_schema_revision=EXPECTED_SCHEMA_REVISION,
         ),
     )
     with (
-        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(
+                matching_ready_payload(),
+                report.model_dump(mode="json"),
+            ),
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(["health"])
     captured = capsys.readouterr()
-    assert raised.value.code == 1
-    assert "make run" in captured.err
-    assert json.loads(captured.out)["application_version"] == "0.0.0"
+    assert "make run" in str(raised.value)
+    assert captured.out == ""
 
 
-def test_operator_http_missing_ops_contract_hints_rebuild(
+@pytest.mark.parametrize("command", ["health", "data-catalog", "configuration"])
+def test_operator_http_stale_ops_contract_fails_closed(
+    command: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A healthy 0.1.0 API without the ops contract is a stale Compose image."""
-    report = HealthReport(
-        application_version=__version__,
-        generated_at=datetime.now(UTC),
-        overall_status=ReportStatus.HEALTHY,
-        components=(),
-        redaction=STANDARD_REDACTION,
-        recommended_next_action="No action required.",
-        payload=HealthPayload(
-            api_probed=True,
-            database_configured=False,
-            coinbase_credentials_configured=False,
-        ),
-    )
     with (
-        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(stale_ready_payload()),
+        ),
         pytest.raises(SystemExit) as raised,
     ):
-        main(["health"])
+        main([command])
     captured = capsys.readouterr()
-    assert raised.value.code == 0
-    assert "ops contract" in captured.err
-    assert "make run" in captured.err
-    assert json.loads(captured.out)["payload"]["ops_contract"] is None
+    message = str(raised.value).lower()
+    assert "ops contract" in message
+    assert "make run" in message
+    assert captured.out == ""
 
 
 def test_operator_http_matching_ops_contract_does_not_hint_rebuild(
@@ -207,7 +207,13 @@ def test_operator_http_matching_ops_contract_does_not_hint_rebuild(
         ),
     )
     with (
-        patch("thytrader.operator.cli.fetch_operator_report", return_value=report),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(
+                matching_ready_payload(),
+                report.model_dump(mode="json"),
+            ),
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(["health"])

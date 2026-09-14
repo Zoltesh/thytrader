@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from thytrader import __version__
-from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.models import DATASET_TIMEFRAMES
@@ -20,11 +20,7 @@ from thytrader.operator.redaction import configured_secrets, dumps_redacted, red
 from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics
 from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
-from thytrader.ops_contract import (
-    EXPECTED_SCHEMA_REVISION,
-    STALE_IMAGE_REBUILD,
-    ops_contract_matches,
-)
+from thytrader.ops_contract import EXPECTED_SCHEMA_REVISION, STALE_IMAGE_REBUILD
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -240,29 +236,20 @@ async def _run_local(arguments: argparse.Namespace) -> int:
     return exit_code_for(report.overall_status)
 
 
-def _warn_stale_api(report: OperatorEnvelope) -> None:
-    """Write rebuild guidance when HTTP version or ops contract is stale."""
+def _reject_stale_report(report: OperatorEnvelope) -> None:
+    """Fail closed when a fetched report still disagrees with this checkout."""
     if report.application_version != __version__:
-        sys.stderr.write(
+        raise AgentHttpError(
             f"API version {report.application_version} does not match CLI {__version__}. "
-            f"{STALE_IMAGE_REBUILD}\n"
+            f"{STALE_IMAGE_REBUILD}"
         )
-        return
     if not isinstance(report, HealthReport):
-        return
-    contract = report.payload.ops_contract
-    mapping = None if contract is None else contract.model_dump(mode="json")
-    if not ops_contract_matches(mapping):
-        sys.stderr.write(
-            "API ops contract does not match this CLI (stale Compose image). "
-            f"{STALE_IMAGE_REBUILD}\n"
-        )
         return
     applied = report.payload.applied_schema_revision
     if applied is not None and applied != EXPECTED_SCHEMA_REVISION:
-        sys.stderr.write(
+        raise AgentHttpError(
             f"API database schema revision {applied} does not match expected "
-            f"{EXPECTED_SCHEMA_REVISION}. {STALE_IMAGE_REBUILD}\n"
+            f"{EXPECTED_SCHEMA_REVISION}. {STALE_IMAGE_REBUILD}"
         )
 
 
@@ -271,12 +258,13 @@ def _run_http(arguments: argparse.Namespace) -> int:
     settings = Settings()
     secrets = configured_secrets(settings)
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    require_matching_ops_contract(base_url)
     report = fetch_operator_report(
         base_url=base_url,
         command=arguments.command,
         query=_query(arguments),
     )
-    _warn_stale_api(report)
+    _reject_stale_report(report)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
     return exit_code_for(report.overall_status)
 
