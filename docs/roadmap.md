@@ -266,15 +266,15 @@ with `RESTClient` only as signed HTTP. Remaining extras stay deferred.
 **Exit gate met for the research slice:** reference-strategy results are deterministic, disclose
 assumptions, resist lookahead, and pass adversarial fill/risk tests.
 
-## Phase 4: Paper execution — ✅ Complete (narrow 1h maker loop)
+## Phase 4: Paper execution — ✅ Complete (narrow 1h|5m maker loop)
 
-- Persistent simulated broker using normalized 1h candle-close events for the first reference loop.
+- Persistent simulated broker using normalized 1h or 5m candle-close events (live stays 1h).
 - Same published strategy semantics used by backtests/live trading.
 - Continuous `thytrader-execution-worker` supervision.
 - Deploy tab with pause/resume/stop, position, orders, fills, and reject reasons.
 
 **Exit gate met:** a user can deploy one published strategy to paper mode; the worker evaluates each
-closed 1h candle once, records intents/fills/position, and obeys pause and stop.
+closed 1h or 5m candle once, records intents/fills/position, and obeys pause and stop.
 
 ## Phase 5: Live maker execution — ✅ Narrow path complete; extras deferred
 
