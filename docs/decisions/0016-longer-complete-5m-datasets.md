@@ -54,7 +54,8 @@ this ADR does not arm 5m live.
   This ADR did not add 15m / 30m / 1d. Fifteen-minute complete-only datasets are
   [0020](0020-complete-only-15m-datasets.md). Thirty-minute complete-only datasets are
   [0021](0021-complete-only-30m-datasets.md). Six-hour complete-only datasets are
-  [0022](0022-complete-only-6h-datasets.md). 1d remains deferred.
+  [0022](0022-complete-only-6h-datasets.md). One-day complete-only datasets are
+  [0023](0023-complete-only-1d-datasets.md).
 
 ## Alternatives considered
 

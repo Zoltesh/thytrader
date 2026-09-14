@@ -39,7 +39,10 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
    Same complete-only rules; no candle interpolation. A complete UTC day is exactly four aligned
    6h candles. Strategy `timeframe` and paper/live clocks stay `1h`|`5m` (live `1h` only). 6h is
    not a research or execution clock.
-4. **1d datasets** — 📋 Planned
+4. **1d datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
+   Same complete-only rules; no candle interpolation. A complete UTC day is exactly one aligned
+   1d candle. Strategy `timeframe` and paper/live clocks stay `1h`|`5m` (live `1h` only). 1d is
+   not a research or execution clock.
 5. Harden agent data loops (`watch_complete` clarity, fewer stale Compose footguns) — 📋 Planned
 
 **Exit gate:** each timeframe has verified fingerprint-addressed datasets usable as research
@@ -178,8 +181,8 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- Extend the same durable contract to 1d under **Phase 7**. 5m research ingest
-  and backtests are implemented. 15m, 30m, and 6h complete-only datasets are implemented
+- Extend the same durable contract under **Phase 7** data-loop hardening. 5m research ingest
+  and backtests are implemented. 15m, 30m, 6h, and 1d complete-only datasets are implemented
   (dataset-only; not a strategy, paper, or live clock).
 - 5m live execution after paper on the same published 5m clock is proven (**Phase 13**).
 

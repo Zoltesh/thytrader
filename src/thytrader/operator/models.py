@@ -394,7 +394,7 @@ class DatasetCoverageRow(_FrozenModel):
 
 
 class DataCatalogPayload(_FrozenModel):
-    """Agent-visible dataset catalog for 1h, 5m, 15m, 30m, and 6h coverage."""
+    """Agent-visible dataset catalog for 1h, 5m, 15m, 30m, 6h, and 1d coverage."""
 
     datasets: tuple[DatasetCoverageRow, ...]
     supported_timeframes: tuple[DatasetTimeframe, ...] = DATASET_TIMEFRAMES

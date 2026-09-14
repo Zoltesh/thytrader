@@ -306,6 +306,17 @@ def test_watchlist_six_hour_migration_follows_thirty_minute() -> None:
     assert "ck_market_data_watchlist_timeframe" in content
 
 
+def test_watchlist_one_day_migration_follows_six_hour() -> None:
+    """The twentieth migration must widen watchlist timeframes to 1d datasets."""
+    content = Path("alembic/versions/0020_watchlist_one_day_datasets.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0020"' in content
+    assert 'down_revision = "0019"' in content
+    assert "1d" in content
+    assert "ck_market_data_watchlist_timeframe" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

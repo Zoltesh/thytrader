@@ -55,6 +55,16 @@ def test_six_hour_ninety_day_lookback_is_not_clipped() -> None:
     assert (ends_at - starts_at) // CandleInterval.SIX_HOURS.duration == (_NINETY_DAY_HOURS // 6)
 
 
+def test_one_day_ninety_day_lookback_is_not_clipped() -> None:
+    """A 2,160-hour 1d window must request 90 bars, not an interval-cap clip."""
+    ends_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+
+    starts_at = bounded_lookback_start(ends_at, _NINETY_DAY_HOURS, CandleInterval.ONE_DAY)
+
+    assert starts_at == ends_at - timedelta(hours=_NINETY_DAY_HOURS)
+    assert (ends_at - starts_at) // CandleInterval.ONE_DAY.duration == (_NINETY_DAY_HOURS // 24)
+
+
 def test_hourly_ninety_day_lookback_stays_lookback_limited() -> None:
     """Raising the interval cap must not expand a 2,160-hour 1h watch to 25,920 hours."""
     ends_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)

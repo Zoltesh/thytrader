@@ -17,8 +17,8 @@ from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v5"
-EXPECTED_SCHEMA_REVISION = "0019"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v6"
+EXPECTED_SCHEMA_REVISION = "0020"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
