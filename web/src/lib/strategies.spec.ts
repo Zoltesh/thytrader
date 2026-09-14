@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	archiveConfirmMessage,
 	latestDatasets,
+	INDICATOR_KIND_OPTIONS,
 	PAPER_LIVE_STATUS_LEGEND,
 	PAPER_LIVE_STATUS_TITLE,
 	paperLiveStatusLabel,
@@ -100,5 +101,21 @@ describe('paper/live library column copy', () => {
 		expect(paperLiveStatusTitle(paperLive)).toBe(
 			'Paper: running. Live: unavailable. Opens Deploy.'
 		);
+	});
+});
+
+describe('indicator kind picker', () => {
+	it('lists only shipped single-output kinds', () => {
+		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toEqual([
+			'ema',
+			'sma',
+			'rsi',
+			'atr',
+			'volume_sma',
+			'highest',
+			'lowest',
+			'stdev'
+		]);
+		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).not.toContain('macd');
 	});
 });

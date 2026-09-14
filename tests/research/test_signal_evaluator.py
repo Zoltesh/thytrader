@@ -425,7 +425,7 @@ def test_entry_conditions_can_reference_highest_lowest_and_stdev() -> None:
     trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
 
     assert [record.entry_condition for record in trace.records] == ["matched", "matched"]
-    assert [record.indicator_values[3].id for record in trace.records] == [
+    assert [record.indicator_values[3].indicator_id for record in trace.records] == [
         "close_stdev",
         "close_stdev",
     ]
