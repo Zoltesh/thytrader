@@ -13,22 +13,33 @@ from thytrader.execution.service import create_deployment
 from thytrader.market_data.models import Candle, MarketProduct
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
 
 
 class _Catalog:
-    """Load one published strategy by fingerprint."""
+    """Load-only StrategyPublicationStore double for one published strategy."""
 
     def __init__(self, definition: StrategyDefinition) -> None:
         """Bind one immutable publication."""
         fingerprint = strategy_fingerprint(definition)
         self._published = PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
 
+    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+        """Refuse extra publications; this fixture only serves load()."""
+        del definition
+        raise StrategyPublicationError("Catalog fixture is load-only.")
+
+    async def publish_draft(
+        self, definition: StrategyDefinition, *, expected_revision: int
+    ) -> PublishedStrategy:
+        """Refuse draft publication; this fixture only serves load()."""
+        del definition, expected_revision
+        raise StrategyPublicationError("Catalog fixture is load-only.")
+
     async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
         """Return the bound publication or fail closed."""
         if strategy_fingerprint_value != self._published.strategy_fingerprint:
-            message = "Published strategy was not found."
-            raise RuntimeError(message)
+            raise StrategyPublicationError("Published strategy was not found.")
         return self._published
 
 
