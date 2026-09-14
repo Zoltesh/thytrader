@@ -9,6 +9,30 @@ querying PostgreSQL directly, or importing private internals.
 
 A `skills/` directory is reserved now so agent integration evolves as a first-class product surface rather than an afterthought.
 
+## Operating parity
+
+ThyTrader supports three **equal** operating models, and the agent surface is designed for parity, not
+as an optional helper layer:
+
+1. **100% human-driven** — every observation and mutation through the browser and CLIs, subject to the same confirmation gates.
+2. **100% agent-driven** — diagnosis, data ingest, research, and paper/live control end-to-end through the shipped skills, within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
+3. **Collaborative human + agent** — a human and an agent share the operating loop.
+
+Safety rests on confirmation gating, scoped authority, immutable evidence, auditability, and risk
+controls—not on excluding agents. No model requires an agent; no model excludes one.
+
+## Planned direction: agent experts that learn from evidence (NOT SHIPPED)
+
+A major planned goal—beyond the shipped skills—is for agents to act as **crypto-trading experts that
+improve from durable evidence** spanning market-data research, reproducible backtests, paper trades,
+and live trades. Planned (no learning implementation exists today):
+
+- Durable, immutable evidence of actions and outcomes across research, backtest, paper, and live.
+- Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
+  can study their own mistakes and repeat successful patterns.
+- Learning never bypasses confirmation gates, scoped authority, auditability, or risk controls, and
+  never substitutes for audit trails. See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--deferred).
+
 ## Initial use cases
 
 A user's agent should be able to answer questions such as:

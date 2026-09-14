@@ -86,8 +86,13 @@ OCO/brackets — after paper/restart/reconcile gates stay green.
 
 ## Phase 14: Experiential memory / hindsight — 📋 Deferred
 
-Operator-managed facts and lessons. Only after the core trading loop is trustworthy. Not a
-substitute for audit trails or immutable research evidence.
+Operator-managed facts and lessons, in service of a planned product direction: agents that act as
+**crypto-trading experts improving from durable evidence** across market-data research, reproducible
+backtests, paper trades, and live trades. Evidence must distinguish **agent-originated** from
+**human-originated** actions and trades so agents can study their own mistakes and repeat successful
+patterns. Only after the core trading loop is trustworthy. Not a substitute for audit trails or
+immutable research evidence. No learning implementation exists today; nothing in this phase is
+shipped.
 
 ## Phase 0: Repository foundation — ✅ Complete
 
