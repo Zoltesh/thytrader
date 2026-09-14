@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.data_control.models import (
     DataControlError,
+    GapInspection,
     GapObservation,
     classify_gap,
     require_interval,
@@ -167,7 +168,7 @@ async def inspect_gaps(
     product_id: str,
     timeframe: str,
     now: datetime,
-) -> tuple[datetime, datetime, tuple[GapObservation, ...], str | None]:
+) -> GapInspection:
     """Probe the exchange and classify missing bars without writing Parquet."""
     interval = require_interval(timeframe)
     provider = ingestion_provider(settings)
@@ -193,7 +194,24 @@ async def inspect_gaps(
         for start in expected
     )
     gaps = tuple(item for item in observations if item is not None)
-    return starts_at, ends_at, gaps, probe_warning
+    island_complete = False if state is None else state.complete
+    watch_complete = island_covers_watch(
+        covered_starts_at=None if state is None else state.covered_starts_at,
+        covered_ends_at=None if state is None else state.covered_ends_at,
+        island_complete=island_complete,
+        lookback_hours=lookback_hours,
+        interval=interval,
+        closed_end=ends_at,
+    )
+    return GapInspection(
+        starts_at=starts_at,
+        ends_at=ends_at,
+        gaps=gaps,
+        warning=probe_warning,
+        lookback_hours=lookback_hours,
+        complete=island_complete,
+        watch_complete=watch_complete,
+    )
 
 
 async def _require_usd_spot_product(market_data: MarketDataService, product_id: str) -> None:
@@ -349,14 +367,14 @@ def worker_state_payload(
     if state is None:
         return {
             "status": "never_run",
-            "complete": False,
             "watch_complete": watch_complete,
+            "complete": False,
             "watch_expected_candle_count": watch_expected,
         }
     return {
         "status": state.status.value,
-        "complete": state.complete,
         "watch_complete": watch_complete,
+        "complete": state.complete,
         "watch_expected_candle_count": watch_expected,
         "failure_code": state.failure_code,
         "covered_starts_at": (

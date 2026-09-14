@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import TYPE_CHECKING
 
-from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
@@ -109,13 +109,16 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
     if command == "list":
+        require_matching_ops_contract(base_url)
         return list_deployments(base_url)
     if command == "show":
+        require_matching_ops_contract(base_url)
         return show_deployment(base_url, arguments.deployment_id)
     if command == "start":
         _require_confirm(arguments.confirm)
         _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
         cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
+        require_matching_ops_contract(base_url)
         return start_deployment(
             base_url,
             strategy_fingerprint=arguments.strategy_fingerprint,
@@ -124,6 +127,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         )
     if command in {"pause", "resume", "stop"}:
         _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
         return set_deployment_status(base_url, arguments.deployment_id, command)
     raise AssertionError(f"unsupported runtime command: {command}")
 

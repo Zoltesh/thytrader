@@ -69,6 +69,7 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
             "thytrader.research.mutation_cli.BacktestSubmissionRequest.model_validate",
             return_value=object(),
         ),
+        patch("thytrader.research.mutation_cli.require_matching_ops_contract"),
         patch(
             "thytrader.research.http.submit_backtest",
             side_effect=AgentHttpError(
@@ -83,3 +84,17 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
     assert "422" in message
     assert "make run" in message
     assert "failed safely" not in message
+
+
+def test_research_cli_refuses_stale_ops_contract_before_command() -> None:
+    """Every HTTP research command stops when the ready API contract is stale."""
+    with (
+        patch(
+            "thytrader.research.mutation_cli.require_matching_ops_contract",
+            side_effect=AgentHttpError("stale Compose image. Rebuild with `make run`."),
+        ),
+        patch("thytrader.research.http.create_draft") as request,
+        pytest.raises(SystemExit, match="make run"),
+    ):
+        main(["create-draft", "--confirm"])
+    request.assert_not_called()

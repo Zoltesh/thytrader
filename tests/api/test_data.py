@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
@@ -55,7 +55,7 @@ async def _run_worker_cycle(app: FastAPI) -> None:
 
 
 def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
-    """Agents can watch ETH 5m; the worker publishes a complete demo range."""
+    """A complete 14-day island is not done when its watch grows to 90 days."""
     app = create_app(
         Settings(_env_file=None, market_data_dataset_root=tmp_path),
         market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
@@ -68,7 +68,7 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
             json={
                 "product_id": "ETH-USD",
                 "timeframe": "5m",
-                "lookback_hours": 1,
+                "lookback_hours": 336,
                 "enabled": True,
             },
         )
@@ -92,6 +92,10 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         assert eth_five["complete"] is True
         assert eth_five["watch_complete"] is True
         assert status.json()["state"]["watch_complete"] is True
+        assert eth_five["expected_candle_count"] == 4_032
+        covered_start = datetime.fromisoformat(eth_five["covered_starts_at"])
+        covered_end = datetime.fromisoformat(eth_five["covered_ends_at"])
+        assert covered_end - covered_start == timedelta(hours=336)
         lengthened = client.put(
             "/api/v1/data/watchlist",
             json={
@@ -111,12 +115,31 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         assert longer["complete"] is True
         assert longer["watch_complete"] is False
         assert longer["watch_expected_candle_count"] > longer["expected_candle_count"]
+        gap_report = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
+        assert gap_report.status_code == 200, gap_report.text
+        gaps = gap_report.json()
+        assert gaps["complete"] is True
+        assert gaps["watch_complete"] is False
+        assert gaps["lookback_hours"] == 2_160
+        assert gaps["gap_count"] > 0
+        assert {item["cause"] for item in gaps["gaps"]} <= {
+            "not_fetched",
+            "exchange_unavailable",
+            "incomplete_local",
+        }
+        assert gaps["interpolated"] is False
+        assert datetime.fromisoformat(gaps["gaps"][0]["starts_at"]) < covered_start
+        assert list(longer).index("watch_complete") < list(longer).index("complete")
+        assert list(gaps).index("watch_complete") < list(gaps).index("complete")
 
     assert added.json()["target"]["product_id"] == "ETH-USD"
     assert added.json()["target"]["timeframe"] == "5m"
     assert status.status_code == 200, status.text
     assert status.json()["ingest_requested_at"] is None
     assert status.json()["state"]["complete"] is True
+    assert list(status.json()["state"]).index("watch_complete") < list(
+        status.json()["state"]
+    ).index("complete")
     assert status.json()["state"]["status"] == "succeeded"
     assert catalog.status_code == 200
     assert catalog.json()["schema_version"] == SCHEMA_VERSION

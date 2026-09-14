@@ -1,8 +1,10 @@
 """Agent/API content identity that package version 0.1.0 cannot express.
 
-Health and `/health/ready` advertise this contract. The operator CLI compares it to
-the copy compiled into this module. A missing or unequal payload means the running
-API image is older than the CLI, even when both strings say 0.1.0.
+Health and `/health/ready` advertise this contract. Operator, data, research, and
+runtime CLIs compare it to the copy compiled into this module. A missing or unequal
+payload means the running API image is older than the CLI, even when both strings
+say 0.1.0. Do not default-fill a missing payload. Do not treat matching `0.1.0` as
+current.
 
 Bump `OPS_CONTRACT_ID` whenever paper/live timeframes, backtest engines, the
 historical interval cap, or the expected Alembic revision change.
@@ -41,24 +43,8 @@ def expected_ops_contract() -> dict[str, object]:
     }
 
 
-def _string_tuple(value: object) -> tuple[str, ...]:
-    """Narrow a JSON list to strings; anything else is a mismatch."""
-    if not isinstance(value, (list, tuple)):
-        return ()
-    return tuple(str(item) for item in value)
-
-
 def ops_contract_matches(payload: Mapping[str, object] | None) -> bool:
-    """True when a health payload names this checkout's ops contract."""
+    """True only when a health payload exactly equals this checkout's ops contract."""
     if payload is None:
         return False
-    expected = expected_ops_contract()
-    return (
-        payload.get("id") == expected["id"]
-        and payload.get("max_historical_interval_count")
-        == expected["max_historical_interval_count"]
-        and _string_tuple(payload.get("backtest_engines")) == BACKTEST_ENGINES
-        and _string_tuple(payload.get("paper_timeframes")) == PAPER_TIMEFRAMES
-        and _string_tuple(payload.get("live_timeframes")) == LIVE_TIMEFRAMES
-        and payload.get("expected_schema_revision") == EXPECTED_SCHEMA_REVISION
-    )
+    return dict(payload) == expected_ops_contract()

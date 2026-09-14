@@ -23,7 +23,7 @@ Completed capability checklist (Phases 0–6):
 
 Remote / SaaS exposure remains explicitly deprioritized.
 
-## Phase 7: Remaining market-data timeframes — 🚧 In progress
+## Phase 7: Remaining market-data timeframes — ✅ Shipped
 
 Extend the same durable complete-only Parquet + manifest + verify contract beyond 1h/5m.
 
@@ -43,10 +43,13 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
    Same complete-only rules; no candle interpolation. A complete UTC day is exactly one aligned
    1d candle. Strategy `timeframe` and paper/live clocks stay `1h`|`5m` (live `1h` only). 1d is
    not a research or execution clock.
-5. Harden agent data loops (`watch_complete` clarity, fewer stale Compose footguns) — 📋 Planned
+5. **Agent data-loop hardening** — ✅ Shipped: `watch_complete` is the completion decision field,
+   gap inspection covers the full watch window, and every HTTP agent CLI fails closed on an unequal
+   or missing ops contract. `complete` remains island completeness.
 
-**Exit gate:** each timeframe has verified fingerprint-addressed datasets usable as research
-inputs once strategy/runtime contracts explicitly allow that TF.
+**Exit gate met:** each timeframe has verified fingerprint-addressed datasets usable as research
+inputs once strategy/runtime contracts explicitly allow that TF, and agents can distinguish island
+completeness from full watch coverage.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -181,9 +184,6 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- Extend the same durable contract under **Phase 7** data-loop hardening. 5m research ingest
-  and backtests are implemented. 15m, 30m, 6h, and 1d complete-only datasets are implemented
-  (dataset-only; not a strategy, paper, or live clock).
 - 5m live execution after paper on the same published 5m clock is proven (**Phase 13**).
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset

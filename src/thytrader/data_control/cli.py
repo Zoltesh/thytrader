@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import TYPE_CHECKING
 
-from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.data_control.client import (
@@ -113,9 +113,11 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
     if command == "watchlist-list":
+        require_matching_ops_contract(base_url)
         return list_watchlist(base_url)
     if command == "watch-add":
         _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
         return add_watch(
             base_url,
             product_id=arguments.product_id,
@@ -125,12 +127,14 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         )
     if command == "ingest":
         _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
         return ingest(
             base_url,
             product_id=arguments.product_id,
             timeframe=arguments.timeframe,
         )
     if command == "inspect-gaps":
+        require_matching_ops_contract(base_url)
         return inspect_gaps(
             base_url,
             product_id=arguments.product_id,
@@ -138,6 +142,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         )
     if command == "fill-gaps":
         _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
         return fill_gaps(
             base_url,
             product_id=arguments.product_id,

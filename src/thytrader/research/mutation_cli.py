@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from thytrader.agent_http import AgentHttpError, resolve_api_base_url
+from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
@@ -248,6 +248,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
     if arguments.command == "create-draft":
         _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
         return research_http.create_draft(
             base_url,
             product_id=arguments.product_id,
@@ -256,21 +257,27 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "save-draft":
         _require_confirm(arguments.confirm)
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
+        require_matching_ops_contract(base_url)
         return research_http.save_draft(base_url, definition, arguments.revision)
     if arguments.command == "publish":
         _require_confirm(arguments.confirm)
-        return research_http.publish(base_url, UUID(arguments.strategy_id))
+        strategy_id = UUID(arguments.strategy_id)
+        require_matching_ops_contract(base_url)
+        return research_http.publish(base_url, strategy_id)
     if arguments.command == "submit-backtest":
         _require_confirm(arguments.confirm)
         request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
+        require_matching_ops_contract(base_url)
         return research_http.submit_backtest(base_url, request)
     if arguments.command == "list-results":
+        require_matching_ops_contract(base_url)
         return research_http.list_results(
             base_url,
             arguments.strategy_fingerprint,
             arguments.limit,
         )
     if arguments.command == "show-result":
+        require_matching_ops_contract(base_url)
         return research_http.show_result(base_url, arguments.result_fingerprint)
     raise AssertionError(f"unsupported research command: {arguments.command}")
 

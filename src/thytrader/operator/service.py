@@ -1608,6 +1608,7 @@ def _coverage_row(
         watched=watched is not None and watched.enabled,
         lookback_hours=lookback_hours,
         worker_status=state.status.value if state is not None else None,
+        watch_complete=watch_complete,
         complete=complete,
         freshness_status=freshness.status.value,
         covered_starts_at=covered_start,
@@ -1618,7 +1619,6 @@ def _coverage_row(
         missing_intervals=missing,
         content_fingerprint=_coverage_fingerprint(state, manifest),
         sparsity=_coverage_sparsity(complete, gap_count, missing),
-        watch_complete=watch_complete,
         watch_expected_candle_count=watch_expected,
     )
 

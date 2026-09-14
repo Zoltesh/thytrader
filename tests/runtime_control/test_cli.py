@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
+from thytrader.agent_http import AgentHttpError
 from thytrader.runtime_control.cli import main
 
 
@@ -70,3 +73,17 @@ def test_paper_start_requires_cash() -> None:
         )
     assert raised.value.code != 0
     assert "--cash" in str(raised.value)
+
+
+def test_runtime_cli_refuses_stale_ops_contract_before_command() -> None:
+    """Every runtime command stops when the ready API does not match this checkout."""
+    with (
+        patch(
+            "thytrader.runtime_control.cli.require_matching_ops_contract",
+            side_effect=AgentHttpError("stale Compose image. Rebuild with `make run`."),
+        ),
+        patch("thytrader.runtime_control.cli.list_deployments") as request,
+        pytest.raises(SystemExit, match="make run"),
+    ):
+        main(["list"])
+    request.assert_not_called()

@@ -29,8 +29,13 @@ The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, and 
 backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
 are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
 island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
-the first hole. Latest verified coverage is the newest contiguous complete island.
-`complete` is that island. `watch_complete` is whether the island spans the configured lookback.
+the first hole. Latest verified coverage is the newest contiguous complete island. `complete` describes only that
+island. `watch_complete` is the agent completion decision: it is true only when the complete island
+spans the configured half-open watch window. Catalog, ingest status, gap inspection, and operator
+data-catalog payloads put `watch_complete` on the decision surface before `complete`.
+`inspect-gaps` classifies missing bars across the full watch window as `not_fetched`,
+`exchange_unavailable`, or `incomplete_local`; it never interpolates, and a clean short island does
+not produce `gap_count: 0` for an incomplete watch.
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
 endpoints remain diagnostics, not strategy inputs. The worker clears `ingest_requested_at` after
@@ -212,9 +217,9 @@ withdrawal, leverage, derivatives, or optimization authority.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d complete-only datasets (Phase 7
-   slices 1–4) are implemented; data-loop hardening remains a planned Phase 7 slice. Strategy, paper, and live
-   clocks do not accept `15m`, `30m`, `6h`, or `1d`.
+1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d complete-only datasets are
+   implemented. Phase 7 data-loop hardening is also implemented. Strategy, paper, and live clocks
+   do not accept `15m`, `30m`, `6h`, or `1d`.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, 15m, 30m, 6h, and 1d without weakening complete-only publication.
 3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 

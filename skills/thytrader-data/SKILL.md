@@ -34,9 +34,10 @@ minutes; do not treat a fast 202 as published coverage.
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
 Do not grep the tree or patch Python to make ingest writable in the API. Report failures through this
-skill. Rebuild or restart only with `make run` when the user asked, or when HTTP 404 on `/api/v1/data`
-coincides with a ready `/health/ready`, or when `thytrader-operator health` stderr reports a version
-or ops-contract mismatch (stale Compose image). Open the `ops/` workspace instead of the git root.
+skill. Every command preflights the full `/health/ready` ops contract. Rebuild or restart only with
+`make run` when the user asked, or when the CLI reports a version or ops-contract mismatch, or HTTP
+404 on an agent route while `/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0`
+alone is not current-image evidence. Open the `ops/` workspace instead of the git root.
 Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands

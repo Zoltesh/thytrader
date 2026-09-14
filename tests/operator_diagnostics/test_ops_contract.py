@@ -19,6 +19,8 @@ def test_ops_contract_matches_requires_payload() -> None:
     mismatched = dict(expected)
     mismatched["id"] = "thytrader-ops-contract-v1"
     assert ops_contract_matches(mismatched) is False
+    unexpected = {**expected, "unexpected": True}
+    assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
     assert expected["backtest_engines"] == list(BACKTEST_ENGINES)

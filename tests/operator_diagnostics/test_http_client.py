@@ -16,6 +16,7 @@ from thytrader.agent_http import (
     default_api_base_url,
     request_json,
     require_loopback_base_url,
+    require_matching_ops_contract,
 )
 from thytrader.config import Settings
 from thytrader.operator.http import fetch_operator_report
@@ -26,6 +27,7 @@ from thytrader.operator.models import (
     HealthReport,
     ReportStatus,
 )
+from thytrader.ops_contract import expected_ops_contract
 
 
 class _HasFullUrl(Protocol):
@@ -83,15 +85,18 @@ def test_fetch_operator_report_validates_health_envelope() -> None:
     assert report.report_kind == "health"
 
 
-def test_request_json_404_on_ready_api_hints_rebuild() -> None:
-    """A stale Compose image that still answers /health/ready must tell operators to rebuild."""
-    missing = HTTPError(
+@pytest.mark.parametrize(
+    "url",
+    (
         "http://127.0.0.1:8200/api/v1/operator/health",
-        404,
-        "Not Found",
-        hdrs=Message(),
-        fp=MagicMock(),
-    )
+        "http://127.0.0.1:8200/api/v1/data/watchlist",
+        "http://127.0.0.1:8200/api/v1/strategies",
+        "http://127.0.0.1:8200/api/v1/deployments",
+    ),
+)
+def test_request_json_404_on_ready_api_hints_rebuild(url: str) -> None:
+    """A stale Compose image that still answers /health/ready must tell operators to rebuild."""
+    missing = HTTPError(url, 404, "Not Found", hdrs=Message(), fp=MagicMock())
     missing.read = MagicMock(return_value=b'{"detail":"Not Found"}')
     ready = MagicMock()
     ready.status = 200
@@ -101,8 +106,8 @@ def test_request_json_404_on_ready_api_hints_rebuild() -> None:
 
     def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> MagicMock:
         del timeout
-        url = request if isinstance(request, str) else request.full_url
-        if url.endswith("/health/ready"):
+        requested_url = request if isinstance(request, str) else request.full_url
+        if requested_url.endswith("/health/ready"):
             return ready
         raise missing
 
@@ -110,7 +115,40 @@ def test_request_json_404_on_ready_api_hints_rebuild() -> None:
         patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
         pytest.raises(AgentHttpError, match="make run"),
     ):
-        request_json(method="GET", url="http://127.0.0.1:8200/api/v1/operator/health")
+        request_json(method="GET", url=url)
+
+
+@pytest.mark.parametrize(
+    "ready_payload",
+    (
+        {"status": "ready", "version": "0.1.0"},
+        {
+            "status": "ready",
+            "version": "0.1.0",
+            "ops_contract": {**expected_ops_contract(), "id": "stale-contract"},
+        },
+    ),
+)
+def test_require_matching_ops_contract_rejects_healthy_stale_api(
+    ready_payload: dict[str, object],
+) -> None:
+    """Healthy 0.1.0 is not current when the full ops contract is absent or unequal."""
+    with (
+        patch("thytrader.agent_http.request_json", return_value=ready_payload),
+        pytest.raises(AgentHttpError, match="make run"),
+    ):
+        require_matching_ops_contract("http://127.0.0.1:8200")
+
+
+def test_require_matching_ops_contract_accepts_exact_contract() -> None:
+    """The shared preflight accepts the exact contract advertised by this checkout."""
+    payload = {
+        "status": "ready",
+        "version": "0.1.0",
+        "ops_contract": expected_ops_contract(),
+    }
+    with patch("thytrader.agent_http.request_json", return_value=payload):
+        require_matching_ops_contract("http://127.0.0.1:8200")
 
 
 def test_default_api_base_url_is_loopback() -> None:
