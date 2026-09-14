@@ -269,3 +269,52 @@ def test_quality_excludes_open_six_hour_bar_from_a_utc_day() -> None:
     assert report.requested_candle_count == 4
     assert report.quality.candle_count == 3
     assert report.quality.gap_count == 0
+
+
+def test_missing_interval_starts_lists_absent_one_day_bars() -> None:
+    """1d gap inspection lists missing starts without interpolating prices."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 30, 0, 0, tzinfo=UTC)
+    present = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    missing = missing_interval_starts(
+        present,
+        CandleInterval.ONE_DAY,
+        starts_at,
+        ends_at,
+    )
+    assert missing == (starts_at + timedelta(days=1),)
+
+
+def test_quality_excludes_open_one_day_bar_from_a_utc_day() -> None:
+    """A complete 1d UTC day is one closed bar; the open bar is not published."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    candles = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_DAY,
+        starts_at,
+        starts_at + timedelta(days=1),
+        now=datetime(2026, 7, 28, 20, tzinfo=UTC),
+    )
+    assert report.complete is False
+    assert report.requested_candle_count == 1
+    assert report.quality.candle_count == 0
+    assert report.quality.gap_count == 0

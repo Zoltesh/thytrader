@@ -74,3 +74,28 @@ def test_six_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
     assert as_dataset_timeframe(interval) == "6h"
     assert CandleInterval.ONE_HOUR.execution_supported is True
     assert CandleInterval.FIVE_MINUTES.execution_supported is True
+
+
+def test_one_day_duration_and_alignment() -> None:
+    """1d bars are UTC-aligned at the 00:00 day boundary."""
+    interval = CandleInterval.ONE_DAY
+    assert interval.duration == timedelta(days=1)
+    assert interval.value == "1d"
+    now = datetime(2026, 9, 13, 12, 1, 40, tzinfo=UTC)
+    assert interval.align_closed_end(now) == datetime(2026, 9, 13, 0, 0, tzinfo=UTC)
+    closed = datetime(2026, 9, 14, 0, 0, tzinfo=UTC)
+    assert interval.align_closed_end(closed) == closed
+    before_midnight = datetime(2026, 9, 13, 23, 59, 59, tzinfo=UTC)
+    assert interval.align_closed_end(before_midnight) == datetime(2026, 9, 13, 0, 0, tzinfo=UTC)
+    noon = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    assert interval.align_closed_end(noon) == datetime(2026, 9, 13, 0, 0, tzinfo=UTC)
+
+
+def test_one_day_is_a_dataset_interval_not_an_execution_clock() -> None:
+    """1d datasets parse; paper/live still refuse that clock."""
+    interval = parse_candle_interval("1d")
+    assert interval is CandleInterval.ONE_DAY
+    assert interval.execution_supported is False
+    assert as_dataset_timeframe(interval) == "1d"
+    assert CandleInterval.ONE_HOUR.execution_supported is True
+    assert CandleInterval.FIVE_MINUTES.execution_supported is True

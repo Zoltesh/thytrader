@@ -222,6 +222,73 @@ def test_dataset_store_rejects_mixed_six_hour_manifest_timeframe(tmp_path: Path)
         store.load_verified(written.manifest_path)
 
 
+def test_dataset_store_writes_complete_one_day_range(tmp_path: Path) -> None:
+    """Daily complete ranges publish under the 1d partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = (_candle_at(starts_at),)
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_DAY,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(days=1),
+        now=starts_at + timedelta(hours=30),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "1d"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "1d")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+    assert len(loaded) == 1
+
+
+def test_dataset_store_rejects_incomplete_one_day_utc_day(tmp_path: Path) -> None:
+    """A UTC day missing its 1d candle is a hole, not a complete dataset."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    report = analyze_range(
+        (),
+        CandleInterval.ONE_DAY,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(days=1),
+        now=starts_at + timedelta(hours=30),
+    )
+    assert report.complete is False
+    with pytest.raises(DatasetStoreError, match="complete"):
+        DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+
+
+def test_dataset_store_rejects_misaligned_one_day_evidence() -> None:
+    """A 1d range that is not an exact multiple of one day cannot publish."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    with pytest.raises(CandleQualityError, match="align"):
+        analyze_range(
+            (_candle_at(starts_at),),
+            CandleInterval.ONE_DAY,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+            now=starts_at + timedelta(hours=30),
+        )
+
+
+def test_dataset_store_rejects_mixed_one_day_manifest_timeframe(tmp_path: Path) -> None:
+    """A 1d Parquet island labeled as 1h must fail verification."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = (_candle_at(starts_at),)
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_DAY,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(days=1),
+        now=starts_at + timedelta(hours=30),
+    )
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "ETH-USD", report)
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["timeframe"] = "1h"
+    written.manifest_path.write_text(json.dumps(manifest_body))
+    with pytest.raises(DatasetStoreError):
+        store.load_verified(written.manifest_path)
+
+
 def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:
     """Backtest callers can resolve exact typed candles from an immutable fingerprint."""
     store = DatasetStore(tmp_path)
