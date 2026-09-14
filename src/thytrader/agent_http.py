@@ -146,7 +146,13 @@ def _stale_image_missing_agent_routes(url: str) -> bool:
     try:
         with urlopen(ready_url, timeout=1.0) as response:  # noqa: S310
             return 200 <= int(response.status) < 300
-    except HTTPError, URLError, OSError, TimeoutError, ValueError:
+    except (
+        HTTPError,
+        URLError,
+        OSError,
+        TimeoutError,
+        ValueError,
+    ):
         return False
 
 
