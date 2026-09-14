@@ -399,8 +399,8 @@
 			const htfTimeframe = viewModel?.htf_filter?.timeframe;
 			if (htfTimeframe !== undefined) {
 				launchForm.htf_dataset_fingerprint =
-					launchDatasets.find((dataset) => dataset.timeframe === htfTimeframe)?.content_fingerprint ??
-					'';
+					launchDatasets.find((dataset) => dataset.timeframe === htfTimeframe)
+						?.content_fingerprint ?? '';
 			} else {
 				launchForm.htf_dataset_fingerprint = '';
 			}
@@ -1122,10 +1122,14 @@
 									bind:value={launchForm.dataset_fingerprint}
 									onchange={() => applyLaunchWindowDefaults()}
 								>
-									<option value="">Select a verified {viewEntry.product_id} {viewEntry.timeframe} dataset</option>
+									<option value=""
+										>Select a verified {viewEntry.product_id} {viewEntry.timeframe} dataset</option
+									>
 									{#each decisionLaunchDatasets() as dataset (dataset.content_fingerprint)}
 										<option value={dataset.content_fingerprint}
-											>{dataset.timeframe} · {formatUtcInputValue(new Date(dataset.starts_at)).replace('T', ' ')} – {formatUtcInputValue(
+											>{dataset.timeframe} · {formatUtcInputValue(
+												new Date(dataset.starts_at)
+											).replace('T', ' ')} – {formatUtcInputValue(
 												new Date(dataset.ends_at)
 											).replace('T', ' ')} UTC</option
 										>
@@ -1136,17 +1140,23 @@
 								{:else if launchDatasetError}
 									<small class="field-error" role="alert">{launchDatasetError}</small>
 								{:else if decisionLaunchDatasets().length === 0}
-									<small class="field-note">No verified {viewEntry.timeframe} datasets match this market.</small>
+									<small class="field-note"
+										>No verified {viewEntry.timeframe} datasets match this market.</small
+									>
 								{/if}</label
 							>
 							{#if viewModel.htf_filter}
 								<label
 									>Verified {viewModel.htf_filter.timeframe} HTF dataset
 									<select bind:value={launchForm.htf_dataset_fingerprint}>
-										<option value="">Select a verified {viewModel.htf_filter.timeframe} dataset</option>
+										<option value=""
+											>Select a verified {viewModel.htf_filter.timeframe} dataset</option
+										>
 										{#each htfLaunchDatasets() as dataset (dataset.content_fingerprint)}
 											<option value={dataset.content_fingerprint}
-												>{dataset.timeframe} · {formatUtcInputValue(new Date(dataset.starts_at)).replace('T', ' ')} – {formatUtcInputValue(
+												>{dataset.timeframe} · {formatUtcInputValue(
+													new Date(dataset.starts_at)
+												).replace('T', ' ')} – {formatUtcInputValue(
 													new Date(dataset.ends_at)
 												).replace('T', ' ')} UTC</option
 											>

@@ -541,10 +541,8 @@
 											oninput={markDirty}
 										/></label
 									>
-									<button
-										class="secondary"
-										type="button"
-										onclick={() => removeHtfIndicator(index)}>Remove</button
+									<button class="secondary" type="button" onclick={() => removeHtfIndicator(index)}
+										>Remove</button
 									>
 								</div>
 							{/each}
@@ -562,8 +560,8 @@
 								)}
 							</div>
 							<div class="hint">
-								The HTF <code>when</code> tree is AND-ed with LTF entry using the last completed HTF
-								bar. Paper and live reject this block.
+								The HTF <code>when</code> tree is AND-ed with LTF entry using the last completed HTF bar.
+								Paper and live reject this block.
 							</div>
 						{/if}
 						<label class="cooldown-row"
@@ -794,7 +792,14 @@
 					>Remove</button
 				>
 			</div>
-			{@render conditionNode((condition as { not: ConditionDraft }).not, condition, depth + 1, root, indicators, kind)}
+			{@render conditionNode(
+				(condition as { not: ConditionDraft }).not,
+				condition,
+				depth + 1,
+				root,
+				indicators,
+				kind
+			)}
 		{:else}
 			{@const comparison = condition as {
 				left: { indicator?: string; literal?: string };

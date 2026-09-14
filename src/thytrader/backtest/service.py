@@ -74,9 +74,7 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     trace = evaluate_signal_trace(
         specification, published_strategy.definition, candles, htf_candles
     )
-    result = simulate_backtest(
-        specification, published_strategy.definition, candles, htf_candles
-    )
+    result = simulate_backtest(specification, published_strategy.definition, candles, htf_candles)
     if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
         raise RuntimeError(
             "Backtest trace identity did not match the authoritative signal evaluation."

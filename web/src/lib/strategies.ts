@@ -194,6 +194,7 @@ const HTF_TIMEFRAMES = ['15m', '30m', '1h', '6h', '1d'] as const;
  * Return HTF clocks that are strictly coarser integer multiples of the LTF decision clock.
  */
 export function validHtfTimeframes(decisionTimeframe: string): string[] {
+	if (decisionTimeframe !== '1h' && decisionTimeframe !== '5m') return [];
 	const decisionSeconds = TIMEFRAME_SECONDS[decisionTimeframe];
 	if (decisionSeconds === undefined) return [];
 	return HTF_TIMEFRAMES.filter((timeframe) => {

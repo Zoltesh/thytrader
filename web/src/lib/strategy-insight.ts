@@ -1,4 +1,9 @@
-import { validHtfTimeframes, type BuilderModel, type ConditionDraft, type HtfFilterDraft } from './strategies';
+import {
+	validHtfTimeframes,
+	type BuilderModel,
+	type ConditionDraft,
+	type HtfFilterDraft
+} from './strategies';
 
 export const OPERATOR_LABELS: Record<string, string> = {
 	crosses_above: 'crosses above',
@@ -271,7 +276,9 @@ function validateCondition(condition: ConditionDraft, ids: Set<string>, label: s
 	validateConditionShape(condition, ids, problems, label);
 	const { nodes, depth } = measureCondition(condition);
 	if (depth > MAX_CONDITION_DEPTH) {
-		problems.push(`${label} condition nesting must stay at or below ${MAX_CONDITION_DEPTH} levels.`);
+		problems.push(
+			`${label} condition nesting must stay at or below ${MAX_CONDITION_DEPTH} levels.`
+		);
 	}
 	if (nodes > MAX_CONDITION_NODES) {
 		problems.push(`${label} condition tree must stay at or below ${MAX_CONDITION_NODES} nodes.`);

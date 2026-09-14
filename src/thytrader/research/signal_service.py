@@ -60,6 +60,4 @@ async def evaluate_published_signal_run(  # noqa: UP047 - tooling parses legacy 
     htf_candles: tuple[Candle, ...] = ()
     if specification.htf_dataset_fingerprint is not None:
         htf_candles = dataset_store.load_candles(specification.htf_dataset_fingerprint)
-    return evaluate_signal_trace(
-        specification, published_strategy.definition, candles, htf_candles
-    )
+    return evaluate_signal_trace(specification, published_strategy.definition, candles, htf_candles)

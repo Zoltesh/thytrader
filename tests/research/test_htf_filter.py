@@ -23,7 +23,10 @@ from thytrader.research.models import (
     WarmupWindow,
 )
 from thytrader.research.multi_timeframe import htf_required_coverage, mapped_htf_start
-from thytrader.research.publication import ResearchRunPublicationError, verify_research_run_eligibility
+from thytrader.research.publication import (
+    ResearchRunPublicationError,
+    verify_research_run_eligibility,
+)
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -256,7 +259,8 @@ def test_evaluator_rejects_htf_candles_without_filter() -> None:
         random_seed=42,
     )
     candles = tuple(
-        _candle(datetime(2026, 7, 10, tzinfo=UTC) + timedelta(hours=index), "2") for index in range(5)
+        _candle(datetime(2026, 7, 10, tzinfo=UTC) + timedelta(hours=index), "2")
+        for index in range(5)
     )
     with pytest.raises(SignalEvaluationError, match="without an HTF filter"):
         evaluate_signal_trace(specification, strategy, candles, _htf_candles())

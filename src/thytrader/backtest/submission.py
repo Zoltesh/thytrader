@@ -36,12 +36,12 @@ from thytrader.research.publication import (
     dataset_evaluation_bounds,
     evaluation_window_suggestion,
 )
-from thytrader.strategies.models import StrategyDefinition
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
+    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -51,9 +51,7 @@ class BacktestSubmissionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    htf_dataset_fingerprint: str | None = Field(
-        default=None, pattern=r"^sha256:[0-9a-f]{64}$"
-    )
+    htf_dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     initial_quote_balance: str

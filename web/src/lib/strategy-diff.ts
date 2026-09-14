@@ -128,7 +128,7 @@ const FIELD_LABELS: Record<string, string> = {
 	timeframe: 'Timeframe',
 	warmup_bars: 'Warmup bars',
 	'entry.when': 'Entry conditions',
-	'htf_filter': 'HTF filter',
+	htf_filter: 'HTF filter',
 	'htf_filter.timeframe': 'HTF timeframe',
 	'htf_filter.warmup_bars': 'HTF warmup bars',
 	'htf_filter.when': 'HTF filter conditions',

@@ -28,10 +28,11 @@ from thytrader.research.models import (
     WarmupWindow,
     warmup_starts_at,
 )
-from thytrader.strategies.models import StrategyDefinition
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from thytrader.strategies.models import StrategyDefinition
 
 _FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 

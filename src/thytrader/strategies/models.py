@@ -561,9 +561,7 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     if atr is None or atr.kind is not IndicatorKind.ATR:
         raise ValueError("initial stop indicator must reference an ATR")
     required_fields = {
-        field
-        for indicator in definition.indicators
-        for field in _indicator_input_fields(indicator)
+        field for indicator in definition.indicators for field in _indicator_input_fields(indicator)
     }
     if not required_fields.issubset(definition.data_requirements.required_fields):
         raise ValueError("required_fields must include every indicator input")
