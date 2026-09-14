@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../e2e/harness';
 
 const fingerprint = `sha256:${'a'.repeat(64)}`;
 const strategyFingerprint = `sha256:${'b'.repeat(64)}`;

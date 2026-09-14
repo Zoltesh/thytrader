@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../e2e/harness';
 
 test('shared topbar marks the active route and stays reachable under 800px', async ({ page }) => {
 	await page.route('**/api/v1/portfolio', async (route) => {
@@ -47,9 +47,9 @@ test('shared topbar marks the active route and stays reachable under 800px', asy
 });
 
 test('strategy builder keeps Strategies active and the research pill', async ({ page }) => {
-	await page.route('**/api/v1/strategies**', async (route) =>
-		route.fulfill({ json: { strategies: [] } })
-	);
+	await page.route('**/api/v1/strategies**', async (route) => {
+		await route.fulfill({ json: { strategies: [] } });
+	});
 	await page.goto('/strategies/01985cf0-7b60-7000-8000-000000000007');
 
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });

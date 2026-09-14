@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../e2e/harness';
 
 const sampleAuditEvents = {
 	events: [
