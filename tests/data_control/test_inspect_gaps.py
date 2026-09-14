@@ -85,7 +85,7 @@ def test_inspect_gaps_five_minute_thirty_day_lookback_is_not_clipped(tmp_path: P
                 updated_at=now,
             )
         )
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=_EmptyProbeService(),
             dataset_store=DatasetStore(tmp_path),
             state_store=InMemoryMarketDataWorkerStateStore(),
@@ -95,11 +95,16 @@ def test_inspect_gaps_five_minute_thirty_day_lookback_is_not_clipped(tmp_path: P
             timeframe="5m",
             now=now,
         )
-        assert ends_at - starts_at == timedelta(hours=720)
-        assert (ends_at - starts_at) // CandleInterval.FIVE_MINUTES.duration == 8_640
-        assert len(gaps) == 8_640
-        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
-        assert warning is not None
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.FIVE_MINUTES.duration == 8_640
+        assert len(inspection.gaps) == 8_640
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
+        assert inspection.complete is False
+        assert inspection.watch_complete is False
+        assert inspection.lookback_hours == 720
 
     asyncio.run(exercise())
 
@@ -120,7 +125,7 @@ def test_inspect_gaps_fifteen_minute_thirty_day_lookback_is_not_clipped(tmp_path
                 updated_at=now,
             )
         )
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=_EmptyProbeService(),
             dataset_store=DatasetStore(tmp_path),
             state_store=InMemoryMarketDataWorkerStateStore(),
@@ -130,11 +135,13 @@ def test_inspect_gaps_fifteen_minute_thirty_day_lookback_is_not_clipped(tmp_path
             timeframe="15m",
             now=now,
         )
-        assert ends_at - starts_at == timedelta(hours=720)
-        assert (ends_at - starts_at) // CandleInterval.FIFTEEN_MINUTES.duration == 2_880
-        assert len(gaps) == 2_880
-        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
-        assert warning is not None
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.FIFTEEN_MINUTES.duration == 2_880
+        assert len(inspection.gaps) == 2_880
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
 
     asyncio.run(exercise())
 
@@ -155,7 +162,7 @@ def test_inspect_gaps_thirty_minute_thirty_day_lookback_is_not_clipped(tmp_path:
                 updated_at=now,
             )
         )
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=_EmptyProbeService(),
             dataset_store=DatasetStore(tmp_path),
             state_store=InMemoryMarketDataWorkerStateStore(),
@@ -165,11 +172,13 @@ def test_inspect_gaps_thirty_minute_thirty_day_lookback_is_not_clipped(tmp_path:
             timeframe="30m",
             now=now,
         )
-        assert ends_at - starts_at == timedelta(hours=720)
-        assert (ends_at - starts_at) // CandleInterval.THIRTY_MINUTES.duration == 1_440
-        assert len(gaps) == 1_440
-        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
-        assert warning is not None
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.THIRTY_MINUTES.duration == 1_440
+        assert len(inspection.gaps) == 1_440
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
 
     asyncio.run(exercise())
 
@@ -190,7 +199,7 @@ def test_inspect_gaps_six_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path
                 updated_at=now,
             )
         )
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=_EmptyProbeService(),
             dataset_store=DatasetStore(tmp_path),
             state_store=InMemoryMarketDataWorkerStateStore(),
@@ -200,11 +209,16 @@ def test_inspect_gaps_six_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path
             timeframe="6h",
             now=now,
         )
-        assert ends_at - starts_at == timedelta(hours=720)
-        assert (ends_at - starts_at) // CandleInterval.SIX_HOURS.duration == 120
-        assert len(gaps) == 120
-        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
-        assert warning is not None
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.SIX_HOURS.duration == 120
+        assert len(inspection.gaps) == 120
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
+        assert inspection.complete is False
+        assert inspection.watch_complete is False
+        assert inspection.lookback_hours == 720
 
     asyncio.run(exercise())
 
@@ -225,7 +239,7 @@ def test_inspect_gaps_one_day_thirty_day_lookback_is_not_clipped(tmp_path: Path)
                 updated_at=now,
             )
         )
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=_EmptyProbeService(),
             dataset_store=DatasetStore(tmp_path),
             state_store=InMemoryMarketDataWorkerStateStore(),
@@ -235,11 +249,11 @@ def test_inspect_gaps_one_day_thirty_day_lookback_is_not_clipped(tmp_path: Path)
             timeframe="1d",
             now=now,
         )
-        assert ends_at - starts_at == timedelta(hours=720)
-        assert (ends_at - starts_at) // CandleInterval.ONE_DAY.duration == 30
-        assert len(gaps) == 30
-        assert {gap.cause for gap in gaps} == {GapCause.NOT_FETCHED}
-        assert warning is not None
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (inspection.ends_at - inspection.starts_at) // CandleInterval.ONE_DAY.duration == 30
+        assert len(inspection.gaps) == 30
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
 
     asyncio.run(exercise())
 
@@ -282,7 +296,7 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
         assert latest[0].complete is True
         assert latest[0].starts_at == "2026-07-30T00:00:00Z"
 
-        starts_at, gap_ends, gaps, _warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=probe_service,
             dataset_store=dataset_store,
             state_store=state_store,
@@ -292,12 +306,14 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
             timeframe="1h",
             now=now,
         )
-        gap_starts = {gap.starts_at for gap in gaps}
+        gap_starts = {gap.starts_at for gap in inspection.gaps}
         assert hole in gap_starts
         assert datetime(2026, 7, 28, tzinfo=UTC) not in gap_starts
         assert datetime(2026, 7, 30, tzinfo=UTC) not in gap_starts
-        assert starts_at == datetime(2026, 7, 28, tzinfo=UTC)
-        assert gap_ends == ends_at
-        assert all(gap.cause is GapCause.NOT_FETCHED for gap in gaps if gap.starts_at == hole)
+        assert inspection.starts_at == datetime(2026, 7, 28, tzinfo=UTC)
+        assert inspection.ends_at == ends_at
+        assert all(
+            gap.cause is GapCause.NOT_FETCHED for gap in inspection.gaps if gap.starts_at == hole
+        )
 
     asyncio.run(exercise())

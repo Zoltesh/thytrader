@@ -13,12 +13,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from thytrader.ops_contract import STALE_IMAGE_REBUILD, ops_contract_matches
+
 if TYPE_CHECKING:
     from thytrader.config import Settings
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _MAX_ERROR_CHARS = 500
 _ENV_BASE_URL = "THYTRADER_API_BASE_URL"
+_STALE_OPS_CONTRACT = (
+    f"API ops contract does not match this CLI (stale Compose image). {STALE_IMAGE_REBUILD}"
+)
 
 
 class AgentHttpError(RuntimeError):
@@ -49,6 +54,24 @@ def require_loopback_base_url(url: str) -> str:
     if parsed.hostname not in _LOOPBACK_HOSTS:
         raise AgentHttpError("Agent CLIs may only target a loopback ThyTrader API.")
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def require_matching_ops_contract(base_url: str) -> None:
+    """Fail closed unless `/health/ready` advertises this checkout's ops contract.
+
+    A missing or non-object `ops_contract` is a mismatch. Matching package version
+    `0.1.0` is not treated as current. The payload is never default-filled.
+    """
+    origin = require_loopback_base_url(base_url)
+    payload = request_json(method="GET", url=f"{origin}/health/ready")
+    if not isinstance(payload, dict):
+        raise AgentHttpError(_STALE_OPS_CONTRACT)
+    raw_contract = payload.get("ops_contract")
+    if not isinstance(raw_contract, dict):
+        raise AgentHttpError(_STALE_OPS_CONTRACT)
+    mapping = {key: value for key, value in raw_contract.items() if isinstance(key, str)}
+    if len(mapping) != len(raw_contract) or not ops_contract_matches(mapping):
+        raise AgentHttpError(_STALE_OPS_CONTRACT)
 
 
 def request_json(
@@ -98,7 +121,7 @@ def _http_error_message(status: int, raw: bytes, url: str | None = None) -> str:
     if status == 404 and url is not None and _stale_image_missing_agent_routes(url):
         return (
             "HTTP 404: agent API routes are missing on a ready listener "
-            "(stale Compose image). Rebuild and restart with `make run`."
+            f"(stale Compose image). {STALE_IMAGE_REBUILD}"
         )
     text = raw.decode("utf-8", errors="replace")[:_MAX_ERROR_CHARS]
     detail = _extract_detail(text)

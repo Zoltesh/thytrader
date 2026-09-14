@@ -166,7 +166,7 @@ async def get_gaps(
 ) -> dict[str, object]:
     """Classify missing bars. Does not interpolate or write Parquet."""
     try:
-        starts_at, ends_at, gaps, warning = await inspect_gaps(
+        inspection = await inspect_gaps(
             service=market_data,
             dataset_store=dataset_store,
             state_store=state_store,
@@ -178,19 +178,22 @@ async def get_gaps(
         )
     except DataControlError as error:
         raise _http_error(error) from None
-    listed = gaps[:_MAX_LISTED_GAPS]
+    listed = inspection.gaps[:_MAX_LISTED_GAPS]
     payload: dict[str, object] = {
         "product_id": product_id,
         "timeframe": timeframe,
-        "starts_at": starts_at.isoformat(),
-        "ends_at": ends_at.isoformat(),
-        "gap_count": len(gaps),
+        "starts_at": inspection.starts_at.isoformat(),
+        "ends_at": inspection.ends_at.isoformat(),
+        "lookback_hours": inspection.lookback_hours,
+        "watch_complete": inspection.watch_complete,
+        "complete": inspection.complete,
+        "gap_count": len(inspection.gaps),
         "gaps": [gap_payload(item) for item in listed],
-        "omitted_gap_count": max(0, len(gaps) - len(listed)),
+        "omitted_gap_count": max(0, len(inspection.gaps) - len(listed)),
         "interpolated": False,
     }
-    if warning:
-        payload["partial_result_warnings"] = [warning]
+    if inspection.warning:
+        payload["partial_result_warnings"] = [inspection.warning]
     return payload
 
 

@@ -37,7 +37,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
-| Data coverage | data-loop hardening deferred; 15m, 30m, 6h, and 1d datasets shipped (not strategy clocks); agents babysit watchlist → ingest → gaps |
+| Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks) |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
 | Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
@@ -77,9 +77,8 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 ## Build order (roadmap Phases 7–14)
 
-1. **Phase 7** — Remaining after 15m/30m/6h/1d datasets: data-loop harden.
-   15m, 30m, 6h, and 1d complete-only ingest/publish/verify/catalog are shipped; they are not
-   strategy/paper/live clocks.
+1. **Phase 7** — Shipped: 15m/30m/6h/1d datasets and fail-closed agent data-loop hardening.
+   These complete-only datasets are not strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Multi-timeframe strategy semantics.
 4. **Phase 9** — Wider fail-closed indicator catalog.

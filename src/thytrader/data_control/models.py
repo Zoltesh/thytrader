@@ -60,6 +60,19 @@ class GapObservation:
     cause: GapCause
 
 
+@dataclass(frozen=True, slots=True)
+class GapInspection:
+    """Watch-window gap classification without interpolation."""
+
+    starts_at: datetime
+    ends_at: datetime
+    gaps: tuple[GapObservation, ...]
+    warning: str | None
+    lookback_hours: int
+    complete: bool
+    watch_complete: bool
+
+
 def require_interval(value: str) -> CandleInterval:
     """Parse a dataset timeframe (1h, 5m, 15m, 30m, 6h, or 1d) or fail closed."""
     try:

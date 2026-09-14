@@ -21,10 +21,11 @@ Paper may start on closed **1h or 5m** bars of a published strategy. Live stays 
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
-with `make run` when the user asked, or when HTTP 404 on `/api/v1/deployments` coincides with a ready
-`/health/ready`, or when `thytrader-operator health` stderr reports a version or ops-contract
-mismatch (stale Compose image). Open the `ops/` workspace instead of the git root. Run every
+Do not search the tree for a code patch. Report failures through this skill. Every command preflights
+the full `/health/ready` ops contract. Rebuild or restart only with `make run` when the user asked,
+or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an agent route while
+`/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0` alone is not current-image
+evidence. Open the `ops/` workspace instead of the git root. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
