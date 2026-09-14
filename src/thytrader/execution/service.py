@@ -17,6 +17,7 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.research.multi_timeframe import strategy_requires_htf
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyPublicationError,
@@ -45,6 +46,10 @@ async def create_deployment(
         raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
+    if strategy_requires_htf(definition):
+        raise ExecutionConflictError(
+            "Paper and live deployments reject multi-timeframe HTF-filter strategies."
+        )
     _require_execution_timeframe(mode, definition.timeframe)
     existing = await store.list_by_strategy(str(definition.strategy_id))
     if any(item.mode is mode and item.status is DeploymentStatus.RUNNING for item in existing):

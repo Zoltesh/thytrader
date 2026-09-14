@@ -28,6 +28,7 @@ from thytrader.research.models import (
     WarmupWindow,
     warmup_starts_at,
 )
+from thytrader.strategies.models import StrategyDefinition
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -57,6 +58,7 @@ def _parser() -> argparse.ArgumentParser:
     publish = commands.add_parser("publish-backtest", help="Publish a verified bar-backtest run.")
     publish.add_argument("--strategy-fingerprint", required=True, type=_fingerprint)
     publish.add_argument("--dataset-fingerprint", required=True, type=_fingerprint)
+    publish.add_argument("--htf-dataset-fingerprint", type=_fingerprint)
     publish.add_argument("--evaluation-start", required=True, type=_timestamp)
     publish.add_argument("--evaluation-end", required=True, type=_timestamp)
     publish.add_argument("--initial-quote-balance", required=True)
@@ -137,8 +139,24 @@ def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
         "random_seed": arguments.random_seed,
         "strategy_fingerprint": arguments.strategy_fingerprint,
     }
+    if arguments.htf_dataset_fingerprint is not None:
+        payload["htf_dataset_fingerprint"] = arguments.htf_dataset_fingerprint
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
+
+
+def _htf_dataset_fingerprint(
+    arguments: argparse.Namespace, definition: StrategyDefinition
+) -> str | None:
+    """Require an HTF dataset fingerprint iff the published strategy declares a filter."""
+    fingerprint = arguments.htf_dataset_fingerprint
+    if definition.htf_filter is not None and fingerprint is None:
+        raise ValueError("HTF-filter strategies require --htf-dataset-fingerprint")
+    if definition.htf_filter is None and fingerprint is not None:
+        raise ValueError("--htf-dataset-fingerprint requires a strategy with htf_filter")
+    if fingerprint is not None and fingerprint == arguments.dataset_fingerprint:
+        raise ValueError("htf dataset fingerprint must differ from the decision dataset")
+    return fingerprint
 
 
 async def _publish(arguments: argparse.Namespace) -> str:
@@ -150,6 +168,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
     try:
         strategy_store = PostgresStrategyPublicationStore(engine)
         strategy = await strategy_store.load(arguments.strategy_fingerprint)
+        htf_dataset_fingerprint = _htf_dataset_fingerprint(arguments, strategy.definition)
         dataset_store = DatasetStore(settings.market_data_dataset_root)
         run_store = PostgresResearchRunStore(engine)
         execution_fingerprint = backtest_execution_fingerprint(arguments)
@@ -167,6 +186,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
             created_at=created_at,
             strategy_fingerprint=arguments.strategy_fingerprint,
             dataset_fingerprint=arguments.dataset_fingerprint,
+            htf_dataset_fingerprint=htf_dataset_fingerprint,
             evaluation=EvaluationWindow(
                 starts_at=arguments.evaluation_start, ends_at=arguments.evaluation_end
             ),

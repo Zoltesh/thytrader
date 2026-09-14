@@ -27,11 +27,12 @@ the same time as ingest would silently let research and execution treat `15m` as
 ## Consequences
 
 - Operators can watch, ingest, inspect, and catalog 15m coverage the same way as 5m.
-- 15m fingerprints appear in the verified dataset catalog; they are not a research or paper clock.
+- 15m fingerprints appear in the verified dataset catalog; they are not an LTF, paper, or live clock.
 - Thirty-minute complete-only datasets are [0021](0021-complete-only-30m-datasets.md). Six-hour
   complete-only datasets are [0022](0022-complete-only-6h-datasets.md). One-day complete-only
   datasets are [0023](0023-complete-only-1d-datasets.md). Multi-timeframe strategy semantics remain
-  Phase 8.
+  Phase 8; research HTF-filter binding of these datasets is [ADR 0025](0025-multi-timeframe-htf-filter.md).
+  They remain illegal as LTF, paper, or live clocks.
 
 ## Alternatives considered
 

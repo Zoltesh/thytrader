@@ -24,6 +24,7 @@ from thytrader.strategies.models import (
     StrategyDefinition,
     StrategyStatus,
     canonical_strategy_bytes,
+    expanded_data_requirements,
     strategy_fingerprint,
 )
 from thytrader.strategies.publication import (
@@ -632,10 +633,14 @@ def _verify_compatible_dataset(
         raise StrategyPublicationError(
             "Immutable dataset could not be verified for strategy binding."
         ) from error
+    definition = published.definition
+    allowed_timeframes = {
+        requirement.timeframe for requirement in expanded_data_requirements(definition)
+    }
     if (
         manifest.provider != "coinbase"
-        or manifest.product_id != published.definition.instrument.product_id
-        or manifest.timeframe != published.definition.timeframe
+        or manifest.product_id != definition.instrument.product_id
+        or manifest.timeframe not in allowed_timeframes
     ):
         raise StrategyPublicationError(
             "Verified dataset identity does not match the published strategy."

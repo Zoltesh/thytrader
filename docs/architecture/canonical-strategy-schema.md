@@ -17,6 +17,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
 - 1h Coinbase USD spot for live; `1h` or `5m` for research, backtests, and paper; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA indicators;
+- optional `htf_filter` (ADR 0025) for research V1/V2/V3: HTF `when` AND-ed with LTF entry using the last completed HTF bar; paper and live reject that block;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
   preferences;
@@ -35,7 +36,7 @@ Implemented: optimistic-concurrency draft persistence and lifecycle transitions,
 API/UI, immutable strategy publication, completed reproducible backtest results (including
 `thytrader-bar-backtest-v3` maker-limit fills), paper execution on closed 1h or 5m bars, and live
 execution on closed 1h bars. Not yet implemented: other sizing/stop/trailing variants, richer human
-summaries, or 5m live. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+summaries, 5m live, or paper/live evaluation of `htf_filter`. Published `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
@@ -81,6 +82,9 @@ entry-condition evaluation as defined in
 }
 ```
 
+The outline above is not canonical bytes. `htf_filter` is omitted from canonical JSON when null so
+existing single-timeframe fingerprints stay stable.
+
 ### Field rules
 
 | Field | Type | Rules |
@@ -93,10 +97,11 @@ entry-condition evaluation as defined in
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
 | `instrument` | object | Explicit product, never inherited from runtime. |
-| `timeframe` | enum | `1h` or `5m`. Paper may use either; live still requires `1h`. |
-| `data_requirements` | object | Minimum bars and OHLCV fields needed for indicator warmup. |
-| `indicators` | array | Named indicator definitions (see below). |
-| `entry` | object | Signal conditions and entry constraints. |
+| `timeframe` | enum | `1h` or `5m`. This is the LTF decision clock. Paper may use either; live still requires `1h`. |
+| `data_requirements` | object | Minimum LTF bars and OHLCV fields needed for indicator warmup. |
+| `indicators` | array | Named LTF indicator definitions (see below). |
+| `htf_filter` | object \| omitted | Optional HTF filter (see below). Omitted from canonical JSON when null. |
+| `entry` | object | LTF signal conditions and entry constraints. |
 | `sizing` | object | Position-sizing policy. |
 | `portfolio_limits` | object | Exposure and concurrency limits. |
 | `exits` | object | Stop-loss, take-profit, trailing, and time exits. |
@@ -215,6 +220,46 @@ the strategy fingerprint. No condition reordering or boolean-algebra simplificat
 - If any required indicator value is undefined (insufficient warmup), the entire condition group
   evaluates to **no signal**, not an error.
 - Evaluation failure produces no trade. The engine records a structured diagnostic event.
+
+## Higher-timeframe filter
+
+Optional `htf_filter` is the Phase 8 research slice ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
+It is not a second decision clock and not a paper/live clock.
+
+```json
+{
+  "timeframe": "1h",
+  "data_requirements": {
+    "warmup_bars": 50,
+    "required_fields": ["open", "high", "low", "close", "volume"]
+  },
+  "indicators": [
+    {"id": "htf_ema_fast", "kind": "ema", "input": "close", "parameters": {"period": 20}},
+    {"id": "htf_ema_slow", "kind": "ema", "input": "close", "parameters": {"period": 50}}
+  ],
+  "when": {
+    "all": [
+      {
+        "left": {"indicator": "htf_ema_fast"},
+        "operator": "greater_than",
+        "right": {"indicator": "htf_ema_slow"}
+      }
+    ]
+  }
+}
+```
+
+| Rule | Contract |
+|------|----------|
+| HTF timeframe | `15m`, `30m`, `1h`, `6h`, or `1d`; strictly coarser than LTF and an integer multiple of LTF duration |
+| Indicator ids | Unique within HTF and disjoint from LTF ids |
+| `when` references | HTF indicators only; LTF `entry.when` and ATR stop stay on LTF indicators |
+| Combined signal | Tri-state AND of HTF `when` and LTF `entry.when` |
+| Alignment | At LTF close `T`, use the last HTF bar whose exclusive close is `≤ T`. Never a partial HTF bar. Same-close HTF bars are eligible. |
+| Research | `dataset_fingerprint` is LTF; `htf_dataset_fingerprint` is required, distinct, and bound |
+| Paper / live | Reject the published strategy. Do not ignore the filter. 5m live remains Phase 13. |
+
+`15m`/`30m`/`6h`/`1d` remain illegal as top-level `timeframe`.
 
 ## Entry
 
@@ -361,7 +406,8 @@ when capital protection requires it.
 - All indicator references in conditions resolve to defined indicators.
 - Indicator periods are positive and within bounds.
 - `warmup_bars` satisfies all indicator minimum warmup requirements.
-- Entry `when` references only defined indicators.
+- Entry `when` references only defined LTF indicators.
+- When `htf_filter` is present: HTF timeframe is a coarser integer multiple of LTF; HTF ids are unique and disjoint; HTF `when` references only HTF indicators; HTF warmup covers HTF indicators.
 - Exit `atr_indicator` references a defined ATR indicator.
 - Sizing and risk values are within allowed ranges.
 - `max_open_positions` and `max_concurrent_positions` are both 1 in V1.

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.research.indicators import calculate_indicator_rows
+from thytrader.research.multi_timeframe import strategy_requires_htf
 from thytrader.research.signal_evaluator import entry_condition_outcome
 from thytrader.research.trace import EntryConditionOutcome
 
@@ -21,6 +22,8 @@ def evaluate_latest_entry(
     candles: Sequence[Candle],
 ) -> EntryConditionOutcome:
     """Evaluate entry conditions on the newest candle using prior-bar crossover state."""
+    if strategy_requires_htf(strategy):
+        raise ValueError("Paper and live runtimes reject multi-timeframe HTF-filter strategies.")
     if len(candles) < 2:
         return EntryConditionOutcome.UNDEFINED
     rows = calculate_indicator_rows(strategy.indicators, candles)

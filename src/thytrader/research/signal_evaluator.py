@@ -19,6 +19,12 @@ from thytrader.research.models import (
     research_run_fingerprint,
     specification_bar_interval,
 )
+from thytrader.research.multi_timeframe import (
+    htf_candle_starts,
+    index_candles_by_start,
+    ltf_close,
+    mapped_htf_start,
+)
 from thytrader.research.trace import (
     EntryConditionOutcome,
     IndicatorTraceValue,
@@ -33,6 +39,7 @@ from thytrader.strategies.models import (
     LiteralOperand,
     NotCondition,
     StrategyDefinition,
+    decision_and_filter_indicators,
     strategy_fingerprint,
 )
 
@@ -51,6 +58,7 @@ def evaluate_signal_trace(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
+    htf_candles: Sequence[Candle] = (),
 ) -> SignalTrace:
     """Evaluate deterministic entry conditions over one exact completed-candle interval."""
     try:
@@ -70,21 +78,34 @@ def evaluate_signal_trace(
         raise SignalEvaluationError(
             "Signal indicator calculation failed under the deterministic Decimal contract."
         ) from error
+    htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
+    declared = decision_and_filter_indicators(strategy)
     records: list[SignalTraceRecord] = []
     for index, (candle, values) in enumerate(zip(engine_candles, indicator_rows, strict=True)):
         if candle.starts_at < specification.evaluation.starts_at:
             continue
         previous_values = indicator_rows[index - 1] if index else None
-        outcome = _condition_outcome(strategy.entry.when, values, previous_values)
+        ltf_outcome = _condition_outcome(strategy.entry.when, values, previous_values)
+        htf_outcome, htf_values = _htf_filter_outcome(
+            strategy,
+            candle,
+            previous_ltf_start=_previous_ltf_start(engine_candles, index),
+            htf_rows=htf_rows,
+        )
+        outcome = _and_outcomes(ltf_outcome, htf_outcome)
         records.append(
             SignalTraceRecord(
                 candle_starts_at=candle.starts_at,
                 indicator_values=tuple(
                     IndicatorTraceValue(
                         indicator_id=indicator.id,
-                        value=_canonical_optional(values[indicator.id]),
+                        value=_canonical_optional(
+                            values[indicator.id]
+                            if indicator.id in values
+                            else htf_values.get(indicator.id)
+                        ),
                     )
-                    for indicator in strategy.indicators
+                    for indicator in declared
                 ),
                 entry_condition=outcome,
             )
@@ -95,7 +116,7 @@ def evaluate_signal_trace(
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
         engine_contract_version=engine_contract_version,
-        indicator_ids=tuple(indicator.id for indicator in strategy.indicators),
+        indicator_ids=tuple(indicator.id for indicator in declared),
         records=tuple(records),
     )
 
@@ -103,6 +124,126 @@ def evaluate_signal_trace(
 def _canonical_optional(value: Decimal | None) -> str | None:
     """Serialize one optional indicator value with explicit static narrowing."""
     return None if value is None else canonical_decimal(value)
+
+
+def _and_outcomes(
+    left: EntryConditionOutcome, right: EntryConditionOutcome
+) -> EntryConditionOutcome:
+    """AND two tri-state outcomes without turning undefined into a match."""
+    if left is EntryConditionOutcome.UNDEFINED or right is EntryConditionOutcome.UNDEFINED:
+        return EntryConditionOutcome.UNDEFINED
+    if left is EntryConditionOutcome.MATCHED and right is EntryConditionOutcome.MATCHED:
+        return EntryConditionOutcome.MATCHED
+    return EntryConditionOutcome.NOT_MATCHED
+
+
+def _previous_ltf_start(engine_candles: Sequence[Candle], index: int) -> datetime | None:
+    """Return the previous completed LTF bar start when it exists in the engine window."""
+    if index <= 0:
+        return None
+    return engine_candles[index - 1].starts_at
+
+
+def _htf_indicator_rows(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    htf_candles: Sequence[Candle],
+) -> dict[datetime, Mapping[str, Decimal | None]]:
+    """Calculate HTF indicators on required closed HTF bars, or an empty map."""
+    htf_filter = strategy.htf_filter
+    if htf_filter is None:
+        if htf_candles:
+            raise SignalEvaluationError("HTF candles were supplied without an HTF filter.")
+        if specification.htf_dataset_fingerprint is not None:
+            raise SignalEvaluationError(
+                "Research run HTF dataset is not declared by the published strategy."
+            )
+        return {}
+    if specification.htf_dataset_fingerprint is None:
+        raise SignalEvaluationError(
+            "Research run HTF dataset fingerprint is required for an HTF-filter strategy."
+        )
+    if not htf_candles:
+        raise SignalEvaluationError("HTF candles are required for an HTF-filter strategy.")
+    expected_starts = htf_candle_starts(
+        evaluation_starts_at=specification.evaluation.starts_at,
+        evaluation_ends_at=specification.evaluation.ends_at,
+        htf_filter=htf_filter,
+    )
+    selected = _required_htf_candles(expected_starts, htf_candles)
+    try:
+        rows = calculate_indicator_rows(htf_filter.indicators, selected)
+    except (DecimalException, IndicatorCalculationError) as error:
+        raise SignalEvaluationError(
+            "HTF indicator calculation failed under the deterministic Decimal contract."
+        ) from error
+    return {candle.starts_at: values for candle, values in zip(selected, rows, strict=True)}
+
+
+def _required_htf_candles(
+    expected_starts: Sequence[datetime],
+    candles: Sequence[Candle],
+) -> tuple[Candle, ...]:
+    """Select exact closed HTF bars and reject duplicates, gaps, or malformed bars."""
+    try:
+        by_start = index_candles_by_start(candles)
+    except ValueError as error:
+        raise SignalEvaluationError(str(error)) from error
+    selected: list[Candle] = []
+    for start in expected_starts:
+        candle = by_start.get(start)
+        if candle is None:
+            raise SignalEvaluationError("HTF candle coverage is incomplete or not contiguous.")
+        _require_ohlcv_contract(candle)
+        selected.append(candle)
+    return tuple(selected)
+
+
+def _htf_filter_outcome(
+    strategy: StrategyDefinition,
+    candle: Candle,
+    previous_ltf_start: datetime | None,
+    htf_rows: Mapping[datetime, Mapping[str, Decimal | None]],
+) -> tuple[EntryConditionOutcome, Mapping[str, Decimal | None]]:
+    """Evaluate the HTF filter from last completed HTF values held onto this LTF close."""
+    htf_filter = strategy.htf_filter
+    if htf_filter is None:
+        return EntryConditionOutcome.MATCHED, {}
+    current_close = ltf_close(candle.starts_at, strategy.timeframe)
+    current_start = mapped_htf_start(current_close, htf_filter.timeframe)
+    current_values = htf_rows.get(current_start)
+    if current_values is None:
+        raise SignalEvaluationError("HTF alignment missed a last completed HTF bar.")
+    if previous_ltf_start is None:
+        previous_values = None
+    else:
+        previous_close = ltf_close(previous_ltf_start, strategy.timeframe)
+        previous_start = mapped_htf_start(previous_close, htf_filter.timeframe)
+        previous_values = htf_rows.get(previous_start)
+        if previous_values is None:
+            raise SignalEvaluationError("HTF alignment missed a previous completed HTF bar.")
+    outcome = _condition_outcome(htf_filter.when, current_values, previous_values)
+    return outcome, current_values
+
+
+def _require_ohlcv_contract(candle: Candle) -> None:
+    """Reject one candle that violates the evaluator's OHLCV Decimal contract."""
+    values = (candle.open, candle.high, candle.low, candle.close, candle.volume)
+    if any(not _within_decimal_contract(value) for value in values):
+        raise SignalEvaluationError("Signal evaluation candles violate OHLCV Decimal limits.")
+    if _invalid_ohlc_geometry(candle):
+        raise SignalEvaluationError("Signal evaluation candles violate OHLCV invariants.")
+
+
+def _invalid_ohlc_geometry(candle: Candle) -> bool:
+    """Return whether OHLC ordering or sign invariants fail."""
+    if candle.open <= 0 or candle.high <= 0 or candle.low <= 0 or candle.close <= 0:
+        return True
+    if candle.low > candle.high or candle.volume < 0:
+        return True
+    if candle.open < candle.low or candle.open > candle.high:
+        return True
+    return candle.close < candle.low or candle.close > candle.high
 
 
 def _verify_contract(
@@ -133,6 +274,12 @@ def _verify_contract(
         raise SignalEvaluationError(
             "Research run bar spacing does not match the published strategy timeframe."
         )
+    has_htf_filter = strategy.htf_filter is not None
+    has_htf_dataset = specification.htf_dataset_fingerprint is not None
+    if has_htf_filter != has_htf_dataset:
+        raise SignalEvaluationError(
+            "Research run HTF dataset identity does not match the published strategy."
+        )
     return engine_contract_version
 
 
@@ -154,22 +301,7 @@ def _required_candles(
         expected_start = specification.warmup.starts_at + bar * index
         if candle.starts_at != expected_start:
             raise SignalEvaluationError("Signal evaluation candles are not contiguous UTC bars.")
-        values = (candle.open, candle.high, candle.low, candle.close, candle.volume)
-        if any(not _within_decimal_contract(value) for value in values):
-            raise SignalEvaluationError("Signal evaluation candles violate OHLCV Decimal limits.")
-        if (
-            candle.open <= 0
-            or candle.high <= 0
-            or candle.low <= 0
-            or candle.close <= 0
-            or candle.low > candle.high
-            or candle.open < candle.low
-            or candle.open > candle.high
-            or candle.close < candle.low
-            or candle.close > candle.high
-            or candle.volume < 0
-        ):
-            raise SignalEvaluationError("Signal evaluation candles violate OHLCV invariants.")
+        _require_ohlcv_contract(candle)
     return selected
 
 

@@ -206,6 +206,7 @@ class ResearchRunSpecification(_FrozenModel):
     created_at: UtcDateTime
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
+    htf_dataset_fingerprint: FingerprintText | None = None
     evaluation: EvaluationWindow
     warmup: WarmupWindow
     capital: CapitalAssumptions
@@ -261,6 +262,16 @@ class ResearchRunSpecification(_FrozenModel):
             raise ValueError("warmup range cannot represent the declared bars") from error
         except ValueError as error:
             raise ValueError(str(error)) from error
+        return self
+
+    @model_validator(mode="after")
+    def require_distinct_htf_dataset_identity(self) -> Self:
+        """HTF dataset identity is optional and must not alias the decision dataset."""
+        if (
+            self.htf_dataset_fingerprint is not None
+            and self.htf_dataset_fingerprint == self.dataset_fingerprint
+        ):
+            raise ValueError("htf_dataset_fingerprint must differ from dataset_fingerprint")
         return self
 
     @model_validator(mode="after")

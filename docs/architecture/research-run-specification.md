@@ -26,7 +26,8 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `run_id` | UUIDv7 whose embedded Unix millisecond matches `created_at`. It identifies one immutable research request. |
 | `created_at` | Timezone-aware UTC creation instant. |
 | `strategy_fingerprint` | Exact published canonical strategy fingerprint. |
-| `dataset_fingerprint` | Exact verified immutable dataset fingerprint. |
+| `dataset_fingerprint` | Exact verified immutable LTF dataset fingerprint. |
+| `htf_dataset_fingerprint` | Optional exact HTF dataset fingerprint. Required iff the strategy declares `htf_filter`; must differ from `dataset_fingerprint`; omitted from canonical JSON when null. |
 | `evaluation` | Non-empty, 5-minute-aligned UTC, half-open `[starts_at, ends_at)` interval. 1h strategies still require hour-aligned windows derived from hourly warmup spacing. |
 | `warmup` | `bars` plus the exact derived `starts_at`; its interval is `[starts_at, evaluation.starts_at)`. |
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
@@ -43,16 +44,22 @@ identity-bearing.
 
 ## Interval and coverage semantics
 
-Dataset manifests describe complete hourly candle coverage as a half-open interval
+Dataset manifests describe complete candle coverage as a half-open interval
 `[manifest.starts_at, manifest.ends_at)`. A research request is eligible only when:
 
-1. `warmup.starts_at == evaluation.starts_at - warmup.bars * 1h`;
+1. `warmup.starts_at == evaluation.starts_at` minus `warmup.bars` times the **decision (LTF)**
+   candle duration (`1h` or `5m`);
 2. `warmup.bars` exactly equals the published strategy's declared `data_requirements.warmup_bars`;
-3. the verified dataset begins no later than `warmup.starts_at`;
-4. the evaluation interval contains at least one hourly candle; and
-5. the verified dataset ends no earlier than `evaluation.ends_at + 1h`.
+3. the verified LTF dataset begins no later than `warmup.starts_at`;
+4. the evaluation interval contains at least one decision-timeframe candle; and
+5. the verified LTF dataset ends no earlier than `evaluation.ends_at` plus one decision bar.
+6. when `htf_filter` is present, the HTF dataset matches product and HTF timeframe, is complete, and
+   covers last-completed HTF bars plus HTF warmup for `[evaluation.starts_at, evaluation.ends_at)`.
+   Coverage uses `evaluation.starts_at` as the previous LTF close (first evaluation bar start) so
+   first-bar crossovers have the prior mapped HTF bar. HTF datasets do not need a next-open fill
+   candle.
 
-The final extra candle is required because a signal evaluated at the close of the final eligible candle
+The final extra LTF candle is required because a signal evaluated at the close of the final eligible candle
 may only use the next candle's open as a modeled fill price. It is fill lookahead data, never signal
 lookahead data.
 
@@ -65,7 +72,7 @@ facts. Publication proceeds fail closed:
 2. load and cryptographically reverify the exact published strategy;
 3. load and reverify the exact immutable dataset manifest and Parquet content;
 4. require the existing immutable strategy/dataset binding;
-5. validate strategy, provider, product, timeframe, warmup, interval, and fill-lookahead compatibility;
+5. validate strategy, provider, product, timeframe, warmup, interval, fill-lookahead, and optional HTF dataset compatibility;
 6. treat conflicts on either fingerprint or run identity as no-op candidates, then reject a reused
    `run_id` with different content after the requested fingerprint fails to reload; and
 7. reload canonical content and reverify every denormalized row identity.

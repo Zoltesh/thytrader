@@ -40,7 +40,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks) |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
-| Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
+| Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
 | Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
 | Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
 | Live extras | 5m live, trailing stops, user-order WS, native OCO deferred |
@@ -80,7 +80,7 @@ YOLO only changes confirmation friction inside allowed tiers.
 1. **Phase 7** — Shipped: 15m/30m/6h/1d datasets and fail-closed agent data-loop hardening.
    These complete-only datasets are not strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
-3. **Phase 8** — Multi-timeframe strategy semantics.
+3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation remains later.
 4. **Phase 9** — Wider fail-closed indicator catalog.
 5. **Phase 10** — Portfolio + risk-policy registry.
 6. **Phase 11** — Research rigor (walk-forward / OOS, templates).

@@ -10,12 +10,14 @@
 		saveDraft,
 		publishDraft,
 		listStrategies,
+		defaultHtfFilter,
+		validHtfTimeframes,
 		type BuilderModel,
 		type ConditionDraft,
 		type IndicatorDraft,
 		type IndicatorInput
 	} from '$lib/strategies';
-	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
+	import { plainEnglishSummary, requiredDataText, validateDefinition } from '$lib/strategy-insight';
 
 	let model = $state<BuilderModel | null>(null);
 	let loading = $state(true);
@@ -66,9 +68,12 @@
 		return 'not' in condition;
 	}
 
-	function addComparison(parent: { all?: ConditionDraft[]; any?: ConditionDraft[] }): void {
+	function addComparison(
+		parent: { all?: ConditionDraft[]; any?: ConditionDraft[] },
+		indicators: IndicatorDraft[]
+	): void {
 		const child: ConditionDraft = {
-			left: { indicator: model?.indicators[0]?.id ?? 'fast' },
+			left: { indicator: indicators[0]?.id ?? 'fast' },
 			operator: 'greater_than',
 			right: { literal: '0' }
 		};
@@ -108,10 +113,13 @@
 	}
 
 	/** Add one negated comparison as a direct child of a nested group. */
-	function addNotChild(group: { all?: ConditionDraft[]; any?: ConditionDraft[] }): void {
+	function addNotChild(
+		group: { all?: ConditionDraft[]; any?: ConditionDraft[] },
+		indicators: IndicatorDraft[]
+	): void {
 		const child: ConditionDraft = {
 			not: {
-				left: { indicator: model?.indicators[0]?.id ?? 'fast' },
+				left: { indicator: indicators[0]?.id ?? 'fast' },
 				operator: 'greater_than',
 				right: { literal: '0' }
 			}
@@ -122,10 +130,15 @@
 	}
 
 	/** Wrap the root condition itself so the top-level group can be negated. */
-	function toggleRootNot(): void {
+	function toggleRootNot(kind: 'entry' | 'htf'): void {
 		if (!model) return;
-		const root = model.entry.when;
-		model.entry.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
+		if (kind === 'entry') {
+			const root = model.entry.when;
+			model.entry.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
+		} else if (model.htf_filter !== null) {
+			const root = model.htf_filter.when;
+			model.htf_filter.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
+		}
 		markDirty();
 	}
 
@@ -190,8 +203,8 @@
 		markDirty();
 	}
 
-	function operandChoices(): { key: string; label: string }[] {
-		const choices = (model?.indicators ?? []).map((indicator) => ({
+	function operandChoices(indicators: IndicatorDraft[]): { key: string; label: string }[] {
+		const choices = indicators.map((indicator) => ({
 			key: `indicator:${indicator.id}`,
 			label: indicator.id
 		}));
@@ -291,6 +304,29 @@
 			const replacement = model.indicators.find((candidate) => candidate.kind === 'atr');
 			model.exits.initial_stop.atr_indicator = replacement?.id ?? '';
 		}
+		markDirty();
+	}
+
+	function addHtfIndicator(): void {
+		if (!model?.htf_filter) return;
+		model.htf_filter.indicators.push({
+			id: `htf_indicator_${model.htf_filter.indicators.length + 1}`,
+			kind: 'sma',
+			input: 'close',
+			parameters: { period: 50 }
+		});
+		markDirty();
+	}
+
+	function removeHtfIndicator(index: number): void {
+		if (!model?.htf_filter) return;
+		model.htf_filter.indicators.splice(index, 1);
+		markDirty();
+	}
+
+	function toggleHtfFilter(enabled: boolean): void {
+		if (!model) return;
+		model.htf_filter = enabled ? defaultHtfFilter(model.timeframe) : null;
 		markDirty();
 	}
 
@@ -395,7 +431,8 @@
 						>
 						<div class="hint">
 							V1 is Coinbase USD spot, long-only. Research and paper: 1h or 5m (this draft uses
-							{model.timeframe} candles). Live execution remains 1h-only.
+							{model.timeframe} candles). Live execution remains 1h-only. Optional HTF filters may use
+							15m/30m/1h/6h/1d datasets; paper and live reject those strategies.
 						</div>
 					</section>
 				{:else if activeSection === 'indicators'}
@@ -441,9 +478,94 @@
 						<h2>Entry conditions</h2>
 						<div class="rule-tree">
 							{#if model.entry.when}
-								{@render conditionNode(model.entry.when, model.entry.when, 0)}
+								{@render conditionNode(
+									model.entry.when,
+									model.entry.when,
+									0,
+									model.entry.when,
+									model.indicators,
+									'entry'
+								)}
 							{/if}
 						</div>
+						<label class="cooldown-row"
+							><input
+								type="checkbox"
+								checked={model.htf_filter !== null}
+								onchange={(event) =>
+									toggleHtfFilter((event.currentTarget as HTMLInputElement).checked)}
+							/>
+							Enable higher-timeframe filter (research only)
+						</label>
+						{#if model.htf_filter}
+							<div class="grid-two">
+								<label
+									>HTF timeframe
+									<select bind:value={model.htf_filter.timeframe} onchange={markDirty}>
+										{#each validHtfTimeframes(model.timeframe) as timeframe (timeframe)}
+											<option value={timeframe}>{timeframe}</option>
+										{/each}
+									</select></label
+								>
+								<label
+									>HTF warmup bars
+									<input
+										type="number"
+										min="1"
+										bind:value={model.htf_filter.warmup_bars}
+										oninput={markDirty}
+									/></label
+								>
+							</div>
+							{#each model.htf_filter.indicators as indicator, index (index)}
+								<div class="indicator-row">
+									<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
+									<label
+										>Kind
+										<select
+											bind:value={indicator.kind}
+											onchange={() => onIndicatorKindChange(indicator)}
+										>
+											<option value="ema">EMA</option>
+											<option value="sma">SMA</option>
+											<option value="rsi">RSI</option>
+											<option value="atr">ATR</option>
+											<option value="volume_sma">Volume SMA</option>
+										</select></label
+									>
+									<label
+										>Period<input
+											type="number"
+											min="2"
+											bind:value={indicator.parameters.period}
+											oninput={markDirty}
+										/></label
+									>
+									<button
+										class="secondary"
+										type="button"
+										onclick={() => removeHtfIndicator(index)}>Remove</button
+									>
+								</div>
+							{/each}
+							<button class="secondary" type="button" onclick={addHtfIndicator}
+								>Add HTF indicator</button
+							>
+							<div class="rule-tree">
+								{@render conditionNode(
+									model.htf_filter.when,
+									model.htf_filter.when,
+									0,
+									model.htf_filter.when,
+									model.htf_filter.indicators,
+									'htf'
+								)}
+							</div>
+							<div class="hint">
+								The HTF <code>when</code> tree is AND-ed with LTF entry using the last completed HTF
+								bar. Paper and live reject this block.
+							</div>
+						{/if}
 						<label class="cooldown-row"
 							>Re-entry cooldown (bars, declared — not yet modeled by the backtester)
 							<input
@@ -602,7 +724,7 @@
 				<div class="inspector-block">
 					<h3>Required data</h3>
 					<p>
-						{model.warmup_bars} completed {model.timeframe} bars (OHLCV) before the first signal.
+						{requiredDataText(model)}
 					</p>
 				</div>
 				<div class="inspector-block">
@@ -619,9 +741,16 @@
 	{/if}
 </main>
 
-{#snippet conditionNode(condition: ConditionDraft, parent: object, depth: number)}
+{#snippet conditionNode(
+	condition: ConditionDraft,
+	parent: object,
+	depth: number,
+	root: ConditionDraft,
+	indicators: IndicatorDraft[],
+	kind: 'entry' | 'htf'
+)}
 	{@const index = childIndex(condition, parent)}
-	{@const isRoot = isRootGroup(condition, model?.entry.when as ConditionDraft)}
+	{@const isRoot = isRootGroup(condition, root)}
 	<div class="rule-node" style="margin-left: {depth * 18}px">
 		{#if isGroup(condition)}
 			{@const group = condition as { all?: ConditionDraft[]; any?: ConditionDraft[] }}
@@ -632,7 +761,7 @@
 						>Remove group</button
 					>
 				{/if}
-				<button class="secondary" type="button" onclick={() => addComparison(group)}
+				<button class="secondary" type="button" onclick={() => addComparison(group, indicators)}
 					>+ comparison</button
 				>
 				<button class="secondary" type="button" onclick={() => addGroup(group, 'all')}>+ ALL</button
@@ -643,20 +772,20 @@
 					<button
 						class="secondary"
 						type="button"
-						onclick={toggleRootNot}
+						onclick={() => toggleRootNot(kind)}
 						aria-label="Negate the root condition group">+ NOT</button
 					>
 				{:else}
 					<button
 						class="secondary"
 						type="button"
-						onclick={() => addNotChild(group)}
+						onclick={() => addNotChild(group, indicators)}
 						aria-label="Add a negated condition">+ NOT</button
 					>
 				{/if}
 			</div>
 			{#each group.all ?? group.any ?? [] as child, childIdx (childIdx)}
-				{@render conditionNode(child, group, depth + 1)}
+				{@render conditionNode(child, group, depth + 1, root, indicators, kind)}
 			{/each}
 		{:else if isNot(condition)}
 			<div class="rule-group-head">
@@ -665,7 +794,7 @@
 					>Remove</button
 				>
 			</div>
-			{@render conditionNode((condition as { not: ConditionDraft }).not, condition, depth + 1)}
+			{@render conditionNode((condition as { not: ConditionDraft }).not, condition, depth + 1, root, indicators, kind)}
 		{:else}
 			{@const comparison = condition as {
 				left: { indicator?: string; literal?: string };
@@ -679,7 +808,7 @@
 					onchange={(event) =>
 						setLeftOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
 				>
-					{#each operandChoices() as choice (choice.key)}
+					{#each operandChoices(indicators) as choice (choice.key)}
 						<option value={choice.key}>{choice.label}</option>
 					{/each}
 				</select>
@@ -707,7 +836,7 @@
 					onchange={(event) =>
 						setRightOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
 				>
-					{#each operandChoices() as choice (choice.key)}
+					{#each operandChoices(indicators) as choice (choice.key)}
 						<option value={choice.key}>{choice.label}</option>
 					{/each}
 				</select>

@@ -1,4 +1,4 @@
-import type { BuilderModel, ConditionDraft } from './strategies';
+import { validHtfTimeframes, type BuilderModel, type ConditionDraft, type HtfFilterDraft } from './strategies';
 
 export const OPERATOR_LABELS: Record<string, string> = {
 	crosses_above: 'crosses above',
@@ -52,11 +52,21 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 
 export function plainEnglishSummary(model: BuilderModel): string {
 	const entryText = conditionToText(model.entry.when);
+	const htf =
+		model.htf_filter === null
+			? ''
+			: ` HTF filter on ${model.htf_filter.timeframe}: ${conditionToText(model.htf_filter.when)}.`;
 	return [
-		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.`,
+		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.${htf}`,
 		`Risk ${model.sizing.risk_fraction} of equity per trade between $${model.sizing.min_quote_notional} and $${model.sizing.max_quote_notional}.`,
 		`Initial stop ${model.exits.initial_stop.multiple}× ATR, take profit at ${model.exits.take_profit.multiple}× risk, time exit after ${model.exits.time_exit.max_bars_held} bars.`
 	].join(' ');
+}
+
+export function requiredDataText(model: BuilderModel): string {
+	const decision = `${model.warmup_bars} completed ${model.timeframe} bars (OHLCV) before the first signal.`;
+	if (model.htf_filter === null) return decision;
+	return `${decision} Also ${model.htf_filter.warmup_bars} completed ${model.htf_filter.timeframe} HTF bars, using only the last completed HTF bar at each LTF close. Paper and live reject HTF-filter strategies.`;
 }
 
 const INDICATOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
@@ -110,7 +120,10 @@ export function validateDefinition(model: BuilderModel): string[] {
 		}
 		warmupNeeded.set(indicator.id, indicator.kind === 'rsi' ? period + 1 : period);
 	}
-	problems.push(...validateCondition(model.entry.when, ids));
+	problems.push(...validateCondition(model.entry.when, ids, 'Entry'));
+	if (model.htf_filter !== null) {
+		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe));
+	}
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(model.warmup_bars) < warmupRequirement) {
 		problems.push(
@@ -176,6 +189,66 @@ export function validateDefinition(model: BuilderModel): string[] {
 	return problems;
 }
 
+function validateHtfFilter(
+	filter: HtfFilterDraft,
+	decisionIds: Set<string>,
+	decisionTimeframe: string
+): string[] {
+	const problems: string[] = [];
+	if (!validHtfTimeframes(decisionTimeframe).includes(filter.timeframe)) {
+		problems.push(
+			`HTF timeframe ${filter.timeframe} must be a coarser integer multiple of ${decisionTimeframe}.`
+		);
+	}
+	if (filter.indicators.length === 0) problems.push('HTF filter requires at least one indicator.');
+	if (filter.indicators.length > 20) problems.push('At most 20 HTF indicators are allowed.');
+	const htfIds = new Set(filter.indicators.map((indicator) => indicator.id));
+	if (htfIds.size !== filter.indicators.length) {
+		problems.push('HTF indicator identifiers must be unique.');
+	}
+	for (const id of htfIds) {
+		if (decisionIds.has(id)) {
+			problems.push(`HTF indicator "${id}" must not reuse a decision indicator id.`);
+		}
+	}
+	const warmupNeeded = new Map<string, number>();
+	for (const indicator of filter.indicators) {
+		if (!INDICATOR_ID_PATTERN.test(indicator.id)) {
+			problems.push(
+				`HTF indicator id "${indicator.id}" must start with a lowercase letter and use lowercase letters, digits, or underscores.`
+			);
+		}
+		if (!indicatorInputMatchesKind(indicator)) {
+			problems.push(
+				`HTF indicator "${indicator.id}" has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
+			);
+		}
+		const period = Number(indicator.parameters.period);
+		const maximum = indicator.kind === 'rsi' || indicator.kind === 'atr' ? 100 : 500;
+		if (!Number.isInteger(period) || period < 2 || period > maximum) {
+			problems.push(
+				`HTF indicator "${indicator.id}" period must be an integer between 2 and ${maximum}.`
+			);
+		}
+		warmupNeeded.set(indicator.id, indicator.kind === 'rsi' ? period + 1 : period);
+	}
+	problems.push(...validateCondition(filter.when, htfIds, 'HTF filter'));
+	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
+	if (Number(filter.warmup_bars) < warmupRequirement) {
+		problems.push(
+			`HTF warmup must cover the longest HTF indicator period (at least ${warmupRequirement} bars).`
+		);
+	}
+	if (
+		!Number.isInteger(filter.warmup_bars) ||
+		filter.warmup_bars < 1 ||
+		filter.warmup_bars > 10_000
+	) {
+		problems.push('HTF warmup must be an integer between 1 and 10,000 bars.');
+	}
+	return problems;
+}
+
 function validateMultiple(
 	value: string,
 	label: string,
@@ -193,15 +266,15 @@ function validateMultiple(
 	}
 }
 
-function validateCondition(condition: ConditionDraft, ids: Set<string>): string[] {
+function validateCondition(condition: ConditionDraft, ids: Set<string>, label: string): string[] {
 	const problems: string[] = [];
-	validateConditionShape(condition, ids, problems);
+	validateConditionShape(condition, ids, problems, label);
 	const { nodes, depth } = measureCondition(condition);
 	if (depth > MAX_CONDITION_DEPTH) {
-		problems.push(`Entry condition nesting must stay at or below ${MAX_CONDITION_DEPTH} levels.`);
+		problems.push(`${label} condition nesting must stay at or below ${MAX_CONDITION_DEPTH} levels.`);
 	}
 	if (nodes > MAX_CONDITION_NODES) {
-		problems.push(`Entry condition tree must stay at or below ${MAX_CONDITION_NODES} nodes.`);
+		problems.push(`${label} condition tree must stay at or below ${MAX_CONDITION_NODES} nodes.`);
 	}
 	return problems;
 }
@@ -209,7 +282,8 @@ function validateCondition(condition: ConditionDraft, ids: Set<string>): string[
 function validateConditionShape(
 	condition: ConditionDraft,
 	ids: Set<string>,
-	problems: string[]
+	problems: string[],
+	label: string
 ): void {
 	if (isComparison(condition)) {
 		const comparison = condition as {
@@ -218,16 +292,16 @@ function validateConditionShape(
 			right: { indicator?: string; literal?: string };
 		};
 		if (comparison.left.indicator !== undefined && !ids.has(comparison.left.indicator)) {
-			problems.push(`Entry references unknown indicator "${comparison.left.indicator}".`);
+			problems.push(`${label} references unknown indicator "${comparison.left.indicator}".`);
 		}
 		if (comparison.right.indicator !== undefined && !ids.has(comparison.right.indicator)) {
-			problems.push(`Entry references unknown indicator "${comparison.right.indicator}".`);
+			problems.push(`${label} references unknown indicator "${comparison.right.indicator}".`);
 		}
 		if (comparison.left.literal !== undefined && !DECIMAL_PATTERN.test(comparison.left.literal)) {
-			problems.push('Entry literals must be exact decimal numbers.');
+			problems.push(`${label} literals must be exact decimal numbers.`);
 		}
 		if (comparison.right.literal !== undefined && !DECIMAL_PATTERN.test(comparison.right.literal)) {
-			problems.push('Entry literals must be exact decimal numbers.');
+			problems.push(`${label} literals must be exact decimal numbers.`);
 		}
 		if (
 			(comparison.operator === 'crosses_above' || comparison.operator === 'crosses_below') &&
@@ -242,10 +316,10 @@ function validateConditionShape(
 		const children = group.all ?? group.any ?? [];
 		if (children.length === 0) problems.push('Empty condition groups are not allowed.');
 		if (children.length > 20) problems.push('Condition groups must hold at most 20 children.');
-		for (const child of children) validateConditionShape(child, ids, problems);
+		for (const child of children) validateConditionShape(child, ids, problems, label);
 		return;
 	}
-	validateConditionShape((condition as { not: ConditionDraft }).not, ids, problems);
+	validateConditionShape((condition as { not: ConditionDraft }).not, ids, problems, label);
 }
 
 function measureCondition(condition: ConditionDraft): { nodes: number; depth: number } {
@@ -272,6 +346,12 @@ export type EngineSupportRow = { label: string; v1: boolean; v2: boolean; note: 
 // entry at the next bar open unconditionally, so cooldown and execution
 // preferences are declared by the schema but not modeled by the engine.
 export const ENGINE_SUPPORT: EngineSupportRow[] = [
+	{
+		label: 'HTF filter (optional closed-bar AND with LTF entry)',
+		v1: true,
+		v2: true,
+		note: 'Research V1/V2/V3 evaluate last completed HTF bars only; paper and live reject htf_filter'
+	},
 	{
 		label: 'Entry conditions (ALL / ANY / NOT, comparisons, crossovers)',
 		v1: true,

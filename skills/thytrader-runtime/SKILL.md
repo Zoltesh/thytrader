@@ -16,7 +16,7 @@ HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
 
-Paper may start on closed **1h or 5m** bars of a published strategy. Live stays on closed **1h** bars. Do not start 5m live.
+Paper may start on closed **1h or 5m** bars of a published strategy. Live stays on closed **1h** bars. Do not start 5m live. Do not start paper or live on a published strategy that declares `htf_filter`; the API rejects those deployments.
 
 ## Hard stop
 

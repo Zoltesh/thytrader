@@ -32,9 +32,11 @@ strategy timeframe.
 ## Consequences
 
 - Operators can watch, ingest, inspect, and catalog 6h coverage the same way as 30m.
-- 6h fingerprints appear in the verified dataset catalog; they are not a research or paper clock.
+- 6h fingerprints appear in the verified dataset catalog; they are not an LTF, paper, or live clock.
 - One-day complete-only datasets are [0023](0023-complete-only-1d-datasets.md). Phase 7 data-loop
-  hardening remains planned. Multi-timeframe strategy semantics remain Phase 8.
+  hardening remains planned. Multi-timeframe strategy semantics remain Phase 8; research HTF-filter
+  binding of these datasets is [ADR 0025](0025-multi-timeframe-htf-filter.md). They remain illegal as
+  LTF, paper, or live clocks.
 
 ## Alternatives considered
 

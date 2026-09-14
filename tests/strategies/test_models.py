@@ -13,6 +13,8 @@ from thytrader.strategies.models import (
     StrategyDefinition,
     StrategyStatus,
     canonical_strategy_bytes,
+    expanded_data_requirements,
+    is_valid_htf_pair,
     strategy_fingerprint,
 )
 
@@ -634,3 +636,136 @@ def test_strategy_identity_helpers_revalidate_copied_models() -> None:
         canonical_strategy_bytes(forged)
     with pytest.raises(ValidationError):
         strategy_fingerprint(forged)
+
+
+def _htf_filter_block(
+    *,
+    timeframe: str = "6h",
+    warmup_bars: int = 50,
+    fast_id: str = "htf_ema_fast",
+) -> dict[str, object]:
+    """Return one valid HTF filter for the 1h reference profile."""
+    return {
+        "timeframe": timeframe,
+        "data_requirements": {
+            "warmup_bars": warmup_bars,
+            "required_fields": ["open", "high", "low", "close", "volume"],
+        },
+        "indicators": [
+            {
+                "id": fast_id,
+                "kind": "ema",
+                "input": "close",
+                "parameters": {"period": 20},
+            },
+            {
+                "id": "htf_ema_slow",
+                "kind": "ema",
+                "input": "close",
+                "parameters": {"period": 50},
+            },
+        ],
+        "when": {
+            "all": [
+                {
+                    "left": {"indicator": fast_id},
+                    "operator": "greater_than",
+                    "right": {"indicator": "htf_ema_slow"},
+                }
+            ]
+        },
+    }
+
+
+def test_omitted_htf_filter_preserves_reference_fingerprint() -> None:
+    """Compatible schema extension must not change existing single-timeframe identity."""
+    definition = StrategyDefinition.model_validate(reference_payload())
+    assert definition.htf_filter is None
+    assert strategy_fingerprint(definition) == (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+
+
+def test_htf_filter_is_fail_closed_and_fingerprinted() -> None:
+    """HTF clocks must be coarser integer multiples with isolated indicator identity."""
+    assert is_valid_htf_pair("5m", "1h")
+    assert is_valid_htf_pair("1h", "6h")
+    assert not is_valid_htf_pair("1h", "1h")
+    assert not is_valid_htf_pair("1h", "15m")
+    assert not is_valid_htf_pair("5m", "5m")
+
+    valid = reference_payload()
+    valid["htf_filter"] = _htf_filter_block()
+    definition = StrategyDefinition.model_validate(valid)
+    assert definition.htf_filter is not None
+    assert definition.htf_filter.timeframe == "6h"
+    requirements = expanded_data_requirements(definition)
+    assert [item.role for item in requirements] == ["decision", "filter"]
+    assert [item.timeframe for item in requirements] == ["1h", "6h"]
+    assert strategy_fingerprint(definition) != (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+
+    same_clock = reference_payload()
+    same_clock["htf_filter"] = _htf_filter_block(timeframe="1h")
+    with pytest.raises(ValidationError, match="strictly coarser"):
+        StrategyDefinition.model_validate(same_clock)
+
+    finer = reference_payload()
+    finer["htf_filter"] = _htf_filter_block(timeframe="15m")
+    with pytest.raises(ValidationError, match="strictly coarser"):
+        StrategyDefinition.model_validate(finer)
+
+    five_minute = reference_payload()
+    five_minute["timeframe"] = "5m"
+    five_minute["htf_filter"] = _htf_filter_block(timeframe="1h")
+    StrategyDefinition.model_validate(five_minute)
+
+    reused_id = reference_payload()
+    reused_id["htf_filter"] = _htf_filter_block(fast_id="ema_fast")
+    with pytest.raises(ValidationError, match="must not reuse"):
+        StrategyDefinition.model_validate(reused_id)
+
+    mixed_ref = reference_payload()
+    mixed_ref["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(mixed_ref["htf_filter"])
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "ema_fast"},
+                "operator": "greater_than",
+                "right": {"indicator": "htf_ema_slow"},
+            }
+        ]
+    }
+    with pytest.raises(ValidationError, match="unknown HTF indicator"):
+        StrategyDefinition.model_validate(mixed_ref)
+
+    ltf_uses_htf = reference_payload()
+    ltf_uses_htf["htf_filter"] = _htf_filter_block()
+    ltf_uses_htf["entry"] = {
+        "side": "long",
+        "when": {
+            "all": [
+                {
+                    "left": {"indicator": "htf_ema_fast"},
+                    "operator": "greater_than",
+                    "right": {"indicator": "ema_slow"},
+                }
+            ]
+        },
+        "cooldown_bars": 3,
+        "max_open_positions": 1,
+    }
+    with pytest.raises(ValidationError, match="unknown indicator"):
+        StrategyDefinition.model_validate(ltf_uses_htf)
+
+    short_warmup = reference_payload()
+    short_warmup["htf_filter"] = _htf_filter_block(warmup_bars=20)
+    with pytest.raises(ValidationError, match="HTF warmup_bars"):
+        StrategyDefinition.model_validate(short_warmup)
+
+    unknown_htf_field = reference_payload()
+    unknown_htf_field["htf_filter"] = {**_htf_filter_block(), "python": "buy()"}
+    with pytest.raises(ValidationError):
+        StrategyDefinition.model_validate(unknown_htf_field)

@@ -29,12 +29,14 @@ from thytrader.research.models import (
     WarmupWindow,
     warmup_starts_at,
 )
+from thytrader.research.multi_timeframe import htf_required_coverage
 from thytrader.research.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
     evaluation_window_suggestion,
 )
+from thytrader.strategies.models import StrategyDefinition
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -49,6 +51,9 @@ class BacktestSubmissionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    htf_dataset_fingerprint: str | None = Field(
+        default=None, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     initial_quote_balance: str
@@ -124,6 +129,7 @@ class PostgresBacktestSubmitter:
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
             request = _with_evaluation_window(request, strategy, self._dataset_store)
             _validate_submission_assumptions(request)
+            _require_htf_request(request, strategy.definition)
         except BacktestSubmissionRejectedError:
             raise
         except Exception as error:
@@ -136,6 +142,13 @@ class PostgresBacktestSubmitter:
                 dataset_store=self._dataset_store,
                 bound_at=now,
             )
+            if request.htf_dataset_fingerprint is not None:
+                await self._strategy_store.bind_dataset(
+                    request.strategy_fingerprint,
+                    request.htf_dataset_fingerprint,
+                    dataset_store=self._dataset_store,
+                    bound_at=now,
+                )
             execution_fingerprint = _execution_fingerprint(request)
             published_run = await self._run_store.load_by_execution_fingerprint(
                 execution_fingerprint,
@@ -176,6 +189,7 @@ class PostgresBacktestSubmitter:
             created_at=now,
             strategy_fingerprint=request.strategy_fingerprint,
             dataset_fingerprint=request.dataset_fingerprint,
+            htf_dataset_fingerprint=request.htf_dataset_fingerprint,
             evaluation=EvaluationWindow(
                 starts_at=evaluation_start,
                 ends_at=evaluation_end,
@@ -249,9 +263,11 @@ def _with_evaluation_window(
     except (ResearchRunPublicationError, ValueError) as error:
         raise BacktestSubmissionRejectedError(str(error)) from error
     if request.evaluation_start is None and request.evaluation_end is None:
-        return request.model_copy(
+        filled = request.model_copy(
             update={"evaluation_start": suggested_start, "evaluation_end": suggested_end}
         )
+        _require_htf_window(filled, strategy, dataset_store)
+        return filled
     if request.evaluation_start is None or request.evaluation_end is None:
         raise BacktestSubmissionRejectedError(
             "evaluation_start and evaluation_end must both be omitted or both be set."
@@ -277,6 +293,7 @@ def _with_evaluation_window(
                 timeframe=strategy.definition.timeframe,
             )
         )
+    _require_htf_window(request, strategy, dataset_store)
     return request
 
 
@@ -384,6 +401,8 @@ def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
         "random_seed": 0,
         "strategy_fingerprint": request.strategy_fingerprint,
     }
+    if request.htf_dataset_fingerprint is not None:
+        payload["htf_dataset_fingerprint"] = request.htf_dataset_fingerprint
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
@@ -393,6 +412,75 @@ def _filled_window(request: BacktestSubmissionRequest) -> tuple[datetime, dateti
     if request.evaluation_start is None or request.evaluation_end is None:
         raise BacktestSubmissionError("Backtest submission is unavailable.")
     return request.evaluation_start, request.evaluation_end
+
+
+def _require_htf_request(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> None:
+    """Reject HTF fingerprints that do not match the published definition."""
+    has_filter = definition.htf_filter is not None
+    has_fingerprint = request.htf_dataset_fingerprint is not None
+    if has_filter and not has_fingerprint:
+        raise BacktestSubmissionRejectedError(
+            "Multi-timeframe strategies require htf_dataset_fingerprint."
+        )
+    if not has_filter and has_fingerprint:
+        raise BacktestSubmissionRejectedError(
+            "htf_dataset_fingerprint is only valid when the strategy declares htf_filter."
+        )
+    if has_fingerprint and request.htf_dataset_fingerprint == request.dataset_fingerprint:
+        raise BacktestSubmissionRejectedError(
+            "htf_dataset_fingerprint must differ from dataset_fingerprint."
+        )
+
+
+def _require_htf_window(
+    request: BacktestSubmissionRequest,
+    strategy: PublishedStrategy,
+    dataset_store: DatasetStore,
+) -> None:
+    """Confirm the HTF dataset covers last-completed HTF bars for the LTF window."""
+    definition = strategy.definition
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        if request.htf_dataset_fingerprint is not None:
+            raise BacktestSubmissionRejectedError(
+                "htf_dataset_fingerprint is only valid when the strategy declares htf_filter."
+            )
+        return
+    if request.htf_dataset_fingerprint is None:
+        raise BacktestSubmissionRejectedError(
+            "Multi-timeframe strategies require htf_dataset_fingerprint."
+        )
+    try:
+        htf_manifest = dataset_store.load_manifest(request.htf_dataset_fingerprint)
+    except DatasetStoreError as error:
+        raise BacktestSubmissionRejectedError(
+            "The selected HTF dataset was not found or is not a verified complete artifact."
+        ) from error
+    if htf_manifest.product_id != definition.instrument.product_id:
+        raise BacktestSubmissionRejectedError(
+            "HTF dataset product_id must match the published strategy instrument."
+        )
+    if htf_manifest.timeframe != htf_filter.timeframe:
+        raise BacktestSubmissionRejectedError(
+            "HTF dataset timeframe must match strategy htf_filter.timeframe."
+        )
+    if not htf_manifest.complete:
+        raise BacktestSubmissionRejectedError("HTF dataset status must be complete.")
+    evaluation_start, evaluation_end = _filled_window(request)
+    required_start, required_end = htf_required_coverage(
+        evaluation_starts_at=evaluation_start,
+        evaluation_ends_at=evaluation_end,
+        htf_filter=htf_filter,
+    )
+    htf_starts_at = _manifest_instant(htf_manifest.starts_at)
+    htf_ends_at = _manifest_instant(htf_manifest.ends_at)
+    if htf_starts_at > required_start or htf_ends_at < required_end:
+        raise BacktestSubmissionRejectedError(
+            "Requested evaluation window is not fully covered by the HTF dataset."
+        )
 
 
 def _utc_millisecond(value: datetime) -> datetime:
