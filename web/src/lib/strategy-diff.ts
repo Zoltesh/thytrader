@@ -1,4 +1,9 @@
-import type { BuilderModel, ConditionDraft, IndicatorDraft, IndicatorKindValue } from './strategies';
+import type {
+	BuilderModel,
+	ConditionDraft,
+	IndicatorDraft,
+	IndicatorKindValue
+} from './strategies';
 import { INDICATOR_KIND_OPTIONS } from './strategies';
 
 export type FieldChange = {

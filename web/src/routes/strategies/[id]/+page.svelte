@@ -470,9 +470,8 @@
 						{/each}
 						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 						<div class="hint">
-							ATR uses high/low/close. Highest uses high. Lowest uses low. Stdev uses close. RSI
-							and ATR periods cap at 100. Inputs are fixed per kind. MACD and Bollinger are not
-							shipped.
+							ATR uses high/low/close. Highest uses high. Lowest uses low. Stdev uses close. RSI and
+							ATR periods cap at 100. Inputs are fixed per kind. MACD and Bollinger are not shipped.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
