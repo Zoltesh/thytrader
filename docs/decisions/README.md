@@ -10,7 +10,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0002](0002-modular-monolith.md) | Start as a modular monolith with separate API and worker processes | Accepted |
 | [0003](0003-polyglot-storage.md) | Use PostgreSQL operationally and Parquet/Polars/DuckDB analytically | Accepted |
 | [0004](0004-safe-execution-and-access.md) | Use maker-first execution, risk-first exits, loopback-safe deployment, and restrictive credential permissions | Superseded in part by 0006 |
-| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted |
+| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted — extended by 0025 |
 | [0006](0006-credential-permission-acceptance.md) | Accept operator-selected Coinbase keys with additional permissions | Accepted |
 | [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted |
 | [0008](0008-deterministic-signal-evaluation.md) | Version deterministic signal evaluation separately from request-only runs | Accepted |
@@ -30,6 +30,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0022](0022-complete-only-6h-datasets.md) | Complete-only 6h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
 | [0023](0023-complete-only-1d-datasets.md) | Complete-only 1d historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
 | [0024](0024-agent-data-loop-completeness-and-image-identity.md) | Fail-closed watch completeness and stale-image identity for every agent CLI | Accepted |
+| [0025](0025-multi-timeframe-htf-filter.md) | Optional HTF filter + LTF entry; research-only closed-bar alignment | Accepted |
 
 ## Status values
 

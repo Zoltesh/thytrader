@@ -2,12 +2,13 @@
 
 This roadmap sequences capabilities and safety gates. It is not a promise of dates. Each phase should produce a usable, tested vertical increment rather than a collection of disconnected scaffolds.
 
-## Current delivery focus: Phases 7+ (iterative)
+## Current delivery focus: Phases 9+ (iterative)
 
-Phases 0–6 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
-operator/data/research/runtime skills). **Thy Builder should implement the next unshipped
-Phase 7+ slice in order**, one vertical increment at a time. Phases 7–14 below are the
-definitive sequence (not a wish list). Detail: [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
+Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
+operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). **Thy
+Builder should implement the next unshipped Phase 9+ slice in order**, one vertical increment
+at a time. Phases 7–14 below are the definitive sequence (not a wish list). Detail:
+[agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
 Completed capability checklist (Phases 0–6):
@@ -64,10 +65,13 @@ Live venue billing is unchanged. Design:
 fields; submitted runs fingerprint rates; UI never claims observed Coinbase fills for
 research/paper costs.
 
-## Phase 8: Multi-timeframe strategy semantics — 📋 Planned
+## Phase 8: Multi-timeframe strategy semantics — ✅ Shipped (research HTF filter)
 
-Combined HTF + LTF conditions (schema + engines) beyond a single `timeframe` field. Requires
-Phase 7 datasets for the TFs involved.
+Optional `htf_filter` + LTF entry ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md)). Top-level
+`timeframe` remains the `1h`|`5m` decision clock. Research engines V1/V2/V3 evaluate last-completed
+HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strategies. 5m live remains
+Phase 13. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF candles are not in this
+slice.
 
 ## Phase 9: Wider fail-closed indicator catalog — 📋 Planned
 

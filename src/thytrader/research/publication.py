@@ -7,11 +7,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.research.multi_timeframe import htf_required_coverage
 from thytrader.strategies.models import StrategyStatus
 
 if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetManifest
     from thytrader.research.models import ResearchRunSpecification
+    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -31,30 +33,19 @@ def verify_research_run_eligibility(
     specification: ResearchRunSpecification,
     published_strategy: PublishedStrategy,
     manifest: DatasetManifest,
+    htf_manifest: DatasetManifest | None = None,
 ) -> None:
     """Fail closed unless exact verified artifacts cover the complete run contract."""
+    definition = published_strategy.definition
     if (
         specification.strategy_fingerprint != published_strategy.strategy_fingerprint
-        or published_strategy.definition.status is not StrategyStatus.PUBLISHED
+        or definition.status is not StrategyStatus.PUBLISHED
     ):
         raise ResearchRunPublicationError(
             "Research run strategy identity does not match the verified published strategy."
         )
-    if (
-        specification.dataset_fingerprint != manifest.content_fingerprint
-        or not manifest.complete
-        or manifest.provider != "coinbase"
-        or manifest.product_id != published_strategy.definition.instrument.product_id
-        or manifest.timeframe != published_strategy.definition.timeframe
-    ):
-        if not manifest.complete:
-            raise ResearchRunPublicationError(
-                "Research run dataset must be a verified complete immutable artifact."
-            )
-        raise ResearchRunPublicationError(
-            "Research run dataset identity does not match the verified strategy and request."
-        )
-    if specification.warmup.bars != published_strategy.definition.data_requirements.warmup_bars:
+    _require_decision_dataset(specification, definition, manifest)
+    if specification.warmup.bars != definition.data_requirements.warmup_bars:
         raise ResearchRunPublicationError(
             "Research run warmup bars do not match the published strategy requirement."
         )
@@ -70,7 +61,7 @@ def verify_research_run_eligibility(
         raise ResearchRunPublicationError(
             "Research run dataset does not provide the required warmup coverage."
         )
-    interval = parse_candle_interval(published_strategy.definition.timeframe)
+    interval = parse_candle_interval(definition.timeframe)
     try:
         required_fill_end = specification.evaluation.ends_at + interval.duration
     except OverflowError as error:
@@ -80,6 +71,74 @@ def verify_research_run_eligibility(
     if dataset_ends_at < required_fill_end:
         raise ResearchRunPublicationError(
             "Research run dataset lacks next-candle-open coverage for the final evaluation candle."
+        )
+    _require_htf_dataset(specification, definition, htf_manifest)
+
+
+def _require_decision_dataset(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    manifest: DatasetManifest,
+) -> None:
+    """Require the primary dataset to match the published LTF decision clock."""
+    if (
+        specification.dataset_fingerprint != manifest.content_fingerprint
+        or not manifest.complete
+        or manifest.provider != "coinbase"
+        or manifest.product_id != definition.instrument.product_id
+        or manifest.timeframe != definition.timeframe
+    ):
+        if not manifest.complete:
+            raise ResearchRunPublicationError(
+                "Research run dataset must be a verified complete immutable artifact."
+            )
+        raise ResearchRunPublicationError(
+            "Research run dataset identity does not match the verified strategy and request."
+        )
+
+
+def _require_htf_dataset(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    htf_manifest: DatasetManifest | None,
+) -> None:
+    """Require an HTF dataset fingerprint and coverage iff the strategy declares a filter."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        if specification.htf_dataset_fingerprint is not None:
+            raise ResearchRunPublicationError(
+                "Research run HTF dataset is not declared by the published strategy."
+            )
+        return
+    if specification.htf_dataset_fingerprint is None or htf_manifest is None:
+        raise ResearchRunPublicationError(
+            "Research run HTF dataset fingerprint is required for an HTF-filter strategy."
+        )
+    if (
+        specification.htf_dataset_fingerprint != htf_manifest.content_fingerprint
+        or not htf_manifest.complete
+        or htf_manifest.provider != "coinbase"
+        or htf_manifest.product_id != definition.instrument.product_id
+        or htf_manifest.timeframe != htf_filter.timeframe
+    ):
+        raise ResearchRunPublicationError(
+            "Research run HTF dataset identity does not match the verified strategy and request."
+        )
+    try:
+        htf_starts_at = _parse_canonical_utc(htf_manifest.starts_at)
+        htf_ends_at = _parse_canonical_utc(htf_manifest.ends_at)
+        required_start, required_end = htf_required_coverage(
+            evaluation_starts_at=specification.evaluation.starts_at,
+            evaluation_ends_at=specification.evaluation.ends_at,
+            htf_filter=htf_filter,
+        )
+    except ValueError as error:
+        raise ResearchRunPublicationError(
+            "Research run HTF dataset coverage timestamps are invalid."
+        ) from error
+    if htf_starts_at > required_start or htf_ends_at < required_end:
+        raise ResearchRunPublicationError(
+            "Research run HTF dataset does not provide the required closed-bar coverage."
         )
 
 

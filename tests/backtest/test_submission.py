@@ -40,6 +40,7 @@ class _RequestOverrides(TypedDict, total=False):
 
     strategy_fingerprint: str
     dataset_fingerprint: str
+    htf_dataset_fingerprint: str | None
     evaluation_start: datetime
     evaluation_end: datetime
     initial_quote_balance: str
@@ -189,6 +190,14 @@ def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
     assert fingerprint == f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
 
+def test_execution_fingerprint_includes_htf_dataset_only_when_present() -> None:
+    """HTF dataset identity is execution-significant and omitted from single-TF hashes."""
+    baseline = _request()
+    with_htf = _request(htf_dataset_fingerprint="sha256:" + "c" * 64)
+    assert _execution_fingerprint(baseline) == _execution_fingerprint(_request())
+    assert _execution_fingerprint(baseline) != _execution_fingerprint(with_htf)
+
+
 @pytest.mark.anyio
 async def test_submitter_rejects_forged_invalid_financial_input_before_io(
     monkeypatch: pytest.MonkeyPatch,
@@ -281,6 +290,7 @@ class _LoadedStrategyStore:
 
         class _Definition:
             timeframe = "1h"
+            htf_filter = None
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:

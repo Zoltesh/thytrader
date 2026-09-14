@@ -79,6 +79,48 @@ function indicatorText(indicator: IndicatorDraft): string {
 	return `${KIND_LABELS[indicator.kind]}(${indicator.parameters.period}) as "${indicator.id}"`;
 }
 
+function diffIndicators(
+	before: IndicatorDraft[],
+	after: IndicatorDraft[],
+	changes: FieldChange[],
+	labelPrefix: string
+): void {
+	const beforeIndicators = new Map(before.map((indicator) => [indicator.id, indicator]));
+	const afterIndicators = new Map(after.map((indicator) => [indicator.id, indicator]));
+	const pathPrefix = labelPrefix === 'HTF indicator' ? 'htf_filter.indicators' : 'indicators';
+	for (const [id, indicator] of afterIndicators) {
+		const previous = beforeIndicators.get(id);
+		if (previous === undefined) {
+			changes.push({
+				path: `${pathPrefix}.${id}`,
+				label: `${labelPrefix} "${id}"`,
+				from: '',
+				to: indicatorText(indicator),
+				kind: 'added'
+			});
+		} else if (indicatorText(previous) !== indicatorText(indicator)) {
+			changes.push({
+				path: `${pathPrefix}.${id}`,
+				label: `${labelPrefix} "${id}"`,
+				from: indicatorText(previous),
+				to: indicatorText(indicator),
+				kind: 'changed'
+			});
+		}
+	}
+	for (const [id, indicator] of beforeIndicators) {
+		if (!afterIndicators.has(id)) {
+			changes.push({
+				path: `${pathPrefix}.${id}`,
+				label: `${labelPrefix} "${id}"`,
+				from: indicatorText(indicator),
+				to: '',
+				kind: 'removed'
+			});
+		}
+	}
+}
+
 const FIELD_LABELS: Record<string, string> = {
 	name: 'Strategy name',
 	description: 'Description',
@@ -86,6 +128,10 @@ const FIELD_LABELS: Record<string, string> = {
 	timeframe: 'Timeframe',
 	warmup_bars: 'Warmup bars',
 	'entry.when': 'Entry conditions',
+	htf_filter: 'HTF filter',
+	'htf_filter.timeframe': 'HTF timeframe',
+	'htf_filter.warmup_bars': 'HTF warmup bars',
+	'htf_filter.when': 'HTF filter conditions',
 	cooldown_bars: 'Entry cooldown',
 	'sizing.risk_fraction': 'Risk fraction per trade',
 	'sizing.min_quote_notional': 'Minimum USD notional',
@@ -119,6 +165,30 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 	changed('timeframe', before.timeframe, after.timeframe);
 	changed('warmup_bars', String(before.warmup_bars), String(after.warmup_bars));
 	changed('entry.when', conditionToText(before.entry.when), conditionToText(after.entry.when));
+	changed(
+		'htf_filter',
+		before.htf_filter === null ? 'disabled' : 'enabled',
+		after.htf_filter === null ? 'disabled' : 'enabled'
+	);
+	if (before.htf_filter !== null && after.htf_filter !== null) {
+		changed('htf_filter.timeframe', before.htf_filter.timeframe, after.htf_filter.timeframe);
+		changed(
+			'htf_filter.warmup_bars',
+			String(before.htf_filter.warmup_bars),
+			String(after.htf_filter.warmup_bars)
+		);
+		changed(
+			'htf_filter.when',
+			conditionToText(before.htf_filter.when),
+			conditionToText(after.htf_filter.when)
+		);
+		diffIndicators(
+			before.htf_filter.indicators,
+			after.htf_filter.indicators,
+			changes,
+			'HTF indicator'
+		);
+	}
 	changed('cooldown_bars', String(before.cooldown_bars), String(after.cooldown_bars));
 	changed('sizing.risk_fraction', before.sizing.risk_fraction, after.sizing.risk_fraction);
 	changed(
@@ -172,39 +242,7 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 		after.execution.on_unfilled_entry
 	);
 
-	const beforeIndicators = new Map(before.indicators.map((indicator) => [indicator.id, indicator]));
-	const afterIndicators = new Map(after.indicators.map((indicator) => [indicator.id, indicator]));
-	for (const [id, indicator] of afterIndicators) {
-		const previous = beforeIndicators.get(id);
-		if (previous === undefined) {
-			changes.push({
-				path: `indicators.${id}`,
-				label: `Indicator "${id}"`,
-				from: '',
-				to: indicatorText(indicator),
-				kind: 'added'
-			});
-		} else if (indicatorText(previous) !== indicatorText(indicator)) {
-			changes.push({
-				path: `indicators.${id}`,
-				label: `Indicator "${id}"`,
-				from: indicatorText(previous),
-				to: indicatorText(indicator),
-				kind: 'changed'
-			});
-		}
-	}
-	for (const [id, indicator] of beforeIndicators) {
-		if (!afterIndicators.has(id)) {
-			changes.push({
-				path: `indicators.${id}`,
-				label: `Indicator "${id}"`,
-				from: indicatorText(indicator),
-				to: '',
-				kind: 'removed'
-			});
-		}
-	}
+	diffIndicators(before.indicators, after.indicators, changes, 'Indicator');
 
 	const order: Record<FieldChange['kind'], number> = { added: 0, changed: 1, removed: 2 };
 	changes.sort((a, b) => order[a.kind] - order[b.kind] || a.path.localeCompare(b.path));

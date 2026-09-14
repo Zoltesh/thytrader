@@ -52,7 +52,7 @@
 		type Deployment
 	} from '$lib/deployments';
 	import { semanticDiff, type SemanticDiff } from '$lib/strategy-diff';
-	import { plainEnglishSummary, validateDefinition } from '$lib/strategy-insight';
+	import { plainEnglishSummary, requiredDataText, validateDefinition } from '$lib/strategy-insight';
 
 	type VersionResultEntry = {
 		result_fingerprint: string;
@@ -93,6 +93,7 @@
 	let selectedStrategyFingerprint = $state('');
 	let launchForm = $state({
 		dataset_fingerprint: '',
+		htf_dataset_fingerprint: '',
 		evaluation_start: '',
 		evaluation_end: '',
 		initial_quote_balance: '10000',
@@ -353,6 +354,9 @@
 			const input: BacktestLaunchInput = {
 				strategy_fingerprint: selectedStrategyFingerprint,
 				dataset_fingerprint: launchForm.dataset_fingerprint,
+				...(launchForm.htf_dataset_fingerprint === ''
+					? {}
+					: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
 				evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
 				evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
 				initial_quote_balance: launchForm.initial_quote_balance,
@@ -384,10 +388,21 @@
 		try {
 			const datasets = await listDatasets();
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-			// The server returns one latest revision per market; filter to this one.
 			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === entry.product_id));
-			if (launchDatasets.length > 0) {
+			const ltf = viewModel?.timeframe ?? entry.timeframe;
+			const preferred = launchDatasets.find((dataset) => dataset.timeframe === ltf);
+			if (preferred !== undefined) {
+				selectLaunchDataset(preferred);
+			} else if (launchDatasets.length > 0) {
 				selectLaunchDataset(launchDatasets[0]);
+			}
+			const htfTimeframe = viewModel?.htf_filter?.timeframe;
+			if (htfTimeframe !== undefined) {
+				launchForm.htf_dataset_fingerprint =
+					launchDatasets.find((dataset) => dataset.timeframe === htfTimeframe)
+						?.content_fingerprint ?? '';
+			} else {
+				launchForm.htf_dataset_fingerprint = '';
 			}
 		} catch (caught) {
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
@@ -398,6 +413,17 @@
 			// next view stuck on "Loading verified datasets…".
 			launchDatasetsLoading = false;
 		}
+	}
+
+	function decisionLaunchDatasets(): Dataset[] {
+		const timeframe = viewModel?.timeframe ?? viewEntry?.timeframe;
+		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
+	}
+
+	function htfLaunchDatasets(): Dataset[] {
+		const timeframe = viewModel?.htf_filter?.timeframe;
+		if (timeframe === undefined) return [];
+		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
 	}
 
 	function selectLaunchDataset(dataset: Dataset): void {
@@ -595,6 +621,7 @@
 		launchDatasetsLoading = false;
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
+		launchForm.htf_dataset_fingerprint = '';
 		strategyDeployments = [];
 		deployError = null;
 		deployFingerprint = entry.latest_fingerprint ?? '';
@@ -1059,7 +1086,7 @@
 				<div class="view-block">
 					<h3>Required data</h3>
 					<p>
-						{viewModel.warmup_bars} completed {viewModel.timeframe} bars (OHLCV) before the first signal.
+						{requiredDataText(viewModel)}
 					</p>
 				</div>
 				<div class="view-block">
@@ -1090,15 +1117,19 @@
 								</select></label
 							>
 							<label
-								>Verified dataset
+								>Verified {viewEntry.timeframe} dataset
 								<select
 									bind:value={launchForm.dataset_fingerprint}
 									onchange={() => applyLaunchWindowDefaults()}
 								>
-									<option value="">Select a verified {viewEntry.product_id} dataset</option>
-									{#each launchDatasets as dataset (dataset.content_fingerprint)}
+									<option value=""
+										>Select a verified {viewEntry.product_id} {viewEntry.timeframe} dataset</option
+									>
+									{#each decisionLaunchDatasets() as dataset (dataset.content_fingerprint)}
 										<option value={dataset.content_fingerprint}
-											>{formatUtcInputValue(new Date(dataset.starts_at)).replace('T', ' ')} – {formatUtcInputValue(
+											>{dataset.timeframe} · {formatUtcInputValue(
+												new Date(dataset.starts_at)
+											).replace('T', ' ')} – {formatUtcInputValue(
 												new Date(dataset.ends_at)
 											).replace('T', ' ')} UTC</option
 										>
@@ -1108,10 +1139,36 @@
 									<small class="field-note">Loading verified datasets…</small>
 								{:else if launchDatasetError}
 									<small class="field-error" role="alert">{launchDatasetError}</small>
-								{:else if launchDatasets.length === 0}
-									<small class="field-note">No verified datasets match this market.</small>
+								{:else if decisionLaunchDatasets().length === 0}
+									<small class="field-note"
+										>No verified {viewEntry.timeframe} datasets match this market.</small
+									>
 								{/if}</label
 							>
+							{#if viewModel.htf_filter}
+								<label
+									>Verified {viewModel.htf_filter.timeframe} HTF dataset
+									<select bind:value={launchForm.htf_dataset_fingerprint}>
+										<option value=""
+											>Select a verified {viewModel.htf_filter.timeframe} dataset</option
+										>
+										{#each htfLaunchDatasets() as dataset (dataset.content_fingerprint)}
+											<option value={dataset.content_fingerprint}
+												>{dataset.timeframe} · {formatUtcInputValue(
+													new Date(dataset.starts_at)
+												).replace('T', ' ')} – {formatUtcInputValue(
+													new Date(dataset.ends_at)
+												).replace('T', ' ')} UTC</option
+											>
+										{/each}
+									</select>
+									{#if htfLaunchDatasets().length === 0}
+										<small class="field-note"
+											>No verified {viewModel.htf_filter.timeframe} HTF dataset for this market.</small
+										>
+									{/if}</label
+								>
+							{/if}
 						</div>
 						<div class="launch-grid">
 							<label
@@ -1215,6 +1272,7 @@
 							disabled={launching ||
 								selectedStrategyFingerprint === '' ||
 								launchForm.dataset_fingerprint === '' ||
+								(viewModel.htf_filter !== null && launchForm.htf_dataset_fingerprint === '') ||
 								launchForm.evaluation_start === '' ||
 								launchForm.evaluation_end === '' ||
 								launchForm.maker_fee_rate.trim() === '' ||
@@ -1494,6 +1552,7 @@
 				{/if}
 			{:else if viewEntry && researchTab === 'deploy'}
 				{@const strategyTimeframe = viewModel?.timeframe ?? viewEntry.timeframe}
+				{@const isHtfBlocked = viewModel?.htf_filter !== null}
 				{@const isLiveBlocked = deployMode === 'live' && strategyTimeframe !== '1h'}
 				<div class="view-block">
 					<h3>Deploy</h3>
@@ -1522,6 +1581,12 @@
 								</select></label
 							>
 						</div>
+						{#if isHtfBlocked}
+							<p class="view-problem" role="alert">
+								Paper and live reject HTF-filter strategies. Research V1/V2/V3 can evaluate the last
+								completed HTF bar; 5m live remains deferred.
+							</p>
+						{/if}
 						{#if isLiveBlocked}
 							<p class="view-problem" role="alert">
 								Live deployment requires 1h strategies. This strategy uses {strategyTimeframe} candles.
@@ -1538,7 +1603,7 @@
 							class="launch-button"
 							class:live-danger={deployMode === 'live'}
 							type="button"
-							disabled={deploying || !deployFingerprint || isLiveBlocked}
+							disabled={deploying || !deployFingerprint || isLiveBlocked || isHtfBlocked}
 							onclick={() => void deployStrategy()}
 						>
 							{deploying

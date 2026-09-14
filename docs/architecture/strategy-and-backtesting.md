@@ -22,7 +22,9 @@ PostgreSQL publication is binding-gated and every load reverifies both source ar
 
 The first executable [signal evaluator](signal-evaluation.md) requires
 `thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
-semantics, and emits a canonical per-candle entry-condition trace without lookahead. Historical
+semantics, and emits a canonical per-candle entry-condition trace without lookahead. Optional
+`htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
+Research V1/V2/V3 consume that signal stage. Paper and live reject HTF-filter strategies. Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
 [`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
 turns an eligible published run into an immutable long-only, single-position trade ledger, equity
@@ -58,13 +60,14 @@ ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspect
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
 `thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` engines actually consume (entry
-conditions, indicators, risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
+conditions, optional HTF filter, indicators, risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
 take profit, time exit) from declared schema fields those next-open engines ignore (entry cooldown,
 maker-only/marketable preference, entry wait and unfilled policy, trailing stops). `thytrader-bar-backtest-v3`
-consumes maker-only close-limit entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops,
+consumes the same HTF signal stage plus maker-only close-limit entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops,
 and resting take-profit, matching the paper worker. V2 alone supports an explicit constant-spread
 stress assumption. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
-does not. Trailing stops remain schema-present and disabled.
+does not. Trailing stops remain schema-present and disabled. Paper and live do not evaluate
+`htf_filter`.
 
 The library's read-only detail surface exposes Insight, Research, and Versions tabs for every
 strategy identity. Insight always shows the same summary, validation, warmup/data, unsaved/read-only
@@ -104,7 +107,8 @@ edit only fields supported by the current schema, validate errors before publica
 immutable version, select a verified dataset, submit a reproducible backtest, and open the resulting
 immutable evidence in the existing results screen.
 
-Backtest submission must name a published strategy fingerprint and verified dataset fingerprint;
+Backtest submission must name a published strategy fingerprint and verified dataset fingerprint
+(plus `htf_dataset_fingerprint` when the strategy declares `htf_filter`);
 the server derives or validates all execution identity inputs and returns a result/run identity. A
 browser or agent must not pass arbitrary code, bypass publication, mutate a published version, or
 turn backtest submission into a paper/live deployment.

@@ -218,8 +218,9 @@ withdrawal, leverage, derivatives, or optimization authority.
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
 1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d complete-only datasets are
-   implemented. Phase 7 data-loop hardening is also implemented. Strategy, paper, and live clocks
-   do not accept `15m`, `30m`, `6h`, or `1d`.
+   implemented. Phase 7 data-loop hardening is also implemented. `15m`/`30m`/`6h`/`1d` are not LTF,
+   paper, or live clocks. Phase 8 research may bind them as `htf_filter` datasets
+   ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, 15m, 30m, 6h, and 1d without weakening complete-only publication.
 3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 

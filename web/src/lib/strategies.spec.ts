@@ -1,12 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import {
 	archiveConfirmMessage,
+	latestDatasets,
 	PAPER_LIVE_STATUS_LEGEND,
 	PAPER_LIVE_STATUS_TITLE,
 	paperLiveStatusLabel,
 	paperLiveStatusTitle,
-	researchWindowHint
+	researchWindowHint,
+	validHtfTimeframes
 } from './strategies';
+
+describe('latestDatasets', () => {
+	it('keeps one latest revision per product and timeframe', () => {
+		const datasets = [
+			{
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				starts_at: '2026-01-01T00:00:00Z',
+				ends_at: '2026-02-01T00:00:00Z',
+				content_fingerprint: 'sha256:old1h'
+			},
+			{
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				starts_at: '2026-01-01T00:00:00Z',
+				ends_at: '2026-03-01T00:00:00Z',
+				content_fingerprint: 'sha256:new1h'
+			},
+			{
+				product_id: 'BTC-USD',
+				timeframe: '1d',
+				starts_at: '2026-01-01T00:00:00Z',
+				ends_at: '2026-03-01T00:00:00Z',
+				content_fingerprint: 'sha256:1d'
+			}
+		];
+		const latest = latestDatasets(datasets);
+		expect(latest.map((dataset) => dataset.content_fingerprint).sort()).toEqual([
+			'sha256:1d',
+			'sha256:new1h'
+		]);
+	});
+});
+
+describe('validHtfTimeframes', () => {
+	it('allows coarser integer multiples only', () => {
+		expect(validHtfTimeframes('5m')).toEqual(['15m', '30m', '1h', '6h', '1d']);
+		expect(validHtfTimeframes('1h')).toEqual(['6h', '1d']);
+		expect(validHtfTimeframes('15m')).toEqual([]);
+	});
+});
 
 describe('researchWindowHint', () => {
 	const bounds = { min: '2026-06-03T02:00', max: '2026-07-31T23:00' };

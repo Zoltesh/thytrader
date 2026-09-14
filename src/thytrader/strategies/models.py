@@ -24,6 +24,22 @@ from pydantic import (
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_CONDITION_DEPTH = 4
 _MAX_CONDITION_NODES = 64
+STRATEGY_DECISION_TIMEFRAMES: tuple[Literal["1h", "5m"], ...] = ("1h", "5m")
+STRATEGY_HTF_TIMEFRAMES: tuple[Literal["15m", "30m", "1h", "6h", "1d"], ...] = (
+    "15m",
+    "30m",
+    "1h",
+    "6h",
+    "1d",
+)
+_TIMEFRAME_SECONDS: dict[str, int] = {
+    "5m": 300,
+    "15m": 900,
+    "30m": 1_800,
+    "1h": 3_600,
+    "6h": 21_600,
+    "1d": 86_400,
+}
 
 
 def _decimal_text(value: str) -> str:
@@ -251,6 +267,60 @@ def _condition_tree_size(condition: ConditionNode) -> tuple[int, int]:
     )
 
 
+def _require_bounded_condition_tree(condition: ConditionGroup) -> None:
+    """Reject condition trees whose bounded grammar could exhaust consumers."""
+    node_count, depth = _condition_tree_size(condition)
+    if depth > _MAX_CONDITION_DEPTH:
+        raise ValueError(f"condition tree depth exceeds {_MAX_CONDITION_DEPTH}")
+    if node_count > _MAX_CONDITION_NODES:
+        raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
+
+
+def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return the closed-bar count required before one indicator produces a value."""
+    extra = 1 if indicator.kind is IndicatorKind.RSI else 0
+    return indicator.parameters.period + extra
+
+
+def _indicator_input_fields(
+    indicator: IndicatorDefinition,
+) -> tuple[str, ...]:
+    """Return the OHLCV fields one indicator consumes."""
+    if isinstance(indicator.input, str):
+        return (indicator.input,)
+    return indicator.input
+
+
+def _referenced_indicator_ids(condition: ConditionGroup) -> set[str]:
+    """Return every indicator identifier referenced by one condition tree."""
+    return {
+        operand.indicator
+        for comparison in _comparison_conditions(condition)
+        for operand in (comparison.left, comparison.right)
+        if isinstance(operand, IndicatorOperand)
+    }
+
+
+def timeframe_seconds(timeframe: str) -> int:
+    """Return the exact duration of one supported strategy timeframe in seconds."""
+    seconds = _TIMEFRAME_SECONDS.get(timeframe)
+    if seconds is None:
+        raise ValueError(f"unsupported strategy timeframe: {timeframe}")
+    return seconds
+
+
+def is_valid_htf_pair(decision_timeframe: str, htf_timeframe: str) -> bool:
+    """Return whether HTF is strictly coarser and an integer multiple of the LTF clock."""
+    try:
+        decision_seconds = timeframe_seconds(decision_timeframe)
+        htf_seconds = timeframe_seconds(htf_timeframe)
+    except ValueError:
+        return False
+    if htf_seconds <= decision_seconds:
+        return False
+    return htf_seconds % decision_seconds == 0
+
+
 class EntryDefinition(_FrozenModel):
     """Define conservative long-only entry intent and cooldown limits."""
 
@@ -262,12 +332,47 @@ class EntryDefinition(_FrozenModel):
     @model_validator(mode="after")
     def validate_condition_complexity(self) -> Self:
         """Reject condition trees whose bounded grammar could exhaust consumers."""
-        node_count, depth = _condition_tree_size(self.when)
-        if depth > _MAX_CONDITION_DEPTH:
-            raise ValueError(f"condition tree depth exceeds {_MAX_CONDITION_DEPTH}")
-        if node_count > _MAX_CONDITION_NODES:
-            raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
+        _require_bounded_condition_tree(self.when)
         return self
+
+
+class HigherTimeframeFilter(_FrozenModel):
+    """Optional closed-bar HTF filter AND-ed with LTF entry on the decision clock."""
+
+    timeframe: Literal["15m", "30m", "1h", "6h", "1d"]
+    data_requirements: DataRequirements
+    indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
+    when: ConditionGroup
+
+    @model_validator(mode="after")
+    def validate_htf_semantics(self) -> Self:
+        """Resolve HTF indicator identity, warmup, and bounded condition grammar."""
+        identifiers = [indicator.id for indicator in self.indicators]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("HTF indicator ids must be unique")
+        known = set(identifiers)
+        unknown = _referenced_indicator_ids(self.when) - known
+        if unknown:
+            raise ValueError(f"unknown HTF indicator references: {sorted(unknown)}")
+        required_fields = {
+            field for indicator in self.indicators for field in _indicator_input_fields(indicator)
+        }
+        if not required_fields.issubset(self.data_requirements.required_fields):
+            raise ValueError("HTF required_fields must include every HTF indicator input")
+        required_warmup = max(_indicator_min_warmup(indicator) for indicator in self.indicators)
+        if self.data_requirements.warmup_bars < required_warmup:
+            raise ValueError("HTF warmup_bars must cover the longest HTF indicator period")
+        _require_bounded_condition_tree(self.when)
+        return self
+
+
+class TimeframeDataRequirement(_FrozenModel):
+    """One product timeframe a published strategy must bind for research."""
+
+    timeframe: str
+    warmup_bars: int
+    required_fields: tuple[Literal["open", "high", "low", "close", "volume"], ...]
+    role: Literal["decision", "filter"]
 
 
 class RiskFractionSizing(_FrozenModel):
@@ -397,6 +502,7 @@ class StrategyDefinition(_FrozenModel):
     timeframe: Literal["1h", "5m"]
     data_requirements: DataRequirements
     indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
+    htf_filter: HigherTimeframeFilter | None = None
     entry: EntryDefinition
     sizing: RiskFractionSizing
     portfolio_limits: PortfolioLimits
@@ -428,46 +534,91 @@ class StrategyDefinition(_FrozenModel):
     @model_validator(mode="after")
     def validate_semantics(self) -> Self:
         """Resolve indicator references and enforce warmup sufficiency."""
-        identifiers = [indicator.id for indicator in self.indicators]
-        if len(identifiers) != len(set(identifiers)):
-            raise ValueError("indicator ids must be unique")
-        known = set(identifiers)
-        references = {
-            operand.indicator
-            for condition in _comparison_conditions(self.entry.when)
-            for operand in (condition.left, condition.right)
-            if isinstance(operand, IndicatorOperand)
-        }
-        references.add(self.exits.initial_stop.atr_indicator)
-        unknown = references - known
-        if unknown:
-            raise ValueError(f"unknown indicator references: {sorted(unknown)}")
-        atr = next(
-            (
-                indicator
-                for indicator in self.indicators
-                if indicator.id == self.exits.initial_stop.atr_indicator
-            ),
-            None,
-        )
-        if atr is None or atr.kind is not IndicatorKind.ATR:
-            raise ValueError("initial stop indicator must reference an ATR")
-        required_fields = {
-            field
-            for indicator in self.indicators
-            for field in (
-                (indicator.input,) if isinstance(indicator.input, str) else indicator.input
-            )
-        }
-        if not required_fields.issubset(self.data_requirements.required_fields):
-            raise ValueError("required_fields must include every indicator input")
-        required_warmup = max(
-            indicator.parameters.period + (1 if indicator.kind is IndicatorKind.RSI else 0)
-            for indicator in self.indicators
-        )
-        if self.data_requirements.warmup_bars < required_warmup:
-            raise ValueError("warmup_bars must cover the longest indicator period")
+        _validate_decision_indicators(self)
+        _validate_htf_filter(self)
         return self
+
+
+def _validate_decision_indicators(definition: StrategyDefinition) -> None:
+    """Resolve LTF indicator identity, warmup, and ATR-stop references."""
+    identifiers = [indicator.id for indicator in definition.indicators]
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("indicator ids must be unique")
+    known = set(identifiers)
+    references = _referenced_indicator_ids(definition.entry.when)
+    references.add(definition.exits.initial_stop.atr_indicator)
+    unknown = references - known
+    if unknown:
+        raise ValueError(f"unknown indicator references: {sorted(unknown)}")
+    atr = next(
+        (
+            indicator
+            for indicator in definition.indicators
+            if indicator.id == definition.exits.initial_stop.atr_indicator
+        ),
+        None,
+    )
+    if atr is None or atr.kind is not IndicatorKind.ATR:
+        raise ValueError("initial stop indicator must reference an ATR")
+    required_fields = {
+        field for indicator in definition.indicators for field in _indicator_input_fields(indicator)
+    }
+    if not required_fields.issubset(definition.data_requirements.required_fields):
+        raise ValueError("required_fields must include every indicator input")
+    required_warmup = max(_indicator_min_warmup(indicator) for indicator in definition.indicators)
+    if definition.data_requirements.warmup_bars < required_warmup:
+        raise ValueError("warmup_bars must cover the longest indicator period")
+
+
+def _validate_htf_filter(definition: StrategyDefinition) -> None:
+    """Reject HTF clocks that are not strictly coarser, or that reuse LTF indicator ids."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return
+    if not is_valid_htf_pair(definition.timeframe, htf_filter.timeframe):
+        raise ValueError(
+            "htf_filter.timeframe must be strictly coarser than the strategy decision "
+            "timeframe and an integer multiple of it"
+        )
+    overlap = {indicator.id for indicator in definition.indicators}.intersection(
+        {indicator.id for indicator in htf_filter.indicators}
+    )
+    if overlap:
+        raise ValueError(f"HTF indicator ids must not reuse decision indicators: {sorted(overlap)}")
+
+
+def expanded_data_requirements(
+    definition: StrategyDefinition,
+) -> tuple[TimeframeDataRequirement, ...]:
+    """Return every timeframe a research run must fingerprint and bind."""
+    decision = TimeframeDataRequirement(
+        timeframe=definition.timeframe,
+        warmup_bars=definition.data_requirements.warmup_bars,
+        required_fields=definition.data_requirements.required_fields,
+        role="decision",
+    )
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return (decision,)
+    return (
+        decision,
+        TimeframeDataRequirement(
+            timeframe=htf_filter.timeframe,
+            warmup_bars=htf_filter.data_requirements.warmup_bars,
+            required_fields=htf_filter.data_requirements.required_fields,
+            role="filter",
+        ),
+    )
+
+
+def decision_and_filter_indicators(
+    definition: StrategyDefinition,
+) -> tuple[IndicatorDefinition, ...]:
+    """Return LTF then HTF indicators in declaration order for traces and summaries."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return definition.indicators
+    return (*definition.indicators, *htf_filter.indicators)
 
 
 def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
@@ -476,6 +627,8 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
         definition.model_dump(mode="python", by_alias=True)
     )
     payload = validated.model_dump(mode="json", by_alias=True)
+    if payload.get("htf_filter") is None:
+        payload.pop("htf_filter", None)
     return json.dumps(
         payload,
         sort_keys=True,

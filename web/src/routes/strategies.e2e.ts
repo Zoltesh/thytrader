@@ -200,6 +200,7 @@ test('research window hint names the strategy timeframe instead of UTC hours', a
 				datasets: [
 					{
 						product_id: 'BTC-USD',
+						timeframe: '5m',
 						starts_at: '2026-06-01T00:00:00Z',
 						ends_at: '2026-08-01T00:00:00Z',
 						content_fingerprint: `sha256:${'f'.repeat(64)}`
@@ -700,6 +701,7 @@ test('research tab launches a backtest with engine and spread and lists version 
 				datasets: [
 					{
 						product_id: 'BTC-USD',
+						timeframe: '1h',
 						starts_at: '2026-06-01T00:00:00Z',
 						ends_at: '2026-08-01T00:00:00Z',
 						content_fingerprint: datasetFingerprint
@@ -1018,6 +1020,7 @@ test('research tab loads the latest dataset catalog when it opens', async ({ pag
 				datasets: [
 					{
 						product_id: 'BTC-USD',
+						timeframe: '1h',
 						starts_at: '2026-06-01T00:00:00Z',
 						ends_at: '2026-08-01T00:00:00Z',
 						content_fingerprint: datasetFingerprint

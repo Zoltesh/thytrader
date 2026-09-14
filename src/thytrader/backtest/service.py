@@ -11,6 +11,7 @@ from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestResult
     from thytrader.market_data.models import Candle
+    from thytrader.research.models import ResearchRunSpecification
     from thytrader.research.publication import PublishedResearchRunSpecification
     from thytrader.research.trace import SignalTrace
     from thytrader.strategies.publication import PublishedStrategy
@@ -69,10 +70,23 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     specification = published_run.specification
     published_strategy = await strategy_store.load(specification.strategy_fingerprint)
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
-    trace = evaluate_signal_trace(specification, published_strategy.definition, candles)
-    result = simulate_backtest(specification, published_strategy.definition, candles)
+    htf_candles = _optional_htf_candles(dataset_store, specification)
+    trace = evaluate_signal_trace(
+        specification, published_strategy.definition, candles, htf_candles
+    )
+    result = simulate_backtest(specification, published_strategy.definition, candles, htf_candles)
     if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
         raise RuntimeError(
             "Backtest trace identity did not match the authoritative signal evaluation."
         )
     return await result_store.publish(result, trace=trace)
+
+
+def _optional_htf_candles(
+    dataset_store: VerifiedCandleReader, specification: ResearchRunSpecification
+) -> tuple[Candle, ...]:
+    """Load the HTF dataset when the research run fingerprints one."""
+    fingerprint = specification.htf_dataset_fingerprint
+    if fingerprint is None:
+        return ()
+    return dataset_store.load_candles(fingerprint)

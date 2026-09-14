@@ -132,6 +132,13 @@ export type ConditionDraft =
 	| { any: ConditionDraft[] }
 	| { not: ConditionDraft };
 
+export type HtfFilterDraft = {
+	timeframe: string;
+	warmup_bars: number;
+	indicators: IndicatorDraft[];
+	when: ConditionDraft;
+};
+
 export type BuilderModel = {
 	strategy_id: string;
 	version: number;
@@ -145,6 +152,7 @@ export type BuilderModel = {
 	timeframe: string;
 	warmup_bars: number;
 	indicators: IndicatorDraft[];
+	htf_filter: HtfFilterDraft | null;
 	entry: { when: ConditionDraft };
 	sizing: { risk_fraction: string; min_quote_notional: string; max_quote_notional: string };
 	portfolio_limits: { max_strategy_exposure_fraction: string };
@@ -165,29 +173,80 @@ export type BuilderModel = {
 
 export type Dataset = {
 	product_id: string;
+	timeframe: string;
 	starts_at: string;
 	ends_at: string;
 	content_fingerprint: string;
 };
 
+const TIMEFRAME_SECONDS: Record<string, number> = {
+	'5m': 300,
+	'15m': 900,
+	'30m': 1_800,
+	'1h': 3_600,
+	'6h': 21_600,
+	'1d': 86_400
+};
+
+const HTF_TIMEFRAMES = ['15m', '30m', '1h', '6h', '1d'] as const;
+
 /**
- * Collapse verified cumulative revisions to one latest dataset per product.
- * Every revision of a product shares its start and grows its end, so the
- * newest `ends_at` (tiebroken by candle count) is a strict superset.
+ * Return HTF clocks that are strictly coarser integer multiples of the LTF decision clock.
+ */
+export function validHtfTimeframes(decisionTimeframe: string): string[] {
+	if (decisionTimeframe !== '1h' && decisionTimeframe !== '5m') return [];
+	const decisionSeconds = TIMEFRAME_SECONDS[decisionTimeframe];
+	if (decisionSeconds === undefined) return [];
+	return HTF_TIMEFRAMES.filter((timeframe) => {
+		const seconds = TIMEFRAME_SECONDS[timeframe];
+		return seconds > decisionSeconds && seconds % decisionSeconds === 0;
+	});
+}
+
+/**
+ * Seed a conservative HTF trend filter when the operator enables the optional block.
+ */
+export function defaultHtfFilter(decisionTimeframe: string): HtfFilterDraft {
+	const timeframes = validHtfTimeframes(decisionTimeframe);
+	const timeframe = timeframes.includes('1h') ? '1h' : (timeframes[0] ?? '6h');
+	return {
+		timeframe,
+		warmup_bars: 50,
+		indicators: [
+			{ id: 'htf_ema_fast', kind: 'ema', input: 'close', parameters: { period: 20 } },
+			{ id: 'htf_ema_slow', kind: 'ema', input: 'close', parameters: { period: 50 } }
+		],
+		when: {
+			all: [
+				{
+					left: { indicator: 'htf_ema_fast' },
+					operator: 'greater_than',
+					right: { indicator: 'htf_ema_slow' }
+				}
+			]
+		}
+	};
+}
+
+/**
+ * Collapse verified cumulative revisions to one latest dataset per product and timeframe.
+ * Every revision of a product/timeframe shares its start and grows its end, so the
+ * newest `ends_at` (tiebroken by earlier `starts_at`) is a strict superset.
  */
 export function latestDatasets(datasets: Dataset[]): Dataset[] {
-	const byProduct = new Map<string, Dataset>();
+	const byMarket = new Map<string, Dataset>();
 	for (const dataset of datasets) {
-		const current = byProduct.get(dataset.product_id);
+		const key = `${dataset.product_id}:${dataset.timeframe}`;
+		const current = byMarket.get(key);
 		if (
 			current === undefined ||
 			dataset.ends_at > current.ends_at ||
 			(dataset.ends_at === current.ends_at && dataset.starts_at < current.starts_at)
 		) {
-			byProduct.set(dataset.product_id, dataset);
+			byMarket.set(key, dataset);
 		}
 	}
-	return [...byProduct.values()];
+	return [...byMarket.values()];
 }
 
 /**
@@ -297,6 +356,23 @@ export async function fetchDraftVersion(
 	);
 }
 
+function toHtfFilterDraft(raw: unknown): HtfFilterDraft | null {
+	if (raw === null || raw === undefined || typeof raw !== 'object') return null;
+	const filter = raw as {
+		timeframe?: string;
+		data_requirements?: { warmup_bars?: number };
+		indicators?: IndicatorDraft[];
+		when?: ConditionDraft;
+	};
+	if (filter.timeframe === undefined || filter.when === undefined) return null;
+	return {
+		timeframe: filter.timeframe,
+		warmup_bars: filter.data_requirements?.warmup_bars ?? 50,
+		indicators: filter.indicators ?? [],
+		when: filter.when
+	};
+}
+
 export function toBuilderModel(strategy: StrategyDraft, revision: number): BuilderModel {
 	const entry = strategy.entry as { when: ConditionDraft; cooldown_bars: number };
 	const exits = strategy.exits as BuilderModel['exits'];
@@ -313,6 +389,7 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
 		indicators: (strategy.indicators as IndicatorDraft[]) ?? [],
+		htf_filter: toHtfFilterDraft(strategy.htf_filter),
 		entry: { when: entry.when },
 		sizing: {
 			risk_fraction: strategy.sizing.risk_fraction,
@@ -349,6 +426,19 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			required_fields: ['open', 'high', 'low', 'close', 'volume']
 		},
 		indicators: model.indicators,
+		...(model.htf_filter === null
+			? {}
+			: {
+					htf_filter: {
+						timeframe: model.htf_filter.timeframe,
+						data_requirements: {
+							warmup_bars: model.htf_filter.warmup_bars,
+							required_fields: ['open', 'high', 'low', 'close', 'volume']
+						},
+						indicators: model.htf_filter.indicators,
+						when: model.htf_filter.when
+					}
+				}),
 		entry: {
 			side: 'long',
 			when: model.entry.when,
@@ -437,6 +527,7 @@ export async function reviseStrategy(
 export type BacktestLaunchInput = {
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
+	htf_dataset_fingerprint?: string;
 	evaluation_start: string;
 	evaluation_end: string;
 	initial_quote_balance: string;

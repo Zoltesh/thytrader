@@ -135,11 +135,12 @@ def simulate_backtest(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
+    htf_candles: Sequence[Candle] = (),
 ) -> BacktestResult:
     """Simulate under a private Decimal64 context that ignores ambient process settings."""
     try:
         with localcontext(_SIMULATION_CONTEXT):
-            return _simulate_backtest(specification, strategy, candles)
+            return _simulate_backtest(specification, strategy, candles, htf_candles)
     except (DecimalException, ValueError) as error:
         if isinstance(error, BacktestSimulationError):
             raise
@@ -152,16 +153,17 @@ def _simulate_backtest(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
 ) -> BacktestResult:
     """Simulate one published strategy with next-open taker fills and conservative OHLC exits."""
     specification, strategy = _validated_inputs(specification, strategy)
     if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
-        return _simulate_maker_backtest(specification, strategy, candles)
+        return _simulate_maker_backtest(specification, strategy, candles, htf_candles)
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     fill_model = _fill_model(specification)
     try:
-        trace = evaluate_signal_trace(specification, strategy, candles)
+        trace = evaluate_signal_trace(specification, strategy, candles, htf_candles)
     except SignalEvaluationError as error:
         raise BacktestSimulationError("Backtest signal inputs could not be verified.") from error
     candle_by_start = _candle_map(specification, candles, interval)
@@ -315,13 +317,14 @@ def _simulate_maker_backtest(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
 ) -> BacktestResult:
     """Simulate resting close-limit entries, unfilled expiry, and worker-ordered exits."""
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     fill_model = _fill_model(specification)
     try:
-        trace = evaluate_signal_trace(specification, strategy, candles)
+        trace = evaluate_signal_trace(specification, strategy, candles, htf_candles)
     except SignalEvaluationError as error:
         raise BacktestSimulationError("Backtest signal inputs could not be verified.") from error
     candle_by_start = _candle_map(specification, candles, interval)

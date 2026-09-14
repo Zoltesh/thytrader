@@ -34,15 +34,17 @@ creates a different run fingerprint even when every other request field is uncha
 
 ## Candle and evaluation rules
 
-The evaluator selects exactly the contiguous hourly candles in
+The evaluator selects exactly the contiguous decision-timeframe candles in
 `[warmup.starts_at, evaluation.ends_at)`. Warmup candles advance indicator state but emit no trace
 records. Each candle in `[evaluation.starts_at, evaluation.ends_at)` emits exactly one trace record.
 The extra candle required by run publication for a possible next-open fill is never supplied to the
-indicator or condition calculation.
+indicator or condition calculation. When `htf_filter` is present, HTF indicators are calculated on
+the required closed HTF bars and held onto each LTF close from the last completed HTF bar (never a
+partial HTF bar). Combined entry is the tri-state AND of HTF `when` and LTF `entry.when`.
 
 Before calculation, every selected candle must:
 
-- occur at its exact expected UTC one-hour boundary;
+- occur at its exact expected UTC decision-timeframe candle boundary;
 - have finite Decimal OHLCV values with at most 64 significant digits and adjusted exponent in
   `[-6143, 6144]`;
 - have strictly positive open, high, low, and close values;
@@ -130,7 +132,8 @@ Each trace records:
 
 - schema and executable engine-contract version;
 - exact run, strategy, and dataset fingerprints;
-- the identity-bearing exact indicator-ID sequence copied from the published strategy;
+- the identity-bearing exact indicator-ID sequence copied from the published strategy (LTF then HTF
+  when a filter is present);
 - one unique, strictly increasing record per evaluation candle;
 - every declared indicator's canonical value or explicit `null` exactly once in that sequence; and
 - the final entry-condition outcome: `matched`, `not_matched`, or `undefined`.

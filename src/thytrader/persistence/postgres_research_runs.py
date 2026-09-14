@@ -202,11 +202,21 @@ class PostgresResearchRunStore:
             )
             published_strategy = await self._strategy_store.load(specification.strategy_fingerprint)
             manifest = dataset_store.load_manifest(specification.dataset_fingerprint)
+            htf_manifest = None
+            if specification.htf_dataset_fingerprint is not None:
+                await self._strategy_store.load_binding(
+                    specification.strategy_fingerprint,
+                    specification.htf_dataset_fingerprint,
+                    dataset_store=dataset_store,
+                )
+                htf_manifest = dataset_store.load_manifest(specification.htf_dataset_fingerprint)
         except (DatasetStoreError, OSError, StrategyPublicationError, ValueError) as error:
             raise ResearchRunPublicationError(
                 "Research run artifact binding could not be verified."
             ) from error
-        verify_research_run_eligibility(specification, published_strategy, manifest)
+        verify_research_run_eligibility(
+            specification, published_strategy, manifest, htf_manifest=htf_manifest
+        )
 
 
 def _validated_specification(

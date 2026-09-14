@@ -108,6 +108,7 @@ trading authority.
 - `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification. The HTTP wrapper also projects the source run's published `CostAssumptions` (`maker_fee_rate`, `taker_fee_rate`, `fixed_slippage_bps`) as a sibling `costs` field when the store can reload that run. That projection is not part of canonical result bytes and must not be presented as observed Coinbase fees.
 - `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns a versioned `thytrader-buy-and-hold-v1` comparison derived from the same reverified result, source run, and immutable dataset. It buys at the first evaluation candle open, marks at completed evaluation closes, and liquidates at the published final next-open boundary using the source run's taker fee, fixed slippage, and the run's V1/V2/V3 fill model. The response includes source identities, entry/exit evidence, modeled costs, return, maximum drawdown, and a canonical `benchmark_fingerprint` covering every other derived field; the API revalidates that identity before serialization. It is not part of canonical result bytes.
 - `POST /api/v1/backtests` requires an immutable strategy fingerprint, verified dataset fingerprint,
+  optional `htf_dataset_fingerprint` when the strategy declares `htf_filter`,
   exact UTC evaluation period, capital, maker/taker fees, fixed slippage, and an explicit V1, V2, or
   V3 engine contract. V1 and V3 reject a spread field; V2 requires a bounded constant `spread_bps`
   value. V3 publishes the post-only resting-limit broker block. Equivalent browser and CLI assumptions
@@ -119,12 +120,16 @@ trading authority.
 
 The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. A submission whose evaluation window cannot fit the selected dataset (missing warmup coverage before the window, or missing next-candle-open coverage after it) is a caller error, not an outage: `POST /api/v1/backtests` answers `422 backtest_window_rejected` with a plain-language explanation, and only genuine infrastructure failures keep the redacted `503`. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
 
-The strategies page collapses cumulative dataset revisions to the latest verified revision per product (each worker publication extends the same start with a later end, so the newest revision is a strict superset), bounds the evaluation inputs from the selected dataset and the strategy warmup, and shows the usable window inline.
+The strategies page collapses cumulative dataset revisions to the latest verified revision per
+product and timeframe, bounds the evaluation inputs from the selected LTF dataset and the strategy
+warmup, requires a second HTF dataset fingerprint when `htf_filter` is present, and shows the usable
+window inline.
 
 ## Explicitly not in this slice
 
 - observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
+- paper/live evaluation of `htf_filter` (research V1/V2/V3 only in this slice);
 - trailing stops;
 - sensitivity analysis, out-of-sample partitioning, parameter sweeps, or walk-forward workflows;
 - paper broker, exchange adapters, Coinbase submission, or live execution.
