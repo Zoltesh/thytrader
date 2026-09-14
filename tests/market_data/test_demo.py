@@ -75,6 +75,44 @@ def test_demo_thirty_minute_range_is_complete() -> None:
     assert report.quality.gap_count == 0
 
 
+def test_demo_six_hour_range_is_complete() -> None:
+    """Demo 6h ranges are complete synthetic bars, never interpolated."""
+    starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 8, 2, 0, tzinfo=UTC)
+    report = asyncio.run(
+        DemoMarketData().get_historical_range(
+            "ETH-USD",
+            CandleInterval.SIX_HOURS,
+            starts_at,
+            ends_at,
+            datetime(2026, 8, 2, 6, tzinfo=UTC),
+        )
+    )
+    assert report.complete is True
+    assert report.requested_candle_count == 4
+    assert report.quality.gap_count == 0
+    assert tuple(candle.starts_at.hour for candle in report.quality.candles) == (0, 6, 12, 18)
+
+
+def test_demo_six_hour_excludes_the_open_bar() -> None:
+    """An unfinished 6h bar is excluded; the UTC day is then incomplete."""
+    starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 8, 2, 0, tzinfo=UTC)
+    report = asyncio.run(
+        DemoMarketData().get_historical_range(
+            "ETH-USD",
+            CandleInterval.SIX_HOURS,
+            starts_at,
+            ends_at,
+            datetime(2026, 8, 1, 20, tzinfo=UTC),
+        )
+    )
+    assert report.complete is False
+    assert report.requested_candle_count == 4
+    assert report.quality.candle_count == 3
+    assert tuple(candle.starts_at.hour for candle in report.quality.candles) == (0, 6, 12)
+
+
 def test_demo_five_minute_range_covers_more_than_legacy_interval_cap() -> None:
     """Demo 5m history past 4,032 bars stays complete synthetic coverage, not interpolated."""
     starts_at = datetime(2026, 8, 1, 0, tzinfo=UTC)

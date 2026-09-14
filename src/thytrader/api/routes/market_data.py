@@ -229,7 +229,7 @@ def _browser_dataset_timeframe(value: str) -> DatasetTimeframe:
     try:
         return as_dataset_timeframe(parse_candle_interval(value))
     except ValueError as error:
-        raise ValueError("Dataset timeframe is not 1h, 5m, 15m, or 30m.") from error
+        raise ValueError("Dataset timeframe is not 1h, 5m, 15m, 30m, or 6h.") from error
 
 
 def _to_preview_response(preview: MarketDataPreview) -> MarketDataPreviewResponse:

@@ -21,7 +21,7 @@ evidence are not that memory system.
 - Skills: `thytrader-operator` (read-only), `thytrader-data` (watchlist / ingest /
   gaps), `thytrader-research` (draft → publish → backtest), `thytrader-runtime`
   (paper/live with `--confirm`; live also `--i-understand-live`).
-- Market data: complete-only Parquet for **1h**, **5m**, **15m**, and **30m**; `inspect-gaps` /
+- Market data: complete-only Parquet for **1h**, **5m**, **15m**, **30m**, and **6h**; `inspect-gaps` /
   `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m` (live `1h`).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA only.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
@@ -37,7 +37,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill |
-| Data coverage | 6h / 1d deferred; 15m and 30m datasets shipped (not strategy clocks); agents babysit watchlist → ingest → gaps |
+| Data coverage | 1d deferred; 15m, 30m, and 6h datasets shipped (not strategy clocks); agents babysit watchlist → ingest → gaps |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Tiny fail-closed catalog; no broad TA passthrough |
 | Multi-timeframe | One `timeframe` per strategy; no HTF filter + LTF entry semantics |
@@ -77,8 +77,8 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 ## Build order (roadmap Phases 7–14)
 
-1. **Phase 7** — Remaining timeframes after 15m/30m datasets: 6h, 1d + data-loop harden.
-   15m and 30m complete-only ingest/publish/verify/catalog are shipped; they are not
+1. **Phase 7** — Remaining timeframes after 15m/30m/6h datasets: 1d + data-loop harden.
+   15m, 30m, and 6h complete-only ingest/publish/verify/catalog are shipped; they are not
    strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Multi-timeframe strategy semantics.

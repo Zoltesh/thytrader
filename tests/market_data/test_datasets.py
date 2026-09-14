@@ -15,7 +15,7 @@ import pytest
 from thytrader.market_data import datasets as dataset_module
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
-from thytrader.market_data.quality import analyze_range
+from thytrader.market_data.quality import CandleQualityError, analyze_range
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -152,6 +152,74 @@ def test_dataset_store_writes_complete_thirty_minute_range(tmp_path: Path) -> No
     assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "30m")
     loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
     assert loaded == candles
+
+
+def test_dataset_store_writes_complete_six_hour_range(tmp_path: Path) -> None:
+    """Six-hour complete ranges publish under the 6h partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(hours=6 * index)) for index in range(4))
+    report = analyze_range(
+        candles,
+        CandleInterval.SIX_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=30),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "6h"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "6h")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+    assert len(loaded) == 4
+
+
+def test_dataset_store_rejects_incomplete_six_hour_utc_day(tmp_path: Path) -> None:
+    """A UTC day missing one of four 6h candles is a hole, not a complete dataset."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(hours=6 * index)) for index in (0, 1, 3))
+    report = analyze_range(
+        candles,
+        CandleInterval.SIX_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=30),
+    )
+    assert report.complete is False
+    with pytest.raises(DatasetStoreError, match="complete"):
+        DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+
+
+def test_dataset_store_rejects_misaligned_six_hour_evidence() -> None:
+    """A 6h range that is not an exact multiple of six hours cannot publish."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    with pytest.raises(CandleQualityError, match="align"):
+        analyze_range(
+            (_candle_at(starts_at),),
+            CandleInterval.SIX_HOURS,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+            now=starts_at + timedelta(hours=12),
+        )
+
+
+def test_dataset_store_rejects_mixed_six_hour_manifest_timeframe(tmp_path: Path) -> None:
+    """A 6h Parquet island labeled as 1h must fail verification."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(hours=6 * index)) for index in range(4))
+    report = analyze_range(
+        candles,
+        CandleInterval.SIX_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=30),
+    )
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "ETH-USD", report)
+    manifest_body = json.loads(written.manifest_path.read_text())
+    manifest_body["timeframe"] = "1h"
+    written.manifest_path.write_text(json.dumps(manifest_body))
+    with pytest.raises(DatasetStoreError):
+        store.load_verified(written.manifest_path)
 
 
 def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:

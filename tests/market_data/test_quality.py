@@ -211,3 +211,61 @@ def test_missing_interval_starts_lists_absent_thirty_minute_bars() -> None:
         ends_at,
     )
     assert missing == (starts_at + timedelta(minutes=30),)
+
+
+def test_missing_interval_starts_lists_absent_six_hour_bars() -> None:
+    """6h gap inspection lists missing starts without interpolating prices."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 28, 18, 0, tzinfo=UTC)
+    present = (
+        Candle(
+            starts_at=starts_at,
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+        Candle(
+            starts_at=starts_at + timedelta(hours=12),
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        ),
+    )
+    missing = missing_interval_starts(
+        present,
+        CandleInterval.SIX_HOURS,
+        starts_at,
+        ends_at,
+    )
+    assert missing == (starts_at + timedelta(hours=6),)
+
+
+def test_quality_excludes_open_six_hour_bar_from_a_utc_day() -> None:
+    """A complete 6h UTC day is four closed bars; the open bar is not published."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    candles = tuple(
+        Candle(
+            starts_at=starts_at + timedelta(hours=6 * index),
+            open=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("90"),
+            close=Decimal("105"),
+            volume=Decimal("12.5"),
+        )
+        for index in range(4)
+    )
+    report = analyze_range(
+        candles,
+        CandleInterval.SIX_HOURS,
+        starts_at,
+        starts_at + timedelta(hours=24),
+        now=datetime(2026, 7, 28, 20, tzinfo=UTC),
+    )
+    assert report.complete is False
+    assert report.requested_candle_count == 4
+    assert report.quality.candle_count == 3
+    assert report.quality.gap_count == 0

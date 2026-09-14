@@ -18,8 +18,8 @@ Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
 Supported research and paper timeframes: `1h` and `5m`. Live stays on `1h`. Dataset ingest also
-supports `15m` and `30m` under the same complete-only contract. Do not start 5m live. Do not treat
-`15m` or `30m` as a strategy, paper, or live clock.
+supports `15m`, `30m`, and `6h` under the same complete-only contract. Do not start 5m live. Do not
+treat `15m`, `30m`, or `6h` as a strategy, paper, or live clock.
 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
@@ -54,7 +54,7 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days) and may be set up to
 2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). Fifteen-minute
 ingest covers the same lookback (8,640 bars). Thirty-minute ingest covers the same lookback
-(4,320 bars). Initial
+(4,320 bars). Six-hour ingest covers the same lookback (360 bars). Initial
 backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
 days stay holes. When lookback starts before an existing complete island, the worker prepends
 complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. `inspect-gaps` classifies
@@ -83,7 +83,7 @@ Gap `cause` values:
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
    Judge `watch_complete`, not only `complete`.
-2. `watch-add` then `ingest` for a new product, `5m`, `15m`, or `30m`. Wait for the CLI poll; do not treat 202 as
+2. `watch-add` then `ingest` for a new product, `5m`, `15m`, `30m`, or `6h`. Wait for the CLI poll; do not treat 202 as
    published Parquet.
 3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate.
 4. `fill-gaps --confirm` to retry complete-only publication, including prefix backfill.

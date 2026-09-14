@@ -55,7 +55,7 @@ async def main() -> None:
         product_id="BTC-USD",
         lookback_hours=3,
         interval_seconds=60,
-        now_factory=lambda: datetime.now(UTC),
+        now_factory=lambda: datetime(2026, 7, 29, 12, tzinfo=UTC),
         on_readiness_changed=readiness,
     )
 
