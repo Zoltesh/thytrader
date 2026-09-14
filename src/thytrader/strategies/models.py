@@ -132,6 +132,9 @@ class IndicatorKind(StrEnum):
     HIGHEST = "highest"
     LOWEST = "lowest"
     STDEV = "stdev"
+    ROC = "roc"
+    WILLIAMS_R = "williams_r"
+    CCI = "cci"
 
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
@@ -142,8 +145,13 @@ _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volum
     IndicatorKind.HIGHEST: "high",
     IndicatorKind.LOWEST: "low",
     IndicatorKind.STDEV: "close",
+    IndicatorKind.ROC: "close",
 }
-_SHORT_PERIOD_KINDS = frozenset({IndicatorKind.RSI, IndicatorKind.ATR})
+_HLC_INPUT_KINDS = frozenset({IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI})
+_SHORT_PERIOD_KINDS = frozenset(
+    {IndicatorKind.RSI, IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI}
+)
+_LOOKBACK_WARMUP_KINDS = frozenset({IndicatorKind.RSI, IndicatorKind.ROC})
 
 
 class IndicatorDefinition(_FrozenModel):
@@ -167,9 +175,13 @@ class IndicatorDefinition(_FrozenModel):
         maximum = 100 if self.kind in _SHORT_PERIOD_KINDS else 500
         if self.parameters.period > maximum:
             raise ValueError(f"{self.kind.name} period exceeds {maximum}")
-        if self.kind is IndicatorKind.ATR:
+        if self.kind in _HLC_INPUT_KINDS:
             if self.input != ("high", "low", "close"):
-                raise ValueError("ATR input must be high, low, close in canonical order")
+                if self.kind is IndicatorKind.ATR:
+                    raise ValueError("ATR input must be high, low, close in canonical order")
+                raise ValueError(
+                    f"{self.kind.value} input must be high, low, close in canonical order"
+                )
             return self
         expected = _SINGLE_SOURCE_INPUT[self.kind]
         if self.input != expected:
@@ -292,7 +304,7 @@ def _require_bounded_condition_tree(condition: ConditionGroup) -> None:
 
 def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
     """Return the closed-bar count required before one indicator produces a value."""
-    extra = 1 if indicator.kind is IndicatorKind.RSI else 0
+    extra = 1 if indicator.kind in _LOOKBACK_WARMUP_KINDS else 0
     return indicator.parameters.period + extra
 
 

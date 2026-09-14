@@ -169,7 +169,9 @@
 
 	/** Keep each indicator's fixed input aligned with its kind, as the schema demands. */
 	function indicatorInputFor(kind: IndicatorDraft['kind']): IndicatorInput {
-		if (kind === 'atr') return ['high', 'low', 'close'];
+		if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
+			return ['high', 'low', 'close'];
+		}
 		if (kind === 'volume_sma') return 'volume';
 		if (kind === 'highest') return 'high';
 		if (kind === 'lowest') return 'low';
@@ -177,7 +179,7 @@
 	}
 
 	function indicatorPeriodMax(kind: IndicatorDraft['kind']): number {
-		return kind === 'rsi' || kind === 'atr' ? 100 : 500;
+		return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
 	}
 
 	function onIndicatorKindChange(indicator: IndicatorDraft): void {

@@ -82,7 +82,7 @@ const MAX_CONDITION_NODES = 64;
 type IndicatorLike = { id: string; kind: string; input: unknown; parameters: { period: number } };
 
 function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
-	if (indicator.kind === 'atr') {
+	if (indicator.kind === 'atr' || indicator.kind === 'williams_r' || indicator.kind === 'cci') {
 		return (
 			Array.isArray(indicator.input) &&
 			indicator.input.length === 3 &&
@@ -95,6 +95,14 @@ function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 	if (indicator.kind === 'highest') return indicator.input === 'high';
 	if (indicator.kind === 'lowest') return indicator.input === 'low';
 	return indicator.input === 'close';
+}
+
+function indicatorPeriodMax(kind: string): number {
+	return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
+}
+
+function indicatorWarmupBars(kind: string, period: number): number {
+	return kind === 'rsi' || kind === 'roc' ? period + 1 : period;
 }
 
 export function validateDefinition(model: BuilderModel): string[] {
@@ -119,13 +127,13 @@ export function validateDefinition(model: BuilderModel): string[] {
 			);
 		}
 		const period = Number(indicator.parameters.period);
-		const maximum = indicator.kind === 'rsi' || indicator.kind === 'atr' ? 100 : 500;
+		const maximum = indicatorPeriodMax(indicator.kind);
 		if (!Number.isInteger(period) || period < 2 || period > maximum) {
 			problems.push(
 				`Indicator "${indicator.id}" period must be an integer between 2 and ${maximum}.`
 			);
 		}
-		warmupNeeded.set(indicator.id, indicator.kind === 'rsi' ? period + 1 : period);
+		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator.kind, period));
 	}
 	problems.push(...validateCondition(model.entry.when, ids, 'Entry'));
 	if (model.htf_filter !== null) {
@@ -231,13 +239,13 @@ function validateHtfFilter(
 			);
 		}
 		const period = Number(indicator.parameters.period);
-		const maximum = indicator.kind === 'rsi' || indicator.kind === 'atr' ? 100 : 500;
+		const maximum = indicatorPeriodMax(indicator.kind);
 		if (!Number.isInteger(period) || period < 2 || period > maximum) {
 			problems.push(
 				`HTF indicator "${indicator.id}" period must be an integer between 2 and ${maximum}.`
 			);
 		}
-		warmupNeeded.set(indicator.id, indicator.kind === 'rsi' ? period + 1 : period);
+		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator.kind, period));
 	}
 	problems.push(...validateCondition(filter.when, htfIds, 'HTF filter'));
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
@@ -368,7 +376,8 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		note: 'evaluated on completed candles, no lookahead'
 	},
 	{
-		label: 'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev',
+		label:
+			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI',
 		v1: true,
 		v2: true,
 		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter'

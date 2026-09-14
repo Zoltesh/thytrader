@@ -43,7 +43,7 @@ def _validate_indicator_decimal_text(value: str) -> str:
 IndicatorId = Annotated[str, Field(strict=True, pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 IndicatorDecimalText = Annotated[
     str,
-    Field(strict=True, pattern=r"^(?:0|[1-9]\d*)(?:\.\d*[1-9])?$", max_length=6210),
+    Field(strict=True, pattern=r"^-?(?:0|[1-9]\d*)(?:\.\d*[1-9])?$", max_length=6210),
     AfterValidator(_validate_indicator_decimal_text),
 ]
 

@@ -13,7 +13,7 @@ Define one backend-validated, immutable, versioned declarative strategy schema. 
 
 V1 uses a structured rule builder with nested AND/OR groups. Templates produce the same schema. Backtest, paper, and live runtimes interpret the same published version. Editing creates a new version.
 
-The complete field-level V1 contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](../architecture/canonical-strategy-schema.md). That document is the implementation-facing specification; this ADR records the decision. Optional multi-timeframe HTF-filter semantics are [ADR 0025](0025-multi-timeframe-htf-filter.md). The fail-closed indicator catalog is extended by [ADR 0026](0026-phase-9-single-output-indicator-catalog.md).
+The complete field-level V1 contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](../architecture/canonical-strategy-schema.md). That document is the implementation-facing specification; this ADR records the decision. Optional multi-timeframe HTF-filter semantics are [ADR 0025](0025-multi-timeframe-htf-filter.md). The fail-closed indicator catalog is extended by [ADR 0026](0026-phase-9-single-output-indicator-catalog.md) and [ADR 0027](0027-phase-9-roc-williams-cci.md).
 
 ## Consequences
 

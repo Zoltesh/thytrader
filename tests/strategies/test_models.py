@@ -759,6 +759,171 @@ def test_htf_filter_accepts_highest_lowest_and_stdev() -> None:
     ]
 
 
+def test_strategy_accepts_roc_williams_r_and_cci_with_locked_inputs() -> None:
+    """Phase 9 slice 2 kinds publish with registry-locked sources and period bounds."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {"id": "close_roc", "kind": "roc", "input": "close", "parameters": {"period": 20}},
+            {
+                "id": "willr_14",
+                "kind": "williams_r",
+                "input": ["high", "low", "close"],
+                "parameters": {"period": 14},
+            },
+            {
+                "id": "cci_14",
+                "kind": "cci",
+                "input": ["high", "low", "close"],
+                "parameters": {"period": 14},
+            },
+        )
+    )
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "close_roc"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+            {
+                "left": {"indicator": "willr_14"},
+                "operator": "less_than",
+                "right": {"literal": "-20"},
+            },
+            {
+                "left": {"indicator": "cci_14"},
+                "operator": "greater_than",
+                "right": {"literal": "100"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["close_roc"].kind.value == "roc"
+    assert by_id["close_roc"].input == "close"
+    assert by_id["willr_14"].kind.value == "williams_r"
+    assert by_id["willr_14"].input == ("high", "low", "close")
+    assert by_id["cci_14"].kind.value == "cci"
+    assert by_id["cci_14"].input == ("high", "low", "close")
+
+
+def test_roc_williams_r_and_cci_reject_wrong_sources_and_period_bounds() -> None:
+    """Unlocked inputs and oscillator periods above 100 fail closed."""
+    wrong_roc = reference_payload()
+    _object_list(wrong_roc["indicators"]).append(
+        {"id": "close_roc", "kind": "roc", "input": "high", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="roc input must be close"):
+        StrategyDefinition.model_validate(wrong_roc)
+
+    wrong_willr = reference_payload()
+    _object_list(wrong_willr["indicators"]).append(
+        {"id": "willr_14", "kind": "williams_r", "input": "close", "parameters": {"period": 14}}
+    )
+    with pytest.raises(
+        ValidationError, match="williams_r input must be high, low, close in canonical order"
+    ):
+        StrategyDefinition.model_validate(wrong_willr)
+
+    wrong_cci = reference_payload()
+    _object_list(wrong_cci["indicators"]).append(
+        {"id": "cci_14", "kind": "cci", "input": "close", "parameters": {"period": 14}}
+    )
+    with pytest.raises(
+        ValidationError, match="cci input must be high, low, close in canonical order"
+    ):
+        StrategyDefinition.model_validate(wrong_cci)
+
+    long_willr = reference_payload()
+    _object_list(long_willr["indicators"]).append(
+        {
+            "id": "willr_14",
+            "kind": "williams_r",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 101},
+        }
+    )
+    with pytest.raises(ValidationError, match="WILLIAMS_R period exceeds 100"):
+        StrategyDefinition.model_validate(long_willr)
+
+    long_cci = reference_payload()
+    _object_list(long_cci["indicators"]).append(
+        {
+            "id": "cci_14",
+            "kind": "cci",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 101},
+        }
+    )
+    with pytest.raises(ValidationError, match="CCI period exceeds 100"):
+        StrategyDefinition.model_validate(long_cci)
+
+
+def test_roc_lookback_contributes_an_extra_warmup_bar() -> None:
+    """ROC needs period + 1 closed bars before the first defined value."""
+    payload = reference_payload()
+    _object_list(payload["indicators"]).append(
+        {"id": "close_roc", "kind": "roc", "input": "close", "parameters": {"period": 50}}
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(payload)
+
+    payload["data_requirements"] = {
+        "warmup_bars": 51,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    StrategyDefinition.model_validate(payload)
+
+
+def test_htf_filter_accepts_roc_williams_r_and_cci() -> None:
+    """HTF filter may declare the Phase 9 slice 2 kinds on the HTF clock."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {"id": "htf_roc", "kind": "roc", "input": "close", "parameters": {"period": 20}},
+        {
+            "id": "htf_willr",
+            "kind": "williams_r",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 14},
+        },
+        {
+            "id": "htf_cci",
+            "kind": "cci",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 14},
+        },
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_roc"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "roc",
+        "williams_r",
+        "cci",
+    ]
+
+
 def test_strategy_identity_helpers_revalidate_copied_models() -> None:
     """Canonical strategy identities reject instances forged by unchecked model copies."""
     strategy = StrategyDefinition.model_validate(reference_payload())
