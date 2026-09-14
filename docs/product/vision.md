@@ -16,6 +16,16 @@ The first release targets a single user running ThyTrader on a workstation or pr
 6. **Portable operations.** A supported installation should work on another user's machine or private VM without hand-built infrastructure.
 7. **Observable and auditable.** Users and authorized agents should be able to understand system health, strategy decisions, orders, fills, and performance without reading sensitive raw storage.
 
+## Operating models
+
+ThyTrader supports three **equal** operating models; none is privileged as "the real" way to use it:
+
+1. **100% human-driven.** A person performs every observation and mutation through the browser and CLIs, with the same confirmation gates any actor faces.
+2. **100% agent-driven.** An agent performs diagnosis, data ingest, research, and paper/live control end-to-end through the shipped skills, acting only within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
+3. **Collaborative human + agent.** A human and an agent share the loop—for example, the agent diagnoses and drafts while the human publishes and arms.
+
+Safety comes from confirmation gating, scoped authority, immutable evidence, auditability, and risk controls—not from excluding agents, and agents are never required.
+
 ## Initial user
 
 A technically comfortable individual who wants to:
@@ -79,6 +89,23 @@ confirmation-gated research automation uses `thytrader-research --confirm`. Pape
 first automated runtime, using the shared published strategy semantics and independent risk gate.
 and independent risk gate. Guarded live execution remains after paper restart, stale-data, duplicate-
 event, and reconciliation acceptance tests pass.
+
+### Planned direction: agents as crypto-trading experts (NOT SHIPPED)
+
+A major planned product goal—beyond the shipped skill surfaces—is for agents to act as
+**crypto-trading experts that improve from durable evidence** spanning market-data research,
+reproducible backtests, paper trades, and live trades. Planned properties (none shipped; no learning
+implementation exists today):
+
+- Durable, immutable evidence of actions and outcomes across research, backtest, paper, and live.
+- Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
+  can study their own mistakes and repeat successful patterns without confusing themselves with
+  their operators.
+- Improvement stays subordinate to existing invariants: confirmation gates, scoped authority,
+  immutable evidence, auditability, and risk controls. It is never a substitute for audit trails.
+
+Current status: shipped evidence (backtest results, paper/live ledgers, audit events) exists but does
+not yet attribute origin (agent vs human). See [roadmap Phase 14](../roadmap.md).
 
 ## Explicitly deferred
 

@@ -1,6 +1,6 @@
 # ThyTrader
 
-Thine trading platform. A customizable platform you control: strategies, risk, analysis, markets, and portfolio management—configured by you or with the help of agents you choose.
+Thine trading platform. A customizable platform you control: strategies, risk, analysis, markets, and portfolio management—operated by you, by agents you authorize, or by both together. ThyTrader supports three equal operating models: 100% human-driven operation, 100% agent-driven operation within explicitly granted, confirmation-gated authority, and collaborative human + agent operation. Agents are first-class operators, not optional helpers; nothing in the product requires an agent, and nothing excludes one.
 
 ThyTrader is being designed as an open-source, local-first trading workstation with a FastAPI backend, SvelteKit frontend, reproducible backtesting, and guarded automated execution.
 
