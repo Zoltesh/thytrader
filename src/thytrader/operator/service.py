@@ -862,7 +862,11 @@ class OperatorDiagnostics:
         """List drafts or record a partial-result warning."""
         try:
             drafts = await self.drafts.list_drafts()
-        except RuntimeError, TypeError, ValueError:
+        except (
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
             components.append(
                 ComponentReport(
                     name="drafts",
@@ -895,7 +899,12 @@ class OperatorDiagnostics:
         """List publications or record a partial-result warning."""
         try:
             entries = await self.publications.list_published(include_archived=True)
-        except StrategyPublicationError, RuntimeError, TypeError, ValueError:
+        except (
+            StrategyPublicationError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
             components.append(
                 ComponentReport(
                     name="publications",
