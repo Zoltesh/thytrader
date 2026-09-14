@@ -47,3 +47,30 @@ def test_thirty_minute_is_a_dataset_interval_not_an_execution_clock() -> None:
     assert as_dataset_timeframe(interval) == "30m"
     assert CandleInterval.ONE_HOUR.execution_supported is True
     assert CandleInterval.FIVE_MINUTES.execution_supported is True
+
+
+def test_six_hour_duration_and_alignment() -> None:
+    """6h bars are UTC-aligned at 00:00, 06:00, 12:00, and 18:00."""
+    interval = CandleInterval.SIX_HOURS
+    assert interval.duration == timedelta(hours=6)
+    assert interval.value == "6h"
+    now = datetime(2026, 9, 13, 12, 1, 40, tzinfo=UTC)
+    assert interval.align_closed_end(now) == datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    closed = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    assert interval.align_closed_end(closed) == closed
+    before_noon = datetime(2026, 9, 13, 11, 59, 59, tzinfo=UTC)
+    assert interval.align_closed_end(before_noon) == datetime(2026, 9, 13, 6, 0, tzinfo=UTC)
+    midnight = datetime(2026, 9, 14, 0, 0, tzinfo=UTC)
+    assert interval.align_closed_end(midnight) == midnight
+    eighteen = datetime(2026, 9, 13, 18, 0, tzinfo=UTC)
+    assert interval.align_closed_end(eighteen) == eighteen
+
+
+def test_six_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
+    """6h datasets parse; paper/live still refuse that clock."""
+    interval = parse_candle_interval("6h")
+    assert interval is CandleInterval.SIX_HOURS
+    assert interval.execution_supported is False
+    assert as_dataset_timeframe(interval) == "6h"
+    assert CandleInterval.ONE_HOUR.execution_supported is True
+    assert CandleInterval.FIVE_MINUTES.execution_supported is True

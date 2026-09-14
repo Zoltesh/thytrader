@@ -15,22 +15,24 @@ if TYPE_CHECKING:
 # watches stay min(requested, 2,160 hours) via the existing lookback maximum.
 MAX_HISTORICAL_INTERVAL_COUNT = 25_920
 
-DatasetTimeframe = Literal["1h", "5m", "15m", "30m"]
-DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = ("1h", "5m", "15m", "30m")
-DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m)$"
+DatasetTimeframe = Literal["1h", "5m", "15m", "30m", "6h"]
+DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = ("1h", "5m", "15m", "30m", "6h")
+DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m|6h)$"
 
 
 class CandleInterval(StrEnum):
     """Closed-candle intervals for complete-only historical datasets.
 
-    Dataset ingest, catalog, and verification accept 1h, 5m, 15m, and 30m. Paper
-    still evaluates only 1h or 5m; live remains 1h-only at the deployment gate.
+    Dataset ingest, catalog, and verification accept 1h, 5m, 15m, 30m, and 6h.
+    Paper still evaluates only 1h or 5m; live remains 1h-only at the deployment
+    gate.
     """
 
     ONE_HOUR = "1h"
     FIVE_MINUTES = "5m"
     FIFTEEN_MINUTES = "15m"
     THIRTY_MINUTES = "30m"
+    SIX_HOURS = "6h"
 
     @property
     def duration(self) -> timedelta:
@@ -43,6 +45,8 @@ class CandleInterval(StrEnum):
             return timedelta(minutes=15)
         if self is CandleInterval.THIRTY_MINUTES:
             return timedelta(minutes=30)
+        if self is CandleInterval.SIX_HOURS:
+            return timedelta(hours=6)
         message = f"Unsupported candle interval: {self.value}."
         raise ValueError(message)
 
@@ -60,6 +64,9 @@ class CandleInterval(StrEnum):
         if self is CandleInterval.THIRTY_MINUTES:
             minute = (instant.minute // 30) * 30
             return instant.replace(minute=minute)
+        if self is CandleInterval.SIX_HOURS:
+            hour = (instant.hour // 6) * 6
+            return instant.replace(hour=hour, minute=0)
         message = f"Unsupported candle interval: {self.value}."
         raise ValueError(message)
 
@@ -88,6 +95,8 @@ def as_dataset_timeframe(interval: CandleInterval) -> DatasetTimeframe:
         return "15m"
     if interval is CandleInterval.THIRTY_MINUTES:
         return "30m"
+    if interval is CandleInterval.SIX_HOURS:
+        return "6h"
     message = f"Unsupported candle interval: {interval.value}."
     raise ValueError(message)
 

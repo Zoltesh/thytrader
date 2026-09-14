@@ -29,7 +29,8 @@ strategy timeframe.
 
 - Operators can watch, ingest, inspect, and catalog 30m coverage the same way as 15m.
 - 30m fingerprints appear in the verified dataset catalog; they are not a research or paper clock.
-- 6h and 1d remain planned Phase 7 slices. Multi-timeframe strategy semantics remain Phase 8.
+- Six-hour complete-only datasets are [0022](0022-complete-only-6h-datasets.md). 1d remains a
+  planned Phase 7 slice. Multi-timeframe strategy semantics remain Phase 8.
 
 ## Alternatives considered
 

@@ -61,7 +61,7 @@ class GapObservation:
 
 
 def require_interval(value: str) -> CandleInterval:
-    """Parse a dataset timeframe (1h, 5m, 15m, or 30m) or fail closed."""
+    """Parse a dataset timeframe (1h, 5m, 15m, 30m, or 6h) or fail closed."""
     try:
         interval = parse_candle_interval(value)
     except ValueError as error:

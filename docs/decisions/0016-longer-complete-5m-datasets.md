@@ -53,7 +53,8 @@ this ADR does not arm 5m live.
 - 5m paper, maker-aware backtest, and paper PnL were sequenced separately; 5m paper is [0018](0018-5m-paper-not-live.md).
   This ADR did not add 15m / 30m / 1d. Fifteen-minute complete-only datasets are
   [0020](0020-complete-only-15m-datasets.md). Thirty-minute complete-only datasets are
-  [0021](0021-complete-only-30m-datasets.md). 6h / 1d remain deferred.
+  [0021](0021-complete-only-30m-datasets.md). Six-hour complete-only datasets are
+  [0022](0022-complete-only-6h-datasets.md). 1d remains deferred.
 
 ## Alternatives considered
 

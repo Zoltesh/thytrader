@@ -28,8 +28,9 @@ the same time as ingest would silently let research and execution treat `15m` as
 
 - Operators can watch, ingest, inspect, and catalog 15m coverage the same way as 5m.
 - 15m fingerprints appear in the verified dataset catalog; they are not a research or paper clock.
-- Thirty-minute complete-only datasets are [0021](0021-complete-only-30m-datasets.md). 6h and 1d
-  remain planned Phase 7 slices. Multi-timeframe strategy semantics remain Phase 8.
+- Thirty-minute complete-only datasets are [0021](0021-complete-only-30m-datasets.md). Six-hour
+  complete-only datasets are [0022](0022-complete-only-6h-datasets.md). 1d remains a planned Phase 7
+  slice. Multi-timeframe strategy semantics remain Phase 8.
 
 ## Alternatives considered
 
