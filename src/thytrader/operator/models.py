@@ -412,12 +412,13 @@ class DataCatalogReport(OperatorEnvelope):
 
 
 class IndicatorCatalogEntry(_FrozenModel):
-    """One implemented indicator kind and its canonical input/period bounds."""
+    """One implemented indicator kind and its canonical input/parameter shape."""
 
     kind: str
     inputs: tuple[str, ...]
-    period_min: int
-    period_max: int
+    parameter_kind: Literal["period", "none", "value"] = "period"
+    period_min: int | None = None
+    period_max: int | None = None
 
 
 class IndicatorsPayload(_FrozenModel):

@@ -13,7 +13,11 @@ from decimal import (
 )
 from typing import TYPE_CHECKING
 
-from thytrader.strategies.models import IndicatorKind
+from thytrader.strategies.models import (
+    ConstantIndicatorParameters,
+    IndicatorKind,
+    IndicatorParameters,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -63,7 +67,16 @@ def _indicator_values(
     candles: Sequence[Candle],
 ) -> tuple[Decimal | None, ...]:
     """Dispatch one declarative definition to its exact implemented calculation."""
-    period = indicator.parameters.period
+    if indicator.kind is IndicatorKind.IDENTITY:
+        return _identity_values(indicator, candles)
+    if indicator.kind is IndicatorKind.CONSTANT:
+        return _constant_values(indicator, candles)
+    parameters = indicator.parameters
+    if not isinstance(parameters, IndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    period = parameters.period
     hlc_calculator = _HLC_CALCULATORS.get(indicator.kind)
     if hlc_calculator is not None:
         return hlc_calculator(candles, period)
@@ -76,12 +89,36 @@ def _indicator_values(
     )
 
 
+def _identity_values(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> tuple[Decimal | None, ...]:
+    """Return the selected OHLCV field on every completed bar."""
+    return _locked_source_series(indicator, candles)
+
+
+def _constant_values(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> tuple[Decimal | None, ...]:
+    """Repeat the declared finite level on every completed bar."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, ConstantIndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    value = Decimal(parameters.value)
+    return tuple(value for _candle in candles)
+
+
 def _locked_source_series(
     indicator: IndicatorDefinition,
     candles: Sequence[Candle],
 ) -> tuple[Decimal, ...]:
-    """Return the single OHLCV field locked by one non-ATR indicator kind."""
+    """Return the single OHLCV field selected by one identity or locked source kind."""
     source = indicator.input
+    if source == "open":
+        return tuple(candle.open for candle in candles)
     if source == "close":
         return tuple(candle.close for candle in candles)
     if source == "volume":

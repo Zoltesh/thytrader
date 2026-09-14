@@ -13,10 +13,11 @@
 		defaultHtfFilter,
 		validHtfTimeframes,
 		INDICATOR_KIND_OPTIONS,
+		IDENTITY_INPUT_OPTIONS,
+		applyIndicatorKindDefaults,
 		type BuilderModel,
 		type ConditionDraft,
-		type IndicatorDraft,
-		type IndicatorInput
+		type IndicatorDraft
 	} from '$lib/strategies';
 	import { plainEnglishSummary, requiredDataText, validateDefinition } from '$lib/strategy-insight';
 
@@ -167,26 +168,9 @@
 		markDirty();
 	}
 
-	/** Keep each indicator's fixed input aligned with its kind, as the schema demands. */
-	function indicatorInputFor(kind: IndicatorDraft['kind']): IndicatorInput {
-		if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
-			return ['high', 'low', 'close'];
-		}
-		if (kind === 'volume_sma') return 'volume';
-		if (kind === 'highest') return 'high';
-		if (kind === 'lowest') return 'low';
-		return 'close';
-	}
-
-	function indicatorPeriodMax(kind: IndicatorDraft['kind']): number {
-		return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
-	}
-
+	/** Keep each indicator's input and parameters aligned with its kind. */
 	function onIndicatorKindChange(indicator: IndicatorDraft): void {
-		indicator.input = indicatorInputFor(indicator.kind);
-		if (indicator.parameters.period > indicatorPeriodMax(indicator.kind)) {
-			indicator.parameters.period = indicatorPeriodMax(indicator.kind);
-		}
+		applyIndicatorKindDefaults(indicator);
 		markDirty();
 	}
 
@@ -445,26 +429,7 @@
 						<h2>Indicators</h2>
 						{#each model.indicators as indicator, index (index)}
 							<div class="indicator-row">
-								<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
-								<label
-									>Kind
-									<select
-										bind:value={indicator.kind}
-										onchange={() => onIndicatorKindChange(indicator)}
-									>
-										{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
-											<option value={option.kind}>{option.label}</option>
-										{/each}
-									</select></label
-								>
-								<label
-									>Period<input
-										type="number"
-										min="2"
-										bind:value={indicator.parameters.period}
-										oninput={markDirty}
-									/></label
-								>
+								{@render indicatorFields(indicator)}
 								<button class="secondary" type="button" onclick={() => removeIndicator(index)}
 									>Remove</button
 								>
@@ -472,8 +437,10 @@
 						{/each}
 						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 						<div class="hint">
-							ATR uses high/low/close. Highest uses high. Lowest uses low. Stdev uses close. RSI and
-							ATR periods cap at 100. Inputs are fixed per kind. MACD and Bollinger are not shipped.
+							OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
+							crosses 40). ATR / Williams %R / CCI use high/low/close. Highest uses high. Lowest
+							uses low. Stdev and ROC use close. RSI, ATR, Williams %R, and CCI periods cap at 100.
+							Rolling inputs stay locked per kind. MACD and Bollinger are not shipped.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
@@ -522,26 +489,7 @@
 							</div>
 							{#each model.htf_filter.indicators as indicator, index (index)}
 								<div class="indicator-row">
-									<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
-									<label
-										>Kind
-										<select
-											bind:value={indicator.kind}
-											onchange={() => onIndicatorKindChange(indicator)}
-										>
-											{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
-												<option value={option.kind}>{option.label}</option>
-											{/each}
-										</select></label
-									>
-									<label
-										>Period<input
-											type="number"
-											min="2"
-											bind:value={indicator.parameters.period}
-											oninput={markDirty}
-										/></label
-									>
+									{@render indicatorFields(indicator)}
 									<button class="secondary" type="button" onclick={() => removeHtfIndicator(index)}
 										>Remove</button
 									>
@@ -739,6 +687,39 @@
 		</div>
 	{/if}
 </main>
+
+{#snippet indicatorFields(indicator: IndicatorDraft)}
+	<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
+	<label
+		>Kind
+		<select bind:value={indicator.kind} onchange={() => onIndicatorKindChange(indicator)}>
+			{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
+				<option value={option.kind}>{option.label}</option>
+			{/each}
+		</select></label
+	>
+	{#if indicator.kind === 'identity'}
+		<label
+			>Source
+			<select bind:value={indicator.input} onchange={markDirty}>
+				{#each IDENTITY_INPUT_OPTIONS as option (option.value)}
+					<option value={option.value}>{option.label}</option>
+				{/each}
+			</select></label
+		>
+	{:else if indicator.kind === 'constant'}
+		<label>Value<input bind:value={indicator.parameters.value} oninput={markDirty} /></label>
+	{:else}
+		<label
+			>Period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.period}
+				oninput={markDirty}
+			/></label
+		>
+	{/if}
+{/snippet}
 
 {#snippet conditionNode(
 	condition: ConditionDraft,

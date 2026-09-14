@@ -1,9 +1,12 @@
 import {
+	IDENTITY_INPUT_OPTIONS,
 	validHtfTimeframes,
 	type BuilderModel,
 	type ConditionDraft,
 	type HtfFilterDraft
 } from './strategies';
+
+const IDENTITY_INPUTS = new Set(IDENTITY_INPUT_OPTIONS.map((option) => option.value));
 
 export const OPERATOR_LABELS: Record<string, string> = {
 	crosses_above: 'crosses above',
@@ -79,9 +82,18 @@ const DECIMAL_PATTERN = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const MAX_CONDITION_DEPTH = 4;
 const MAX_CONDITION_NODES = 64;
 
-type IndicatorLike = { id: string; kind: string; input: unknown; parameters: { period: number } };
+type IndicatorLike = {
+	id: string;
+	kind: string;
+	input?: unknown;
+	parameters: { period?: number; value?: string };
+};
 
 function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
+	if (indicator.kind === 'constant') return indicator.input === undefined;
+	if (indicator.kind === 'identity') {
+		return typeof indicator.input === 'string' && IDENTITY_INPUTS.has(indicator.input);
+	}
 	if (indicator.kind === 'atr' || indicator.kind === 'williams_r' || indicator.kind === 'cci') {
 		return (
 			Array.isArray(indicator.input) &&
@@ -101,8 +113,41 @@ function indicatorPeriodMax(kind: string): number {
 	return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
 }
 
-function indicatorWarmupBars(kind: string, period: number): number {
-	return kind === 'rsi' || kind === 'roc' ? period + 1 : period;
+function indicatorWarmupBars(indicator: IndicatorLike): number {
+	if (indicator.kind === 'identity' || indicator.kind === 'constant') return 1;
+	const period = Number(indicator.parameters.period);
+	return indicator.kind === 'rsi' || indicator.kind === 'roc' ? period + 1 : period;
+}
+
+function validateIndicatorShape(indicator: IndicatorLike, label: string): string[] {
+	const problems: string[] = [];
+	if (!indicatorInputMatchesKind(indicator)) {
+		problems.push(
+			`${label} "${indicator.id}" has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
+		);
+	}
+	if (indicator.kind === 'identity') {
+		if (indicator.parameters.period !== undefined || indicator.parameters.value !== undefined) {
+			problems.push(`${label} "${indicator.id}" identity parameters must be empty.`);
+		}
+		return problems;
+	}
+	if (indicator.kind === 'constant') {
+		const value = indicator.parameters.value;
+		if (value === undefined || !DECIMAL_PATTERN.test(value)) {
+			problems.push(`${label} "${indicator.id}" constant value must be a plain decimal number.`);
+		}
+		if (indicator.parameters.period !== undefined) {
+			problems.push(`${label} "${indicator.id}" constant must omit period.`);
+		}
+		return problems;
+	}
+	const period = Number(indicator.parameters.period);
+	const maximum = indicatorPeriodMax(indicator.kind);
+	if (!Number.isInteger(period) || period < 2 || period > maximum) {
+		problems.push(`${label} "${indicator.id}" period must be an integer between 2 and ${maximum}.`);
+	}
+	return problems;
 }
 
 export function validateDefinition(model: BuilderModel): string[] {
@@ -121,19 +166,8 @@ export function validateDefinition(model: BuilderModel): string[] {
 				`Indicator id "${indicator.id}" must start with a lowercase letter and use lowercase letters, digits, or underscores.`
 			);
 		}
-		if (!indicatorInputMatchesKind(indicator)) {
-			problems.push(
-				`Indicator "${indicator.id}" has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
-			);
-		}
-		const period = Number(indicator.parameters.period);
-		const maximum = indicatorPeriodMax(indicator.kind);
-		if (!Number.isInteger(period) || period < 2 || period > maximum) {
-			problems.push(
-				`Indicator "${indicator.id}" period must be an integer between 2 and ${maximum}.`
-			);
-		}
-		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator.kind, period));
+		problems.push(...validateIndicatorShape(indicator, 'Indicator'));
+		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 	}
 	problems.push(...validateCondition(model.entry.when, ids, 'Entry'));
 	if (model.htf_filter !== null) {
@@ -233,19 +267,8 @@ function validateHtfFilter(
 				`HTF indicator id "${indicator.id}" must start with a lowercase letter and use lowercase letters, digits, or underscores.`
 			);
 		}
-		if (!indicatorInputMatchesKind(indicator)) {
-			problems.push(
-				`HTF indicator "${indicator.id}" has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
-			);
-		}
-		const period = Number(indicator.parameters.period);
-		const maximum = indicatorPeriodMax(indicator.kind);
-		if (!Number.isInteger(period) || period < 2 || period > maximum) {
-			problems.push(
-				`HTF indicator "${indicator.id}" period must be an integer between 2 and ${maximum}.`
-			);
-		}
-		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator.kind, period));
+		problems.push(...validateIndicatorShape(indicator, 'HTF indicator'));
+		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 	}
 	problems.push(...validateCondition(filter.when, htfIds, 'HTF filter'));
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
@@ -377,7 +400,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	},
 	{
 		label:
-			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI',
+			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, OHLCV identity, constant',
 		v1: true,
 		v2: true,
 		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter'
