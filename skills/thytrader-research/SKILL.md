@@ -67,8 +67,10 @@ HTF bars only. Paper and live reject those fingerprints. 5m live remains deferre
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
 Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
 (close, population), `roc` (close, lookback `period` bars ago), `williams_r` (high/low/close), `cci`
-(high/low/close, typical-price SMA and population MAD), `identity` (one of open/high/low/close/volume,
-empty parameters), `constant` (`parameters.value`, no input). Do not invent MACD, Bollinger, or other kinds. `crosses_above` /
+(high/low/close, typical-price SMA and population MAD), `wma` (close, oldest weight 1 / newest
+`period`), `momentum` (close, lookback `period` bars ago), `mfi` (high/low/close/volume), `identity`
+(one of open/high/low/close/volume, empty parameters), `constant` (`parameters.value`, no input). Do
+not invent MACD, Bollinger, or other kinds. `crosses_above` /
 `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
 id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic

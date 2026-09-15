@@ -707,6 +707,161 @@ def test_entry_conditions_can_cross_identity_and_constant() -> None:
     assert [record.indicator_values[2].value for record in trace.records] == ["0", "0"]
 
 
+def test_wma_momentum_and_mfi_warmup_decimal_and_no_lookahead() -> None:
+    """Slice 4 kinds stay undefined until warmup and never read future candles."""
+    indicators = (
+        IndicatorDefinition(
+            id="close_wma",
+            kind=IndicatorKind.WMA,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="close_mom",
+            kind=IndicatorKind.MOMENTUM,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="mfi_14",
+            kind=IndicatorKind.MFI,
+            input=("high", "low", "close", "volume"),
+            parameters=IndicatorParameters(period=2),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("2"), Decimal("3"), Decimal("1"), Decimal("2"), Decimal("10")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("3"),
+            Decimal("4"),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("20"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("4"),
+            Decimal("5"),
+            Decimal("3"),
+            Decimal("4"),
+            Decimal("30"),
+        ),
+        Candle(
+            start + timedelta(hours=3),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("1"),
+            Decimal("2"),
+            Decimal("40"),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    with localcontext(Context(prec=64, rounding=ROUND_HALF_EVEN, Emin=-6143, Emax=6144)):
+        wma_second = Decimal(8) / Decimal(3)
+        wma_third = Decimal(11) / Decimal(3)
+    assert [row["close_wma"] for row in rows] == [
+        None,
+        wma_second,
+        wma_third,
+        wma_second,
+    ]
+    assert [row["close_mom"] for row in rows] == [None, None, Decimal("2"), Decimal("-1")]
+    assert [row["mfi_14"] for row in rows] == [None, None, Decimal("100"), Decimal("60")]
+    assert [row["close_wma"] for row in prefix_rows] == [
+        None,
+        wma_second,
+        wma_third,
+    ]
+    assert [row["close_mom"] for row in prefix_rows] == [None, None, Decimal("2")]
+    assert prefix_rows[-1]["mfi_14"] == Decimal("100")
+
+    unchanged = tuple(
+        Candle(
+            start + timedelta(hours=index),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("1"),
+            Decimal("2"),
+            Decimal("10"),
+        )
+        for index in range(3)
+    )
+    assert calculate_indicator_rows((indicators[2],), unchanged)[-1]["mfi_14"] is None
+
+
+def test_entry_conditions_can_reference_wma_momentum_and_mfi() -> None:
+    """Published strategies may compare the Phase 9 slice 4 indicator ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        {"id": "close_wma", "kind": "wma", "input": "close", "parameters": {"period": 2}},
+        {"id": "close_mom", "kind": "momentum", "input": "close", "parameters": {"period": 2}},
+        {
+            "id": "mfi_14",
+            "kind": "mfi",
+            "input": ["high", "low", "close", "volume"],
+            "parameters": {"period": 2},
+        },
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["data_requirements"]["warmup_bars"] = 3
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "close_wma"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+            {
+                "left": {"indicator": "close_mom"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+            {
+                "left": {"indicator": "mfi_14"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    run = _run(strategy).model_copy(
+        update={
+            "warmup": WarmupWindow(
+                bars=3,
+                starts_at=datetime(2026, 7, 9, 23, tzinfo=UTC),
+            )
+        }
+    )
+    prior = Candle(
+        datetime(2026, 7, 9, 23, tzinfo=UTC),
+        Decimal("1"),
+        Decimal("2"),
+        Decimal("0.5"),
+        Decimal("1"),
+        Decimal("10"),
+    )
+    trace = evaluate_signal_trace(run, strategy, (prior, *_candles()))
+
+    assert [record.indicator_values[1].indicator_id for record in trace.records] == [
+        "close_wma",
+        "close_wma",
+    ]
+    assert all(record.indicator_values[1].value is not None for record in trace.records)
+    assert all(record.indicator_values[2].value is not None for record in trace.records)
+    assert all(record.indicator_values[3].value is not None for record in trace.records)
+
+
 def test_engine_decimal_results_ignore_ambient_decimal_precision() -> None:
     """Process-level Decimal settings must not alter deterministic trace bytes."""
     strategy = _strategy()

@@ -77,6 +77,8 @@ def _indicator_values(
             f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
         )
     period = parameters.period
+    if indicator.kind is IndicatorKind.MFI:
+        return _money_flow_index(candles, period)
     hlc_calculator = _HLC_CALCULATORS.get(indicator.kind)
     if hlc_calculator is not None:
         return hlc_calculator(candles, period)
@@ -308,6 +310,73 @@ def _commodity_channel_index(
     return tuple(result)
 
 
+def _weighted_moving_average(
+    values: Sequence[Decimal],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return a rolling WMA with oldest weight 1 and newest weight ``period``."""
+    result: list[Decimal | None] = []
+    for index in range(len(values)):
+        if index + 1 < period:
+            result.append(None)
+            continue
+        window = values[index + 1 - period : index + 1]
+        weighted = Decimal(0)
+        weight_sum = Decimal(0)
+        for offset, value in enumerate(window, start=1):
+            weight = Decimal(offset)
+            weighted += value * weight
+            weight_sum += weight
+        result.append(weighted / weight_sum)
+    return tuple(result)
+
+
+def _momentum(
+    values: Sequence[Decimal],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return close minus the close exactly ``period`` bars ago."""
+    result: list[Decimal | None] = []
+    for index, value in enumerate(values):
+        if index < period:
+            result.append(None)
+            continue
+        result.append(value - values[index - period])
+    return tuple(result)
+
+
+def _money_flow_index(
+    candles: Sequence[Candle],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return MFI from typical-price money flow over ``period`` signed changes."""
+    hundred = Decimal(100)
+    three = Decimal(3)
+    typical = tuple((candle.high + candle.low + candle.close) / three for candle in candles)
+    result: list[Decimal | None] = []
+    for index in range(len(candles)):
+        if index < period:
+            result.append(None)
+            continue
+        positive = Decimal(0)
+        negative = Decimal(0)
+        window_start = index - period + 1
+        for flow_index in range(window_start, index + 1):
+            current = typical[flow_index]
+            previous = typical[flow_index - 1]
+            raw = current * candles[flow_index].volume
+            if current > previous:
+                positive += raw
+            elif current < previous:
+                negative += raw
+        total = positive + negative
+        if total == 0:
+            result.append(None)
+            continue
+        result.append(hundred * positive / total)
+    return tuple(result)
+
+
 def _average_true_range(
     candles: Sequence[Candle],
     period: int,
@@ -367,4 +436,6 @@ _SERIES_CALCULATORS: dict[
     IndicatorKind.LOWEST: _rolling_lowest,
     IndicatorKind.STDEV: _rolling_population_stdev,
     IndicatorKind.ROC: _rate_of_change,
+    IndicatorKind.WMA: _weighted_moving_average,
+    IndicatorKind.MOMENTUM: _momentum,
 }

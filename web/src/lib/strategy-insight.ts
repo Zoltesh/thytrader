@@ -103,6 +103,16 @@ function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 			indicator.input[2] === 'close'
 		);
 	}
+	if (indicator.kind === 'mfi') {
+		return (
+			Array.isArray(indicator.input) &&
+			indicator.input.length === 4 &&
+			indicator.input[0] === 'high' &&
+			indicator.input[1] === 'low' &&
+			indicator.input[2] === 'close' &&
+			indicator.input[3] === 'volume'
+		);
+	}
 	if (indicator.kind === 'volume_sma') return indicator.input === 'volume';
 	if (indicator.kind === 'highest') return indicator.input === 'high';
 	if (indicator.kind === 'lowest') return indicator.input === 'low';
@@ -110,13 +120,24 @@ function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 }
 
 function indicatorPeriodMax(kind: string): number {
-	return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
+	return kind === 'rsi' ||
+		kind === 'atr' ||
+		kind === 'williams_r' ||
+		kind === 'cci' ||
+		kind === 'mfi'
+		? 100
+		: 500;
 }
 
 function indicatorWarmupBars(indicator: IndicatorLike): number {
 	if (indicator.kind === 'identity' || indicator.kind === 'constant') return 1;
 	const period = Number(indicator.parameters.period);
-	return indicator.kind === 'rsi' || indicator.kind === 'roc' ? period + 1 : period;
+	return indicator.kind === 'rsi' ||
+		indicator.kind === 'roc' ||
+		indicator.kind === 'momentum' ||
+		indicator.kind === 'mfi'
+		? period + 1
+		: period;
 }
 
 function validateIndicatorShape(indicator: IndicatorLike, label: string): string[] {
@@ -400,7 +421,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	},
 	{
 		label:
-			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, OHLCV identity, constant',
+			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, OHLCV identity, constant',
 		v1: true,
 		v2: true,
 		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter'

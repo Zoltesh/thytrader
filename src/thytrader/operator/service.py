@@ -1559,6 +1559,24 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
             period_max=100,
         ),
         IndicatorCatalogEntry(
+            kind=IndicatorKind.WMA.value,
+            inputs=("close",),
+            period_min=2,
+            period_max=500,
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.MOMENTUM.value,
+            inputs=("close",),
+            period_min=2,
+            period_max=500,
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.MFI.value,
+            inputs=("high", "low", "close", "volume"),
+            period_min=2,
+            period_max=100,
+        ),
+        IndicatorCatalogEntry(
             kind=IndicatorKind.IDENTITY.value,
             inputs=("open", "high", "low", "close", "volume"),
             parameter_kind="none",

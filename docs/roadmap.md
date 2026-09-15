@@ -6,8 +6,8 @@ This roadmap sequences capabilities and safety gates. It is not a promise of dat
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
-first three indicator slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`, then
-`identity`/`constant`) are shipped. **Thy
+first four indicator slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
+`identity`/`constant`, then `wma`/`momentum`/`mfi`) are shipped. **Thy
 Builder should implement the next unshipped Phase 9+ slice in order**, one vertical increment
 at a time. Phases 7–14 below are the definitive sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
@@ -75,7 +75,7 @@ HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strateg
 Phase 13. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF candles are not in this
 slice.
 
-## Phase 9: Wider fail-closed indicator catalog — 🚧 First three slices shipped
+## Phase 9: Wider fail-closed indicator catalog — 🚧 First four slices shipped
 
 Expand the bounded indicator registry without TA-library passthrough; same deterministic
 warmup and no-lookahead rules.
@@ -98,7 +98,12 @@ warmup and no-lookahead rules.
    (`parameters.value`, no input, warmup 1). Crossovers still require two indicator operands.
    Same shared LTF catalog. Still no MACD/Bollinger, configurable rolling inputs, sample stdev,
    or per-indicator timeframes.
-4. **Further fail-closed single-output kinds** — 📋 Planned, still no TA passthrough.
+4. **Weighted average, momentum, and MFI** — ✅ Shipped ([ADR 0029](decisions/0029-phase-9-wma-momentum-mfi.md)):
+   `wma` (close, period 2–500, oldest weight 1 / newest weight `period`), `momentum` (close, period
+   2–500, warmup `period + 1`, `close - close[period]`), and `mfi` (high/low/close/volume, period
+   2–100, warmup `period + 1`, `100 * positive / (positive + negative)`). Zero money-flow total →
+   undefined. Same shared LTF catalog. Still no MACD/Bollinger, configurable rolling inputs, sample
+   stdev, or per-indicator timeframes.
 5. **Multi-series outputs (MACD, Bollinger)** — 📋 Deferred until referenceable series ids exist.
 6. **Per-indicator timeframes** — 📋 Out of Phase 9 (ADR 0025).
 
@@ -233,7 +238,7 @@ readiness, and graceful shutdown.
 - ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
-- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, identity OHLCV, and constant.
+- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, identity OHLCV, and constant.
 - ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
 - ✅ Conservative reference EMA trend profile with durable browser draft recovery, typed authoring API,
   immutable publication, verified-dataset backtest workflow, and bounded human-readable summary.

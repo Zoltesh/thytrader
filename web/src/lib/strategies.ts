@@ -108,7 +108,8 @@ export type DraftVersionResponse = { strategy: StrategyDraft; revision: number }
 
 export type IdentityInput = 'open' | 'high' | 'low' | 'close' | 'volume';
 
-export type IndicatorInput = IdentityInput | ['high', 'low', 'close'];
+export type IndicatorInput =
+	IdentityInput | ['high', 'low', 'close'] | ['high', 'low', 'close', 'volume'];
 
 export type IndicatorKindValue =
 	| 'ema'
@@ -122,6 +123,9 @@ export type IndicatorKindValue =
 	| 'roc'
 	| 'williams_r'
 	| 'cci'
+	| 'wma'
+	| 'momentum'
+	| 'mfi'
 	| 'identity'
 	| 'constant';
 
@@ -137,6 +141,9 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'roc', label: 'ROC' },
 	{ kind: 'williams_r', label: 'Williams %R' },
 	{ kind: 'cci', label: 'CCI' },
+	{ kind: 'wma', label: 'WMA' },
+	{ kind: 'momentum', label: 'Momentum' },
+	{ kind: 'mfi', label: 'MFI' },
 	{ kind: 'identity', label: 'OHLCV' },
 	{ kind: 'constant', label: 'Constant' }
 ];
@@ -239,6 +246,7 @@ function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
 	if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
 		return ['high', 'low', 'close'];
 	}
+	if (kind === 'mfi') return ['high', 'low', 'close', 'volume'];
 	if (kind === 'volume_sma') return 'volume';
 	if (kind === 'highest') return 'high';
 	if (kind === 'lowest') return 'low';
@@ -246,7 +254,13 @@ function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
 }
 
 function indicatorPeriodMax(kind: IndicatorKindValue): number {
-	return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
+	return kind === 'rsi' ||
+		kind === 'atr' ||
+		kind === 'williams_r' ||
+		kind === 'cci' ||
+		kind === 'mfi'
+		? 100
+		: 500;
 }
 
 /** Align one builder indicator with the kind's locked input and parameter shape. */

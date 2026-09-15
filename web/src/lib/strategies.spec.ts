@@ -119,6 +119,9 @@ describe('indicator kind picker', () => {
 			'roc',
 			'williams_r',
 			'cci',
+			'wma',
+			'momentum',
+			'mfi',
 			'identity',
 			'constant'
 		]);

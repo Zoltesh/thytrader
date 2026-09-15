@@ -438,9 +438,11 @@
 						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 						<div class="hint">
 							OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
-							crosses 40). ATR / Williams %R / CCI use high/low/close. Highest uses high. Lowest
-							uses low. Stdev and ROC use close. RSI, ATR, Williams %R, and CCI periods cap at 100.
-							Rolling inputs stay locked per kind. MACD and Bollinger are not shipped.
+							crosses 40). ATR / Williams %R / CCI use high/low/close. MFI uses
+							high/low/close/volume. Highest uses high. Lowest uses low. Stdev, ROC, WMA, and
+							momentum use close. RSI, ATR, Williams %R, CCI, and MFI periods cap at 100. Momentum
+							and MFI need period + 1 bars. Rolling inputs stay locked per kind. MACD and Bollinger
+							are not shipped.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
