@@ -125,11 +125,13 @@ test('flags engine settings the current backtester does not model', async ({ pag
 	const engineMatrix = page.getByRole('table', { name: 'Engine support matrix' });
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V3' })).toBeVisible();
 	const cooldown = engineMatrix.getByRole('row', { name: /Entry cooldown/ });
-	await expect(cooldown).toContainText('not modeled by either bar backtester');
-	await expect(cooldown.getByText('Unsupported')).toHaveCount(2);
+	await expect(cooldown).toContainText('not modeled by V1, V2, or V3');
+	await expect(cooldown.getByText('Unsupported')).toHaveCount(3);
 	const makerEntry = engineMatrix.getByRole('row', { name: /Maker-only/ });
 	await expect(makerEntry.getByText('Unsupported')).toHaveCount(2);
+	await expect(makerEntry.getByText('Supported')).toHaveCount(1);
 });
 
 test('saves edited builder state through the durable draft boundary', async ({ page }) => {

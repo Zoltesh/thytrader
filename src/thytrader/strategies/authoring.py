@@ -5,33 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import secrets
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
-from thytrader.strategies.models import (
-    AllCondition,
-    AtrMultipleStop,
-    ComparisonCondition,
-    ComparisonOperator,
-    DataRequirements,
-    DisabledTrailingStop,
-    EntryDefinition,
-    ExecutionPreferences,
-    ExitDefinition,
-    IndicatorDefinition,
-    IndicatorKind,
-    IndicatorOperand,
-    IndicatorParameters,
-    Instrument,
-    LiteralOperand,
-    PortfolioLimits,
-    RewardRiskTakeProfit,
-    RiskFractionSizing,
-    StrategyDefinition,
-    StrategyMetadata,
-    StrategyStatus,
-    TimeExit,
-)
+from thytrader.strategies.models import Instrument, StrategyDefinition, StrategyStatus
+from thytrader.strategies.templates import build_template_draft, parse_template_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,92 +111,26 @@ def create_reference_draft(
     now: datetime | None = None,
     product_id: str = "BTC-USD",
     timeframe: str = "1h",
+    template: str = "ema-trend",
 ) -> StrategyDefinition:
-    """Construct one server-identified reference draft for the durable authoring boundary."""
+    """Construct one server-identified draft from a fail-closed research template."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)
     created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
-    if timeframe not in {"1h", "5m"}:
+    if timeframe == "5m":
+        clock: Literal["1h", "5m"] = "5m"
+    elif timeframe == "1h":
+        clock = "1h"
+    else:
         message = "Reference drafts support only 1h and 5m timeframes."
         raise ValueError(message)
+    template_id = parse_template_id(template)
     instrument = _instrument_for_product(product_id)
-    return StrategyDefinition(
-        schema_version="1.0",
+    return build_template_draft(
+        template_id=template_id,
         strategy_id=_uuid7(created_at),
-        version=1,
-        name=_reference_name(instrument.product_id, timeframe),
-        description="Reference research strategy; not trading authority.",
-        status=StrategyStatus.DRAFT,
         created_at=created_at,
         instrument=instrument,
-        timeframe=timeframe,
-        data_requirements=DataRequirements(
-            warmup_bars=50,
-            required_fields=("open", "high", "low", "close", "volume"),
-        ),
-        indicators=(
-            IndicatorDefinition(
-                id="fast",
-                kind=IndicatorKind.EMA,
-                input="close",
-                parameters=IndicatorParameters(period=20),
-            ),
-            IndicatorDefinition(
-                id="slow",
-                kind=IndicatorKind.EMA,
-                input="close",
-                parameters=IndicatorParameters(period=50),
-            ),
-            IndicatorDefinition(
-                id="rsi",
-                kind=IndicatorKind.RSI,
-                input="close",
-                parameters=IndicatorParameters(period=14),
-            ),
-            IndicatorDefinition(
-                id="atr",
-                kind=IndicatorKind.ATR,
-                input=("high", "low", "close"),
-                parameters=IndicatorParameters(period=14),
-            ),
-        ),
-        entry=EntryDefinition(
-            side="long",
-            when=AllCondition(
-                all=(
-                    ComparisonCondition(
-                        left=IndicatorOperand(indicator="fast"),
-                        operator=ComparisonOperator.CROSSES_ABOVE,
-                        right=IndicatorOperand(indicator="slow"),
-                    ),
-                    ComparisonCondition(
-                        left=IndicatorOperand(indicator="rsi"),
-                        operator=ComparisonOperator.GTE,
-                        right=LiteralOperand(literal="50"),
-                    ),
-                )
-            ),
-            cooldown_bars=3,
-            max_open_positions=1,
-        ),
-        sizing=RiskFractionSizing(
-            kind="risk_fraction",
-            risk_fraction="0.005",
-            min_quote_notional="10",
-            max_quote_notional="100",
-        ),
-        portfolio_limits=PortfolioLimits(
-            max_strategy_exposure_fraction="0.10", max_concurrent_positions=1
-        ),
-        exits=ExitDefinition(
-            initial_stop=AtrMultipleStop(kind="atr_multiple", atr_indicator="atr", multiple="2"),
-            take_profit=RewardRiskTakeProfit(kind="reward_risk", multiple="2"),
-            trailing_stop=DisabledTrailingStop(enabled=False),
-            time_exit=TimeExit(max_bars_held=96),
-        ),
-        execution=ExecutionPreferences(
-            entry_preference="maker_only", max_entry_wait_bars=2, on_unfilled_entry="cancel"
-        ),
-        metadata=StrategyMetadata(tags=("reference",), notes=()),
+        timeframe=clock,
     )
 
 
@@ -233,15 +145,6 @@ def _instrument_for_product(product_id: str) -> Instrument:
         message = "product_id must be a USD spot identifier such as ETH-USD."
         raise ValueError(message)
     return Instrument(product_id=normalized, base_currency=base, quote_currency="USD")
-
-
-def _reference_name(product_id: str, timeframe: str) -> str:
-    """Keep the historical BTC 1h title; otherwise name the product and bar size."""
-    if product_id == "BTC-USD" and timeframe == "1h":
-        return "BTC hourly EMA trend"
-    pretty = "hourly" if timeframe == "1h" else timeframe
-    base = product_id.split("-", 1)[0]
-    return f"{base} {pretty} EMA trend"
 
 
 def _uuid7(created_at: datetime) -> UUID:

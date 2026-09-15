@@ -496,22 +496,28 @@ function measureCondition(condition: ConditionDraft): { nodes: number; depth: nu
 	return { nodes: inner.nodes + 1, depth: inner.depth + 1 };
 }
 
-export type EngineSupportRow = { label: string; v1: boolean; v2: boolean; note: string };
+export type EngineSupportRow = {
+	label: string;
+	v1: boolean;
+	v2: boolean;
+	v3: boolean;
+	note: string;
+};
 
-// The current bar-backtest engine consumes these settings. It fills every
-// entry at the next bar open unconditionally, so cooldown and execution
-// preferences are declared by the schema but not modeled by the engine.
+// Bar-backtest engines are parallel contracts. V3 does not retire V1/V2.
 export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	{
 		label: 'HTF filter (optional closed-bar AND with LTF entry)',
 		v1: true,
 		v2: true,
+		v3: true,
 		note: 'Research V1/V2/V3 evaluate last completed HTF bars only; paper and live reject htf_filter'
 	},
 	{
 		label: 'Entry conditions (ALL / ANY / NOT, comparisons, crossovers)',
 		v1: true,
 		v2: true,
+		v3: true,
 		note: 'evaluated on completed candles, no lookahead'
 	},
 	{
@@ -519,66 +525,84 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, OHLCV identity, constant',
 		v1: true,
 		v2: true,
+		v3: true,
 		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter; MACD/Bollinger conditions use series ids'
 	},
 	{
 		label: 'Per-indicator timeframes',
 		v1: false,
 		v2: false,
+		v3: false,
 		note: 'out of Phase 9; LTF uses top-level timeframe, HTF stays inside htf_filter'
 	},
 	{
 		label: 'Risk-fraction sizing with notional bounds',
 		v1: true,
 		v2: true,
+		v3: true,
 		note: 'bounded by exposure fraction'
 	},
 	{
 		label: 'ATR initial stop',
 		v1: true,
 		v2: true,
+		v3: true,
 		note: 'stop-loss priority inside the bar'
 	},
 	{
 		label: 'Reward/risk take profit',
 		v1: true,
 		v2: true,
-		note: 'checked after the stop'
+		v3: true,
+		note: 'V1/V2 check after the stop; V3 rests take-profit after the fill bar'
 	},
 	{
 		label: 'Time exit (max bars held)',
 		v1: true,
 		v2: true,
-		note: 'exits at the open'
+		v3: true,
+		note: 'V1/V2 exit at the open; V3 exits at the completed close'
 	},
 	{
 		label: 'Constant spread stress assumption',
 		v1: false,
 		v2: true,
-		note: 'V2 models an explicit total bid-ask spread; V1 does not'
+		v3: false,
+		note: 'V2 models an explicit total bid-ask spread; V1 and V3 do not'
 	},
 	{
 		label: 'Entry cooldown (cooldown_bars)',
 		v1: false,
 		v2: false,
-		note: 'not modeled by either bar backtester'
+		v3: false,
+		note: 'not modeled by V1, V2, or V3 bar backtesters'
 	},
 	{
 		label: 'Maker-only / marketable entry preference',
 		v1: false,
 		v2: false,
-		note: 'fills at next open; no order book'
+		v3: true,
+		note: 'V1/V2 fill at next open; V3 rests a post-only close limit'
 	},
 	{
 		label: 'Entry wait and unfilled policy',
 		v1: false,
 		v2: false,
-		note: 'not modeled by either bar backtester'
+		v3: true,
+		note: 'V3 honors max_entry_wait_bars and on_unfilled_entry cancel/reprice'
 	},
 	{
 		label: 'Trailing stop',
 		v1: false,
 		v2: false,
+		v3: false,
 		note: 'the published strategy profile permits disabled only'
+	},
+	{
+		label: 'Walk-forward / OOS / cross-market studies',
+		v1: true,
+		v2: true,
+		v3: true,
+		note: 'Phase 11 composes existing engines; it does not retune parameters or stitch a continuous equity curve'
 	}
 ];

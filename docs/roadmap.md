@@ -7,20 +7,22 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: Phase 11, then 12+ (iterative)
+## Current delivery focus: Phase 13, then 14 (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
 five catalog slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
 `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`) are shipped.
 Phase 10's risk-policy registry and concurrent single-instrument paper/live are shipped.
+Phase 11's walk-forward / OOS / cross-market studies, richer templates, and V1/V2/V3 engine-support
+matrix are shipped.
 Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
-Builder should implement the next unshipped Phase 11+ slice in order**, one vertical increment
+Builder should implement the next unshipped Phase 13+ slice in order**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not inserted ahead of Phase 11 → 14**: remaining
+Destination items that are **accepted but not inserted ahead of Phase 13 → 14**: remaining
 Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
 then strategy/paper/live clocks; on-demand trades with SL/TP; agent journals, sentiment, and
 notify. See [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
@@ -68,7 +70,7 @@ completeness from full watch coverage.
 
 Remaining Coinbase-listed granularities (`1m`, `2h`, and any interval Coinbase adds later) are
 **destination** datasets-then-clocks ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
-They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 11 → 14.
+They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 13 → 14.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -152,9 +154,21 @@ Destination still includes on-demand trades, intra-strategy pyramiding, multi-in
 documents, daily-loss/drawdown circuit breakers, `1m`/`2h` clocks, journals, and notify
 ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
 
-## Phase 11: Research rigor tooling — 📋 Planned
+## Phase 11: Research rigor tooling — ✅ Shipped
 
-Walk-forward / out-of-sample workflows, richer templates, clearer engine-support matrix.
+Walk-forward / out-of-sample / cross-market studies compose existing bar-backtest V1/V2/V3 engines
+([ADR 0035](decisions/0035-phase-11-research-rigor.md)). `ema-trend` remains the default draft
+template; `rsi-mean-reversion`, `macd-trend`, and `bollinger-mean-reversion` are additional starting
+drafts. The engine-support matrix has V1, V2, and V3 columns. Walk-forward is **validation**, not
+parameter optimization. Child backtests remain the append-only evidence; there is no Alembic
+revision. Cross-market still requires one published single-instrument strategy per product.
+
+**Exit gate met:** agents can `plan-study` / `submit-study --confirm` for OOS holdout, rolling or
+anchored walk-forward, and 2–8 product cross-market studies; the UI can launch OOS and walk-forward
+on a published fingerprint; templates are selectable; the matrix names V3 honestly.
+
+Parameter sweeps, walk-forward optimization, stitched multi-window equity, and paper/live HTF stay
+out of this slice.
 
 ## Phase 12: Agent orchestration + YOLO opt-in — ✅ Shipped
 
@@ -207,7 +221,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Dataset TFs | 5m, 15m, 30m, 1h, 6h, 1d complete-only | Those plus **1m**, **2h**, and any Coinbase-listed interval |
 | Strategy / paper / live clocks | `1h`\|`5m` (live `1h`) | Same clocks as ingested venue TFs, each widened by ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
-| Research | Single-instrument backtests; HTF filter in research | Cross-market analysis; walk-forward / OOS (Phase 11) |
+| Research | Single-instrument backtests; research HTF filter; Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Four lane-separated skills | Primary surface complete: research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030) |
@@ -358,15 +372,16 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 - Conservative bar-level broker with latency, rejection, partial-fill, and maker-limit models.
 - ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later.
 - Trailing-stop state machine when the schema and market-data resolution support it.
-- Out-of-sample and walk-forward workflow.
+- ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps and walk-forward optimization remain out of scope.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
 
 ### Next delivery increment
 
 The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
-immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2 support matrix,
-archives a publication without mutating its evidence, launches explicit exact-version V1/V2 research,
-and compares complete stored result histories across versions.
+immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2/V3 support matrix,
+archives a publication without mutating its evidence, launches explicit exact-version V1/V2/V3
+research or a composed OOS/walk-forward study, and compares complete stored result histories across
+versions.
 
 Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +
 `post_only`); stops and time-exits are marketable sells. Live orders use Advanced Trade REST v3 JSON

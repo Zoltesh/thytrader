@@ -282,10 +282,15 @@ async def create_strategy_draft(
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
     timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
+    template: Annotated[str, Query()] = "ema-trend",
 ) -> StrategyCreatedResponse:
-    """Create and durably save the conservative reference draft without trading authority."""
+    """Create and durably save a research template draft without trading authority."""
     try:
-        definition = create_reference_draft(product_id=product_id, timeframe=timeframe)
+        definition = create_reference_draft(
+            product_id=product_id,
+            timeframe=timeframe,
+            template=template,
+        )
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

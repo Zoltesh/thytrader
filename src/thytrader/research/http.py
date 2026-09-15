@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.backtest.submission import BacktestSubmissionRequest
+    from thytrader.research.studies import ResearchStudyRequest
     from thytrader.strategies.models import StrategyDefinition
 
 
@@ -20,11 +21,19 @@ def create_draft(
     *,
     product_id: str = "BTC-USD",
     timeframe: str = "1h",
+    template: str = "ema-trend",
 ) -> str:
-    """POST the conservative reference draft through the strategies API."""
+    """POST a research template draft through the strategies API."""
     url = f"{base_url}/api/v1/strategies"
-    if product_id != "BTC-USD" or timeframe != "1h":
-        url = f"{url}?product_id={product_id}&timeframe={timeframe}"
+    query: list[str] = []
+    if product_id != "BTC-USD":
+        query.append(f"product_id={product_id}")
+    if timeframe != "1h":
+        query.append(f"timeframe={timeframe}")
+    if template != "ema-trend":
+        query.append(f"template={template}")
+    if query:
+        url = f"{url}?{'&'.join(query)}"
     body = _as_object(
         request_json(method="POST", url=url),
         "create-draft response",
@@ -116,6 +125,50 @@ def submit_backtest(base_url: str, request: BacktestSubmissionRequest) -> str:
             "result_fingerprint": body.get("result_fingerprint"),
         }
     )
+
+
+def list_templates(base_url: str) -> str:
+    """List fail-closed draft templates."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/templates"),
+        "template list",
+    )
+    return _encode(body)
+
+
+def engine_support(base_url: str) -> str:
+    """Fetch the V1/V2/V3 engine-support matrix."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/engine-support"),
+        "engine-support matrix",
+    )
+    return _encode(body)
+
+
+def plan_study(base_url: str, request: ResearchStudyRequest) -> str:
+    """POST a study window plan without submitting child backtests."""
+    body = _as_object(
+        request_json(
+            method="POST",
+            url=f"{base_url}/api/v1/research/studies/plan",
+            payload=request.model_dump(mode="json"),
+        ),
+        "plan-study response",
+    )
+    return _encode(body)
+
+
+def submit_study(base_url: str, request: ResearchStudyRequest) -> str:
+    """POST one composed research study through the research API."""
+    body = _as_object(
+        request_json(
+            method="POST",
+            url=f"{base_url}/api/v1/research/studies",
+            payload=request.model_dump(mode="json"),
+        ),
+        "submit-study response",
+    )
+    return _encode(body)
 
 
 def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) -> str:

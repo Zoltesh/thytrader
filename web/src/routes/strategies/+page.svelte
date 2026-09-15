@@ -14,6 +14,11 @@
 		type ResearchFeeSuggestion
 	} from '$lib/fees';
 	import {
+		engineContractLabel,
+		submitResearchStudy,
+		type ResearchStudy
+	} from '$lib/research-studies';
+	import {
 		archiveConfirmMessage,
 		archivePublishedStrategy,
 		createDraft,
@@ -90,6 +95,14 @@
 	let launchDatasetError = $state<string | null>(null);
 	let launchError = $state<string | null>(null);
 	let launching = $state(false);
+	let draftTemplate = $state('ema-trend');
+	let studyKind = $state<'single' | 'oos_holdout' | 'walk_forward'>('single');
+	let oosFraction = $state('0.3');
+	let inSampleBars = $state('720');
+	let outOfSampleBars = $state('168');
+	let stepBars = $state('168');
+	let foldMode = $state<'rolling' | 'anchored'>('rolling');
+	let studyResult = $state<ResearchStudy | null>(null);
 	let selectedStrategyFingerprint = $state('');
 	let launchForm = $state({
 		dataset_fingerprint: '',
@@ -350,7 +363,38 @@
 		}
 		launching = true;
 		launchError = null;
+		studyResult = null;
 		try {
+			if (studyKind !== 'single') {
+				const study = await submitResearchStudy({
+					schema_version: 'thytrader-research-study-v1',
+					kind: studyKind,
+					strategy_fingerprint: selectedStrategyFingerprint,
+					dataset_fingerprint: launchForm.dataset_fingerprint,
+					...(launchForm.htf_dataset_fingerprint === ''
+						? {}
+						: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
+					evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
+					evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
+					initial_quote_balance: launchForm.initial_quote_balance,
+					maker_fee_rate: launchForm.maker_fee_rate,
+					taker_fee_rate: launchForm.taker_fee_rate,
+					fixed_slippage_bps: launchForm.fixed_slippage_bps,
+					engine_contract_version: launchForm.engine,
+					spread_bps:
+						launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null,
+					...(studyKind === 'oos_holdout'
+						? { oos_fraction: oosFraction, embargo_bars: 0 }
+						: {
+								in_sample_bars: Number(inSampleBars),
+								out_of_sample_bars: Number(outOfSampleBars),
+								step_bars: Number(stepBars),
+								fold_mode: foldMode
+							})
+				});
+				studyResult = study;
+				return;
+			}
 			const input: BacktestLaunchInput = {
 				strategy_fingerprint: selectedStrategyFingerprint,
 				dataset_fingerprint: launchForm.dataset_fingerprint,
@@ -774,7 +818,7 @@
 		pendingAction = 'create';
 		error = null;
 		try {
-			await createDraft();
+			await createDraft({ template: draftTemplate });
 			await loadLibrary();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not create a strategy draft.';
@@ -893,6 +937,15 @@
 	<section class="top-actions" aria-label="Library actions">
 		<button class="refresh" type="button" onclick={createNew} disabled={pendingAction !== null}
 			>{pendingAction === 'create' ? 'Creating…' : 'New strategy'}</button
+		>
+		<label class="template-picker"
+			>Template
+			<select bind:value={draftTemplate} disabled={pendingAction !== null}>
+				<option value="ema-trend">EMA trend</option>
+				<option value="rsi-mean-reversion">RSI mean reversion</option>
+				<option value="macd-trend">MACD trend</option>
+				<option value="bollinger-mean-reversion">Bollinger mean reversion</option>
+			</select></label
 		>
 		<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
 	</section>
@@ -1177,6 +1230,15 @@
 									<option value="" disabled selected hidden>Select an engine</option>
 									<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
 									<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
+									<option value="thytrader-bar-backtest-v3">V3 — resting maker limit</option>
+								</select></label
+							>
+							<label
+								>Study
+								<select bind:value={studyKind}>
+									<option value="single">Single window</option>
+									<option value="oos_holdout">OOS holdout</option>
+									<option value="walk_forward">Walk-forward</option>
 								</select></label
 							>
 							{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
@@ -1186,6 +1248,36 @@
 								>
 							{/if}
 						</div>
+						{#if studyKind === 'oos_holdout'}
+							<div class="launch-grid">
+								<label
+									>OOS fraction (last share)
+									<input inputmode="decimal" bind:value={oosFraction} /></label
+								>
+							</div>
+							<p class="view-note">
+								The same published fingerprint is simulated on in-sample then out-of-sample. OOS is
+								the honest claim; this does not retune parameters.
+							</p>
+						{/if}
+						{#if studyKind === 'walk_forward'}
+							<div class="launch-grid">
+								<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
+								<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
+								<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
+								<label
+									>Fold mode
+									<select bind:value={foldMode}>
+										<option value="rolling">Rolling</option>
+										<option value="anchored">Anchored</option>
+									</select></label
+								>
+							</div>
+							<p class="view-note">
+								Walk-forward validation uses the same published fingerprint on each fold. Metrics
+								are not a stitched equity curve. Cross-market studies stay on the research CLI.
+							</p>
+						{/if}
 						<div class="launch-grid">
 							<label
 								>Evaluation start
@@ -1278,10 +1370,61 @@
 								launchForm.maker_fee_rate.trim() === '' ||
 								launchForm.taker_fee_rate.trim() === ''}
 						>
-							{launching ? 'Running simulation…' : 'Run backtest'}
+							{launching
+								? 'Running simulation…'
+								: studyKind === 'single'
+									? 'Run backtest'
+									: 'Run study'}
 						</button>
 					{/if}
 				</div>
+				{#if studyResult}
+					<div class="view-block" data-testid="research-study-result">
+						<h3>Research study</h3>
+						<p class="view-note">
+							{studyResult.kind} · {engineContractLabel(studyResult.engine_contract_version)} ·
+							{studyResult.aggregate.oos_window_count} OOS window(s) · fingerprint
+							{studyResult.study_fingerprint.slice(0, 18)}…
+						</p>
+						{#if studyResult.aggregate.mean_oos_return_fraction !== null}
+							<p>
+								Mean OOS return {formatPercent(studyResult.aggregate.mean_oos_return_fraction)}
+								{#if studyResult.aggregate.is_oos_return_gap !== null}
+									· IS−OOS gap {formatPercent(studyResult.aggregate.is_oos_return_gap)}
+								{/if}
+							</p>
+						{/if}
+						{#each studyResult.warnings as warning (warning)}
+							<p class="view-note">{warning}</p>
+						{/each}
+						<table class="results-table" aria-label="Study windows">
+							<thead>
+								<tr>
+									<th scope="col">Window</th>
+									<th scope="col">Role</th>
+									<th scope="col">Return</th>
+									<th scope="col">Trades</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each studyResult.windows as window (window.result_fingerprint)}
+									<tr>
+										<td>{window.label}</td>
+										<td>{window.role}</td>
+										<td>
+											<a
+												href={resolve(
+													`/backtests?result=${encodeURIComponent(window.result_fingerprint)}`
+												)}>{formatPercent(window.summary.total_return_fraction)}</a
+											>
+										</td>
+										<td>{window.summary.trade_count}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 				<div class="view-block">
 					<h3>Results by version</h3>
 					{#if latestComparisonRows().length > 1}
@@ -1301,7 +1444,7 @@
 								{#each comparisonRows as row (row.fingerprint)}
 									<tr>
 										<td>V{row.version}</td>
-										<td>{row.engine_contract_version.endsWith('-v2') ? 'V2' : 'V1'}</td>
+										<td>{engineContractLabel(row.engine_contract_version)}</td>
 										<td>
 											<a
 												href={resolve(
@@ -1356,7 +1499,7 @@
 															)}>{formatPercent(row.total_return_fraction)}</a
 														>
 													</td>
-													<td>{row.engine_contract_version.endsWith('-v2') ? 'V2' : 'V1'}</td>
+													<td>{engineContractLabel(row.engine_contract_version)}</td>
 													<td>{row.trade_count}</td>
 													<td>{formatPercent(row.win_rate)}</td>
 													<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
@@ -1937,6 +2080,18 @@
 		display: flex;
 		gap: 12px;
 		margin-bottom: 16px;
+		align-items: end;
+		flex-wrap: wrap;
+	}
+	.template-picker {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font-size: 12px;
+		color: #aeb9bb;
+	}
+	.template-picker select {
+		min-height: 36px;
 	}
 	.empty-state {
 		padding: 42px 24px;

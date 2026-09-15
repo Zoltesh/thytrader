@@ -64,7 +64,7 @@ Shipped command groups:
 
 - `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, support-bundle, schema-check.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
-- `thytrader-research` — drafts, publish, backtests (`--confirm`).
+- `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
 - `thytrader-runtime` — paper/live start, pause, resume, stop (`--confirm`; live also `--i-understand-live`).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 
@@ -203,7 +203,7 @@ The operator skill tells agents to:
 | Capability available | Supported agent authority |
 |---|---|
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
-| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. HTTP by default. |
+| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market studies only. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 

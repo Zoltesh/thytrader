@@ -226,6 +226,9 @@ See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
 ```bash
 uv run thytrader-operator health
 uv run thytrader-research create-draft --confirm
+uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
+uv run thytrader-research plan-study --file study.json
+uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-playbook status
 ```
 

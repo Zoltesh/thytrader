@@ -131,5 +131,6 @@ window inline.
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
 - paper/live evaluation of `htf_filter` (research V1/V2/V3 only in this slice);
 - trailing stops;
-- sensitivity analysis, out-of-sample partitioning, parameter sweeps, or walk-forward workflows;
+- sensitivity analysis, parameter sweeps, or walk-forward optimization inside a single engine run
+  (Phase 11 composes ordinary V1/V2/V3 submissions; see [research studies](research-studies.md));
 - paper broker, exchange adapters, Coinbase submission, or live execution.
