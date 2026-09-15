@@ -19,6 +19,7 @@ from thytrader.api.dependencies import (
     get_market_data_state_store,
     get_market_data_watchlist_store,
     get_portfolio_service,
+    get_risk_policy_store,
     get_runtime_state,
     get_strategy_draft_store,
     get_strategy_publication_catalog,
@@ -51,6 +52,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader  # noqa:
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore  # noqa: TC001
 from thytrader.portfolio.service import PortfolioService  # noqa: TC001
+from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
 from thytrader.strategies.publication import StrategyPublicationCatalog  # noqa: TC001
@@ -73,6 +75,7 @@ def get_operator_diagnostics(
     market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
     engine: Annotated[AsyncEngine | None, Depends(get_database_engine)],
     heartbeat_store: Annotated[WorkerHeartbeatStore, Depends(get_worker_heartbeat_store)],
+    risk_policies: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -91,6 +94,7 @@ def get_operator_diagnostics(
         watchlist=watchlist,
         market_data=market_data,
         heartbeat_store=heartbeat_store,
+        risk_policies=risk_policies,
     )
 
 
@@ -177,7 +181,7 @@ async def get_operator_performance(
 async def get_operator_risk(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
 ) -> RiskReport:
-    """Return pause and mismatch findings without a risk-policy registry."""
+    """Return registry identity, slot counts, and pause/mismatch findings."""
     return await diagnostics.risk()
 
 

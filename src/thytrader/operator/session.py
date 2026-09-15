@@ -31,11 +31,13 @@ from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import DisabledWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.risk.store import DisabledRiskPolicyStore
 from thytrader.strategies.authoring import DisabledStrategyDraftStore
 from thytrader.strategies.publication import DisabledStrategyPublicationStore
 
@@ -74,6 +76,7 @@ async def operator_diagnostics(
             watchlist=PostgresMarketDataWatchlistStore(engine),
             market_data=market_data,
             heartbeat_store=PostgresWorkerHeartbeatStore(engine),
+            risk_policies=PostgresRiskPolicyStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -90,6 +93,7 @@ async def operator_diagnostics(
             watchlist=DisabledMarketDataWatchlistStore(),
             market_data=market_data,
             heartbeat_store=DisabledWorkerHeartbeatStore(),
+            risk_policies=DisabledRiskPolicyStore(),
         )
     try:
         yield diagnostics

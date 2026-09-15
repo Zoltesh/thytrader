@@ -18,6 +18,9 @@ from thytrader.execution.models import (
 )
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.research.multi_timeframe import strategy_requires_htf
+from thytrader.risk.gate import evaluate_new_deployment
+from thytrader.risk.models import RiskDecision
+from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyPublicationError,
@@ -28,6 +31,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.store import ExecutionStore
+    from thytrader.risk.store import RiskPolicyStore
+    from thytrader.strategies.models import StrategyDefinition
 
 
 async def create_deployment(
@@ -38,24 +43,22 @@ async def create_deployment(
     mode: DeploymentMode,
     paper_starting_cash: Decimal | None,
     live_allowed: bool,
+    risk_store: RiskPolicyStore | None = None,
 ) -> Deployment:
     """Start one running deployment for an immutable published strategy."""
-    if mode is DeploymentMode.LIVE and not live_allowed:
-        raise ExecutionConflictError("Live trading requires configured Coinbase credentials.")
-    if mode is DeploymentMode.PAPER and (paper_starting_cash is None or paper_starting_cash <= 0):
-        raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
+    _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
-    if strategy_requires_htf(definition):
-        raise ExecutionConflictError(
-            "Paper and live deployments reject multi-timeframe HTF-filter strategies."
-        )
-    _require_execution_timeframe(mode, definition.timeframe)
-    existing = await store.list_by_strategy(str(definition.strategy_id))
-    if any(item.mode is mode and item.status is DeploymentStatus.RUNNING for item in existing):
-        raise ExecutionConflictError(
-            "A running deployment already exists for this strategy and mode."
-        )
+    _require_executable_definition(mode, definition)
+    existing = await store.list_deployments()
+    _require_unique_running(existing, strategy_id=definition.strategy_id, mode=mode)
+    await _require_risk_admission(
+        risk_store,
+        mode=mode,
+        definition=definition,
+        paper_starting_cash=paper_starting_cash,
+        deployments=existing,
+    )
     now = utc_now()
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
@@ -94,6 +97,68 @@ async def set_deployment_status(
     )
     await store.save_deployment(updated)
     return await store.get_deployment(deployment_id)
+
+
+def _require_mode_prerequisites(
+    mode: DeploymentMode,
+    paper_starting_cash: Decimal | None,
+    *,
+    live_allowed: bool,
+) -> None:
+    """Reject live without credentials and paper without positive cash."""
+    if mode is DeploymentMode.LIVE and not live_allowed:
+        raise ExecutionConflictError("Live trading requires configured Coinbase credentials.")
+    if mode is DeploymentMode.PAPER and (paper_starting_cash is None or paper_starting_cash <= 0):
+        raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
+
+
+def _require_executable_definition(mode: DeploymentMode, definition: StrategyDefinition) -> None:
+    """Reject HTF-filter publications and illegal execution clocks."""
+    if strategy_requires_htf(definition):
+        raise ExecutionConflictError(
+            "Paper and live deployments reject multi-timeframe HTF-filter strategies."
+        )
+    _require_execution_timeframe(mode, definition.timeframe)
+
+
+def _require_unique_running(
+    existing: tuple[Deployment, ...],
+    *,
+    strategy_id: UUID,
+    mode: DeploymentMode,
+) -> None:
+    """Keep one running deployment per strategy identity and mode."""
+    if any(
+        item.strategy_id == strategy_id
+        and item.mode is mode
+        and item.status is DeploymentStatus.RUNNING
+        for item in existing
+    ):
+        raise ExecutionConflictError(
+            "A running deployment already exists for this strategy and mode."
+        )
+
+
+async def _require_risk_admission(
+    risk_store: RiskPolicyStore | None,
+    *,
+    mode: DeploymentMode,
+    definition: StrategyDefinition,
+    paper_starting_cash: Decimal | None,
+    deployments: tuple[Deployment, ...],
+) -> None:
+    """Fail closed when the active risk policy rejects this deployment."""
+    active = await load_effective_policy(risk_store)
+    verdict = evaluate_new_deployment(
+        active.definition,
+        mode=mode,
+        product_id=definition.instrument.product_id,
+        strategy_id=definition.strategy_id,
+        paper_starting_cash=paper_starting_cash,
+        deployments=deployments,
+    )
+    if verdict.decision is RiskDecision.DENY:
+        raise ExecutionConflictError(verdict.detail)
 
 
 async def _load_published(

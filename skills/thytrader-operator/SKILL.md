@@ -43,7 +43,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` |
 | Performance | `uv run thytrader-operator performance --result-fingerprint sha256:…` or `--deployment-id UUID` | `GET /api/v1/operator/performance` |
-| Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` |
+| Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` (registry identity, slot counts, pause/mismatch; omits balances) |
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
@@ -74,7 +74,7 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Performance timeframe is the published strategy's clock for backtest, paper, and live. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked at last close; `MISSING_MARK` means open inventory was not marked.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
-8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, and live arming require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live also `--i-understand-live`).
+8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, and risk-policy publication require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live start also `--i-understand-live`).
 
 ## Forbidden
 

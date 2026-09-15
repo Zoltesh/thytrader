@@ -15,7 +15,8 @@ implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, mar
 authoring, backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h).
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
 6h, and 1d datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
-through a paper broker or Coinbase Advanced Trade REST v3.
+through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
+`thytrader-risk-policy-v1` registry before intent persist.
 
 ```text
 SvelteKit web UI
@@ -66,7 +67,10 @@ contracts below:
 - `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
   the deterministic backtest engine;
 - `POST /api/v1/deployments` starts a paper or live runtime for one published fingerprint; pause, resume,
-  and stop are explicit subsequent calls.
+  and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy
+  registry before persisting a new intent.
+- `GET` / `PUT /api/v1/risk-policy` reads or publishes the effective `thytrader-risk-policy-v1`
+  document. `PUT` requires durable PostgreSQL storage.
 - `GET /api/v1/operator/*` is the versioned read-only agent/operator diagnostics contract; the matching
   CLI is `thytrader-operator`. Research mutations for agents use `thytrader-research` with `--confirm`.
 
@@ -79,8 +83,10 @@ immutable markers rather than a mutation of the content-addressed publication ro
 Paper and live share one execution worker and the same published strategy semantics. Live mode is the
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
 from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes
-beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, a
-risk-policy registry, and on-demand/discretionary orders ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
+beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, and
+on-demand/discretionary orders ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
+The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
+the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
 Destination clocks include every Coinbase-listed granularity (`1m` and `2h` among them); they are
 not legal strategy/paper/live clocks until a later ADR widens them.
 
@@ -109,8 +115,8 @@ Core automation is not implemented with cron. Containers or a service manager su
 The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
 market-data worker is independently supervised and owns historical market-data ingestion/publication
 plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
-execution run in `thytrader-execution-worker`, which polls closed 1h or 5m candles over REST and talks to a
-paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
+execution run in `thytrader-execution-worker`, which polls closed 1h or 5m candles over REST, evaluates
+the active risk policy before new entries, and talks to a paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
 fill matching but blocks new entries; stop cancels resting orders. The worker replays contiguous
 missed closed bars after downtime and pauses when the latest bar is missing or gapped. User-order
 WebSockets and trailing-stop workers remain deferred.

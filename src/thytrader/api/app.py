@@ -22,6 +22,7 @@ from thytrader.api.routes.market_data_ingestion import router as market_data_ing
 from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
+from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.strategies import router as strategies_router
 from thytrader.backtest.submission import (
     BacktestSubmitter,
@@ -74,6 +75,7 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import (
@@ -83,6 +85,7 @@ from thytrader.persistence.worker_heartbeats import (
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
+from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
 from thytrader.strategies.publication import (
     DisabledStrategyPublicationStore,
@@ -112,6 +115,7 @@ def create_app(
     strategy_draft_store: StrategyDraftStore | None = None,
     backtest_submitter: BacktestSubmitter | None = None,
     execution_store: ExecutionStore | None = None,
+    risk_policy_store: RiskPolicyStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -133,6 +137,7 @@ def create_app(
     external_strategy_draft_store = strategy_draft_store
     external_backtest_submitter = backtest_submitter
     external_execution_store = execution_store
+    external_risk_policy_store = risk_policy_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -151,6 +156,7 @@ def create_app(
         draft_store = external_strategy_draft_store
         submitter = external_backtest_submitter
         execution = external_execution_store
+        risk_policies = external_risk_policy_store
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         heartbeat_store: WorkerHeartbeatStore | None = None
         needs_database = (
@@ -193,6 +199,8 @@ def create_app(
             submitter = _submission_service(submitter, engine, dataset_store)
             if execution is None:
                 execution = PostgresExecutionStore(engine)
+            if risk_policies is None:
+                risk_policies = PostgresRiskPolicyStore(engine)
             if watchlist_store is None:
                 watchlist_store = PostgresMarketDataWatchlistStore(engine)
             heartbeat_store = PostgresWorkerHeartbeatStore(engine)
@@ -224,6 +232,7 @@ def create_app(
             publication_store or DisabledStrategyPublicationStore()
         )
         _app.state.execution_store = execution or DisabledExecutionStore()
+        _app.state.risk_policy_store = risk_policies or DisabledRiskPolicyStore()
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 
@@ -252,6 +261,7 @@ def create_app(
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
     app.include_router(deployments_router)
+    app.include_router(risk_policy_router)
     app.include_router(backtests_router)
     return app
 

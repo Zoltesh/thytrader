@@ -139,6 +139,7 @@ def _stale_image_missing_agent_routes(url: str) -> bool:
             "/api/v1/strategies",
             "/api/v1/backtests",
             "/api/v1/deployments",
+            "/api/v1/risk-policy",
         )
     ):
         return False

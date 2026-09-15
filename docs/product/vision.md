@@ -140,10 +140,11 @@ first automated runtime, using the shared published strategy semantics and indep
 Guarded live execution remains after paper restart, stale-data, duplicate-event, and reconciliation
 acceptance tests pass.
 
-That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): remaining Phase 9
-indicators, then portfolio/multi-asset, research rigor, agent orchestration, live extras, and
-experiential memory — plus destination items (1m/2h datasets, on-demand trades) that are accepted
-but not inserted ahead of that sequence.
+That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): research rigor (Phase 11),
+agent orchestration, live extras, and experiential memory — plus destination items (1m/2h datasets,
+on-demand trades, journals) that are accepted but not inserted ahead of that sequence. Phase 10's
+risk-policy registry and concurrent single-instrument paper/live are shipped; destination portfolio
+controls and multi-instrument strategy documents are not.
 
 ## Planned direction: agents as crypto-trading experts (NOT SHIPPED)
 

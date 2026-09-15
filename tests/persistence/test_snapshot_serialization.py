@@ -317,6 +317,16 @@ def test_watchlist_one_day_migration_follows_six_hour() -> None:
     assert "ck_market_data_watchlist_timeframe" in content
 
 
+def test_risk_policy_migration_follows_one_day_watchlist() -> None:
+    """The twenty-first migration must add published and active risk-policy tables."""
+    content = Path("alembic/versions/0021_risk_policy_registry.py").read_text(encoding="utf-8")
+    assert 'revision = "0021"' in content
+    assert 'down_revision = "0020"' in content
+    assert "published_risk_policies" in content
+    assert "active_risk_policy" in content
+    assert "ck_active_risk_policy_singleton" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

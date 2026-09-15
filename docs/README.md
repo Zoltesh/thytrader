@@ -13,11 +13,11 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Security and trading-risk baseline](security-and-risk.md)
-- [Delivery roadmap](roadmap.md) — Phases 0–9 catalog shipped (Phase 9 includes MACD/Bollinger series ids); **Phases 10–14** next for iterative Builder work; per-indicator timeframes stay out of Phase 9; destination capabilities (1m/2h, on-demand trades, journals) are accepted but not inserted ahead of that sequence
+- [Delivery roadmap](roadmap.md) — Phases 0–10 shipped (Phase 9 includes MACD/Bollinger series ids; Phase 10 is the risk-policy registry); **Phases 11–14** next for iterative Builder work; per-indicator timeframes stay out of Phase 9; destination capabilities (1m/2h, on-demand trades, journals) are accepted but not inserted ahead of that sequence
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — **historical** running-instance evidence against the 5m research–paper plan; stale Compose, 14-day clip, v3 422, and 5m paper 409 are closed by ADRs 0019, 0017/0018, and 0024
-- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, and Phase 9 catalog slices through MACD/Bollinger are shipped; later phases are not)
+- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, Phase 9 catalog slices through MACD/Bollinger, and Phase 10 risk-policy registry are shipped; later phases are not)
 - [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **shipped** Phase 7.1 research maker/taker prefill (paper deploy has no cost fields)
 
 ## Document roles

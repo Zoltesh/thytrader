@@ -48,7 +48,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
 | Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
-| Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
+| Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
 | Live extras | 5m live, trailing stops, user-order WS, native OCO deferred |
 | Memory | Journals, sentiment, notify, and origin-attributed learning are now in product docs; still deferred (Phase 14). Nothing shipped. |
@@ -91,7 +91,7 @@ YOLO only changes confirmation friction inside allowed tiers.
 4. **Phase 9** — Five catalog slices shipped (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
    `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`). Per-indicator timeframes
    remain out of Phase 9.
-5. **Phase 10** — Portfolio + risk-policy registry.
+5. **Phase 10** — Shipped: risk-policy registry and concurrent single-instrument paper/live.
 6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
 7. **Phase 12** — Agent orchestration + YOLO opt-in.
 8. **Phase 13** — Live extras (5m live, trailing, WS, OCO).

@@ -10,6 +10,7 @@ from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE
 from thytrader.execution.models import (
+    DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     Fill,
@@ -26,6 +27,8 @@ from thytrader.execution.signals import evaluate_latest_entry, latest_atr
 from thytrader.execution.sizing import size_long_entry
 from thytrader.execution.submit import submit_intent
 from thytrader.research.trace import EntryConditionOutcome
+from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.models import RiskDecision, compiled_default_risk_policy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -34,6 +37,7 @@ if TYPE_CHECKING:
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
+    from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.strategies.models import StrategyDefinition
 
 _ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
@@ -48,6 +52,8 @@ async def process_closed_bar(
     candles: Sequence[Candle],
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition | None = None,
+    portfolio: Sequence[DeploymentSnapshot] = (),
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -89,6 +95,8 @@ async def process_closed_bar(
             candle=candle,
             broker=broker,
             store=store,
+            risk_policy=risk_policy or compiled_default_risk_policy(),
+            portfolio=portfolio,
         )
     return await _persist_runtime(
         snapshot,
@@ -544,6 +552,8 @@ async def _maybe_enter(
     candle: Candle,
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
 ) -> DeploymentSnapshot:
     """Place a post-only buy when flat, off cooldown, and the entry condition matches."""
     deployment = snapshot.deployment
@@ -565,6 +575,8 @@ async def _maybe_enter(
         candle=candle,
         broker=broker,
         store=store,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
     )
 
 
@@ -577,8 +589,10 @@ async def _submit_sized_entry(
     candle: Candle,
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
 ) -> DeploymentSnapshot:
-    """Size a long and rest a post-only entry when cash and ATR allow it."""
+    """Size a long and rest a post-only entry when cash, ATR, and risk policy allow it."""
     atr = latest_atr(strategy, candles)
     if atr is None:
         return snapshot
@@ -595,6 +609,15 @@ async def _submit_sized_entry(
         fee_rate=PAPER_MAKER_FEE_RATE,
     )
     if sized is None:
+        return snapshot
+    admitted = _entry_admitted(
+        snapshot,
+        product_id=product.product_id,
+        notional=sized.notional,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+    )
+    if not admitted:
         return snapshot
     pending = with_runtime(
         snapshot.deployment,
@@ -625,6 +648,33 @@ async def _submit_sized_entry(
             snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
         )
     return snapshot
+
+
+def _entry_admitted(
+    snapshot: DeploymentSnapshot,
+    *,
+    product_id: str,
+    notional: Decimal,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+) -> bool:
+    """Return whether the active risk policy allows this sized long."""
+    peers = tuple(portfolio) if portfolio else (snapshot,)
+    live_cash = None
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        live_cash = snapshot.deployment.cash
+    verdict = evaluate_new_entry(
+        risk_policy,
+        mode=snapshot.deployment.mode,
+        proposed=ProposedEntry(
+            product_id=product_id,
+            strategy_id=snapshot.deployment.strategy_id,
+            notional=notional,
+        ),
+        snapshots=peers,
+        live_quote_cash=live_cash,
+    )
+    return verdict.decision is RiskDecision.ALLOW
 
 
 async def _cancel_open_orders(

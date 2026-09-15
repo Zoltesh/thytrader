@@ -279,9 +279,18 @@ class RiskFinding(_FrozenModel):
 
 
 class RiskPayload(_FrozenModel):
-    """Observed runtime risk plus an honest registry gap."""
+    """Observed runtime risk plus the effective registry identity."""
 
-    risk_policy_registry: Literal["unavailable"]
+    risk_policy_registry: Literal["available"]
+    policy_source: Literal["compiled_default", "published"]
+    policy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    max_concurrent_running_deployments: int = Field(ge=1, le=32)
+    max_concurrent_open_positions: int = Field(ge=1, le=32)
+    product_allowlist: tuple[str, ...] = ()
+    paper_running_deployments: int = Field(ge=0)
+    live_running_deployments: int = Field(ge=0)
+    paper_open_positions: int = Field(ge=0)
+    live_open_positions: int = Field(ge=0)
     findings: tuple[RiskFinding, ...]
 
 

@@ -19,6 +19,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 
@@ -424,3 +425,26 @@ async def test_stop_fill_uses_gap_open_when_bar_opens_through_stop() -> None:
     sell_fills = [fill for fill in exited.fills if fill.price == gap_open]
     assert sell_fills
     assert exited.position is None
+
+
+@pytest.mark.anyio
+async def test_denied_entry_skips_the_bar_without_pausing() -> None:
+    """A risk-policy deny must not persist an intent or pause the deployment."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    policy = compiled_default_risk_policy().model_copy(update={"product_allowlist": ("ETH-USD",)})
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    result = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+        risk_policy=policy,
+    )
+    assert result.deployment.status is DeploymentStatus.RUNNING
+    assert result.deployment.phase is RuntimePhase.FLAT
+    assert result.orders == ()
+    assert result.deployment.last_signal == "matched"

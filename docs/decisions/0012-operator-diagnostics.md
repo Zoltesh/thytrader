@@ -24,7 +24,7 @@ Agents need a supported way to diagnose a running ThyTrader instance and to perf
 
 - Agents can diagnose without database credentials in the skill workflow (they invoke CLI/HTTP).
 - Paper and live control remain out of the operator and research skills; they live on the separate `thytrader-runtime` skill (ADR 0013).
-- The composable risk-policy registry is still unavailable; operator risk reports say so and only surface pause/mismatch findings.
+- Phase 10 ships the composable risk-policy registry ([ADR 0033](0033-phase-10-risk-policy-registry.md)); operator `risk` reports `available` plus fingerprint, source, slot counts, and pause/mismatch findings, and still omits account balances.
 - Paper/live performance is a fill ledger from recorded fills plus a last-close mark; open inventory without a mark omits total PnL (`MISSING_MARK`) instead of inventing equity.
 
 ## Alternatives considered

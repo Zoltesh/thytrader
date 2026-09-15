@@ -12,7 +12,13 @@ from sqlalchemy import text
 
 from thytrader import __version__
 from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.models import Deployment, DeploymentMode, DeploymentStatus, OrderStatus
+from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentStatus,
+    OrderStatus,
+    RuntimePhase,
+)
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.watchlist import (
@@ -81,6 +87,7 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryUnavailableError,
 )
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatUnavailableError
+from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.strategies.models import IndicatorKind
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
 
@@ -121,6 +128,7 @@ class OperatorDiagnostics:
     watchlist: MarketDataWatchlistStore | None = None
     market_data: MarketDataService | None = None
     heartbeat_store: WorkerHeartbeatStore | None = None
+    risk_policies: RiskPolicyStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -387,16 +395,20 @@ class OperatorDiagnostics:
         return _empty_performance(now, (component,))
 
     async def risk(self) -> RiskReport:
-        """Surface pause and mismatch findings; the risk-policy registry is not implemented."""
+        """Surface pause/mismatch findings and the effective risk-policy registry."""
         now = datetime.now(UTC)
-        warnings = ["The composable risk-policy registry is not implemented."]
         findings, components = await self._risk_findings()
+        active = await load_effective_policy(self.risk_policies)
+        deployments = await self.execution.list_deployments()
+        paper_running, paper_open = _mode_slot_counts(deployments, DeploymentMode.PAPER)
+        live_running, live_open = _mode_slot_counts(deployments, DeploymentMode.LIVE)
+        policy = active.definition
         components = [
             ComponentReport(
                 name="risk_policy_registry",
-                status=ReportStatus.DEGRADED,
-                reason_code="RISK_REGISTRY_UNAVAILABLE",
-                detail="Typed risk policies are not yet a supported operator contract.",
+                status=ReportStatus.HEALTHY,
+                reason_code="OK",
+                detail=f"Active risk policy {active.policy_fingerprint} ({active.source.value}).",
             ),
             *components,
         ]
@@ -406,9 +418,20 @@ class OperatorDiagnostics:
             overall_status=aggregate_status(components),
             components=tuple(components),
             redaction=STANDARD_REDACTION,
-            partial_result_warnings=tuple(warnings),
             recommended_next_action=recommend_next_action(components),
-            payload=RiskPayload(risk_policy_registry="unavailable", findings=findings),
+            payload=RiskPayload(
+                risk_policy_registry="available",
+                policy_source=active.source.value,
+                policy_fingerprint=active.policy_fingerprint,
+                max_concurrent_running_deployments=policy.max_concurrent_running_deployments,
+                max_concurrent_open_positions=policy.max_concurrent_open_positions,
+                product_allowlist=policy.product_allowlist,
+                paper_running_deployments=paper_running,
+                live_running_deployments=live_running,
+                paper_open_positions=paper_open,
+                live_open_positions=live_open,
+                findings=findings,
+            ),
         )
 
     async def reconciliation(self) -> ReconciliationReport:
@@ -1094,6 +1117,24 @@ class OperatorDiagnostics:
                 )
             )
         return tuple(findings), components
+
+
+def _mode_slot_counts(
+    deployments: tuple[Deployment, ...], mode: DeploymentMode
+) -> tuple[int, int]:
+    """Count occupied running slots and in-market open slots for one mode."""
+    occupied = tuple(
+        item
+        for item in deployments
+        if item.mode is mode
+        and item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+    )
+    open_count = sum(
+        1
+        for item in occupied
+        if item.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
+    )
+    return len(occupied), open_count
 
     async def _reconciliation_findings(
         self,

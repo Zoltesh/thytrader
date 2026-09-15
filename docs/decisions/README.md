@@ -38,6 +38,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0030](0030-agent-e2e-primary-surface.md) | Agent-driven E2E is the primary product surface; UI still required | Accepted |
 | [0031](0031-coinbase-first-platform-end-state.md) | Coinbase-first platform end-state: on-demand trades, venue TFs, single- and multi-asset | Accepted |
 | [0032](0032-phase-9-macd-bollinger.md) | Phase 9 fifth slice: `macd` and `bollinger` with referenceable series ids | Accepted |
+| [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted |
 
 ## Status values
 

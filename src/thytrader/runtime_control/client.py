@@ -5,6 +5,7 @@ from __future__ import annotations
 from thytrader.agent_http import request_json
 
 _DEPLOYMENTS_PREFIX = "/api/v1/deployments"
+_RISK_POLICY_PREFIX = "/api/v1/risk-policy"
 
 
 class RuntimeControlError(RuntimeError):
@@ -46,3 +47,13 @@ def set_deployment_status(base_url: str, deployment_id: str, action: str) -> obj
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}",
     )
+
+
+def show_risk_policy(base_url: str) -> object:
+    """Return the effective compiled or published risk policy."""
+    return request_json(method="GET", url=f"{base_url}{_RISK_POLICY_PREFIX}")
+
+
+def set_risk_policy(base_url: str, payload: dict[str, object]) -> object:
+    """Publish one new immutable risk-policy version."""
+    return request_json(method="PUT", url=f"{base_url}{_RISK_POLICY_PREFIX}", payload=payload)

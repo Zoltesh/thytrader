@@ -1,16 +1,17 @@
 ---
 name: thytrader-runtime
 description: >-
-  Start, pause, resume, or stop ThyTrader paper and live deployments through the
-  confirmation-gated thytrader-runtime CLI. Use when the user explicitly asks to
-  deploy, pause, resume, or stop a paper or live runtime. Requires --confirm on
-  every mutation. Live start also requires --i-understand-live. Never diagnose
-  through this skill and never submit Coinbase orders directly.
+  Start, pause, resume, or stop ThyTrader paper and live deployments, and publish
+  the risk-policy registry, through the confirmation-gated thytrader-runtime CLI.
+  Use when the user explicitly asks to deploy, pause, resume, stop, or set the
+  risk policy. Requires --confirm on every mutation. Live start also requires
+  --i-understand-live. Publishing a risk policy does not arm live trading.
+  Never diagnose through this skill and never submit Coinbase orders directly.
 ---
 
 # ThyTrader runtime
 
-Confirmation-gated paper and live **control**. This skill is not an extension of `thytrader-operator` or `thytrader-research`.
+Confirmation-gated paper and live **control**, including the risk-policy registry. This skill is not an extension of `thytrader-operator` or `thytrader-research`.
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is no `--local` database mode.
 
@@ -39,8 +40,12 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
 | Stop | `uv run thytrader-runtime stop UUID --confirm` |
+| Show risk policy | `uv run thytrader-runtime show-risk-policy` |
+| Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 
-`list` and `show` are read-only and do not use `--confirm`.
+`list`, `show`, and `show-risk-policy` are read-only and do not use `--confirm`. Optional
+`--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
+`set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 
 Underlying HTTP:
 
@@ -48,6 +53,7 @@ Underlying HTTP:
 - `POST /api/v1/deployments/{id}/pause`
 - `POST /api/v1/deployments/{id}/resume`
 - `POST /api/v1/deployments/{id}/stop`
+- `GET/PUT /api/v1/risk-policy`
 
 ## Confirmation
 
@@ -63,6 +69,7 @@ Underlying HTTP:
 - Folding these commands into operator or research skills
 - Printing API keys, private keys, `.env` values, or database URLs
 - Direct PostgreSQL access
-- Cancelling individual Coinbase orders or changing risk-policy configuration (out of scope)
+- Cancelling individual Coinbase orders
+- Publishing a risk policy without `--confirm`, or treating that mutation as live arming
 - Treating a timeout as proof the start/pause/stop failed; `show` the deployment and reconcile before retrying
 - Editing application source to arm, pause, or change execution on a running instance
