@@ -5,6 +5,7 @@ from ipaddress import IPv4Address
 from pydantic import ValidationError
 import pytest
 
+from thytrader.agent_orchestration.models import YoloTier
 from thytrader.config import Environment, Settings
 
 # This intentionally unsafe address exercises the network-exposure rejection path.
@@ -95,3 +96,42 @@ def test_settings_wrap_coinbase_credentials_as_secrets(monkeypatch: pytest.Monke
     assert settings.coinbase_api_private_key.get_secret_value() == private_key
     assert api_key_name not in repr(settings)
     assert private_key not in repr(settings)
+
+
+def test_settings_default_yolo_off() -> None:
+    """YOLO stays off so `--confirm` remains the mutation default."""
+    settings = Settings(_env_file=None)
+
+    assert settings.yolo_enabled is False
+    assert settings.yolo_tiers == ()
+
+
+def test_settings_reject_live_yolo_tier() -> None:
+    """Live is never a YOLO-eligible tier."""
+    with pytest.raises(ValidationError, match="never YOLO-eligible"):
+        Settings(yolo_enabled=True, yolo_tiers="data,live", _env_file=None)
+
+
+def test_settings_reject_enabled_yolo_without_tiers() -> None:
+    """Enabling YOLO requires an explicit non-empty allowed-tier set."""
+    with pytest.raises(ValidationError, match="YOLO_TIERS"):
+        Settings(yolo_enabled=True, _env_file=None)
+
+
+def test_settings_reject_tiers_without_enabled_flag() -> None:
+    """Tiers without the enabled flag would hide a silent YOLO default."""
+    with pytest.raises(ValidationError, match="YOLO_ENABLED"):
+        Settings(yolo_tiers="data,research", _env_file=None)
+
+
+def test_settings_accept_comma_separated_yolo_tiers() -> None:
+    """Enabled YOLO parses unique non-live tiers from a comma-separated string."""
+    settings = Settings(yolo_enabled=True, yolo_tiers="data, paper", _env_file=None)
+    assert settings.yolo_enabled is True
+    assert settings.yolo_tiers == (YoloTier.DATA, YoloTier.PAPER)
+
+
+def test_settings_reject_duplicate_yolo_tiers() -> None:
+    """Duplicate YOLO tiers are a configuration error, not a silent union."""
+    with pytest.raises(ValidationError, match="duplicates"):
+        Settings(yolo_enabled=True, yolo_tiers="data,data", _env_file=None)

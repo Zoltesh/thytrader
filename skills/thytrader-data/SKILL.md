@@ -79,9 +79,11 @@ Gap `cause` values:
 ## Confirmation
 
 - Never run `watch-add`, `ingest`, or `fill-gaps` unless the user explicitly asked for that mutation
-  **and** `--confirm` is present.
-- If `--confirm` is missing, the CLI exits without writing. Do not retry with `--confirm` unless the
-  user asked you to.
+  **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and**
+  operator `configuration` / `thytrader-playbook status` shows the `data` tier enabled.
+- If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with
+  `--confirm` unless the user asked you to.
+- Do not enable YOLO from this skill. Live trading is never YOLO-eligible.
 
 ## Workflow
 

@@ -8,6 +8,10 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from thytrader.agent_orchestration.models import (
+    YoloTier,  # noqa: TC001 - Pydantic resolves this annotation at runtime.
+)
+
 
 class Environment(StrEnum):
     """Supported ThyTrader runtime environments."""
@@ -48,6 +52,8 @@ class Settings(BaseSettings):
     execution_worker_readiness_file: Path | None = None
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
+    yolo_enabled: bool = False
+    yolo_tiers: tuple[YoloTier, ...] = ()
 
     @field_validator("database_url", "coinbase_api_key_name", mode="before")
     @classmethod
@@ -81,4 +87,39 @@ class Settings(BaseSettings):
         if (credentials[0] is None) != (credentials[1] is None):
             message = "Coinbase API key name and private key must be configured together."
             raise ValueError(message)
+        return self
+
+    @field_validator("yolo_tiers", mode="before")
+    @classmethod
+    def parse_yolo_tiers(cls, value: object) -> object:
+        """Parse comma-separated YOLO tiers; live is never eligible."""
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            parts = tuple(part.strip().lower() for part in value.split(",") if part.strip())
+            if any(part == "live" for part in parts):
+                message = (
+                    "Live is never YOLO-eligible. Pass --confirm and --i-understand-live "
+                    "to start live trading."
+                )
+                raise ValueError(message)
+            return parts
+        return value
+
+    @model_validator(mode="after")
+    def validate_yolo_opt_in(self) -> Self:
+        """YOLO stays off unless both the flag and an allowed non-live tier set are set."""
+        unique = tuple(dict.fromkeys(self.yolo_tiers))
+        if unique != self.yolo_tiers:
+            raise ValueError("THYTRADER_YOLO_TIERS must not contain duplicates.")
+        if self.yolo_enabled and not self.yolo_tiers:
+            raise ValueError(
+                "THYTRADER_YOLO_ENABLED requires THYTRADER_YOLO_TIERS "
+                "(data, research, and/or paper). Default remains --confirm."
+            )
+        if self.yolo_tiers and not self.yolo_enabled:
+            raise ValueError(
+                "THYTRADER_YOLO_TIERS requires THYTRADER_YOLO_ENABLED=true. "
+                "Default remains --confirm."
+            )
         return self

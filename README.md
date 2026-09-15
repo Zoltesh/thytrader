@@ -142,8 +142,9 @@ The execution worker evaluates published paper deployments against closed 1h or 
 credentials exist. See the [architecture overview](docs/architecture/overview.md).
 
 Agents diagnose a running instance with `uv run thytrader-operator` (or `GET /api/v1/operator/*`)
-and mutate research artifacts only with `uv run thytrader-research … --confirm`. See
-[`skills/README.md`](skills/README.md).
+and mutate research artifacts only with `uv run thytrader-research … --confirm`. Sequence data →
+research → optional paper with `uv run thytrader-playbook` (still `--confirm` by default; never live).
+See [`skills/README.md`](skills/README.md).
 
 
 Use native processes for fast backend or frontend iteration. ThyTrader requires Python 3.14 and
@@ -225,7 +226,9 @@ See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
 ```bash
 uv run thytrader-operator health
 uv run thytrader-research create-draft --confirm
+uv run thytrader-playbook status
 ```
 
 `thytrader-operator` is read-only. `thytrader-research` mutations require `--confirm` and cannot
-deploy or trade. Skills live in [`skills/`](skills/README.md).
+deploy or trade. `thytrader-playbook` sequences existing CLIs and never starts live. Skills live in
+[`skills/`](skills/README.md).

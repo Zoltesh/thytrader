@@ -24,7 +24,8 @@ evidence are not that memory system.
 
 - Skills: `thytrader-operator` (read-only), `thytrader-data` (watchlist / ingest /
   gaps), `thytrader-research` (draft → publish → backtest), `thytrader-runtime`
-  (paper/live with `--confirm`; live also `--i-understand-live`).
+  (paper/live with `--confirm`; live also `--i-understand-live`), `thytrader-playbook`
+  (sequences those CLIs; never live).
 - Market data: complete-only Parquet for **1h**, **5m**, **15m**, **30m**, **6h**, and **1d**; `inspect-gaps` /
   `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m` (live `1h`).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
@@ -42,7 +43,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 
 | Area | Gap |
 |---|---|
-| Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill. Agent E2E is the primary surface (ADR 0030); playbook/YOLO remain Phase 12. |
+| Agent E2E ease | Five skills: operator, data, research, runtime, plus `thytrader-playbook`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034); live stays hard-gated. |
 | Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 10 → 14). |
 | On-demand trades | Not shipped; strategy deploy only. Destination: discretionary orders with SL/TP via order intent + risk (ADR 0031). |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
@@ -53,33 +54,36 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Live extras | 5m live, trailing stops, user-order WS, native OCO deferred |
 | Memory | Journals, sentiment, notify, and origin-attributed learning are now in product docs; still deferred (Phase 14). Nothing shipped. |
 
-## Planned: Safe mode vs YOLO mode
+## Shipped: Safe mode vs YOLO mode
 
 **Default remains Safe mode:** mutations require explicit `--confirm` (and live
 start requires `--i-understand-live`). Observation skills stay read-only.
 
-**YOLO mode (planned, default OFF):** an operator-enabled opt-in that lets agents
+**YOLO mode (shipped, default OFF):** an operator-enabled opt-in that lets agents
 skip per-action confirmation on **allowed** surfaces so end-to-end automation is
-easy when the operator wants that flexibility.
+easy when the operator wants that flexibility. See
+[ADR 0034](../decisions/0034-phase-12-agent-orchestration-yolo.md).
 
-Design constraints (to implement later; not shipped):
+Design constraints (shipped):
 
-1. Configuration / mode flag defaults to off; enabling is an explicit operator act.
+1. Configuration / mode flag defaults to off; enabling is an explicit operator act
+   (`THYTRADER_YOLO_ENABLED` plus `THYTRADER_YOLO_TIERS`).
 2. Scope tiers: data + research may be YOLO-eligible; paper may be separately
-   gated; **live start keeps a hard gate** even when YOLO is on unless a distinct
-   live-YOLO arming step is explicitly designed and accepted.
-3. Every skipped confirmation must write an audit event.
+   gated; **live start, live pause/resume/stop, and `set-risk-policy` keep a hard
+   gate** even when YOLO is on. `--local` research always requires `--confirm`.
+3. Every skipped confirmation must write an audit event (`confirm_skipped`) or fail
+   closed.
 4. YOLO must never become the silent default of read-only observation skills.
 5. Authority boundaries between operator / data / research / runtime stay separate;
    YOLO does not collapse skills into one unrestricted trading agent.
 
-## Planned: Agent orchestration
+## Shipped: Agent orchestration
 
-A higher-level orchestration skill (or playbook) should sequence:
+`thytrader-playbook` sequences:
 
 `data healthy → draft/publish → backtest → (optional) paper`
 
-while calling the existing CLIs. It must not grant live authority by inheritance.
+by calling the existing CLIs. It must not grant live authority by inheritance.
 YOLO only changes confirmation friction inside allowed tiers.
 
 ## Build order (roadmap Phases 7–14)
@@ -93,7 +97,7 @@ YOLO only changes confirmation friction inside allowed tiers.
    remain out of Phase 9.
 5. **Phase 10** — Shipped: risk-policy registry and concurrent single-instrument paper/live.
 6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
-7. **Phase 12** — Agent orchestration + YOLO opt-in.
+7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live stays hard-gated.
 8. **Phase 13** — Live extras (5m live, trailing, WS, OCO).
 9. **Phase 14** — Memory / hindsight last.
 
@@ -110,7 +114,7 @@ YOLO only changes confirmation friction inside allowed tiers.
 
 - `docs/roadmap.md` — definitive Phases 7–14
 - `docs/plans/2026-09-13-fee-tier-research-defaults.md` — fee default design
-- `docs/agent-integration.md` — safety model + planned YOLO
+- `docs/agent-integration.md` — safety model + shipped YOLO / playbook
 - `docs/product/vision.md` — product end-state, agent primacy, and shipped vs destination
 - `docs/decisions/0030-agent-e2e-primary-surface.md` — agent E2E as primary surface
 - `docs/decisions/0031-coinbase-first-platform-end-state.md` — Coinbase-first platform destination

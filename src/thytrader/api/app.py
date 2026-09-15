@@ -11,6 +11,7 @@ from coinbase.rest import RESTClient
 from fastapi import FastAPI
 
 from thytrader import __version__
+from thytrader.api.routes.agent_orchestration import router as agent_orchestration_router
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
 from thytrader.api.routes.data import router as data_router
@@ -252,6 +253,7 @@ def create_app(
     app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
     app.include_router(health_router)
     app.include_router(audit_events_router)
+    app.include_router(agent_orchestration_router)
     app.include_router(operator_router)
     app.include_router(data_router)
     app.include_router(fees_router)

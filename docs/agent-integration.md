@@ -66,6 +66,7 @@ Shipped command groups:
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests (`--confirm`).
 - `thytrader-runtime` — paper/live start, pause, resume, stop (`--confirm`; live also `--i-understand-live`).
+- `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 
 Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
 
@@ -103,29 +104,30 @@ Each operation requires explicit user confirmation, returns stable artifact iden
 audit event once audit recording exists. It may not deploy a strategy, start/stop paper execution,
 arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform direct storage access.
 
-### Planned: Safe mode vs YOLO mode
+### Safe mode vs YOLO mode
 
-**Not shipped.** Default remains Safe mode: mutations use `--confirm`, and live start also requires
+**Default remains Safe mode:** mutations use `--confirm`, and live start also requires
 `--i-understand-live`.
 
-**YOLO mode (planned, default OFF)** is an operator-enabled opt-in so agents can skip per-action
+**YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.
+See [ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md).
 
-Constraints for a future implementation:
+Shipped constraints:
 
-- Opt-in configuration; never the silent default for observation skills.
-- Scope tiers (e.g. data + research eligible; paper separately gated; live keeps a hard gate unless
-  a distinct live-YOLO arming design is accepted).
-- Audit every skipped confirmation.
+- Opt-in configuration (`THYTRADER_YOLO_ENABLED` plus `THYTRADER_YOLO_TIERS`); never the silent
+  default for observation skills.
+- Scope tiers: data + research eligible; paper separately gated; live start/pause/resume/stop and
+  `set-risk-policy` keep a hard gate. `--local` research always requires `--confirm`.
+- Audit every skipped confirmation (`confirm_skipped`) or fail closed.
 - Do not collapse operator / data / research / runtime authority into one unrestricted skill.
 
 See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
 
-### Planned: orchestration skill
+### Orchestration skill
 
-A higher-level playbook skill may sequence data → research → optional paper by calling existing
-CLIs. It inherits the same Safe / YOLO confirmation rules and must not grant live authority by
-inheritance.
+`thytrader-playbook` sequences data → research → optional paper by calling existing CLIs. It
+inherits the same Safe / YOLO confirmation rules and must not grant live authority by inheritance.
 
 ## Stable diagnostics schema
 
@@ -159,7 +161,9 @@ skills/
 │   └── SKILL.md
 ├── thytrader-research/
 │   └── SKILL.md
-└── thytrader-runtime/
+├── thytrader-runtime/
+│   └── SKILL.md
+└── thytrader-playbook/
     └── SKILL.md
 ```
 
@@ -167,7 +171,8 @@ skills/
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
-control and risk-policy publication. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
+control and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
+starts live. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
 
 Operating a running instance is a separate workspace: open [`ops/`](../ops/README.md), not the git
 root. Contributor GitNexus workflow stays in root `AGENTS.md`. Operating agents must not edit
@@ -199,7 +204,7 @@ The operator skill tells agents to:
 |---|---|
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, and backtest submission only. HTTP by default. |
-| Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. |
-| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation or research skill. |
+| Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
+| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

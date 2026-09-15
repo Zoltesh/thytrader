@@ -57,8 +57,12 @@ Underlying HTTP:
 
 ## Confirmation
 
-- Never mutate unless the user explicitly asked **and** `--confirm` is present.
-- Never start live without both `--confirm` and `--i-understand-live`.
+- Never mutate unless the user explicitly asked **and** `--confirm` is present, unless the user
+  explicitly asked to operate under YOLO **and** the mutation is paper (not live, not
+  `set-risk-policy`) **and** operator `configuration` / `thytrader-playbook status` shows the `paper`
+  tier enabled.
+- Never start live without both `--confirm` and `--i-understand-live`. Live and `set-risk-policy`
+  never YOLO.
 - If a required flag is missing, the CLI exits without writing. Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `strategy_fingerprint`). Keep those identities.
 - Watch status after a mutation with `uv run thytrader-operator runtime --deployment-id UUID`.

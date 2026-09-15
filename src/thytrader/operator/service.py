@@ -192,6 +192,8 @@ class OperatorDiagnostics:
                 execution_worker_interval_seconds=self.settings.execution_worker_interval_seconds,
                 database_configured=self.settings.database_url is not None,
                 coinbase_credentials_configured=_credentials_configured(self.settings),
+                yolo_enabled=self.settings.yolo_enabled,
+                yolo_tiers=tuple(tier.value for tier in self.settings.yolo_tiers),
             ),
         )
 
