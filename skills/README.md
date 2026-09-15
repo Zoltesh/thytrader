@@ -9,7 +9,9 @@ these contracts. Operating agents should open [`ops/`](../ops/README.md) so they
 without the contributor GitNexus workflow.
 
 Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
-runtime mutations require `--confirm` (live also `--i-understand-live`).
+runtime mutations require `--confirm` (live also `--i-understand-live`). YOLO is an operator-enabled
+opt-in (default off) that may skip `--confirm` on `data` / `research` / `paper` only after an audit;
+live stays hard-gated. The playbook sequences existing CLIs and never starts live.
 
 ## `thytrader-operator`
 
@@ -41,6 +43,15 @@ Confirmation-gated paper and live deployment control, plus risk-policy publicati
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
 - HTTP: `/api/v1/deployments`, `/api/v1/risk-policy`
+
+## `thytrader-playbook`
+
+Sequences existing lane CLIs: data healthy → draft/publish → backtest → optional paper. Forwards
+`--confirm`. Never starts live. Not an extension of the other skills.
+
+- Skill: [`thytrader-playbook/SKILL.md`](thytrader-playbook/SKILL.md)
+- CLI: `uv run thytrader-playbook`
+- HTTP: `GET /api/v1/agent-orchestration` (plus child CLI routes)
 
 See [`docs/agent-integration.md`](../docs/agent-integration.md) for the safety model.
 

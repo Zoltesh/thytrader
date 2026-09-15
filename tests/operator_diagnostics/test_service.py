@@ -85,6 +85,8 @@ def test_configuration_omits_raw_environment_and_credentials() -> None:
     assert "THYTRADER_" not in str(dumped)
     assert dumped["payload"]["coinbase_credentials_configured"] is False
     assert dumped["payload"]["database_configured"] is False
+    assert dumped["payload"]["yolo_enabled"] is False
+    assert dumped["payload"]["yolo_tiers"] == []
 
 
 def test_exchange_reports_demo_permissions_without_balances() -> None:

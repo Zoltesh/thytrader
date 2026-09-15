@@ -137,6 +137,8 @@ class ConfigurationPayload(_FrozenModel):
     execution_worker_interval_seconds: int
     database_configured: bool
     coinbase_credentials_configured: bool
+    yolo_enabled: bool = False
+    yolo_tiers: tuple[str, ...] = ()
 
 
 class ConfigurationReport(OperatorEnvelope):

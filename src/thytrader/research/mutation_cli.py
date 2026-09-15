@@ -13,6 +13,8 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
+from thytrader.agent_orchestration.models import YoloTier
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
@@ -159,13 +161,28 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+_RESEARCH_CONFIRM_MESSAGE = (
+    "Pass --confirm to change research artifacts. "
+    "This command cannot deploy, paper-trade, or live-trade."
+)
+
+
 def _require_confirm(confirm: bool) -> None:
-    """Refuse mutations unless the operator passed an explicit confirmation flag."""
+    """Refuse local mutations unless the operator passed `--confirm`. YOLO is HTTP-only."""
     if not confirm:
-        raise ResearchCliError(
-            "Pass --confirm to change research artifacts. "
-            "This command cannot deploy, paper-trade, or live-trade."
-        )
+        raise ResearchCliError(_RESEARCH_CONFIRM_MESSAGE)
+
+
+def _require_http_confirm(confirm: bool, *, base_url: str, command: str) -> None:
+    """Refuse HTTP mutations unless `--confirm` is present or YOLO covers research."""
+    require_mutation_confirmation(
+        confirmed=confirm,
+        missing_message=_RESEARCH_CONFIRM_MESSAGE,
+        error_type=ResearchCliError,
+        base_url=base_url,
+        tier=YoloTier.RESEARCH,
+        command=command,
+    )
 
 
 def _load_json(path_text: str) -> object:
@@ -247,7 +264,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     settings = Settings()
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
     if arguments.command == "create-draft":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="create-draft")
         require_matching_ops_contract(base_url)
         return research_http.create_draft(
             base_url,
@@ -255,17 +272,17 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
             timeframe=arguments.timeframe,
         )
     if arguments.command == "save-draft":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="save-draft")
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
         return research_http.save_draft(base_url, definition, arguments.revision)
     if arguments.command == "publish":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
         strategy_id = UUID(arguments.strategy_id)
         require_matching_ops_contract(base_url)
         return research_http.publish(base_url, strategy_id)
     if arguments.command == "submit-backtest":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-backtest")
         request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
         return research_http.submit_backtest(base_url, request)

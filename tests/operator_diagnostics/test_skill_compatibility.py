@@ -19,6 +19,7 @@ _SCHEMAS = _ROOT / "skills" / "thytrader-operator" / "references" / "report-sche
 _RESEARCH_SKILL = _ROOT / "skills" / "thytrader-research" / "SKILL.md"
 _RUNTIME_SKILL = _ROOT / "skills" / "thytrader-runtime" / "SKILL.md"
 _DATA_SKILL = _ROOT / "skills" / "thytrader-data" / "SKILL.md"
+_PLAYBOOK_SKILL = _ROOT / "skills" / "thytrader-playbook" / "SKILL.md"
 
 
 def test_operator_skill_matches_application_schema_and_routes() -> None:
@@ -98,6 +99,22 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
     assert "do not edit" in skill.lower()
     assert "make run" in skill
+
+
+def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
+    """The playbook skill must call existing CLIs, keep --confirm default, and forbid live."""
+    skill = _PLAYBOOK_SKILL.read_text(encoding="utf-8")
+    assert "thytrader-playbook" in skill
+    assert "--confirm" in skill
+    assert "thytrader-data" in skill
+    assert "thytrader-research" in skill
+    assert "thytrader-runtime" in skill
+    assert "YOLO" in skill or "yolo" in skill
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
+    assert "never" in skill.lower() and "live" in skill.lower()
+    assert "--i-understand-live" in skill
+    assert "not an extension" in skill.lower() or "does not grant live" in skill.lower()
 
 
 def test_committed_json_schema_matches_envelope_contract() -> None:

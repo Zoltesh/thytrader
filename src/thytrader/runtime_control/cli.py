@@ -7,6 +7,11 @@ import sys
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_orchestration.confirmation import (
+    require_mutation_confirmation,
+    require_paper_runtime_confirmation,
+)
+from thytrader.agent_orchestration.models import YoloTier
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
@@ -114,13 +119,29 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _require_confirm(confirm: bool) -> None:
-    """Refuse mutations unless the operator passed an explicit confirmation flag."""
-    if not confirm:
-        raise RuntimeControlError(
-            "Pass --confirm to change paper or live runtimes or the risk-policy "
-            "registry. Live start also requires --i-understand-live."
-        )
+_RUNTIME_CONFIRM_MESSAGE = (
+    "Pass --confirm to change paper or live runtimes or the risk-policy "
+    "registry. Live start also requires --i-understand-live."
+)
+
+
+def _require_confirm(
+    confirm: bool,
+    *,
+    base_url: str,
+    command: str,
+    hard_gate: bool = False,
+) -> None:
+    """Refuse mutations unless `--confirm` is present or YOLO covers paper."""
+    require_mutation_confirmation(
+        confirmed=confirm,
+        missing_message=_RUNTIME_CONFIRM_MESSAGE,
+        error_type=RuntimeControlError,
+        base_url=base_url,
+        tier=YoloTier.PAPER,
+        command=command,
+        hard_gate=hard_gate,
+    )
 
 
 def _require_live_ack(*, mode: str, acknowledged: bool) -> None:
@@ -129,6 +150,52 @@ def _require_live_ack(*, mode: str, acknowledged: bool) -> None:
         raise RuntimeControlError(
             "Live trading spends real money. Pass --confirm and --i-understand-live."
         )
+
+
+def _deployment_mode(payload: object) -> str:
+    """Read mode from a deployment snapshot without leaking extra fields."""
+    if isinstance(payload, dict):
+        mode = payload.get("mode")
+        if isinstance(mode, str):
+            return mode
+    raise RuntimeControlError("Deployment snapshot omitted mode.")
+
+
+def _start(arguments: argparse.Namespace, base_url: str) -> object:
+    """Start paper (YOLO-eligible) or live (hard-gated) through the existing client."""
+    live = arguments.mode == "live"
+    _require_confirm(
+        arguments.confirm,
+        base_url=base_url,
+        command="start",
+        hard_gate=live,
+    )
+    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
+    cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
+    require_matching_ops_contract(base_url)
+    return start_deployment(
+        base_url,
+        strategy_fingerprint=arguments.strategy_fingerprint,
+        mode=arguments.mode,
+        paper_starting_cash=cash,
+    )
+
+
+def _set_status(arguments: argparse.Namespace, base_url: str) -> object:
+    """Pause, resume, or stop one deployment; live control never uses YOLO."""
+    command = arguments.command
+    require_paper_runtime_confirmation(
+        confirmed=arguments.confirm,
+        missing_message=_RUNTIME_CONFIRM_MESSAGE,
+        error_type=RuntimeControlError,
+        base_url=base_url,
+        command=command,
+        deployment_mode=lambda: _deployment_mode(
+            show_deployment(base_url, arguments.deployment_id)
+        ),
+    )
+    require_matching_ops_contract(base_url)
+    return set_deployment_status(base_url, arguments.deployment_id, command)
 
 
 def _run(arguments: argparse.Namespace) -> str:
@@ -150,25 +217,19 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         require_matching_ops_contract(base_url)
         return show_deployment(base_url, arguments.deployment_id)
     if command == "start":
-        _require_confirm(arguments.confirm)
-        _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
-        cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
-        require_matching_ops_contract(base_url)
-        return start_deployment(
-            base_url,
-            strategy_fingerprint=arguments.strategy_fingerprint,
-            mode=arguments.mode,
-            paper_starting_cash=cash,
-        )
+        return _start(arguments, base_url)
     if command in {"pause", "resume", "stop"}:
-        _require_confirm(arguments.confirm)
-        require_matching_ops_contract(base_url)
-        return set_deployment_status(base_url, arguments.deployment_id, command)
+        return _set_status(arguments, base_url)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
         return show_risk_policy(base_url)
     if command == "set-risk-policy":
-        _require_confirm(arguments.confirm)
+        _require_confirm(
+            arguments.confirm,
+            base_url=base_url,
+            command="set-risk-policy",
+            hard_gate=True,
+        )
         require_matching_ops_contract(base_url)
         return set_risk_policy(base_url, _risk_policy_payload(arguments))
     raise AssertionError(f"unsupported runtime command: {command}")

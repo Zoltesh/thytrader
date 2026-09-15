@@ -8,7 +8,13 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.http_fakes import matching_ready_payload, stale_ready_payload, urlopen_ready_then
+from tests.http_fakes import (
+    matching_ready_payload,
+    orchestration_status_payload,
+    stale_ready_payload,
+    urlopen_by_path,
+    urlopen_ready_then,
+)
 from thytrader.agent_http import AgentHttpError
 from thytrader.research.mutation_cli import main
 
@@ -42,11 +48,20 @@ def test_create_draft_help_allows_five_minute_paper(
 
 
 def test_create_draft_without_confirm_does_not_write() -> None:
-    """Omitting --confirm must exit before any research mutation."""
-    with pytest.raises(SystemExit) as raised:
+    """Omitting --confirm in Safe mode exits after the YOLO probe, before create-draft HTTP."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.research.http.create_draft") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
         main(["create-draft"])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
 
 
 def test_save_draft_prints_crossover_validation_error(tmp_path: Path) -> None:
@@ -88,6 +103,37 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
     assert "422" in message
     assert "make run" in message
     assert "failed safely" not in message
+
+
+def test_create_draft_yolo_skips_confirm() -> None:
+    """Research YOLO records a skip then creates a draft without --confirm."""
+    skip = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "category": "research",
+        "action": "confirm_skipped",
+        "outcome": "info",
+        "tier": "research",
+        "command": "create-draft",
+    }
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("research",),
+        ),
+        "POST /api/v1/agent-orchestration/skipped-confirmations": skip,
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.research.http.create_draft",
+            return_value='{"strategy_id":"x"}',
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["create-draft"])
+    assert raised.value.code == 0
+    request.assert_called_once()
 
 
 def test_research_cli_refuses_stale_ops_contract_before_command() -> None:

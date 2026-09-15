@@ -156,13 +156,22 @@ documents, daily-loss/drawdown circuit breakers, `1m`/`2h` clocks, journals, and
 
 Walk-forward / out-of-sample workflows, richer templates, clearer engine-support matrix.
 
-## Phase 12: Agent orchestration + YOLO opt-in — 📋 Planned
+## Phase 12: Agent orchestration + YOLO opt-in — ✅ Shipped
 
 Playbook skill over existing CLIs so an agent can sequence data → research → optional paper without
-inventing a private workflow. Default remains `--confirm`. Planned YOLO mode (default
-off) skips confirmation on allowed tiers; live keeps a hard gate. See [agent integration](agent-integration.md).
+inventing a private workflow. Default remains `--confirm`. YOLO mode (default off) skips confirmation
+on allowed tiers `data`, `research`, and/or `paper` after an audited skip; live keeps a hard gate.
+See [agent integration](agent-integration.md) and
+[ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md).
 This phase serves [ADR 0030](decisions/0030-agent-e2e-primary-surface.md) (agent E2E as primary
 surface); it does not collapse skill lanes or grant live authority by inheritance.
+
+**Exit gate met:** `uv run thytrader-playbook status` advertises Safe vs YOLO; `run` calls existing
+lane CLIs and never starts live; `--confirm` remains the default; live start still needs
+`--i-understand-live`; skipped confirms audit `confirm_skipped` or fail closed.
+
+Destination still includes on-demand trades, `1m`/`2h` clocks, journals, and notify
+([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
 
 ## Phase 13: Live extras — 📋 Planned
 
@@ -408,5 +417,6 @@ artifacts using supported HTTP interfaces without database access, secret exposu
 trading authority. Paper/live control is a third confirmation-gated surface, not part of operator or
 research skills.
 
-Further agent E2E orchestration and YOLO opt-in are **Phase 12**, not part of the Phase 6 exit gate.
-See [Phases 7–14](#phase-7-remaining-market-data-timeframes--next).
+Further agent E2E orchestration and YOLO opt-in are **Phase 12** and are now shipped (playbook over
+existing CLIs; YOLO default off; live remains hard-gated). They were not part of the Phase 6 exit
+gate. See [Phase 12](#phase-12-agent-orchestration--yolo-opt-in--shipped).

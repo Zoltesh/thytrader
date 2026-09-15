@@ -100,8 +100,9 @@ when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the
 
 ## Confirmation
 
-- Never run `create-draft`, `save-draft`, `publish`, or `submit-backtest` unless the user explicitly asked for that mutation **and** `--confirm` is present.
-- If `--confirm` is missing, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
+- Never run `create-draft`, `save-draft`, `publish`, or `submit-backtest` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- `--local` research always requires `--confirm` (YOLO is HTTP-only).
+- If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
 - Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`). Keep those identities.
 
 ## Forbidden

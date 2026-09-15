@@ -7,6 +7,8 @@ import sys
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
+from thytrader.agent_orchestration.models import YoloTier
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.data_control.client import (
@@ -94,10 +96,19 @@ def _target_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--timeframe", required=True, choices=DATASET_TIMEFRAMES)
 
 
-def _require_confirm(confirm: bool) -> None:
-    """Refuse mutations unless the operator passed an explicit confirmation flag."""
-    if not confirm:
-        raise DataControlError("Pass --confirm to change the watchlist or ingest market data.")
+_DATA_CONFIRM_MESSAGE = "Pass --confirm to change the watchlist or ingest market data."
+
+
+def _require_confirm(confirm: bool, *, base_url: str, command: str) -> None:
+    """Refuse mutations unless `--confirm` is present or YOLO covers data."""
+    require_mutation_confirmation(
+        confirmed=confirm,
+        missing_message=_DATA_CONFIRM_MESSAGE,
+        error_type=DataControlError,
+        base_url=base_url,
+        tier=YoloTier.DATA,
+        command=command,
+    )
 
 
 def _run(arguments: argparse.Namespace) -> str:
@@ -116,7 +127,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         require_matching_ops_contract(base_url)
         return list_watchlist(base_url)
     if command == "watch-add":
-        _require_confirm(arguments.confirm)
+        _require_confirm(arguments.confirm, base_url=base_url, command="watch-add")
         require_matching_ops_contract(base_url)
         return add_watch(
             base_url,
@@ -126,7 +137,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
             enabled=not arguments.disabled,
         )
     if command == "ingest":
-        _require_confirm(arguments.confirm)
+        _require_confirm(arguments.confirm, base_url=base_url, command="ingest")
         require_matching_ops_contract(base_url)
         return ingest(
             base_url,
@@ -141,7 +152,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
             timeframe=arguments.timeframe,
         )
     if command == "fill-gaps":
-        _require_confirm(arguments.confirm)
+        _require_confirm(arguments.confirm, base_url=base_url, command="fill-gaps")
         require_matching_ops_contract(base_url)
         return fill_gaps(
             base_url,

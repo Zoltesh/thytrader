@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 from thytrader.ops_contract import expected_ops_contract
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class _HasFullUrl(Protocol):
@@ -59,5 +63,46 @@ def urlopen_ready_then(
             message = f"unexpected agent HTTP request: {requested_url}"
             raise AssertionError(message)
         return json_urlopen_response(command_payload)
+
+    return fake_urlopen
+
+
+def orchestration_status_payload(
+    *,
+    yolo_enabled: bool = False,
+    yolo_tiers: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Return the GET /api/v1/agent-orchestration body."""
+    return {
+        "schema_version": "thytrader-agent-orchestration-v1",
+        "confirmation_mode": "yolo" if yolo_enabled else "safe",
+        "yolo_enabled": yolo_enabled,
+        "yolo_tiers": list(yolo_tiers),
+        "live_hard_gate": True,
+        "live_authority": False,
+        "playbook_sequence": ["data_healthy", "draft_publish", "backtest", "optional_paper"],
+    }
+
+
+def urlopen_by_path(handlers: Mapping[str, object]) -> object:
+    """Serve JSON by ``METHOD path`` keys such as ``GET /health/ready``.
+
+    Values are JSON-serializable payloads. Unknown routes raise AssertionError.
+    """
+
+    def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> MagicMock:
+        del timeout
+        if isinstance(request, str):
+            method = "GET"
+            requested_url = request
+        else:
+            method = str(getattr(request, "method", "GET") or "GET").upper()
+            requested_url = request.full_url
+        path = urlparse(requested_url).path
+        key = f"{method} {path}"
+        if key not in handlers:
+            message = f"unexpected agent HTTP request: {key}"
+            raise AssertionError(message)
+        return json_urlopen_response(handlers[key])
 
     return fake_urlopen
