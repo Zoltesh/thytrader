@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-09-09
+- Related: [0030](0030-agent-e2e-primary-surface.md) raises agent E2E to the primary product
+  surface. This ADR's HTTP-first clients, loopback targeting, and separate runtime skill remain.
 
 ## Context
 

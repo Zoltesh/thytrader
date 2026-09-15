@@ -71,7 +71,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, and `1d` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h` |
+| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, and `1d` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h`. Destination also includes `1m`, `2h`, and any additional Coinbase-listed interval ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); those are not shipped datasets or clocks. |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -222,7 +222,10 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
 1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d complete-only datasets are
    implemented. Phase 7 data-loop hardening is also implemented. `15m`/`30m`/`6h`/`1d` are not LTF,
    paper, or live clocks. Phase 8 research may bind them as `htf_filter` datasets
-   ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
+   ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)). Destination remaining venue
+   granularities are `1m`, `2h`, and any interval Coinbase lists later
+   ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); they follow the same
+   complete-only contract and are **not** inserted ahead of roadmap Phase 9 remaining → 14.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, 15m, 30m, 6h, and 1d without weakening complete-only publication.
 3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
 

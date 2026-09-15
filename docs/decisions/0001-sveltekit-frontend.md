@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-07-26
+- Related: [0030](0030-agent-e2e-primary-surface.md) makes agent-driven E2E the primary *product
+  surface*. This ADR still chooses SvelteKit for the application UI; "primary UI" below means
+  dashboard-shaped frontend, not product-surface primacy.
 
 ## Context
 

@@ -4,6 +4,13 @@
 > below now has backend validation, immutable PostgreSQL publication, verified fingerprint loading,
 > and exact binding to a verified immutable dataset fingerprint. This creates no order authority.
 > The broader authoring contract remains proposed until the unsupported variants below are built.
+>
+> **Product destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)):
+> strategy `timeframe` will eventually include every Coinbase-listed candle granularity (including
+> `1m` and `2h`), and deployments will cover single-asset **and** multi-asset paper/live. The field
+> rules in this document remain the **shipped contract** (`1h` or `5m` LTF; live `1h`). Do not treat
+> destination TFs or multi-instrument documents as legal here until a later ADR widens the schema
+> the same way 0020–0023 widened datasets without silently widening clocks.
 
 This document is the implementation-facing specification referenced by
 [ADR 0005](../decisions/0005-canonical-strategy-schema.md). The ADR records the decision; this

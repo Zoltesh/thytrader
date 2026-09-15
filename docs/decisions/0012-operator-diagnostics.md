@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-09-08
+- Related: [0030](0030-agent-e2e-primary-surface.md) raises agent E2E to the primary product
+  surface. This ADR's lane split and confirmation-gated research CLI remain.
 
 ## Context
 

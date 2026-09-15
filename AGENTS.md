@@ -2,7 +2,15 @@
 
 ## Mission
 
-Build ThyTrader as a trustworthy, open-source, local-first trading workstation: portfolio visibility, declarative strategy design, reproducible backtesting, paper execution, and explicitly armed live Coinbase spot trading.
+Build ThyTrader as a trustworthy, open-source, local-first **Coinbase-first research and trading
+platform**: portfolio visibility, on-demand and strategy-driven execution, declarative strategy
+design, reproducible backtesting, paper execution, and explicitly armed live Coinbase spot trading.
+Other exchanges come later.
+
+The **primary product surface is agent-driven end-to-end operation** (confirmation-gated skills and
+versioned HTTP APIs). A modern professional UI still matters and must stay capable. See
+[product vision](docs/product/vision.md), [ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md),
+and [ADR 0031](docs/decisions/0031-coinbase-first-platform-end-state.md).
 
 Financial correctness, restart safety, secret hygiene, and auditability outrank delivery speed. Read [the documentation index](docs/README.md) before changing architecture or product behavior.
 
@@ -11,7 +19,8 @@ Financial correctness, restart safety, secret hygiene, and auditability outrank 
 - Backend: FastAPI and Python managed with `uv`.
 - Frontend: SvelteKit/Svelte 5 with strict TypeScript.
 - Runtime: modular monolith with separate API and continuously running worker processes.
-- Initial exchange: Coinbase Advanced Trade REST v3 and WebSockets, spot only.
+- Initial exchange: Coinbase Advanced Trade REST v3 and WebSockets, spot only. Other exchanges later.
+- Agent surface: primary product (HTTP-first skills/CLIs); SvelteKit UI remains required.
 - Storage: PostgreSQL for operational state; Parquet with Polars/DuckDB for analytics.
 - Deployment: Docker Compose for supported installs; native processes for development.
 - Strategy model: immutable, versioned declarative schema shared by backtest, paper, and live runtimes.
@@ -94,7 +103,7 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 ## Trading-system invariants
 
 - Backtest, paper, and live execution must consume the same published strategy semantics.
-- A signal creates an order intent; it does not bypass risk checks to call Coinbase directly.
+- A signal or discretionary action creates an order intent; it does not bypass risk checks to call Coinbase directly.
 - Persist order intent before submission and use unique client order IDs.
 - A network timeout is ambiguous, not proof of order failure. Reconcile before retrying.
 - Resume after restart only after reconciling balances, open orders, fills, and local state.
@@ -121,7 +130,9 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 - Never expose secrets through browser payloads, logs, exceptions, fixtures, support bundles, agent tools, or Git.
 - `.env.example` contains names/placeholders only; `.env` must remain ignored.
 - Bind to loopback by default. Do not weaken startup safety to make remote access convenient.
-- Agent/operator interfaces are read-only until separate mutation tools and confirmation policies are explicitly designed.
+- Agent observation stays read-only. Mutations use separate confirmation-gated tools
+  (`--confirm`; live also `--i-understand-live`). Do not collapse skill lanes or weaken live-arming
+  for agent convenience ([ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md)).
 
 ## Persistence and data
 

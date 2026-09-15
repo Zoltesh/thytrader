@@ -7,19 +7,22 @@ The first skill remains read-only and requires stable, versioned operational int
 documentation and workflow; it must not compensate for a missing product API by scraping logs,
 querying PostgreSQL directly, or importing private internals.
 
-A `skills/` directory is reserved now so agent integration evolves as a first-class product surface rather than an afterthought.
+A `skills/` directory is reserved now so agent integration evolves as the **primary product surface**
+([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) rather than an afterthought. A modern
+professional UI remains required; it is not a substitute for these contracts.
 
-## Operating parity
+## Operating models and primacy
 
-ThyTrader supports three **equal** operating models, and the agent surface is designed for parity, not
-as an optional helper layer:
+ThyTrader supports three operating models. All remain fully supported; none is deprecated. Agent-driven
+E2E is the **primary design target** ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)):
 
 1. **100% human-driven** — every observation and mutation through the browser and CLIs, subject to the same confirmation gates.
-2. **100% agent-driven** — diagnosis, data ingest, research, and paper/live control end-to-end through the shipped skills, within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
+2. **100% agent-driven** — diagnosis, data ingest, research, journals, notifications, and paper/live control end-to-end through the shipped skills, within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
 3. **Collaborative human + agent** — a human and an agent share the operating loop.
 
 Safety rests on confirmation gating, scoped authority, immutable evidence, auditability, and risk
-controls—not on excluding agents. No model requires an agent; no model excludes one.
+controls—not on excluding agents. No model requires an agent; no model excludes one. A capability is
+incomplete until the agent contract exists.
 
 ## Planned direction: agent experts that learn from evidence (NOT SHIPPED)
 
@@ -30,6 +33,7 @@ and live trades. Planned (no learning implementation exists today):
 - Durable, immutable evidence of actions and outcomes across research, backtest, paper, and live.
 - Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
   can study their own mistakes and repeat successful patterns.
+- Trade **journals**, **sentiment** analysis, pattern learning, monitoring, and **user notification**.
 - Learning never bypasses confirmation gates, scoped authority, auditability, or risk controls, and
   never substitutes for audit trails. See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--deferred).
 
@@ -198,4 +202,4 @@ The operator skill tells agents to:
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation or research skill. |
 
-The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.**
+The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

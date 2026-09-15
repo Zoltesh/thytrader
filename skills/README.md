@@ -2,7 +2,14 @@
 
 Distributable skills that operate a running ThyTrader instance through supported, versioned interfaces. They must not scrape logs, query PostgreSQL, or import private internals.
 
-Product of record is this directory. Cursor auto-discovery pointers live under `.cursor/skills/` and must not diverge from these contracts. Operating agents should open [`ops/`](../ops/README.md) so they load these skills without the contributor GitNexus workflow.
+This directory is the **primary product surface** for agent-driven E2E
+([ADR 0030](../docs/decisions/0030-agent-e2e-primary-surface.md)). Product of record is this
+directory. Cursor auto-discovery pointers live under `.cursor/skills/` and must not diverge from
+these contracts. Operating agents should open [`ops/`](../ops/README.md) so they load these skills
+without the contributor GitNexus workflow.
+
+Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
+runtime mutations require `--confirm` (live also `--i-understand-live`).
 
 ## `thytrader-operator`
 

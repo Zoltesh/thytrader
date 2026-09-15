@@ -1,8 +1,18 @@
 # ThyTrader
 
-Thine trading platform. A customizable platform you control: strategies, risk, analysis, markets, and portfolio management—operated by you, by agents you authorize, or by both together. ThyTrader supports three equal operating models: 100% human-driven operation, 100% agent-driven operation within explicitly granted, confirmation-gated authority, and collaborative human + agent operation. Agents are first-class operators, not optional helpers; nothing in the product requires an agent, and nothing excludes one.
+Thine trading platform. A Coinbase-first research and trading workstation you control: portfolio,
+on-demand trades, strategies, risk, analysis, and automated paper/live execution—operated by you,
+by agents you authorize, or by both together. Other exchanges come later.
 
-ThyTrader is being designed as an open-source, local-first trading workstation with a FastAPI backend, SvelteKit frontend, reproducible backtesting, and guarded automated execution.
+The **agent surface is the primary product**: an authorized agent should be able to learn patterns,
+keep journals, analyze sentiment, research markets, build strategies, deploy paper and live,
+monitor, and notify. A modern professional UI still matters. Human-driven and collaborative use
+remain fully supported; nothing requires an agent. Agent mutations stay confirmation-gated
+(`--confirm`; live also `--i-understand-live`). See
+[product vision](docs/product/vision.md) and [ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md).
+
+ThyTrader is an open-source, local-first platform with a FastAPI backend, SvelteKit frontend,
+reproducible backtesting, and guarded automated Coinbase spot execution.
 
 Start with the [project documentation](docs/README.md) for the product direction, architecture, safety baseline, delivery roadmap, and accepted decisions. Contributors and coding agents should also read [`AGENTS.md`](AGENTS.md).
 

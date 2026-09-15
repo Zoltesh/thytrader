@@ -105,4 +105,7 @@ Audit data must be useful without exposing credentials or unnecessary personal/a
 
 ## Agent safety boundary
 
-The first distributable operator skill is read-only. Agents may inspect health, configuration validity, risk state, data freshness, strategy performance, and redacted diagnostics through `thytrader-operator`. Live trading, configuration mutation, order cancellation, arming, or kill-switch operations require separate explicit tools and user confirmation policies. Research mutations use `thytrader-research` with `--confirm`.
+The agent surface is the **primary product** ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)).
+That does not relax confirmation, live-arming, or skill-lane rules.
+
+The first distributable operator skill is read-only. Agents may inspect health, configuration validity, risk state, data freshness, strategy performance, and redacted diagnostics through `thytrader-operator`. Live trading, configuration mutation, order cancellation, arming, or kill-switch operations require separate explicit tools and user confirmation policies. Research mutations use `thytrader-research` with `--confirm`. On-demand trades, when implemented, use the same order-intent and risk boundary as strategy-driven orders; they never call Coinbase directly from a skill.
