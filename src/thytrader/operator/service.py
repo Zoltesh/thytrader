@@ -1118,24 +1118,6 @@ class OperatorDiagnostics:
             )
         return tuple(findings), components
 
-
-def _mode_slot_counts(
-    deployments: tuple[Deployment, ...], mode: DeploymentMode
-) -> tuple[int, int]:
-    """Count occupied running slots and in-market open slots for one mode."""
-    occupied = tuple(
-        item
-        for item in deployments
-        if item.mode is mode
-        and item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
-    )
-    open_count = sum(
-        1
-        for item in occupied
-        if item.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
-    )
-    return len(occupied), open_count
-
     async def _reconciliation_findings(
         self,
     ) -> tuple[tuple[ReconciliationFinding, ...], list[ComponentReport], list[str]]:
@@ -1214,6 +1196,21 @@ def _mode_slot_counts(
                     detail=f"{len(unknown)} order(s) remain in unknown status.",
                 )
             )
+
+
+def _mode_slot_counts(deployments: tuple[Deployment, ...], mode: DeploymentMode) -> tuple[int, int]:
+    """Count occupied running slots and in-market open slots for one mode."""
+    occupied = tuple(
+        item
+        for item in deployments
+        if item.mode is mode and item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+    )
+    open_count = sum(
+        1
+        for item in occupied
+        if item.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
+    )
+    return len(occupied), open_count
 
 
 def _credentials_configured(settings: Settings) -> bool:

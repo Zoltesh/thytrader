@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from thytrader.execution.models import (
     Deployment,
@@ -22,6 +21,10 @@ from thytrader.risk.models import (
     RiskReasonCode,
     RiskVerdict,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from uuid import UUID
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
@@ -74,7 +77,9 @@ def evaluate_new_entry(
 ) -> RiskVerdict:
     """Allow a risk-increasing entry only when open-position and exposure caps permit it."""
     occupied = tuple(
-        item for item in snapshots if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
+        item
+        for item in snapshots
+        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
     )
     allowlisted = _allowlist_verdict(policy, proposed.product_id)
     if allowlisted.decision is RiskDecision.DENY:
@@ -145,13 +150,16 @@ def _exposure_verdict(
         ),
         Decimal("0"),
     )
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing_total)
+    capital = _capital_base(
+        policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing_total
+    )
     if capital <= 0:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
             "Capital base is missing or non-positive; new entries are blocked.",
         )
-    if existing_total + proposed.notional > capital * Decimal(policy.max_portfolio_exposure_fraction):
+    portfolio_cap = capital * Decimal(policy.max_portfolio_exposure_fraction)
+    if existing_total + proposed.notional > portfolio_cap:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
             "Proposed entry would exceed max_portfolio_exposure_fraction.",
@@ -231,7 +239,11 @@ def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
     if position is not None:
         return position.quantity * position.entry_price
     for order in snapshot.orders:
-        if order.side is OrderSide.BUY and order.status in _ACTIVE_ORDER and order.price is not None:
+        if (
+            order.side is OrderSide.BUY
+            and order.status in _ACTIVE_ORDER
+            and order.price is not None
+        ):
             remaining = order.quantity - order.filled_quantity
             if remaining > 0:
                 return remaining * order.price

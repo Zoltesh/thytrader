@@ -12,7 +12,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from thytrader.strategies.models import DecimalText
+from thytrader.strategies.models import (
+    DecimalText,  # noqa: TC001 - Pydantic fields resolve this alias.
+)
 
 RISK_POLICY_SCHEMA_VERSION: Literal["thytrader-risk-policy-v1"] = "thytrader-risk-policy-v1"
 COMPILED_POLICY_ID = UUID("01978a3e-5f2c-7d10-b3a4-0000000000aa")

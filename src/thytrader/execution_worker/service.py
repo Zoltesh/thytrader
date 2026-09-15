@@ -326,8 +326,9 @@ async def _occupied_snapshots(
     deployments: Sequence[Deployment],
 ) -> tuple[DeploymentSnapshot, ...]:
     """Load snapshots for running and paused deployments used by the entry gate."""
-    occupied: list[DeploymentSnapshot] = []
-    for item in deployments:
-        if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}:
-            occupied.append(await store.get_deployment(item.id))
+    occupied = [
+        await store.get_deployment(item.id)
+        for item in deployments
+        if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+    ]
     return tuple(occupied)

@@ -20,7 +20,7 @@ def test_runtime_help_describes_confirm_and_live_ack(
     output = capsys.readouterr().out
     assert "--confirm" in output
     assert "--i-understand-live" in output
-    assert "not the operator or research CLI" in output.lower() or "not the operator" in output
+    assert "not the operator" in output.lower() or "risk-policy registry" in output.lower()
 
 
 def test_start_without_confirm_does_not_call_api() -> None:

@@ -2,8 +2,8 @@
 
 from uuid import UUID
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from thytrader.risk.models import (
     COMPILED_POLICY_ID,
@@ -43,31 +43,37 @@ def test_fingerprint_is_stable_under_key_reordering() -> None:
 
 def test_allowlist_rejects_duplicates_and_non_usd_spot() -> None:
     """Allowlist entries must be unique BASE-USD product ids."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
     with pytest.raises(ValidationError):
-        compiled_default_risk_policy().model_copy(update={"product_allowlist": ("BTC-USD", "BTC-USD")})
+        RiskPolicyDefinition.model_validate(
+            {**payload, "product_allowlist": ("BTC-USD", "BTC-USD")}
+        )
     with pytest.raises(ValidationError):
-        compiled_default_risk_policy().model_copy(update={"product_allowlist": ("BTC-USDT",)})
+        RiskPolicyDefinition.model_validate({**payload, "product_allowlist": ("BTC-USDT",)})
 
 
 def test_allocations_must_fit_the_paper_book() -> None:
     """Reserved quote cannot exceed paper_capital_quote or repeat a strategy."""
     strategy = UUID("01978a3e-5f2c-7d10-b3a4-0000000000bb")
     other = UUID("01978a3e-5f2c-7d10-b3a4-0000000000cc")
+    payload = compiled_default_risk_policy().model_dump(mode="python")
     with pytest.raises(ValidationError):
-        compiled_default_risk_policy().model_copy(
-            update={
+        RiskPolicyDefinition.model_validate(
+            {
+                **payload,
                 "allocations": (
                     CapitalAllocation(strategy_id=strategy, allocated_quote="60000"),
                     CapitalAllocation(strategy_id=other, allocated_quote="60000"),
-                )
+                ),
             }
         )
     with pytest.raises(ValidationError):
-        compiled_default_risk_policy().model_copy(
-            update={
+        RiskPolicyDefinition.model_validate(
+            {
+                **payload,
                 "allocations": (
                     CapitalAllocation(strategy_id=strategy, allocated_quote="1000"),
                     CapitalAllocation(strategy_id=strategy, allocated_quote="2000"),
-                )
+                ),
             }
         )
