@@ -50,8 +50,9 @@ Rules:
   catalog current at evaluation (EMA/SMA/RSI/ATR/`volume_sma` at acceptance; extended by
   [ADR 0026](0026-phase-9-single-output-indicator-catalog.md),
   [ADR 0027](0027-phase-9-roc-williams-cci.md),
-  [ADR 0028](0028-phase-9-identity-constant.md), and
-  [ADR 0029](0029-phase-9-wma-momentum-mfi.md)).
+  [ADR 0028](0028-phase-9-identity-constant.md),
+  [ADR 0029](0029-phase-9-wma-momentum-mfi.md), and
+  [ADR 0032](0032-phase-9-macd-bollinger.md)).
 - Combined entry is the tri-state AND of HTF filter and LTF entry (undefined in either input is
   undefined).
 - Evaluation uses closed candles only. At LTF close `T`, HTF values come from the last HTF bar whose
@@ -81,7 +82,8 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
 - The indicator catalog later gained `highest`, `lowest`, and `stdev` ([ADR 0026](0026-phase-9-single-output-indicator-catalog.md)),
   `roc`, `williams_r`, and `cci` ([ADR 0027](0027-phase-9-roc-williams-cci.md)),
   `identity` and `constant` ([ADR 0028](0028-phase-9-identity-constant.md)), and
-  `wma`, `momentum`, and `mfi` ([ADR 0029](0029-phase-9-wma-momentum-mfi.md))
+  `wma`, `momentum`, and `mfi` ([ADR 0029](0029-phase-9-wma-momentum-mfi.md)), and `macd` and
+  `bollinger` ([ADR 0032](0032-phase-9-macd-bollinger.md))
   without changing HTF alignment or adding per-indicator timeframes.
 
 ## Alternatives considered

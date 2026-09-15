@@ -40,6 +40,8 @@ from thytrader.strategies.models import (
     NotCondition,
     StrategyDefinition,
     decision_and_filter_indicators,
+    indicator_value_keys,
+    operand_value_key,
     strategy_fingerprint,
 )
 
@@ -80,6 +82,7 @@ def evaluate_signal_trace(
         ) from error
     htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
     declared = decision_and_filter_indicators(strategy)
+    indicator_ids = tuple(key for indicator in declared for key in indicator_value_keys(indicator))
     records: list[SignalTraceRecord] = []
     for index, (candle, values) in enumerate(zip(engine_candles, indicator_rows, strict=True)):
         if candle.starts_at < specification.evaluation.starts_at:
@@ -98,14 +101,10 @@ def evaluate_signal_trace(
                 candle_starts_at=candle.starts_at,
                 indicator_values=tuple(
                     IndicatorTraceValue(
-                        indicator_id=indicator.id,
-                        value=_canonical_optional(
-                            values[indicator.id]
-                            if indicator.id in values
-                            else htf_values.get(indicator.id)
-                        ),
+                        indicator_id=key,
+                        value=_canonical_optional(_row_value(values, htf_values, key)),
                     )
-                    for indicator in declared
+                    for key in indicator_ids
                 ),
                 entry_condition=outcome,
             )
@@ -116,9 +115,20 @@ def evaluate_signal_trace(
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
         engine_contract_version=engine_contract_version,
-        indicator_ids=tuple(indicator.id for indicator in declared),
+        indicator_ids=indicator_ids,
         records=tuple(records),
     )
+
+
+def _row_value(
+    values: Mapping[str, Decimal | None],
+    htf_values: Mapping[str, Decimal | None],
+    key: str,
+) -> Decimal | None:
+    """Read one LTF or HTF series key without inventing a missing output."""
+    if key in values:
+        return values[key]
+    return htf_values.get(key)
 
 
 def _canonical_optional(value: Decimal | None) -> str | None:
@@ -430,7 +440,7 @@ def _operand_value(
 ) -> Decimal | None:
     """Resolve one indicator or exact literal operand for a single completed candle."""
     if isinstance(operand, IndicatorOperand):
-        return values.get(operand.indicator)
+        return values.get(operand_value_key(operand))
     if isinstance(operand, LiteralOperand):
         return Decimal(operand.literal)
     raise SignalEvaluationError("Signal condition contains an unsupported operand.")

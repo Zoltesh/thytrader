@@ -7,18 +7,19 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: Phase 9 remaining, then 10+ (iterative)
+## Current delivery focus: Phase 10, then 11+ (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
-first four indicator slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
-`identity`/`constant`, then `wma`/`momentum`/`mfi`) are shipped. **Thy
-Builder should implement the next unshipped Phase 9+ slice in order**, one vertical increment
+five catalog slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
+`identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`) are shipped.
+Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
+Builder should implement the next unshipped Phase 10+ slice in order**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not inserted ahead of Phase 9 remaining → 14**: remaining
+Destination items that are **accepted but not inserted ahead of Phase 10 → 14**: remaining
 Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
 then strategy/paper/live clocks; on-demand trades with SL/TP; agent journals, sentiment, and
 notify. See [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
@@ -66,7 +67,7 @@ completeness from full watch coverage.
 
 Remaining Coinbase-listed granularities (`1m`, `2h`, and any interval Coinbase adds later) are
 **destination** datasets-then-clocks ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
-They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 9 remaining → 14.
+They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 10 → 14.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -89,7 +90,7 @@ HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strateg
 Phase 13. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF candles are not in this
 slice.
 
-## Phase 9: Wider fail-closed indicator catalog — 🚧 First four slices shipped
+## Phase 9: Wider fail-closed indicator catalog — ✅ Five slices shipped
 
 Expand the bounded indicator registry without TA-library passthrough; same deterministic
 warmup and no-lookahead rules.
@@ -118,12 +119,18 @@ warmup and no-lookahead rules.
    2–100, warmup `period + 1`, `100 * positive / (positive + negative)`). Zero money-flow total →
    undefined. Same shared LTF catalog. Still no MACD/Bollinger, configurable rolling inputs, sample
    stdev, or per-indicator timeframes.
-5. **Multi-series outputs (MACD, Bollinger)** — 📋 Deferred until referenceable series ids exist.
+5. **Multi-series outputs (MACD, Bollinger)** — ✅ Shipped ([ADR 0032](decisions/0032-phase-9-macd-bollinger.md)):
+   `macd` (close; `fast_period`/`slow_period`/`signal_period` each 2–500, fast < slow; series
+   `macd`/`signal`/`histogram`) and `bollinger` (close; `period` 2–500 and `stdev_multiplier` `> 0`
+   and `≤ 10`; series `middle`/`upper`/`lower`). Conditions reference a series id on these kinds and
+   omit `series` on single-output kinds. Same shipped EMA/SMA/population-stdev arithmetic. Same
+   shared LTF catalog. Still no stochastic, ADX, configurable rolling inputs, sample stdev, or
+   per-indicator timeframes.
 6. **Per-indicator timeframes** — 📋 Out of Phase 9 (ADR 0025).
 
-**This-slice exit gate met:** the three kinds are named in the ADR, implemented in the registry and
-evaluator, referenced from conditions/crossovers, and listed honestly in the operator catalog and
-engine-support matrix.
+**This-slice exit gate met:** the two kinds and the series-id contract are named in the ADR,
+implemented in the registry and evaluator, referenced from conditions/crossovers, and listed
+honestly in the operator catalog and engine-support matrix.
 
 ## Phase 10: Portfolio + risk-policy registry — 📋 Planned
 
@@ -176,7 +183,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | On-demand trades with SL/TP | No; strategy deploy only | Yes, via order intent + risk ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)) |
 | Dataset TFs | 5m, 15m, 30m, 1h, 6h, 1d complete-only | Those plus **1m**, **2h**, and any Coinbase-listed interval |
 | Strategy / paper / live clocks | `1h`\|`5m` (live `1h`) | Same clocks as ingested venue TFs, each widened by ADR |
-| Indicators | Fail-closed catalog through Phase 9 slice 4 | Many indicators; MACD/Bollinger and per-indicator TFs later in Phase 9+ |
+| Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
 | Research | Single-instrument backtests; HTF filter in research | Cross-market analysis; walk-forward / OOS (Phase 11) |
 | Deploy | One published fingerprint, one instrument | **Single-asset and multi-asset** paper/live (Phase 10) |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
@@ -280,7 +287,7 @@ readiness, and graceful shutdown.
 - ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
 - ✅ Canonical SHA-256 strategy fingerprints and verified immutable-dataset bindings.
-- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, identity OHLCV, and constant.
+- ✅ Bounded indicator registry: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, and constant.
 - ✅ Typed comparisons and bounded recursive AND/OR/NOT condition groups.
 - ✅ Conservative reference EMA trend profile with durable browser draft recovery, typed authoring API,
   immutable publication, verified-dataset backtest workflow, and bounded human-readable summary.

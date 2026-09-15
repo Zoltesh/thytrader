@@ -31,11 +31,13 @@ from thytrader.research.trace import (
     signal_trace_fingerprint,
 )
 from thytrader.strategies.models import (
+    BollingerIndicatorParameters,
     ConstantIndicatorParameters,
     EmptyIndicatorParameters,
     IndicatorDefinition,
     IndicatorKind,
     IndicatorParameters,
+    MacdIndicatorParameters,
     StrategyDefinition,
     strategy_fingerprint,
 )
@@ -860,6 +862,172 @@ def test_entry_conditions_can_reference_wma_momentum_and_mfi() -> None:
     assert all(record.indicator_values[1].value is not None for record in trace.records)
     assert all(record.indicator_values[2].value is not None for record in trace.records)
     assert all(record.indicator_values[3].value is not None for record in trace.records)
+
+
+def test_macd_and_bollinger_warmup_decimal_and_no_lookahead() -> None:
+    """Slice 5 series stay undefined until warmup and never read future candles."""
+    indicators = (
+        IndicatorDefinition(
+            id="trend_macd",
+            kind=IndicatorKind.MACD,
+            input="close",
+            parameters=MacdIndicatorParameters(fast_period=2, slow_period=3, signal_period=2),
+        ),
+        IndicatorDefinition(
+            id="bands",
+            kind=IndicatorKind.BOLLINGER,
+            input="close",
+            parameters=BollingerIndicatorParameters(period=2, stdev_multiplier="2"),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = tuple(
+        Candle(
+            start + timedelta(hours=index),
+            Decimal(index + 1),
+            Decimal(index + 2),
+            Decimal(index + 1),
+            Decimal(index + 1),
+            Decimal(10),
+        )
+        for index in range(4)
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    with localcontext(Context(prec=64, rounding=ROUND_HALF_EVEN, Emin=-6143, Emax=6144)):
+        fast = (
+            None,
+            (Decimal(1) + Decimal(2)) / Decimal(2),
+            (Decimal(1) * Decimal("1.5") + Decimal(2) * Decimal(3)) / Decimal(3),
+            (Decimal(1) * Decimal("2.5") + Decimal(2) * Decimal(4)) / Decimal(3),
+        )
+        slow = (
+            None,
+            None,
+            (Decimal(1) + Decimal(2) + Decimal(3)) / Decimal(3),
+            (Decimal(2) * Decimal(2) + Decimal(2) * Decimal(4)) / Decimal(4),
+        )
+        macd_line = tuple(
+            None if fast_value is None or slow_value is None else fast_value - slow_value
+            for fast_value, slow_value in zip(fast, slow, strict=True)
+        )
+        first_macd = macd_line[2]
+        second_macd = macd_line[3]
+        assert first_macd is not None
+        assert second_macd is not None
+        signal = (None, None, None, (first_macd + second_macd) / Decimal(2))
+        histogram = tuple(
+            None if line is None or signal_value is None else line - signal_value
+            for line, signal_value in zip(macd_line, signal, strict=True)
+        )
+        middle = (
+            None,
+            (Decimal(1) + Decimal(2)) / Decimal(2),
+            (Decimal(2) + Decimal(3)) / Decimal(2),
+            (Decimal(3) + Decimal(4)) / Decimal(2),
+        )
+        stdev = (None, Decimal("0.5"), Decimal("0.5"), Decimal("0.5"))
+        upper = tuple(
+            None if mid is None or width is None else mid + Decimal(2) * width
+            for mid, width in zip(middle, stdev, strict=True)
+        )
+        lower = tuple(
+            None if mid is None or width is None else mid - Decimal(2) * width
+            for mid, width in zip(middle, stdev, strict=True)
+        )
+
+    assert [row["trend_macd.macd"] for row in rows] == list(macd_line)
+    assert [row["trend_macd.signal"] for row in rows] == list(signal)
+    assert [row["trend_macd.histogram"] for row in rows] == list(histogram)
+    assert [row["bands.middle"] for row in rows] == list(middle)
+    assert [row["bands.upper"] for row in rows] == list(upper)
+    assert [row["bands.lower"] for row in rows] == list(lower)
+    assert prefix_rows[-1]["trend_macd.histogram"] is None
+    assert prefix_rows[-1]["bands.middle"] == middle[2]
+
+
+def test_entry_conditions_can_reference_macd_and_bollinger_series() -> None:
+    """Published strategies compare MACD and Bollinger through series ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        {
+            "id": "trend_macd",
+            "kind": "macd",
+            "input": "close",
+            "parameters": {"fast_period": 2, "slow_period": 3, "signal_period": 2},
+        },
+        {
+            "id": "bands",
+            "kind": "bollinger",
+            "input": "close",
+            "parameters": {"period": 2, "stdev_multiplier": "2"},
+        },
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["data_requirements"]["warmup_bars"] = 4
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "trend_macd", "series": "macd"},
+                "operator": "greater_than",
+                "right": {"indicator": "trend_macd", "series": "signal"},
+            },
+            {
+                "left": {"indicator": "bands", "series": "middle"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    run = _run(strategy).model_copy(
+        update={
+            "warmup": WarmupWindow(
+                bars=4,
+                starts_at=datetime(2026, 7, 9, 22, tzinfo=UTC),
+            )
+        }
+    )
+    prior = (
+        Candle(
+            datetime(2026, 7, 9, 22, tzinfo=UTC),
+            Decimal("1"),
+            Decimal("2"),
+            Decimal("0.5"),
+            Decimal("1"),
+            Decimal("10"),
+        ),
+        Candle(
+            datetime(2026, 7, 9, 23, tzinfo=UTC),
+            Decimal("1.5"),
+            Decimal("2"),
+            Decimal("1"),
+            Decimal("1.5"),
+            Decimal("10"),
+        ),
+    )
+    trace = evaluate_signal_trace(run, strategy, (*prior, *_candles()))
+
+    assert trace.indicator_ids == (
+        "sma",
+        "trend_macd.macd",
+        "trend_macd.signal",
+        "trend_macd.histogram",
+        "bands.middle",
+        "bands.upper",
+        "bands.lower",
+        "atr",
+    )
+    assert all(record.indicator_values[1].value is not None for record in trace.records)
+    assert all(record.indicator_values[4].value is not None for record in trace.records)
 
 
 def test_engine_decimal_results_ignore_ambient_decimal_precision() -> None:

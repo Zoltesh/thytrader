@@ -15,6 +15,10 @@
 		INDICATOR_KIND_OPTIONS,
 		IDENTITY_INPUT_OPTIONS,
 		applyIndicatorKindDefaults,
+		defaultIndicatorOperand,
+		indicatorOperandKey,
+		parseIndicatorOperandKey,
+		operandChoices,
 		type BuilderModel,
 		type ConditionDraft,
 		type IndicatorDraft
@@ -75,7 +79,7 @@
 		indicators: IndicatorDraft[]
 	): void {
 		const child: ConditionDraft = {
-			left: { indicator: indicators[0]?.id ?? 'fast' },
+			left: defaultIndicatorOperand(indicators),
 			operator: 'greater_than',
 			right: { literal: '0' }
 		};
@@ -121,7 +125,7 @@
 	): void {
 		const child: ConditionDraft = {
 			not: {
-				left: { indicator: indicators[0]?.id ?? 'fast' },
+				left: defaultIndicatorOperand(indicators),
 				operator: 'greater_than',
 				right: { literal: '0' }
 			}
@@ -149,21 +153,24 @@
 	}
 
 	function rightOperandKey(comparison: {
-		right: { indicator?: string; literal?: string };
+		right: { indicator?: string; series?: string; literal?: string };
 	}): string {
 		return comparison.right.indicator !== undefined
-			? `indicator:${comparison.right.indicator}`
+			? indicatorOperandKey({
+					indicator: comparison.right.indicator,
+					series: comparison.right.series
+				})
 			: 'literal';
 	}
 
 	function setRightOperand(
-		comparison: { right: { indicator?: string; literal?: string } },
+		comparison: { right: { indicator?: string; series?: string; literal?: string } },
 		key: string
 	): void {
 		if (key === 'literal') {
 			comparison.right = { literal: '0' };
 		} else {
-			comparison.right = { indicator: key.slice('indicator:'.length) };
+			comparison.right = parseIndicatorOperandKey(key) ?? { literal: '0' };
 		}
 		markDirty();
 	}
@@ -174,31 +181,34 @@
 		markDirty();
 	}
 
-	function leftOperandKey(comparison: { left: { indicator?: string; literal?: string } }): string {
+	function leftOperandKey(comparison: {
+		left: { indicator?: string; series?: string; literal?: string };
+	}): string {
 		return comparison.left.indicator !== undefined
-			? `indicator:${comparison.left.indicator}`
+			? indicatorOperandKey({
+					indicator: comparison.left.indicator,
+					series: comparison.left.series
+				})
 			: 'literal';
 	}
 
 	function setLeftOperand(
-		comparison: { left: { indicator?: string; literal?: string } },
+		comparison: { left: { indicator?: string; series?: string; literal?: string } },
 		key: string
 	): void {
 		if (key === 'literal') {
 			comparison.left = { literal: '0' };
 		} else {
-			comparison.left = { indicator: key.slice('indicator:'.length) };
+			comparison.left = parseIndicatorOperandKey(key) ?? { literal: '0' };
 		}
 		markDirty();
 	}
 
-	function operandChoices(indicators: IndicatorDraft[]): { key: string; label: string }[] {
-		const choices = indicators.map((indicator) => ({
-			key: `indicator:${indicator.id}`,
-			label: indicator.id
-		}));
-		choices.push({ key: 'literal', label: 'literal value' });
-		return choices;
+	function operandLabel(operand: { indicator?: string; series?: string }): string {
+		if (operand.indicator === undefined) return '';
+		return operand.series === undefined
+			? operand.indicator
+			: `${operand.indicator}.${operand.series}`;
 	}
 
 	function validate(current: BuilderModel | null): void {
@@ -439,10 +449,13 @@
 						<div class="hint">
 							OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
 							crosses 40). ATR / Williams %R / CCI use high/low/close. MFI uses
-							high/low/close/volume. Highest uses high. Lowest uses low. Stdev, ROC, WMA, and
-							momentum use close. RSI, ATR, Williams %R, CCI, and MFI periods cap at 100. Momentum
-							and MFI need period + 1 bars. Rolling inputs stay locked per kind. MACD and Bollinger
-							are not shipped.
+							high/low/close/volume. Highest uses high. Lowest uses low. Stdev, ROC, WMA, momentum,
+							MACD, and Bollinger use close. MACD declares fast/slow/signal periods (fast &lt;
+							slow). Bollinger adds a population-stdev multiplier. Conditions reference
+							MACD/Bollinger outputs as series ids (macd/signal/histogram or middle/upper/lower).
+							RSI, ATR, Williams %R, CCI, and MFI periods cap at 100. Momentum and MFI need period +
+							1 bars. MACD needs slow + signal − 1 bars. Rolling inputs stay locked per kind.
+							Per-indicator timeframes are not shipped.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
@@ -711,6 +724,46 @@
 		>
 	{:else if indicator.kind === 'constant'}
 		<label>Value<input bind:value={indicator.parameters.value} oninput={markDirty} /></label>
+	{:else if indicator.kind === 'macd'}
+		<label
+			>Fast period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.fast_period}
+				oninput={markDirty}
+			/></label
+		>
+		<label
+			>Slow period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.slow_period}
+				oninput={markDirty}
+			/></label
+		>
+		<label
+			>Signal period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.signal_period}
+				oninput={markDirty}
+			/></label
+		>
+	{:else if indicator.kind === 'bollinger'}
+		<label
+			>Period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.period}
+				oninput={markDirty}
+			/></label
+		>
+		<label
+			>Stdev multiplier<input
+				bind:value={indicator.parameters.stdev_multiplier}
+				oninput={markDirty}
+			/></label
+		>
 	{:else}
 		<label
 			>Period<input
@@ -786,9 +839,9 @@
 			)}
 		{:else}
 			{@const comparison = condition as {
-				left: { indicator?: string; literal?: string };
+				left: { indicator?: string; series?: string; literal?: string };
 				operator: string;
-				right: { indicator?: string; literal?: string };
+				right: { indicator?: string; series?: string; literal?: string };
 			}}
 			<div class="rule-comparison">
 				<select
@@ -830,7 +883,7 @@
 					{/each}
 				</select>
 				{#if comparison.right.indicator !== undefined}
-					<span class="operand-name">{comparison.right.indicator}</span>
+					<span class="operand-name">{operandLabel(comparison.right)}</span>
 				{:else}
 					<input
 						class="literal"

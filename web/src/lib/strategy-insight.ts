@@ -1,9 +1,12 @@
 import {
 	IDENTITY_INPUT_OPTIONS,
+	INDICATOR_OUTPUT_SERIES,
 	validHtfTimeframes,
 	type BuilderModel,
 	type ConditionDraft,
-	type HtfFilterDraft
+	type HtfFilterDraft,
+	type IndicatorKindValue,
+	type OperandDraft
 } from './strategies';
 
 const IDENTITY_INPUTS = new Set(IDENTITY_INPUT_OPTIONS.map((option) => option.value));
@@ -29,12 +32,12 @@ function isGroup(condition: ConditionDraft): boolean {
 export function conditionToText(condition: ConditionDraft): string {
 	if (isComparison(condition)) {
 		const comparison = condition as {
-			left: { indicator?: string; literal?: string };
+			left: OperandDraft;
 			operator: string;
-			right: { indicator?: string; literal?: string };
+			right: OperandDraft;
 		};
-		const left = comparison.left.indicator ?? comparison.left.literal ?? '?';
-		const right = comparison.right.indicator ?? comparison.right.literal ?? '?';
+		const left = operandText(comparison.left);
+		const right = operandText(comparison.right);
 		const symbol = OPERATOR_LABELS[comparison.operator] ?? comparison.operator;
 		return `${left} ${symbol} ${right}`;
 	}
@@ -46,6 +49,13 @@ export function conditionToText(condition: ConditionDraft): string {
 		return children.map((child) => renderConditionChild(child, joiner)).join(joiner);
 	}
 	return `NOT (${conditionToText((condition as { not: ConditionDraft }).not)})`;
+}
+
+function operandText(operand: OperandDraft): string {
+	if ('literal' in operand) return operand.literal;
+	return operand.series === undefined
+		? operand.indicator
+		: `${operand.indicator}.${operand.series}`;
 }
 
 function renderConditionChild(child: ConditionDraft, parentJoiner: string): string {
@@ -86,7 +96,14 @@ type IndicatorLike = {
 	id: string;
 	kind: string;
 	input?: unknown;
-	parameters: { period?: number; value?: string };
+	parameters: {
+		period?: number;
+		value?: string;
+		fast_period?: number;
+		slow_period?: number;
+		signal_period?: number;
+		stdev_multiplier?: string;
+	};
 };
 
 function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
@@ -131,6 +148,11 @@ function indicatorPeriodMax(kind: string): number {
 
 function indicatorWarmupBars(indicator: IndicatorLike): number {
 	if (indicator.kind === 'identity' || indicator.kind === 'constant') return 1;
+	if (indicator.kind === 'macd') {
+		const slow = Number(indicator.parameters.slow_period);
+		const signal = Number(indicator.parameters.signal_period);
+		return slow + signal - 1;
+	}
 	const period = Number(indicator.parameters.period);
 	return indicator.kind === 'rsi' ||
 		indicator.kind === 'roc' ||
@@ -163,6 +185,50 @@ function validateIndicatorShape(indicator: IndicatorLike, label: string): string
 		}
 		return problems;
 	}
+	if (indicator.kind === 'macd') {
+		const fast = Number(indicator.parameters.fast_period);
+		const slow = Number(indicator.parameters.slow_period);
+		const signal = Number(indicator.parameters.signal_period);
+		if (!Number.isInteger(fast) || fast < 2 || fast > 500) {
+			problems.push(
+				`${label} "${indicator.id}" MACD fast period must be an integer between 2 and 500.`
+			);
+		}
+		if (!Number.isInteger(slow) || slow < 2 || slow > 500) {
+			problems.push(
+				`${label} "${indicator.id}" MACD slow period must be an integer between 2 and 500.`
+			);
+		}
+		if (!Number.isInteger(signal) || signal < 2 || signal > 500) {
+			problems.push(
+				`${label} "${indicator.id}" MACD signal period must be an integer between 2 and 500.`
+			);
+		}
+		if (Number.isInteger(fast) && Number.isInteger(slow) && fast >= slow) {
+			problems.push(`${label} "${indicator.id}" MACD fast period must be less than slow period.`);
+		}
+		return problems;
+	}
+	if (indicator.kind === 'bollinger') {
+		const period = Number(indicator.parameters.period);
+		if (!Number.isInteger(period) || period < 2 || period > 500) {
+			problems.push(`${label} "${indicator.id}" period must be an integer between 2 and 500.`);
+		}
+		const multiplier = indicator.parameters.stdev_multiplier;
+		if (multiplier === undefined || !DECIMAL_PATTERN.test(multiplier)) {
+			problems.push(
+				`${label} "${indicator.id}" Bollinger stdev multiplier must be a plain decimal number.`
+			);
+		} else {
+			const parsed = Number(multiplier);
+			if (parsed <= 0 || parsed > 10) {
+				problems.push(
+					`${label} "${indicator.id}" Bollinger stdev multiplier must be greater than 0 and at most 10.`
+				);
+			}
+		}
+		return problems;
+	}
 	const period = Number(indicator.parameters.period);
 	const maximum = indicatorPeriodMax(indicator.kind);
 	if (!Number.isInteger(period) || period < 2 || period > maximum) {
@@ -190,7 +256,7 @@ export function validateDefinition(model: BuilderModel): string[] {
 		problems.push(...validateIndicatorShape(indicator, 'Indicator'));
 		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 	}
-	problems.push(...validateCondition(model.entry.when, ids, 'Entry'));
+	problems.push(...validateCondition(model.entry.when, model.indicators, 'Entry'));
 	if (model.htf_filter !== null) {
 		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe));
 	}
@@ -291,7 +357,7 @@ function validateHtfFilter(
 		problems.push(...validateIndicatorShape(indicator, 'HTF indicator'));
 		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 	}
-	problems.push(...validateCondition(filter.when, htfIds, 'HTF filter'));
+	problems.push(...validateCondition(filter.when, filter.indicators, 'HTF filter'));
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(filter.warmup_bars) < warmupRequirement) {
 		problems.push(
@@ -325,9 +391,15 @@ function validateMultiple(
 	}
 }
 
-function validateCondition(condition: ConditionDraft, ids: Set<string>, label: string): string[] {
+function validateCondition(
+	condition: ConditionDraft,
+	indicators: IndicatorLike[],
+	label: string
+): string[] {
 	const problems: string[] = [];
-	validateConditionShape(condition, ids, problems, label);
+	const ids = new Set(indicators.map((indicator) => indicator.id));
+	const byId = new Map(indicators.map((indicator) => [indicator.id, indicator]));
+	validateConditionShape(condition, ids, byId, problems, label);
 	const { nodes, depth } = measureCondition(condition);
 	if (depth > MAX_CONDITION_DEPTH) {
 		problems.push(
@@ -343,30 +415,27 @@ function validateCondition(condition: ConditionDraft, ids: Set<string>, label: s
 function validateConditionShape(
 	condition: ConditionDraft,
 	ids: Set<string>,
+	byId: Map<string, IndicatorLike>,
 	problems: string[],
 	label: string
 ): void {
 	if (isComparison(condition)) {
 		const comparison = condition as {
-			left: { indicator?: string; literal?: string };
+			left: OperandDraft;
 			operator: string;
-			right: { indicator?: string; literal?: string };
+			right: OperandDraft;
 		};
-		if (comparison.left.indicator !== undefined && !ids.has(comparison.left.indicator)) {
-			problems.push(`${label} references unknown indicator "${comparison.left.indicator}".`);
-		}
-		if (comparison.right.indicator !== undefined && !ids.has(comparison.right.indicator)) {
-			problems.push(`${label} references unknown indicator "${comparison.right.indicator}".`);
-		}
-		if (comparison.left.literal !== undefined && !DECIMAL_PATTERN.test(comparison.left.literal)) {
+		validateOperandSeries(comparison.left, ids, byId, problems, label);
+		validateOperandSeries(comparison.right, ids, byId, problems, label);
+		if ('literal' in comparison.left && !DECIMAL_PATTERN.test(comparison.left.literal)) {
 			problems.push(`${label} literals must be exact decimal numbers.`);
 		}
-		if (comparison.right.literal !== undefined && !DECIMAL_PATTERN.test(comparison.right.literal)) {
+		if ('literal' in comparison.right && !DECIMAL_PATTERN.test(comparison.right.literal)) {
 			problems.push(`${label} literals must be exact decimal numbers.`);
 		}
 		if (
 			(comparison.operator === 'crosses_above' || comparison.operator === 'crosses_below') &&
-			(comparison.left.indicator === undefined || comparison.right.indicator === undefined)
+			(!('indicator' in comparison.left) || !('indicator' in comparison.right))
 		) {
 			problems.push('Crossover rules must compare two indicators.');
 		}
@@ -377,10 +446,36 @@ function validateConditionShape(
 		const children = group.all ?? group.any ?? [];
 		if (children.length === 0) problems.push('Empty condition groups are not allowed.');
 		if (children.length > 20) problems.push('Condition groups must hold at most 20 children.');
-		for (const child of children) validateConditionShape(child, ids, problems, label);
+		for (const child of children) validateConditionShape(child, ids, byId, problems, label);
 		return;
 	}
-	validateConditionShape((condition as { not: ConditionDraft }).not, ids, problems, label);
+	validateConditionShape((condition as { not: ConditionDraft }).not, ids, byId, problems, label);
+}
+
+function validateOperandSeries(
+	operand: OperandDraft,
+	ids: Set<string>,
+	byId: Map<string, IndicatorLike>,
+	problems: string[],
+	label: string
+): void {
+	if (!('indicator' in operand)) return;
+	if (!ids.has(operand.indicator)) {
+		problems.push(`${label} references unknown indicator "${operand.indicator}".`);
+		return;
+	}
+	const indicator = byId.get(operand.indicator);
+	if (indicator === undefined) return;
+	const outputs = INDICATOR_OUTPUT_SERIES[indicator.kind as IndicatorKindValue];
+	if (outputs === undefined) {
+		if (operand.series !== undefined) {
+			problems.push(`${label} "${operand.indicator}" is single-output and must omit series.`);
+		}
+		return;
+	}
+	if (operand.series === undefined || !outputs.includes(operand.series)) {
+		problems.push(`${label} "${operand.indicator}" series must be one of ${outputs.join(', ')}.`);
+	}
 }
 
 function measureCondition(condition: ConditionDraft): { nodes: number; depth: number } {
@@ -421,16 +516,10 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	},
 	{
 		label:
-			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, OHLCV identity, constant',
+			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, OHLCV identity, constant',
 		v1: true,
 		v2: true,
-		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter'
-	},
-	{
-		label: 'MACD / Bollinger (multi-series outputs)',
-		v1: false,
-		v2: false,
-		note: 'not shipped; no referenceable series-id contract'
+		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter; MACD/Bollinger conditions use series ids'
 	},
 	{
 		label: 'Per-indicator timeframes',

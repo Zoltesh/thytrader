@@ -1577,6 +1577,22 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
             period_max=100,
         ),
         IndicatorCatalogEntry(
+            kind=IndicatorKind.MACD.value,
+            inputs=("close",),
+            parameter_kind="macd",
+            period_min=2,
+            period_max=500,
+            outputs=("macd", "signal", "histogram"),
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.BOLLINGER.value,
+            inputs=("close",),
+            parameter_kind="bollinger",
+            period_min=2,
+            period_max=500,
+            outputs=("middle", "upper", "lower"),
+        ),
+        IndicatorCatalogEntry(
             kind=IndicatorKind.IDENTITY.value,
             inputs=("open", "high", "low", "close", "volume"),
             parameter_kind="none",

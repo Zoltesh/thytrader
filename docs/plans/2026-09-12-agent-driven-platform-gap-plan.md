@@ -28,8 +28,8 @@ evidence are not that memory system.
 - Market data: complete-only Parquet for **1h**, **5m**, **15m**, **30m**, **6h**, and **1d**; `inspect-gaps` /
   `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m` (live `1h`).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
-  identity OHLCV, constant, WMA, momentum, and MFI (Phase 9 first four slices). MACD/Bollinger and per-indicator
-  timeframes are not shipped.
+  identity OHLCV, constant, WMA, momentum, MFI, MACD, and Bollinger (Phase 9 catalog slices).
+  Per-indicator timeframes are not shipped.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper on 1h or 5m; live on **1h** only; single-position backtests.
 - Fee **tier visibility** and research **suggested defaults** shipped
@@ -43,10 +43,10 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Four skills + per-mutation `--confirm`; no orchestration playbook skill. Agent E2E is the primary surface (ADR 0030); playbook/YOLO remain Phase 12. |
-| Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 9 remaining → 14). |
+| Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 10 → 14). |
 | On-demand trades | Not shipped; strategy deploy only. Destination: discretionary orders with SL/TP via order intent + risk (ADR 0031). |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
-| Indicators | Tiny fail-closed catalog; Phase 9 first four slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, and wma/momentum/mfi. No TA passthrough, no MACD/Bollinger, no per-indicator TF |
+| Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
 | Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
 | Portfolio | No multi-position / cross-strategy risk registry or capital allocator |
 | Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
@@ -88,8 +88,9 @@ YOLO only changes confirmation friction inside allowed tiers.
    These complete-only datasets are not strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation remains later.
-4. **Phase 9** — First four slices shipped (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
-   `identity`/`constant`, then `wma`/`momentum`/`mfi`). Multi-series outputs remain.
+4. **Phase 9** — Five catalog slices shipped (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
+   `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`). Per-indicator timeframes
+   remain out of Phase 9.
 5. **Phase 10** — Portfolio + risk-policy registry.
 6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
 7. **Phase 12** — Agent orchestration + YOLO opt-in.
