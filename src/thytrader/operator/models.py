@@ -233,9 +233,7 @@ class DeploymentSummary(_FrozenModel):
 class UserOrderFeedPayload(_FrozenModel):
     """Redacted user-order WebSocket lifecycle without JWT or order payloads."""
 
-    state: Literal[
-        "disconnected", "connecting", "connected", "stale", "reconnecting", "disabled"
-    ]
+    state: Literal["disconnected", "connecting", "connected", "stale", "reconnecting", "disabled"]
     last_message_at: datetime | None = None
     last_heartbeat_at: datetime | None = None
 

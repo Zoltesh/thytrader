@@ -51,9 +51,7 @@ class CoinbaseRestBroker:
             "client_order_id": client_order_id,
             "product_id": product_id,
             "side": side.value.upper(),
-            "order_configuration": _order_configuration(
-                kind, quantity, price, stop_trigger_price
-            ),
+            "order_configuration": _order_configuration(kind, quantity, price, stop_trigger_price),
         }
         try:
             payload = self._transport.post(_ORDERS_PATH, body)

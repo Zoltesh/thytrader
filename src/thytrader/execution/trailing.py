@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from thytrader.execution.sizing import quantize_to_increment
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 
 @dataclass(frozen=True, slots=True)

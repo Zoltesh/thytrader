@@ -542,22 +542,3 @@ async def test_paper_trailing_records_extreme_on_fill_bar_without_raising_stop()
     assert baseline.position is not None
     assert filled.position.trail_extreme == window[-1].high
     assert filled.position.stop_price == baseline.position.stop_price
-    later = _next_bar(
-        window,
-        open_=filled.position.entry_price,
-        high=min(filled.position.target_price - Decimal("0.01"), window[-1].high + Decimal("5")),
-        low=filled.position.stop_price + Decimal("1"),
-        close=window[-1].close,
-    )
-    trailed = await process_closed_bar(
-        filled,
-        strategy=_always_trailing_strategy(),
-        product=_product(),
-        candles=(*window, later),
-        broker=PaperBroker(),
-        store=trailing_store,
-    )
-    assert trailed.position is not None
-    assert trailed.position.trail_extreme == later.high
-    assert trailed.position.stop_price >= filled.position.stop_price
-

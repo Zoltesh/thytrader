@@ -58,9 +58,7 @@ class PostgresUserOrderFeedStateStore:
 
     async def get(self) -> UserOrderFeedSnapshot | None:
         """Return the singleton snapshot, or None when none has been recorded."""
-        statement = select(user_order_feed_state).where(
-            user_order_feed_state.c.id == _SINGLETON_ID
-        )
+        statement = select(user_order_feed_state).where(user_order_feed_state.c.id == _SINGLETON_ID)
         try:
             async with self._engine.connect() as connection:
                 row = (await connection.execute(statement)).one_or_none()

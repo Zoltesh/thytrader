@@ -1645,4 +1645,3 @@ def test_enabled_atr_trailing_requires_named_ltf_atr() -> None:
     }
     with pytest.raises(ValidationError, match="unknown indicator"):
         StrategyDefinition.model_validate(payload)
-

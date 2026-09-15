@@ -721,9 +721,7 @@ def _trail_open_position(
     )
     if state.stop_price == position.stop_price and state.trail_extreme == position.trail_extreme:
         return position
-    return replace(
-        position, stop_price=state.stop_price, trail_extreme=state.trail_extreme
-    )
+    return replace(position, stop_price=state.stop_price, trail_extreme=state.trail_extreme)
 
 
 def _trail_maker_position(
@@ -960,7 +958,9 @@ def _indicator_value(record: SignalTraceRecord, indicator_id: str) -> Decimal:
     return value
 
 
-def _optional_indicator_value(record: SignalTraceRecord | None, indicator_id: str) -> Decimal | None:
+def _optional_indicator_value(
+    record: SignalTraceRecord | None, indicator_id: str
+) -> Decimal | None:
     """Return a named indicator value when present, otherwise None."""
     if record is None:
         return None

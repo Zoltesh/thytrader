@@ -43,7 +43,9 @@ def test_create_draft_help_allows_five_minute_paper(
         main(["create-draft", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out.lower()
-    assert "paper and live may be 1h or 5m" in output
+    collapsed = " ".join(output.split())
+    assert "paper and live may be 1h or 5m" in collapsed
+    assert "live stays 1h" not in collapsed
 
 
 def test_create_draft_without_confirm_does_not_write() -> None:
