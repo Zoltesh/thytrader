@@ -2,9 +2,13 @@
 
 ## Canonical strategy definition
 
-A strategy is an immutable, versioned document validated by backend-owned schemas. UI forms, templates, backtests, paper execution, and live execution all use this definition. Published strategy versions are never mutated in place; editing creates a new version so results and live decisions remain reproducible.
+A strategy is an immutable, versioned document validated by backend-owned schemas. UI forms, templates, agent research tools, backtests, paper execution, and live execution all use this definition. Published strategy versions are never mutated in place; editing creates a new version so results and live decisions remain reproducible.
 
 The complete V1 field-level contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](canonical-strategy-schema.md). That document is the implementation-facing specification; this document covers the runtime and simulation design.
+
+**Destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)): many indicators
+on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy to paper or live.
+**Shipped:** long-only, one instrument, `max_concurrent_positions = 1`, LTF `1h`|`5m` (live `1h`).
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
 (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact

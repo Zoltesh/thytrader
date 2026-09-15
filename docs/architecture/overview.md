@@ -5,14 +5,21 @@
 ThyTrader is a modular monolith deployed as multiple supervised processes. Domain packages share one
 repository and release lifecycle, while API and worker processes provide fault and scaling boundaries.
 
+The **primary product surface is agent-driven E2E** (versioned HTTP + confirmation-gated skills;
+[ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)). The SvelteKit UI remains a required
+professional workstation. Product destination is a Coinbase-first research and trading platform
+([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); other exchanges come later.
+
 The diagram describes the **target system shape**, not a claim that every responsibility is already
-implemented. Today, the browser and HTTP API provide portfolio, market-data, strategy authoring,
-backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h). The portfolio worker takes
-snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m, 6h, and 1d datasets; the execution worker evaluates
-closed 1h or 5m candles and submits maker orders through a paper broker or Coinbase Advanced Trade REST v3.
+implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
+authoring, backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h).
+The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
+6h, and 1d datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
+through a paper broker or Coinbase Advanced Trade REST v3.
 
 ```text
 SvelteKit web UI
+Agent skills / CLIs  (primary product surface)
       |
       | REST + ThyTrader WebSocket
       v
@@ -31,11 +38,13 @@ Execution worker ------------------------+
 
 ### Web application
 
-- SvelteKit, Svelte 5, and strict TypeScript.
+- SvelteKit, Svelte 5, and strict TypeScript ([ADR 0001](../decisions/0001-sveltekit-frontend.md)).
 - Desktop-first responsive interface. Shared workstation chrome (brand, primary
   navigation, context pill) lives in the root layout so route pages render body
   content only. The context pill is a static environment label, not a health
   signal. Primary nav stays reachable on narrow desktop widths.
+- The UI is required and must stay capable; it is **not** the completeness bar for a new
+  capability ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)).
 - TradingView Lightweight Charts (canvas) renders portfolio history and backtest equity. Portfolio gaps stay visible on a wall-clock time scale with no Y interpolation; backtest equity is labeled as mark-to-model research evidence. Market-data diagnostics stay non-charted.
 - Backtest discovery discloses its newest-first page bound and deep-links an open immutable result with `?result=`. The audit trail UI labels its latest-50 bound so the page is not read as a complete archive.
 - The browser never receives exchange secrets.
@@ -70,8 +79,10 @@ immutable markers rather than a mutation of the content-addressed publication ro
 Paper and live share one execution worker and the same published strategy semantics. Live mode is the
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
 from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes
-beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, and a
-risk-policy registry.
+beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, a
+risk-policy registry, and on-demand/discretionary orders ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
+Destination clocks include every Coinbase-listed granularity (`1m` and `2h` among them); they are
+not legal strategy/paper/live clocks until a later ADR widens them.
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:

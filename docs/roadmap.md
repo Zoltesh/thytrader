@@ -2,6 +2,11 @@
 
 This roadmap sequences capabilities and safety gates. It is not a promise of dates. Each phase should produce a usable, tested vertical increment rather than a collection of disconnected scaffolds.
 
+Product destination (Coinbase-first research + trading platform; agent E2E as the primary surface)
+is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-primary-surface.md), and
+[ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
+there. Do not treat a shipped narrow clock or catalog as the ceiling.
+
 ## Current delivery focus: Phase 9 remaining, then 10+ (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
@@ -9,9 +14,14 @@ operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF fi
 first four indicator slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
 `identity`/`constant`, then `wma`/`momentum`/`mfi`) are shipped. **Thy
 Builder should implement the next unshipped Phase 9+ slice in order**, one vertical increment
-at a time. Phases 7–14 below are the definitive sequence (not a wish list). Detail:
+at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
+
+Destination items that are **accepted but not inserted ahead of Phase 9 remaining → 14**: remaining
+Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
+then strategy/paper/live clocks; on-demand trades with SL/TP; agent journals, sentiment, and
+notify. See [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
 
@@ -53,6 +63,10 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
 **Exit gate met:** each timeframe has verified fingerprint-addressed datasets usable as research
 inputs once strategy/runtime contracts explicitly allow that TF, and agents can distinguish island
 completeness from full watch coverage.
+
+Remaining Coinbase-listed granularities (`1m`, `2h`, and any interval Coinbase adds later) are
+**destination** datasets-then-clocks ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
+They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 9 remaining → 14.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -114,7 +128,8 @@ engine-support matrix.
 ## Phase 10: Portfolio + risk-policy registry — 📋 Planned
 
 Multi-position and cross-strategy exposure / capital allocation beyond one instrument and
-`max_concurrent_positions = 1`.
+`max_concurrent_positions = 1`. Destination: deploy **single-asset and multi-asset** strategies to
+paper or live ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
 
 ## Phase 11: Research rigor tooling — 📋 Planned
 
@@ -122,13 +137,21 @@ Walk-forward / out-of-sample workflows, richer templates, clearer engine-support
 
 ## Phase 12: Agent orchestration + YOLO opt-in — 📋 Planned
 
-Playbook skill over existing CLIs. Default remains `--confirm`. Planned YOLO mode (default
+Playbook skill over existing CLIs so an agent can sequence data → research → optional paper without
+inventing a private workflow. Default remains `--confirm`. Planned YOLO mode (default
 off) skips confirmation on allowed tiers; live keeps a hard gate. See [agent integration](agent-integration.md).
+This phase serves [ADR 0030](decisions/0030-agent-e2e-primary-surface.md) (agent E2E as primary
+surface); it does not collapse skill lanes or grant live authority by inheritance.
 
 ## Phase 13: Live extras — 📋 Planned
 
 5m live (after paper on that clock is proven), trailing stops, user-order WebSockets, native
 OCO/brackets — after paper/restart/reconcile gates stay green.
+
+On-demand/discretionary trades with SL/TP are destination product work
+([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). They need a dedicated slice and
+ADR (intent persistence, risk, venue vs synthetic exits, audit origin). Do not treat them as a side
+effect of 5m live.
 
 ## Phase 14: Experiential memory / hindsight — 📋 Deferred
 
@@ -136,9 +159,28 @@ Operator-managed facts and lessons, in service of a planned product direction: a
 **crypto-trading experts improving from durable evidence** across market-data research, reproducible
 backtests, paper trades, and live trades. Evidence must distinguish **agent-originated** from
 **human-originated** actions and trades so agents can study their own mistakes and repeat successful
-patterns. Only after the core trading loop is trustworthy. Not a substitute for audit trails or
-immutable research evidence. No learning implementation exists today; nothing in this phase is
-shipped.
+patterns. Includes trade **journals**, **sentiment** analysis, pattern learning, monitoring, and
+**user notification**. Only after the core trading loop is trustworthy. Not a substitute for audit
+trails or immutable research evidence. No learning implementation exists today; nothing in this
+phase is shipped.
+
+## Destination capabilities (accepted; not current Builder order)
+
+These are product destination, not the next Thy Builder slice. Do not implement them by silently
+widening schema, clocks, or live safety. Each needs its own ADR and tests when sequenced.
+
+| Capability | Shipped today | Destination |
+|---|---|---|
+| Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
+| Portfolio | Balances, valuation history, fees | Positions/exposure across strategies (Phase 10) |
+| On-demand trades with SL/TP | No; strategy deploy only | Yes, via order intent + risk ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)) |
+| Dataset TFs | 5m, 15m, 30m, 1h, 6h, 1d complete-only | Those plus **1m**, **2h**, and any Coinbase-listed interval |
+| Strategy / paper / live clocks | `1h`\|`5m` (live `1h`) | Same clocks as ingested venue TFs, each widened by ADR |
+| Indicators | Fail-closed catalog through Phase 9 slice 4 | Many indicators; MACD/Bollinger and per-indicator TFs later in Phase 9+ |
+| Research | Single-instrument backtests; HTF filter in research | Cross-market analysis; walk-forward / OOS (Phase 11) |
+| Deploy | One published fingerprint, one instrument | **Single-asset and multi-asset** paper/live (Phase 10) |
+| Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
+| Agent E2E | Four lane-separated skills | Primary surface complete: research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030) |
 
 ## Phase 0: Repository foundation — ✅ Complete
 

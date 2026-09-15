@@ -4,7 +4,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 
 ## Start here
 
-- [Product vision and scope](product/vision.md)
+- [Product vision and scope](product/vision.md) — Coinbase-first platform end-state; agent E2E is the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md), [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md))
 - [Architecture overview](architecture/overview.md)
 - [Market-data pipeline](architecture/market-data.md)
 - [Strategy and backtesting design](architecture/strategy-and-backtesting.md)
@@ -13,7 +13,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Security and trading-risk baseline](security-and-risk.md)
-- [Delivery roadmap](roadmap.md) — Phases 0–8 shipped slice (Phase 8 = research HTF filter); **Phase 9 first four indicator slices shipped** (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`, `identity`/`constant`, then `wma`/`momentum`/`mfi`); **Phases 9 remaining–14** next for iterative Builder work
+- [Delivery roadmap](roadmap.md) — Phases 0–8 shipped slice (Phase 8 = research HTF filter); **Phase 9 first four indicator slices shipped** (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`, `identity`/`constant`, then `wma`/`momentum`/`mfi`); **Phases 9 remaining–14** next for iterative Builder work; destination capabilities (1m/2h, on-demand trades, journals) are accepted but not inserted ahead of that sequence
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — **historical** running-instance evidence against the 5m research–paper plan; stale Compose, 14-day clip, v3 422, and 5m paper 409 are closed by ADRs 0019, 0017/0018, and 0024

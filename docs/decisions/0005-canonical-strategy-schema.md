@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-07-26
+- Related: [0031](0031-coinbase-first-platform-end-state.md) records destination venue timeframes
+  and single- plus multi-asset deploy. This ADR's one-schema-across-runtimes decision is unchanged;
+  schema widening still requires a later ADR.
 
 ## Context
 

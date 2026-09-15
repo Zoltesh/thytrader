@@ -2,9 +2,50 @@
 
 ## Vision
 
-ThyTrader is an open-source, local-first trading workstation that a user controls. It brings portfolio visibility, strategy design, historical research, backtesting, risk management, and automated execution into one repository and one coherent interface.
+ThyTrader is an open-source, local-first **Coinbase-first research and trading platform** that a
+user or an authorized agent controls. Other exchanges come later, after the Coinbase Advanced Trade
+**spot** path is trustworthy.
 
-The first release targets a single user running ThyTrader on a workstation or private VM. Multi-user tenancy, hosted SaaS concerns, and broad exchange coverage are deliberately deferred until the core trading system is trustworthy.
+It brings portfolio visibility, on-demand trading, declarative strategy design, historical and
+cross-market research, backtesting, risk management, and automated paper/live execution into one
+repository.
+
+The **agent surface is the primary product** ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)).
+A modern professional UI still matters and must remain capable, but an agent that can drive
+ThyTrader end to end is the completeness bar: learn patterns, keep trade journals, analyze
+sentiment, research markets, build and backtest strategies, deploy paper and live, monitor
+positions, and notify the user.
+
+The first install targets a single user running ThyTrader on a workstation or private VM.
+Multi-user tenancy, hosted SaaS, and additional exchanges stay deferred until the core Coinbase
+path is trustworthy.
+
+## Product end state
+
+Accepted destination ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)). Not all
+of this is shipped; the [roadmap](../roadmap.md) sequences slices. Do not treat the current narrow
+paper/live clocks or indicator catalog as the ceiling.
+
+- **Coinbase-first.** Coinbase Advanced Trade REST v3 and WebSockets, spot only, until this path is
+  trustworthy. Other venues later.
+- **Portfolio:** view balances, positions, and related history.
+- **On-demand trades:** place discretionary trades with stop loss, take profit, and other execution
+  params — not only strategy-driven orders. Discretionary actions and strategy signals both create
+  an **order intent**; they never bypass risk checks to call Coinbase.
+- **Strategy design:** declarative, immutable, versioned strategies using many technical indicators
+  on exchange-offered timeframes, including **1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d**, and whatever else
+  Coinbase lists.
+- **Research:** historical and cross-market analysis on complete ingested data (no interpolated
+  candles).
+- **Deploy single-asset** strategies to paper or live.
+- **Deploy multi-asset** strategies to paper or live.
+- **Automation:** once deployed, the runtime runs the strategy without babysitting. Pause, resume,
+  and stop remain explicit operator/agent actions.
+- **Agent E2E:** an agent can do 100% of the above through confirmation-gated, auditable tools
+  (`--confirm`; live also `--i-understand-live`).
+
+A user or an agent can research markets, design strategies, backtest them, paper-trade them, and
+run live Coinbase spot — with the **same published strategy semantics** in every mode.
 
 ## Product principles
 
@@ -15,16 +56,20 @@ The first release targets a single user running ThyTrader on a workstation or pr
 5. **Modular without premature distribution.** Domain boundaries must be clear enough to extract services or Rust components later, while the initial system remains operable as a modular monolith.
 6. **Portable operations.** A supported installation should work on another user's machine or private VM without hand-built infrastructure.
 7. **Observable and auditable.** Users and authorized agents should be able to understand system health, strategy decisions, orders, fills, and performance without reading sensitive raw storage.
+8. **Agent-operable first.** A capability is incomplete until it has a supported, versioned, confirmation-gated agent contract. A polished UI is not a substitute ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)).
 
 ## Operating models
 
-ThyTrader supports three **equal** operating models; none is privileged as "the real" way to use it:
+ThyTrader supports three operating models. All remain first-class **supported** ways to use the
+product; none is deprecated, and nothing requires an agent. Agent-driven E2E is the **primary
+design target** ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)):
 
 1. **100% human-driven.** A person performs every observation and mutation through the browser and CLIs, with the same confirmation gates any actor faces.
-2. **100% agent-driven.** An agent performs diagnosis, data ingest, research, and paper/live control end-to-end through the shipped skills, acting only within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
+2. **100% agent-driven.** An agent performs diagnosis, data ingest, research, journals, notifications, and paper/live control end-to-end through the shipped skills, acting only within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
 3. **Collaborative human + agent.** A human and an agent share the loop—for example, the agent diagnoses and drafts while the human publishes and arms.
 
-Safety comes from confirmation gating, scoped authority, immutable evidence, auditability, and risk controls—not from excluding agents, and agents are never required.
+Safety comes from confirmation gating, scoped authority, immutable evidence, auditability, and risk
+controls—not from excluding agents, and agents are never required.
 
 ## Initial user
 
@@ -32,15 +77,19 @@ A technically comfortable individual who wants to:
 
 - connect a Coinbase account using their own API credentials;
 - view balances, exposures, and portfolio performance;
-- collect and inspect market history;
-- define strategies through a clean UI;
-- backtest strategies with credible assumptions;
-- optionally paper trade;
-- arm strategies for continuous live execution;
+- place on-demand trades with SL/TP and other execution params when they choose not to wait for a strategy;
+- collect and inspect market history across Coinbase-listed timeframes;
+- define strategies through agent skills and a clean UI, with many indicators;
+- backtest strategies with credible assumptions and compare across markets;
+- deploy a published strategy to paper or live for one instrument or several;
+- arm continuous live execution and leave the worker to run it;
 - manage SL/TP and trailing exits;
-- inspect health, risk state, and execution history.
+- inspect health, risk state, and execution history;
+- authorize an agent to do the same loop, including monitoring and notifying them.
 
-## V1 scope
+## Shipped slice (honest present)
+
+This is what the running product actually does today. It is **not** the end state.
 
 ### Exchange and products
 
@@ -51,16 +100,14 @@ A technically comfortable individual who wants to:
 
 ### Market data
 
-Required candle intervals:
+Shipped complete-only datasets: **5m, 15m, 30m, 1h, 6h, 1d**. Strategy, paper, and live clocks are
+**1h or 5m** (live **1h** only). Destination granularities also include **1m**, **2h**, and any
+additional Coinbase-listed interval ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md));
+those are not legal LTF or execution clocks until a later ADR widens them.
 
-- 5 minutes
-- 15 minutes
-- 30 minutes
-- 1 hour
-- 6 hours
-- 1 day
-
-Coinbase currently exposes these granularities, with a maximum of 350 buckets per candle request. Ingestion must paginate, deduplicate, validate, and detect gaps. The data-provider boundary must permit other historical sources without coupling them to Coinbase execution.
+Coinbase candle requests are bounded (currently 350 buckets per request). Ingestion must paginate,
+deduplicate, validate, and detect gaps. Missing candles are never interpolated. The data-provider
+boundary must permit other historical sources without coupling them to Coinbase execution.
 
 ### Strategy authoring
 
@@ -80,17 +127,25 @@ The first reference strategy is an EMA trend strategy with optional RSI and volu
 
 Coinbase's static sandbox is suitable for API contract tests, not realistic paper trading; ThyTrader therefore owns its simulation semantics.
 
+On-demand (discretionary) trades with SL/TP are **destination**, not shipped. Today's live path is
+strategy deploy of one published fingerprint.
+
 ### Delivery order for the first usable automation path
 
-The product will first make one narrow research loop user-controllable: configure the implemented
+The product first made one narrow research loop user-controllable: configure the implemented
 reference strategy through the browser, publish an immutable version, backtest it against a verified
 dataset, and inspect the evidence. Supported agent observation uses `thytrader-operator`; bounded,
 confirmation-gated research automation uses `thytrader-research --confirm`. Paper deployment is the
 first automated runtime, using the shared published strategy semantics and independent risk gate.
-and independent risk gate. Guarded live execution remains after paper restart, stale-data, duplicate-
-event, and reconciliation acceptance tests pass.
+Guarded live execution remains after paper restart, stale-data, duplicate-event, and reconciliation
+acceptance tests pass.
 
-### Planned direction: agents as crypto-trading experts (NOT SHIPPED)
+That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): remaining Phase 9
+indicators, then portfolio/multi-asset, research rigor, agent orchestration, live extras, and
+experiential memory — plus destination items (1m/2h datasets, on-demand trades) that are accepted
+but not inserted ahead of that sequence.
+
+## Planned direction: agents as crypto-trading experts (NOT SHIPPED)
 
 A major planned product goal—beyond the shipped skill surfaces—is for agents to act as
 **crypto-trading experts that improve from durable evidence** spanning market-data research,
@@ -101,6 +156,7 @@ implementation exists today):
 - Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
   can study their own mistakes and repeat successful patterns without confusing themselves with
   their operators.
+- Trade **journals**, **sentiment** analysis, pattern learning, monitoring, and **user notification**.
 - Improvement stays subordinate to existing invariants: confirmation gates, scoped authority,
   immutable evidence, auditability, and risk controls. It is never a substitute for audit trails.
 
@@ -111,13 +167,25 @@ not yet attribute origin (agent vs human). See [roadmap Phase 14](../roadmap.md)
 
 - Hosted multi-tenant SaaS.
 - Derivatives and leverage.
-- Multiple exchanges in the initial release.
+- **Additional exchanges** until the Coinbase spot path is trustworthy.
 - True high-frequency trading claims.
 - Full order-book queue simulation in the first backtester.
 - Mobile-first UX.
 - A visual strategy node canvas in V1.
 - Unrestricted agent control over live trading.
+- Weakening live-trading safety to make agent or UI convenience easier.
+- Treating a polished UI as a substitute for agent-operable APIs and skills.
 
-## Success criteria for the first complete vertical slice
+## Success criteria
+
+### First complete vertical slice (met)
 
 A user can install ThyTrader, configure an operator-selected Coinbase key, inspect portfolio data, load validated market history, configure the reference strategy, run a reproducible backtest, paper-run the same definition, explicitly arm it with conservative limits, execute/reconcile orders, survive a process restart, and review every relevant decision in the audit trail.
+
+### Destination (not met)
+
+A user **or** an authorized agent can research across Coinbase timeframes and products, author
+single- and multi-asset strategies with a wide indicator catalog, backtest them, place on-demand
+trades with SL/TP, deploy paper or live, leave automation running, monitor, journal, and get
+notified — all through confirmation-gated contracts, without interpolating candles or bypassing
+risk.
