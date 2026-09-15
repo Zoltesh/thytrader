@@ -148,3 +148,38 @@ def test_research_cli_refuses_stale_ops_contract_before_command() -> None:
     ):
         main(["create-draft", "--confirm"])
     request.assert_not_called()
+
+
+def test_create_draft_help_lists_research_templates(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators can discover the Phase 11 template ids without a database."""
+    with pytest.raises(SystemExit) as raised:
+        main(["create-draft", "--help"])
+    assert raised.value.code == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert "--template" in output
+    assert "macd-trend" in output
+    assert "mean-reversion" in output
+    assert "bollinger" in output
+
+
+def test_list_templates_local_does_not_require_a_database(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Template discovery is a read-only catalog, not a mutation."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "list-templates"])
+    assert raised.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    ids = {item["id"] for item in payload["templates"]}
+    assert "ema-trend" in ids
+    assert "rsi-mean-reversion" in ids
+
+
+def test_submit_study_without_confirm_does_not_submit() -> None:
+    """Omitting --confirm must exit before any study mutation."""
+    with pytest.raises(SystemExit) as raised:
+        main(["submit-study", "--file", "study.json"])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)

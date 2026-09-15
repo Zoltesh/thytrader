@@ -33,9 +33,17 @@ from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.research import http as research_http
+from thytrader.research.engine_support import engine_support_matrix
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
+from thytrader.research.studies import (
+    ResearchStudyError,
+    ResearchStudyRequest,
+    ResearchStudyService,
+    StudyPlanningError,
+)
 from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.publication import StrategyPublicationError
+from thytrader.strategies.templates import template_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -118,6 +126,14 @@ def _parser() -> argparse.ArgumentParser:
         choices=("1h", "5m"),
         help="Research timeframe. Default 1h. Paper may be 1h or 5m; live stays 1h.",
     )
+    create.add_argument(
+        "--template",
+        default="ema-trend",
+        help=(
+            "Draft template: ema-trend (default), rsi-mean-reversion, "
+            "macd-trend, or bollinger-mean-reversion."
+        ),
+    )
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     save = subparsers.add_parser(
         "save-draft",
@@ -158,6 +174,33 @@ def _parser() -> argparse.ArgumentParser:
         help="Show one immutable result summary.",
     )
     show.add_argument("--result-fingerprint", required=True)
+    subparsers.add_parser(
+        "list-templates",
+        parents=[trailing],
+        help="List fail-closed research draft templates.",
+    )
+    subparsers.add_parser(
+        "engine-support",
+        parents=[trailing],
+        help="Show the V1/V2/V3 engine-support matrix.",
+    )
+    plan = subparsers.add_parser(
+        "plan-study",
+        parents=[trailing],
+        help="Plan walk-forward, OOS, or cross-market windows without submitting.",
+    )
+    plan.add_argument("--file", required=True, help="Path to a ResearchStudyRequest JSON document.")
+    study = subparsers.add_parser(
+        "submit-study",
+        parents=[trailing],
+        help="Submit one composed research study.",
+    )
+    study.add_argument(
+        "--file",
+        required=True,
+        help="Path to a ResearchStudyRequest JSON document.",
+    )
+    study.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -225,6 +268,7 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
                 mutator,
                 product_id=arguments.product_id,
                 timeframe=arguments.timeframe,
+                template=arguments.template,
             ),
         )
     if arguments.command == "save-draft":
@@ -256,7 +300,7 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
             settings,
             lambda mutator: _show_result(mutator, arguments.result_fingerprint),
         )
-    raise AssertionError(f"unsupported research command: {arguments.command}")
+    return await _dispatch_local_study(settings, arguments)
 
 
 def _dispatch_http(arguments: argparse.Namespace) -> str:
@@ -270,6 +314,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
             base_url,
             product_id=arguments.product_id,
             timeframe=arguments.timeframe,
+            template=arguments.template,
         )
     if arguments.command == "save-draft":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="save-draft")
@@ -296,7 +341,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "show-result":
         require_matching_ops_contract(base_url)
         return research_http.show_result(base_url, arguments.result_fingerprint)
-    raise AssertionError(f"unsupported research command: {arguments.command}")
+    return _dispatch_http_study(base_url, arguments)
 
 
 async def _with_mutator(
@@ -317,9 +362,14 @@ async def _create_draft(
     *,
     product_id: str,
     timeframe: str,
+    template: str,
 ) -> str:
-    """Create the reference draft and return identities."""
-    draft = await mutator.create_reference_draft(product_id=product_id, timeframe=timeframe)
+    """Create a research template draft and return identities."""
+    draft = await mutator.create_reference_draft(
+        product_id=product_id,
+        timeframe=timeframe,
+        template=template,
+    )
     return _encode(
         {
             "strategy_id": str(draft.definition.strategy_id),
@@ -421,6 +471,58 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     )
 
 
+async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespace) -> str:
+    """Handle Phase 11 study commands against local stores."""
+    if arguments.command == "list-templates":
+        return _encode({"templates": list(template_catalog())})
+    if arguments.command == "engine-support":
+        return _encode(engine_support_matrix().model_dump(mode="json"))
+    if arguments.command == "plan-study":
+        request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
+        return await _with_mutator(settings, lambda mutator: _plan_study(mutator, request))
+    if arguments.command == "submit-study":
+        _require_confirm(arguments.confirm)
+        request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
+        return await _with_mutator(settings, lambda mutator: _submit_study(mutator, request))
+    raise AssertionError(f"unsupported research command: {arguments.command}")
+
+
+def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
+    """Handle Phase 11 study commands against the loopback HTTP API."""
+    if arguments.command == "submit-study":
+        _require_confirm(arguments.confirm)
+    require_matching_ops_contract(base_url)
+    if arguments.command == "list-templates":
+        return research_http.list_templates(base_url)
+    if arguments.command == "engine-support":
+        return research_http.engine_support(base_url)
+    if arguments.command == "plan-study":
+        request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
+        return research_http.plan_study(base_url, request)
+    if arguments.command == "submit-study":
+        _require_confirm(arguments.confirm)
+        request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
+        return research_http.submit_study(base_url, request)
+    raise AssertionError(f"unsupported research command: {arguments.command}")
+
+
+async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -> str:
+    """Plan study windows without submitting child backtests."""
+    service = ResearchStudyService(
+        publications=mutator.publications,
+        submitter=mutator.submitter,
+        results=mutator.results,
+    )
+    plan = await service.plan(request)
+    return _encode(plan.model_dump(mode="json"))
+
+
+async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest) -> str:
+    """Submit one composed study and return the derived document."""
+    study = await mutator.submit_study(request)
+    return _encode(study.model_dump(mode="json"))
+
+
 def _encode(payload: object) -> str:
     """Render stable JSON for agent consumption."""
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -440,6 +542,10 @@ def _command_output(arguments: argparse.Namespace) -> str:
         raise SystemExit(str(error)) from error
     except BacktestSubmissionRejectedError as error:
         raise SystemExit(str(error)) from error
+    except StudyPlanningError as error:
+        raise SystemExit(str(error)) from error
+    except ResearchStudyError as error:
+        raise SystemExit("Research study submission is unavailable.") from error
     except BacktestSubmissionError as error:
         raise SystemExit("Backtest submission is unavailable.") from error
     except ValidationError as error:

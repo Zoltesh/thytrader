@@ -12,6 +12,7 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.research.studies import ResearchStudy, ResearchStudyRequest, ResearchStudyService
 from thytrader.strategies.authoring import StrategyDraft, StrategyDraftStore, create_reference_draft
 
 if TYPE_CHECKING:
@@ -45,9 +46,14 @@ class ResearchMutator:
         *,
         product_id: str = "BTC-USD",
         timeframe: str = "1h",
+        template: str = "ema-trend",
     ) -> StrategyDraft:
-        """Persist the conservative reference draft and record an audit event."""
-        definition = create_reference_draft(product_id=product_id, timeframe=timeframe)
+        """Persist a research template draft and record an audit event."""
+        definition = create_reference_draft(
+            product_id=product_id,
+            timeframe=timeframe,
+            template=template,
+        )
         draft = await self.drafts.create_draft(definition)
         await self._audit("create_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
         return draft
@@ -92,6 +98,21 @@ class ResearchMutator:
             f"run={result.run_fingerprint} result={result.result_fingerprint}",
         )
         return result.run_fingerprint, result.result_fingerprint
+
+    async def submit_study(self, request: ResearchStudyRequest) -> ResearchStudy:
+        """Submit one composed research study and record an audit event."""
+        service = ResearchStudyService(
+            publications=self.publications,
+            submitter=self.submitter,
+            results=self.results,
+        )
+        study = await service.submit(request)
+        await self._audit(
+            "submit_study",
+            AuditEventOutcome.SUCCESS,
+            f"study={study.study_fingerprint} kind={study.kind.value} windows={len(study.windows)}",
+        )
+        return study
 
     async def list_results(
         self,

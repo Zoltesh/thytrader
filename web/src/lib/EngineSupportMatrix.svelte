@@ -8,6 +8,7 @@
 			<th scope="col">Setting</th>
 			<th scope="col">V1</th>
 			<th scope="col">V2</th>
+			<th scope="col">V3</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -25,6 +26,11 @@
 				<td
 					><span class:support-yes={row.v2} class:support-no={!row.v2}
 						>{row.v2 ? 'Supported' : 'Unsupported'}</span
+					></td
+				>
+				<td
+					><span class:support-yes={row.v3} class:support-no={!row.v3}
+						>{row.v3 ? 'Supported' : 'Unsupported'}</span
 					></td
 				>
 			</tr>

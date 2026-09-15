@@ -23,6 +23,7 @@ from thytrader.api.routes.market_data_ingestion import router as market_data_ing
 from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
+from thytrader.api.routes.research_studies import router as research_studies_router
 from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.strategies import router as strategies_router
 from thytrader.backtest.submission import (
@@ -264,6 +265,7 @@ def create_app(
     app.include_router(strategies_router)
     app.include_router(deployments_router)
     app.include_router(risk_policy_router)
+    app.include_router(research_studies_router)
     app.include_router(backtests_router)
     return app
 

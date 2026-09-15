@@ -561,8 +561,24 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T;
 }
 
-export async function createDraft(): Promise<StrategyCreatedResponse> {
-	return request<StrategyCreatedResponse>('/api/v1/strategies', { method: 'POST' });
+export async function createDraft(options?: {
+	template?: string;
+	product_id?: string;
+	timeframe?: string;
+}): Promise<StrategyCreatedResponse> {
+	const params = new URLSearchParams();
+	if (options?.template !== undefined && options.template !== 'ema-trend') {
+		params.set('template', options.template);
+	}
+	if (options?.product_id !== undefined && options.product_id !== 'BTC-USD') {
+		params.set('product_id', options.product_id);
+	}
+	if (options?.timeframe !== undefined && options.timeframe !== '1h') {
+		params.set('timeframe', options.timeframe);
+	}
+	const query = params.toString();
+	const path = query === '' ? '/api/v1/strategies' : `/api/v1/strategies?${query}`;
+	return request<StrategyCreatedResponse>(path, { method: 'POST' });
 }
 
 export async function listStrategies(): Promise<StrategyLibraryEntry[]> {

@@ -6,7 +6,7 @@ Use only the shipped skills:
 
 - `thytrader-operator` — read-only diagnostics
 - `thytrader-data` — watchlist, ingest, gap-fill (`--confirm`)
-- `thytrader-research` — drafts, publish, backtests (`--confirm`)
+- `thytrader-research` — drafts, publish, backtests, studies (`--confirm`)
 - `thytrader-runtime` — paper/live start/pause/resume/stop and risk-policy publication (`--confirm`; live start also `--i-understand-live`)
 - `thytrader-playbook` — data → research → optional paper via existing CLIs (`--confirm` forwarded; never live)
 

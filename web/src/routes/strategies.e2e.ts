@@ -728,11 +728,18 @@ test('research tab launches a backtest with engine and spread and lists version 
 	const engineMatrix = page.getByRole('table', { name: 'Engine support matrix' });
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V3' })).toBeVisible();
+	await expect(page.getByLabel('Template')).toBeVisible();
+	await expect(page.getByRole('option', { name: 'RSI mean reversion' })).toBeAttached();
 
 	// Insight tab shows version results loaded per fingerprint.
 	await expect(page.getByText('Results by version')).not.toBeVisible();
 	await page.getByRole('tab', { name: 'Research' }).click();
 	await expect(page.getByText('Launch backtest')).toBeVisible();
+	await expect(page.getByLabel('Study')).toBeVisible();
+	await expect(page.getByRole('option', { name: 'OOS holdout' })).toBeAttached();
+	await expect(page.getByRole('option', { name: 'Walk-forward' })).toBeAttached();
+	await expect(page.getByRole('option', { name: 'V3 — resting maker limit' })).toBeAttached();
 	await expect(page.getByTestId('research-fee-source')).toContainText(
 		'Suggested from Coinbase fee tier'
 	);

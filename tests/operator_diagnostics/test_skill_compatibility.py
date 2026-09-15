@@ -61,6 +61,11 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "--product-id" in skill
     assert "--timeframe" in skill
     assert "submit-backtest" in skill
+    assert "submit-study" in skill
+    assert "plan-study" in skill
+    assert "list-templates" in skill
+    assert "engine-support" in skill
+    assert "--template" in skill
     assert "evaluation_start" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill

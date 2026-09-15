@@ -44,13 +44,13 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Five skills: operator, data, research, runtime, plus `thytrader-playbook`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034); live stays hard-gated. |
-| Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 10 → 14). |
+| Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 13 → 14). |
 | On-demand trades | Not shipped; strategy deploy only. Destination: discretionary orders with SL/TP via order intent + risk (ADR 0031). |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
 | Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
-| Research rigor | Walk-forward / OOS tooling and richer templates still deferred |
+| Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
 | Live extras | 5m live, trailing stops, user-order WS, native OCO deferred |
 | Memory | Journals, sentiment, notify, and origin-attributed learning are now in product docs; still deferred (Phase 14). Nothing shipped. |
 
@@ -96,7 +96,7 @@ YOLO only changes confirmation friction inside allowed tiers.
    `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`). Per-indicator timeframes
    remain out of Phase 9.
 5. **Phase 10** — Shipped: risk-policy registry and concurrent single-instrument paper/live.
-6. **Phase 11** — Research rigor (walk-forward / OOS, templates).
+6. **Phase 11** — Shipped: walk-forward / OOS / cross-market studies, richer templates, V1/V2/V3 matrix (ADR 0035).
 7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live stays hard-gated.
 8. **Phase 13** — Live extras (5m live, trailing, WS, OCO).
 9. **Phase 14** — Memory / hindsight last.

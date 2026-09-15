@@ -67,23 +67,29 @@ sizing, Portfolio limits, and Execution preferences. Entry conditions are edited
 ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
-`thytrader-bar-backtest-v1` and `thytrader-bar-backtest-v2` engines actually consume (entry
-conditions, optional HTF filter, indicators (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, constant), risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
-take profit, time exit) from declared schema fields those next-open engines ignore (entry cooldown,
-maker-only/marketable preference, entry wait and unfilled policy, trailing stops). `thytrader-bar-backtest-v3`
-consumes the same HTF signal stage plus maker-only close-limit entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops,
-and resting take-profit, matching the paper worker. V2 alone supports an explicit constant-spread
-stress assumption. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
-does not. Trailing stops remain schema-present and disabled. Paper and live consume the same LTF
-indicator catalog and do not evaluate `htf_filter`. MACD/Bollinger conditions use series ids.
-Per-indicator timeframes are not shipped.
+`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3`
+engines actually consume. V1 and V2 consume entry conditions, optional HTF filter, the shipped
+indicator catalog (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
+WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, constant), risk-fraction sizing with notional
+bounds, ATR initial stop, reward/risk take profit, and time exit. V2 alone consumes an explicit
+constant-spread stress assumption. V3 consumes the same HTF signal stage plus maker-only close-limit
+entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops, and resting take-profit, matching
+the paper worker. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
+does not. Entry cooldown and trailing stops remain unsupported on every bar engine. Walk-forward /
+OOS / cross-market studies compose these engines ([research studies](research-studies.md)); they do
+not retune parameters. MACD/Bollinger conditions use series ids. Per-indicator timeframes are not
+shipped. Paper and live consume the same LTF indicator catalog and do not evaluate `htf_filter`.
+`POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
+`rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting drafts, not
+proven edges.
 
 The library's read-only detail surface exposes Insight, Research, and Versions tabs for every
 strategy identity. Insight always shows the same summary, validation, warmup/data, unsaved/read-only
-state, and V1/V2 support matrix as the builder. Research requires an explicit immutable published
+state, and V1/V2/V3 support matrix as the builder. Research requires an explicit immutable published
 version, verified dataset, half-open evaluation period, exact initial capital, maker/taker fees,
 fixed slippage, and engine contract; V2 additionally requires an explicit constant total bid-ask
-spread. Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
+spread. The Research tab can launch a single window or a composed OOS / walk-forward study (cross-market
+stays on the research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
 exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or missing
 credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
 observed Coinbase fills. V1/V2 next-open fills still use the taker rate even when the strategy

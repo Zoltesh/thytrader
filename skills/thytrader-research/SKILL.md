@@ -2,10 +2,11 @@
 name: thytrader-research
 description: >-
   Create ThyTrader strategy drafts, publish immutable versions, and submit or
-  compare deterministic backtests through the confirmation-gated thytrader-research
-  CLI. Use when the user asks to create a strategy, publish, or run a backtest.
-  Requires explicit --confirm for every mutation. Never deploys, paper-trades,
-  live-trades, arms, or cancels orders.
+  compare deterministic backtests and composed research studies through the
+  confirmation-gated thytrader-research CLI. Use when the user asks to create a
+  strategy, publish, run a backtest, or run an OOS / walk-forward / cross-market
+  study. Requires explicit --confirm for every mutation. Never deploys,
+  paper-trades, live-trades, arms, or cancels orders.
 ---
 
 # ThyTrader research
@@ -14,7 +15,9 @@ Bounded research mutations only. This skill is not an extension of `thytrader-op
 
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to the database if the API is down.
 
-Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`, `POST /api/v1/backtests`) remain valid. The agent-facing mutation path is `uv run thytrader-research` with `--confirm`.
+Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`,
+`POST /api/v1/backtests`, `POST /api/v1/research/studies`) remain valid. The agent-facing mutation
+path is `uv run thytrader-research` with `--confirm`.
 
 ## Hard stop
 
@@ -47,17 +50,26 @@ Never treat a backtest as a paper or live fill.
 
 | Need | Command |
 |---|---|
-| Create the conservative reference draft | `uv run thytrader-research create-draft [--product-id ETH-USD] [--timeframe 5m] --confirm` |
+| Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] --confirm` |
+| List draft templates | `uv run thytrader-research list-templates` |
+| Show the V1/V2/V3 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
+| Plan OOS / walk-forward / cross-market windows | `uv run thytrader-research plan-study --file study.json` |
+| Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 
-`list-results` and `show-result` are read-only and do not use `--confirm`.
+`list-results`, `show-result`, `list-templates`, `engine-support`, and `plan-study` are read-only and
+do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3
+backtests; they do not retune parameters or stitch a continuous equity curve. Cross-market studies
+need 2–8 published single-instrument strategies on distinct products. See
+[`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
-`create-draft` defaults to `BTC-USD` / `1h`. Pass `--product-id` and `--timeframe` (`1h` or `5m`) for
-another USD spot product. Paper may start that published 1h or 5m fingerprint; live still requires
+`create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
+(`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
+`--timeframe` (`1h` or `5m`) for another USD spot product. Paper may start that published 1h or 5m fingerprint; live still requires
 `1h`. Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
@@ -100,10 +112,10 @@ when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the
 
 ## Confirmation
 
-- Never run `create-draft`, `save-draft`, `publish`, or `submit-backtest` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- Never run `create-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
 - `--local` research always requires `--confirm` (YOLO is HTTP-only).
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
-- Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`). Keep those identities.
+- Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`, `study_fingerprint`). Keep those identities.
 
 ## Forbidden
 
