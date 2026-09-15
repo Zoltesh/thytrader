@@ -7,17 +7,19 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: Phase 13, then 14 (iterative)
+## Current delivery focus: Phase 14 (iterative)
 
-Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
+Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h|5m,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
 five catalog slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
 `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`) are shipped.
 Phase 10's risk-policy registry and concurrent single-instrument paper/live are shipped.
 Phase 11's walk-forward / OOS / cross-market studies, richer templates, and V1/V2/V3 engine-support
 matrix are shipped.
+Phase 12's playbook and default-off YOLO confirmation opt-in are shipped.
+Phase 13's 5m live, ATR trailing, user-order WS, and native OCO brackets are shipped.
 Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
-Builder should implement the next unshipped Phase 13+ slice in order**, one vertical increment
+Builder should implement the next unshipped Phase 14 slice**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
@@ -187,15 +189,21 @@ lane CLIs and never starts live; `--confirm` remains the default; live start sti
 Destination still includes on-demand trades, `1m`/`2h` clocks, journals, and notify
 ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
 
-## Phase 13: Live extras — 📋 Planned
+## Phase 13: Live extras — ✅ Shipped
 
-5m live (after paper on that clock is proven), trailing stops, user-order WebSockets, native
-OCO/brackets — after paper/restart/reconcile gates stay green.
+5m live (same closed-bar clock as paper), ATR trailing stops, authenticated user-order WebSockets,
+and native Coinbase `trigger_bracket_gtc` OCO after live entry fills ([ADR 0036](decisions/0036-phase-13-live-extras.md)).
+Paper still simulates OCO with a post-only take-profit plus a synthetic stop. HTF-filter publications
+stay rejected. Daily-loss / drawdown breakers stay destination.
 
 On-demand/discretionary trades with SL/TP are destination product work
 ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). They need a dedicated slice and
 ADR (intent persistence, risk, venue vs synthetic exits, audit origin). Do not treat them as a side
 effect of 5m live.
+
+**Exit gate met:** a published 5m strategy can arm live when credentials exist; live exits after fill
+are one venue OCO; trailing is durable; operator `runtime` reports user-order feed state; 5m live
+pauses when that feed is not connected; ops contract is `thytrader-ops-contract-v8` / Alembic `0022`.
 
 ## Phase 14: Experiential memory / hindsight — 📋 Deferred
 
@@ -307,7 +315,7 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- 5m live execution after paper on the same published 5m clock is proven (**Phase 13**).
+- 5m live execution after paper on the same published 5m clock is proven (**Phase 13**, shipped).
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
@@ -392,7 +400,7 @@ assumptions, resist lookahead, and pass adversarial fill/risk tests.
 
 ## Phase 4: Paper execution — ✅ Complete (narrow 1h|5m maker loop)
 
-- Persistent simulated broker using normalized 1h or 5m candle-close events (live stays 1h).
+- Persistent simulated broker using normalized 1h or 5m candle-close events (live 5m arrived in Phase 13).
 - Same published strategy semantics used by backtests/live trading.
 - Continuous `thytrader-execution-worker` supervision.
 - Deploy tab with pause/resume/stop, position, orders, fills, and reject reasons.
@@ -406,8 +414,8 @@ closed 1h or 5m candle once, records intents/fills/position, and obeys pause and
 - Idempotent maker entries and ordinary take-profit orders via REST v3 JSON.
 - Paginated fills as the fill ledger; GET-order after submit.
 - Marketable stop and time-exit sells.
-- Deferred: Coinbase-native stops/brackets, user-order WebSockets, synthetic trailing stops,
-  operator runbook drills.
+- Phase 13 later shipped native OCO brackets, user-order WebSockets, and ATR trailing.
+  Remaining deferred: operator runbook drills.
 
 ## Phase 6: Operator and agent integration — ✅ Complete
 

@@ -517,3 +517,47 @@ def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
         risk_policy=policy,
         portfolio=(stale_self,),
     )
+
+
+def _always_trailing_strategy() -> StrategyDefinition:
+    """Always-true entry with ATR trailing enabled."""
+    payload = _always_entry_strategy().model_dump(mode="python")
+    payload["exits"]["trailing_stop"] = {
+        "enabled": True,
+        "kind": "atr_multiple",
+        "atr_indicator": "atr",
+        "multiple": "0.5",
+    }
+    return StrategyDefinition.model_validate(payload)
+
+
+@pytest.mark.anyio
+async def test_paper_trailing_records_extreme_on_fill_bar_without_raising_stop() -> None:
+    """The fill bar persists trail_extreme and keeps the initial stop."""
+    trailing_store = InMemoryExecutionStore()
+    baseline_store = InMemoryExecutionStore()
+    filled, window = await _filled_long(trailing_store, _always_trailing_strategy())
+    baseline, _ = await _filled_long(baseline_store, _always_entry_strategy())
+    assert filled.position is not None
+    assert baseline.position is not None
+    assert filled.position.trail_extreme == window[-1].high
+    assert filled.position.stop_price == baseline.position.stop_price
+    later = _next_bar(
+        window,
+        open_=filled.position.entry_price,
+        high=min(filled.position.target_price - Decimal("0.01"), window[-1].high + Decimal("5")),
+        low=filled.position.stop_price + Decimal("1"),
+        close=window[-1].close,
+    )
+    trailed = await process_closed_bar(
+        filled,
+        strategy=_always_trailing_strategy(),
+        product=_product(),
+        candles=(*window, later),
+        broker=PaperBroker(),
+        store=trailing_store,
+    )
+    assert trailed.position is not None
+    assert trailed.position.trail_extreme == later.high
+    assert trailed.position.stop_price >= filled.position.stop_price
+

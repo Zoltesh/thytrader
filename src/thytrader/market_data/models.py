@@ -24,7 +24,7 @@ class CandleInterval(StrEnum):
     """Closed-candle intervals for complete-only historical datasets.
 
     Dataset ingest, catalog, and verification accept 1h, 5m, 15m, 30m, 6h, and 1d.
-    Paper still evaluates only 1h or 5m; live remains 1h-only at the deployment
+    Paper still evaluates only 1h or 5m; live accepts 1h or 5m at the deployment
     gate.
     """
 
@@ -77,7 +77,7 @@ class CandleInterval(StrEnum):
 
     @property
     def execution_supported(self) -> bool:
-        """Paper evaluates closed 1h or 5m bars; live remains 1h-only at the deployment gate."""
+        """Paper and live evaluate closed 1h or 5m bars."""
         return self in {CandleInterval.ONE_HOUR, CandleInterval.FIVE_MINUTES}
 
 

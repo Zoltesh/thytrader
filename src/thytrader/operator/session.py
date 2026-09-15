@@ -14,6 +14,7 @@ from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.store import DisabledExecutionStore
+from thytrader.execution.user_feed_state import DisabledUserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
@@ -33,6 +34,7 @@ from thytrader.persistence.postgres_market_data_worker import PostgresMarketData
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import DisabledWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
@@ -77,6 +79,7 @@ async def operator_diagnostics(
             market_data=market_data,
             heartbeat_store=PostgresWorkerHeartbeatStore(engine),
             risk_policies=PostgresRiskPolicyStore(engine),
+            user_order_feed=PostgresUserOrderFeedStateStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -94,6 +97,7 @@ async def operator_diagnostics(
             market_data=market_data,
             heartbeat_store=DisabledWorkerHeartbeatStore(),
             risk_policies=DisabledRiskPolicyStore(),
+            user_order_feed=DisabledUserOrderFeedStateStore(),
         )
     try:
         yield diagnostics

@@ -37,9 +37,12 @@ class PaperBroker:
         kind: OrderKind,
         quantity: Decimal,
         price: Decimal | None,
+        stop_trigger_price: Decimal | None = None,
     ) -> SubmitResult:
         """Accept a paper order; marketable orders fill immediately at the mark price."""
-        del product_id, side
+        del product_id, side, stop_trigger_price
+        if kind is OrderKind.TRIGGER_BRACKET:
+            raise ValueError("paper does not submit venue trigger brackets")
         if kind is OrderKind.MARKETABLE:
             if price is None:
                 raise ValueError("marketable paper orders require a mark price")

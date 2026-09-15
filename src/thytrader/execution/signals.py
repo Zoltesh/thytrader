@@ -32,7 +32,15 @@ def evaluate_latest_entry(
 
 def latest_atr(strategy: StrategyDefinition, candles: Sequence[Candle]) -> Decimal | None:
     """Return the newest ATR value used by the initial stop, or None when undefined."""
-    indicator_id = strategy.exits.initial_stop.atr_indicator
+    return named_atr(strategy, candles, strategy.exits.initial_stop.atr_indicator)
+
+
+def named_atr(
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    indicator_id: str,
+) -> Decimal | None:
+    """Return the newest value of one named ATR, or None when undefined."""
     rows = calculate_indicator_rows(strategy.indicators, candles)
     if not rows:
         return None

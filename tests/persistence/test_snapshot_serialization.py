@@ -327,6 +327,18 @@ def test_risk_policy_migration_follows_one_day_watchlist() -> None:
     assert "ck_active_risk_policy_singleton" in content
 
 
+def test_phase13_live_extras_migration_follows_risk_policy() -> None:
+    """The twenty-second migration must add trailing, OCO trigger, and user-feed state."""
+    content = Path("alembic/versions/0022_phase13_live_extras.py").read_text(encoding="utf-8")
+    assert 'revision = "0022"' in content
+    assert 'down_revision = "0021"' in content
+    assert "trail_extreme" in content
+    assert "stop_trigger_price" in content
+    assert "trigger_bracket" in content
+    assert "user_order_feed_state" in content
+    assert "ck_user_order_feed_state_singleton" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

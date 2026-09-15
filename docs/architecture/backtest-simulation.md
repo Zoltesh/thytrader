@@ -72,7 +72,9 @@ For a raw reference price `p` and total spread fraction `s = spread_bps / 10,000
 
 Every V2 entry and exit records its raw reference price, executable side, and per-unit spread cost. The result summary records total spread cost. A V2 run with `spread_bps=0` must reproduce V1 trade economics exactly, although its run/result fingerprints remain distinct because the contract and disclosed broker evidence differ. Existing V1 canonical documents omit V2-only fields and remain byte-identical, loadable, and reverified.
 
-The first schema profile explicitly disables trailing stops. No trailing-stop behavior is implied by this engine.
+Disabled trailing (`{"enabled": false}`) is a no-op, so existing golden results stay byte-identical.
+Enabled ATR trailing shares the paper/live ratchet: the fill bar records `trail_extreme` without
+raising the initial stop; later bars never decrease the working stop.
 
 ### V3 resting maker-limit model
 

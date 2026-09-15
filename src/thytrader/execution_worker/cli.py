@@ -8,6 +8,7 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
+from coinbase.jwt_generator import build_ws_jwt
 from coinbase.rest import RESTClient
 
 from thytrader.config import Settings
@@ -17,13 +18,16 @@ from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.exchanges.rest_transport import RestClientTransport
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import run_execution_worker
+from thytrader.execution_worker.user_feed import run_user_order_feed
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
+from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 
 _logger = logging.getLogger(__name__)
@@ -58,24 +62,39 @@ async def run() -> None:
             raise RuntimeError(message) from None
 
         stop_requested = asyncio.Event()
+        wake_requested = asyncio.Event()
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGINT, stop_requested.set)
         loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
         _logger.info("execution_worker_started")
-        await run_execution_worker(
-            stop_requested,
-            store=store,
-            publication_store=publication_store,
-            market_data=market_data,
-            paper_broker=PaperBroker(),
-            live_broker=live_broker,
-            quote_reader=quote_reader,
-            interval_seconds=settings.execution_worker_interval_seconds,
-            on_readiness_changed=lambda ready: _set_readiness(
-                settings.execution_worker_readiness_file, ready
+        user_feed_store = PostgresUserOrderFeedStateStore(engine)
+        live_enabled = live_broker is not None
+        await asyncio.gather(
+            run_execution_worker(
+                stop_requested,
+                store=store,
+                publication_store=publication_store,
+                market_data=market_data,
+                paper_broker=PaperBroker(),
+                live_broker=live_broker,
+                quote_reader=quote_reader,
+                interval_seconds=settings.execution_worker_interval_seconds,
+                on_readiness_changed=lambda ready: _set_readiness(
+                    settings.execution_worker_readiness_file, ready
+                ),
+                heartbeat_store=heartbeats,
+                risk_store=risk_store,
+                user_feed_store=user_feed_store,
+                wake_requested=wake_requested,
             ),
-            heartbeat_store=heartbeats,
-            risk_store=risk_store,
+            run_user_order_feed(
+                stop_requested,
+                enabled=live_enabled,
+                feed_store=user_feed_store,
+                jwt_provider=(lambda: _user_ws_jwt(settings)) if live_enabled else None,
+                audit_store=PostgresAuditEventStore(engine),
+                wake_requested=wake_requested,
+            ),
         )
         _logger.info("execution_worker_stopped")
     finally:
@@ -100,6 +119,15 @@ def _build_live_dependencies(
         CoinbaseRestBroker(transport),
         CoinbaseAccount(client),
     )
+
+
+def _user_ws_jwt(settings: Settings) -> str:
+    """Build a short-lived Coinbase WebSocket JWT from configured secrets."""
+    key = settings.coinbase_api_key_name
+    secret = settings.coinbase_api_private_key
+    if key is None or secret is None:
+        raise RuntimeError("Live credentials are required to authenticate the user feed.")
+    return build_ws_jwt(key.get_secret_value(), secret.get_secret_value())
 
 
 def _set_readiness(readiness_file: Path | None, ready: bool) -> None:

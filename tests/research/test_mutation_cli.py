@@ -38,13 +38,12 @@ def test_research_help_mentions_confirm_and_no_trading(
 def test_create_draft_help_allows_five_minute_paper(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """create-draft help must not claim paper stays 1h-only."""
+    """create-draft help must name 1h and 5m for both paper and live."""
     with pytest.raises(SystemExit) as raised:
         main(["create-draft", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out.lower()
-    assert "paper may be 1h or 5m" in output
-    assert "live stays 1h" in output
+    assert "paper and live may be 1h or 5m" in output
 
 
 def test_create_draft_without_confirm_does_not_write() -> None:

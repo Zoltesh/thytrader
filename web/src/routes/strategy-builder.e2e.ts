@@ -181,9 +181,9 @@ test('required data and market hint follow the draft timeframe', async ({ page }
 	).toBeVisible();
 	await expect(page.getByText('completed 1h bars')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Market and data' }).click();
-	await expect(page.getByText(/Research and paper:\s*1h or 5m/)).toBeVisible();
+	await expect(page.getByText(/Research, paper, and live:\s*1h or 5m/)).toBeVisible();
 	await expect(page.getByText(/this draft uses\s+5m candles/)).toBeVisible();
-	await expect(page.getByText(/Live execution remains 1h-only/)).toBeVisible();
+	await expect(page.getByText(/5m live requires a connected user-order feed/)).toBeVisible();
 });
 
 test('shows a literal editor when the left operand is a literal value', async ({ page }) => {

@@ -175,6 +175,24 @@ def _published_with_htf_filter() -> StrategyDefinition:
 
 
 @pytest.mark.anyio
+async def test_create_deployment_starts_five_minute_live_when_allowed() -> None:
+    """A published 5m strategy can arm live when credentials are allowed."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_five_minute()
+    catalog = _Catalog(strategy)
+    created = await create_deployment(
+        store=store,
+        publication_store=catalog,
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        mode=DeploymentMode.LIVE,
+        paper_starting_cash=None,
+        live_allowed=True,
+    )
+    assert created.mode is DeploymentMode.LIVE
+    assert created.status.value == "running"
+
+
+@pytest.mark.anyio
 async def test_create_deployment_rejects_htf_filter_paper_and_live() -> None:
     """Paper and live must not start HTF-filter strategies until those runtimes bind HTF candles."""
     strategy = _published_with_htf_filter()

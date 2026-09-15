@@ -229,7 +229,9 @@ export type BuilderModel = {
 	exits: {
 		initial_stop: { kind: string; atr_indicator: string; multiple: string };
 		take_profit: { kind: string; multiple: string };
-		trailing_stop: { enabled: boolean };
+		trailing_stop:
+			| { enabled: false }
+			| { enabled: true; kind: 'atr_multiple'; atr_indicator: string; multiple: string };
 		time_exit: { max_bars_held: number };
 	};
 	execution: {

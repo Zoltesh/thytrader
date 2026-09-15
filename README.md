@@ -56,7 +56,7 @@ between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ig
 The dashboard Refresh button is read-only; it never creates history points.
 
 The separately supervised market-data worker maintains complete-only verified Parquet datasets for
-1h, 5m, 15m, 30m, 6h, and 1d (strategy/paper/live clocks stay 1h|5m; live remains 1h), publishes only
+1h, 5m, 15m, 30m, 6h, and 1d (strategy/paper/live clocks stay 1h|5m), publishes only
 complete verified Parquet and manifests, and retries every five minutes by default.
 PostgreSQL records its latest attempt, verified coverage, freshness, fingerprint, and redacted failure
 state. Its cadence, lookback, target, and dataset root are configurable through the documented
@@ -137,9 +137,9 @@ archived from the library after confirmation: that appends a permanent archive m
 from active selection without changing its fingerprint or canonical bytes. Backtests require a
 verified dataset fingerprint and remain deterministic research artifacts.
 
-The execution worker evaluates published paper deployments against closed 1h or 5m candles (live stays
-1h) about every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
-credentials exist. See the [architecture overview](docs/architecture/overview.md).
+The execution worker evaluates published paper and live deployments against closed 1h or 5m candles
+about every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
+credentials exist. 5m live pauses unless the authenticated user-order feed is connected. See the [architecture overview](docs/architecture/overview.md).
 
 Agents diagnose a running instance with `uv run thytrader-operator` (or `GET /api/v1/operator/*`)
 and mutate research artifacts only with `uv run thytrader-research … --confirm`. Sequence data →

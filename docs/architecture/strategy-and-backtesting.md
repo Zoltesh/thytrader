@@ -8,7 +8,7 @@ The complete V1 field-level contract — indicators, conditions, entry, sizing, 
 
 **Destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)): many indicators
 on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy to paper or live.
-**Shipped:** long-only, one instrument, `max_concurrent_positions = 1`, LTF `1h`|`5m` (live `1h`).
+**Shipped:** long-only, one instrument, `max_concurrent_positions = 1`, LTF `1h`|`5m`.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
 (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact
@@ -75,7 +75,8 @@ bounds, ATR initial stop, reward/risk take profit, and time exit. V2 alone consu
 constant-spread stress assumption. V3 consumes the same HTF signal stage plus maker-only close-limit
 entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops, and resting take-profit, matching
 the paper worker. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
-does not. Entry cooldown and trailing stops remain unsupported on every bar engine. Walk-forward /
+does not. Entry cooldown remains unsupported on every bar engine. Optional ATR trailing uses the
+same ratchet as paper/live; disabled trailing is a no-op. Walk-forward /
 OOS / cross-market studies compose these engines ([research studies](research-studies.md)); they do
 not retune parameters. MACD/Bollinger conditions use series ids. Per-indicator timeframes are not
 shipped. Paper and live consume the same LTF indicator catalog and do not evaluate `htf_filter`.

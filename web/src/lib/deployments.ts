@@ -4,6 +4,7 @@ export type DeploymentPosition = {
 	stop_price: string;
 	target_price: string;
 	entered_bar: string;
+	trail_extreme?: string | null;
 };
 
 export type DeploymentOrder = {
@@ -14,6 +15,7 @@ export type DeploymentOrder = {
 	kind: string;
 	quantity: string;
 	price: string | null;
+	stop_trigger_price?: string | null;
 	filled_quantity: string;
 	status: string;
 	reject_reason: string | null;

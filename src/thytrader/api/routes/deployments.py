@@ -58,6 +58,7 @@ class PositionResponse(BaseModel):
     stop_price: str
     target_price: str
     entered_bar: str
+    trail_extreme: str | None = None
 
 
 class OrderResponse(BaseModel):
@@ -70,6 +71,7 @@ class OrderResponse(BaseModel):
     kind: str
     quantity: str
     price: str | None
+    stop_trigger_price: str | None = None
     filled_quantity: str
     status: str
     reject_reason: str | None
@@ -334,6 +336,9 @@ def _position_response(position: Position) -> PositionResponse:
         stop_price=format(position.stop_price, "f"),
         target_price=format(position.target_price, "f"),
         entered_bar=position.entered_bar.isoformat(),
+        trail_extreme=(
+            None if position.trail_extreme is None else format(position.trail_extreme, "f")
+        ),
     )
 
 
@@ -347,6 +352,9 @@ def _order_response(order: Order) -> OrderResponse:
         kind=order.kind.value,
         quantity=format(order.quantity, "f"),
         price=None if order.price is None else format(order.price, "f"),
+        stop_trigger_price=(
+            None if order.stop_trigger_price is None else format(order.stop_trigger_price, "f")
+        ),
         filled_quantity=format(order.filled_quantity, "f"),
         status=order.status.value,
         reject_reason=order.reject_reason,

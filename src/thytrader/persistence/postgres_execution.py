@@ -135,6 +135,7 @@ class PostgresExecutionStore:
             side=intent.side.value,
             kind=intent.kind.value,
             price=_text(intent.price),
+            stop_trigger_price=_text(intent.stop_trigger_price),
             quantity=format(intent.quantity, "f"),
             candle_starts_at=intent.candle_starts_at,
             status=intent.status.value,
@@ -160,6 +161,7 @@ class PostgresExecutionStore:
                 "reject_reason": statement.excluded.reject_reason,
                 "updated_at": statement.excluded.updated_at,
                 "price": statement.excluded.price,
+                "stop_trigger_price": statement.excluded.stop_trigger_price,
                 "quantity": statement.excluded.quantity,
             },
         )
@@ -211,6 +213,7 @@ class PostgresExecutionStore:
                             stop_price=format(position.stop_price, "f"),
                             target_price=format(position.target_price, "f"),
                             entered_bar=position.entered_bar,
+                            trail_extreme=_text(position.trail_extreme),
                             updated_at=position.updated_at,
                         )
                     )
@@ -269,6 +272,7 @@ def _order_values(order: Order) -> dict[str, object]:
         "side": order.side.value,
         "kind": order.kind.value,
         "price": _text(order.price),
+        "stop_trigger_price": _text(order.stop_trigger_price),
         "quantity": format(order.quantity, "f"),
         "filled_quantity": format(order.filled_quantity, "f"),
         "status": order.status.value,
@@ -314,6 +318,7 @@ def _order_from_row(row: RowMapping) -> Order:
         side=OrderSide(row["side"]),
         kind=OrderKind(row["kind"]),
         price=_decimal(row["price"]),
+        stop_trigger_price=_decimal(row["stop_trigger_price"]),
         quantity=Decimal(row["quantity"]),
         filled_quantity=Decimal(row["filled_quantity"]),
         status=OrderStatus(row["status"]),
@@ -333,6 +338,7 @@ def _intent_from_row(row: RowMapping) -> OrderIntent:
         side=OrderSide(row["side"]),
         kind=OrderKind(row["kind"]),
         price=_decimal(row["price"]),
+        stop_trigger_price=_decimal(row["stop_trigger_price"]),
         quantity=Decimal(row["quantity"]),
         candle_starts_at=row["candle_starts_at"],
         status=OrderStatus(row["status"]),
@@ -363,6 +369,7 @@ def _position_from_row(row: RowMapping) -> Position:
         stop_price=Decimal(row["stop_price"]),
         target_price=Decimal(row["target_price"]),
         entered_bar=row["entered_bar"],
+        trail_extreme=_decimal(row["trail_extreme"]),
         updated_at=row["updated_at"],
     )
 

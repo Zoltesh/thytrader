@@ -101,7 +101,7 @@ This is what the running product actually does today. It is **not** the end stat
 ### Market data
 
 Shipped complete-only datasets: **5m, 15m, 30m, 1h, 6h, 1d**. Strategy, paper, and live clocks are
-**1h or 5m** (live **1h** only). Destination granularities also include **1m**, **2h**, and any
+**1h or 5m**. Destination granularities also include **1m**, **2h**, and any
 additional Coinbase-listed interval ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md));
 those are not legal LTF or execution clocks until a later ADR widens them.
 
@@ -140,12 +140,13 @@ first automated runtime, using the shared published strategy semantics and indep
 Guarded live execution remains after paper restart, stale-data, duplicate-event, and reconciliation
 acceptance tests pass.
 
-That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): live extras and
-experiential memory — plus destination items (1m/2h datasets, on-demand trades, journals) that are
-accepted but not inserted ahead of that sequence. Phase 10's risk-policy registry and concurrent
-single-instrument paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are
-shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped; destination portfolio
-controls and multi-instrument strategy documents are not.
+That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): experiential memory —
+plus destination items (1m/2h datasets, on-demand trades, journals) that are accepted but not
+inserted ahead of that sequence. Phase 10's risk-policy registry and concurrent single-instrument
+paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are shipped. Phase 12's
+agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR trailing, user-order
+WebSockets, and native OCO brackets are shipped; destination portfolio controls and multi-instrument
+strategy documents are not.
 
 ## Planned direction: agents as crypto-trading experts (NOT SHIPPED)
 

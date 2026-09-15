@@ -1,8 +1,8 @@
 # 0018: 5m paper on the same published clock, live stays 1h
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0036](0036-phase-13-live-extras.md)
 - Date: 2026-09-11
-- Relates to: [0014](0014-watchlist-and-5m-research.md), [0016](0016-longer-complete-5m-datasets.md), [0017](0017-maker-limit-bar-backtest.md)
+- Relates to: [0014](0014-watchlist-and-5m-research.md), [0016](0016-longer-complete-5m-datasets.md), [0017](0017-maker-limit-bar-backtest.md), [0036](0036-phase-13-live-extras.md)
 
 ## Context
 
@@ -21,7 +21,8 @@ the live 1h guard. The worker loads `get_preview` / `get_range` for the strategy
 ## Consequences
 
 - A 5m paper deployment and a v3 backtest can share one published strategy fingerprint.
-- Live 5m stays HTTP 409. Do not treat paper 5m as consent to arm live 5m.
+- Live 5m stayed HTTP 409 until Phase 13 ([ADR 0036](0036-phase-13-live-extras.md)) shipped user-order
+  WS, native OCO, and durable trailing. Do not treat paper 5m as consent to skip those gates.
 - Same-bar stop comparison uses the fill bar's `starts_at`, not an hourly snap.
 
 ## Alternatives considered

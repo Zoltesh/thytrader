@@ -80,6 +80,45 @@ async def test_create_order_uses_client_order_id_and_gets_status() -> None:
 
 
 @pytest.mark.anyio
+async def test_create_trigger_bracket_uses_limit_and_stop_trigger() -> None:
+    """Live OCO submits Advanced Trade trigger_bracket_gtc JSON."""
+    transport = FakeTransport(
+        posts={
+            "/api/v3/brokerage/orders": [
+                {"success": True, "order": {"order_id": "venue-oco", "status": "PENDING"}}
+            ]
+        },
+        gets={
+            "/api/v3/brokerage/orders/historical/venue-oco": [
+                {
+                    "order": {
+                        "order_id": "venue-oco",
+                        "status": "OPEN",
+                        "filled_size": "0",
+                    }
+                }
+            ]
+        },
+    )
+    broker = CoinbaseRestBroker(transport)
+    result = await broker.place_order(
+        client_order_id="client-oco",
+        product_id="BTC-USD",
+        side=OrderSide.SELL,
+        kind=OrderKind.TRIGGER_BRACKET,
+        quantity=Decimal("0.01"),
+        price=Decimal("120"),
+        stop_trigger_price=Decimal("90"),
+    )
+    assert result.status is OrderStatus.OPEN
+    create_body = transport.calls[0][2]
+    configuration = create_body["order_configuration"]["trigger_bracket_gtc"]
+    assert configuration["limit_price"] == "120"
+    assert configuration["stop_trigger_price"] == "90"
+    assert configuration["base_size"] == "0.01"
+
+
+@pytest.mark.anyio
 async def test_create_order_reads_success_response_order_id() -> None:
     """Advanced Trade create-order JSON nests the venue id under success_response."""
     transport = FakeTransport(

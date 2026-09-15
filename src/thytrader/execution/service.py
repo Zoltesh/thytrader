@@ -16,7 +16,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
-from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.multi_timeframe import strategy_requires_htf
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
@@ -176,12 +176,11 @@ async def _load_published(
 
 
 def _require_execution_timeframe(mode: DeploymentMode, timeframe: str) -> None:
-    """Allow 5m paper; keep live on closed 1h bars."""
+    """Allow paper and live on closed 1h or 5m bars."""
+    del mode
     interval = parse_candle_interval(timeframe)
-    if mode is DeploymentMode.LIVE and interval is not CandleInterval.ONE_HOUR:
-        raise ExecutionConflictError("Live deployments require the 1h timeframe.")
     if not interval.execution_supported:
-        raise ExecutionConflictError("Paper deployments require a 1h or 5m timeframe.")
+        raise ExecutionConflictError("Paper and live deployments require a 1h or 5m timeframe.")
 
 
 def parse_decimal(value: str | None) -> Decimal | None:

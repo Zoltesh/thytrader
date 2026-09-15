@@ -69,12 +69,12 @@ need 2–8 published single-instrument strategies on distinct products. See
 
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (`1h` or `5m`) for another USD spot product. Paper may start that published 1h or 5m fingerprint; live still requires
-`1h`. Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
+`--timeframe` (`1h` or `5m`) for another USD spot product. Paper and live may start that published 1h or 5m fingerprint.
+Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
 declares `htf_filter`, and must omit it otherwise. Research engines V1/V2/V3 evaluate last-completed
-HTF bars only. Paper and live reject those fingerprints. 5m live remains deferred.
+HTF bars only. Paper and live reject those fingerprints.
 
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
 Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
@@ -125,4 +125,4 @@ when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the
 - Archiving as part of this skill (out of scope)
 - Editing application source to change strategy or backtest semantics on a running instance
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests and paper; live deployments still require `1h`. Do not start paper or live for a published strategy that declares `htf_filter`.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests, paper, and live. Do not start paper or live for a published strategy that declares `htf_filter`.
