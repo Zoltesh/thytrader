@@ -1198,7 +1198,7 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
 });
 
-test('deploy tab shows accurate timeframe copy and blocks live 5m with visible reason', async ({
+test('deploy tab shows accurate timeframe copy and allows live 5m', async ({
 	page
 }) => {
 	const fiveMinEntry = {
@@ -1229,14 +1229,13 @@ test('deploy tab shows accurate timeframe copy and blocks live 5m with visible r
 	await expect(deployCopy).toContainText('Paper:');
 	await expect(deployCopy).toContainText('1h or 5m');
 	await expect(deployCopy).toContainText('Live:');
-	await expect(deployCopy).toContainText('1h only');
+	await expect(deployCopy).toContainText('1h or 5m');
 
 	await page.getByLabel('Mode').selectOption('paper');
 	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();
 
 	await page.getByLabel('Mode').selectOption('live');
-	await expect(page.getByRole('button', { name: 'Arm live trading…' })).toBeDisabled();
-	await expect(page.getByText(/Live deployment requires 1h.*This strategy uses 5m/i)).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Arm live trading…' })).toBeEnabled();
 });
 
 test('live start button is visually distinct and confirms with fingerprint and timeframe', async ({

@@ -230,6 +230,24 @@ class DeploymentSummary(_FrozenModel):
     last_signal: str | None
 
 
+class UserOrderFeedPayload(_FrozenModel):
+    """Redacted user-order WebSocket lifecycle without JWT or order payloads."""
+
+    state: Literal["disconnected", "connecting", "connected", "stale", "reconnecting", "disabled"]
+    last_message_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+
+    @field_validator("last_message_at", "last_heartbeat_at")
+    @classmethod
+    def require_utc(cls, value: datetime | None) -> datetime | None:
+        """Keep feed timestamps timezone-aware UTC after JSON round-trips."""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("datetime must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
 class StrategiesPayload(_FrozenModel):
     """Published, draft, and runtime identities visible to operators."""
 
@@ -330,6 +348,7 @@ class RuntimePayload(_FrozenModel):
     deployments: tuple[DeploymentSummary, ...]
     risk_findings: tuple[RiskFinding, ...]
     reconciliation_findings: tuple[ReconciliationFinding, ...]
+    user_order_feed: UserOrderFeedPayload | None = None
 
 
 class RuntimeReport(OperatorEnvelope):

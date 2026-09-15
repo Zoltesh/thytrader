@@ -45,9 +45,10 @@ class _LookupBroker:
         kind: OrderKind,
         quantity: Decimal,
         price: Decimal | None,
+        stop_trigger_price: Decimal | None = None,
     ) -> SubmitResult:
         """Reconcile tests do not place orders."""
-        del client_order_id, product_id, side, kind, quantity, price
+        del client_order_id, product_id, side, kind, quantity, price, stop_trigger_price
         raise AssertionError("place_order should not run in these reconcile tests")
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:

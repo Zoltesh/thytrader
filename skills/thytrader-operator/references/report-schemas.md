@@ -18,13 +18,17 @@ Every JSON report includes:
 
 Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus a last-close mark for open inventory. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
 
-The `runtime` payload lists deployment identities plus risk and reconciliation findings. It omits cash, quantities, and order payloads.
+The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
+reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
+JWT material or order payloads. It omits cash, quantities, and order payloads.
+
+5m live pauses when `user_order_feed.state` is not `connected`. 1h live still reconciles through REST.
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, and pause/mismatch findings. It omits account balances and dollar amounts. Daily-loss / drawdown circuit breakers are not in this payload.
 
 Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement). Those flags never grant live authority. Live start still requires `--confirm` and `--i-understand-live`.
 
-The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, `15m`, `30m`, `6h`, and `1d`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. `sparsity` is `gapped` when `watch_complete` is false, even if the island itself has zero gaps. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report. Dashboard ingestion (`GET /api/v1/market-data/ingestion`) reports the same watch decision. `GET /api/v1/market-data/datasets` lists island fingerprints only. Strategy, paper, and live clocks remain `1h` or `5m` (live `1h`). Extra catalog timeframes may back a research `htf_filter` dataset (ADR 0025); paper and live still reject those strategies.
+The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, `15m`, `30m`, `6h`, and `1d`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. `sparsity` is `gapped` when `watch_complete` is false, even if the island itself has zero gaps. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report. Dashboard ingestion (`GET /api/v1/market-data/ingestion`) reports the same watch decision. `GET /api/v1/market-data/datasets` lists island fingerprints only. Strategy, paper, and live clocks remain `1h` or `5m`. Extra catalog timeframes may back a research `htf_filter` dataset (ADR 0025); paper and live still reject those strategies.
 
 Health `payload.ops_contract` names the CLI/API content identity (`id`, engines, paper/live timeframes, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 

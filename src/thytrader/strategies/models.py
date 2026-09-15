@@ -726,9 +726,32 @@ class RewardRiskTakeProfit(_FrozenModel):
 
 
 class DisabledTrailingStop(_FrozenModel):
-    """Explicitly disable trailing stops in the first implementation profile."""
+    """Explicitly disable trailing stops. Canonical JSON is only ``enabled: false``."""
 
     enabled: Literal[False]
+
+
+class AtrTrailingStop(_FrozenModel):
+    """Raise a long stop from the highest high using a named ATR multiple."""
+
+    enabled: Literal[True]
+    kind: Literal["atr_multiple"]
+    atr_indicator: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    multiple: DecimalText
+
+    @field_validator("multiple")
+    @classmethod
+    def require_bounded_multiple(cls, value: str) -> str:
+        """Require the same ATR-multiple range as the initial stop."""
+        if not Decimal("0.5") <= Decimal(value) <= Decimal("10"):
+            raise ValueError("ATR trailing multiple must be between 0.5 and 10")
+        return value
+
+
+TrailingStopDefinition = Annotated[
+    DisabledTrailingStop | AtrTrailingStop,
+    Field(discriminator="enabled"),
+]
 
 
 class TimeExit(_FrozenModel):
@@ -738,12 +761,20 @@ class TimeExit(_FrozenModel):
 
 
 class ExitDefinition(_FrozenModel):
-    """Declare initial-stop and take-profit policy without execution authority."""
+    """Declare initial-stop, take-profit, optional ATR trailing, and time-exit policy."""
 
     initial_stop: AtrMultipleStop
     take_profit: RewardRiskTakeProfit
-    trailing_stop: DisabledTrailingStop
+    trailing_stop: TrailingStopDefinition
     time_exit: TimeExit
+
+
+def atr_trailing_stop(exits: ExitDefinition) -> AtrTrailingStop | None:
+    """Return the enabled ATR trailing policy, or None when trailing is disabled."""
+    stop = exits.trailing_stop
+    if isinstance(stop, AtrTrailingStop):
+        return stop
+    return None
 
 
 class ExecutionPreferences(_FrozenModel):
@@ -830,20 +861,24 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     known = set(identifiers)
     references = _referenced_indicator_ids(definition.entry.when)
     references.add(definition.exits.initial_stop.atr_indicator)
+    trailing = definition.exits.trailing_stop
+    if isinstance(trailing, AtrTrailingStop):
+        references.add(trailing.atr_indicator)
     unknown = references - known
     if unknown:
         raise ValueError(f"unknown indicator references: {sorted(unknown)}")
     _require_condition_series(definition.entry.when, definition.indicators)
-    atr = next(
-        (
-            indicator
-            for indicator in definition.indicators
-            if indicator.id == definition.exits.initial_stop.atr_indicator
-        ),
-        None,
+    _require_atr_indicator(
+        definition.indicators,
+        definition.exits.initial_stop.atr_indicator,
+        role="initial stop",
     )
-    if atr is None or atr.kind is not IndicatorKind.ATR:
-        raise ValueError("initial stop indicator must reference an ATR")
+    if isinstance(trailing, AtrTrailingStop):
+        _require_atr_indicator(
+            definition.indicators,
+            trailing.atr_indicator,
+            role="trailing stop",
+        )
     required_fields = {
         field for indicator in definition.indicators for field in _indicator_input_fields(indicator)
     }
@@ -852,6 +887,18 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     required_warmup = max(_indicator_min_warmup(indicator) for indicator in definition.indicators)
     if definition.data_requirements.warmup_bars < required_warmup:
         raise ValueError("warmup_bars must cover the longest indicator period")
+
+
+def _require_atr_indicator(
+    indicators: tuple[IndicatorDefinition, ...],
+    indicator_id: str,
+    *,
+    role: str,
+) -> None:
+    """Reject a stop reference that is missing or not an ATR."""
+    atr = next((item for item in indicators if item.id == indicator_id), None)
+    if atr is None or atr.kind is not IndicatorKind.ATR:
+        raise ValueError(f"{role} indicator must reference an ATR")
 
 
 def _validate_htf_filter(definition: StrategyDefinition) -> None:

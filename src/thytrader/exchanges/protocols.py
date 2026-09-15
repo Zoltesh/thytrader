@@ -45,6 +45,7 @@ class LiveVenueBroker(Protocol):
         kind: OrderKind,
         quantity: Decimal,
         price: Decimal | None,
+        stop_trigger_price: Decimal | None = None,
     ) -> SubmitResult:
         """POST one order and return the immediate JSON-derived snapshot."""
         ...

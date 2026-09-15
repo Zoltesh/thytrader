@@ -227,6 +227,7 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
    ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); they follow the same
    complete-only contract and are **not** inserted ahead of roadmap Phase 9 remaining → 14.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, 15m, 30m, 6h, and 1d without weakening complete-only publication.
-3. **5m live** — paper may evaluate closed 5m bars; live remains 1h until microstructure work.
+3. **5m live** — paper and live may evaluate closed 5m bars. Live 5m pauses unless the
+   authenticated user-order feed is connected ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

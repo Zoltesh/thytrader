@@ -124,7 +124,7 @@ def _parser() -> argparse.ArgumentParser:
         "--timeframe",
         default="1h",
         choices=("1h", "5m"),
-        help="Research timeframe. Default 1h. Paper may be 1h or 5m; live stays 1h.",
+        help="Research timeframe. Default 1h. Paper and live may be 1h or 5m.",
     )
     create.add_argument(
         "--template",

@@ -8,7 +8,7 @@
 > **Product destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)):
 > strategy `timeframe` will eventually include every Coinbase-listed candle granularity (including
 > `1m` and `2h`), and deployments will cover single-asset **and** multi-asset paper/live. The field
-> rules in this document remain the **shipped contract** (`1h` or `5m` LTF; live `1h`). Do not treat
+> rules in this document remain the **shipped contract** (`1h` or `5m` LTF; paper and live). Do not treat
 > destination TFs or multi-instrument documents as legal here until a later ADR widens the schema
 > the same way 0020–0023 widened datasets without silently widening clocks.
 
@@ -23,10 +23,10 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
-- 1h Coinbase USD spot for live; `1h` or `5m` for research, backtests, and paper; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
+- 1h or 5m Coinbase USD spot for research, backtests, paper, and live; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025) for research V1/V2/V3: HTF `when` AND-ed with LTF entry using the last completed HTF bar; paper and live reject that block;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
-  ATR-multiple initial stop, reward/risk take profit, disabled trailing stops, and conservative maker
+  ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
   preferences;
 - canonical sorted compact JSON and `sha256:<hex>` identity over the entire published document;
 - immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; concurrent
@@ -41,9 +41,9 @@ association, not permanent consumability; every binding load re-verifies both ex
 
 Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
 API/UI, immutable strategy publication, completed reproducible backtest results (including
-`thytrader-bar-backtest-v3` maker-limit fills), paper execution on closed 1h or 5m bars, and live
-execution on closed 1h bars. Not yet implemented: other sizing/stop/trailing variants, richer human
-summaries, 5m live, or paper/live evaluation of `htf_filter`. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+`thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed 1h or 5m bars,
+and optional ATR-multiple trailing stops. Not yet implemented: other sizing/stop/trailing variants,
+richer human summaries, or paper/live evaluation of `htf_filter`. Published `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
@@ -294,7 +294,7 @@ It is not a second decision clock and not a paper/live clock.
 | Combined signal | Tri-state AND of HTF `when` and LTF `entry.when` |
 | Alignment | At LTF close `T`, use the last HTF bar whose exclusive close is `≤ T`. Never a partial HTF bar. Same-close HTF bars are eligible. |
 | Research | `dataset_fingerprint` is LTF; `htf_dataset_fingerprint` is required, distinct, and bound |
-| Paper / live | Reject the published strategy. Do not ignore the filter. 5m live remains Phase 13. |
+| Paper / live | Reject the published strategy. Do not ignore the filter. |
 
 `15m`/`30m`/`6h`/`1d` remain illegal as top-level `timeframe`.
 
@@ -382,6 +382,10 @@ In V1, `max_concurrent_positions` must be 1.
   }
 }
 ```
+
+Disabled trailing is only `{"enabled": false}` so existing fingerprints stay stable. Enabled ATR
+trailing is `{"enabled": true, "kind": "atr_multiple", "atr_indicator": "atr", "multiple": "1.5"}`
+with the same multiple bounds as the initial stop. The named indicator must be an LTF ATR.
 
 ### Initial stop kinds
 

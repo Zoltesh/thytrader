@@ -23,9 +23,11 @@ from thytrader.api.dependencies import (
     get_runtime_state,
     get_strategy_draft_store,
     get_strategy_publication_catalog,
+    get_user_order_feed_state_store,
     get_worker_heartbeat_store,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
+from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
@@ -76,6 +78,7 @@ def get_operator_diagnostics(
     engine: Annotated[AsyncEngine | None, Depends(get_database_engine)],
     heartbeat_store: Annotated[WorkerHeartbeatStore, Depends(get_worker_heartbeat_store)],
     risk_policies: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
+    user_order_feed: Annotated[UserOrderFeedStateStore, Depends(get_user_order_feed_state_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -95,6 +98,7 @@ def get_operator_diagnostics(
         market_data=market_data,
         heartbeat_store=heartbeat_store,
         risk_policies=risk_policies,
+        user_order_feed=user_order_feed,
     )
 
 

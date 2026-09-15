@@ -34,6 +34,7 @@ from thytrader.backtest.models import (
     BacktestTrade,
     EquityPoint,
 )
+from thytrader.execution.trailing import ratcheted_long_stop
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
     CandleQualityError,
@@ -52,7 +53,7 @@ from thytrader.research.trace import (
     SignalTraceRecord,
     signal_trace_fingerprint,
 )
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.models import StrategyDefinition, atr_trailing_stop, strategy_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -88,6 +89,7 @@ class _OpenPosition:
     stop_price: Decimal
     target_price: Decimal
     entered_bar_index: int
+    trail_extreme: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +113,7 @@ class _MakerPosition:
     target_price: Decimal
     entered_bar_index: int
     take_profit_resting: bool
+    trail_extreme: Decimal | None = None
 
 
 @dataclass(slots=True)
@@ -193,6 +196,13 @@ def _simulate_backtest(
             )
             pending = None
         if position is not None and offset < evaluation_bars:
+            position = _trail_open_position(
+                position,
+                candle,
+                strategy=strategy,
+                record=evaluation_records[starts_at],
+                is_fill_bar=offset == position.entered_bar_index,
+            )
             trade, cash = _close_if_required(
                 position,
                 candle,
@@ -366,6 +376,7 @@ def _simulate_maker_backtest(
                 taker_fee_rate=taker_fee_rate,
                 fill_model=fill_model,
                 bar_duration=bar,
+                record=evaluation_records.get(candle.starts_at),
             )
         if trade is not None:
             trades.append(trade)
@@ -500,11 +511,20 @@ def _manage_maker_position(
     taker_fee_rate: Decimal,
     fill_model: FillModel,
     bar_duration: timedelta,
+    record: SignalTraceRecord | None,
 ) -> BacktestTrade | None:
     """Stop on the fill bar, time-exit at close, then rest take-profit for later bars."""
     position = runtime.position
     if position is None:
         return None
+    runtime.position = _trail_maker_position(
+        position,
+        candle,
+        strategy=strategy,
+        record=record,
+        is_fill_bar=offset == position.entered_bar_index,
+    )
+    position = runtime.position
     bars_held = offset - position.entered_bar_index
     if candle.low <= position.stop_price:
         trade, runtime.cash = _close_maker_position(
@@ -674,6 +694,62 @@ def _maker_as_open_position(position: _MakerPosition | None) -> _OpenPosition | 
         stop_price=position.stop_price,
         target_price=position.target_price,
         entered_bar_index=position.entered_bar_index,
+        trail_extreme=position.trail_extreme,
+    )
+
+
+def _trail_open_position(
+    position: _OpenPosition,
+    candle: Candle,
+    *,
+    strategy: StrategyDefinition,
+    record: SignalTraceRecord | None,
+    is_fill_bar: bool,
+) -> _OpenPosition:
+    """Raise a long ATR trailing stop after the fill bar; no-op when disabled."""
+    policy = atr_trailing_stop(strategy.exits)
+    if policy is None:
+        return position
+    state = ratcheted_long_stop(
+        current_stop=position.stop_price,
+        trail_extreme=position.trail_extreme,
+        bar_high=candle.high,
+        atr=_optional_indicator_value(record, policy.atr_indicator),
+        multiple=Decimal(policy.multiple),
+        price_increment=None,
+        ratchet=not is_fill_bar,
+    )
+    if state.stop_price == position.stop_price and state.trail_extreme == position.trail_extreme:
+        return position
+    return replace(position, stop_price=state.stop_price, trail_extreme=state.trail_extreme)
+
+
+def _trail_maker_position(
+    position: _MakerPosition,
+    candle: Candle,
+    *,
+    strategy: StrategyDefinition,
+    record: SignalTraceRecord | None,
+    is_fill_bar: bool,
+) -> _MakerPosition:
+    """Project maker state through the shared ATR ratchet."""
+    trailed = _trail_open_position(
+        _OpenPosition(
+            entry=position.entry,
+            stop_price=position.stop_price,
+            target_price=position.target_price,
+            entered_bar_index=position.entered_bar_index,
+            trail_extreme=position.trail_extreme,
+        ),
+        candle,
+        strategy=strategy,
+        record=record,
+        is_fill_bar=is_fill_bar,
+    )
+    return replace(
+        position,
+        stop_price=trailed.stop_price,
+        trail_extreme=trailed.trail_extreme,
     )
 
 
@@ -876,10 +952,22 @@ def _close_position(
 
 def _indicator_value(record: SignalTraceRecord, indicator_id: str) -> Decimal:
     """Load the exact ATR value that was available when the entry signal closed."""
+    value = _optional_indicator_value(record, indicator_id)
+    if value is None:
+        raise BacktestSimulationError("Backtest entry signal lacks its required ATR value.")
+    return value
+
+
+def _optional_indicator_value(
+    record: SignalTraceRecord | None, indicator_id: str
+) -> Decimal | None:
+    """Return a named indicator value when present, otherwise None."""
+    if record is None:
+        return None
     for value in record.indicator_values:
         if value.indicator_id == indicator_id and value.value is not None:
             return Decimal(value.value)
-    raise BacktestSimulationError("Backtest entry signal lacks its required ATR value.")
+    return None
 
 
 def _equity_point(

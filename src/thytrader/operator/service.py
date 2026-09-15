@@ -19,6 +19,7 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
+from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.watchlist import (
@@ -72,6 +73,7 @@ from thytrader.operator.models import (
     SupportBundlePayload,
     SupportBundleReport,
     SupportedTimeframe,
+    UserOrderFeedPayload,
     current_ops_contract,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
@@ -101,6 +103,7 @@ if TYPE_CHECKING:
     from thytrader.config import Settings
     from thytrader.execution.ledger import DeploymentLedger
     from thytrader.execution.store import ExecutionStore
+    from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
@@ -129,6 +132,7 @@ class OperatorDiagnostics:
     market_data: MarketDataService | None = None
     heartbeat_store: WorkerHeartbeatStore | None = None
     risk_policies: RiskPolicyStore | None = None
+    user_order_feed: UserOrderFeedStateStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -494,7 +498,25 @@ class OperatorDiagnostics:
                 deployments=deployments,
                 risk_findings=risk_findings,
                 reconciliation_findings=recon_findings,
+                user_order_feed=await self._user_order_feed_payload(),
             ),
+        )
+
+    async def _user_order_feed_payload(self) -> UserOrderFeedPayload | None:
+        """Load the singleton user-order feed snapshot when durable state exists."""
+        store = self.user_order_feed
+        if store is None:
+            return None
+        try:
+            snapshot = await store.get()
+        except UserOrderFeedUnavailableError:
+            return None
+        if snapshot is None:
+            return None
+        return UserOrderFeedPayload(
+            state=snapshot.state.value,
+            last_message_at=snapshot.last_message_at,
+            last_heartbeat_at=snapshot.last_heartbeat_at,
         )
 
     async def support_bundle(self) -> SupportBundleReport:

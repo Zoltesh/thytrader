@@ -1603,3 +1603,45 @@ def test_htf_filter_is_fail_closed_and_fingerprinted() -> None:
     unknown_htf_field["htf_filter"] = {**_htf_filter_block(), "python": "buy()"}
     with pytest.raises(ValidationError):
         StrategyDefinition.model_validate(unknown_htf_field)
+
+
+def test_disabled_trailing_rejects_extra_fields() -> None:
+    """Disabled trailing must stay ``{"enabled": false}`` so fingerprints remain stable."""
+    payload = reference_payload()
+    exits = _object_mapping(payload["exits"])
+    exits["trailing_stop"] = {"enabled": False, "kind": "atr_multiple"}
+    with pytest.raises(ValidationError):
+        StrategyDefinition.model_validate(payload)
+
+
+def test_enabled_atr_trailing_requires_named_ltf_atr() -> None:
+    """Enabled ATR trailing is fingerprinted and must name an LTF ATR."""
+    payload = reference_payload()
+    exits = _object_mapping(payload["exits"])
+    exits["trailing_stop"] = {
+        "enabled": True,
+        "kind": "atr_multiple",
+        "atr_indicator": "atr",
+        "multiple": "1.5",
+    }
+    enabled = StrategyDefinition.model_validate(payload)
+    assert enabled.exits.trailing_stop.enabled is True
+    assert strategy_fingerprint(enabled) != strategy_fingerprint(
+        StrategyDefinition.model_validate(reference_payload())
+    )
+    exits["trailing_stop"] = {
+        "enabled": True,
+        "kind": "atr_multiple",
+        "atr_indicator": "ema_fast",
+        "multiple": "1.5",
+    }
+    with pytest.raises(ValidationError, match="trailing stop indicator must reference an ATR"):
+        StrategyDefinition.model_validate(payload)
+    exits["trailing_stop"] = {
+        "enabled": True,
+        "kind": "atr_multiple",
+        "atr_indicator": "missing_atr",
+        "multiple": "1.5",
+    }
+    with pytest.raises(ValidationError, match="unknown indicator"):
+        StrategyDefinition.model_validate(payload)

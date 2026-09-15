@@ -259,8 +259,8 @@ def test_live_deployment_requires_credentials() -> None:
     assert allowed.json()["cash"] == "0"
 
 
-def test_five_minute_strategy_can_start_paper_but_not_live() -> None:
-    """Paper may evaluate closed 5m bars; live stays 1h-only."""
+def test_five_minute_strategy_can_start_paper_and_live() -> None:
+    """Paper and live may evaluate closed 5m bars; live still needs credentials."""
     publication = InMemoryPublicationStore()
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "5m"})
@@ -292,8 +292,8 @@ def test_five_minute_strategy_can_start_paper_but_not_live() -> None:
     assert paper.status_code == 201
     assert paper.json()["mode"] == "paper"
     assert live.status_code == 409
-    assert live_with_keys.status_code == 409
-    assert "1h" in live_with_keys.json()["detail"]
+    assert live_with_keys.status_code == 201
+    assert live_with_keys.json()["mode"] == "live"
 
 
 def test_unknown_fingerprint_is_not_found() -> None:

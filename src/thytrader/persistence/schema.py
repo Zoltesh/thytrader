@@ -385,6 +385,21 @@ market_feed_state = Table(
     ),
 )
 
+user_order_feed_state = Table(
+    "user_order_feed_state",
+    metadata,
+    Column("id", Integer(), primary_key=True),
+    Column("state", String(16), nullable=False),
+    Column("last_message_at", DateTime(timezone=True), nullable=True),
+    Column("last_heartbeat_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("id = 1", name="ck_user_order_feed_state_singleton"),
+    CheckConstraint(
+        "state IN ('disconnected', 'connecting', 'connected', 'stale', 'reconnecting', 'disabled')",
+        name="ck_user_order_feed_state_value",
+    ),
+)
+
 deployments = Table(
     "deployments",
     metadata,
@@ -437,6 +452,7 @@ order_intents = Table(
     Column("side", String(8), nullable=False),
     Column("kind", String(32), nullable=False),
     Column("price", String(64), nullable=True),
+    Column("stop_trigger_price", String(64), nullable=True),
     Column("quantity", String(64), nullable=False),
     Column("candle_starts_at", DateTime(timezone=True), nullable=False),
     Column("status", String(16), nullable=False),
@@ -445,7 +461,7 @@ order_intents = Table(
     UniqueConstraint("client_order_id", name="ux_order_intents_client_order_id"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_order_intents_side"),
     CheckConstraint(
-        "kind IN ('post_only_limit', 'marketable')",
+        "kind IN ('post_only_limit', 'marketable', 'trigger_bracket')",
         name="ck_order_intents_kind",
     ),
 )
@@ -461,6 +477,7 @@ execution_orders = Table(
     Column("side", String(8), nullable=False),
     Column("kind", String(32), nullable=False),
     Column("price", String(64), nullable=True),
+    Column("stop_trigger_price", String(64), nullable=True),
     Column("quantity", String(64), nullable=False),
     Column("filled_quantity", String(64), nullable=False),
     Column("status", String(16), nullable=False),
@@ -508,6 +525,7 @@ execution_positions = Table(
     Column("stop_price", String(64), nullable=False),
     Column("target_price", String(64), nullable=False),
     Column("entered_bar", DateTime(timezone=True), nullable=False),
+    Column("trail_extreme", String(64), nullable=True),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
 )
@@ -562,4 +580,5 @@ __all__ = [
     "published_strategy_versions",
     "strategy_dataset_bindings",
     "strategy_drafts",
+    "user_order_feed_state",
 ]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import BrokerError
@@ -23,16 +24,17 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
-from thytrader.execution.signals import evaluate_latest_entry, latest_atr
+from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
 from thytrader.execution.sizing import size_long_entry
 from thytrader.execution.submit import submit_intent
+from thytrader.execution.trailing import ratcheted_long_stop
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, compiled_default_risk_policy
+from thytrader.strategies.models import atr_trailing_stop
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from decimal import Decimal
 
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
@@ -64,7 +66,7 @@ async def process_closed_bar(
     deployment = snapshot.deployment
     if deployment.last_evaluated_bar == candle.starts_at:
         if deployment.phase in _IN_MARKET:
-            return await _ensure_take_profit(
+            return await _ensure_exit_protection(
                 snapshot, candle=candle, product=product, broker=broker, store=store
             )
         return snapshot
@@ -84,7 +86,13 @@ async def process_closed_bar(
         cooldown_bars=strategy.entry.cooldown_bars,
     )
     snapshot = await _manage_position(
-        snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
     )
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _maybe_enter(
@@ -264,6 +272,7 @@ async def _manage_position(
     snapshot: DeploymentSnapshot,
     *,
     strategy: StrategyDefinition,
+    candles: Sequence[Candle],
     candle: Candle,
     product: MarketProduct,
     broker: Broker,
@@ -283,24 +292,76 @@ async def _manage_position(
         updated = with_runtime(deployment, updated_at=utc_now(), bars_held=bars_held)
         await store.save_deployment(updated)
         snapshot = await store.get_deployment(deployment.id)
-        deployment = snapshot.deployment
-        position = snapshot.position
-        if position is None:
+        if snapshot.position is None:
             return snapshot
-    else:
-        bars_held = deployment.bars_held
-    if candle.low <= position.stop_price:
-        return await _marketable_exit(
-            snapshot,
-            strategy=strategy,
-            candle=candle,
-            product=product,
-            broker=broker,
-            store=store,
-            purpose=IntentPurpose.STOP,
-            price=min(candle.open, position.stop_price),
+    snapshot = await _apply_trailing(
+        snapshot, strategy=strategy, candles=candles, candle=candle, product=product, store=store
+    )
+    return await _protect_open_position(
+        snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
+    )
+
+
+async def _apply_trailing(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    candle: Candle,
+    product: MarketProduct,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Ratchet a long ATR trailing stop after the fill bar; no-op when disabled."""
+    position = snapshot.position
+    policy = atr_trailing_stop(strategy.exits)
+    if position is None or policy is None:
+        return snapshot
+    state = ratcheted_long_stop(
+        current_stop=position.stop_price,
+        trail_extreme=position.trail_extreme,
+        bar_high=candle.high,
+        atr=named_atr(strategy, candles, policy.atr_indicator),
+        multiple=Decimal(policy.multiple),
+        price_increment=product.price_increment,
+        ratchet=position.entered_bar < candle.starts_at,
+    )
+    if state.stop_price == position.stop_price and state.trail_extreme == position.trail_extreme:
+        return snapshot
+    await store.save_position(
+        replace(
+            position,
+            stop_price=state.stop_price,
+            trail_extreme=state.trail_extreme,
+            updated_at=utc_now(),
+        ),
+        deployment_id=snapshot.deployment.id,
+    )
+    return await store.get_deployment(snapshot.deployment.id)
+
+
+async def _protect_open_position(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Apply paper synthetic stops or live venue brackets after trailing."""
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    bars_held = snapshot.deployment.bars_held
+    timed_out = bars_held >= strategy.exits.time_exit.max_bars_held
+    live = snapshot.deployment.mode is DeploymentMode.LIVE
+    if live and not timed_out:
+        return await _ensure_live_bracket(
+            snapshot, candle=candle, product=product, broker=broker, store=store
         )
-    if bars_held >= strategy.exits.time_exit.max_bars_held:
+    if (not live and candle.low <= position.stop_price) or timed_out:
+        purpose = IntentPurpose.TIME_EXIT if timed_out else IntentPurpose.STOP
+        price = candle.close if timed_out else min(candle.open, position.stop_price)
         return await _marketable_exit(
             snapshot,
             strategy=strategy,
@@ -308,12 +369,82 @@ async def _manage_position(
             product=product,
             broker=broker,
             store=store,
-            purpose=IntentPurpose.TIME_EXIT,
-            price=candle.close,
+            purpose=purpose,
+            price=price,
         )
     return await _ensure_take_profit(
         snapshot, candle=candle, product=product, broker=broker, store=store
     )
+
+
+async def _ensure_live_bracket(
+    snapshot: DeploymentSnapshot,
+    *,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Rest one venue OCO bracket, replacing it when the working stop ratchets."""
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    existing = _active_side(snapshot.orders, OrderSide.SELL)
+    if existing is not None:
+        matching = (
+            existing.kind is OrderKind.TRIGGER_BRACKET
+            and existing.price == position.target_price
+            and existing.stop_trigger_price == position.stop_price
+        )
+        if matching:
+            return await _mark_pending_exit(snapshot, store=store)
+        snapshot = await _cancel_one_order(existing, broker=broker, store=store)
+        remaining = _active_side(snapshot.orders, OrderSide.SELL)
+        if remaining is not None and remaining.status is not OrderStatus.CANCELED:
+            return await _pause(
+                snapshot,
+                store=store,
+                detail="Could not cancel the resting exit before replacing the live bracket.",
+            )
+    order = await submit_intent(
+        store=store,
+        broker=broker,
+        deployment_id=snapshot.deployment.id,
+        product_id=product.product_id,
+        purpose=IntentPurpose.BRACKET,
+        side=OrderSide.SELL,
+        kind=OrderKind.TRIGGER_BRACKET,
+        quantity=position.quantity,
+        price=position.target_price,
+        stop_trigger_price=position.stop_price,
+        candle=candle,
+    )
+    if order.status is OrderStatus.OPEN:
+        return await _mark_pending_exit(
+            await store.get_deployment(snapshot.deployment.id), store=store
+        )
+    if order.status in {OrderStatus.UNKNOWN, OrderStatus.PENDING}:
+        return await _pause(
+            await store.get_deployment(snapshot.deployment.id),
+            store=store,
+            detail="Live bracket submit is unconfirmed.",
+        )
+    return await _pause(
+        await store.get_deployment(snapshot.deployment.id),
+        store=store,
+        detail="Live bracket could not be rested on an open position.",
+    )
+
+
+async def _mark_pending_exit(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Record that an exit order is working without changing cash or inventory."""
+    pending = with_runtime(
+        snapshot.deployment, updated_at=utc_now(), phase=RuntimePhase.PENDING_EXIT
+    )
+    await store.save_deployment(pending)
+    return await store.get_deployment(snapshot.deployment.id)
 
 
 async def _manage_pending_entry(
@@ -495,6 +626,24 @@ async def _apply_immediate_exit_fill(
         order=order,
         store=store,
         cooldown_bars=cooldown_bars,
+    )
+
+
+async def _ensure_exit_protection(
+    snapshot: DeploymentSnapshot,
+    *,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Rest paper take-profit or a live venue bracket when already evaluated."""
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        return await _ensure_live_bracket(
+            snapshot, candle=candle, product=product, broker=broker, store=store
+        )
+    return await _ensure_take_profit(
+        snapshot, candle=candle, product=product, broker=broker, store=store
     )
 
 

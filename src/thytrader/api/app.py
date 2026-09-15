@@ -35,6 +35,10 @@ from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.store import DisabledExecutionStore, ExecutionStore
+from thytrader.execution.user_feed_state import (
+    DisabledUserOrderFeedStateStore,
+    UserOrderFeedStateStore,
+)
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.feed_state import (
@@ -79,6 +83,7 @@ from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateSt
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import (
     DisabledWorkerHeartbeatStore,
@@ -118,6 +123,7 @@ def create_app(
     backtest_submitter: BacktestSubmitter | None = None,
     execution_store: ExecutionStore | None = None,
     risk_policy_store: RiskPolicyStore | None = None,
+    user_order_feed_state_store: UserOrderFeedStateStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -140,6 +146,7 @@ def create_app(
     external_backtest_submitter = backtest_submitter
     external_execution_store = execution_store
     external_risk_policy_store = risk_policy_store
+    external_user_order_feed_store = user_order_feed_state_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -159,6 +166,7 @@ def create_app(
         submitter = external_backtest_submitter
         execution = external_execution_store
         risk_policies = external_risk_policy_store
+        user_feed_store = external_user_order_feed_store
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         heartbeat_store: WorkerHeartbeatStore | None = None
         needs_database = (
@@ -203,6 +211,8 @@ def create_app(
                 execution = PostgresExecutionStore(engine)
             if risk_policies is None:
                 risk_policies = PostgresRiskPolicyStore(engine)
+            if user_feed_store is None:
+                user_feed_store = PostgresUserOrderFeedStateStore(engine)
             if watchlist_store is None:
                 watchlist_store = PostgresMarketDataWatchlistStore(engine)
             heartbeat_store = PostgresWorkerHeartbeatStore(engine)
@@ -235,6 +245,9 @@ def create_app(
         )
         _app.state.execution_store = execution or DisabledExecutionStore()
         _app.state.risk_policy_store = risk_policies or DisabledRiskPolicyStore()
+        _app.state.user_order_feed_state_store = (
+            user_feed_store or DisabledUserOrderFeedStateStore()
+        )
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 

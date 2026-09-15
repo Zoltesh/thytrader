@@ -38,6 +38,7 @@ async def submit_intent(
     quantity: Decimal,
     price: Decimal | None,
     candle: Candle,
+    stop_trigger_price: Decimal | None = None,
 ) -> Order:
     """Record intent, submit, then persist the venue snapshot and any immediate fill."""
     now = utc_now()
@@ -53,6 +54,7 @@ async def submit_intent(
         kind=kind,
         quantity=quantity,
         price=price,
+        stop_trigger_price=stop_trigger_price,
         created_at=now,
         candle_starts_at=candle.starts_at,
         status=OrderStatus.PENDING,
@@ -67,6 +69,7 @@ async def submit_intent(
         kind=kind,
         quantity=quantity,
         price=price,
+        stop_trigger_price=stop_trigger_price,
         status=OrderStatus.PENDING,
         created_at=now,
         updated_at=now,
@@ -80,6 +83,7 @@ async def submit_intent(
             kind=kind,
             quantity=quantity,
             price=price,
+            stop_trigger_price=stop_trigger_price,
         )
     except (BrokerError, ValueError, TimeoutError) as error:
         unknown = replace(

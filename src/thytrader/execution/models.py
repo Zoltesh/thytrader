@@ -41,10 +41,11 @@ class OrderSide(StrEnum):
 
 
 class OrderKind(StrEnum):
-    """Maker-or-marketable execution style used by the runtime."""
+    """Maker, marketable, or venue-native OCO execution style used by the runtime."""
 
     POST_ONLY_LIMIT = "post_only_limit"
     MARKETABLE = "marketable"
+    TRIGGER_BRACKET = "trigger_bracket"
 
 
 class OrderStatus(StrEnum):
@@ -65,6 +66,7 @@ class IntentPurpose(StrEnum):
     TAKE_PROFIT = "take_profit"
     STOP = "stop"
     TIME_EXIT = "time_exit"
+    BRACKET = "bracket"
 
 
 class ExecutionStoreError(RuntimeError):
@@ -89,6 +91,7 @@ class OrderIntent:
     created_at: datetime
     candle_starts_at: datetime
     price: Decimal | None = None
+    stop_trigger_price: Decimal | None = None
     status: OrderStatus = OrderStatus.PENDING
 
 
@@ -110,6 +113,7 @@ class Order:
     filled_quantity: Decimal = Decimal("0")
     venue_order_id: str | None = None
     reject_reason: str | None = None
+    stop_trigger_price: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +142,7 @@ class Position:
     target_price: Decimal
     entered_bar: datetime
     updated_at: datetime
+    trail_extreme: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)

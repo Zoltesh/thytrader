@@ -8,10 +8,12 @@ from datetime import UTC, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
 from thytrader.execution.models import DeploymentMode, DeploymentStatus, with_runtime
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.store import load_effective_policy
 
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
     from thytrader.execution.broker import Broker
     from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
+    from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
@@ -56,6 +59,8 @@ async def run_execution_worker(
     on_readiness_changed: Callable[[bool], None] | None = None,
     heartbeat_store: WorkerHeartbeatStore | None = None,
     risk_store: RiskPolicyStore | None = None,
+    user_feed_store: UserOrderFeedStateStore | None = None,
+    wake_requested: asyncio.Event | None = None,
 ) -> None:
     """Poll running deployments until shutdown."""
     if on_readiness_changed is not None:
@@ -72,12 +77,36 @@ async def run_execution_worker(
                 live_broker=live_broker,
                 quote_reader=quote_reader,
                 risk_store=risk_store,
+                user_feed_store=user_feed_store,
             )
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop_requested.wait(), timeout=interval_seconds)
+            if wake_requested is not None:
+                wake_requested.clear()
+            await _await_next_cycle(
+                stop_requested, wake_requested=wake_requested, interval_seconds=interval_seconds
+            )
     finally:
         if on_readiness_changed is not None:
             on_readiness_changed(False)
+
+
+async def _await_next_cycle(
+    stop_requested: asyncio.Event,
+    *,
+    wake_requested: asyncio.Event | None,
+    interval_seconds: int,
+) -> None:
+    """Sleep until the poll interval, a user-feed nudge, or shutdown."""
+    if wake_requested is None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_requested.wait(), timeout=interval_seconds)
+        return
+    wake = asyncio.create_task(wake_requested.wait())
+    stop = asyncio.create_task(stop_requested.wait())
+    _done, pending = await asyncio.wait(
+        {wake, stop}, timeout=interval_seconds, return_when=asyncio.FIRST_COMPLETED
+    )
+    for task in pending:
+        task.cancel()
 
 
 async def _run_cycle(
@@ -89,6 +118,7 @@ async def _run_cycle(
     live_broker: Broker | None,
     quote_reader: QuoteBalanceReader | None,
     risk_store: RiskPolicyStore | None,
+    user_feed_store: UserOrderFeedStateStore | None = None,
 ) -> None:
     """Process occupied deployments once, refreshing occupancy after each for the entry gate."""
     policy = (await load_effective_policy(risk_store)).definition
@@ -119,6 +149,7 @@ async def _run_cycle(
                 quote_reader=quote_reader,
                 risk_policy=policy,
                 portfolio=portfolio,
+                user_feed_store=user_feed_store,
             )
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
@@ -153,12 +184,17 @@ async def _process_one(
     quote_reader: QuoteBalanceReader | None,
     risk_policy: RiskPolicyDefinition,
     portfolio: tuple[DeploymentSnapshot, ...],
+    user_feed_store: UserOrderFeedStateStore | None,
 ) -> None:
     """Load evidence and advance one deployment through newly closed bars."""
     snapshot = await store.get_deployment(deployment_id)
     deployment = snapshot.deployment
     published = await publication_store.load(deployment.strategy_fingerprint)
     strategy = published.definition
+    if await _pause_five_minute_live_if_feed_down(
+        snapshot, strategy=strategy, store=store, user_feed_store=user_feed_store
+    ):
+        return
     product, candles, expected_last = await _closed_window(market_data, strategy)
     if not candles:
         return
@@ -333,3 +369,43 @@ async def _occupied_snapshots(
         if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
     ]
     return tuple(occupied)
+
+
+async def _pause_five_minute_live_if_feed_down(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    user_feed_store: UserOrderFeedStateStore | None,
+) -> bool:
+    """Pause 5m live when the user-order feed is down. True means the cycle must stop."""
+    deployment = snapshot.deployment
+    if deployment.mode is not DeploymentMode.LIVE or strategy.timeframe != "5m":
+        return False
+    if await _user_feed_connected(user_feed_store):
+        return False
+    paused = with_runtime(
+        deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail="User-order feed is not connected.",
+    )
+    await store.save_deployment(paused)
+    return True
+
+
+async def _user_feed_connected(store: UserOrderFeedStateStore | None) -> bool:
+    """True only when the durable user-order feed snapshot is connected and fresh."""
+    if store is None:
+        return False
+    try:
+        snapshot = await store.get()
+    except UserOrderFeedUnavailableError:
+        return False
+    if snapshot is None or snapshot.state is not UserOrderFeedState.CONNECTED:
+        return False
+    heartbeat_at = snapshot.last_heartbeat_at
+    if heartbeat_at is None:
+        return False
+    age = (datetime.now(UTC) - heartbeat_at).total_seconds()
+    return age < DEFAULT_HEARTBEAT_TIMEOUT_SECONDS

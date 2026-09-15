@@ -12,7 +12,7 @@ professional workstation. Product destination is a Coinbase-first research and t
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
 implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
-authoring, backtests, and paper/live deployments of a published 1h or 5m strategy (live stays 1h).
+authoring, backtests, and paper/live deployments of a published 1h or 5m strategy.
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
 6h, and 1d datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
 through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
@@ -85,9 +85,10 @@ immutable markers rather than a mutation of the content-addressed publication ro
 
 Paper and live share one execution worker and the same published strategy semantics. Live mode is the
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
-from Advanced Trade REST v3 is the live ledger. Remaining extras stay deferred: extra timeframes
-beyond 5m paper / 1h live, trailing stops, native brackets/OCO, user-order WebSockets, and
-on-demand/discretionary orders ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
+from Advanced Trade REST v3 is the live ledger. Phase 13 shipped 5m live, trailing stops, native
+brackets/OCO, and user-order WebSockets ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
+On-demand/discretionary orders remain deferred
+([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
 The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
 the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
 Destination clocks include every Coinbase-listed granularity (`1m` and `2h` among them); they are
@@ -121,8 +122,9 @@ plus the public Coinbase ticker-feed lifecycle and its durable feed-health evide
 execution run in `thytrader-execution-worker`, which polls closed 1h or 5m candles over REST, evaluates
 the active risk policy before new entries, and talks to a paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
 fill matching but blocks new entries; stop cancels resting orders. The worker replays contiguous
-missed closed bars after downtime and pauses when the latest bar is missing or gapped. User-order
-WebSockets and trailing-stop workers remain deferred.
+missed closed bars after downtime and pauses when the latest bar is missing or gapped. Live 5m
+pauses unless the authenticated user-order feed is connected. ATR trailing is durable on the
+position; live exits after fill are one Coinbase `trigger_bracket_gtc` OCO.
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.execution.store import ExecutionStore
+from thytrader.execution.user_feed_state import UserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.feed_state import MarketFeedStateStore
 from thytrader.market_data.service import MarketDataService
@@ -174,6 +175,15 @@ def get_risk_policy_store(request: Request) -> RiskPolicyStore:
     store = getattr(request.app.state, "risk_policy_store", None)
     if not isinstance(store, RiskPolicyStore):
         message = "Risk-policy store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_user_order_feed_state_store(request: Request) -> UserOrderFeedStateStore:
+    """Return durable user-order feed state attached during app startup."""
+    store = getattr(request.app.state, "user_order_feed_state_store", None)
+    if not isinstance(store, UserOrderFeedStateStore):
+        message = "User-order feed state store is unavailable."
         raise TypeError(message)
     return store
 

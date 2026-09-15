@@ -1694,15 +1694,13 @@
 					>
 				{/if}
 			{:else if viewEntry && researchTab === 'deploy'}
-				{@const strategyTimeframe = viewModel?.timeframe ?? viewEntry.timeframe}
 				{@const isHtfBlocked = viewModel?.htf_filter !== null}
-				{@const isLiveBlocked = deployMode === 'live' && strategyTimeframe !== '1h'}
 				<div class="view-block">
 					<h3>Deploy</h3>
 					<p class="view-note">
 						Starts the strategy runtime on closed candles. <strong>Paper:</strong> 1h or 5m
-						(strategy clock); simulates maker fills. <strong>Live:</strong> 1h only; places real Coinbase
-						spot orders.
+						(strategy clock); simulates maker fills. <strong>Live:</strong> 1h or 5m; places real
+						Coinbase spot orders. 5m live requires a connected user-order feed.
 					</p>
 					{#if publishedVersionsFor(viewEntry).length === 0}
 						<p class="view-note">Publish this strategy before deploying.</p>
@@ -1727,13 +1725,7 @@
 						{#if isHtfBlocked}
 							<p class="view-problem" role="alert">
 								Paper and live reject HTF-filter strategies. Research V1/V2/V3 can evaluate the last
-								completed HTF bar; 5m live remains deferred.
-							</p>
-						{/if}
-						{#if isLiveBlocked}
-							<p class="view-problem" role="alert">
-								Live deployment requires 1h strategies. This strategy uses {strategyTimeframe} candles.
-								Paper deployments support 1h or 5m.
+								completed HTF bar.
 							</p>
 						{/if}
 						{#if deployMode === 'paper'}
@@ -1746,7 +1738,7 @@
 							class="launch-button"
 							class:live-danger={deployMode === 'live'}
 							type="button"
-							disabled={deploying || !deployFingerprint || isLiveBlocked || isHtfBlocked}
+							disabled={deploying || !deployFingerprint || isHtfBlocked}
 							onclick={() => void deployStrategy()}
 						>
 							{deploying
@@ -1786,6 +1778,9 @@
 									<p>
 										Position {deployment.position.quantity} @ {deployment.position.entry_price} · stop
 										{deployment.position.stop_price} · target {deployment.position.target_price}
+										{#if deployment.position.trail_extreme}
+											· trail {deployment.position.trail_extreme}
+										{/if}
 									</p>
 								{/if}
 								{#if deployment.orders.length > 0}
