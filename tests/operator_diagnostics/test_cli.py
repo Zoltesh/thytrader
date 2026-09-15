@@ -36,6 +36,7 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "data-catalog" in output
     assert "products" in output
     assert "indicators" in output
+    assert "monitor" in output
     assert "loopback HTTP" in output or "--local" in output
 
 
@@ -267,3 +268,4 @@ def test_operator_schema_check_passes_in_this_checkout(
     assert payload["ok"] is True
     assert payload["schema_version"] == SCHEMA_VERSION
     assert "runtime" in payload["report_kinds"]
+    assert "monitor" in payload["report_kinds"]

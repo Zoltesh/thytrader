@@ -339,6 +339,16 @@ def test_phase13_live_extras_migration_follows_risk_policy() -> None:
     assert "ck_user_order_feed_state_singleton" in content
 
 
+def test_experiential_memory_migration_follows_live_extras() -> None:
+    """The twenty-third migration must add experiential-memory tables."""
+    content = Path("alembic/versions/0023_experiential_memory.py").read_text(encoding="utf-8")
+    assert 'revision = "0023"' in content
+    assert 'down_revision = "0022"' in content
+    assert "experiential_journal_entries" in content
+    assert "experiential_notifications" in content
+    assert "'memory'" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

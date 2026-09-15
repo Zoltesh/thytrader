@@ -13,7 +13,8 @@ describe('workstation chrome', () => {
 			'Portfolio',
 			'Strategies',
 			'Backtests',
-			'Audit'
+			'Audit',
+			'Memory'
 		]);
 	});
 
@@ -41,5 +42,7 @@ describe('workstation chrome', () => {
 		expect(isWorkstationNavActive('/backtests', '/backtests/[id]')).toBe(true);
 		expect(isWorkstationNavActive('/audit', '/audit')).toBe(true);
 		expect(isWorkstationNavActive('/audit', '/backtests')).toBe(false);
+		expect(isWorkstationNavActive('/memory', '/memory')).toBe(true);
+		expect(isWorkstationNavActive('/memory', '/audit')).toBe(false);
 	});
 });

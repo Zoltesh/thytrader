@@ -7,7 +7,7 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: Phase 14 (iterative)
+## Current delivery focus: destination capabilities (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h|5m,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
@@ -18,16 +18,17 @@ Phase 11's walk-forward / OOS / cross-market studies, richer templates, and V1/V
 matrix are shipped.
 Phase 12's playbook and default-off YOLO confirmation opt-in are shipped.
 Phase 13's 5m live, ATR trailing, user-order WS, and native OCO brackets are shipped.
+Phase 14's journals, sentiment/pattern hooks, monitor, and config-gated notify are shipped.
 Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
-Builder should implement the next unshipped Phase 14 slice**, one vertical increment
+Builder should implement the next unshipped destination slice**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not inserted ahead of Phase 13 → 14**: remaining
+Destination items that are **accepted but not inserted ahead of Phase 14**: remaining
 Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
-then strategy/paper/live clocks; on-demand trades with SL/TP; agent journals, sentiment, and
-notify. See [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
+then strategy/paper/live clocks; on-demand trades with SL/TP. See
+[Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
 
@@ -205,16 +206,22 @@ effect of 5m live.
 are one venue OCO; trailing is durable; operator `runtime` reports user-order feed state; 5m live
 pauses when that feed is not connected; ops contract is `thytrader-ops-contract-v8` / Alembic `0022`.
 
-## Phase 14: Experiential memory / hindsight — 📋 Deferred
+## Phase 14: Experiential memory / hindsight — ✅ Shipped
 
-Operator-managed facts and lessons, in service of a planned product direction: agents that act as
-**crypto-trading experts improving from durable evidence** across market-data research, reproducible
-backtests, paper trades, and live trades. Evidence must distinguish **agent-originated** from
-**human-originated** actions and trades so agents can study their own mistakes and repeat successful
-patterns. Includes trade **journals**, **sentiment** analysis, pattern learning, monitoring, and
-**user notification**. Only after the core trading loop is trustworthy. Not a substitute for audit
-trails or immutable research evidence. No learning implementation exists today; nothing in this
-phase is shipped.
+Operator-managed facts and lessons so agents can improve from durable, origin-attributed evidence
+across research, backtests, paper, and live — without substituting for audit trails
+([ADR 0037](decisions/0037-phase-14-experiential-memory.md)). Schema
+`thytrader-experiential-memory-v1` journals (`fact` / `lesson` / `note`), sentiment snapshots, and
+pattern-learning hooks require `origin` `human` or `agent`. Monitor is `thytrader-monitor-v1`.
+Notify providers are `none` (default), `log`, and `webhook`. YOLO never covers this lane.
+Ops contract is `thytrader-ops-contract-v9` / Alembic `0023`.
+
+**Exit gate met:** `uv run thytrader-memory` can status/monitor/list and, with `--confirm`, append
+journals, sentiment, pattern hooks, and notify requests; operator `monitor` is read-only; webhook
+URLs are redacted; default notify sends nothing.
+
+No model training, no venue scrape, and no fill-ledger origin rewrite. Phase 13 live extras,
+on-demand SL/TP, and `1m`/`2h` clocks stay out of this slice.
 
 ## Destination capabilities (accepted; not current Builder order)
 
@@ -232,7 +239,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Research | Single-instrument backtests; research HTF filter; Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
-| Agent E2E | Four lane-separated skills | Primary surface complete: research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030) |
+| Agent E2E | Five lane-separated skills plus playbook | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037) |
 
 ## Phase 0: Repository foundation — ✅ Complete
 

@@ -7,6 +7,7 @@ import pytest
 
 from thytrader.agent_orchestration.models import YoloTier
 from thytrader.config import Environment, Settings
+from thytrader.memory.models import NotifyProvider
 
 # This intentionally unsafe address exercises the network-exposure rejection path.
 _UNSAFE_BIND_ADDRESS = IPv4Address("0.0.0.0")  # noqa: S104
@@ -104,6 +105,8 @@ def test_settings_default_yolo_off() -> None:
 
     assert settings.yolo_enabled is False
     assert settings.yolo_tiers == ()
+    assert settings.notify_provider is NotifyProvider.NONE
+    assert settings.notify_webhook_url is None
 
 
 def test_settings_reject_live_yolo_tier() -> None:
@@ -135,3 +138,15 @@ def test_settings_reject_duplicate_yolo_tiers() -> None:
     """Duplicate YOLO tiers are a configuration error, not a silent union."""
     with pytest.raises(ValidationError, match="duplicates"):
         Settings(yolo_enabled=True, yolo_tiers="data,data", _env_file=None)
+
+
+def test_settings_reject_webhook_notify_without_url() -> None:
+    """Webhook notify requires an explicit URL."""
+    with pytest.raises(ValidationError, match="NOTIFY_WEBHOOK_URL"):
+        Settings(notify_provider="webhook", _env_file=None)
+
+
+def test_settings_reject_webhook_url_without_webhook_provider() -> None:
+    """A webhook URL is rejected unless the provider is webhook."""
+    with pytest.raises(ValidationError, match="NOTIFY_PROVIDER"):
+        Settings(notify_webhook_url="https://example.test/hook", _env_file=None)

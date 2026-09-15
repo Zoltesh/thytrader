@@ -20,6 +20,7 @@ from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
+from thytrader.api.routes.memory import router as memory_router
 from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
@@ -55,6 +56,14 @@ from thytrader.market_data.worker_state import (
     DisabledMarketDataWorkerStateStore,
     MarketDataWorkerStateStore,
 )
+from thytrader.memory.notify import (
+    NotificationSender,
+    notification_sender_from_settings,
+)
+from thytrader.memory.store import (
+    DisabledExperientialMemoryStore,
+    ExperientialMemoryStore,
+)
 from thytrader.persistence.audit_events import (
     AuditEventStore,
     DisabledAuditEventStore,
@@ -80,6 +89,7 @@ from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
+from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -124,6 +134,8 @@ def create_app(
     execution_store: ExecutionStore | None = None,
     risk_policy_store: RiskPolicyStore | None = None,
     user_order_feed_state_store: UserOrderFeedStateStore | None = None,
+    memory_store: ExperientialMemoryStore | None = None,
+    notification_sender: NotificationSender | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -147,6 +159,8 @@ def create_app(
     external_execution_store = execution_store
     external_risk_policy_store = risk_policy_store
     external_user_order_feed_store = user_order_feed_state_store
+    external_memory_store = memory_store
+    external_notification_sender = notification_sender
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -167,6 +181,8 @@ def create_app(
         execution = external_execution_store
         risk_policies = external_risk_policy_store
         user_feed_store = external_user_order_feed_store
+        memory = external_memory_store
+        notifier = external_notification_sender
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         heartbeat_store: WorkerHeartbeatStore | None = None
         needs_database = (
@@ -213,6 +229,8 @@ def create_app(
                 risk_policies = PostgresRiskPolicyStore(engine)
             if user_feed_store is None:
                 user_feed_store = PostgresUserOrderFeedStateStore(engine)
+            if memory is None:
+                memory = PostgresExperientialMemoryStore(engine)
             if watchlist_store is None:
                 watchlist_store = PostgresMarketDataWatchlistStore(engine)
             heartbeat_store = PostgresWorkerHeartbeatStore(engine)
@@ -248,6 +266,10 @@ def create_app(
         _app.state.user_order_feed_state_store = (
             user_feed_store or DisabledUserOrderFeedStateStore()
         )
+        _app.state.memory_store = memory or DisabledExperientialMemoryStore()
+        _app.state.notification_sender = notifier or notification_sender_from_settings(
+            resolved_settings
+        )
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 
@@ -279,6 +301,7 @@ def create_app(
     app.include_router(deployments_router)
     app.include_router(risk_policy_router)
     app.include_router(research_studies_router)
+    app.include_router(memory_router)
     app.include_router(backtests_router)
     return app
 

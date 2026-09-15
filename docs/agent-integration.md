@@ -24,18 +24,21 @@ Safety rests on confirmation gating, scoped authority, immutable evidence, audit
 controls—not on excluding agents. No model requires an agent; no model excludes one. A capability is
 incomplete until the agent contract exists.
 
-## Planned direction: agent experts that learn from evidence (NOT SHIPPED)
+## Planned direction: agent experts that learn from evidence (hooks shipped)
 
-A major planned goal—beyond the shipped skills—is for agents to act as **crypto-trading experts that
-improve from durable evidence** spanning market-data research, reproducible backtests, paper trades,
-and live trades. Planned (no learning implementation exists today):
+A major product goal is for agents to act as **crypto-trading experts that improve from durable
+evidence** spanning market-data research, reproducible backtests, paper trades, and live trades.
+Phase 14 shipped origin-attributed **hooks** ([ADR 0037](decisions/0037-phase-14-experiential-memory.md));
+there is still no model training:
 
-- Durable, immutable evidence of actions and outcomes across research, backtest, paper, and live.
-- Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
-  can study their own mistakes and repeat successful patterns.
-- Trade **journals**, **sentiment** analysis, pattern learning, monitoring, and **user notification**.
+- Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
+  `agent`).
+- Read-only monitor of deployments, recent journals, and notification delivery.
+- Config-gated user notification (`none` default, `log`, or `webhook`).
 - Learning never bypasses confirmation gates, scoped authority, auditability, or risk controls, and
-  never substitutes for audit trails. See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--deferred).
+  never substitutes for audit trails. YOLO never covers memory mutations.
+
+See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--shipped).
 
 ## Initial use cases
 
@@ -62,11 +65,12 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 
 Shipped command groups:
 
-- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, support-bundle, schema-check.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
 - `thytrader-runtime` — paper/live start, pause, resume, stop (`--confirm`; live also `--i-understand-live`).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
+- `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
 
 Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
 
@@ -129,6 +133,11 @@ See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-
 `thytrader-playbook` sequences data → research → optional paper by calling existing CLIs. It
 inherits the same Safe / YOLO confirmation rules and must not grant live authority by inheritance.
 
+### Memory skill
+
+`thytrader-memory` records origin-attributed journals, sentiment/pattern hooks, and notify requests.
+`--confirm` is always required. YOLO never covers this lane. Operator `monitor` is read-only.
+
 ## Stable diagnostics schema
 
 Every machine-readable report should include:
@@ -163,7 +172,9 @@ skills/
 │   └── SKILL.md
 ├── thytrader-runtime/
 │   └── SKILL.md
-└── thytrader-playbook/
+├── thytrader-playbook/
+│   └── SKILL.md
+└── thytrader-memory/
     └── SKILL.md
 ```
 
@@ -172,7 +183,9 @@ skills/
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
 control and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
-starts live. Product of record is `skills/`; `.cursor/skills/` contains pointers for Cursor auto-load.
+starts live. `thytrader-memory/SKILL.md` documents journals, sentiment/pattern hooks, monitor, and
+notify with `--confirm` (YOLO never covers that lane). Product of record is `skills/`;
+`.cursor/skills/` contains pointers for Cursor auto-load.
 
 Operating a running instance is a separate workspace: open [`ops/`](../ops/README.md), not the git
 root. Contributor GitNexus workflow stays in root `AGENTS.md`. Operating agents must not edit
@@ -206,5 +219,6 @@ The operator skill tells agents to:
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market studies only. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
+| Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, and notify. Operator `monitor` is read-only. YOLO never covers this lane. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

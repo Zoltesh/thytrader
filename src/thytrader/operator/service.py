@@ -34,6 +34,8 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerUnavailableError,
 )
 from thytrader.market_data_worker.service import island_covers_watch, watch_expected_candle_count
+from thytrader.memory.service import build_monitor, storage_label
+from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
@@ -53,6 +55,7 @@ from thytrader.operator.models import (
     IndicatorsReport,
     MarketDataPayload,
     MarketDataReport,
+    MonitorReport,
     PerformancePayload,
     PerformanceReport,
     ProductsPayload,
@@ -106,6 +109,7 @@ if TYPE_CHECKING:
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
+    from thytrader.memory.models import MonitorSnapshot
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
     from thytrader.portfolio.service import PortfolioService
     from thytrader.runtime import RuntimeState
@@ -133,6 +137,7 @@ class OperatorDiagnostics:
     heartbeat_store: WorkerHeartbeatStore | None = None
     risk_policies: RiskPolicyStore | None = None
     user_order_feed: UserOrderFeedStateStore | None = None
+    memory_store: ExperientialMemoryStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -198,6 +203,8 @@ class OperatorDiagnostics:
                 coinbase_credentials_configured=_credentials_configured(self.settings),
                 yolo_enabled=self.settings.yolo_enabled,
                 yolo_tiers=tuple(tier.value for tier in self.settings.yolo_tiers),
+                notify_provider=self.settings.notify_provider.value,
+                notify_webhook_configured=self.settings.notify_webhook_url is not None,
             ),
         )
 
@@ -517,6 +524,33 @@ class OperatorDiagnostics:
             state=snapshot.state.value,
             last_message_at=snapshot.last_message_at,
             last_heartbeat_at=snapshot.last_heartbeat_at,
+        )
+
+    async def monitor(self) -> MonitorReport:
+        """Watch deployments, recent journals, and notification delivery."""
+        now = datetime.now(UTC)
+        store = self.memory_store or DisabledExperientialMemoryStore()
+        snapshot = await build_monitor(
+            store,
+            self.execution,
+            self.settings,
+            storage=storage_label(store),
+        )
+        components = _monitor_components(snapshot)
+        warnings: list[str] = []
+        if snapshot.memory.storage == "unavailable":
+            warnings.append(
+                "Experiential memory storage is unavailable; journal writes fail closed."
+            )
+        return MonitorReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=aggregate_status(components),
+            components=tuple(components),
+            redaction=STANDARD_REDACTION,
+            partial_result_warnings=tuple(warnings),
+            recommended_next_action=recommend_next_action(components),
+            payload=snapshot,
         )
 
     async def support_bundle(self) -> SupportBundleReport:
@@ -1220,6 +1254,50 @@ class OperatorDiagnostics:
                     detail=f"{len(unknown)} order(s) remain in unknown status.",
                 )
             )
+
+
+def _monitor_components(snapshot: MonitorSnapshot) -> list[ComponentReport]:
+    """Map monitor findings to operator components without treating default-off notify as failed."""
+    components: list[ComponentReport] = []
+    if snapshot.memory.storage == "unavailable":
+        components.append(
+            ComponentReport(
+                name="memory_storage",
+                status=ReportStatus.FAILED,
+                reason_code="MEMORY_STORAGE_UNAVAILABLE",
+                detail="Experiential memory has no durable store; journal writes fail closed.",
+            )
+        )
+    else:
+        components.append(
+            ComponentReport(
+                name="memory_storage",
+                status=ReportStatus.HEALTHY,
+                reason_code="OK",
+                detail="Experiential memory store is available.",
+            )
+        )
+    failed_codes = {
+        "MEMORY_STORAGE_UNAVAILABLE",
+        "EXECUTION_UNAVAILABLE",
+        "NOTIFICATION_FAILED",
+    }
+    for finding in snapshot.findings:
+        if finding.reason_code == "MEMORY_STORAGE_UNAVAILABLE":
+            continue
+        components.append(
+            ComponentReport(
+                name="monitor",
+                status=(
+                    ReportStatus.FAILED
+                    if finding.reason_code in failed_codes
+                    else ReportStatus.DEGRADED
+                ),
+                reason_code=finding.reason_code,
+                detail=finding.detail,
+            )
+        )
+    return components
 
 
 def _mode_slot_counts(deployments: tuple[Deployment, ...], mode: DeploymentMode) -> tuple[int, int]:

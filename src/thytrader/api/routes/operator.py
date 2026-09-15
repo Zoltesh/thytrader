@@ -18,6 +18,7 @@ from thytrader.api.dependencies import (
     get_market_data_service,
     get_market_data_state_store,
     get_market_data_watchlist_store,
+    get_memory_store,
     get_portfolio_service,
     get_risk_policy_store,
     get_runtime_state,
@@ -33,6 +34,7 @@ from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
+from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
 from thytrader.operator.models import (
     ConfigurationReport,
     DataCatalogReport,
@@ -40,6 +42,7 @@ from thytrader.operator.models import (
     HealthReport,
     IndicatorsReport,
     MarketDataReport,
+    MonitorReport,
     PerformanceReport,
     ProductsReport,
     ReconciliationReport,
@@ -79,6 +82,7 @@ def get_operator_diagnostics(
     heartbeat_store: Annotated[WorkerHeartbeatStore, Depends(get_worker_heartbeat_store)],
     risk_policies: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     user_order_feed: Annotated[UserOrderFeedStateStore, Depends(get_user_order_feed_state_store)],
+    memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -99,6 +103,7 @@ def get_operator_diagnostics(
         heartbeat_store=heartbeat_store,
         risk_policies=risk_policies,
         user_order_feed=user_order_feed,
+        memory_store=memory_store,
     )
 
 
@@ -204,6 +209,14 @@ async def get_operator_runtime(
 ) -> RuntimeReport:
     """Return paper/live runtime status without trading authority."""
     return await diagnostics.runtime_report(deployment_id)
+
+
+@router.get("/monitor", response_model=MonitorReport)
+async def get_operator_monitor(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> MonitorReport:
+    """Return deployments, recent journals, and notification delivery."""
+    return await diagnostics.monitor()
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

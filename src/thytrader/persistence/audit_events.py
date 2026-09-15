@@ -24,6 +24,7 @@ class AuditEventCategory(StrEnum):
     WEBSOCKET = "websocket"
     RESEARCH = "research"
     RUNTIME = "runtime"
+    MEMORY = "memory"
 
 
 class AuditEventOutcome(StrEnum):

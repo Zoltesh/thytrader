@@ -140,6 +140,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     runtime.add_argument("--deployment-id", default=None)
     subparsers.add_parser(
+        "monitor",
+        parents=[trailing],
+        help="Watch deployments, recent journals, and notification delivery.",
+    )
+    subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
         help="Redacted bundle of the supported reports.",
@@ -180,6 +185,7 @@ async def _dispatch(
         "strategies": diagnostics.strategies,
         "risk": diagnostics.risk,
         "reconciliation": diagnostics.reconciliation,
+        "monitor": diagnostics.monitor,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)

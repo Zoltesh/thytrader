@@ -173,6 +173,9 @@ source:
   resume, stop, and risk-policy publication, with `--confirm` (live start also `--i-understand-live`).
 - [`skills/thytrader-playbook/SKILL.md`](skills/thytrader-playbook/SKILL.md) — sequences existing
   lane CLIs for data → research → optional paper. Forwards `--confirm`. Never starts live.
+- [`skills/thytrader-memory/SKILL.md`](skills/thytrader-memory/SKILL.md) — journals, sentiment and
+  pattern hooks, monitor, and notify, with `--confirm` on every mutation. YOLO never covers this
+  lane.
 
 Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests while operating a running
 instance. Report skill/CLI failures. Run `make run` only if the user asked to rebuild or restart, or
@@ -181,7 +184,7 @@ repository root (the parent of `ops/`).
 
 Operator and research skills must not deploy, arm live trading, or cancel orders. Data ingest must
 not be folded into those skills. Runtime control must not be folded into operator, data, or research.
-The playbook must not inherit live authority.
+The playbook must not inherit live authority. Memory mutations must not inherit YOLO.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

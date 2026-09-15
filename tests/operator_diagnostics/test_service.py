@@ -87,6 +87,8 @@ def test_configuration_omits_raw_environment_and_credentials() -> None:
     assert dumped["payload"]["database_configured"] is False
     assert dumped["payload"]["yolo_enabled"] is False
     assert dumped["payload"]["yolo_tiers"] == []
+    assert dumped["payload"]["notify_provider"] == "none"
+    assert dumped["payload"]["notify_webhook_configured"] is False
 
 
 def test_exchange_reports_demo_permissions_without_balances() -> None:
@@ -115,6 +117,16 @@ def test_runtime_report_omits_cash_and_includes_deployments() -> None:
     assert "cash" not in dumped
     assert report.payload.deployments == ()
     assert report.redaction.balances_omitted is True
+
+
+def test_monitor_report_is_failed_when_memory_storage_is_unavailable() -> None:
+    """Operator monitor fails closed without durable experiential memory."""
+    report = asyncio.run(_diagnostics().monitor())
+    assert report.report_kind == "monitor"
+    assert report.payload.schema_version == "thytrader-monitor-v1"
+    assert report.payload.memory.notify_provider.value == "none"
+    assert report.payload.memory.notify_webhook_configured is False
+    assert report.overall_status is ReportStatus.FAILED
 
 
 def test_health_reports_engine_missing_when_url_is_set_without_engine() -> None:

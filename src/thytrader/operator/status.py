@@ -39,6 +39,17 @@ _RECOMMENDATIONS: dict[str, str] = {
     "RESULT_NOT_FOUND": "Pass a published result fingerprint from thytrader-operator performance.",
     "FINDINGS_PRESENT": "Inspect paused or mismatched deployments before starting new risk.",
     "DEPLOYMENT_NOT_FOUND": "Pass a deployment id from thytrader-operator strategies or runtime.",
+    "MEMORY_STORAGE_UNAVAILABLE": (
+        "Set THYTRADER_DATABASE_URL and apply migration 0023, then re-run monitor."
+    ),
+    "EXECUTION_UNAVAILABLE": "Set THYTRADER_DATABASE_URL so monitor can list deployments.",
+    "NOTIFICATION_FAILED": (
+        "Inspect recent notification delivery_status without printing webhook URLs."
+    ),
+    "DEPLOYMENT_PAUSED": "Inspect thytrader-operator runtime before new risk-increasing orders.",
+    "DEPLOYMENT_MISMATCH": (
+        "Inspect thytrader-operator reconciliation before new risk-increasing orders."
+    ),
 }
 
 

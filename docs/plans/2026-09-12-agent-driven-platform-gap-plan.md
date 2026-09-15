@@ -43,7 +43,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 
 | Area | Gap |
 |---|---|
-| Agent E2E ease | Five skills: operator, data, research, runtime, plus `thytrader-playbook`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034); live stays hard-gated. |
+| Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034) for data/research/paper; live and memory stay hard-gated. |
 | Data coverage | Phase 7 shipped: 15m, 30m, 6h, and 1d datasets plus watch-completeness and stale-image hardening (not strategy clocks). Destination remaining venue TFs: `1m`, `2h`, and any Coinbase-listed interval (not ahead of Phase 13 → 14). |
 | On-demand trades | Not shipped; strategy deploy only. Destination: discretionary orders with SL/TP via order intent + risk (ADR 0031). |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
@@ -52,7 +52,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |
-| Memory | Journals, sentiment, notify, and origin-attributed learning are now in product docs; still deferred (Phase 14). Nothing shipped. |
+| Memory | Phase 14 shipped: origin-attributed journals, sentiment/pattern hooks, operator monitor, and config-gated notify (ADR 0037). No ML training. YOLO never covers this lane. |
 
 ## Shipped: Safe mode vs YOLO mode
 

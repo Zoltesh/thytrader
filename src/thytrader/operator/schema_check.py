@@ -82,6 +82,7 @@ def check_operator_schema(root: Path | None = None) -> SchemaCheckResult:
         "/products",
         "/indicators",
         "/support-bundle",
+        "/monitor",
     ):
         if f"{OPERATOR_API_PREFIX}{suffix}" not in combined:
             raise SchemaCheckError(f"Operator skill docs omit {OPERATOR_API_PREFIX}{suffix}.")

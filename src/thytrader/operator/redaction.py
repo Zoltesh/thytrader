@@ -27,6 +27,7 @@ def configured_secrets(settings: Settings) -> tuple[str, ...]:
         settings.coinbase_api_private_key,
         settings.coinbase_api_key_name,
         settings.database_url,
+        settings.notify_webhook_url,
     ):
         if secret is None:
             continue

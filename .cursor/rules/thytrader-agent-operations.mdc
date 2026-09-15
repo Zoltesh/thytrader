@@ -1,5 +1,5 @@
 ---
-description: Use shipped ThyTrader operator, data, research, runtime, and playbook skills instead of inventing trading workflows.
+description: Use shipped ThyTrader operator, data, research, runtime, playbook, and memory skills instead of inventing trading workflows.
 alwaysApply: true
 ---
 
@@ -12,6 +12,7 @@ When diagnosing a running ThyTrader instance, mutating research artifacts, inges
 - `skills/thytrader-research/SKILL.md` — drafts, publish, backtests with `--confirm`
 - `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
 - `skills/thytrader-playbook/SKILL.md` — sequence existing CLIs; `--confirm` forwarded; never live
+- `skills/thytrader-memory/SKILL.md` — journals, sentiment/pattern hooks, monitor, notify with `--confirm` (YOLO never covers this lane)
 
 Do not scrape logs, query PostgreSQL, print secrets, interpolate candles, or give operator/research/data skills trading authority.
 

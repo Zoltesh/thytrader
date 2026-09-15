@@ -20,6 +20,7 @@ from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import DisabledMarketDataWatchlistStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
+from thytrader.memory.store import DisabledExperientialMemoryStore
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import DisabledAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
@@ -31,6 +32,7 @@ from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
+from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -80,6 +82,7 @@ async def operator_diagnostics(
             heartbeat_store=PostgresWorkerHeartbeatStore(engine),
             risk_policies=PostgresRiskPolicyStore(engine),
             user_order_feed=PostgresUserOrderFeedStateStore(engine),
+            memory_store=PostgresExperientialMemoryStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -98,6 +101,7 @@ async def operator_diagnostics(
             heartbeat_store=DisabledWorkerHeartbeatStore(),
             risk_policies=DisabledRiskPolicyStore(),
             user_order_feed=DisabledUserOrderFeedStateStore(),
+            memory_store=DisabledExperientialMemoryStore(),
         )
     try:
         yield diagnostics
