@@ -90,7 +90,7 @@ async def _run_cycle(
     quote_reader: QuoteBalanceReader | None,
     risk_store: RiskPolicyStore | None,
 ) -> None:
-    """Process every running or paused deployment once, and cancel stopped restings."""
+    """Process occupied deployments once, refreshing occupancy after each for the entry gate."""
     policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
     portfolio = await _occupied_snapshots(store, deployments)
@@ -122,6 +122,7 @@ async def _run_cycle(
             )
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
+        portfolio = await _occupied_snapshots(store, deployments)
 
 
 async def _cancel_stopped(
@@ -325,7 +326,7 @@ async def _occupied_snapshots(
     store: ExecutionStore,
     deployments: Sequence[Deployment],
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Load snapshots for running and paused deployments used by the entry gate."""
+    """Load current snapshots for running and paused deployments used by the entry gate."""
     occupied = [
         await store.get_deployment(item.id)
         for item in deployments

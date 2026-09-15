@@ -659,7 +659,6 @@ def _entry_admitted(
     portfolio: Sequence[DeploymentSnapshot],
 ) -> bool:
     """Return whether the active risk policy allows this sized long."""
-    peers = tuple(portfolio) if portfolio else (snapshot,)
     live_cash = None
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         live_cash = snapshot.deployment.cash
@@ -671,10 +670,19 @@ def _entry_admitted(
             strategy_id=snapshot.deployment.strategy_id,
             notional=notional,
         ),
-        snapshots=peers,
+        snapshots=_portfolio_with_current(portfolio, snapshot),
         live_quote_cash=live_cash,
     )
     return verdict.decision is RiskDecision.ALLOW
+
+
+def _portfolio_with_current(
+    portfolio: Sequence[DeploymentSnapshot],
+    snapshot: DeploymentSnapshot,
+) -> tuple[DeploymentSnapshot, ...]:
+    """Overlay this deployment's latest snapshot onto occupied peers."""
+    others = tuple(item for item in portfolio if item.deployment.id != snapshot.deployment.id)
+    return (*others, snapshot)
 
 
 async def _cancel_open_orders(

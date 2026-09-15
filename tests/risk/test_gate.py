@@ -156,3 +156,47 @@ def test_entry_open_slot_and_exposure_caps() -> None:
     )
     assert slot.reason_code is RiskReasonCode.MAX_OPEN_POSITIONS
     assert exposure.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
+
+
+def test_live_entry_uses_remaining_quote_plus_marked_exposure() -> None:
+    """Live entries fail closed without quote cash and admit when remaining cash covers them."""
+    proposed = ProposedEntry(
+        product_id="BTC-USD",
+        strategy_id=_STRATEGY_A,
+        notional=Decimal("100"),
+    )
+    missing = evaluate_new_entry(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.LIVE,
+        proposed=proposed,
+        snapshots=(),
+        live_quote_cash=None,
+    )
+    funded = evaluate_new_entry(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.LIVE,
+        proposed=proposed,
+        snapshots=(),
+        live_quote_cash=Decimal("10000"),
+    )
+    assert missing.decision is RiskDecision.DENY
+    assert missing.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
+    assert funded.decision is RiskDecision.ALLOW
+
+
+def test_per_product_exposure_cap_is_independent_of_portfolio_cap() -> None:
+    """A product cap can deny even when the book still has unused portfolio room."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"per_product_max_exposure_fraction": "0.01"}
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("2000"),
+        ),
+        snapshots=(),
+    )
+    assert verdict.reason_code is RiskReasonCode.PRODUCT_EXPOSURE_EXCEEDED
