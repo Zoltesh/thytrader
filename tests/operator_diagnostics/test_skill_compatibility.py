@@ -20,6 +20,7 @@ _RESEARCH_SKILL = _ROOT / "skills" / "thytrader-research" / "SKILL.md"
 _RUNTIME_SKILL = _ROOT / "skills" / "thytrader-runtime" / "SKILL.md"
 _DATA_SKILL = _ROOT / "skills" / "thytrader-data" / "SKILL.md"
 _PLAYBOOK_SKILL = _ROOT / "skills" / "thytrader-playbook" / "SKILL.md"
+_MEMORY_SKILL = _ROOT / "skills" / "thytrader-memory" / "SKILL.md"
 
 
 def test_operator_skill_matches_application_schema_and_routes() -> None:
@@ -40,6 +41,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/risk",
         "/reconciliation",
         "/runtime",
+        "/monitor",
         "/data-catalog",
         "/products",
         "/indicators",
@@ -120,6 +122,20 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "never" in skill.lower() and "live" in skill.lower()
     assert "--i-understand-live" in skill
     assert "not an extension" in skill.lower() or "does not grant live" in skill.lower()
+
+
+def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:
+    """The memory skill must gate mutations and deny YOLO plus trading."""
+    skill = _MEMORY_SKILL.read_text(encoding="utf-8")
+    assert "thytrader-memory" in skill
+    assert "--confirm" in skill
+    assert "YOLO never" in skill or "yolo never" in skill.lower()
+    assert "add-journal" in skill
+    assert "notify" in skill
+    assert "/api/v1/memory" in skill
+    assert "do not edit" in skill.lower()
+    assert "make run" in skill
+    assert "Never deploys" in skill or ("does not" in skill.lower() and "order" in skill.lower())
 
 
 def test_committed_json_schema_matches_envelope_contract() -> None:

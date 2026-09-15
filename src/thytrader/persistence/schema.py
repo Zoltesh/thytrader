@@ -348,7 +348,7 @@ audit_events = Table(
     CheckConstraint(
         "category IN ("
         "'connection', 'snapshot', 'worker_error', 'market_data', 'websocket', "
-        "'research', 'runtime'"
+        "'research', 'runtime', 'memory'"
         ")",
         name="ck_audit_events_category",
     ),
@@ -560,6 +560,140 @@ active_risk_policy = Table(
     CheckConstraint("id = 1", name="ck_active_risk_policy_singleton"),
 )
 
+experiential_journal_entries = Table(
+    "experiential_journal_entries",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("kind", String(16), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("body", Text(), nullable=False),
+    Column("evidence_kind", String(16), nullable=False),
+    Column("evidence_id", String(128), nullable=True),
+    Column("product_id", String(32), nullable=True),
+    Column("runtime_mode", String(16), nullable=False),
+    Column("lesson_outcome", String(16), nullable=False),
+    CheckConstraint("origin IN ('human', 'agent')", name="ck_experiential_journal_origin"),
+    CheckConstraint(
+        "kind IN ('fact', 'lesson', 'note')",
+        name="ck_experiential_journal_kind",
+    ),
+    CheckConstraint(
+        "evidence_kind IN ("
+        "'none', 'backtest', 'paper_fill', 'live_fill', 'deployment', 'research', 'market_data'"
+        ")",
+        name="ck_experiential_journal_evidence_kind",
+    ),
+    CheckConstraint(
+        "runtime_mode IN ('none', 'research', 'paper', 'live')",
+        name="ck_experiential_journal_runtime_mode",
+    ),
+    CheckConstraint(
+        "lesson_outcome IN ('none', 'success', 'mistake', 'mixed')",
+        name="ck_experiential_journal_lesson_outcome",
+    ),
+)
+
+Index(
+    "ix_experiential_journal_occurred_at_desc",
+    experiential_journal_entries.c.occurred_at.desc(),
+    experiential_journal_entries.c.id.desc(),
+)
+
+experiential_sentiment_snapshots = Table(
+    "experiential_sentiment_snapshots",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("label", String(16), nullable=False),
+    Column("product_id", String(32), nullable=True),
+    Column("note", Text(), nullable=False, server_default=""),
+    Column("journal_id", UUID(), nullable=True),
+    CheckConstraint("origin IN ('human', 'agent')", name="ck_experiential_sentiment_origin"),
+    CheckConstraint(
+        "label IN ('bullish', 'bearish', 'neutral', 'unknown')",
+        name="ck_experiential_sentiment_label",
+    ),
+)
+
+Index(
+    "ix_experiential_sentiment_occurred_at_desc",
+    experiential_sentiment_snapshots.c.occurred_at.desc(),
+    experiential_sentiment_snapshots.c.id.desc(),
+)
+
+experiential_pattern_observations = Table(
+    "experiential_pattern_observations",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("pattern_key", String(63), nullable=False),
+    Column("name", String(120), nullable=False),
+    Column("hypothesis", Text(), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("evidence_kind", String(16), nullable=False),
+    Column("evidence_id", String(128), nullable=True),
+    Column("note", Text(), nullable=False, server_default=""),
+    CheckConstraint("origin IN ('human', 'agent')", name="ck_experiential_pattern_origin"),
+    CheckConstraint(
+        "status IN ('hypothesized', 'supported', 'contradicted', 'retired')",
+        name="ck_experiential_pattern_status",
+    ),
+    CheckConstraint(
+        "evidence_kind IN ("
+        "'none', 'backtest', 'paper_fill', 'live_fill', 'deployment', 'research', 'market_data'"
+        ")",
+        name="ck_experiential_pattern_evidence_kind",
+    ),
+)
+
+Index(
+    "ix_experiential_pattern_occurred_at_desc",
+    experiential_pattern_observations.c.occurred_at.desc(),
+    experiential_pattern_observations.c.id.desc(),
+)
+
+experiential_notifications = Table(
+    "experiential_notifications",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("body", Text(), nullable=False),
+    Column("severity", String(16), nullable=False),
+    Column("provider", String(16), nullable=False),
+    Column("delivery_status", String(16), nullable=False),
+    Column("detail", String(500), nullable=False, server_default=""),
+    Column("journal_id", UUID(), nullable=True),
+    CheckConstraint("origin IN ('human', 'agent')", name="ck_experiential_notification_origin"),
+    CheckConstraint(
+        "severity IN ('info', 'warning', 'error')",
+        name="ck_experiential_notification_severity",
+    ),
+    CheckConstraint(
+        "provider IN ('none', 'log', 'webhook')",
+        name="ck_experiential_notification_provider",
+    ),
+    CheckConstraint(
+        "delivery_status IN ('skipped', 'logged', 'delivered', 'failed')",
+        name="ck_experiential_notification_delivery_status",
+    ),
+)
+
+Index(
+    "ix_experiential_notifications_occurred_at_desc",
+    experiential_notifications.c.occurred_at.desc(),
+    experiential_notifications.c.id.desc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "archived_strategy_versions",
@@ -568,6 +702,10 @@ __all__ = [
     "execution_fills",
     "execution_orders",
     "execution_positions",
+    "experiential_journal_entries",
+    "experiential_notifications",
+    "experiential_pattern_observations",
+    "experiential_sentiment_snapshots",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",

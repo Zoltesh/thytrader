@@ -10,6 +10,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
+from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
@@ -27,6 +28,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "risk",
     "reconciliation",
     "runtime",
+    "monitor",
     "support_bundle",
 )
 
@@ -139,6 +141,8 @@ class ConfigurationPayload(_FrozenModel):
     coinbase_credentials_configured: bool
     yolo_enabled: bool = False
     yolo_tiers: tuple[str, ...] = ()
+    notify_provider: str = "none"
+    notify_webhook_configured: bool = False
 
 
 class ConfigurationReport(OperatorEnvelope):
@@ -356,6 +360,13 @@ class RuntimeReport(OperatorEnvelope):
 
     report_kind: Literal["runtime"] = "runtime"
     payload: RuntimePayload
+
+
+class MonitorReport(OperatorEnvelope):
+    """Read-only composite of deployments, journals, and notification delivery."""
+
+    report_kind: Literal["monitor"] = "monitor"
+    payload: MonitorSnapshot
 
 
 class SupportBundlePayload(_FrozenModel):

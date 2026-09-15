@@ -144,6 +144,7 @@ credentials exist. 5m live pauses unless the authenticated user-order feed is co
 Agents diagnose a running instance with `uv run thytrader-operator` (or `GET /api/v1/operator/*`)
 and mutate research artifacts only with `uv run thytrader-research … --confirm`. Sequence data →
 research → optional paper with `uv run thytrader-playbook` (still `--confirm` by default; never live).
+Journals and notify use `uv run thytrader-memory … --confirm` (YOLO never skips that gate).
 See [`skills/README.md`](skills/README.md).
 
 
@@ -230,8 +231,10 @@ uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
 uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-playbook status
+uv run thytrader-memory status
 ```
 
 `thytrader-operator` is read-only. `thytrader-research` mutations require `--confirm` and cannot
-deploy or trade. `thytrader-playbook` sequences existing CLIs and never starts live. Skills live in
+deploy or trade. `thytrader-playbook` sequences existing CLIs and never starts live.
+`thytrader-memory` mutations require `--confirm`; YOLO never covers that lane. Skills live in
 [`skills/`](skills/README.md).

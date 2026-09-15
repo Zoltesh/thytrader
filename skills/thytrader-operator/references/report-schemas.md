@@ -3,7 +3,7 @@
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `support_bundle`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `support_bundle`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -26,7 +26,9 @@ JWT material or order payloads. It omits cash, quantities, and order payloads.
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, and pause/mismatch findings. It omits account balances and dollar amounts. Daily-loss / drawdown circuit breakers are not in this payload.
 
-Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement). Those flags never grant live authority. Live start still requires `--confirm` and `--i-understand-live`.
+Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement). Those flags never grant live authority. Live start still requires `--confirm` and `--i-understand-live`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
+
+The `monitor` payload is `thytrader-monitor-v1`: redacted memory status, deployments without cash, recent journals/notifications, and findings (`MEMORY_STORAGE_UNAVAILABLE`, `EXECUTION_UNAVAILABLE`, `DEPLOYMENT_PAUSED`, `DEPLOYMENT_MISMATCH`, `NOTIFICATION_FAILED`). Default-off notify (`provider=none`) is skipped, not failed. YOLO never covers journal or notify writes.
 
 The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, `15m`, `30m`, `6h`, and `1d`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. `sparsity` is `gapped` when `watch_complete` is false, even if the island itself has zero gaps. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report. Dashboard ingestion (`GET /api/v1/market-data/ingestion`) reports the same watch decision. `GET /api/v1/market-data/datasets` lists island fingerprints only. Strategy, paper, and live clocks remain `1h` or `5m`. Extra catalog timeframes may back a research `htf_filter` dataset (ADR 0025); paper and live still reject those strategies.
 

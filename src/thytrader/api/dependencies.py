@@ -12,6 +12,8 @@ from thytrader.market_data.feed_state import MarketFeedStateStore
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import MarketDataWatchlistStore
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
+from thytrader.memory.notify import NotificationSender
+from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
@@ -186,6 +188,24 @@ def get_user_order_feed_state_store(request: Request) -> UserOrderFeedStateStore
         message = "User-order feed state store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_memory_store(request: Request) -> ExperientialMemoryStore:
+    """Return experiential memory storage attached during app startup."""
+    store = getattr(request.app.state, "memory_store", None)
+    if not isinstance(store, ExperientialMemoryStore):
+        message = "Experiential memory store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_notification_sender(request: Request) -> NotificationSender:
+    """Return the configured notification sender attached during app startup."""
+    sender = getattr(request.app.state, "notification_sender", None)
+    if not isinstance(sender, NotificationSender):
+        message = "Notification sender is unavailable."
+        raise TypeError(message)
+    return sender
 
 
 def get_database_engine(request: Request) -> AsyncEngine | None:

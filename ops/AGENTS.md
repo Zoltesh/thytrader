@@ -9,6 +9,7 @@ Use only the shipped skills:
 - `thytrader-research` — drafts, publish, backtests, studies (`--confirm`)
 - `thytrader-runtime` — paper/live start/pause/resume/stop and risk-policy publication (`--confirm`; live start also `--i-understand-live`)
 - `thytrader-playbook` — data → research → optional paper via existing CLIs (`--confirm` forwarded; never live)
+- `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane)
 
 Run every `uv run thytrader-*` command from the **repository root** (the parent of this `ops/`
 folder). JSON is the default CLI output.

@@ -14,11 +14,11 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Research studies (walk-forward, OOS, cross-market)](architecture/research-studies.md)
 - [Security and trading-risk baseline](security-and-risk.md)
-- [Delivery roadmap](roadmap.md) — Phases 0–12 shipped (Phase 9 includes MACD/Bollinger series ids; Phase 10 is the risk-policy registry; Phase 11 is walk-forward / OOS / cross-market studies; Phase 12 is the agent playbook and default-off YOLO); **Phases 13–14** remain for iterative Builder work; per-indicator timeframes stay out of Phase 9; destination capabilities (1m/2h, on-demand trades, journals) are accepted but not inserted ahead of that sequence
+- [Delivery roadmap](roadmap.md) — Phases 0–14 shipped (Phase 9 includes MACD/Bollinger series ids; Phase 10 is the risk-policy registry; Phase 11 is walk-forward / OOS / cross-market studies; Phase 12 is the agent playbook and default-off YOLO; Phase 13 is 5m live / trailing / user-order WS / native OCO; Phase 14 is journals, sentiment/pattern hooks, monitor, and config-gated notify); per-indicator timeframes stay out of Phase 9; destination capabilities (1m/2h, on-demand trades) are accepted but not inserted ahead of that sequence
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — **historical** running-instance evidence against the 5m research–paper plan; stale Compose, 14-day clip, v3 422, and 5m paper 409 are closed by ADRs 0019, 0017/0018, and 0024
-- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, Phase 9 catalog slices through MACD/Bollinger, Phase 10 risk-policy registry, Phase 11 research studies, and Phase 12 playbook/YOLO are shipped; later live/memory phases are not)
+- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, Phase 9 catalog slices through MACD/Bollinger, Phase 10 risk-policy registry, Phase 11 research studies, Phase 12 playbook/YOLO, Phase 13 live extras, and Phase 14 experiential memory are shipped)
 - [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **shipped** Phase 7.1 research maker/taker prefill (paper deploy has no cost fields)
 
 ## Document roles
@@ -28,7 +28,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - **Decision records** explain important choices, alternatives, and consequences.
 - **Roadmap documents** sequence work without pretending dates or scope are guaranteed.
 - **`AGENTS.md`** gives coding agents repository-specific operating instructions. Operating a running instance uses [`ops/`](../ops/README.md).
-- **`skills/`** contains distributable operator, data, research, runtime, and playbook skills. See [`skills/README.md`](../skills/README.md).
+- **`skills/`** contains distributable operator, data, research, runtime, playbook, and memory skills. See [`skills/README.md`](../skills/README.md).
 
 ## Updating the documentation
 

@@ -65,6 +65,9 @@ def test_audit_event_rejects_unknown_fields_and_invalid_enums() -> None:
     with pytest.raises(ValidationError):
         _valid_event(category="invalid_category")
 
+    event = _valid_event(category="memory", action="journal_appended")
+    assert event.category.value == "memory"
+
     with pytest.raises(ValidationError):
         _valid_event(outcome="invalid_outcome")
 

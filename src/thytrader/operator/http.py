@@ -14,6 +14,7 @@ from thytrader.operator.models import (
     HealthReport,
     IndicatorsReport,
     MarketDataReport,
+    MonitorReport,
     OperatorEnvelope,
     PerformanceReport,
     ProductsReport,
@@ -40,6 +41,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "risk": RiskReport,
     "reconciliation": ReconciliationReport,
     "runtime": RuntimeReport,
+    "monitor": MonitorReport,
     "support-bundle": SupportBundleReport,
 }
 

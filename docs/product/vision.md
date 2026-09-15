@@ -148,23 +148,22 @@ agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR 
 WebSockets, and native OCO brackets are shipped; destination portfolio controls and multi-instrument
 strategy documents are not.
 
-## Planned direction: agents as crypto-trading experts (NOT SHIPPED)
+## Planned direction: agents as crypto-trading experts (hooks shipped)
 
-A major planned product goal—beyond the shipped skill surfaces—is for agents to act as
-**crypto-trading experts that improve from durable evidence** spanning market-data research,
-reproducible backtests, paper trades, and live trades. Planned properties (none shipped; no learning
-implementation exists today):
+A major product goal is for agents to act as **crypto-trading experts that improve from durable
+evidence** spanning market-data research, reproducible backtests, paper trades, and live trades.
+Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase-14-experiential-memory.md));
+there is still no model training:
 
-- Durable, immutable evidence of actions and outcomes across research, backtest, paper, and live.
-- Evidence distinguishes **agent-originated** from **human-originated** actions and trades, so agents
-  can study their own mistakes and repeat successful patterns without confusing themselves with
-  their operators.
-- Trade **journals**, **sentiment** analysis, pattern learning, monitoring, and **user notification**.
+- Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
+  `agent`) so later learning can separate authors.
+- Read-only monitor of deployments, recent journals, and notification delivery.
+- Config-gated user notification (`none` default, `log`, or `webhook`).
 - Improvement stays subordinate to existing invariants: confirmation gates, scoped authority,
   immutable evidence, auditability, and risk controls. It is never a substitute for audit trails.
+  YOLO never covers memory mutations.
 
-Current status: shipped evidence (backtest results, paper/live ledgers, audit events) exists but does
-not yet attribute origin (agent vs human). See [roadmap Phase 14](../roadmap.md).
+See [roadmap Phase 14](../roadmap.md#phase-14-experiential-memory--hindsight--shipped).
 
 ## Explicitly deferred
 

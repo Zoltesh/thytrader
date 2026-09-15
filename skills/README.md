@@ -11,7 +11,8 @@ without the contributor GitNexus workflow.
 Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
 runtime mutations require `--confirm` (live also `--i-understand-live`). YOLO is an operator-enabled
 opt-in (default off) that may skip `--confirm` on `data` / `research` / `paper` only after an audit;
-live stays hard-gated. The playbook sequences existing CLIs and never starts live.
+live stays hard-gated. The playbook sequences existing CLIs and never starts live. Memory mutations
+always require `--confirm`; YOLO never covers that lane.
 
 ## `thytrader-operator`
 
@@ -54,6 +55,15 @@ Sequences existing lane CLIs: data healthy → draft/publish → backtest → op
 - Skill: [`thytrader-playbook/SKILL.md`](thytrader-playbook/SKILL.md)
 - CLI: `uv run thytrader-playbook`
 - HTTP: `GET /api/v1/agent-orchestration` (plus child CLI routes)
+
+## `thytrader-memory`
+
+Confirmation-gated journals, sentiment and pattern-learning hooks, monitor, and user notification.
+YOLO never skips `--confirm`. Does not deploy, paper-trade, live-trade, arm, or cancel orders.
+
+- Skill: [`thytrader-memory/SKILL.md`](thytrader-memory/SKILL.md)
+- CLI: `uv run thytrader-memory … --confirm`
+- HTTP: `/api/v1/memory`
 
 See [`docs/agent-integration.md`](../docs/agent-integration.md) for the safety model.
 

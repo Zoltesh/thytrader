@@ -3,6 +3,7 @@
 from pydantic import SecretStr
 
 from thytrader.config import Settings
+from thytrader.memory.models import NotifyProvider
 from thytrader.operator.redaction import REDACTION, configured_secrets, dumps_redacted, redact_text
 
 
@@ -34,4 +35,19 @@ def test_dumps_redacted_strips_database_url_passwords() -> None:
     payload = {"url": "postgresql+asyncpg://thytrader:super-secret@127.0.0.1:5432/thytrader"}
     rendered = dumps_redacted(payload, configured_secrets(settings))
     assert "super-secret" not in rendered
+    assert REDACTION in rendered
+
+
+def test_configured_secrets_include_notify_webhook_url() -> None:
+    """Webhook URLs must be redacted from CLI JSON."""
+    settings = Settings(
+        notify_provider=NotifyProvider.WEBHOOK,
+        notify_webhook_url=SecretStr("https://example.test/hooks/secret-token"),
+        _env_file=None,
+    )
+    rendered = dumps_redacted(
+        {"url": "https://example.test/hooks/secret-token"},
+        configured_secrets(settings),
+    )
+    assert "secret-token" not in rendered
     assert REDACTION in rendered

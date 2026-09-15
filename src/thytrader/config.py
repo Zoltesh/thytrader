@@ -11,6 +11,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from thytrader.agent_orchestration.models import (
     YoloTier,  # noqa: TC001 - Pydantic resolves this annotation at runtime.
 )
+from thytrader.memory.models import (
+    NotifyProvider,
+)
 
 
 class Environment(StrEnum):
@@ -54,8 +57,10 @@ class Settings(BaseSettings):
     coinbase_api_private_key: SecretStr | None = None
     yolo_enabled: bool = False
     yolo_tiers: tuple[YoloTier, ...] = ()
+    notify_provider: NotifyProvider = NotifyProvider.NONE
+    notify_webhook_url: SecretStr | None = None
 
-    @field_validator("database_url", "coinbase_api_key_name", mode="before")
+    @field_validator("database_url", "coinbase_api_key_name", "notify_webhook_url", mode="before")
     @classmethod
     def normalize_optional_secret(cls, value: object) -> object:
         """Treat empty environment placeholders as absent optional secrets."""
@@ -121,5 +126,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "THYTRADER_YOLO_TIERS requires THYTRADER_YOLO_ENABLED=true. "
                 "Default remains --confirm."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_notify_provider(self) -> Self:
+        """Webhook notify requires a URL; other providers must not set one."""
+        if self.notify_provider is NotifyProvider.WEBHOOK and self.notify_webhook_url is None:
+            raise ValueError(
+                "THYTRADER_NOTIFY_PROVIDER=webhook requires THYTRADER_NOTIFY_WEBHOOK_URL."
+            )
+        if (
+            self.notify_provider is not NotifyProvider.WEBHOOK
+            and self.notify_webhook_url is not None
+        ):
+            raise ValueError(
+                "THYTRADER_NOTIFY_WEBHOOK_URL requires THYTRADER_NOTIFY_PROVIDER=webhook."
             )
         return self

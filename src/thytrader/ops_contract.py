@@ -8,7 +8,8 @@ current.
 
 Bump `OPS_CONTRACT_ID` whenever paper/live timeframes, backtest engines, the
 historical interval cap, the expected Alembic revision, the risk-policy
-registry contract, or live extras (user-order feed / native OCO) change.
+registry contract, live extras (user-order feed / native OCO), or
+experiential-memory persistence change.
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v8"
-EXPECTED_SCHEMA_REVISION = "0022"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v9"
+EXPECTED_SCHEMA_REVISION = "0023"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
