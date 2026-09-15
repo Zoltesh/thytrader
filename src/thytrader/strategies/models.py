@@ -121,6 +121,38 @@ class IndicatorParameters(_FrozenModel):
     period: int = Field(ge=2, le=500)
 
 
+class MacdIndicatorParameters(_FrozenModel):
+    """Close-locked MACD EMA windows: fast line, slow line, and signal smoothing."""
+
+    fast_period: int = Field(ge=2, le=500)
+    slow_period: int = Field(ge=2, le=500)
+    signal_period: int = Field(ge=2, le=500)
+
+    @model_validator(mode="after")
+    def validate_fast_shorter_than_slow(self) -> Self:
+        """Require the fast EMA window to be strictly shorter than the slow window."""
+        if self.fast_period >= self.slow_period:
+            raise ValueError("macd fast_period must be less than slow_period")
+        return self
+
+
+class BollingerIndicatorParameters(_FrozenModel):
+    """Close-locked SMA period and population-stdev band multiplier."""
+
+    period: int = Field(ge=2, le=500)
+    stdev_multiplier: DecimalText
+
+    @model_validator(mode="after")
+    def validate_multiplier_bounds(self) -> Self:
+        """Reject non-positive or unbounded Bollinger width multipliers."""
+        parsed = Decimal(self.stdev_multiplier)
+        if parsed <= 0:
+            raise ValueError("bollinger stdev_multiplier must be greater than 0")
+        if parsed > Decimal(10):
+            raise ValueError("bollinger stdev_multiplier must be at most 10")
+        return self
+
+
 class ConstantIndicatorParameters(_FrozenModel):
     """Named finite level repeated on every completed bar."""
 
@@ -132,12 +164,16 @@ class EmptyIndicatorParameters(_FrozenModel):
 
 
 IndicatorParameterBlock = (
-    IndicatorParameters | ConstantIndicatorParameters | EmptyIndicatorParameters
+    MacdIndicatorParameters
+    | BollingerIndicatorParameters
+    | IndicatorParameters
+    | ConstantIndicatorParameters
+    | EmptyIndicatorParameters
 )
 
 
 class IndicatorKind(StrEnum):
-    """Fail-closed single-output kinds in the canonical indicator registry."""
+    """Fail-closed kinds in the canonical indicator registry."""
 
     EMA = "ema"
     SMA = "sma"
@@ -155,6 +191,8 @@ class IndicatorKind(StrEnum):
     WMA = "wma"
     MOMENTUM = "momentum"
     MFI = "mfi"
+    MACD = "macd"
+    BOLLINGER = "bollinger"
 
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
@@ -168,6 +206,14 @@ _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volum
     IndicatorKind.ROC: "close",
     IndicatorKind.WMA: "close",
     IndicatorKind.MOMENTUM: "close",
+    IndicatorKind.MACD: "close",
+    IndicatorKind.BOLLINGER: "close",
+}
+MACD_OUTPUT_SERIES: tuple[str, ...] = ("macd", "signal", "histogram")
+BOLLINGER_OUTPUT_SERIES: tuple[str, ...] = ("middle", "upper", "lower")
+_INDICATOR_OUTPUT_SERIES: dict[IndicatorKind, tuple[str, ...]] = {
+    IndicatorKind.MACD: MACD_OUTPUT_SERIES,
+    IndicatorKind.BOLLINGER: BOLLINGER_OUTPUT_SERIES,
 }
 _HLC_INPUT_KINDS = frozenset({IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI})
 _HLCV_INPUT_KINDS = frozenset({IndicatorKind.MFI})
@@ -218,14 +264,45 @@ class IndicatorDefinition(_FrozenModel):
         if self.kind is IndicatorKind.CONSTANT:
             _require_constant_indicator(self)
             return self
+        if self.kind is IndicatorKind.MACD:
+            _require_macd_indicator(self)
+            return self
+        if self.kind is IndicatorKind.BOLLINGER:
+            _require_bollinger_indicator(self)
+            return self
         _require_period_indicator(self)
         return self
 
 
 class IndicatorOperand(_FrozenModel):
-    """Reference a previously declared indicator by stable identifier."""
+    """Reference a previously declared indicator, and a series when the kind is multi-output."""
 
     indicator: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    series: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_]{0,31}$",
+        exclude_if=lambda value: value is None,
+    )
+
+
+def indicator_output_series(kind: IndicatorKind) -> tuple[str, ...] | None:
+    """Return declared output names for multi-series kinds, or None for a single value."""
+    return _INDICATOR_OUTPUT_SERIES.get(kind)
+
+
+def indicator_value_keys(indicator: IndicatorDefinition) -> tuple[str, ...]:
+    """Return evaluator and trace keys for one indicator's output series."""
+    series = indicator_output_series(indicator.kind)
+    if series is None:
+        return (indicator.id,)
+    return tuple(f"{indicator.id}.{name}" for name in series)
+
+
+def operand_value_key(operand: IndicatorOperand) -> str:
+    """Return the evaluator key addressed by one indicator operand."""
+    if operand.series is None:
+        return operand.indicator
+    return f"{operand.indicator}.{operand.series}"
 
 
 class LiteralOperand(_FrozenModel):
@@ -335,6 +412,24 @@ def _require_bounded_condition_tree(condition: ConditionGroup) -> None:
         raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
 
 
+def _require_macd_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject MACD kinds that omit the three EMA periods or unlock close."""
+    if not isinstance(indicator.parameters, MacdIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "macd parameters must declare fast_period, slow_period, and signal_period"
+        )
+    _require_locked_source(indicator)
+
+
+def _require_bollinger_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject Bollinger kinds that omit period and multiplier or unlock close."""
+    if not isinstance(indicator.parameters, BollingerIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "bollinger parameters must declare period and stdev_multiplier"
+        )
+    _require_locked_source(indicator)
+
+
 def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
     """Reject identity kinds that carry rolling parameters or a non-OHLCV source."""
     if not isinstance(indicator.parameters, EmptyIndicatorParameters):
@@ -386,11 +481,35 @@ def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
     """Return the closed-bar count required before one indicator produces a value."""
     if indicator.kind in _UNIT_WARMUP_KINDS:
         return 1
+    if indicator.kind is IndicatorKind.MACD:
+        return _macd_min_warmup(indicator)
+    if indicator.kind is IndicatorKind.BOLLINGER:
+        return _bollinger_min_warmup(indicator)
     extra = 1 if indicator.kind in _LOOKBACK_WARMUP_KINDS else 0
     parameters = indicator.parameters
     if not isinstance(parameters, IndicatorParameters):
         raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
     return parameters.period + extra
+
+
+def _macd_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return bars before MACD signal and histogram are defined."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, MacdIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "macd parameters must declare fast_period, slow_period, and signal_period"
+        )
+    return parameters.slow_period + parameters.signal_period - 1
+
+
+def _bollinger_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return bars before Bollinger middle and bands are defined."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, BollingerIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "bollinger parameters must declare period and stdev_multiplier"
+        )
+    return parameters.period
 
 
 def _indicator_input_fields(
@@ -412,6 +531,46 @@ def _omit_absent_indicator_inputs(indicators: object) -> None:
     for item in indicators:
         if isinstance(item, dict) and item.get("input") is None:
             item.pop("input", None)
+
+
+def _omit_absent_operand_series(node: object) -> None:
+    """Drop null series fields so single-output operands keep historical fingerprints."""
+    if not isinstance(node, dict):
+        return
+    for key in ("left", "right"):
+        operand = node.get(key)
+        if isinstance(operand, dict) and operand.get("series") is None:
+            operand.pop("series", None)
+    for children_key in ("all", "any"):
+        children = node.get(children_key)
+        if isinstance(children, list):
+            for child in children:
+                _omit_absent_operand_series(child)
+    if "not" in node:
+        _omit_absent_operand_series(node.get("not"))
+
+
+def _require_operand_series(operand: IndicatorOperand, indicator: IndicatorDefinition) -> None:
+    """Require series on multi-output kinds and forbid it on single-output kinds."""
+    outputs = indicator_output_series(indicator.kind)
+    if outputs is None:
+        if operand.series is not None:
+            raise ValueError(f"{indicator.kind.value} operand must omit series")
+        return
+    if operand.series not in outputs:
+        raise ValueError(f"{indicator.kind.value} series must be one of {', '.join(outputs)}")
+
+
+def _require_condition_series(
+    condition: ConditionGroup,
+    indicators: tuple[IndicatorDefinition, ...],
+) -> None:
+    """Resolve every indicator operand's series against the declared kind."""
+    by_id = {indicator.id: indicator for indicator in indicators}
+    for comparison in _comparison_conditions(condition):
+        for operand in (comparison.left, comparison.right):
+            if isinstance(operand, IndicatorOperand):
+                _require_operand_series(operand, by_id[operand.indicator])
 
 
 def _referenced_indicator_ids(condition: ConditionGroup) -> set[str]:
@@ -477,6 +636,7 @@ class HigherTimeframeFilter(_FrozenModel):
         unknown = _referenced_indicator_ids(self.when) - known
         if unknown:
             raise ValueError(f"unknown HTF indicator references: {sorted(unknown)}")
+        _require_condition_series(self.when, self.indicators)
         required_fields = {
             field for indicator in self.indicators for field in _indicator_input_fields(indicator)
         }
@@ -673,6 +833,7 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     unknown = references - known
     if unknown:
         raise ValueError(f"unknown indicator references: {sorted(unknown)}")
+    _require_condition_series(definition.entry.when, definition.indicators)
     atr = next(
         (
             indicator
@@ -753,9 +914,13 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     if payload.get("htf_filter") is None:
         payload.pop("htf_filter", None)
     _omit_absent_indicator_inputs(payload.get("indicators"))
+    entry = payload.get("entry")
+    if isinstance(entry, dict):
+        _omit_absent_operand_series(entry.get("when"))
     htf_filter = payload.get("htf_filter")
     if isinstance(htf_filter, dict):
         _omit_absent_indicator_inputs(htf_filter.get("indicators"))
+        _omit_absent_operand_series(htf_filter.get("when"))
     return json.dumps(
         payload,
         sort_keys=True,

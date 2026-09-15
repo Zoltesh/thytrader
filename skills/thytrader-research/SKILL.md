@@ -68,9 +68,12 @@ Discover implemented indicator kinds with `uv run thytrader-operator indicators`
 Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
 (close, population), `roc` (close, lookback `period` bars ago), `williams_r` (high/low/close), `cci`
 (high/low/close, typical-price SMA and population MAD), `wma` (close, oldest weight 1 / newest
-`period`), `momentum` (close, lookback `period` bars ago), `mfi` (high/low/close/volume), `identity`
-(one of open/high/low/close/volume, empty parameters), `constant` (`parameters.value`, no input). Do
-not invent MACD, Bollinger, or other kinds. `crosses_above` /
+`period`), `momentum` (close, lookback `period` bars ago), `mfi` (high/low/close/volume), `macd`
+(close; `fast_period`/`slow_period`/`signal_period`, fast < slow; series `macd`/`signal`/`histogram`),
+`bollinger` (close; `period` plus `stdev_multiplier`; series `middle`/`upper`/`lower`), `identity`
+(one of open/high/low/close/volume, empty parameters), `constant` (`parameters.value`, no input).
+Single-output operands omit `series`. Multi-series operands must name one declared series. Do not
+invent stochastic, ADX, per-indicator timeframes, or other unlisted kinds. `crosses_above` /
 `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
 id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic

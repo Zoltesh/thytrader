@@ -34,9 +34,9 @@ const KIND_LABELS: Record<IndicatorKindValue, string> = Object.fromEntries(
 ) as Record<IndicatorKindValue, string>;
 
 type ComparisonLike = {
-	left: { indicator?: string; literal?: string };
+	left: { indicator?: string; series?: string; literal?: string };
 	operator: string;
-	right: { indicator?: string; literal?: string };
+	right: { indicator?: string; series?: string; literal?: string };
 };
 
 function isComparison(condition: ConditionDraft): boolean {
@@ -50,8 +50,18 @@ function isGroup(condition: ConditionDraft): boolean {
 export function conditionToText(condition: ConditionDraft): string {
 	if (isComparison(condition)) {
 		const comparison = condition as ComparisonLike;
-		const left = comparison.left.indicator ?? comparison.left.literal ?? '?';
-		const right = comparison.right.indicator ?? comparison.right.literal ?? '?';
+		const left =
+			comparison.left.indicator === undefined
+				? (comparison.left.literal ?? '?')
+				: comparison.left.series === undefined
+					? comparison.left.indicator
+					: `${comparison.left.indicator}.${comparison.left.series}`;
+		const right =
+			comparison.right.indicator === undefined
+				? (comparison.right.literal ?? '?')
+				: comparison.right.series === undefined
+					? comparison.right.indicator
+					: `${comparison.right.indicator}.${comparison.right.series}`;
 		const symbol = OPERATOR_LABELS[comparison.operator] ?? comparison.operator;
 		return `${left} ${symbol} ${right}`;
 	}
@@ -85,6 +95,12 @@ function indicatorText(indicator: IndicatorDraft): string {
 	}
 	if (indicator.kind === 'constant') {
 		return `${label}(${indicator.parameters.value ?? '0'}) as "${indicator.id}"`;
+	}
+	if (indicator.kind === 'macd') {
+		return `${label}(${indicator.parameters.fast_period},${indicator.parameters.slow_period},${indicator.parameters.signal_period}) as "${indicator.id}"`;
+	}
+	if (indicator.kind === 'bollinger') {
+		return `${label}(${indicator.parameters.period},${indicator.parameters.stdev_multiplier ?? '2'}) as "${indicator.id}"`;
 	}
 	return `${label}(${indicator.parameters.period}) as "${indicator.id}"`;
 }

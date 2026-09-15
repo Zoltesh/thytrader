@@ -14,9 +14,12 @@ from decimal import (
 from typing import TYPE_CHECKING
 
 from thytrader.strategies.models import (
+    BollingerIndicatorParameters,
     ConstantIndicatorParameters,
     IndicatorKind,
     IndicatorParameters,
+    MacdIndicatorParameters,
+    indicator_output_series,
 )
 
 if TYPE_CHECKING:
@@ -46,9 +49,9 @@ def calculate_indicator_rows(
     rows = [dict[str, Decimal | None]() for _candle in candles]
     with localcontext(_ENGINE_CONTEXT):
         for indicator in indicators:
-            values = _indicator_values(indicator, candles)
-            for row, value in zip(rows, values, strict=True):
-                row[indicator.id] = value
+            keyed_rows = _keyed_indicator_values(indicator, candles)
+            for row, keyed in zip(rows, keyed_rows, strict=True):
+                row.update(keyed)
     return tuple(rows)
 
 
@@ -60,6 +63,98 @@ def canonical_decimal(value: Decimal) -> str:
     decimal_places = f".{canonical_fraction}" if canonical_fraction else ""
     result = f"{whole}{decimal_places}"
     return "0" if Decimal(result).is_zero() else result
+
+
+def _keyed_indicator_values(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> tuple[dict[str, Decimal | None], ...]:
+    """Return one mapping of output keys to values for every supplied candle."""
+    series = indicator_output_series(indicator.kind)
+    if series is None:
+        values = _indicator_values(indicator, candles)
+        return tuple({indicator.id: value} for value in values)
+    matrix = _multi_series_values(indicator, candles)
+    return tuple(
+        {f"{indicator.id}.{name}": matrix[name][index] for name in series}
+        for index in range(len(candles))
+    )
+
+
+def _multi_series_values(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> dict[str, tuple[Decimal | None, ...]]:
+    """Dispatch one multi-output definition to its exact implemented series."""
+    if indicator.kind is IndicatorKind.MACD:
+        return _macd_series(indicator, candles)
+    if indicator.kind is IndicatorKind.BOLLINGER:
+        return _bollinger_series(indicator, candles)
+    raise IndicatorCalculationError(
+        f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+    )
+
+
+def _macd_series(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> dict[str, tuple[Decimal | None, ...]]:
+    """Return MACD line, signal, and histogram from shipped EMA recurrences."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, MacdIndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    closes = _locked_source_series(indicator, candles)
+    fast = _exponential_moving_average(closes, parameters.fast_period)
+    slow = _exponential_moving_average(closes, parameters.slow_period)
+    macd_line = tuple(
+        None if fast_value is None or slow_value is None else fast_value - slow_value
+        for fast_value, slow_value in zip(fast, slow, strict=True)
+    )
+    signal = _macd_signal_ema(macd_line, parameters.signal_period)
+    histogram = tuple(
+        None if line is None or signal_value is None else line - signal_value
+        for line, signal_value in zip(macd_line, signal, strict=True)
+    )
+    return {"macd": macd_line, "signal": signal, "histogram": histogram}
+
+
+def _macd_signal_ema(
+    macd_line: Sequence[Decimal | None],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Smooth the defined MACD-line suffix with the shipped SMA-seeded EMA."""
+    defined = tuple(value for value in macd_line if value is not None)
+    prefix = (None,) * (len(macd_line) - len(defined))
+    return prefix + _exponential_moving_average(defined, period)
+
+
+def _bollinger_series(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> dict[str, tuple[Decimal | None, ...]]:
+    """Return SMA middle and population-stdev bands of close."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, BollingerIndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    closes = _locked_source_series(indicator, candles)
+    middle = _simple_moving_average(closes, parameters.period)
+    deviation = _rolling_population_stdev(closes, parameters.period)
+    multiplier = Decimal(parameters.stdev_multiplier)
+    upper: list[Decimal | None] = []
+    lower: list[Decimal | None] = []
+    for mid, stdev in zip(middle, deviation, strict=True):
+        if mid is None or stdev is None:
+            upper.append(None)
+            lower.append(None)
+            continue
+        width = multiplier * stdev
+        upper.append(mid + width)
+        lower.append(mid - width)
+    return {"middle": middle, "upper": tuple(upper), "lower": tuple(lower)}
 
 
 def _indicator_values(

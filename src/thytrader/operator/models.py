@@ -416,13 +416,14 @@ class IndicatorCatalogEntry(_FrozenModel):
 
     kind: str
     inputs: tuple[str, ...]
-    parameter_kind: Literal["period", "none", "value"] = "period"
+    parameter_kind: Literal["period", "none", "value", "macd", "bollinger"] = "period"
     period_min: int | None = None
     period_max: int | None = None
+    outputs: tuple[str, ...] = ()
 
 
 class IndicatorsPayload(_FrozenModel):
-    """Implemented indicator registry. MACD and others are not invented here."""
+    """Implemented indicator registry. Listed kinds are the only legal catalog."""
 
     indicators: tuple[IndicatorCatalogEntry, ...]
 

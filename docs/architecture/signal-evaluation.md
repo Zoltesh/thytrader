@@ -171,6 +171,38 @@ rolling window and does not unlock SMA-of-open or other configurable rolling inp
 canonicalization as condition literals. Every completed bar repeats that exact value. The first
 value is defined on the first supplied bar.
 
+### MACD
+
+`macd` consumes close. Parameters are `fast_period`, `slow_period`, and `signal_period` (each 2–500,
+fast strictly less than slow). Outputs are three named series: `macd`, `signal`, and `histogram`.
+The MACD line is defined after `slow_period` closes:
+
+`macd = EMA(close, fast_period) - EMA(close, slow_period)`
+
+Each EMA is the shipped SMA-seeded recurrence. `signal` is that same recurrence applied to the
+suffix of defined MACD-line values with period `signal_period`. `histogram` is `macd - signal`.
+Signal and histogram are first defined after `slow_period + signal_period - 1` bars. A difference
+is undefined until both operands are defined. This is not a TA-library `macd`.
+
+Trace and evaluator keys are `{id}.macd`, `{id}.signal`, and `{id}.histogram`. Conditions must name
+one of those series.
+
+### Bollinger
+
+`bollinger` consumes close. Parameters are `period` (2–500) and `stdev_multiplier` (plain decimal
+`> 0` and `≤ 10`). Outputs are three named series: `middle`, `upper`, and `lower`. The first values
+are defined after exactly `period` closes. `middle` is the shipped SMA of close. Band width uses
+the shipped population `stdev` of the same inclusive window, not sample / `N-1`:
+
+`upper = middle + stdev_multiplier * stdev`
+
+`lower = middle - stdev_multiplier * stdev`
+
+A zero stdev yields equal bands at the middle (defined). This is not a TA-library `bbands`.
+
+Trace and evaluator keys are `{id}.middle`, `{id}.upper`, and `{id}.lower`. Conditions must name
+one of those series.
+
 ### EMA
 
 EMA consumes close. The first value is the arithmetic mean of the first `period` closes. Later values
@@ -223,10 +255,10 @@ Each trace records:
 
 - schema and executable engine-contract version;
 - exact run, strategy, and dataset fingerprints;
-- the identity-bearing exact indicator-ID sequence copied from the published strategy (LTF then HTF
-  when a filter is present);
+- the identity-bearing exact output-key sequence copied from the published strategy (LTF then HTF
+  when a filter is present): `{id}` for single-output kinds, `{id}.{series}` for multi-series kinds;
 - one unique, strictly increasing record per evaluation candle;
-- every declared indicator's canonical value or explicit `null` exactly once in that sequence; and
+- every declared output key's canonical value or explicit `null` exactly once in that sequence; and
 - the final entry-condition outcome: `matched`, `not_matched`, or `undefined`.
 
 Canonical indicator values are plain decimal text, optionally signed, with no exponent notation and
@@ -236,8 +268,9 @@ pattern so ROC and Williams %R can be traced).
 Canonical trace JSON uses sorted keys, compact separators, UTF-8, and UTC `Z` timestamps. The complete
 trace is addressed by SHA-256. Trace fields are frozen, unknown-field rejecting, and strict about
 identity-bearing native strings. A trace contains at least one record; every record contains a
-non-empty indicator vector matching the trace's unique declared indicator-ID sequence exactly, with
-no missing, extra, duplicate, or reordered entries. Traces are not yet persisted; rerunning the exact
+non-empty indicator vector matching the trace's unique declared output-key sequence exactly, with
+no missing, extra, duplicate, or reordered entries. Indicator ids cannot contain `.`, so
+`{id}.{series}` cannot collide with another indicator id. Traces are not yet persisted; rerunning the exact
 publication recreates the same canonical bytes. Canonical serialization revalidates the complete
 typed trace before emitting bytes so unchecked model copies cannot acquire fingerprints.
 

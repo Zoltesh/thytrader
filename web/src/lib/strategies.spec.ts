@@ -3,10 +3,12 @@ import {
 	archiveConfirmMessage,
 	latestDatasets,
 	INDICATOR_KIND_OPTIONS,
+	operandChoices,
 	PAPER_LIVE_STATUS_LEGEND,
 	PAPER_LIVE_STATUS_TITLE,
 	paperLiveStatusLabel,
 	paperLiveStatusTitle,
+	parseIndicatorOperandKey,
 	researchWindowHint,
 	serializeIndicator,
 	validHtfTimeframes
@@ -106,7 +108,7 @@ describe('paper/live library column copy', () => {
 });
 
 describe('indicator kind picker', () => {
-	it('lists only shipped single-output kinds', () => {
+	it('lists shipped kinds including MACD and Bollinger series', () => {
 		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toEqual([
 			'ema',
 			'sma',
@@ -122,10 +124,12 @@ describe('indicator kind picker', () => {
 			'wma',
 			'momentum',
 			'mfi',
+			'macd',
+			'bollinger',
 			'identity',
 			'constant'
 		]);
-		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).not.toContain('macd');
+		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toContain('macd');
 	});
 
 	it('serializes identity without period and constant without input', () => {
@@ -144,5 +148,59 @@ describe('indicator kind picker', () => {
 				parameters: { value: '40' }
 			})
 		).toEqual({ id: 'rsi_level', kind: 'constant', parameters: { value: '40' } });
+	});
+
+	it('expands MACD and Bollinger into series operand choices', () => {
+		expect(
+			operandChoices([
+				{
+					id: 'trend_macd',
+					kind: 'macd',
+					input: 'close',
+					parameters: { fast_period: 12, slow_period: 26, signal_period: 9 }
+				},
+				{ id: 'ema_fast', kind: 'ema', input: 'close', parameters: { period: 20 } }
+			]).map((choice) => choice.key)
+		).toEqual([
+			'indicator:trend_macd.macd',
+			'indicator:trend_macd.signal',
+			'indicator:trend_macd.histogram',
+			'indicator:ema_fast',
+			'literal'
+		]);
+		expect(parseIndicatorOperandKey('indicator:trend_macd.histogram')).toEqual({
+			indicator: 'trend_macd',
+			series: 'histogram'
+		});
+		expect(parseIndicatorOperandKey('indicator:ema_fast')).toEqual({ indicator: 'ema_fast' });
+	});
+
+	it('serializes MACD periods and Bollinger multiplier', () => {
+		expect(
+			serializeIndicator({
+				id: 'trend_macd',
+				kind: 'macd',
+				input: 'close',
+				parameters: { fast_period: 12, slow_period: 26, signal_period: 9 }
+			})
+		).toEqual({
+			id: 'trend_macd',
+			kind: 'macd',
+			input: 'close',
+			parameters: { fast_period: 12, slow_period: 26, signal_period: 9 }
+		});
+		expect(
+			serializeIndicator({
+				id: 'bands',
+				kind: 'bollinger',
+				input: 'close',
+				parameters: { period: 20, stdev_multiplier: '2' }
+			})
+		).toEqual({
+			id: 'bands',
+			kind: 'bollinger',
+			input: 'close',
+			parameters: { period: 20, stdev_multiplier: '2' }
+		});
 	});
 });

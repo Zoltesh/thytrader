@@ -126,6 +126,8 @@ export type IndicatorKindValue =
 	| 'wma'
 	| 'momentum'
 	| 'mfi'
+	| 'macd'
+	| 'bollinger'
 	| 'identity'
 	| 'constant';
 
@@ -144,9 +146,18 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'wma', label: 'WMA' },
 	{ kind: 'momentum', label: 'Momentum' },
 	{ kind: 'mfi', label: 'MFI' },
+	{ kind: 'macd', label: 'MACD' },
+	{ kind: 'bollinger', label: 'Bollinger' },
 	{ kind: 'identity', label: 'OHLCV' },
 	{ kind: 'constant', label: 'Constant' }
 ];
+
+export const INDICATOR_OUTPUT_SERIES: Readonly<
+	Partial<Record<IndicatorKindValue, readonly string[]>>
+> = {
+	macd: ['macd', 'signal', 'histogram'],
+	bollinger: ['middle', 'upper', 'lower']
+};
 
 export const IDENTITY_INPUT_OPTIONS: readonly { value: IdentityInput; label: string }[] = [
 	{ value: 'open', label: 'Open' },
@@ -164,7 +175,14 @@ export type IndicatorDraft = {
 	id: string;
 	kind: IndicatorKindValue;
 	input?: IndicatorInput;
-	parameters: { period?: number; value?: string };
+	parameters: {
+		period?: number;
+		value?: string;
+		fast_period?: number;
+		slow_period?: number;
+		signal_period?: number;
+		stdev_multiplier?: string;
+	};
 };
 
 export type ComparisonOperatorValue =
@@ -176,7 +194,7 @@ export type ComparisonOperatorValue =
 	| 'crosses_above'
 	| 'crosses_below';
 
-export type OperandDraft = { indicator: string } | { literal: string };
+export type OperandDraft = { indicator: string; series?: string } | { literal: string };
 
 export type ConditionDraft =
 	| { left: OperandDraft; operator: ComparisonOperatorValue; right: OperandDraft }
@@ -263,6 +281,61 @@ function indicatorPeriodMax(kind: IndicatorKindValue): number {
 		: 500;
 }
 
+function clampPeriod(value: number | undefined, maximum: number, fallback: number): number {
+	if (typeof value === 'number' && Number.isInteger(value) && value >= 2) {
+		return Math.min(value, maximum);
+	}
+	return fallback;
+}
+
+/** Build a comparison operand for the first declared indicator, including series when required. */
+export function defaultIndicatorOperand(indicators: IndicatorDraft[]): OperandDraft {
+	const indicator = indicators[0];
+	if (indicator === undefined) return { indicator: 'fast' };
+	return indicatorOperand(indicator, INDICATOR_OUTPUT_SERIES[indicator.kind]?.[0]);
+}
+
+/** Encode one indicator (and optional series) as a builder select key. */
+export function indicatorOperandKey(operand: { indicator: string; series?: string }): string {
+	return operand.series === undefined
+		? `indicator:${operand.indicator}`
+		: `indicator:${operand.indicator}.${operand.series}`;
+}
+
+/** Parse a builder select key into an indicator operand, or null for literals. */
+export function parseIndicatorOperandKey(key: string): OperandDraft | null {
+	if (!key.startsWith('indicator:')) return null;
+	const rest = key.slice('indicator:'.length);
+	const separator = rest.indexOf('.');
+	if (separator === -1) return { indicator: rest };
+	return { indicator: rest.slice(0, separator), series: rest.slice(separator + 1) };
+}
+
+function indicatorOperand(indicator: IndicatorDraft, series: string | undefined): OperandDraft {
+	if (series === undefined) return { indicator: indicator.id };
+	return { indicator: indicator.id, series };
+}
+
+/** Expand multi-series kinds into one selectable operand per output. */
+export function operandChoices(indicators: IndicatorDraft[]): { key: string; label: string }[] {
+	const choices: { key: string; label: string }[] = [];
+	for (const indicator of indicators) {
+		const series = INDICATOR_OUTPUT_SERIES[indicator.kind];
+		if (series === undefined) {
+			choices.push({ key: `indicator:${indicator.id}`, label: indicator.id });
+			continue;
+		}
+		for (const name of series) {
+			choices.push({
+				key: `indicator:${indicator.id}.${name}`,
+				label: `${indicator.id}.${name}`
+			});
+		}
+	}
+	choices.push({ key: 'literal', label: 'literal value' });
+	return choices;
+}
+
 /** Align one builder indicator with the kind's locked input and parameter shape. */
 export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 	if (indicator.kind === 'identity') {
@@ -277,6 +350,27 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 		delete indicator.input;
 		indicator.parameters = {
 			value: previous !== undefined && previous.length > 0 ? previous : '50'
+		};
+		return;
+	}
+	if (indicator.kind === 'macd') {
+		indicator.input = 'close';
+		const fast = clampPeriod(indicator.parameters.fast_period, 500, 12);
+		const slow = clampPeriod(indicator.parameters.slow_period, 500, 26);
+		indicator.parameters = {
+			fast_period: fast,
+			slow_period: slow > fast ? slow : Math.min(500, fast + 1),
+			signal_period: clampPeriod(indicator.parameters.signal_period, 500, 9)
+		};
+		return;
+	}
+	if (indicator.kind === 'bollinger') {
+		indicator.input = 'close';
+		const previousMultiplier = indicator.parameters.stdev_multiplier;
+		indicator.parameters = {
+			period: clampPeriod(indicator.parameters.period, 500, 20),
+			stdev_multiplier:
+				previousMultiplier !== undefined && previousMultiplier.length > 0 ? previousMultiplier : '2'
 		};
 		return;
 	}
@@ -307,6 +401,29 @@ export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
 				? (indicator.input as IdentityInput)
 				: 'close',
 			parameters: {}
+		};
+	}
+	if (indicator.kind === 'macd') {
+		return {
+			id: indicator.id,
+			kind: 'macd',
+			input: 'close',
+			parameters: {
+				fast_period: indicator.parameters.fast_period ?? 12,
+				slow_period: indicator.parameters.slow_period ?? 26,
+				signal_period: indicator.parameters.signal_period ?? 9
+			}
+		};
+	}
+	if (indicator.kind === 'bollinger') {
+		return {
+			id: indicator.id,
+			kind: 'bollinger',
+			input: 'close',
+			parameters: {
+				period: indicator.parameters.period ?? 20,
+				stdev_multiplier: indicator.parameters.stdev_multiplier ?? '2'
+			}
 		};
 	}
 	return {

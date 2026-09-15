@@ -701,9 +701,9 @@ def test_highest_lowest_stdev_reject_wrong_sources_unknown_kinds_and_fields() ->
 
     unknown_kind = reference_payload()
     _object_list(unknown_kind["indicators"]).append(
-        {"id": "macd", "kind": "macd", "input": "close", "parameters": {"period": 12}}
+        {"id": "stoch", "kind": "stochastic", "input": "close", "parameters": {"period": 14}}
     )
-    with pytest.raises(ValidationError, match="macd"):
+    with pytest.raises(ValidationError, match="stochastic"):
         StrategyDefinition.model_validate(unknown_kind)
 
     extra_parameter = reference_payload()
@@ -1264,6 +1264,200 @@ def test_htf_filter_accepts_wma_momentum_and_mfi() -> None:
         "wma",
         "momentum",
         "mfi",
+    ]
+
+
+def test_strategy_accepts_macd_and_bollinger_with_series_operands() -> None:
+    """Phase 9 slice 5 kinds publish with locked close and required series ids."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {
+                "id": "trend_macd",
+                "kind": "macd",
+                "input": "close",
+                "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+            },
+            {
+                "id": "bands",
+                "kind": "bollinger",
+                "input": "close",
+                "parameters": {"period": 20, "stdev_multiplier": "2"},
+            },
+        )
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 250,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "trend_macd", "series": "macd"},
+                "operator": "crosses_above",
+                "right": {"indicator": "trend_macd", "series": "signal"},
+            },
+            {
+                "left": {"indicator": "bands", "series": "lower"},
+                "operator": "less_than",
+                "right": {"literal": "100"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["trend_macd"].kind.value == "macd"
+    assert by_id["trend_macd"].input == "close"
+    assert by_id["bands"].kind.value == "bollinger"
+    assert by_id["bands"].input == "close"
+    canonical = canonical_strategy_bytes(definition).decode()
+    assert '"series":"macd"' in canonical
+    assert '"series":null' not in canonical
+
+
+def test_macd_and_bollinger_reject_wrong_params_sources_and_series() -> None:
+    """Unlocked inputs, missing series, and invalid periods fail closed."""
+    missing_series = reference_payload()
+    _object_list(missing_series["indicators"]).append(
+        {
+            "id": "trend_macd",
+            "kind": "macd",
+            "input": "close",
+            "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+        }
+    )
+    entry = _object_mapping(missing_series["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "trend_macd"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            }
+        ]
+    }
+    with pytest.raises(ValidationError, match="macd series must be one of"):
+        StrategyDefinition.model_validate(missing_series)
+
+    series_on_sma = reference_payload()
+    sma_entry = _object_mapping(series_on_sma["entry"])
+    sma_entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "ema_fast", "series": "macd"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            }
+        ]
+    }
+    with pytest.raises(ValidationError, match="ema operand must omit series"):
+        StrategyDefinition.model_validate(series_on_sma)
+
+    wrong_macd_input = reference_payload()
+    _object_list(wrong_macd_input["indicators"]).append(
+        {
+            "id": "trend_macd",
+            "kind": "macd",
+            "input": "high",
+            "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+        }
+    )
+    with pytest.raises(ValidationError, match="macd input must be close"):
+        StrategyDefinition.model_validate(wrong_macd_input)
+
+    inverted = reference_payload()
+    _object_list(inverted["indicators"]).append(
+        {
+            "id": "trend_macd",
+            "kind": "macd",
+            "input": "close",
+            "parameters": {"fast_period": 26, "slow_period": 12, "signal_period": 9},
+        }
+    )
+    with pytest.raises(ValidationError, match="fast_period must be less than slow_period"):
+        StrategyDefinition.model_validate(inverted)
+
+    zero_width = reference_payload()
+    _object_list(zero_width["indicators"]).append(
+        {
+            "id": "bands",
+            "kind": "bollinger",
+            "input": "close",
+            "parameters": {"period": 20, "stdev_multiplier": "0"},
+        }
+    )
+    with pytest.raises(ValidationError, match="stdev_multiplier must be greater than 0"):
+        StrategyDefinition.model_validate(zero_width)
+
+    period_only_macd = reference_payload()
+    _object_list(period_only_macd["indicators"]).append(
+        {"id": "trend_macd", "kind": "macd", "input": "close", "parameters": {"period": 12}}
+    )
+    with pytest.raises(ValidationError, match="macd parameters must declare"):
+        StrategyDefinition.model_validate(period_only_macd)
+
+
+def test_macd_warmup_covers_slow_plus_signal_minus_one() -> None:
+    """MACD signal needs slow_period + signal_period - 1 closed bars."""
+    payload = reference_payload()
+    _object_list(payload["indicators"]).append(
+        {
+            "id": "trend_macd",
+            "kind": "macd",
+            "input": "close",
+            "parameters": {"fast_period": 12, "slow_period": 50, "signal_period": 2},
+        }
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(payload)
+
+    payload["data_requirements"]["warmup_bars"] = 51
+    StrategyDefinition.model_validate(payload)
+
+
+def test_htf_filter_accepts_macd_and_bollinger() -> None:
+    """HTF filter may declare MACD and Bollinger on the HTF clock."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {
+            "id": "htf_macd",
+            "kind": "macd",
+            "input": "close",
+            "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+        },
+        {
+            "id": "htf_bands",
+            "kind": "bollinger",
+            "input": "close",
+            "parameters": {"period": 20, "stdev_multiplier": "2"},
+        },
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_macd", "series": "histogram"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "macd",
+        "bollinger",
     ]
 
 

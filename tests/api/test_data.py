@@ -162,6 +162,8 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         "wma",
         "momentum",
         "mfi",
+        "macd",
+        "bollinger",
         "identity",
         "constant",
     }

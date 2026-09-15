@@ -24,7 +24,8 @@ The first executable engine:
 1. reloads and reverifies the exact published run, strategy, dataset manifest, and Parquet candles;
 2. calculates the canonical catalog (EMA, SMA, RSI, ATR, volume SMA, plus the ADR 0026
    `highest`/`lowest`/`stdev` kinds, the ADR 0027 `roc`/`williams_r`/`cci` kinds, the ADR 0028
-   `identity`/`constant` kinds, and the ADR 0029 `wma`/`momentum`/`mfi` kinds) sequentially under the isolated
+   `identity`/`constant` kinds, the ADR 0029 `wma`/`momentum`/`mfi` kinds, and the ADR 0032
+   `macd`/`bollinger` kinds) sequentially under the isolated
    `decimal64-half-even-v1` context: 64 significant digits, `ROUND_HALF_EVEN`, fixed exponent bounds,
    a defined subnormal output range, chronological left-fold accumulation, and traps for invalid
    operations, division by zero, and overflow;
