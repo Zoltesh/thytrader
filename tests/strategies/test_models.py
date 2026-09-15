@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import pytest
 
 from thytrader.strategies.models import (
+    ConstantIndicatorParameters,
     StrategyDefinition,
     StrategyStatus,
     canonical_strategy_bytes,
@@ -921,6 +922,190 @@ def test_htf_filter_accepts_roc_williams_r_and_cci() -> None:
         "roc",
         "williams_r",
         "cci",
+    ]
+
+
+def test_strategy_accepts_identity_and_constant_with_crossover_levels() -> None:
+    """Identity close and a named level publish and may be crossover operands."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {"id": "px", "kind": "identity", "input": "close", "parameters": {}},
+            {"id": "vol", "kind": "identity", "input": "volume", "parameters": {}},
+            {"id": "session_open", "kind": "identity", "input": "open", "parameters": {}},
+            {"id": "rsi_level", "kind": "constant", "parameters": {"value": "40"}},
+        )
+    )
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "px"},
+                "operator": "crosses_above",
+                "right": {"indicator": "ema_slow"},
+            },
+            {
+                "left": {"indicator": "rsi"},
+                "operator": "crosses_above",
+                "right": {"indicator": "rsi_level"},
+            },
+            {
+                "left": {"indicator": "vol"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["px"].kind.value == "identity"
+    assert by_id["px"].input == "close"
+    assert by_id["px"].parameters.model_dump() == {}
+    assert by_id["vol"].input == "volume"
+    assert by_id["session_open"].input == "open"
+    assert by_id["rsi_level"].kind.value == "constant"
+    assert by_id["rsi_level"].input is None
+    parameters = by_id["rsi_level"].parameters
+    assert isinstance(parameters, ConstantIndicatorParameters)
+    assert parameters.value == "40"
+    canonical = canonical_strategy_bytes(definition).decode()
+    assert '"id":"rsi_level","kind":"constant","parameters":{"value":"40"}' in canonical
+    assert '"input":null' not in canonical
+
+
+def test_identity_and_constant_reject_wrong_shape() -> None:
+    """Period leftovers, unlocked sources, and constant inputs fail closed."""
+    period_on_identity = reference_payload()
+    _object_list(period_on_identity["indicators"]).append(
+        {"id": "px", "kind": "identity", "input": "close", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="identity parameters must be an empty object"):
+        StrategyDefinition.model_validate(period_on_identity)
+
+    bad_identity_input = reference_payload()
+    _object_list(bad_identity_input["indicators"]).append(
+        {
+            "id": "px",
+            "kind": "identity",
+            "input": ["high", "low", "close"],
+            "parameters": {},
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="identity input must be one of open, high, low, close, volume"
+    ):
+        StrategyDefinition.model_validate(bad_identity_input)
+
+    constant_with_input = reference_payload()
+    _object_list(constant_with_input["indicators"]).append(
+        {
+            "id": "rsi_level",
+            "kind": "constant",
+            "input": "close",
+            "parameters": {"value": "40"},
+        }
+    )
+    with pytest.raises(ValidationError, match="constant must omit input"):
+        StrategyDefinition.model_validate(constant_with_input)
+
+    period_on_constant = reference_payload()
+    _object_list(period_on_constant["indicators"]).append(
+        {"id": "rsi_level", "kind": "constant", "parameters": {"period": 14}}
+    )
+    with pytest.raises(ValidationError, match="constant parameters must declare value"):
+        StrategyDefinition.model_validate(period_on_constant)
+
+    empty_on_ema = reference_payload()
+    _object_list(empty_on_ema["indicators"]).append(
+        {"id": "ema_extra", "kind": "ema", "input": "close", "parameters": {}}
+    )
+    with pytest.raises(ValidationError, match="ema parameters must declare period"):
+        StrategyDefinition.model_validate(empty_on_ema)
+
+    crossover_literal = reference_payload()
+    entry = _object_mapping(crossover_literal["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "rsi"},
+                "operator": "crosses_above",
+                "right": {"literal": "40"},
+            }
+        ]
+    }
+    with pytest.raises(
+        ValidationError, match="crossover right operand must reference an indicator"
+    ):
+        StrategyDefinition.model_validate(crossover_literal)
+
+
+def test_identity_and_constant_require_one_warmup_bar() -> None:
+    """Identity and constant are defined on the first completed bar."""
+    payload = reference_payload()
+    payload["indicators"] = [
+        {"id": "px", "kind": "identity", "input": "close", "parameters": {}},
+        {"id": "rsi_level", "kind": "constant", "parameters": {"value": "40"}},
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "px"},
+                "operator": "greater_than",
+                "right": {"indicator": "rsi_level"},
+            }
+        ]
+    }
+    payload["data_requirements"] = {
+        "warmup_bars": 1,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(payload)
+
+    payload["data_requirements"]["warmup_bars"] = 2
+    definition = StrategyDefinition.model_validate(payload)
+    assert [indicator.kind.value for indicator in definition.indicators] == [
+        "identity",
+        "constant",
+        "atr",
+    ]
+
+
+def test_htf_filter_accepts_identity_and_constant() -> None:
+    """HTF filter may declare identity OHLCV and named levels on the HTF clock."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {"id": "htf_px", "kind": "identity", "input": "close", "parameters": {}},
+        {"id": "htf_level", "kind": "constant", "parameters": {"value": "0"}},
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_px"},
+                "operator": "greater_than",
+                "right": {"indicator": "htf_level"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "identity",
+        "constant",
     ]
 
 

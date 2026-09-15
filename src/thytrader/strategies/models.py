@@ -116,9 +116,24 @@ class DataRequirements(_FrozenModel):
 
 
 class IndicatorParameters(_FrozenModel):
-    """Bounded period parameters shared by the implemented indicator profile."""
+    """Bounded period parameters shared by the implemented rolling indicator profile."""
 
     period: int = Field(ge=2, le=500)
+
+
+class ConstantIndicatorParameters(_FrozenModel):
+    """Named finite level repeated on every completed bar."""
+
+    value: DecimalText
+
+
+class EmptyIndicatorParameters(_FrozenModel):
+    """No rolling or level parameters; used by identity OHLCV kinds."""
+
+
+IndicatorParameterBlock = (
+    IndicatorParameters | ConstantIndicatorParameters | EmptyIndicatorParameters
+)
 
 
 class IndicatorKind(StrEnum):
@@ -135,6 +150,8 @@ class IndicatorKind(StrEnum):
     ROC = "roc"
     WILLIAMS_R = "williams_r"
     CCI = "cci"
+    IDENTITY = "identity"
+    CONSTANT = "constant"
 
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
@@ -152,6 +169,8 @@ _SHORT_PERIOD_KINDS = frozenset(
     {IndicatorKind.RSI, IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI}
 )
 _LOOKBACK_WARMUP_KINDS = frozenset({IndicatorKind.RSI, IndicatorKind.ROC})
+_UNIT_WARMUP_KINDS = frozenset({IndicatorKind.IDENTITY, IndicatorKind.CONSTANT})
+_IDENTITY_INPUTS = frozenset({"open", "high", "low", "close", "volume"})
 
 
 class IndicatorDefinition(_FrozenModel):
@@ -160,18 +179,27 @@ class IndicatorDefinition(_FrozenModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     kind: IndicatorKind
     input: (
-        Literal["high", "low", "close", "volume"]
+        Literal["open", "high", "low", "close", "volume"]
         | tuple[
             Literal["high"],
             Literal["low"],
             Literal["close"],
         ]
-    )
-    parameters: IndicatorParameters
+        | None
+    ) = None
+    parameters: IndicatorParameterBlock
 
     @model_validator(mode="after")
     def validate_kind_period(self) -> Self:
         """Apply conservative V1 period bounds and locked inputs by indicator kind."""
+        if self.kind is IndicatorKind.IDENTITY:
+            _require_identity_indicator(self)
+            return self
+        if self.kind is IndicatorKind.CONSTANT:
+            _require_constant_indicator(self)
+            return self
+        if not isinstance(self.parameters, IndicatorParameters):
+            raise ValueError(f"{self.kind.value} parameters must declare period")  # noqa: TRY004
         maximum = 100 if self.kind in _SHORT_PERIOD_KINDS else 500
         if self.parameters.period > maximum:
             raise ValueError(f"{self.kind.name} period exceeds {maximum}")
@@ -302,19 +330,52 @@ def _require_bounded_condition_tree(condition: ConditionGroup) -> None:
         raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
 
 
+def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject identity kinds that carry rolling parameters or a non-OHLCV source."""
+    if not isinstance(indicator.parameters, EmptyIndicatorParameters):
+        raise ValueError("identity parameters must be an empty object")  # noqa: TRY004
+    if indicator.input not in _IDENTITY_INPUTS:
+        raise ValueError("identity input must be one of open, high, low, close, volume")
+
+
+def _require_constant_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject constant kinds that declare an OHLCV input or a period."""
+    if not isinstance(indicator.parameters, ConstantIndicatorParameters):
+        raise ValueError("constant parameters must declare value")  # noqa: TRY004
+    if indicator.input is not None:
+        raise ValueError("constant must omit input")
+
+
 def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
     """Return the closed-bar count required before one indicator produces a value."""
+    if indicator.kind in _UNIT_WARMUP_KINDS:
+        return 1
     extra = 1 if indicator.kind in _LOOKBACK_WARMUP_KINDS else 0
-    return indicator.parameters.period + extra
+    parameters = indicator.parameters
+    if not isinstance(parameters, IndicatorParameters):
+        raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
+    return parameters.period + extra
 
 
 def _indicator_input_fields(
     indicator: IndicatorDefinition,
 ) -> tuple[str, ...]:
     """Return the OHLCV fields one indicator consumes."""
-    if isinstance(indicator.input, str):
-        return (indicator.input,)
-    return indicator.input
+    source = indicator.input
+    if source is None:
+        return ()
+    if isinstance(source, str):
+        return (source,)
+    return source
+
+
+def _omit_absent_indicator_inputs(indicators: object) -> None:
+    """Drop null inputs so constant kinds omit the field from canonical JSON."""
+    if not isinstance(indicators, list):
+        return
+    for item in indicators:
+        if isinstance(item, dict) and item.get("input") is None:
+            item.pop("input", None)
 
 
 def _referenced_indicator_ids(condition: ConditionGroup) -> set[str]:
@@ -655,6 +716,10 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     payload = validated.model_dump(mode="json", by_alias=True)
     if payload.get("htf_filter") is None:
         payload.pop("htf_filter", None)
+    _omit_absent_indicator_inputs(payload.get("indicators"))
+    htf_filter = payload.get("htf_filter")
+    if isinstance(htf_filter, dict):
+        _omit_absent_indicator_inputs(htf_filter.get("indicators"))
     return json.dumps(
         payload,
         sort_keys=True,

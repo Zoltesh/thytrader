@@ -128,6 +128,18 @@ typical price and a population mean absolute deviation (chronological `abs(TP - 
 The Lambert product completes before the divide. A zero MAD yields undefined, not infinity. This is
 not a TA-library `cci`.
 
+### Identity
+
+`identity` copies one completed-bar OHLCV field: `open`, `high`, `low`, `close`, or `volume`. The
+first value is defined on the first supplied bar. Parameters are the empty object. This is not a
+rolling window and does not unlock SMA-of-open or other configurable rolling inputs.
+
+### Constant
+
+`constant` omits `input`. `parameters.value` is a finite plain decimal string using the same
+canonicalization as condition literals. Every completed bar repeats that exact value. The first
+value is defined on the first supplied bar.
+
 ### EMA
 
 EMA consumes close. The first value is the arithmetic mean of the first `period` closes. Later values

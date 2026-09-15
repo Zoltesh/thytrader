@@ -39,6 +39,7 @@ from thytrader.strategies.models import (
     ComparisonOperator,
     IndicatorKind,
     IndicatorOperand,
+    IndicatorParameters,
     LiteralOperand,
     NotCondition,
     StrategyDefinition,
@@ -1169,8 +1170,14 @@ def _ema_crossover_summary(definition: StrategyDefinition) -> str:
         right = indicators[condition.right.indicator]
         if left.kind is not IndicatorKind.EMA or right.kind is not IndicatorKind.EMA:
             continue
+        left_parameters = left.parameters
+        right_parameters = right.parameters
+        if not isinstance(left_parameters, IndicatorParameters) or not isinstance(
+            right_parameters, IndicatorParameters
+        ):
+            continue
         direction = "above" if condition.operator is ComparisonOperator.CROSSES_ABOVE else "below"
-        return f"EMA({left.parameters.period}) crosses {direction} EMA({right.parameters.period})"
+        return f"EMA({left_parameters.period}) crosses {direction} EMA({right_parameters.period})"
     return "EMA rules"
 
 

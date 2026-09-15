@@ -159,6 +159,8 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         "roc",
         "williams_r",
         "cci",
+        "identity",
+        "constant",
     }
     product_ids = {item["product_id"] for item in products.json()["payload"]["products"]}
     assert "ETH-USD" in product_ids

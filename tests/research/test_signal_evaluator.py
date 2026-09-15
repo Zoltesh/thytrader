@@ -31,6 +31,8 @@ from thytrader.research.trace import (
     signal_trace_fingerprint,
 )
 from thytrader.strategies.models import (
+    ConstantIndicatorParameters,
+    EmptyIndicatorParameters,
     IndicatorDefinition,
     IndicatorKind,
     IndicatorParameters,
@@ -604,6 +606,105 @@ def test_entry_conditions_can_reference_roc_williams_r_and_cci() -> None:
         "close_roc",
     ]
     assert all(record.indicator_values[1].value is not None for record in trace.records)
+
+
+def test_identity_and_constant_copy_fields_and_levels() -> None:
+    """Identity copies OHLCV; constant repeats the named level on every bar."""
+    indicators = (
+        IndicatorDefinition(
+            id="px",
+            kind=IndicatorKind.IDENTITY,
+            input="close",
+            parameters=EmptyIndicatorParameters(),
+        ),
+        IndicatorDefinition(
+            id="session_open",
+            kind=IndicatorKind.IDENTITY,
+            input="open",
+            parameters=EmptyIndicatorParameters(),
+        ),
+        IndicatorDefinition(
+            id="vol",
+            kind=IndicatorKind.IDENTITY,
+            input="volume",
+            parameters=EmptyIndicatorParameters(),
+        ),
+        IndicatorDefinition(
+            id="rsi_level",
+            kind=IndicatorKind.CONSTANT,
+            parameters=ConstantIndicatorParameters(value="40"),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("1.5"), Decimal("2"), Decimal("1"), Decimal("1"), Decimal("9")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("2.5"),
+            Decimal("3"),
+            Decimal("2"),
+            Decimal("2"),
+            Decimal("8"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("3.5"),
+            Decimal("4"),
+            Decimal("3"),
+            Decimal("4"),
+            Decimal("7"),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    assert [row["px"] for row in rows] == [Decimal("1"), Decimal("2"), Decimal("4")]
+    assert [row["session_open"] for row in rows] == [
+        Decimal("1.5"),
+        Decimal("2.5"),
+        Decimal("3.5"),
+    ]
+    assert [row["vol"] for row in rows] == [Decimal("9"), Decimal("8"), Decimal("7")]
+    assert [row["rsi_level"] for row in rows] == [Decimal("40"), Decimal("40"), Decimal("40")]
+    assert [row["px"] for row in prefix_rows] == [Decimal("1"), Decimal("2")]
+    assert prefix_rows[-1]["rsi_level"] == Decimal("40")
+
+
+def test_entry_conditions_can_cross_identity_and_constant() -> None:
+    """Close-vs-SMA and RSI-vs-level crossovers use identity and constant ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        {"id": "px", "kind": "identity", "input": "close", "parameters": {}},
+        {"id": "rsi_level", "kind": "constant", "parameters": {"value": "0"}},
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "px"},
+                "operator": "crosses_above",
+                "right": {"indicator": "sma"},
+            },
+            {
+                "left": {"indicator": "px"},
+                "operator": "greater_than",
+                "right": {"indicator": "rsi_level"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
+
+    assert [record.indicator_values[1].indicator_id for record in trace.records] == ["px", "px"]
+    assert [record.indicator_values[1].value for record in trace.records] == ["4", "1"]
+    assert [record.indicator_values[2].value for record in trace.records] == ["0", "0"]
 
 
 def test_engine_decimal_results_ignore_ambient_decimal_precision() -> None:

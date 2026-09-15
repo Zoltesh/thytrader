@@ -8,6 +8,7 @@ import {
 	paperLiveStatusLabel,
 	paperLiveStatusTitle,
 	researchWindowHint,
+	serializeIndicator,
 	validHtfTimeframes
 } from './strategies';
 
@@ -117,8 +118,28 @@ describe('indicator kind picker', () => {
 			'stdev',
 			'roc',
 			'williams_r',
-			'cci'
+			'cci',
+			'identity',
+			'constant'
 		]);
 		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).not.toContain('macd');
+	});
+
+	it('serializes identity without period and constant without input', () => {
+		expect(
+			serializeIndicator({
+				id: 'px',
+				kind: 'identity',
+				input: 'close',
+				parameters: {}
+			})
+		).toEqual({ id: 'px', kind: 'identity', input: 'close', parameters: {} });
+		expect(
+			serializeIndicator({
+				id: 'rsi_level',
+				kind: 'constant',
+				parameters: { value: '40' }
+			})
+		).toEqual({ id: 'rsi_level', kind: 'constant', parameters: { value: '40' } });
 	});
 });

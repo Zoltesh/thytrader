@@ -61,6 +61,8 @@ def test_operator_local_indicators_and_products_are_healthy(
         "roc",
         "williams_r",
         "cci",
+        "identity",
+        "constant",
     }
     by_kind = {item["kind"]: item for item in indicators["payload"]["indicators"]}
     assert by_kind["highest"]["inputs"] == ["high"]
@@ -74,6 +76,11 @@ def test_operator_local_indicators_and_products_are_healthy(
     assert by_kind["williams_r"]["period_max"] == 100
     assert by_kind["cci"]["inputs"] == ["high", "low", "close"]
     assert by_kind["cci"]["period_max"] == 100
+    assert by_kind["identity"]["inputs"] == ["open", "high", "low", "close", "volume"]
+    assert by_kind["identity"]["parameter_kind"] == "none"
+    assert by_kind["identity"]["period_min"] is None
+    assert by_kind["constant"]["inputs"] == []
+    assert by_kind["constant"]["parameter_kind"] == "value"
 
     with pytest.raises(SystemExit) as raised:
         main(["--local", "products"])

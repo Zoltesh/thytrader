@@ -106,7 +106,9 @@ export type StrategyCreatedResponse = {
 
 export type DraftVersionResponse = { strategy: StrategyDraft; revision: number };
 
-export type IndicatorInput = 'close' | 'volume' | 'high' | 'low' | ['high', 'low', 'close'];
+export type IdentityInput = 'open' | 'high' | 'low' | 'close' | 'volume';
+
+export type IndicatorInput = IdentityInput | ['high', 'low', 'close'];
 
 export type IndicatorKindValue =
 	| 'ema'
@@ -119,7 +121,9 @@ export type IndicatorKindValue =
 	| 'stdev'
 	| 'roc'
 	| 'williams_r'
-	| 'cci';
+	| 'cci'
+	| 'identity'
+	| 'constant';
 
 export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label: string }[] = [
 	{ kind: 'ema', label: 'EMA' },
@@ -132,14 +136,28 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'stdev', label: 'Stdev' },
 	{ kind: 'roc', label: 'ROC' },
 	{ kind: 'williams_r', label: 'Williams %R' },
-	{ kind: 'cci', label: 'CCI' }
+	{ kind: 'cci', label: 'CCI' },
+	{ kind: 'identity', label: 'OHLCV' },
+	{ kind: 'constant', label: 'Constant' }
 ];
+
+export const IDENTITY_INPUT_OPTIONS: readonly { value: IdentityInput; label: string }[] = [
+	{ value: 'open', label: 'Open' },
+	{ value: 'high', label: 'High' },
+	{ value: 'low', label: 'Low' },
+	{ value: 'close', label: 'Close' },
+	{ value: 'volume', label: 'Volume' }
+];
+
+const IDENTITY_INPUTS: readonly IdentityInput[] = IDENTITY_INPUT_OPTIONS.map(
+	(option) => option.value
+);
 
 export type IndicatorDraft = {
 	id: string;
 	kind: IndicatorKindValue;
-	input: IndicatorInput;
-	parameters: { period: number };
+	input?: IndicatorInput;
+	parameters: { period?: number; value?: string };
 };
 
 export type ComparisonOperatorValue =
@@ -216,6 +234,74 @@ const TIMEFRAME_SECONDS: Record<string, number> = {
 };
 
 const HTF_TIMEFRAMES = ['15m', '30m', '1h', '6h', '1d'] as const;
+
+function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
+	if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
+		return ['high', 'low', 'close'];
+	}
+	if (kind === 'volume_sma') return 'volume';
+	if (kind === 'highest') return 'high';
+	if (kind === 'lowest') return 'low';
+	return 'close';
+}
+
+function indicatorPeriodMax(kind: IndicatorKindValue): number {
+	return kind === 'rsi' || kind === 'atr' || kind === 'williams_r' || kind === 'cci' ? 100 : 500;
+}
+
+/** Align one builder indicator with the kind's locked input and parameter shape. */
+export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
+	if (indicator.kind === 'identity') {
+		indicator.input = IDENTITY_INPUTS.includes(indicator.input as IdentityInput)
+			? (indicator.input as IdentityInput)
+			: 'close';
+		indicator.parameters = {};
+		return;
+	}
+	if (indicator.kind === 'constant') {
+		const previous = indicator.parameters.value;
+		delete indicator.input;
+		indicator.parameters = {
+			value: previous !== undefined && previous.length > 0 ? previous : '50'
+		};
+		return;
+	}
+	indicator.input = lockedIndicatorInput(indicator.kind);
+	const previousPeriod = indicator.parameters.period;
+	const maximum = indicatorPeriodMax(indicator.kind);
+	const period =
+		typeof previousPeriod === 'number' && Number.isInteger(previousPeriod) && previousPeriod >= 2
+			? Math.min(previousPeriod, maximum)
+			: 50;
+	indicator.parameters = { period };
+}
+
+/** Canonical indicator payload for draft save/publish. */
+export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
+	if (indicator.kind === 'constant') {
+		return {
+			id: indicator.id,
+			kind: 'constant',
+			parameters: { value: indicator.parameters.value ?? '0' }
+		};
+	}
+	if (indicator.kind === 'identity') {
+		return {
+			id: indicator.id,
+			kind: 'identity',
+			input: IDENTITY_INPUTS.includes(indicator.input as IdentityInput)
+				? (indicator.input as IdentityInput)
+				: 'close',
+			parameters: {}
+		};
+	}
+	return {
+		id: indicator.id,
+		kind: indicator.kind,
+		input: indicator.input ?? lockedIndicatorInput(indicator.kind),
+		parameters: { period: indicator.parameters.period ?? 2 }
+	};
+}
 
 /**
  * Return HTF clocks that are strictly coarser integer multiples of the LTF decision clock.
@@ -452,7 +538,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			warmup_bars: model.warmup_bars,
 			required_fields: ['open', 'high', 'low', 'close', 'volume']
 		},
-		indicators: model.indicators,
+		indicators: model.indicators.map(serializeIndicator),
 		...(model.htf_filter === null
 			? {}
 			: {
@@ -462,7 +548,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 							warmup_bars: model.htf_filter.warmup_bars,
 							required_fields: ['open', 'high', 'low', 'close', 'volume']
 						},
-						indicators: model.htf_filter.indicators,
+						indicators: model.htf_filter.indicators.map(serializeIndicator),
 						when: model.htf_filter.when
 					}
 				}),

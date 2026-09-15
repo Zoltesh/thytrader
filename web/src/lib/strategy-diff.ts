@@ -78,7 +78,15 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 }
 
 function indicatorText(indicator: IndicatorDraft): string {
-	return `${KIND_LABELS[indicator.kind]}(${indicator.parameters.period}) as "${indicator.id}"`;
+	const label = KIND_LABELS[indicator.kind] ?? indicator.kind;
+	if (indicator.kind === 'identity') {
+		const source = typeof indicator.input === 'string' ? indicator.input : 'close';
+		return `${label}(${source}) as "${indicator.id}"`;
+	}
+	if (indicator.kind === 'constant') {
+		return `${label}(${indicator.parameters.value ?? '0'}) as "${indicator.id}"`;
+	}
+	return `${label}(${indicator.parameters.period}) as "${indicator.id}"`;
 }
 
 function diffIndicators(
