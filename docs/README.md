@@ -13,11 +13,11 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Security and trading-risk baseline](security-and-risk.md)
-- [Delivery roadmap](roadmap.md) — Phases 0–8 shipped slice (Phase 8 = research HTF filter); **Phase 9 first three indicator slices shipped** (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`, then `identity`/`constant`); **Phases 9 remaining–14** next for iterative Builder work
+- [Delivery roadmap](roadmap.md) — Phases 0–8 shipped slice (Phase 8 = research HTF filter); **Phase 9 first four indicator slices shipped** (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`, `identity`/`constant`, then `wma`/`momentum`/`mfi`); **Phases 9 remaining–14** next for iterative Builder work
 - [Agent/operator integration](agent-integration.md)
 - [Architecture decision records](decisions/README.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) — **historical** running-instance evidence against the 5m research–paper plan; stale Compose, 14-day clip, v3 422, and 5m paper 409 are closed by ADRs 0019, 0017/0018, and 0024
-- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, and Phase 9 first three indicator slices are shipped; later phases are not)
+- [Agent-driven platform gap plan (2026-09-12)](plans/2026-09-12-agent-driven-platform-gap-plan.md) — accepted as roadmap Phases 7–14 (Phase 7 datasets, Phase 7.1 research fees, Phase 8 research HTF filter, and Phase 9 first four indicator slices are shipped; later phases are not)
 - [Fee-tier suggested defaults (2026-09-13)](plans/2026-09-13-fee-tier-research-defaults.md) — **shipped** Phase 7.1 research maker/taker prefill (paper deploy has no cost fields)
 
 ## Document roles

@@ -128,6 +128,37 @@ typical price and a population mean absolute deviation (chronological `abs(TP - 
 The Lambert product completes before the divide. A zero MAD yields undefined, not infinity. This is
 not a TA-library `cci`.
 
+### WMA
+
+`wma` consumes close. The first value is defined after exactly `period` observations. Oldest weight
+is `1` and newest weight is `period`. Each value left-folds `value * weight`, left-folds the weights,
+then divides:
+
+`wma = sum(close[i] * (i + 1)) / (period * (period + 1) / 2)`
+
+This is not a TA-library `wma`.
+
+### Momentum
+
+`momentum` consumes close. The first value is defined after `period + 1` closes because the lookback
+is exactly `period` completed bars ago, matching ROC. Each defined value is:
+
+`momentum = close - close[period]`
+
+A zero lookback close is a defined difference. This is not a TA-library `mom`.
+
+### MFI
+
+`mfi` consumes high, low, close, and volume. Typical price is `(high + low + close) / 3`. Raw money
+flow is `TP * volume`. The first value is defined after `period + 1` bars because each of the last
+`period` bars is signed against the immediately previous typical price: greater adds to positive
+money flow, less adds to negative, equal adds to neither. Each defined value is:
+
+`mfi = 100 * positive / (positive + negative)`
+
+The sum completes before the divide. A zero total yields undefined, not `50` or `100`. An all-positive
+window is `100`; an all-negative window is `0`. This is not a TA-library `mfi`.
+
 ### Identity
 
 `identity` copies one completed-bar OHLCV field: `open`, `high`, `low`, `close`, or `volume`. The

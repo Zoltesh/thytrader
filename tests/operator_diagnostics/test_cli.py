@@ -61,6 +61,9 @@ def test_operator_local_indicators_and_products_are_healthy(
         "roc",
         "williams_r",
         "cci",
+        "wma",
+        "momentum",
+        "mfi",
         "identity",
         "constant",
     }
@@ -76,6 +79,12 @@ def test_operator_local_indicators_and_products_are_healthy(
     assert by_kind["williams_r"]["period_max"] == 100
     assert by_kind["cci"]["inputs"] == ["high", "low", "close"]
     assert by_kind["cci"]["period_max"] == 100
+    assert by_kind["wma"]["inputs"] == ["close"]
+    assert by_kind["wma"]["period_max"] == 500
+    assert by_kind["momentum"]["inputs"] == ["close"]
+    assert by_kind["momentum"]["period_max"] == 500
+    assert by_kind["mfi"]["inputs"] == ["high", "low", "close", "volume"]
+    assert by_kind["mfi"]["period_max"] == 100
     assert by_kind["identity"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["identity"]["parameter_kind"] == "none"
     assert by_kind["identity"]["period_min"] is None

@@ -152,6 +152,9 @@ class IndicatorKind(StrEnum):
     CCI = "cci"
     IDENTITY = "identity"
     CONSTANT = "constant"
+    WMA = "wma"
+    MOMENTUM = "momentum"
+    MFI = "mfi"
 
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
@@ -163,12 +166,23 @@ _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volum
     IndicatorKind.LOWEST: "low",
     IndicatorKind.STDEV: "close",
     IndicatorKind.ROC: "close",
+    IndicatorKind.WMA: "close",
+    IndicatorKind.MOMENTUM: "close",
 }
 _HLC_INPUT_KINDS = frozenset({IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI})
+_HLCV_INPUT_KINDS = frozenset({IndicatorKind.MFI})
 _SHORT_PERIOD_KINDS = frozenset(
-    {IndicatorKind.RSI, IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI}
+    {
+        IndicatorKind.RSI,
+        IndicatorKind.ATR,
+        IndicatorKind.WILLIAMS_R,
+        IndicatorKind.CCI,
+        IndicatorKind.MFI,
+    }
 )
-_LOOKBACK_WARMUP_KINDS = frozenset({IndicatorKind.RSI, IndicatorKind.ROC})
+_LOOKBACK_WARMUP_KINDS = frozenset(
+    {IndicatorKind.RSI, IndicatorKind.ROC, IndicatorKind.MOMENTUM, IndicatorKind.MFI}
+)
 _UNIT_WARMUP_KINDS = frozenset({IndicatorKind.IDENTITY, IndicatorKind.CONSTANT})
 _IDENTITY_INPUTS = frozenset({"open", "high", "low", "close", "volume"})
 
@@ -185,6 +199,12 @@ class IndicatorDefinition(_FrozenModel):
             Literal["low"],
             Literal["close"],
         ]
+        | tuple[
+            Literal["high"],
+            Literal["low"],
+            Literal["close"],
+            Literal["volume"],
+        ]
         | None
     ) = None
     parameters: IndicatorParameterBlock
@@ -198,22 +218,7 @@ class IndicatorDefinition(_FrozenModel):
         if self.kind is IndicatorKind.CONSTANT:
             _require_constant_indicator(self)
             return self
-        if not isinstance(self.parameters, IndicatorParameters):
-            raise ValueError(f"{self.kind.value} parameters must declare period")  # noqa: TRY004
-        maximum = 100 if self.kind in _SHORT_PERIOD_KINDS else 500
-        if self.parameters.period > maximum:
-            raise ValueError(f"{self.kind.name} period exceeds {maximum}")
-        if self.kind in _HLC_INPUT_KINDS:
-            if self.input != ("high", "low", "close"):
-                if self.kind is IndicatorKind.ATR:
-                    raise ValueError("ATR input must be high, low, close in canonical order")
-                raise ValueError(
-                    f"{self.kind.value} input must be high, low, close in canonical order"
-                )
-            return self
-        expected = _SINGLE_SOURCE_INPUT[self.kind]
-        if self.input != expected:
-            raise ValueError(f"{self.kind.value} input must be {expected}")
+        _require_period_indicator(self)
         return self
 
 
@@ -344,6 +349,37 @@ def _require_constant_indicator(indicator: IndicatorDefinition) -> None:
         raise ValueError("constant parameters must declare value")  # noqa: TRY004
     if indicator.input is not None:
         raise ValueError("constant must omit input")
+
+
+def _require_period_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject period kinds with the wrong parameter object, bounds, or locked source."""
+    if not isinstance(indicator.parameters, IndicatorParameters):
+        raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
+    maximum = 100 if indicator.kind in _SHORT_PERIOD_KINDS else 500
+    if indicator.parameters.period > maximum:
+        raise ValueError(f"{indicator.kind.name} period exceeds {maximum}")
+    _require_locked_source(indicator)
+
+
+def _require_locked_source(indicator: IndicatorDefinition) -> None:
+    """Reject period kinds whose input is not the registry-locked OHLCV source."""
+    if indicator.kind in _HLC_INPUT_KINDS:
+        if indicator.input != ("high", "low", "close"):
+            if indicator.kind is IndicatorKind.ATR:
+                raise ValueError("ATR input must be high, low, close in canonical order")
+            raise ValueError(
+                f"{indicator.kind.value} input must be high, low, close in canonical order"
+            )
+        return
+    if indicator.kind in _HLCV_INPUT_KINDS:
+        if indicator.input != ("high", "low", "close", "volume"):
+            raise ValueError(
+                f"{indicator.kind.value} input must be high, low, close, volume in canonical order"
+            )
+        return
+    expected = _SINGLE_SOURCE_INPUT[indicator.kind]
+    if indicator.input != expected:
+        raise ValueError(f"{indicator.kind.value} input must be {expected}")
 
 
 def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:

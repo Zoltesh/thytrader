@@ -1109,6 +1109,164 @@ def test_htf_filter_accepts_identity_and_constant() -> None:
     ]
 
 
+def test_strategy_accepts_wma_momentum_and_mfi_with_locked_inputs() -> None:
+    """Phase 9 slice 4 kinds publish with registry-locked sources and period bounds."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {"id": "close_wma", "kind": "wma", "input": "close", "parameters": {"period": 20}},
+            {
+                "id": "close_mom",
+                "kind": "momentum",
+                "input": "close",
+                "parameters": {"period": 20},
+            },
+            {
+                "id": "mfi_14",
+                "kind": "mfi",
+                "input": ["high", "low", "close", "volume"],
+                "parameters": {"period": 14},
+            },
+        )
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 250,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "close_wma"},
+                "operator": "greater_than",
+                "right": {"indicator": "close_mom"},
+            },
+            {
+                "left": {"indicator": "mfi_14"},
+                "operator": "greater_than",
+                "right": {"literal": "50"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["close_wma"].kind.value == "wma"
+    assert by_id["close_wma"].input == "close"
+    assert by_id["close_mom"].kind.value == "momentum"
+    assert by_id["close_mom"].input == "close"
+    assert by_id["mfi_14"].kind.value == "mfi"
+    assert by_id["mfi_14"].input == ("high", "low", "close", "volume")
+
+
+def test_wma_momentum_and_mfi_reject_wrong_sources_and_period_bounds() -> None:
+    """Unlocked inputs and MFI periods above 100 fail closed."""
+    wrong_wma = reference_payload()
+    _object_list(wrong_wma["indicators"]).append(
+        {"id": "close_wma", "kind": "wma", "input": "high", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="wma input must be close"):
+        StrategyDefinition.model_validate(wrong_wma)
+
+    wrong_mom = reference_payload()
+    _object_list(wrong_mom["indicators"]).append(
+        {"id": "close_mom", "kind": "momentum", "input": "volume", "parameters": {"period": 20}}
+    )
+    with pytest.raises(ValidationError, match="momentum input must be close"):
+        StrategyDefinition.model_validate(wrong_mom)
+
+    wrong_mfi = reference_payload()
+    _object_list(wrong_mfi["indicators"]).append(
+        {
+            "id": "mfi_14",
+            "kind": "mfi",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 14},
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="mfi input must be high, low, close, volume in canonical order"
+    ):
+        StrategyDefinition.model_validate(wrong_mfi)
+
+    long_mfi = reference_payload()
+    _object_list(long_mfi["indicators"]).append(
+        {
+            "id": "mfi_14",
+            "kind": "mfi",
+            "input": ["high", "low", "close", "volume"],
+            "parameters": {"period": 101},
+        }
+    )
+    with pytest.raises(ValidationError, match="MFI period exceeds 100"):
+        StrategyDefinition.model_validate(long_mfi)
+
+
+def test_momentum_and_mfi_lookback_contribute_an_extra_warmup_bar() -> None:
+    """Momentum and MFI need period + 1 closed bars before the first defined value."""
+    payload = reference_payload()
+    _object_list(payload["indicators"]).extend(
+        (
+            {"id": "close_mom", "kind": "momentum", "input": "close", "parameters": {"period": 50}},
+            {
+                "id": "mfi_14",
+                "kind": "mfi",
+                "input": ["high", "low", "close", "volume"],
+                "parameters": {"period": 50},
+            },
+        )
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(payload)
+
+    payload["data_requirements"] = {
+        "warmup_bars": 51,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    StrategyDefinition.model_validate(payload)
+
+
+def test_htf_filter_accepts_wma_momentum_and_mfi() -> None:
+    """HTF filter may declare the Phase 9 slice 4 kinds on the HTF clock."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {"id": "htf_wma", "kind": "wma", "input": "close", "parameters": {"period": 20}},
+        {"id": "htf_mom", "kind": "momentum", "input": "close", "parameters": {"period": 20}},
+        {
+            "id": "htf_mfi",
+            "kind": "mfi",
+            "input": ["high", "low", "close", "volume"],
+            "parameters": {"period": 14},
+        },
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_wma"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "wma",
+        "momentum",
+        "mfi",
+    ]
+
+
 def test_strategy_identity_helpers_revalidate_copied_models() -> None:
     """Canonical strategy identities reject instances forged by unchecked model copies."""
     strategy = StrategyDefinition.model_validate(reference_payload())
