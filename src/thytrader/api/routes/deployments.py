@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
+    get_risk_policy_store,
     get_runtime_state,
     get_strategy_publication_store,
 )
@@ -34,6 +35,7 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.publication import StrategyPublicationStore  # noqa: TC001
 
@@ -124,6 +126,7 @@ async def post_deployment(
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
 ) -> DeploymentResponse:
     """Create a running paper or live deployment without waiting for the worker."""
     try:
@@ -134,6 +137,7 @@ async def post_deployment(
             mode=body.mode,
             paper_starting_cash=parse_decimal(body.paper_starting_cash),
             live_allowed=runtime.settings.coinbase_api_key_name is not None,
+            risk_store=risk_store,
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

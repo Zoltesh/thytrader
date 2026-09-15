@@ -15,15 +15,21 @@ from thytrader.runtime_control.client import (
     RuntimeControlError,
     list_deployments,
     set_deployment_status,
+    set_risk_policy,
     show_deployment,
+    show_risk_policy,
     start_deployment,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_CONFIRM_HELP = "Required for mutations. Live start also requires --i-understand-live."
+_CONFIRM_HELP = (
+    "Required for mutations. Live start also requires --i-understand-live. "
+    "Publishing a risk policy requires --confirm only; it does not arm live trading."
+)
 _LIVE_HELP = "Required with --confirm to start live trading. Live spends real money."
+_ALLOCATION_HELP = "Optional strategy_id:allocated_quote reservation. Repeatable."
 
 
 def _shared_options() -> argparse.ArgumentParser:
@@ -44,9 +50,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",
         description=(
-            "Start, pause, resume, or stop paper and live deployments through the "
-            "loopback HTTP API. Mutations require --confirm. Live start also "
-            "requires --i-understand-live. This is not the operator or research CLI."
+            "Start, pause, resume, or stop paper and live deployments, and publish "
+            "the risk-policy registry, through the loopback HTTP API. Mutations "
+            "require --confirm. Live start also requires --i-understand-live. "
+            "This is not the operator or research CLI."
         ),
         parents=[shared],
     )
@@ -76,6 +83,34 @@ def _parser() -> argparse.ArgumentParser:
         )
         command.add_argument("deployment_id", help="Deployment UUID.")
         command.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    subparsers.add_parser(
+        "show-risk-policy",
+        parents=[trailing],
+        help="Show the effective compiled or published risk policy.",
+    )
+    set_policy = subparsers.add_parser(
+        "set-risk-policy",
+        parents=[trailing],
+        help="Publish a new immutable risk-policy version.",
+    )
+    set_policy.add_argument(
+        "--product-allowlist",
+        action="append",
+        default=[],
+        help="Optional BASE-USD product. Repeatable. Empty means no extra restriction.",
+    )
+    set_policy.add_argument("--max-concurrent-running-deployments", type=int, required=True)
+    set_policy.add_argument("--max-concurrent-open-positions", type=int, required=True)
+    set_policy.add_argument("--max-portfolio-exposure-fraction", required=True)
+    set_policy.add_argument("--per-product-max-exposure-fraction", required=True)
+    set_policy.add_argument("--paper-capital-quote", required=True)
+    set_policy.add_argument(
+        "--allocation",
+        action="append",
+        default=[],
+        help=_ALLOCATION_HELP,
+    )
+    set_policy.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -83,8 +118,8 @@ def _require_confirm(confirm: bool) -> None:
     """Refuse mutations unless the operator passed an explicit confirmation flag."""
     if not confirm:
         raise RuntimeControlError(
-            "Pass --confirm to change paper or live runtimes. "
-            "Live start also requires --i-understand-live."
+            "Pass --confirm to change paper or live runtimes or the risk-policy "
+            "registry. Live start also requires --i-understand-live."
         )
 
 
@@ -129,7 +164,35 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         _require_confirm(arguments.confirm)
         require_matching_ops_contract(base_url)
         return set_deployment_status(base_url, arguments.deployment_id, command)
+    if command == "show-risk-policy":
+        require_matching_ops_contract(base_url)
+        return show_risk_policy(base_url)
+    if command == "set-risk-policy":
+        _require_confirm(arguments.confirm)
+        require_matching_ops_contract(base_url)
+        return set_risk_policy(base_url, _risk_policy_payload(arguments))
     raise AssertionError(f"unsupported runtime command: {command}")
+
+
+def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
+    """Map CLI flags onto the HTTP write body."""
+    return {
+        "product_allowlist": tuple(arguments.product_allowlist),
+        "max_concurrent_running_deployments": arguments.max_concurrent_running_deployments,
+        "max_concurrent_open_positions": arguments.max_concurrent_open_positions,
+        "max_portfolio_exposure_fraction": arguments.max_portfolio_exposure_fraction,
+        "per_product_max_exposure_fraction": arguments.per_product_max_exposure_fraction,
+        "paper_capital_quote": arguments.paper_capital_quote,
+        "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
+    }
+
+
+def _parse_allocation(value: str) -> dict[str, str]:
+    """Parse one strategy_id:allocated_quote reservation."""
+    strategy_id, separator, allocated_quote = value.partition(":")
+    if separator != ":" or not strategy_id or not allocated_quote:
+        raise RuntimeControlError("Allocations must be strategy_id:allocated_quote.")
+    return {"strategy_id": strategy_id, "allocated_quote": allocated_quote}
 
 
 def _paper_cash(*, mode: str, cash: str | None) -> str | None:

@@ -170,7 +170,7 @@ source:
 - [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
   backtests only, with `--confirm` on every mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
-  resume, and stop, with `--confirm` (live also `--i-understand-live`).
+  resume, stop, and risk-policy publication, with `--confirm` (live start also `--i-understand-live`).
 
 Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests while operating a running
 instance. Report skill/CLI failures. Run `make run` only if the user asked to rebuild or restart, or

@@ -17,6 +17,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
+from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.authoring import (
     StrategyDraftStore,
@@ -164,6 +165,15 @@ def get_execution_store(request: Request) -> ExecutionStore:
     store = getattr(request.app.state, "execution_store", None)
     if not isinstance(store, ExecutionStore):
         message = "Execution store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_risk_policy_store(request: Request) -> RiskPolicyStore:
+    """Return the risk-policy registry attached during app startup."""
+    store = getattr(request.app.state, "risk_policy_store", None)
+    if not isinstance(store, RiskPolicyStore):
+        message = "Risk-policy store is unavailable."
         raise TypeError(message)
     return store
 

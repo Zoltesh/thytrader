@@ -7,19 +7,20 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: Phase 10, then 11+ (iterative)
+## Current delivery focus: Phase 11, then 12+ (iterative)
 
 Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h,
 operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
 five catalog slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
 `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`) are shipped.
+Phase 10's risk-policy registry and concurrent single-instrument paper/live are shipped.
 Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
-Builder should implement the next unshipped Phase 10+ slice in order**, one vertical increment
+Builder should implement the next unshipped Phase 11+ slice in order**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not inserted ahead of Phase 10 → 14**: remaining
+Destination items that are **accepted but not inserted ahead of Phase 11 → 14**: remaining
 Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
 then strategy/paper/live clocks; on-demand trades with SL/TP; agent journals, sentiment, and
 notify. See [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
@@ -67,7 +68,7 @@ completeness from full watch coverage.
 
 Remaining Coinbase-listed granularities (`1m`, `2h`, and any interval Coinbase adds later) are
 **destination** datasets-then-clocks ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
-They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 10 → 14.
+They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 11 → 14.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -132,11 +133,24 @@ warmup and no-lookahead rules.
 implemented in the registry and evaluator, referenced from conditions/crossovers, and listed
 honestly in the operator catalog and engine-support matrix.
 
-## Phase 10: Portfolio + risk-policy registry — 📋 Planned
+## Phase 10: Portfolio + risk-policy registry — ✅ Shipped
 
-Multi-position and cross-strategy exposure / capital allocation beyond one instrument and
-`max_concurrent_positions = 1`. Destination: deploy **single-asset and multi-asset** strategies to
-paper or live ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
+Typed `thytrader-risk-policy-v1` registry with capital allocation and concurrent single-instrument
+paper/live under one policy ([ADR 0033](decisions/0033-phase-10-risk-policy-registry.md)). Strategy
+documents stay `max_concurrent_positions = 1`; multi-asset here means concurrent deployments of
+those documents, not a multi-instrument strategy schema. Compiled default: empty allowlist and
+allocations, eight running slots and eight open positions per mode, unit exposure fractions, and
+`paper_capital_quote` `100000`. Operator `risk` reports `risk_policy_registry: available`. Entries
+are gated before intent persist; exits are not. Denied entries skip the bar.
+
+**Exit gate met:** two published single-instrument strategies can run paper together when the
+policy has spare slots, capital, and allowlist room; operator risk is available; runtime
+`set-risk-policy --confirm` publishes an immutable version; ops contract is
+`thytrader-ops-contract-v7` / Alembic `0021`.
+
+Destination still includes on-demand trades, intra-strategy pyramiding, multi-instrument strategy
+documents, daily-loss/drawdown circuit breakers, `1m`/`2h` clocks, journals, and notify
+([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
 
 ## Phase 11: Research rigor tooling — 📋 Planned
 
@@ -179,13 +193,13 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Capability | Shipped today | Destination |
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
-| Portfolio | Balances, valuation history, fees | Positions/exposure across strategies (Phase 10) |
+| Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
 | On-demand trades with SL/TP | No; strategy deploy only | Yes, via order intent + risk ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)) |
 | Dataset TFs | 5m, 15m, 30m, 1h, 6h, 1d complete-only | Those plus **1m**, **2h**, and any Coinbase-listed interval |
 | Strategy / paper / live clocks | `1h`\|`5m` (live `1h`) | Same clocks as ingested venue TFs, each widened by ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
 | Research | Single-instrument backtests; HTF filter in research | Cross-market analysis; walk-forward / OOS (Phase 11) |
-| Deploy | One published fingerprint, one instrument | **Single-asset and multi-asset** paper/live (Phase 10) |
+| Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Four lane-separated skills | Primary surface complete: research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030) |
 
@@ -333,7 +347,7 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
   economic regression to V1. V1 result bytes remain loadable/reverifiable unchanged; V2 is not
   observed order-book data or a live-fill prediction.
 - Conservative bar-level broker with latency, rejection, partial-fill, and maker-limit models.
-- Multi-position and cross-strategy portfolio/risk policy integration.
+- ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later.
 - Trailing-stop state machine when the schema and market-data resolution support it.
 - Out-of-sample and walk-forward workflow.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).

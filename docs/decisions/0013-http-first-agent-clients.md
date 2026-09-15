@@ -27,6 +27,9 @@ Paper and live HTTP control already existed for the browser Deploy tab. Agents s
 - Paper/live control is justified as a distinct confirmation-gated surface because the browser already exposes those mutations and agents otherwise invent unsafe shortcuts.
 - Operator and research skills still have no trading authority.
 - Live arming remains an explicit dual-flag action.
+- Phase 10 adds `GET`/`PUT /api/v1/risk-policy` and `thytrader-runtime show-risk-policy` /
+  `set-risk-policy --confirm` ([ADR 0033](0033-phase-10-risk-policy-registry.md)). Deployment
+  mutations stay on `/api/v1/deployments`. Risk-policy publication does not arm live trading.
 
 ## Alternatives considered
 

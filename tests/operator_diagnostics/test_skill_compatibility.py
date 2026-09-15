@@ -92,6 +92,9 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "start" in skill
     assert "pause" in skill
     assert "/api/v1/deployments" in skill
+    assert "show-risk-policy" in skill
+    assert "set-risk-policy" in skill
+    assert "/api/v1/risk-policy" in skill
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
     assert "do not edit" in skill.lower()
     assert "make run" in skill

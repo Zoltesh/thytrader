@@ -44,7 +44,24 @@ Disarming blocks new risk-increasing orders. Emergency exits and cancellation be
 
 Risk controls are composable, independently testable policies with typed configuration and stable reason codes.
 
-### Pre-trade
+### Shipped (Phase 10)
+
+`thytrader-risk-policy-v1` is the named Phase 10 registry ([ADR 0033](decisions/0033-phase-10-risk-policy-registry.md)).
+It gates paper and live **entries** (not exits) with:
+
+- product allowlist (empty means no extra restriction);
+- concurrent running-deployment and open-position caps per mode (paused occupies a running slot;
+  open, pending-entry, and pending-exit occupy an open slot);
+- portfolio and per-product exposure fractions of the mode capital base;
+- paper book `paper_capital_quote` and optional per-strategy `allocations`.
+
+Compiled default when no published row is active: eight running slots and eight open positions per
+mode, unit exposure fractions, empty allowlist/allocations, paper book `100000`. Operator `risk`
+reports `available` and omits account balances. Daily-loss / drawdown circuit breakers, order-rate
+limits, reference-price collars, and on-demand order risk remain destination — they are listed
+below so the full catalog is visible, not claimed as shipped.
+
+### Pre-trade (destination catalog)
 
 - maximum order quantity and notional;
 - maximum position and portfolio exposure;

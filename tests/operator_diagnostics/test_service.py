@@ -165,3 +165,17 @@ def test_health_reports_missing_and_fresh_heartbeats() -> None:
     missing_code, ready_code = asyncio.run(_scenario())
     assert missing_code == "HEARTBEAT_MISSING"
     assert ready_code == "READY"
+
+
+def test_risk_report_is_available_without_dollar_amounts() -> None:
+    """Operator risk uses the compiled registry and omits balances."""
+    report = asyncio.run(_diagnostics().risk())
+    assert report.report_kind == "risk"
+    assert report.payload.risk_policy_registry == "available"
+    assert report.payload.policy_source == "compiled_default"
+    assert report.payload.policy_fingerprint.startswith("sha256:")
+    assert report.payload.max_concurrent_running_deployments == 8
+    dumped = report.model_dump(mode="json")
+    assert "paper_capital_quote" not in dumped
+    assert "cash" not in dumped
+    assert report.redaction.balances_omitted is True

@@ -36,11 +36,11 @@ Confirmation-gated drafts, immutable publication, and idempotent backtest submis
 
 ## `thytrader-runtime`
 
-Confirmation-gated paper and live deployment control. Live start also requires `--i-understand-live`. Not an extension of operator or research.
+Confirmation-gated paper and live deployment control, plus risk-policy publication. Live start also requires `--i-understand-live`. Publishing a risk policy does not arm live trading. Not an extension of operator or research.
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
-- HTTP: `/api/v1/deployments`
+- HTTP: `/api/v1/deployments`, `/api/v1/risk-policy`
 
 See [`docs/agent-integration.md`](../docs/agent-integration.md) for the safety model.
 

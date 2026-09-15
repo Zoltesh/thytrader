@@ -83,6 +83,18 @@ def test_operator_routes_return_versioned_get_reports() -> None:
             assert client.post(path).status_code in {404, 405, 422}
 
 
+def test_operator_risk_reports_available_registry() -> None:
+    """Operator risk must advertise the compiled registry without balances."""
+    app = create_app(Settings(_env_file=None))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/operator/risk")
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["risk_policy_registry"] == "available"
+    assert payload["policy_source"] == "compiled_default"
+    assert "paper_capital_quote" not in payload
+
+
 def test_operator_health_does_not_mutate_drafts() -> None:
     """Health diagnostics must not create or save strategy drafts."""
     drafts = _RecordingDraftStore()

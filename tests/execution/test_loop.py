@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.loop import process_closed_bar
+from thytrader.execution.loop import _entry_admitted, process_closed_bar
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
@@ -19,6 +19,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 
@@ -424,3 +425,95 @@ async def test_stop_fill_uses_gap_open_when_bar_opens_through_stop() -> None:
     sell_fills = [fill for fill in exited.fills if fill.price == gap_open]
     assert sell_fills
     assert exited.position is None
+
+
+@pytest.mark.anyio
+async def test_denied_entry_skips_the_bar_without_pausing() -> None:
+    """A risk-policy deny must not persist an intent or pause the deployment."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    policy = compiled_default_risk_policy().model_copy(update={"product_allowlist": ("ETH-USD",)})
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    result = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+        risk_policy=policy,
+    )
+    assert result.deployment.status is DeploymentStatus.RUNNING
+    assert result.deployment.phase is RuntimePhase.FLAT
+    assert result.orders == ()
+    assert result.deployment.last_signal == "matched"
+
+
+@pytest.mark.anyio
+async def test_occupied_open_slot_skips_entry_without_pausing() -> None:
+    """A peer occupying the last open slot must skip this bar without pausing."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    peer = DeploymentSnapshot(
+        deployment=replace(
+            snapshot.deployment,
+            id=uuid7(utc_now()),
+            strategy_id=uuid7(utc_now()),
+            product_id="ETH-USD",
+            phase=RuntimePhase.OPEN,
+        ),
+        orders=(),
+        fills=(),
+        position=None,
+    )
+    policy = compiled_default_risk_policy().model_copy(update={"max_concurrent_open_positions": 1})
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    result = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+        risk_policy=policy,
+        portfolio=(peer,),
+    )
+    assert result.deployment.status is DeploymentStatus.RUNNING
+    assert result.deployment.phase is RuntimePhase.FLAT
+    assert result.orders == ()
+
+
+def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
+    """Admission overlays the current snapshot so a stale OPEN copy cannot block itself."""
+    now = utc_now()
+    strategy_id = uuid7(now)
+    deployment = Deployment(
+        id=uuid7(now),
+        strategy_fingerprint="sha256:" + "b" * 64,
+        strategy_id=strategy_id,
+        product_id="BTC-USD",
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        paper_starting_cash=Decimal("10000"),
+        cash=Decimal("10000"),
+        phase=RuntimePhase.FLAT,
+        created_at=now,
+        updated_at=now,
+    )
+    current = DeploymentSnapshot(deployment=deployment, orders=(), fills=(), position=None)
+    stale_self = DeploymentSnapshot(
+        deployment=replace(deployment, phase=RuntimePhase.OPEN),
+        orders=(),
+        fills=(),
+        position=None,
+    )
+    policy = compiled_default_risk_policy().model_copy(update={"max_concurrent_open_positions": 1})
+    assert _entry_admitted(
+        current,
+        product_id="BTC-USD",
+        notional=Decimal("100"),
+        risk_policy=policy,
+        portfolio=(stale_self,),
+    )

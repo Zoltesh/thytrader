@@ -13,6 +13,7 @@ from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
 from thytrader.execution.models import DeploymentMode, DeploymentStatus, with_runtime
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.risk.store import load_effective_policy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -21,11 +22,13 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.broker import Broker
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
+    from thytrader.risk.models import RiskPolicyDefinition
+    from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import StrategyPublicationStore
 
@@ -52,6 +55,7 @@ async def run_execution_worker(
     interval_seconds: int,
     on_readiness_changed: Callable[[bool], None] | None = None,
     heartbeat_store: WorkerHeartbeatStore | None = None,
+    risk_store: RiskPolicyStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown."""
     if on_readiness_changed is not None:
@@ -67,6 +71,7 @@ async def run_execution_worker(
                 paper_broker=paper_broker,
                 live_broker=live_broker,
                 quote_reader=quote_reader,
+                risk_store=risk_store,
             )
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop_requested.wait(), timeout=interval_seconds)
@@ -83,9 +88,12 @@ async def _run_cycle(
     paper_broker: Broker,
     live_broker: Broker | None,
     quote_reader: QuoteBalanceReader | None,
+    risk_store: RiskPolicyStore | None,
 ) -> None:
-    """Process every running or paused deployment once, and cancel stopped restings."""
+    """Process occupied deployments once, refreshing occupancy after each for the entry gate."""
+    policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
+    portfolio = await _occupied_snapshots(store, deployments)
     for deployment in deployments:
         if deployment.status is DeploymentStatus.STOPPED:
             try:
@@ -109,9 +117,12 @@ async def _run_cycle(
                 paper_broker=paper_broker,
                 live_broker=live_broker,
                 quote_reader=quote_reader,
+                risk_policy=policy,
+                portfolio=portfolio,
             )
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
+        portfolio = await _occupied_snapshots(store, deployments)
 
 
 async def _cancel_stopped(
@@ -140,6 +151,8 @@ async def _process_one(
     paper_broker: Broker,
     live_broker: Broker | None,
     quote_reader: QuoteBalanceReader | None,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: tuple[DeploymentSnapshot, ...],
 ) -> None:
     """Load evidence and advance one deployment through newly closed bars."""
     snapshot = await store.get_deployment(deployment_id)
@@ -197,6 +210,8 @@ async def _process_one(
             candles=window,
             broker=broker,
             store=store,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
         )
 
 
@@ -305,3 +320,16 @@ async def _quote_cash(reader: QuoteBalanceReader, quote_currency: str) -> Decima
         if balance.currency == quote_currency:
             return balance.available
     return None
+
+
+async def _occupied_snapshots(
+    store: ExecutionStore,
+    deployments: Sequence[Deployment],
+) -> tuple[DeploymentSnapshot, ...]:
+    """Load current snapshots for running and paused deployments used by the entry gate."""
+    occupied = [
+        await store.get_deployment(item.id)
+        for item in deployments
+        if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+    ]
+    return tuple(occupied)

@@ -22,12 +22,12 @@ Default-filling a missing health `ops_contract` would hide that mismatch.
 
 Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 
-- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v6`)
+- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v7`)
 - `max_historical_interval_count`
 - `backtest_engines` (v1, v2, v3)
 - `paper_timeframes` (`1h`, `5m`)
 - `live_timeframes` (`1h`)
-- `expected_schema_revision` (`0020`)
+- `expected_schema_revision` (`0021`)
 
 A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`
@@ -40,7 +40,7 @@ change. Do not treat matching `0.1.0` as proof the running image matches this CL
 - An ops agent can tell a healthy old `0.1.0` image from this checkout without scraping OpenAPI.
 - Skills and `ops/` treat version mismatch, ops-contract mismatch, and 404-on-ready as stale image.
   Agent CLIs exit before printing a successful payload.
-- Schema revision `0020` remaining on the database while HEAD expects it is not by itself a content
+- Schema revision `0021` remaining on the database while HEAD expects it is not by itself a content
   identity; the contract still lists it so a skipped migration is visible when present.
 
 ## Alternatives considered

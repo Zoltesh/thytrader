@@ -313,6 +313,67 @@ def test_unknown_fingerprint_is_not_found() -> None:
     assert unknown.status_code == 404
 
 
+def test_two_instruments_can_run_paper_together_under_the_default_policy() -> None:
+    """BTC and ETH single-instrument publications share the compiled multi-asset envelope."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    btc = _published_strategy()
+    eth = create_reference_draft(now=datetime(2026, 1, 2, tzinfo=UTC), product_id="ETH-USD")
+    eth = StrategyDefinition.model_validate(
+        {**eth.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED.value}
+    )
+    btc_fp = strategy_fingerprint(btc)
+    eth_fp = strategy_fingerprint(eth)
+    publication.published[btc_fp] = PublishedStrategy(strategy_fingerprint=btc_fp, definition=btc)
+    publication.published[eth_fp] = PublishedStrategy(strategy_fingerprint=eth_fp, definition=eth)
+
+    with _client(publication, execution) as client:
+        first = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": btc_fp,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+        second = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": eth_fp,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert {first.json()["product_id"], second.json()["product_id"]} == {"BTC-USD", "ETH-USD"}
+
+
+def test_paper_starting_cash_over_the_book_is_conflict() -> None:
+    """Compiled paper_capital_quote 100000 must reject a larger paper start."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        denied = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "100001",
+            },
+        )
+
+    assert denied.status_code == 409
+    assert "paper_capital_quote" in denied.json()["detail"]
+
+
 def test_paper_start_records_runtime_audit_without_cash() -> None:
     """Deployment mutations append runtime audit events without cash values."""
     publication = InMemoryPublicationStore()

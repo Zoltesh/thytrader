@@ -123,7 +123,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     performance.add_argument("--result-fingerprint", default=None)
     performance.add_argument("--deployment-id", default=None)
-    subparsers.add_parser("risk", parents=[trailing], help="Pause and mismatch findings.")
+    subparsers.add_parser(
+        "risk",
+        parents=[trailing],
+        help="Risk-policy registry identity, slot counts, and pause/mismatch findings.",
+    )
     subparsers.add_parser(
         "reconciliation",
         parents=[trailing],

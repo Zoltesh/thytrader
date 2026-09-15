@@ -20,7 +20,7 @@ def test_runtime_help_describes_confirm_and_live_ack(
     output = capsys.readouterr().out
     assert "--confirm" in output
     assert "--i-understand-live" in output
-    assert "not the operator or research CLI" in output.lower() or "not the operator" in output
+    assert "not the operator" in output.lower() or "risk-policy registry" in output.lower()
 
 
 def test_start_without_confirm_does_not_call_api() -> None:
@@ -87,3 +87,37 @@ def test_runtime_cli_refuses_stale_ops_contract_before_command() -> None:
     ):
         main(["list"])
     request.assert_not_called()
+
+
+def test_set_risk_policy_without_confirm_does_not_call_api() -> None:
+    """Risk-policy publication is a mutation and requires --confirm."""
+    with pytest.raises(SystemExit) as raised:
+        main(
+            [
+                "set-risk-policy",
+                "--max-concurrent-running-deployments",
+                "8",
+                "--max-concurrent-open-positions",
+                "8",
+                "--max-portfolio-exposure-fraction",
+                "1",
+                "--per-product-max-exposure-fraction",
+                "1",
+                "--paper-capital-quote",
+                "100000",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+
+
+def test_runtime_help_lists_risk_policy_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators can discover show-risk-policy and set-risk-policy without an API."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "show-risk-policy" in output
+    assert "set-risk-policy" in output

@@ -7,7 +7,7 @@ Use only the shipped skills:
 - `thytrader-operator` — read-only diagnostics
 - `thytrader-data` — watchlist, ingest, gap-fill (`--confirm`)
 - `thytrader-research` — drafts, publish, backtests (`--confirm`)
-- `thytrader-runtime` — paper/live start/pause/resume/stop (`--confirm`; live also `--i-understand-live`)
+- `thytrader-runtime` — paper/live start/pause/resume/stop and risk-policy publication (`--confirm`; live start also `--i-understand-live`)
 
 Run every `uv run thytrader-*` command from the **repository root** (the parent of this `ops/`
 folder). JSON is the default CLI output.
