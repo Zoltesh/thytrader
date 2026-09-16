@@ -723,6 +723,16 @@ class OperatorDiagnostics:
             )
         return 2 * self.settings.execution_worker_interval_seconds + slack
 
+    async def _runtime_timeframe(self, deployment: Deployment) -> SupportedTimeframe:
+        """Prefer a stored book clock; otherwise copy 1h/5m from the published strategy."""
+        if deployment.timeframe == "5m":
+            return "5m"
+        if deployment.timeframe == "1h":
+            return "1h"
+        if deployment.strategy_fingerprint is None:
+            return "1h"
+        return await self._strategy_timeframe(deployment.strategy_fingerprint)
+
     async def _strategy_timeframe(self, fingerprint: str) -> SupportedTimeframe:
         """Copy 1h/5m from the published strategy; default 1h when it cannot be loaded."""
         load = getattr(self.publications, "load", None)
@@ -1093,7 +1103,7 @@ class OperatorDiagnostics:
             )
             return _empty_performance(now, (component,))
         deployment = snapshot.deployment
-        timeframe = await self._strategy_timeframe(deployment.strategy_fingerprint)
+        timeframe = await self._runtime_timeframe(deployment)
         mark = await self._last_close_mark(deployment.product_id, timeframe)
         ledger = ledger_from_snapshot(snapshot, mark_price=mark)
         component, warnings = _deployment_ledger_component(deployment, ledger)
@@ -1460,10 +1470,17 @@ def _market_data_component(
 
 def _deployment_summary(deployment: Deployment) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
+    timeframe: SupportedTimeframe | None = None
+    if deployment.timeframe == "1h":
+        timeframe = "1h"
+    elif deployment.timeframe == "5m":
+        timeframe = "5m"
     return DeploymentSummary(
         deployment_id=deployment.id,
+        kind=deployment.kind.value,
         strategy_id=deployment.strategy_id,
         strategy_fingerprint=deployment.strategy_fingerprint,
+        timeframe=timeframe,
         mode=deployment.mode.value,
         status=deployment.status.value,
         phase=deployment.phase.value,

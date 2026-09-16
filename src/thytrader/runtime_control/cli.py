@@ -19,6 +19,7 @@ from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     list_deployments,
+    place_discretionary_order,
     set_deployment_status,
     set_risk_policy,
     show_deployment,
@@ -55,10 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",
         description=(
-            "Start, pause, resume, or stop paper and live deployments, and publish "
-            "the risk-policy registry, through the loopback HTTP API. Mutations "
-            "require --confirm. Live start also requires --i-understand-live. "
-            "This is not the operator or research CLI."
+            "Start, pause, resume, or stop paper and live deployments, place "
+            "discretionary orders, and publish the risk-policy registry, through "
+            "the loopback HTTP API. Mutations require --confirm. Live start and "
+            "live place-order also require --i-understand-live. This is not the "
+            "operator or research CLI."
         ),
         parents=[shared],
     )
@@ -80,6 +82,29 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
     start.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     start.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
+    place = subparsers.add_parser(
+        "place-order",
+        parents=[trailing],
+        help="Place one long-only discretionary order with required SL/TP.",
+    )
+    place.add_argument("--mode", required=True, choices=("paper", "live"))
+    place.add_argument("--product-id", required=True)
+    place.add_argument("--stop-price", required=True)
+    place.add_argument("--take-profit-price", required=True)
+    place.add_argument("--idempotency-key", required=True)
+    place.add_argument("--origin", default="agent", choices=("human", "agent"))
+    place.add_argument(
+        "--entry-kind",
+        default="post_only_limit",
+        choices=("post_only_limit", "marketable"),
+    )
+    place.add_argument("--timeframe", default="5m", choices=("1h", "5m"))
+    place.add_argument("--quantity", default=None)
+    place.add_argument("--quote-notional", default=None)
+    place.add_argument("--limit-price", default=None)
+    place.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
+    place.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    place.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
     for action in ("pause", "resume", "stop"):
         command = subparsers.add_parser(
             action,
@@ -181,6 +206,35 @@ def _start(arguments: argparse.Namespace, base_url: str) -> object:
     )
 
 
+def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
+    """Place one paper (YOLO-eligible) or live (hard-gated) discretionary long."""
+    live = arguments.mode == "live"
+    _require_confirm(
+        arguments.confirm,
+        base_url=base_url,
+        command="place-order",
+        hard_gate=live,
+    )
+    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
+    cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
+    require_matching_ops_contract(base_url)
+    return place_discretionary_order(
+        base_url,
+        mode=arguments.mode,
+        product_id=arguments.product_id,
+        stop_price=arguments.stop_price,
+        take_profit_price=arguments.take_profit_price,
+        idempotency_key=arguments.idempotency_key,
+        origin=arguments.origin,
+        entry_kind=arguments.entry_kind,
+        timeframe=arguments.timeframe,
+        quantity=arguments.quantity,
+        quote_notional=arguments.quote_notional,
+        limit_price=arguments.limit_price,
+        paper_starting_cash=cash,
+    )
+
+
 def _set_status(arguments: argparse.Namespace, base_url: str) -> object:
     """Pause, resume, or stop one deployment; live control never uses YOLO."""
     command = arguments.command
@@ -218,6 +272,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         return show_deployment(base_url, arguments.deployment_id)
     if command == "start":
         return _start(arguments, base_url)
+    if command == "place-order":
+        return _place_order(arguments, base_url)
     if command in {"pause", "resume", "stop"}:
         return _set_status(arguments, base_url)
     if command == "show-risk-policy":
@@ -263,7 +319,7 @@ def _paper_cash(*, mode: str, cash: str | None) -> str | None:
             raise RuntimeControlError("Live start does not accept --cash.")
         return None
     if cash is None:
-        raise RuntimeControlError("Paper start requires --cash.")
+        raise RuntimeControlError("Paper requires --cash.")
     return cash
 
 

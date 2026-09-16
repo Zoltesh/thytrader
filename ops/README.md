@@ -12,7 +12,7 @@ Every HTTP agent CLI checks the full `/health/ready` ops contract before its com
 restart the stack with `make run` from the repository root only when the user asked, or when a CLI
 reports the single stale-image signal: version or ops-contract mismatch, or 404 on an agent route
 while `/health/ready` is 200. Matching `0.1.0` alone is not evidence that the image is current. Apply
-migration `0023` as part of that rebuild.
+migration `0025` as part of that rebuild.
 
 For data loops, `complete` describes only the current contiguous published island.
 `watch_complete` is the completion decision: it must be true before the configured watch lookback is

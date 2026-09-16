@@ -44,6 +44,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0036](0036-phase-13-live-extras.md) | Phase 13 5m live, ATR trailing stops, user-order WS, native OCO brackets | Accepted |
 | [0037](0037-phase-14-experiential-memory.md) | Phase 14 journals, sentiment/pattern hooks, monitor, and config-gated notify | Accepted |
 | [0038](0038-complete-only-1m-2h-4h-datasets.md) | Complete-only 1m, 2h, and 4h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
+| [0039](0039-on-demand-discretionary-trades.md) | On-demand long-only discretionary trades with required SL/TP via intent + risk | Accepted |
 
 ## Status values
 

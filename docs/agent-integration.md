@@ -68,7 +68,7 @@ Shipped command groups:
 - `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
-- `thytrader-runtime` — paper/live start, pause, resume, stop (`--confirm`; live also `--i-understand-live`).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm`; live also `--i-understand-live`).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
 
@@ -182,7 +182,7 @@ skills/
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
-control and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
+control, discretionary `place-order`, and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
 starts live. `thytrader-memory/SKILL.md` documents journals, sentiment/pattern hooks, monitor, and
 notify with `--confirm` (YOLO never covers that lane). Product of record is `skills/`;
 `.cursor/skills/` contains pointers for Cursor auto-load.
@@ -218,7 +218,7 @@ The operator skill tells agents to:
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market studies only. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
-| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` only. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
+| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or `place-order --mode live --confirm --i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, and notify. Operator `monitor` is read-only. YOLO never covers this lane. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

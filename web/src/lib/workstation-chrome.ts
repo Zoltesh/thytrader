@@ -8,15 +8,17 @@
 export const DEFAULT_CONTEXT_LABEL = 'Local workstation';
 export const RESEARCH_CONTEXT_LABEL = 'Research only';
 
-export type WorkstationNavHref = '/' | '/strategies' | '/backtests' | '/audit' | '/memory';
+export type WorkstationNavHref =
+	'/' | '/trade' | '/strategies' | '/backtests' | '/audit' | '/memory';
 
 export type WorkstationNavItem = {
 	href: WorkstationNavHref;
-	label: 'Portfolio' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory';
+	label: 'Portfolio' | 'Trade' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory';
 };
 
 export const WORKSTATION_NAV: readonly WorkstationNavItem[] = [
 	{ href: '/', label: 'Portfolio' },
+	{ href: '/trade', label: 'Trade' },
 	{ href: '/strategies', label: 'Strategies' },
 	{ href: '/backtests', label: 'Backtests' },
 	{ href: '/audit', label: 'Audit' },

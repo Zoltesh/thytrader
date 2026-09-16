@@ -404,11 +404,13 @@ deployments = Table(
     "deployments",
     metadata,
     Column("id", UUID(), primary_key=True),
-    Column("strategy_fingerprint", String(71), nullable=False),
-    Column("strategy_id", String(36), nullable=False),
+    Column("strategy_fingerprint", String(71), nullable=True),
+    Column("strategy_id", String(36), nullable=True),
     Column("product_id", String(32), nullable=False),
     Column("mode", String(8), nullable=False),
     Column("status", String(16), nullable=False),
+    Column("kind", String(16), nullable=False, server_default="strategy"),
+    Column("timeframe", String(8), nullable=True),
     Column("paper_starting_cash", String(64), nullable=True),
     Column("cash", String(64), nullable=False),
     Column("phase", String(32), nullable=False),
@@ -433,9 +435,23 @@ deployments = Table(
         "phase IN ('flat', 'pending_entry', 'open', 'pending_exit')",
         name="ck_deployments_phase",
     ),
+    CheckConstraint("kind IN ('strategy', 'discretionary')", name="ck_deployments_kind"),
+    CheckConstraint(
+        "timeframe IS NULL OR timeframe IN ('1h', '5m')",
+        name="ck_deployments_timeframe",
+    ),
     CheckConstraint(
         "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_deployments_strategy_fingerprint_format",
+    ),
+    CheckConstraint(
+        "("
+        "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND strategy_id IS NOT NULL"
+        ") OR ("
+        "kind = 'discretionary' AND strategy_fingerprint IS NULL AND strategy_id IS NULL "
+        "AND timeframe IN ('1h', '5m')"
+        ")",
+        name="ck_deployments_kind_identity",
     ),
 )
 
@@ -456,13 +472,20 @@ order_intents = Table(
     Column("quantity", String(64), nullable=False),
     Column("candle_starts_at", DateTime(timezone=True), nullable=False),
     Column("status", String(16), nullable=False),
+    Column("origin", String(8), nullable=False, server_default="runtime"),
+    Column("idempotency_key", String(128), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
     UniqueConstraint("client_order_id", name="ux_order_intents_client_order_id"),
+    UniqueConstraint("idempotency_key", name="ux_order_intents_idempotency_key"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_order_intents_side"),
     CheckConstraint(
         "kind IN ('post_only_limit', 'marketable', 'trigger_bracket')",
         name="ck_order_intents_kind",
+    ),
+    CheckConstraint(
+        "origin IN ('human', 'agent', 'runtime')",
+        name="ck_order_intents_origin",
     ),
 )
 

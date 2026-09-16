@@ -1,10 +1,14 @@
 """Typed FastAPI dependencies."""
 
 # FastAPI resolves these dependency annotations at runtime.
+from typing import cast
+
 from fastapi import Request  # noqa: TC002
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.backtest.submission import BacktestSubmitter
+from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
+from thytrader.execution.broker import Broker  # noqa: TC001
 from thytrader.execution.store import ExecutionStore
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
@@ -161,6 +165,32 @@ def get_strategy_publication_store(request: Request) -> StrategyPublicationStore
         message = "Strategy publication store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_paper_broker(request: Request) -> Broker:
+    """Return the paper broker attached during app startup."""
+    broker = getattr(request.app.state, "paper_broker", None)
+    if broker is None:
+        message = "Paper broker is unavailable."
+        raise TypeError(message)
+    # Protocol values on app.state cannot be isinstance-checked.
+    return cast("Broker", broker)
+
+
+def get_live_broker(request: Request) -> Broker | None:
+    """Return the live broker when credentials constructed one, else None."""
+    broker = getattr(request.app.state, "live_broker", None)
+    if broker is None:
+        return None
+    return cast("Broker", broker)
+
+
+def get_quote_reader(request: Request) -> ExchangeAccount | None:
+    """Return the live quote-balance reader when one is attached."""
+    reader = getattr(request.app.state, "quote_reader", None)
+    if reader is None:
+        return None
+    return cast("ExchangeAccount", reader)
 
 
 def get_execution_store(request: Request) -> ExecutionStore:

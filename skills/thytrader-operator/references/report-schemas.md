@@ -20,7 +20,8 @@ Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics c
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
 reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
-JWT material or order payloads. It omits cash, quantities, and order payloads.
+JWT material or order payloads. It omits cash, quantities, and order payloads. Each deployment
+includes `kind` (`strategy` or `discretionary`) and optional strategy identity.
 
 5m live pauses when `user_order_feed.state` is not `connected`. 1h live still reconciles through REST.
 

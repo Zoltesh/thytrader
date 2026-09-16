@@ -16,6 +16,7 @@ from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
 from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.deployments import router as deployments_router
+from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
 from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
@@ -34,7 +35,10 @@ from thytrader.backtest.submission import (
 )
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.exchanges.rest_transport import RestClientTransport
+from thytrader.execution.paper import PaperBroker
 from thytrader.execution.store import DisabledExecutionStore, ExecutionStore
 from thytrader.execution.user_feed_state import (
     DisabledUserOrderFeedStateStore,
@@ -114,6 +118,9 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from thytrader.exchanges.protocols import ExchangeAccount
+    from thytrader.execution.broker import Broker
+
 _logger = logging.getLogger(__name__)
 
 
@@ -132,6 +139,9 @@ def create_app(
     strategy_draft_store: StrategyDraftStore | None = None,
     backtest_submitter: BacktestSubmitter | None = None,
     execution_store: ExecutionStore | None = None,
+    paper_broker: Broker | None = None,
+    live_broker: Broker | None = None,
+    quote_reader: ExchangeAccount | None = None,
     risk_policy_store: RiskPolicyStore | None = None,
     user_order_feed_state_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
@@ -262,6 +272,13 @@ def create_app(
             publication_store or DisabledStrategyPublicationStore()
         )
         _app.state.execution_store = execution or DisabledExecutionStore()
+        _attach_execution_brokers(
+            _app,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            settings=resolved_settings,
+        )
         _app.state.risk_policy_store = risk_policies or DisabledRiskPolicyStore()
         _app.state.user_order_feed_state_store = (
             user_feed_store or DisabledUserOrderFeedStateStore()
@@ -299,6 +316,7 @@ def create_app(
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
     app.include_router(deployments_router)
+    app.include_router(discretionary_orders_router)
     app.include_router(risk_policy_router)
     app.include_router(research_studies_router)
     app.include_router(memory_router)
@@ -381,6 +399,39 @@ def _submission_service(
 ) -> BacktestSubmitter:
     """Preserve an injected test boundary or construct the durable production submitter."""
     return submitter or PostgresBacktestSubmitter(engine, dataset_store)
+
+
+def _build_live_execution(
+    settings: Settings,
+) -> tuple[Broker | None, ExchangeAccount | None]:
+    """Attach a live broker and quote reader only when Coinbase credentials exist."""
+    if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
+        return None, None
+    client = RESTClient(
+        api_key=settings.coinbase_api_key_name.get_secret_value(),
+        api_secret=settings.coinbase_api_private_key.get_secret_value(),
+        timeout=10,
+    )
+    return CoinbaseRestBroker(RestClientTransport(client)), CoinbaseAccount(client)
+
+
+def _attach_execution_brokers(
+    app: FastAPI,
+    *,
+    paper_broker: Broker | None,
+    live_broker: Broker | None,
+    quote_reader: ExchangeAccount | None,
+    settings: Settings,
+) -> None:
+    """Bind paper and live brokers; injected fakes skip Coinbase construction."""
+    app.state.paper_broker = paper_broker if paper_broker is not None else PaperBroker()
+    if live_broker is not None or quote_reader is not None:
+        app.state.live_broker = live_broker
+        app.state.quote_reader = quote_reader
+        return
+    built_live, built_quote = _build_live_execution(settings)
+    app.state.live_broker = built_live
+    app.state.quote_reader = built_quote
 
 
 def _build_portfolio_service(settings: Settings) -> PortfolioService:

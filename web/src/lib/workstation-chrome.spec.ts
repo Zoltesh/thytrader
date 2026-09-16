@@ -11,6 +11,7 @@ describe('workstation chrome', () => {
 	it('preserves the primary nav labels in route order', () => {
 		expect(WORKSTATION_NAV.map((item) => item.label)).toEqual([
 			'Portfolio',
+			'Trade',
 			'Strategies',
 			'Backtests',
 			'Audit',
@@ -25,9 +26,16 @@ describe('workstation chrome', () => {
 
 	it('marks Portfolio only on the dashboard route', () => {
 		expect(isWorkstationNavActive('/', '/')).toBe(true);
+		expect(isWorkstationNavActive('/', '/trade')).toBe(false);
 		expect(isWorkstationNavActive('/', '/strategies')).toBe(false);
 		expect(isWorkstationNavActive('/', '/audit')).toBe(false);
 		expect(isWorkstationNavActive('/', null)).toBe(false);
+	});
+
+	it('marks Trade on the trade route only', () => {
+		expect(isWorkstationNavActive('/trade', '/trade')).toBe(true);
+		expect(isWorkstationNavActive('/trade', '/')).toBe(false);
+		expect(isWorkstationNavActive('/trade', '/strategies')).toBe(false);
 	});
 
 	it('keeps Strategies active on the library and builder routes', () => {

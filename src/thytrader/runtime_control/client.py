@@ -39,6 +39,48 @@ def start_deployment(
     return request_json(method="POST", url=f"{base_url}{_DEPLOYMENTS_PREFIX}", payload=payload)
 
 
+def place_discretionary_order(
+    base_url: str,
+    *,
+    mode: str,
+    product_id: str,
+    stop_price: str,
+    take_profit_price: str,
+    idempotency_key: str,
+    origin: str,
+    entry_kind: str,
+    timeframe: str,
+    quantity: str | None,
+    quote_notional: str | None,
+    limit_price: str | None,
+    paper_starting_cash: str | None,
+) -> object:
+    """Place one long-only discretionary order through the HTTP contract."""
+    payload: dict[str, str] = {
+        "mode": mode,
+        "product_id": product_id,
+        "stop_price": stop_price,
+        "take_profit_price": take_profit_price,
+        "idempotency_key": idempotency_key,
+        "origin": origin,
+        "entry_kind": entry_kind,
+        "timeframe": timeframe,
+    }
+    if quantity is not None:
+        payload["quantity"] = quantity
+    if quote_notional is not None:
+        payload["quote_notional"] = quote_notional
+    if limit_price is not None:
+        payload["limit_price"] = limit_price
+    if paper_starting_cash is not None:
+        payload["paper_starting_cash"] = paper_starting_cash
+    return request_json(
+        method="POST",
+        url=f"{base_url}/api/v1/discretionary-orders",
+        payload=payload,
+    )
+
+
 def set_deployment_status(base_url: str, deployment_id: str, action: str) -> object:
     """Pause, resume, or stop one deployment."""
     if action not in {"pause", "resume", "stop"}:

@@ -23,6 +23,7 @@ test('shared topbar marks the active route and stays reachable under 800px', asy
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
 	await expect(nav).toHaveCount(1);
 	await expect(nav.getByRole('link', { name: 'Portfolio' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Trade' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Strategies' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Backtests' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Audit' })).toBeVisible();

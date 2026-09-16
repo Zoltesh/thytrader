@@ -126,8 +126,9 @@ The first reference strategy is an EMA trend strategy with optional RSI and volu
 
 Coinbase's static sandbox is suitable for API contract tests, not realistic paper trading; ThyTrader therefore owns its simulation semantics.
 
-On-demand (discretionary) trades with SL/TP are **destination**, not shipped. Today's live path is
-strategy deploy of one published fingerprint.
+On-demand (discretionary) trades with SL/TP are **shipped** as long-only books through the
+order-intent → risk → broker path ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)).
+Strategy deploy of a published fingerprint remains the automated runtime.
 
 ### Delivery order for the first usable automation path
 
@@ -140,8 +141,8 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include on-demand trades and widening `1m`/`2h`/`4h` into strategy/paper/live clocks (those
-granularities are already complete-only datasets). Phase 10's risk-policy registry and concurrent
+items include widening `1m`/`2h`/`4h` into strategy/paper/live clocks (those granularities are
+already complete-only datasets). Phase 10's risk-policy registry and concurrent
 single-instrument paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are
 shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR
 trailing, user-order WebSockets, and native OCO brackets are shipped; destination portfolio controls
