@@ -319,6 +319,57 @@ def snapshot_positions(snapshot: DeploymentSnapshot) -> tuple[Position, ...]:
     return ()
 
 
+def visible_instrument_runtimes(
+    snapshot: DeploymentSnapshot,
+    *,
+    extra_product_ids: tuple[str, ...] = (),
+) -> tuple[InstrumentRuntime, ...]:
+    """Return overlay rows for every known product, synthesizing missing flats."""
+    stored = {item.product_id: item for item in snapshot.instrument_runtimes if item.product_id}
+    products = _known_product_ids(snapshot)
+    products.update(item for item in extra_product_ids if item)
+    return tuple(_runtime_row(snapshot, stored, product_id) for product_id in sorted(products))
+
+
+def _known_product_ids(snapshot: DeploymentSnapshot) -> set[str]:
+    """Collect primary, overlay, position, and order product identities."""
+    products = {snapshot.deployment.product_id}
+    products.update(item.product_id for item in snapshot.instrument_runtimes if item.product_id)
+    products.update(
+        resolved_product_id(item.product_id, snapshot.deployment)
+        for item in snapshot_positions(snapshot)
+    )
+    products.update(
+        resolved_product_id(item.product_id, snapshot.deployment) for item in snapshot.orders
+    )
+    return products
+
+
+def _runtime_row(
+    snapshot: DeploymentSnapshot,
+    stored: dict[str, InstrumentRuntime],
+    product_id: str,
+) -> InstrumentRuntime:
+    """Prefer a stored overlay, else synthesize FLAT, OPEN, or primary-row fields."""
+    existing = stored.get(product_id)
+    if existing is not None:
+        return existing
+    if product_id == snapshot.deployment.product_id and not snapshot.instrument_runtimes:
+        return runtime_from_deployment(snapshot.deployment, product_id)
+    return InstrumentRuntime(
+        product_id=product_id,
+        phase=_synthesized_phase(snapshot, product_id),
+    )
+
+
+def _synthesized_phase(snapshot: DeploymentSnapshot, product_id: str) -> RuntimePhase:
+    """OPEN when a book exists for the product, otherwise FLAT."""
+    for position in snapshot_positions(snapshot):
+        if resolved_product_id(position.product_id, snapshot.deployment) == product_id:
+            return RuntimePhase.OPEN
+    return RuntimePhase.FLAT
+
+
 def resolved_product_id(product_id: str, deployment: Deployment) -> str:
     """Treat a blank product id as the deployment's primary Coinbase product."""
     return product_id or deployment.product_id

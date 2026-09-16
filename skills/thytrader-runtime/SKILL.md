@@ -85,6 +85,12 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 
 `list`, `show`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
+
+`list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
+and `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)). The singular `position` field
+is compatibility-only (focused book, always includes `product_id` and `compatibility_focus`).
+Read `positions` for inventory. `--i-understand-live` is unchanged.
 Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
 `--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
 `--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and

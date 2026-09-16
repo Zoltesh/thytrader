@@ -61,6 +61,13 @@ Prefer the CLI. HTTP is the same contract on loopback.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
+`strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
+`side`, `protection_status`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+A secondary open book is never implied by the deployment primary `product_id`. For sizes, orders,
+and fills use `thytrader-runtime show` / `GET /api/v1/deployments/{id}` (`positions`,
+`instrument_runtimes`, product-tagged orders/fills, `book_totals`). The singular HTTP `position`
+field is compatibility-only.
+
 ## Exit codes
 
 - `0` overall `healthy` (schema-check success is also `0`)

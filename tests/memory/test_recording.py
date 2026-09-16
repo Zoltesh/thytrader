@@ -4,11 +4,25 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
-from thytrader.execution.models import DeploymentKind, IntentPurpose
+from thytrader.execution.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    IntentPurpose,
+    OrderIntent,
+    OrderKind,
+    OrderSide,
+    RuntimePhase,
+)
 from thytrader.execution.store import DisabledExecutionStore
+from thytrader.execution.trade_reason_scope import TradeReasonScope
 from thytrader.memory.recording import (
+    _record_from_submit,
     compose_trade_reasons,
     notes_from_json,
     notes_to_json,
@@ -108,3 +122,53 @@ def test_in_memory_store_ignores_duplicate_intent_ids() -> None:
     assert asyncio.run(store.append_trade_reason(duplicate)).id == first.id
     listed = asyncio.run(store.list_trade_reasons())
     assert len(listed) == 1
+
+
+def test_record_from_submit_uses_intent_product_not_primary() -> None:
+    """F30: a secondary-book intent must not inherit the deployment primary product."""
+    now = _NOW
+    deployment = Deployment(
+        id=uuid4(),
+        strategy_fingerprint=_FP,
+        strategy_id=uuid4(),
+        product_id="BTC-USD",
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        cash=Decimal("10000"),
+        phase=RuntimePhase.FLAT,
+        created_at=now,
+        updated_at=now,
+        kind=DeploymentKind.STRATEGY,
+        timeframe="1h",
+    )
+    intent = OrderIntent(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        client_order_id="eth-entry",
+        purpose=IntentPurpose.ENTRY,
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        created_at=now,
+        candle_starts_at=now,
+        product_id="ETH-USD",
+    )
+    scope = TradeReasonScope(
+        store=InMemoryExperientialMemoryStore(),
+        policy_fingerprint=_FP,
+        policy_source="compiled_default",
+        risk_decision="allow",
+        risk_reason_code="ALLOWED",
+        risk_detail="Admitted.",
+        strategy_id=deployment.strategy_id,
+        strategy_fingerprint=_FP,
+        strategy_name="ref",
+        strategy_version=1,
+        timeframe="1h",
+    )
+    record = _record_from_submit(
+        intent=intent,
+        snapshot=DeploymentSnapshot(deployment=deployment),
+        scope=scope,
+    )
+    assert record.product_id == "ETH-USD"

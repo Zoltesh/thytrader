@@ -454,11 +454,14 @@ Optional same-side adds require both `entry.pyramiding` (`require_unrealized_pro
 risk-policy `allow_intra_strategy_pyramiding`. Averaging down is rejected. Paper/live deny
 schema-enabled pyramiding without the policy flag (`PYRAMIDING_NOT_ALLOWED`). Backtests follow the
 document only. Ops contract is `thytrader-ops-contract-v21` / Alembic `0033`. Extra exchanges stay
-out.
+out. Deployment HTTP/UI/operator inventory for every product book is [ADR 0060](decisions/0060-multi-book-deployment-api.md)
+(`positions`, `instrument_runtimes`, product-tagged orders/fills, `book_totals`; compatibility
+`position` stays labeled). No ops-contract bump.
 
 **Exit gate met:** a two-product document locksteps on one bar; an overlay save does not stamp
 parent `last_evaluated_bar`; pyramid adds skip `MAX_OPEN_POSITIONS` and fail closed without the
-policy flag.
+policy flag. HTTP and operator reports name each open book instead of collapsing onto the primary
+product.
 
 ## Destination capabilities (accepted; not current Builder order)
 
