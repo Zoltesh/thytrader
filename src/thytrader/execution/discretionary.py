@@ -317,9 +317,7 @@ def _size_entry(
         raise ExecutionConflictError(
             "Stop, entry, and take-profit must quantize to positive prices."
         )
-    if not bracket_is_valid(
-        side=request.side, entry=entry, stop=stop, take_profit=target
-    ):
+    if not bracket_is_valid(side=request.side, entry=entry, stop=stop, take_profit=target):
         raise ExecutionConflictError(bracket_error_detail(request.side))
     quantity = _quantity_from_request(request, product=product, entry=entry)
     notional = quantity * entry

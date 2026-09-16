@@ -400,7 +400,7 @@ async def test_paper_stop_fires_marketable_exit_on_closed_bar() -> None:
 
 @pytest.mark.anyio
 async def test_live_fill_attaches_bracket_without_second_oco() -> None:
-    """Live discretionary entries attach SL/TP; they do not rest a second OCO. No Coinbase client."""
+    """Live discretionary entries attach SL/TP; they do not rest a second OCO."""
     store = InMemoryExecutionStore()
     broker = _LiveFillBroker()
     snapshot = await place_discretionary_order(
@@ -474,8 +474,7 @@ async def test_paper_short_sells_to_open_and_buys_to_cover() -> None:
     )
     assert after.position is None
     assert any(
-        order.side is OrderSide.BUY and order.kind is OrderKind.MARKETABLE
-        for order in after.orders
+        order.side is OrderSide.BUY and order.kind is OrderKind.MARKETABLE for order in after.orders
     )
 
 

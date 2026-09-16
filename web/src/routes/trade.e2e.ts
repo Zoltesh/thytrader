@@ -14,6 +14,7 @@ test('trade ticket places a paper long through the discretionary HTTP contract',
 		const body = route.request().postDataJSON() as {
 			origin?: string;
 			mode?: string;
+			side?: string;
 			stop_price?: string;
 			take_profit_price?: string;
 			idempotency_key?: string;

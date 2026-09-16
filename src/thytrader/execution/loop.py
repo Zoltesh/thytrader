@@ -6,7 +6,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.geometry import (
@@ -45,6 +44,7 @@ from thytrader.strategies.models import atr_trailing_stop
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from uuid import UUID
 
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
@@ -181,11 +181,8 @@ async def apply_fill(
     position = snapshot.position
     if position is None:
         return await _apply_entry_fill(snapshot, fill=fill, order=order, store=store)
-    scaling_in = (
-        position.side is PositionSide.LONG
-        and order.side is OrderSide.BUY
-        or position.side is PositionSide.SHORT
-        and order.side is OrderSide.SELL
+    scaling_in = (position.side is PositionSide.LONG and order.side is OrderSide.BUY) or (
+        position.side is PositionSide.SHORT and order.side is OrderSide.SELL
     )
     if scaling_in:
         return await _apply_scale_in_fill(
@@ -264,9 +261,7 @@ async def _apply_scale_in_fill(
     entry_price = (
         (position.entry_price * position.quantity) + (fill.price * fill.quantity)
     ) / quantity
-    updated_position = replace(
-        position, quantity=quantity, entry_price=entry_price, updated_at=now
-    )
+    updated_position = replace(position, quantity=quantity, entry_price=entry_price, updated_at=now)
     updated = with_runtime(
         deployment,
         updated_at=now,
@@ -426,12 +421,15 @@ async def _protect_open_position(
         return await _ensure_live_bracket(
             snapshot, candle=candle, product=product, broker=broker, store=store
         )
-    if (not live and paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price)) or timed_out:
+    paper_stop = paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price)
+    if (not live and paper_stop) or timed_out:
         purpose = IntentPurpose.TIME_EXIT if timed_out else IntentPurpose.STOP
         price = (
             candle.close
             if timed_out
-            else paper_stop_fill_price(side=position.side, candle=candle, stop_price=position.stop_price)
+            else paper_stop_fill_price(
+                side=position.side, candle=candle, stop_price=position.stop_price
+            )
         )
         return await _marketable_exit(
             snapshot,
@@ -874,8 +872,7 @@ async def _submit_sized_entry(
             snapshot,
             store=store,
             detail=(
-                "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require "
-                "available base."
+                "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
             ),
         )
     admitted = _entry_admitted(
@@ -1045,9 +1042,7 @@ def _active_side(orders: Sequence[Order], side: OrderSide) -> Order | None:
 
 def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
     """Return the working entry order, preferring purpose-tagged intents."""
-    entry_ids = {
-        intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY
-    }
+    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
     if entry_ids:
         return next(
             (
@@ -1074,13 +1069,9 @@ def _fill_opened_position(fill: Fill, position: Position) -> bool:
     return entered == position.entered_bar and fill.price == position.entry_price
 
 
-def _filled_attached_entry(
-    snapshot: DeploymentSnapshot, position: Position
-) -> Order | None:
+def _filled_attached_entry(snapshot: DeploymentSnapshot, position: Position) -> Order | None:
     """Return the filled entry that opened this position with an attached venue bracket."""
-    entry_ids = {
-        intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY
-    }
+    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
     fills_by_order: dict[UUID, list[Fill]] = {}
     for fill in snapshot.fills:
         fills_by_order.setdefault(fill.order_id, []).append(fill)

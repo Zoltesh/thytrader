@@ -54,8 +54,8 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
-available base and never borrow. When SL/TP are known and trailing is off, live attaches the
-bracket to the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
+available base and never borrow. When SL/TP are known and trailing is off, live uses an
+attached bracket on the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
 another book clock. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
 is enabled. Live place-order and `set-risk-policy` never skip `--confirm`. Repeat the same

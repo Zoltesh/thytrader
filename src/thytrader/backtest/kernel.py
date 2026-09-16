@@ -413,9 +413,7 @@ def _simulate_maker_backtest(
                 candle.starts_at,
                 runtime.cash,
                 _maker_as_open_position(runtime.position),
-                _account_mark(
-                    fill_model, candle.close, _maker_as_open_position(runtime.position)
-                ),
+                _account_mark(fill_model, candle.close, _maker_as_open_position(runtime.position)),
             )
         )
 
@@ -1086,8 +1084,10 @@ def _close_position(
     """Apply a modeled covering fill, fee, cash transition, and exact complete-trade evidence."""
     del bar_index
     short = position.side == "short"
-    exit_quote = fill_model.buy(raw_exit_price, slippage_bps) if short else fill_model.sell(
-        raw_exit_price, slippage_bps
+    exit_quote = (
+        fill_model.buy(raw_exit_price, slippage_bps)
+        if short
+        else fill_model.sell(raw_exit_price, slippage_bps)
     )
     exit_price = exit_quote.price
     quantity = Decimal(position.entry.quantity)
@@ -1104,7 +1104,8 @@ def _close_position(
         **_fill_evidence(exit_quote),
     )
     if short:
-        net_pnl = Decimal(position.entry.notional) - Decimal(position.entry.fee) - exit_notional - exit_fee
+        entry_credit = Decimal(position.entry.notional) - Decimal(position.entry.fee)
+        net_pnl = entry_credit - exit_notional - exit_fee
         gross_pnl = Decimal(position.entry.notional) - exit_notional
         next_cash = cash - exit_notional - exit_fee
     else:

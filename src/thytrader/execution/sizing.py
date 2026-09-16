@@ -58,6 +58,39 @@ def size_long_entry(
     )
 
 
+def _stop_and_target(
+    *,
+    side: PositionSide,
+    entry_price: Decimal,
+    stop_distance: Decimal,
+    take_profit_multiple: Decimal,
+    price_increment: Decimal,
+) -> tuple[Decimal, Decimal] | None:
+    """Return quantized stop and take-profit, or None when geometry is illegal."""
+    if side is PositionSide.LONG:
+        stop_price = quantize_to_increment(entry_price - stop_distance, price_increment)
+        target_price = quantize_to_increment(
+            entry_price + stop_distance * take_profit_multiple,
+            price_increment,
+            rounding=ROUND_HALF_UP,
+        )
+        if stop_price <= 0 or target_price <= entry_price:
+            return None
+        return stop_price, target_price
+    stop_price = quantize_to_increment(
+        entry_price + stop_distance,
+        price_increment,
+        rounding=ROUND_HALF_UP,
+    )
+    target_price = quantize_to_increment(
+        entry_price - stop_distance * take_profit_multiple,
+        price_increment,
+    )
+    if target_price <= 0 or stop_price <= entry_price:
+        return None
+    return stop_price, target_price
+
+
 def size_entry(
     *,
     strategy: StrategyDefinition,
@@ -74,27 +107,16 @@ def size_entry(
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
     if stop_distance <= 0:
         return None
-    if side is PositionSide.LONG:
-        stop_price = quantize_to_increment(entry_price - stop_distance, product.price_increment)
-        target_price = quantize_to_increment(
-            entry_price + stop_distance * Decimal(strategy.exits.take_profit.multiple),
-            product.price_increment,
-            rounding=ROUND_HALF_UP,
-        )
-        if stop_price <= 0 or target_price <= entry_price:
-            return None
-    else:
-        stop_price = quantize_to_increment(
-            entry_price + stop_distance,
-            product.price_increment,
-            rounding=ROUND_HALF_UP,
-        )
-        target_price = quantize_to_increment(
-            entry_price - stop_distance * Decimal(strategy.exits.take_profit.multiple),
-            product.price_increment,
-        )
-        if target_price <= 0 or stop_price <= entry_price:
-            return None
+    levels = _stop_and_target(
+        side=side,
+        entry_price=entry_price,
+        stop_distance=stop_distance,
+        take_profit_multiple=Decimal(strategy.exits.take_profit.multiple),
+        price_increment=product.price_increment,
+    )
+    if levels is None:
+        return None
+    stop_price, target_price = levels
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
     risk_quantity = requested_risk / stop_distance
     fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
