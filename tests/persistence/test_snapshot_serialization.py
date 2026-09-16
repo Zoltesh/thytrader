@@ -383,6 +383,18 @@ def test_venue_execution_clocks_migration_follows_discretionary() -> None:
     assert "ck_deployments_kind_identity" in content
 
 
+def test_spot_shorting_migration_follows_venue_clocks() -> None:
+    """The twenty-seventh migration must add position side and attached take-profit."""
+    content = Path("alembic/versions/0027_spot_shorting_attached_brackets.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0027"' in content
+    assert 'down_revision = "0026"' in content
+    assert "take_profit_price" in content
+    assert "ck_execution_positions_side" in content
+    assert "short" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

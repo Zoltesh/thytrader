@@ -470,6 +470,7 @@ order_intents = Table(
     Column("kind", String(32), nullable=False),
     Column("price", String(64), nullable=True),
     Column("stop_trigger_price", String(64), nullable=True),
+    Column("take_profit_price", String(64), nullable=True),
     Column("quantity", String(64), nullable=False),
     Column("candle_starts_at", DateTime(timezone=True), nullable=False),
     Column("status", String(16), nullable=False),
@@ -502,6 +503,7 @@ execution_orders = Table(
     Column("kind", String(32), nullable=False),
     Column("price", String(64), nullable=True),
     Column("stop_trigger_price", String(64), nullable=True),
+    Column("take_profit_price", String(64), nullable=True),
     Column("quantity", String(64), nullable=False),
     Column("filled_quantity", String(64), nullable=False),
     Column("status", String(16), nullable=False),
@@ -550,8 +552,10 @@ execution_positions = Table(
     Column("target_price", String(64), nullable=False),
     Column("entered_bar", DateTime(timezone=True), nullable=False),
     Column("trail_extreme", String(64), nullable=True),
+    Column("side", String(8), nullable=False, server_default="long"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    CheckConstraint("side IN ('long', 'short')", name="ck_execution_positions_side"),
 )
 
 published_risk_policies = Table(

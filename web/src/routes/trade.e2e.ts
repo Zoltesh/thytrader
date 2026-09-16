@@ -20,6 +20,7 @@ test('trade ticket places a paper long through the discretionary HTTP contract',
 		};
 		expect(body.origin).toBe('human');
 		expect(body.mode).toBe('paper');
+		expect(body.side ?? 'long').toBe('long');
 		expect(body.stop_price).toBe('90000');
 		expect(body.take_profit_price).toBe('120000');
 		expect(body.idempotency_key).toBeTruthy();

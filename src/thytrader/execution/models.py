@@ -55,6 +55,13 @@ class OrderSide(StrEnum):
     SELL = "sell"
 
 
+class PositionSide(StrEnum):
+    """Spot inventory direction for one deployment."""
+
+    LONG = "long"
+    SHORT = "short"
+
+
 class OrderKind(StrEnum):
     """Maker, marketable, or venue-native OCO execution style used by the runtime."""
 
@@ -107,6 +114,7 @@ class OrderIntent:
     candle_starts_at: datetime
     price: Decimal | None = None
     stop_trigger_price: Decimal | None = None
+    take_profit_price: Decimal | None = None
     status: OrderStatus = OrderStatus.PENDING
     origin: IntentOrigin = IntentOrigin.RUNTIME
     idempotency_key: str | None = None
@@ -131,6 +139,7 @@ class Order:
     venue_order_id: str | None = None
     reject_reason: str | None = None
     stop_trigger_price: Decimal | None = None
+    take_profit_price: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,7 +159,7 @@ class Fill:
 
 @dataclass(frozen=True, slots=True)
 class Position:
-    """The single long position held by one deployment, if any."""
+    """The single long or short position held by one deployment, if any."""
 
     deployment_id: UUID
     quantity: Decimal
@@ -160,6 +169,7 @@ class Position:
     entered_bar: datetime
     updated_at: datetime
     trail_extreme: Decimal | None = None
+    side: PositionSide = PositionSide.LONG
 
 
 @dataclass(frozen=True, slots=True)

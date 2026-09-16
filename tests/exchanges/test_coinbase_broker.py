@@ -77,6 +77,51 @@ async def test_create_order_uses_client_order_id_and_gets_status() -> None:
     create_body = transport.calls[0][2]
     assert create_body["client_order_id"] == "client-1"
     assert create_body["order_configuration"]["limit_limit_gtc"]["post_only"] is True
+    assert "attached_order_configuration" not in create_body
+
+
+@pytest.mark.anyio
+async def test_create_order_attaches_trigger_bracket_without_child_size() -> None:
+    """Attached entry brackets omit size so the child inherits the parent fill."""
+    transport = FakeTransport(
+        posts={
+            "/api/v3/brokerage/orders": [
+                {"success": True, "order": {"order_id": "venue-attached", "status": "PENDING"}}
+            ]
+        },
+        gets={
+            "/api/v3/brokerage/orders/historical/venue-attached": [
+                {
+                    "order": {
+                        "order_id": "venue-attached",
+                        "status": "OPEN",
+                        "filled_size": "0",
+                    }
+                }
+            ]
+        },
+    )
+    broker = CoinbaseRestBroker(transport)
+    result = await broker.place_order(
+        client_order_id="client-attached",
+        product_id="BTC-USD",
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        stop_trigger_price=Decimal("110"),
+        take_profit_price=Decimal("90"),
+    )
+    assert result.status is OrderStatus.OPEN
+    create_body = transport.calls[0][2]
+    assert create_body["side"] == "SELL"
+    attached = create_body["attached_order_configuration"]["trigger_bracket_gtc"]
+    assert attached["limit_price"] == "90"
+    assert attached["stop_trigger_price"] == "110"
+    assert "base_size" not in attached
+    assert "size" not in attached
+    assert "leverage" not in create_body
+    assert "margin_type" not in create_body
 
 
 @pytest.mark.anyio

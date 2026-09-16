@@ -400,6 +400,9 @@ def test_place_order_help_lists_venue_clocks(
     assert "2h" in collapsed
     assert "4h" in collapsed
     assert "discretionary book clock" in collapsed
+    assert "--side" in collapsed
+    assert "long" in collapsed
+    assert "short" in collapsed
 
 
 def test_place_order_without_confirm_does_not_call_api() -> None:
@@ -540,3 +543,43 @@ def test_live_yolo_does_not_skip_live_place_order() -> None:
     assert "Pass --confirm" in str(raised.value)
     urlopen.assert_not_called()
     request.assert_not_called()
+
+
+def test_place_order_forwards_short_side() -> None:
+    """`--side short` is composed onto the HTTP client without rewriting YOLO gates."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.place_discretionary_order",
+            return_value={"id": "dep", "mode": "paper", "kind": "discretionary"},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "place-order",
+                "--mode",
+                "paper",
+                "--product-id",
+                "BTC-USD",
+                "--side",
+                "short",
+                "--stop-price",
+                "200000",
+                "--take-profit-price",
+                "50000",
+                "--quantity",
+                "0.01",
+                "--idempotency-key",
+                "k-short",
+                "--cash",
+                "10000",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    assert request.call_args.kwargs["side"] == "short"

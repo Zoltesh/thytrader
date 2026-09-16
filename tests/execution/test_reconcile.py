@@ -46,9 +46,19 @@ class _LookupBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Reconcile tests do not place orders."""
-        del client_order_id, product_id, side, kind, quantity, price, stop_trigger_price
+        del (
+            client_order_id,
+            product_id,
+            side,
+            kind,
+            quantity,
+            price,
+            stop_trigger_price,
+            take_profit_price,
+        )
         raise AssertionError("place_order should not run in these reconcile tests")
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
@@ -71,9 +81,11 @@ class _LookupBroker:
         del order, candle
         return None
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
         """Reconcile tests do not size maker limits."""
-        del product_id, mark
+        del product_id, mark, side
         raise AssertionError("maker_limit_price should not run in these reconcile tests")
 
 

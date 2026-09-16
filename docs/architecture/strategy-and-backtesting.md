@@ -8,7 +8,7 @@ The complete V1 field-level contract — indicators, conditions, entry, sizing, 
 
 **Destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)): many indicators
 on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy to paper or live.
-**Shipped:** long-only, one instrument, `max_concurrent_positions = 1`, LTF `1h`|`5m`.
+**Shipped:** long or short, one instrument, `max_concurrent_positions = 1`, venue LTF clocks.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
 (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact
@@ -38,7 +38,7 @@ timeframes overlay last-completed extra-TF values onto the LTF row before that A
 ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
 [`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
-turns an eligible published run into an immutable long-only, single-position trade ledger, equity
+turns an eligible published run into an immutable single-position trade ledger, equity
 curve, drawdown series, cost evidence, and result summary. V1/V2 stay next-open taker. V3 rests
 maker limits the way paper and live do. The kernel still has no order authority.
 

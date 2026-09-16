@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import OrderKind, OrderSide
+from thytrader.execution.models import OrderKind, OrderSide, PositionSide
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
@@ -115,8 +115,13 @@ def ledger_from_snapshot(
         else Decimal("0")
     )
     position = snapshot.position
-    quantity = position.quantity if position is not None else Decimal("0")
-    entry_price = position.entry_price if position is not None else None
+    quantity = Decimal("0")
+    entry_price = None
+    if position is not None:
+        quantity = position.quantity
+        if position.side is PositionSide.SHORT:
+            quantity = -quantity
+        entry_price = position.entry_price
     return mark_deployment_ledger(
         starting_cash=starting,
         cash=deployment.cash,
@@ -146,9 +151,9 @@ def mark_deployment_ledger(
         starting_cash, fills
     )
     total_fees = sum((fill.fee for fill in fills), start=Decimal("0"))
-    base_quantity = position_quantity if position_quantity > 0 else reconstructed_qty
-    entry_price = position_entry_price if position_quantity > 0 else reconstructed_entry
-    needs_mark = base_quantity > 0
+    base_quantity = reconstructed_qty if position_quantity == 0 else position_quantity
+    entry_price = position_entry_price if position_quantity != 0 else reconstructed_entry
+    needs_mark = base_quantity != 0
     mark_complete = (not needs_mark) or mark_price is not None
     unrealized: Decimal | None = None
     equity: Decimal | None = cash if not needs_mark else None
@@ -206,7 +211,7 @@ def _fold_fills(
                 entry_price = fill.price
                 quantity = fill.quantity
                 entry_fees = fill.fee
-            else:
+            elif quantity > 0:
                 combined = quantity + fill.quantity
                 if entry_price is None:
                     entry_price = fill.price
@@ -216,20 +221,51 @@ def _fold_fills(
                     ) / combined
                 entry_fees += fill.fee
                 quantity = combined
+            else:
+                covered = min(fill.quantity, -quantity)
+                exit_notional = fill.price * covered
+                if entry_price is not None:
+                    allocated_entry_fees = entry_fees * covered / -quantity
+                    realized += (
+                        (entry_price * covered) - exit_notional - fill.fee * covered / fill.quantity
+                        - allocated_entry_fees
+                    )
+                    entry_fees -= allocated_entry_fees
+                quantity += fill.quantity
+                if quantity >= 0:
+                    trade_count += 1
+                    quantity = Decimal("0")
+                    entry_price = None
+                    entry_fees = Decimal("0")
         else:
             exit_notional = fill.price * fill.quantity
             cash += exit_notional - fill.fee
-            sold = fill.quantity
-            if entry_price is not None and quantity > 0:
-                allocated_entry_fees = entry_fees * sold / quantity
-                realized += exit_notional - fill.fee - (entry_price * sold) - allocated_entry_fees
-                entry_fees -= allocated_entry_fees
-            quantity -= sold
-            if quantity <= 0:
-                trade_count += 1
-                quantity = Decimal("0")
-                entry_price = None
-                entry_fees = Decimal("0")
+            if quantity == 0:
+                entry_price = fill.price
+                quantity = -fill.quantity
+                entry_fees = fill.fee
+            elif quantity < 0:
+                combined = -quantity + fill.quantity
+                if entry_price is None:
+                    entry_price = fill.price
+                else:
+                    entry_price = (
+                        (entry_price * -quantity) + (fill.price * fill.quantity)
+                    ) / combined
+                entry_fees += fill.fee
+                quantity -= fill.quantity
+            else:
+                sold = fill.quantity
+                if entry_price is not None and quantity > 0:
+                    allocated_entry_fees = entry_fees * sold / quantity
+                    realized += exit_notional - fill.fee - (entry_price * sold) - allocated_entry_fees
+                    entry_fees -= allocated_entry_fees
+                quantity -= sold
+                if quantity <= 0:
+                    trade_count += 1
+                    quantity = Decimal("0")
+                    entry_price = None
+                    entry_fees = Decimal("0")
         mark = fill.price
         equities.append(cash + quantity * mark)
     return realized, trade_count, quantity, entry_price, tuple(equities)

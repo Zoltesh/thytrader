@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class TrailingStopState:
-    """Working long stop and highest high used by the next ratchet."""
+    """Working stop and trail extreme used by the next ratchet."""
 
     stop_price: Decimal
     trail_extreme: Decimal
@@ -43,3 +43,29 @@ def ratcheted_long_stop(
     if candidate <= 0:
         return TrailingStopState(stop_price=current_stop, trail_extreme=extreme)
     return TrailingStopState(stop_price=max(current_stop, candidate), trail_extreme=extreme)
+
+
+def ratcheted_short_stop(
+    *,
+    current_stop: Decimal,
+    trail_extreme: Decimal | None,
+    bar_low: Decimal,
+    atr: Decimal | None,
+    multiple: Decimal,
+    price_increment: Decimal | None,
+    ratchet: bool,
+) -> TrailingStopState:
+    """Advance the lowest low; lower the stop only on later bars with a defined ATR.
+
+    The fill bar records ``trail_extreme`` without changing the initial stop. Missing
+    ATR leaves the stop unchanged (never zero). The working stop never increases.
+    """
+    extreme = bar_low if trail_extreme is None else min(trail_extreme, bar_low)
+    if not ratchet or atr is None or atr <= 0 or multiple <= 0:
+        return TrailingStopState(stop_price=current_stop, trail_extreme=extreme)
+    candidate = extreme + (atr * multiple)
+    if price_increment is not None:
+        candidate = quantize_to_increment(candidate, price_increment)
+    if candidate <= 0:
+        return TrailingStopState(stop_price=current_stop, trail_extreme=extreme)
+    return TrailingStopState(stop_price=min(current_stop, candidate), trail_extreme=extreme)

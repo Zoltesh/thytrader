@@ -157,8 +157,8 @@ def test_live_without_credentials_is_conflict() -> None:
     assert response.status_code == 409
 
 
-def test_live_fake_broker_rests_bracket_without_coinbase() -> None:
-    """Injected live fakes rest a trigger_bracket after fill."""
+def test_live_fake_broker_attaches_bracket_without_coinbase() -> None:
+    """Injected live fakes attach SL/TP on the entry instead of a second OCO."""
     execution = InMemoryExecutionStore()
     broker = _LiveFillBroker()
     with _client(
@@ -182,4 +182,55 @@ def test_live_fake_broker_rests_bracket_without_coinbase() -> None:
             },
         )
     assert response.status_code == 201
-    assert any(order["kind"] == "trigger_bracket" for order in response.json()["orders"])
+    payload = response.json()
+    assert all(order["kind"] != "trigger_bracket" for order in payload["orders"])
+    assert payload["orders"][0]["take_profit_price"] is not None
+    assert payload["orders"][0]["stop_trigger_price"] is not None
+
+
+def test_paper_short_post_opens_a_short_position() -> None:
+    """HTTP side=short sells to open and records position.side."""
+    execution = InMemoryExecutionStore()
+    with _client(execution=execution) as client:
+        response = client.post(
+            "/api/v1/discretionary-orders",
+            json=_body(
+                side="short",
+                stop_price="200000",
+                take_profit_price="50000",
+                idempotency_key="http-short",
+            ),
+        )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["position"]["side"] == "short"
+    assert any(order["side"] == "sell" for order in payload["orders"])
+
+
+def test_live_short_without_base_is_conflict() -> None:
+    """USD-only live inventory cannot open a spot short."""
+    execution = InMemoryExecutionStore()
+    with _client(
+        execution=execution,
+        live_broker=_LiveFillBroker(),
+        live_credentials=True,
+        quote_reader=_UsdReader(),
+    ) as client:
+        response = client.post(
+            "/api/v1/discretionary-orders",
+            json={
+                "mode": "live",
+                "product_id": "BTC-USD",
+                "side": "short",
+                "entry_kind": "marketable",
+                "stop_price": "200000",
+                "take_profit_price": "50000",
+                "origin": "agent",
+                "idempotency_key": "live-short-no-base",
+                "timeframe": "5m",
+                "quantity": "0.01",
+            },
+        )
+    assert response.status_code == 409
+    assert "INSUFFICIENT_BASE_FOR_SPOT_SHORT" in response.json()["detail"]
+    assert not execution.intents

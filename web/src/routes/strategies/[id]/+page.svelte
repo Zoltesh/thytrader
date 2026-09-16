@@ -533,6 +533,13 @@
 							</div>
 						{/if}
 						<label class="cooldown-row"
+							>Position side
+							<select bind:value={model.side} onchange={markDirty}>
+								<option value="long">Long</option>
+								<option value="short">Short (spot; live needs available base)</option>
+							</select></label
+						>
+						<label class="cooldown-row"
 							>Re-entry cooldown (bars, declared — not yet modeled by the backtester)
 							<input
 								type="number"

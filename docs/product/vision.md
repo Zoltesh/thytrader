@@ -129,9 +129,11 @@ The first reference strategy is an EMA trend strategy with optional RSI and volu
 
 Coinbase's static sandbox is suitable for API contract tests, not realistic paper trading; ThyTrader therefore owns its simulation semantics.
 
-On-demand (discretionary) trades with SL/TP are **shipped** as long-only books through the
-order-intent → risk → broker path ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)).
-Strategy deploy of a published fingerprint remains the automated runtime.
+On-demand (discretionary) trades with SL/TP are **shipped** as long or short books through the
+order-intent → risk → broker path ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md),
+[ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Live shorts require
+available base and never borrow. Strategy deploy of a published fingerprint remains the automated
+runtime.
 
 ### Delivery order for the first usable automation path
 
@@ -144,7 +146,7 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include extra exchanges, shorting, attached entry brackets, and
+items include extra exchanges and
 multi-instrument strategy documents. Venue strategy/paper/live/HTF clocks are shipped
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
@@ -155,6 +157,8 @@ Phase 12's agent playbook and default-off YOLO opt-in are shipped.
 YOLO skip-confirm for live start/pause/resume/stop is shipped
 ([ADR 0043](../decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains.
 Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets are shipped.
+Spot shorting and attached entry brackets are shipped
+([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).
 
 ## Planned direction: agents as crypto-trading experts (hooks shipped)
 

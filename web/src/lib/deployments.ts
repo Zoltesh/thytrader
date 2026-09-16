@@ -4,6 +4,7 @@ export type DeploymentPosition = {
 	stop_price: string;
 	target_price: string;
 	entered_bar: string;
+	side?: 'long' | 'short' | string;
 	trail_extreme?: string | null;
 };
 
@@ -16,6 +17,7 @@ export type DeploymentOrder = {
 	quantity: string;
 	price: string | null;
 	stop_trigger_price?: string | null;
+	take_profit_price?: string | null;
 	filled_quantity: string;
 	status: string;
 	reject_reason: string | null;
@@ -121,6 +123,7 @@ export async function placeDiscretionaryOrder(input: {
 	origin: 'human' | 'agent';
 	entry_kind?: 'post_only_limit' | 'marketable';
 	timeframe?: string;
+	side?: 'long' | 'short';
 	quantity?: string;
 	quote_notional?: string;
 	limit_price?: string;

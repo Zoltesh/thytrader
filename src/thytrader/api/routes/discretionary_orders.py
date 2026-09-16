@@ -1,4 +1,4 @@
-"""On-demand long entries with required SL/TP through the existing execution path."""
+"""On-demand long or short entries with required SL/TP through the existing execution path."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from thytrader.api.routes.deployments import DeploymentResponse, _snapshot_respo
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.broker import Broker  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
+from thytrader.execution.geometry import base_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
@@ -43,7 +44,7 @@ router = APIRouter(prefix="/api/v1/discretionary-orders", tags=["discretionary-o
 
 
 class PlaceDiscretionaryOrderRequest(BaseModel):
-    """Place one long-only on-demand entry with required stop and take-profit."""
+    """Place one on-demand long or short entry with required stop and take-profit."""
 
     mode: DeploymentMode
     product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
@@ -53,6 +54,7 @@ class PlaceDiscretionaryOrderRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128)
     entry_kind: str = "post_only_limit"
     timeframe: str = "5m"
+    side: str = "long"
     quantity: str | None = None
     quote_notional: str | None = None
     limit_price: str | None = None
@@ -82,6 +84,7 @@ async def post_discretionary_order(
             origin=body.origin,
             idempotency_key=body.idempotency_key,
             timeframe=body.timeframe,
+            side=body.side,
             quantity=body.quantity,
             quote_notional=body.quote_notional,
             limit_price=body.limit_price,
@@ -95,7 +98,14 @@ async def post_discretionary_order(
             request=request,
             live_allowed=runtime.settings.coinbase_api_key_name is not None,
             risk_store=risk_store,
-            live_quote_cash=await _usd_available(quote_reader, mode=request.mode),
+            live_quote_cash=await _currency_available(
+                quote_reader, mode=request.mode, currency="USD"
+            ),
+            live_base_available=await _currency_available(
+                quote_reader,
+                mode=request.mode,
+                currency=base_currency(request.product_id),
+            ),
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
@@ -136,14 +146,14 @@ def _broker_for_request(
     return live_broker
 
 
-async def _usd_available(
-    quote_reader: ExchangeAccount | None, *, mode: DeploymentMode
+async def _currency_available(
+    quote_reader: ExchangeAccount | None, *, mode: DeploymentMode, currency: str
 ) -> Decimal | None:
-    """Return remaining USD when a live quote reader is attached."""
+    """Return remaining units of one venue currency when a live reader is attached."""
     if mode is not DeploymentMode.LIVE or quote_reader is None:
         return None
     balances: tuple[ExchangeBalance, ...] = await quote_reader.list_balances()
     for balance in balances:
-        if balance.currency == "USD":
+        if balance.currency == currency:
             return balance.available
     return None

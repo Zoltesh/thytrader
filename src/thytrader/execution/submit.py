@@ -40,6 +40,7 @@ async def submit_intent(
     price: Decimal | None,
     candle: Candle,
     stop_trigger_price: Decimal | None = None,
+    take_profit_price: Decimal | None = None,
     origin: IntentOrigin = IntentOrigin.RUNTIME,
     idempotency_key: str | None = None,
 ) -> Order:
@@ -57,6 +58,7 @@ async def submit_intent(
         quantity=quantity,
         price=price,
         stop_trigger_price=stop_trigger_price,
+        take_profit_price=take_profit_price,
         created_at=now,
         candle_starts_at=candle.starts_at,
         status=OrderStatus.PENDING,
@@ -74,6 +76,7 @@ async def submit_intent(
         quantity=quantity,
         price=price,
         stop_trigger_price=stop_trigger_price,
+        take_profit_price=take_profit_price,
         status=OrderStatus.PENDING,
         created_at=now,
         updated_at=now,
@@ -88,6 +91,7 @@ async def submit_intent(
             quantity=quantity,
             price=price,
             stop_trigger_price=stop_trigger_price,
+            take_profit_price=take_profit_price,
         )
     except (BrokerError, ValueError, TimeoutError) as error:
         unknown = replace(

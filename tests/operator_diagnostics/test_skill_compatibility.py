@@ -118,6 +118,9 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "place-order" in skill
     assert "/api/v1/discretionary-orders" in skill
     assert "--timeframe" in skill
+    assert "--side" in skill
+    assert "short" in skill.lower()
+    assert "attached" in skill.lower()
     assert "per-indicator" in skill
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
     assert "do not edit" in skill.lower()

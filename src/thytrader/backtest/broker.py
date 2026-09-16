@@ -32,8 +32,16 @@ class FillModel(Protocol):
         """Return the pre-slippage bid-side price used for V2 exit-trigger evaluation."""
         ...
 
+    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
+        """Return the pre-slippage ask-side price used for short exit-trigger evaluation."""
+        ...
+
     def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
         """Invert one sell trigger into its raw OHLC reference price."""
+        ...
+
+    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
+        """Invert one buy trigger into its raw OHLC reference price."""
         ...
 
     def mark_price(self, raw_price: Decimal) -> Decimal:
@@ -59,7 +67,15 @@ class MarkFillModel:
         """Preserve the V1 raw OHLC trigger comparison exactly."""
         return raw_price
 
+    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
+        """Preserve the V1 raw OHLC trigger comparison exactly."""
+        return raw_price
+
     def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
+        """Preserve the V1 identity mapping from trigger to raw reference price."""
+        return executable_price
+
+    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
         """Preserve the V1 identity mapping from trigger to raw reference price."""
         return executable_price
 
@@ -90,9 +106,17 @@ class ConstantSpreadFillModel:
         """Evaluate long exits against the executable bid side before slippage."""
         return raw_price * (Decimal("1") - self._half_spread_fraction)
 
+    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
+        """Evaluate short exits against the executable ask side before slippage."""
+        return raw_price * (Decimal("1") + self._half_spread_fraction)
+
     def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
         """Invert bid-side trigger thresholds to their raw OHLC reference prices."""
         return executable_price / (Decimal("1") - self._half_spread_fraction)
+
+    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
+        """Invert ask-side trigger thresholds to their raw OHLC reference prices."""
+        return executable_price / (Decimal("1") + self._half_spread_fraction)
 
     def mark_price(self, raw_price: Decimal) -> Decimal:
         """Mark an open long at bid-close liquidation value, before any exit slippage."""
@@ -122,7 +146,15 @@ class MakerLimitFillModel:
         """Evaluate long exits against the same OHLC extreme the worker uses."""
         return raw_price
 
+    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
+        """Evaluate short exits against the same OHLC extreme the worker uses."""
+        return raw_price
+
     def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
+        """Keep bar-extreme triggers identical to their raw OHLC reference prices."""
+        return executable_price
+
+    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
         """Keep bar-extreme triggers identical to their raw OHLC reference prices."""
         return executable_price
 

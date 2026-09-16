@@ -2,7 +2,8 @@
 
 from decimal import Decimal
 
-from thytrader.execution.sizing import size_long_entry
+from thytrader.execution.models import PositionSide
+from thytrader.execution.sizing import size_entry, size_long_entry
 from thytrader.market_data.models import MarketProduct
 from thytrader.strategies.authoring import create_reference_draft
 
@@ -70,3 +71,20 @@ def test_size_long_entry_reserves_fee_inside_cash() -> None:
         product=_product(),
     )
     assert sized is None
+
+
+def test_size_short_entry_places_stop_above_and_target_below() -> None:
+    """Short geometry inverts the ATR stop and reward/risk target."""
+    strategy = create_reference_draft()
+    sized = size_entry(
+        strategy=strategy,
+        cash=Decimal("10000"),
+        entry_price=Decimal("100"),
+        atr=Decimal("1"),
+        product=_product(),
+        side=PositionSide.SHORT,
+    )
+    assert sized is not None
+    assert sized.stop_price == Decimal("102.00")
+    assert sized.target_price == Decimal("96.00")
+    assert sized.notional <= Decimal("100")

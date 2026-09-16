@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from thytrader.execution.trailing import ratcheted_long_stop
+from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 
 
 def test_fill_bar_records_extreme_without_raising_stop() -> None:
@@ -59,3 +59,29 @@ def test_missing_atr_leaves_stop_unchanged() -> None:
     )
     assert state.stop_price == Decimal("90")
     assert state.trail_extreme == Decimal("130")
+
+
+def test_short_stop_ratchets_down_and_never_increases() -> None:
+    """A later bar lowers a short stop from the lowest low and ignores a higher low."""
+    lowered = ratcheted_short_stop(
+        current_stop=Decimal("110"),
+        trail_extreme=Decimal("90"),
+        bar_low=Decimal("80"),
+        atr=Decimal("2"),
+        multiple=Decimal("1.5"),
+        price_increment=Decimal("0.01"),
+        ratchet=True,
+    )
+    assert lowered.trail_extreme == Decimal("80")
+    assert lowered.stop_price == Decimal("83.00")
+    bounced = ratcheted_short_stop(
+        current_stop=lowered.stop_price,
+        trail_extreme=lowered.trail_extreme,
+        bar_low=Decimal("100"),
+        atr=Decimal("2"),
+        multiple=Decimal("1.5"),
+        price_increment=Decimal("0.01"),
+        ratchet=True,
+    )
+    assert bounced.trail_extreme == Decimal("80")
+    assert bounced.stop_price == lowered.stop_price

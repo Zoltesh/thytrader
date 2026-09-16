@@ -5,6 +5,7 @@
 
 	let productId = $state('BTC-USD');
 	let mode = $state<'paper' | 'live'>('paper');
+	let side = $state<'long' | 'short'>('long');
 	let timeframe = $state<ExecutionTimeframe>('5m');
 	let entryKind = $state<'post_only_limit' | 'marketable'>('post_only_limit');
 	let limitPrice = $state('');
@@ -42,6 +43,7 @@
 			result = await placeDiscretionaryOrder({
 				mode,
 				product_id: productId,
+				side,
 				stop_price: stopPrice,
 				take_profit_price: takeProfitPrice,
 				idempotency_key: crypto.randomUUID(),
@@ -75,11 +77,12 @@
 	<section class="hero">
 		<div>
 			<p class="eyebrow">On-demand</p>
-			<h1>Place a long with SL/TP</h1>
+			<h1>Place a long or short with SL/TP</h1>
 			<p class="lede">
 				Human origin over the same intent → risk → broker path as
 				<code>thytrader-runtime place-order --confirm</code>. Live still requires Coinbase
-				credentials. Timeouts are reconciled, never retried.
+				credentials. Live shorts need available base; they never borrow. Timeouts are
+				reconciled, never retried.
 			</p>
 		</div>
 	</section>
@@ -98,6 +101,13 @@
 			<select bind:value={mode}>
 				<option value="paper">Paper</option>
 				<option value="live">Live</option>
+			</select>
+		</label>
+		<label>
+			Side
+			<select bind:value={side} data-testid="discretionary-side">
+				<option value="long">Long</option>
+				<option value="short">Short</option>
 			</select>
 		</label>
 		<label>
@@ -142,7 +152,7 @@
 			</label>
 		{/if}
 		<button type="button" disabled={submitting} onclick={() => void submitOrder()}>
-			{submitting ? 'Submitting…' : 'Place long'}
+			{submitting ? 'Submitting…' : side === 'short' ? 'Place short' : 'Place long'}
 		</button>
 	</form>
 

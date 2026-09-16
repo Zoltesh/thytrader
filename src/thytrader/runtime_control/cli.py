@@ -91,10 +91,11 @@ def _parser() -> argparse.ArgumentParser:
     place = subparsers.add_parser(
         "place-order",
         parents=[trailing],
-        help="Place one long-only discretionary order with required SL/TP.",
+        help="Place one long or short discretionary order with required SL/TP.",
     )
     place.add_argument("--mode", required=True, choices=("paper", "live"))
     place.add_argument("--product-id", required=True)
+    place.add_argument("--side", default="long", choices=("long", "short"))
     place.add_argument("--stop-price", required=True)
     place.add_argument("--take-profit-price", required=True)
     place.add_argument("--idempotency-key", required=True)
@@ -220,7 +221,7 @@ def _start(arguments: argparse.Namespace, base_url: str) -> object:
 
 
 def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
-    """Place one paper (YOLO-eligible) or live (confirm hard-gated) discretionary long."""
+    """Place one paper (YOLO-eligible) or live (confirm hard-gated) discretionary order."""
     live = arguments.mode == "live"
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
@@ -242,6 +243,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
         origin=arguments.origin,
         entry_kind=arguments.entry_kind,
         timeframe=arguments.timeframe,
+        side=arguments.side,
         quantity=arguments.quantity,
         quote_notional=arguments.quote_notional,
         limit_price=arguments.limit_price,

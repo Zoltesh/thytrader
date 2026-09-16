@@ -26,9 +26,9 @@ at a time. Phases 7–14 below are the definitive **near-term** sequence (not a 
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not the current Builder ceiling**: extra exchanges,
-shorting, attached entry brackets, and multi-instrument strategy
-documents. Venue clocks, on-demand trades with SL/TP, and per-indicator timeframes are shipped. See
+Destination items that are **accepted but not the current Builder ceiling**: extra exchanges
+and multi-instrument strategy documents. Venue clocks, on-demand trades with SL/TP, per-indicator
+timeframes, WFO/sweeps, and spot shorting with attached entry brackets are shipped. See
 [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
@@ -317,6 +317,24 @@ Ops contract is unchanged.
 succeeds only when YOLO advertises `live` and the skip audit writes; Safe mode still requires
 `--confirm`; playbook `run` never constructs `--mode live`.
 
+## Spot shorting and attached entry brackets — ✅ Shipped
+
+Strategy `entry.side` is `long` or `short`. Discretionary HTTP/CLI accept `--side` (default
+`long`). Geometry: longs `stop < entry < take_profit`; shorts invert. Paper and backtest V1/V2/V3
+simulate a cash-and-inventory spot short. Live submits Coinbase Advanced Trade **SPOT** `SELL` and
+fails closed without available base (`INSUFFICIENT_BASE_FOR_SPOT_SHORT`). Never `leverage`,
+`margin_type`, or futures.
+
+When SL/TP are known at persist time and ATR trailing is disabled, live attaches
+`attached_order_configuration.trigger_bracket_gtc` (size omitted) and does not rest a second
+post-fill OCO. Trailing keeps ADR 0036 post-fill OCO. Paper never sends venue brackets.
+Ops contract is `thytrader-ops-contract-v15` / Alembic `0027`. Live YOLO skip-confirm
+([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)) and WFO
+([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) are unchanged.
+
+**Exit gate met:** paper short + attached live entry + fail-closed live short without base; long
+V1/V2/V3 golden fingerprints unchanged.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -326,7 +344,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
-| On-demand trades with SL/TP | Yes, long-only via intent + risk ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)) | Shorting, attached entry brackets, intra-strategy pyramiding |
+| On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)) | Intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Many indicators |
@@ -463,7 +481,7 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 - ✅ Versioned deterministic indicator and entry-condition evaluation for executable
   `thytrader-bar-signal-v1` publications, with strict no-lookahead candle selection, canonical
   fingerprinted traces, and a read-only CLI. Traces are ephemeral and are not backtest results.
-- ✅ `thytrader-bar-backtest-v1` event-driven long-only single-position simulation with private Decimal64
+- ✅ `thytrader-bar-backtest-v1` event-driven long or short single-position simulation with private Decimal64
   arithmetic, strict no-lookahead signal boundaries, next-open marketable fills, ATR sizing, adverse
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
   ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only

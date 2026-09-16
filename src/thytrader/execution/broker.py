@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.execution.models import OrderSide
+
 if TYPE_CHECKING:
-    from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
+    from thytrader.execution.models import Fill, Order, OrderKind, OrderStatus
     from thytrader.market_data.models import Candle
 
 
@@ -44,6 +46,7 @@ class Broker(Protocol):
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Submit one order and return the immediate venue-visible snapshot."""
         ...
@@ -69,6 +72,8 @@ class Broker(Protocol):
         """Return a paper fill when a closed candle trades through an open limit."""
         ...
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
-        """Return the post-only limit price for a long entry."""
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
+        """Return the post-only limit price for an entry on one spot side."""
         ...

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.execution.models import OrderSide
+
 if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.broker import SubmitResult
-    from thytrader.execution.models import Fill, OrderKind, OrderSide
+    from thytrader.execution.models import Fill, OrderKind
 
 
 class ExchangeAccount(Protocol):
@@ -46,6 +48,7 @@ class LiveVenueBroker(Protocol):
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """POST one order and return the immediate JSON-derived snapshot."""
         ...
@@ -67,6 +70,8 @@ class LiveVenueBroker(Protocol):
         """Page the venue fill ledger for one product, optionally one order."""
         ...
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
-        """Return the post-only limit price for a long entry."""
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
+        """Return the post-only limit price for an entry on one spot side."""
         ...

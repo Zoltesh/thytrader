@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.discretionary import process_discretionary_bar
+from thytrader.execution.geometry import base_currency
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
 from thytrader.execution.models import (
@@ -344,6 +345,11 @@ async def _evaluate_strategy_due_bars(
         if current.deployment.status is DeploymentStatus.STOPPED:
             return
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
+        live_base_available = None
+        if current.deployment.mode is DeploymentMode.LIVE and quote_reader is not None:
+            live_base_available = await _currency_available(
+                quote_reader, base_currency(product.product_id)
+            )
         await process_closed_bar(
             current,
             strategy=strategy,
@@ -355,6 +361,7 @@ async def _evaluate_strategy_due_bars(
             portfolio=portfolio,
             htf_candles=htf_candles,
             indicator_timeframe_candles=extra_candles,
+            live_base_available=live_base_available,
         )
 
 
@@ -486,7 +493,7 @@ async def _prepare_live(
     if snapshot.deployment.status is DeploymentStatus.PAUSED:
         return snapshot
     if quote_reader is not None:
-        cash = await _quote_cash(quote_reader, quote_currency)
+        cash = await _currency_available(quote_reader, quote_currency)
         if cash is not None:
             current = await store.get_deployment(deployment.id)
             await store.save_deployment(
@@ -655,11 +662,11 @@ async def _closed_window_for(
     return preview.product, candles, last_closed_start
 
 
-async def _quote_cash(reader: QuoteBalanceReader, quote_currency: str) -> Decimal | None:
-    """Return available quote cash when the venue reports that currency."""
+async def _currency_available(reader: QuoteBalanceReader, currency: str) -> Decimal | None:
+    """Return available units of one venue currency, if reported."""
     balances = await reader.list_balances()
     for balance in balances:
-        if balance.currency == quote_currency:
+        if balance.currency == currency:
             return balance.available
     return None
 
