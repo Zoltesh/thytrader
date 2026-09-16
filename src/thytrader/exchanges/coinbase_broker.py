@@ -169,17 +169,17 @@ class CoinbaseRestBroker:
         del order, candle
         return None
 
-    def maker_limit_price(
+    async def maker_limit_price(
         self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
     ) -> Decimal:
         """Rest live maker buys at the best bid and maker sells at the best ask."""
         del mark
         if side is OrderSide.SELL:
-            ask = self.best_ask(product_id)
+            ask = await asyncio.to_thread(self.best_ask, product_id)
             if ask is None or ask <= 0:
                 raise BrokerError("Coinbase best ask is unavailable.")
             return ask
-        bid = self.best_bid(product_id)
+        bid = await asyncio.to_thread(self.best_bid, product_id)
         if bid is None or bid <= 0:
             raise BrokerError("Coinbase best bid is unavailable.")
         return bid

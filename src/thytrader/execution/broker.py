@@ -73,7 +73,7 @@ class Broker(Protocol):
         """Return a paper fill when a closed candle trades through an open limit."""
         ...
 
-    def maker_limit_price(
+    async def maker_limit_price(
         self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
     ) -> Decimal:
         """Return the post-only limit price for an entry on one spot side."""

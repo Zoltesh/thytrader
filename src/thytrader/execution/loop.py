@@ -41,6 +41,7 @@ from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
@@ -88,7 +89,34 @@ async def maintain_open_inventory(
         candles=candles,
         broker=bind_paper_broker_fees(broker, snapshot.deployment),
         store=store,
+        allow_new_entries=False,
     )
+
+
+async def flatten_stopped_residual(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Exit open inventory on a stopped deployment, or cancel any resting orders."""
+    broker = bind_paper_broker_fees(broker, snapshot.deployment)
+    if snapshot.position is not None and candles:
+        candle = candles[-1]
+        return await _marketable_exit(
+            snapshot,
+            strategy=strategy,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            purpose=IntentPurpose.STOP,
+            price=candle.close,
+        )
+    return await cancel_resting_orders(snapshot, broker=broker, store=store)
 
 
 async def process_closed_bar(
@@ -105,6 +133,7 @@ async def process_closed_bar(
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
+    allow_new_entries: bool = True,
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -135,6 +164,7 @@ async def process_closed_bar(
         store=store,
         cooldown_bars=strategy.entry.cooldown_bars,
     )
+    policy = risk_policy or compiled_default_risk_policy()
     snapshot = await _manage_position(
         snapshot,
         strategy=strategy,
@@ -143,8 +173,11 @@ async def process_closed_bar(
         product=product,
         broker=broker,
         store=store,
+        risk_policy=policy,
+        portfolio=portfolio,
+        marks=marks,
+        live_base_available=live_base_available,
     )
-    policy = risk_policy or compiled_default_risk_policy()
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _apply_circuit_breakers(
             snapshot,
@@ -153,8 +186,9 @@ async def process_closed_bar(
             risk_policy=policy,
             portfolio=portfolio,
             marks=marks,
+            timeframe=strategy.timeframe,
         )
-    if snapshot.deployment.status is DeploymentStatus.RUNNING:
+    if allow_new_entries and snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _maybe_enter(
             snapshot,
             strategy=strategy,
@@ -376,21 +410,33 @@ async def _manage_position(
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None = None,
+    live_base_available: Decimal | None = None,
 ) -> DeploymentSnapshot:
     """Exit on stop, take-profit fill wait, or time, and cancel stale entries."""
     deployment = snapshot.deployment
+    manage_kwargs = {
+        "strategy": strategy,
+        "candles": candles,
+        "candle": candle,
+        "product": product,
+        "broker": broker,
+        "store": store,
+        "risk_policy": risk_policy,
+        "portfolio": portfolio,
+        "marks": marks,
+        "live_base_available": live_base_available,
+    }
     if deployment.phase is RuntimePhase.PENDING_ENTRY:
-        return await _manage_pending_entry(
-            snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
-        )
+        return await _manage_pending_entry(snapshot, **manage_kwargs)
     if (
-        deployment.phase is RuntimePhase.OPEN
+        deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
         and snapshot.position is not None
         and _active_entry(snapshot) is not None
     ):
-        snapshot = await _manage_pending_pyramid_add(
-            snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
-        )
+        snapshot = await _manage_pending_pyramid_add(snapshot, **manage_kwargs)
         if snapshot.deployment.status is not DeploymentStatus.RUNNING:
             return snapshot
         if snapshot.position is None:
@@ -591,10 +637,15 @@ async def _manage_pending_entry(
     snapshot: DeploymentSnapshot,
     *,
     strategy: StrategyDefinition,
+    candles: Sequence[Candle],
     candle: Candle,
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None = None,
+    live_base_available: Decimal | None = None,
 ) -> DeploymentSnapshot:
     """Wait, cancel, or reprice an unfilled maker entry."""
     deployment = snapshot.deployment
@@ -622,7 +673,18 @@ async def _manage_pending_entry(
         )
     if strategy.execution.on_unfilled_entry == "reprice":
         return await _reprice_entry(
-            snapshot, candle=candle, product=product, broker=broker, store=store, prior=open_entry
+            snapshot,
+            strategy=strategy,
+            candles=candles,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            prior=open_entry,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
+            marks=marks,
+            live_base_available=live_base_available,
         )
     return await _flatten_pending(
         snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
@@ -633,10 +695,15 @@ async def _manage_pending_pyramid_add(
     snapshot: DeploymentSnapshot,
     *,
     strategy: StrategyDefinition,
+    candles: Sequence[Candle],
     candle: Candle,
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None = None,
+    live_base_available: Decimal | None = None,
 ) -> DeploymentSnapshot:
     """Wait, cancel, or reprice an unfilled same-side add without flattening the book."""
     deployment = snapshot.deployment
@@ -667,12 +734,18 @@ async def _manage_pending_pyramid_add(
     if strategy.execution.on_unfilled_entry == "reprice":
         return await _reprice_entry(
             snapshot,
+            strategy=strategy,
+            candles=candles,
             candle=candle,
             product=product,
             broker=broker,
             store=store,
             prior=open_entry,
             phase=RuntimePhase.OPEN,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
+            marks=marks,
+            live_base_available=live_base_available,
         )
     abandoned = with_runtime(
         snapshot.deployment,
@@ -700,29 +773,154 @@ async def _flatten_pending(
     return await store.get_deployment(snapshot.deployment.id)
 
 
-async def _reprice_entry(
+async def _abandon_pyramid_add(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Drop a working pyramid add and return to OPEN without flattening inventory."""
+    abandoned = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        phase=RuntimePhase.OPEN,
+        pending_entry_bars=0,
+    )
+    await store.save_deployment(abandoned)
+    return await store.get_deployment(snapshot.deployment.id)
+
+
+def _reprice_stop_target(
     snapshot: DeploymentSnapshot,
     *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    product: MarketProduct,
+    entry_price: Decimal,
+    side: PositionSide,
+    is_pyramid: bool,
+) -> tuple[Decimal, Decimal] | Literal["flatten"] | None:
+    """Return stop/target for a repriced entry, flatten when initial geometry is unavailable."""
+    if is_pyramid:
+        atr = latest_atr(strategy, candles)
+        if atr is None:
+            return None
+        sized = _size_entry_or_add(
+            snapshot,
+            strategy=strategy,
+            product=product,
+            entry_price=entry_price,
+            atr=atr,
+            side=side,
+            is_pyramid_add=True,
+        )
+        if sized is None:
+            return None
+        return sized.stop_price, sized.target_price
+    deployment = snapshot.deployment
+    stop_price = deployment.pending_stop_price
+    target_price = deployment.pending_target_price
+    if stop_price is not None and target_price is not None:
+        return stop_price, target_price
+    atr = latest_atr(strategy, candles)
+    if atr is None:
+        return "flatten"
+    sized = _size_entry_or_add(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        entry_price=entry_price,
+        atr=atr,
+        side=side,
+        is_pyramid_add=False,
+    )
+    if sized is None:
+        return "flatten"
+    return sized.stop_price, sized.target_price
+
+
+async def _reprice_geometry_or_abort(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    product: MarketProduct,
+    entry_price: Decimal,
+    side: PositionSide,
+    is_pyramid: bool,
+    store: ExecutionStore,
+) -> tuple[Decimal, Decimal] | DeploymentSnapshot:
+    """Resolve repriced stop/target or return an early-abort snapshot."""
+    geometry = _reprice_stop_target(
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        product=product,
+        entry_price=entry_price,
+        side=side,
+        is_pyramid=is_pyramid,
+    )
+    if geometry is None:
+        if is_pyramid:
+            return await _abandon_pyramid_add(snapshot, store=store)
+        return await _flatten_pending(
+            snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
+        )
+    if geometry == "flatten":
+        return await _flatten_pending(
+            snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
+        )
+    return geometry
+
+
+async def _submit_repriced_entry(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
     candle: Candle,
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
     prior: Order,
-    phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None,
+    entry_price: Decimal,
+    remaining_qty: Decimal,
+    stop_price: Decimal,
+    target_price: Decimal,
+    is_pyramid: bool,
+    phase: RuntimePhase,
 ) -> DeploymentSnapshot:
-    """Submit a replacement post-only entry at the current maker price."""
-    try:
-        price = broker.maker_limit_price(
-            product_id=product.product_id, mark=candle.close, side=prior.side
-        )
-    except BrokerError:
-        return await _pause(
-            snapshot,
-            store=store,
-            detail="Maker entry price is unavailable for repricing.",
-            phase=RuntimePhase.FLAT,
-        )
+    """Gate and submit one repriced entry after geometry is resolved."""
+    admitted = _entry_verdict(
+        snapshot,
+        product_id=product.product_id,
+        notional=entry_price * remaining_qty,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+        observation=_bar_observation(
+            product_id=product.product_id,
+            candle=candle,
+            proposed_price=entry_price,
+            marks=marks,
+            timeframe=strategy.timeframe,
+        ),
+        is_pyramid_add=is_pyramid,
+    )
+    if admitted.decision is RiskDecision.DENY:
+        if pauses_risk_increasing(admitted.reason_code):
+            return await _pause_for_breaker(
+                snapshot, store=store, portfolio=portfolio, verdict=admitted
+            )
+        if is_pyramid:
+            return await _abandon_pyramid_add(snapshot, store=store)
+        return snapshot
+    attach = not is_pyramid and atr_trailing_stop(strategy.exits) is None
     reset = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
+    if not is_pyramid:
+        reset = with_runtime(
+            reset,
+            pending_stop_price=stop_price,
+            pending_target_price=target_price,
+        )
     await store.save_deployment(reset)
     order = await submit_intent(
         store=store,
@@ -732,11 +930,12 @@ async def _reprice_entry(
         purpose=IntentPurpose.ENTRY,
         side=prior.side,
         kind=OrderKind.POST_ONLY_LIMIT,
-        quantity=prior.quantity,
-        price=price,
+        quantity=remaining_qty,
+        price=entry_price,
         candle=candle,
-        stop_trigger_price=prior.stop_trigger_price,
-        take_profit_price=prior.take_profit_price,
+        stop_trigger_price=stop_price if attach else None,
+        take_profit_price=target_price if attach else None,
+        pyramid_add=is_pyramid,
     )
     if order.status is OrderStatus.UNKNOWN:
         return await _pause(
@@ -747,6 +946,93 @@ async def _reprice_entry(
     pending = with_runtime(reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0)
     await store.save_deployment(pending)
     return await store.get_deployment(snapshot.deployment.id)
+
+
+async def _reprice_entry(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+    prior: Order,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None = None,
+    live_base_available: Decimal | None = None,
+    phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
+) -> DeploymentSnapshot:
+    """Submit a replacement post-only entry at the current maker price."""
+    remaining_qty = prior.quantity - prior.filled_quantity
+    if remaining_qty <= 0:
+        return snapshot
+    is_pyramid = phase is RuntimePhase.OPEN
+    if (
+        snapshot.deployment.status is DeploymentStatus.PAUSED
+        and phase is RuntimePhase.PENDING_ENTRY
+    ):
+        return snapshot
+    try:
+        entry_price = await broker.maker_limit_price(
+            product_id=product.product_id, mark=candle.close, side=prior.side
+        )
+    except BrokerError:
+        if is_pyramid:
+            return await _abandon_pyramid_add(snapshot, store=store)
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Maker entry price is unavailable for repricing.",
+            phase=RuntimePhase.FLAT,
+        )
+    side = PositionSide(strategy.entry.side)
+    resolved = await _reprice_geometry_or_abort(
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        product=product,
+        entry_price=entry_price,
+        side=side,
+        is_pyramid=is_pyramid,
+        store=store,
+    )
+    if not isinstance(resolved, tuple):
+        return resolved
+    stop_price, target_price = resolved
+    if (
+        side is PositionSide.SHORT
+        and snapshot.deployment.mode is DeploymentMode.LIVE
+        and (live_base_available is None or live_base_available < remaining_qty)
+    ):
+        if is_pyramid:
+            return await _abandon_pyramid_add(snapshot, store=store)
+        return await _pause(
+            snapshot,
+            store=store,
+            detail=(
+                "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
+            ),
+        )
+    return await _submit_repriced_entry(
+        snapshot,
+        strategy=strategy,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        prior=prior,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+        marks=marks,
+        entry_price=entry_price,
+        remaining_qty=remaining_qty,
+        stop_price=stop_price,
+        target_price=target_price,
+        is_pyramid=is_pyramid,
+        phase=phase,
+    )
 
 
 async def _marketable_exit(
@@ -1069,7 +1355,7 @@ async def _submit_sized_entry(
     side = PositionSide(strategy.entry.side)
     open_side = entry_order_side(side)
     try:
-        entry_price = broker.maker_limit_price(
+        entry_price = await broker.maker_limit_price(
             product_id=product.product_id, mark=candle.close, side=open_side
         )
     except BrokerError:
@@ -1108,6 +1394,7 @@ async def _submit_sized_entry(
             candle=candle,
             proposed_price=sized.entry_price,
             marks=marks,
+            timeframe=strategy.timeframe,
         ),
         is_pyramid_add=is_pyramid_add,
     )
@@ -1284,15 +1571,19 @@ def _bar_observation(
     candle: Candle,
     proposed_price: Decimal | None,
     marks: Mapping[str, Decimal] | None,
+    timeframe: str,
 ) -> EntryObservation:
     """Build breaker observation from this bar's close plus any sibling marks."""
     combined = dict(marks) if marks is not None else {}
     combined[product_id] = candle.close
+    interval = parse_candle_interval(timeframe)
     return EntryObservation(
         as_of=utc_now(),
         proposed_price=proposed_price,
         reference_price=candle.close,
         marks=combined,
+        reference_candle_at=candle.starts_at,
+        reference_interval_seconds=int(interval.duration.total_seconds()),
     )
 
 
@@ -1304,6 +1595,7 @@ async def _apply_circuit_breakers(
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
     marks: Mapping[str, Decimal] | None,
+    timeframe: str,
 ) -> DeploymentSnapshot:
     """Pause when daily-loss or drawdown has already tripped before a new entry."""
     live_cash = None
@@ -1320,6 +1612,7 @@ async def _apply_circuit_breakers(
             candle=candle,
             proposed_price=None,
             marks=marks,
+            timeframe=timeframe,
         ),
     )
     if verdict.decision is RiskDecision.ALLOW:

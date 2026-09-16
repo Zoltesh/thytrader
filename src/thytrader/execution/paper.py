@@ -96,7 +96,7 @@ class PaperBroker:
         del product_id, order_id
         return ()
 
-    def maker_limit_price(
+    async def maker_limit_price(
         self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
     ) -> Decimal:
         """Paper maker entries rest at the last closed candle's close."""

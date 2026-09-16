@@ -9,11 +9,15 @@ import logging
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
-from thytrader.execution.discretionary import process_discretionary_bar
+from thytrader.execution.discretionary import (
+    _marketable_discretionary_exit,
+    process_discretionary_bar,
+)
 from thytrader.execution.geometry import base_currency
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import (
     cancel_resting_orders,
+    flatten_stopped_residual,
     maintain_open_inventory,
     process_closed_bar,
 )
@@ -165,6 +169,8 @@ async def _run_cycle(
                     store=store,
                     paper_broker=paper_broker,
                     live_broker=live_broker,
+                    publication_store=publication_store,
+                    market_data=market_data,
                 )
             except RuntimeError, ValueError, TypeError, OSError:
                 _logger.exception("execution_cancel_failed deployment_id=%s", deployment.id)
@@ -196,15 +202,51 @@ async def _cancel_stopped(
     store: ExecutionStore,
     paper_broker: Broker,
     live_broker: Broker | None,
+    publication_store: StrategyPublicationStore,
+    market_data: MarketDataService,
 ) -> None:
-    """Cancel resting orders on a permanently stopped deployment."""
+    """Flatten open inventory or cancel resting orders on a stopped deployment."""
     snapshot = await store.get_deployment(deployment_id)
     broker = paper_broker
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         if live_broker is None:
             return
         broker = live_broker
-    await cancel_resting_orders(snapshot, broker=broker, store=store)
+    if snapshot.deployment.kind is DeploymentKind.DISCRETIONARY:
+        timeframe = snapshot.deployment.timeframe or "1h"
+        product, candles, _expected_last = await _closed_window_for(
+            market_data,
+            product_id=snapshot.deployment.product_id,
+            timeframe=timeframe,
+            warmup_bars=3,
+        )
+        if snapshot.position is not None and candles:
+            await _marketable_discretionary_exit(
+                snapshot,
+                candle=candles[-1],
+                product=product,
+                broker=broker,
+                store=store,
+                price=candles[-1].close,
+            )
+        else:
+            await cancel_resting_orders(snapshot, broker=broker, store=store)
+        return
+    strategy = await _strategy_definition(
+        snapshot, store=store, publication_store=publication_store
+    )
+    if strategy is None:
+        await cancel_resting_orders(snapshot, broker=broker, store=store)
+        return
+    product, candles, _expected_last = await _closed_window(market_data, strategy)
+    await flatten_stopped_residual(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+    )
 
 
 async def _process_one(
@@ -272,11 +314,23 @@ async def _advance_strategy(
 ) -> None:
     """Advance one published-strategy deployment through newly closed bars."""
     deployment = snapshot.deployment
+    product, candles, expected_last = await _closed_window(market_data, strategy)
     if await _pause_five_minute_live_if_feed_down(
         snapshot, timeframe=strategy.timeframe, store=store, user_feed_store=user_feed_store
     ):
+        if candles:
+            await _maintain_between_bars(
+                snapshot,
+                strategy=strategy,
+                store=store,
+                market_data=market_data,
+                paper_broker=paper_broker,
+                live_broker=live_broker,
+                quote_reader=quote_reader,
+                product=product,
+                candles=candles,
+            )
         return
-    product, candles, expected_last = await _closed_window(market_data, strategy)
     if not candles:
         return
     interval = parse_candle_interval(strategy.timeframe)
@@ -665,7 +719,7 @@ async def _evaluate_strategy_due_bars(
             return
         snapshot = prepared
         broker = live_broker
-    for candle in due:
+    for index, candle in enumerate(due):
         current = await store.get_deployment(deployment.id)
         if current.deployment.status is DeploymentStatus.STOPPED:
             return
@@ -703,6 +757,7 @@ async def _evaluate_strategy_due_bars(
                 indicator_timeframe_candles=extra_candles,
                 live_base_available=live_base_available,
                 marks=marks,
+                allow_new_entries=index == len(due) - 1,
             )
 
 
@@ -727,6 +782,44 @@ async def _strategy_definition(
     return published.definition
 
 
+async def _maintain_discretionary_between_bars(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+) -> None:
+    """Reconcile and ensure protection for a discretionary book between closed bars."""
+    broker: Broker = paper_broker
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        prepared = await _prepare_live(
+            snapshot,
+            store=store,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            quote_currency="USD",
+            product_id=product.product_id,
+            cooldown_bars=0,
+        )
+        if prepared is None or live_broker is None:
+            return
+        snapshot = prepared
+        broker = live_broker
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.status is DeploymentStatus.STOPPED:
+        return
+    await process_discretionary_bar(
+        current,
+        product=product,
+        candles=tuple(candles),
+        broker=broker,
+        store=store,
+    )
+
+
 async def _process_discretionary(
     snapshot: DeploymentSnapshot,
     *,
@@ -742,16 +835,26 @@ async def _process_discretionary(
     """Reconcile and protect a discretionary book without strategy signal evaluation."""
     deployment = snapshot.deployment
     timeframe = deployment.timeframe or "1h"
-    if await _pause_five_minute_live_if_feed_down(
-        snapshot, timeframe=timeframe, store=store, user_feed_store=user_feed_store
-    ):
-        return
     product, candles, expected_last = await _closed_window_for(
         market_data,
         product_id=deployment.product_id,
         timeframe=timeframe,
         warmup_bars=3,
     )
+    maintain = _maintain_discretionary_between_bars(
+        snapshot,
+        store=store,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        product=product,
+        candles=candles,
+    )
+    if await _pause_five_minute_live_if_feed_down(
+        snapshot, timeframe=timeframe, store=store, user_feed_store=user_feed_store
+    ):
+        await maintain
+        return
     if not candles:
         return
     interval = parse_candle_interval(timeframe)
@@ -769,6 +872,9 @@ async def _process_discretionary(
             mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
         )
         await store.save_deployment(paused)
+        return
+    if not due:
+        await maintain
         return
     broker: Broker = paper_broker
     if deployment.mode is DeploymentMode.LIVE:
@@ -790,6 +896,7 @@ async def _process_discretionary(
             and snapshot.deployment.mismatch_detail
         )
         if paused_with_mismatch:
+            await maintain
             return
     for candle in due:
         current = await store.get_deployment(deployment.id)

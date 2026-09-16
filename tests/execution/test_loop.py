@@ -60,8 +60,10 @@ def _always_entry_strategy(*, on_unfilled_entry: str = "cancel") -> StrategyDefi
 
 
 def _candles(count: int, *, low_offset: Decimal = Decimal("1")) -> tuple[Candle, ...]:
-    """Build a rising 1h series with a configurable low relative to close."""
-    start = datetime(2026, 1, 1, tzinfo=UTC)
+    """Build a rising 1h series ending at the latest completed hour before now."""
+    hour_floor = utc_now().replace(minute=0, second=0, microsecond=0)
+    end_start = hour_floor - timedelta(hours=1)
+    start = end_start - timedelta(hours=count - 1)
     candles: list[Candle] = []
     for index in range(count):
         close = Decimal("100") + Decimal(index)
@@ -589,7 +591,7 @@ async def test_reference_collar_skips_entry_without_pausing() -> None:
     class _WideLimitBroker(PaperBroker):
         """Rest maker entries at twice last close."""
 
-        def maker_limit_price(
+        async def maker_limit_price(
             self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
         ) -> Decimal:
             del product_id, side

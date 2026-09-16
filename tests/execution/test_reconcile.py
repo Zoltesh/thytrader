@@ -81,7 +81,7 @@ class _LookupBroker:
         del order, candle
         return None
 
-    def maker_limit_price(
+    async def maker_limit_price(
         self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
     ) -> Decimal:
         """Reconcile tests do not size maker limits."""
