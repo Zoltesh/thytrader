@@ -71,7 +71,16 @@ def _parser() -> argparse.ArgumentParser:
         help="Run data health, optional ingest, research, and optional paper.",
     )
     run.add_argument("--product-id", default="BTC-USD")
-    run.add_argument("--timeframe", default="1h", choices=EXECUTION_TIMEFRAMES)
+    run.add_argument(
+        "--timeframe",
+        default="1h",
+        choices=EXECUTION_TIMEFRAMES,
+        help=(
+            "Decision clock for watch, ingest, and create-draft. Default 1h. "
+            "Any ingested venue clock. Extra HTF or per-indicator clocks need "
+            "a separate thytrader-data ingest."
+        ),
+    )
     run.add_argument("--lookback-hours", type=int, default=168)
     run.add_argument(
         "--ensure-watch",

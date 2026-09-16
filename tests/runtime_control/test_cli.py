@@ -232,6 +232,22 @@ def test_runtime_help_lists_risk_policy_commands(
     assert "place-order" in output
 
 
+def test_place_order_help_lists_venue_clocks(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Place-order help must name ingested venue clocks for the discretionary book."""
+    with pytest.raises(SystemExit) as raised:
+        main(["place-order", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    collapsed = " ".join(output.split())
+    assert "--timeframe" in collapsed
+    assert "1m" in collapsed
+    assert "2h" in collapsed
+    assert "4h" in collapsed
+    assert "discretionary book clock" in collapsed
+
+
 def test_place_order_without_confirm_does_not_call_api() -> None:
     """Omitting --confirm in Safe mode exits before place-order HTTP."""
     handlers = {

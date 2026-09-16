@@ -10,8 +10,9 @@ Follow the skills of record (symlinked from this workspace):
 - `thytrader-operator` — read-only diagnostics
 - `thytrader-data` — watchlist, ingest, gap-fill with `--confirm`
 - `thytrader-research` — drafts, publish, backtests with `--confirm`
-- `thytrader-runtime` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
+- `thytrader-runtime` — paper/live start/pause/resume/stop, on-demand `place-order`, and risk-policy publication with `--confirm` (live start and live place-order also `--i-understand-live`)
 - `thytrader-playbook` — sequence existing CLIs; `--confirm` forwarded; never live
+- `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify with `--confirm` (YOLO never covers this lane)
 
 Run `uv run thytrader-*` from the repository root (parent of `ops/`).
 

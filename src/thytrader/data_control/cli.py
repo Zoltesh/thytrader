@@ -93,7 +93,16 @@ def _parser() -> argparse.ArgumentParser:
 def _target_args(parser: argparse.ArgumentParser) -> None:
     """Require a USD spot product and a complete-only dataset timeframe."""
     parser.add_argument("--product-id", required=True, help="USD spot product such as ETH-USD.")
-    parser.add_argument("--timeframe", required=True, choices=DATASET_TIMEFRAMES)
+    parser.add_argument(
+        "--timeframe",
+        required=True,
+        choices=DATASET_TIMEFRAMES,
+        help=(
+            "Complete-only dataset clock. Any ingested venue TF "
+            "(1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d), including HTF and "
+            "per-indicator extra clocks."
+        ),
+    )
 
 
 _DATA_CONFIRM_MESSAGE = "Pass --confirm to change the watchlist or ingest market data."

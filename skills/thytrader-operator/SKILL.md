@@ -71,8 +71,13 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
    current contiguous island. If `watch_complete` is false, use `thytrader-data inspect-gaps` for
-   classified holes across the full watch window. Never interpolate.
-5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (`1h` or `5m`), strategy fingerprint, and dataset fingerprint in any answer. Performance timeframe is the published strategy's clock for backtest, paper, and live. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked at last close; `MISSING_MARK` means open inventory was not marked.
+   classified holes across the full watch window. Cover HTF-filter and per-indicator extra clocks
+   the same way. Never interpolate.
+5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (any ingested venue clock: `1m`, `5m`,
+   `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`), strategy fingerprint, and dataset fingerprint in
+   any answer. Performance timeframe is the published strategy's clock, or the discretionary book
+   clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
+   at last close; `MISSING_MARK` means open inventory was not marked.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
 8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, and risk-policy publication require `skills/thytrader-runtime/SKILL.md` with `--confirm` (live start also `--i-understand-live`). Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, and notify use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.

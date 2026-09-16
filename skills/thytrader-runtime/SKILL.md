@@ -18,7 +18,7 @@ HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
 
-Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses unless the user-order feed is connected. Published `htf_filter` is evaluated on last-completed complete-only HTF bars; missing HTF coverage pauses. Paper and live do not bind a frozen HTF dataset fingerprint.
+Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses unless the user-order feed is connected. Published `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
 
 ## Hard stop
 
@@ -41,8 +41,8 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
 | Stop | `uv run thytrader-runtime stop UUID --confirm` |
-| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
-| Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
+| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
+| Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 
@@ -50,8 +50,9 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
 `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
-YOLO may skip `--confirm` only for paper place-order. Repeat the same `--idempotency-key`
-instead of retrying a timeout.
+`--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
+another book clock. YOLO may skip `--confirm` only for paper place-order. Repeat the same
+`--idempotency-key` instead of retrying a timeout.
 
 Underlying HTTP:
 

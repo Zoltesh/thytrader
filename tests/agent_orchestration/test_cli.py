@@ -32,6 +32,22 @@ def test_playbook_help_describes_confirm_and_no_live(
     assert "yolo" in output
 
 
+def test_playbook_run_help_lists_venue_clocks(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Run help must name ingested venue clocks and extra-TF ingest."""
+    with pytest.raises(SystemExit) as raised:
+        main(["run", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    collapsed = " ".join(output.split())
+    assert "--timeframe" in collapsed
+    assert "1m" in collapsed
+    assert "2h" in collapsed
+    assert "4h" in collapsed
+    assert "per-indicator" in collapsed
+
+
 def test_status_returns_safe_mode_by_default(capsys: pytest.CaptureFixture[str]) -> None:
     """Status prints orchestration JSON and never claims live authority."""
     handlers = {

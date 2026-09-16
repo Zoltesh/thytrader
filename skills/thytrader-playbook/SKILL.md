@@ -39,13 +39,16 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 |---|---|
 | Show Safe vs YOLO | `uv run thytrader-playbook status` |
 | Health + watchlist only | `uv run thytrader-playbook run --product-id ETH-USD --timeframe 5m` |
-| Ensure watch + ingest | `uv run thytrader-playbook run --product-id ETH-USD --timeframe 5m --ingest --confirm` |
+| Ensure watch + ingest | `uv run thytrader-playbook run --product-id ETH-USD --timeframe 1m --ingest --confirm` |
 | Create a draft | `uv run thytrader-playbook run --create-draft --confirm` |
 | Publish + backtest | `uv run thytrader-playbook run --publish --strategy-id UUID --backtest-file request.json --confirm` |
 | Optional paper | `uv run thytrader-playbook run --paper-cash 10000 --strategy-fingerprint sha256:… --confirm` |
 
 `status` is read-only. `run` forwards `--confirm` to child mutations (`watch-add`, `ingest`,
 `create-draft`, `publish`, `submit-backtest`, paper `start`). It never starts live.
+`--timeframe` may be any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`,
+`6h`, `1d`; default `1h`). This playbook watches only that decision clock. Extra HTF or
+per-indicator clocks still need `thytrader-data` ingest.
 
 Underlying HTTP used by this CLI:
 

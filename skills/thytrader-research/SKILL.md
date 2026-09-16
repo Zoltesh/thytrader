@@ -75,7 +75,8 @@ Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed 
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
 declares `htf_filter`, and must omit it otherwise. Extra indicator clocks that are not already
 `htf_filter.timeframe` require `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
-ordered by increasing duration, each distinct from LTF and HTF). Research engines V1/V2/V3 evaluate
+ordered by increasing duration, each distinct from LTF and HTF). Ingest those extra clocks with
+`skills/thytrader-data/SKILL.md` before naming fingerprints. Research engines V1/V2/V3 evaluate
 last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 

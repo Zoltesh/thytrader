@@ -20,8 +20,8 @@ There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 Supported research, paper, and live **decision** timeframes: every ingested venue clock (`1m`,
 `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). Dataset ingest uses the same complete-only
 contract. Any coarser integer-multiple venue clock may be bound as an `htf_filter`
-dataset (ADR 0025, ADR 0040). Paper and live evaluate those strategies on last-completed
-complete-only HTF bars (ADR 0041).
+dataset (ADR 0025, ADR 0040) or as an optional per-indicator `timeframe` (ADR 0042). Paper and live
+evaluate those strategies on last-completed complete-only extra-TF and HTF bars (ADR 0041, ADR 0042).
 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
@@ -91,14 +91,16 @@ Gap `cause` values:
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
    Judge `watch_complete`, not only `complete`.
-2. `watch-add` then `ingest` for a new product, `5m`, `15m`, `30m`, `6h`, or `1d`. Wait for the CLI poll; do not treat 202 as
-   published Parquet.
+2. `watch-add` then `ingest` for a new product and any ingested venue clock (`1m`, `5m`, `15m`,
+   `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Wait for the CLI poll; do not treat 202 as published
+   Parquet. When a strategy uses `htf_filter` or a per-indicator `timeframe`, ingest those extra
+   clocks the same way before research or deploy. Paper and live pause on extra-TF or HTF gaps.
 3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate.
 4. `fill-gaps --confirm` to retry complete-only publication, including prefix backfill.
 5. `uv run thytrader-operator indicators` before designing a study.
 6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper and live may use any ingested
    venue clock via `skills/thytrader-runtime/SKILL.md`. Coarser integer-multiple coverage can back an
-   HTF filter in research, paper, and live.
+   HTF filter or a per-indicator extra clock in research, paper, and live.
 
 ## Forbidden
 
