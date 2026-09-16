@@ -49,9 +49,11 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
-    assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
+    assert "schema-check" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
+    assert "1h or 5m" not in skill
+    assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
 
 
 def test_research_skill_requires_confirm_and_forbids_trading() -> None:
@@ -68,6 +70,9 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "list-templates" in skill
     assert "engine-support" in skill
     assert "--template" in skill
+    assert "macd" in skill.lower()
+    assert "bollinger" in skill.lower()
+    assert "indicator_dataset_fingerprints" in skill
     assert "evaluation_start" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
@@ -87,6 +92,10 @@ def test_data_skill_requires_confirm_and_forbids_interpolation() -> None:
     assert "Never deploys" in skill or "cannot deploy" in skill.lower()
     assert "202" in skill
     assert "market-data worker" in skill.lower() or "thytrader-market-data-worker" in skill
+    assert "1m" in skill
+    assert "2h" in skill
+    assert "4h" in skill
+    assert "per-indicator" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
 
@@ -105,6 +114,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "/api/v1/risk-policy" in skill
     assert "place-order" in skill
     assert "/api/v1/discretionary-orders" in skill
+    assert "--timeframe" in skill
+    assert "per-indicator" in skill
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
     assert "do not edit" in skill.lower()
     assert "make run" in skill
@@ -119,6 +130,7 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "thytrader-research" in skill
     assert "thytrader-runtime" in skill
     assert "YOLO" in skill or "yolo" in skill
+    assert "per-indicator" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
     assert "never" in skill.lower() and "live" in skill.lower()

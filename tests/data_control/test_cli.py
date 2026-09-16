@@ -30,6 +30,22 @@ def test_data_help_describes_confirm_and_boundaries(
     assert "not the operator" in output.lower() or "does not place orders" in output.lower()
 
 
+def test_watch_add_help_lists_venue_clocks(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """watch-add help must name 1m, 2h, and 4h as complete-only dataset clocks."""
+    with pytest.raises(SystemExit) as raised:
+        main(["watch-add", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    collapsed = " ".join(output.split())
+    assert "--timeframe" in collapsed
+    assert "1m" in collapsed
+    assert "2h" in collapsed
+    assert "4h" in collapsed
+    assert "per-indicator" in collapsed
+
+
 def test_watch_add_without_confirm_does_not_mutate() -> None:
     """Omitting --confirm in Safe mode exits after the YOLO probe, before ingest HTTP."""
     handlers = {

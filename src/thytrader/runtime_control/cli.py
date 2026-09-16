@@ -99,7 +99,15 @@ def _parser() -> argparse.ArgumentParser:
         default="post_only_limit",
         choices=("post_only_limit", "marketable"),
     )
-    place.add_argument("--timeframe", default="5m", choices=EXECUTION_TIMEFRAMES)
+    place.add_argument(
+        "--timeframe",
+        default="5m",
+        choices=EXECUTION_TIMEFRAMES,
+        help=(
+            "Discretionary book clock. Default 5m. Any ingested venue clock "
+            "(1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d)."
+        ),
+    )
     place.add_argument("--quantity", default=None)
     place.add_argument("--quote-notional", default=None)
     place.add_argument("--limit-price", default=None)

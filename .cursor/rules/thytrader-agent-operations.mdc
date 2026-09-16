@@ -10,7 +10,7 @@ When diagnosing a running ThyTrader instance, mutating research artifacts, inges
 - `skills/thytrader-operator/SKILL.md` — read-only diagnostics
 - `skills/thytrader-data/SKILL.md` — watchlist, ingest, gap-fill with `--confirm`
 - `skills/thytrader-research/SKILL.md` — drafts, publish, backtests with `--confirm`
-- `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop with `--confirm` (live also `--i-understand-live`)
+- `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop, on-demand `place-order`, and risk-policy publication with `--confirm` (live start and live place-order also `--i-understand-live`)
 - `skills/thytrader-playbook/SKILL.md` — sequence existing CLIs; `--confirm` forwarded; never live
 - `skills/thytrader-memory/SKILL.md` — journals, sentiment/pattern hooks, monitor, notify with `--confirm` (YOLO never covers this lane)
 

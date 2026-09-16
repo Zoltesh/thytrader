@@ -23,7 +23,8 @@ reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, t
 JWT material or order payloads. It omits cash, quantities, and order payloads. Each deployment
 includes `kind` (`strategy` or `discretionary`) and optional strategy identity.
 
-5m live pauses when `user_order_feed.state` is not `connected`. 1h live still reconciles through REST.
+Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`.
+Hour-and-longer live still reconciles through REST.
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, and pause/mismatch findings. It omits account balances and dollar amounts. Daily-loss / drawdown circuit breakers are not in this payload.
 
@@ -35,7 +36,7 @@ The `data_catalog` payload lists local verified Parquet datasets joined with the
 
 Health `payload.ops_contract` names the CLI/API content identity (`id`, engines, paper/live timeframes, `htf_filter_runtimes`, `indicator_timeframe_runtimes`, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 
-The `products` payload lists enabled USD spot products. The `indicators` payload lists implemented kinds only: ema, sma, rsi, atr, volume_sma, highest, lowest, stdev, roc, williams_r, cci, wma, momentum, mfi, macd, bollinger, identity, constant. Highest is locked to high, lowest to low, stdev, roc, wma, momentum, macd, and bollinger to close. Williams %R and CCI lock high/low/close like ATR. MFI locks high/low/close/volume. Identity selects one of open/high/low/close/volume. Constant omits input and declares value. Each row includes `parameter_kind` (`period`, `none`, `value`, `macd`, or `bollinger`). Multi-series kinds list `outputs` (`macd`/`signal`/`histogram` or `middle`/`upper`/`lower`). Stochastic, ADX, and other unlisted kinds are not present.
+The `products` payload lists enabled USD spot products. The `indicators` payload lists implemented kinds only: ema, sma, rsi, atr, volume_sma, highest, lowest, stdev, roc, williams_r, cci, wma, momentum, mfi, macd, bollinger, identity, constant. Highest is locked to high, lowest to low, stdev, roc, wma, momentum, macd, and bollinger to close. Williams %R and CCI lock high/low/close like ATR. MFI locks high/low/close/volume. Identity selects one of open/high/low/close/volume. Constant omits input and declares value. Each row includes `parameter_kind` (`period`, `none`, `value`, `macd`, or `bollinger`). Multi-series kinds list `outputs` (`macd`/`signal`/`histogram` or `middle`/`upper`/`lower`). Stochastic, ADX, and other unlisted kinds are not present. Optional per-indicator `timeframe` is a strategy-document field, not a catalog row; health `ops_contract.indicator_timeframe_runtimes` names research, paper, and live.
 
 The support-bundle `payload` nests the other reports unchanged (it does not nest `runtime`, `data_catalog`, `products`, or `indicators`).
 
