@@ -372,7 +372,7 @@ def _deployment_mode(payload: object) -> str:
     raise RuntimeControlError("Deployment snapshot omitted mode.")
 
 
-def _start(arguments: argparse.Namespace, base_url: str) -> object:
+def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Start paper or live; live still requires `--i-understand-live`."""
     live = arguments.mode == "live"
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
@@ -396,10 +396,11 @@ def _start(arguments: argparse.Namespace, base_url: str) -> object:
         paper_starting_cash=cash,
         maker_fee_rate=maker,
         taker_fee_rate=taker,
+        settings=settings,
     )
 
 
-def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
+def _place_order(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Place one paper (YOLO-eligible) or live (confirm hard-gated) discretionary order."""
     live = arguments.mode == "live"
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
@@ -419,6 +420,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
     require_matching_ops_contract(base_url)
     return place_discretionary_order(
         base_url,
+        settings=settings,
         mode=arguments.mode,
         product_id=arguments.product_id,
         stop_price=arguments.stop_price,
@@ -438,7 +440,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
     )
 
 
-def _set_status(arguments: argparse.Namespace, base_url: str) -> object:
+def _set_status(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Pause, resume, or stop one deployment; YOLO follows paper vs live tiers."""
     command = arguments.command
     require_paper_runtime_confirmation(
@@ -452,7 +454,12 @@ def _set_status(arguments: argparse.Namespace, base_url: str) -> object:
         ),
     )
     require_matching_ops_contract(base_url)
-    return set_deployment_status(base_url, arguments.deployment_id, command)
+    return set_deployment_status(
+        base_url,
+        arguments.deployment_id,
+        command,
+        settings=settings,
+    )
 
 
 def _run(arguments: argparse.Namespace) -> str:
@@ -460,11 +467,11 @@ def _run(arguments: argparse.Namespace) -> str:
     settings = Settings()
     secrets = configured_secrets(settings)
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
-    payload = _dispatch(arguments, base_url)
+    payload = _dispatch(arguments, base_url, settings)
     return dumps_redacted(payload, secrets)
 
 
-def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
+def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
     if command == "list":
@@ -474,11 +481,11 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         require_matching_ops_contract(base_url)
         return show_deployment(base_url, arguments.deployment_id)
     if command == "start":
-        return _start(arguments, base_url)
+        return _start(arguments, base_url, settings)
     if command == "place-order":
-        return _place_order(arguments, base_url)
+        return _place_order(arguments, base_url, settings)
     if command in {"pause", "resume", "stop"}:
-        return _set_status(arguments, base_url)
+        return _set_status(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
         return show_risk_policy(base_url)
@@ -490,19 +497,27 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
             hard_gate=True,
         )
         require_matching_ops_contract(base_url)
-        return set_risk_policy(base_url, _risk_policy_payload(arguments))
+        return set_risk_policy(
+            base_url,
+            _risk_policy_payload(arguments),
+            settings=settings,
+        )
     if command in {"show-settings", "set-settings"}:
-        return _settings_command(arguments, base_url)
+        return _settings_command(arguments, base_url, settings)
     if command in {
         "show-coinbase-credentials",
         "set-coinbase-credentials",
         "clear-coinbase-credentials",
     }:
-        return _credentials_command(arguments, base_url)
+        return _credentials_command(arguments, base_url, settings)
     raise AssertionError(f"unsupported runtime command: {command}")
 
 
-def _settings_command(arguments: argparse.Namespace, base_url: str) -> object:
+def _settings_command(
+    arguments: argparse.Namespace,
+    base_url: str,
+    settings: Settings,
+) -> object:
     """Read or replace YAML non-secrets. Writes never inherit YOLO skip-confirm."""
     require_matching_ops_contract(base_url)
     if arguments.command == "show-settings":
@@ -517,7 +532,11 @@ def _settings_command(arguments: argparse.Namespace, base_url: str) -> object:
     if not isinstance(current, dict):
         raise RuntimeControlError("Settings response omitted YAML fields.")
     typed_current: dict[str, object] = {str(key): value for key, value in current.items()}
-    return set_yaml_settings(base_url, _settings_write_payload(arguments, typed_current))
+    return set_yaml_settings(
+        base_url,
+        _settings_write_payload(arguments, typed_current),
+        settings=settings,
+    )
 
 
 def _settings_write_payload(
@@ -577,7 +596,11 @@ def _int_or_current(override: int | None, current: object, default: int) -> int:
     return default
 
 
-def _credentials_command(arguments: argparse.Namespace, base_url: str) -> object:
+def _credentials_command(
+    arguments: argparse.Namespace,
+    base_url: str,
+    settings: Settings,
+) -> object:
     """Show, set, or clear Coinbase secrets; mutations are confirmation-hard-gated."""
     command = arguments.command
     if command == "show-coinbase-credentials":
@@ -592,11 +615,12 @@ def _credentials_command(arguments: argparse.Namespace, base_url: str) -> object
     )
     require_matching_ops_contract(base_url)
     if command == "clear-coinbase-credentials":
-        return clear_coinbase_credentials(base_url)
+        return clear_coinbase_credentials(base_url, settings=settings)
     return set_coinbase_credentials(
         base_url,
         api_key_name=arguments.api_key_name.strip(),
         private_key=_read_private_key_file(arguments.private_key_file),
+        settings=settings,
     )
 
 

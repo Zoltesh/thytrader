@@ -8,6 +8,7 @@ file. Process-identity knobs (bind address, dataset root, environment) stay in
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -294,6 +295,7 @@ class SettingsStore:
         self._env_file = env_file
         self._lock = Lock()
         self._mtime: float | None = None
+        self._content_hash: str | None = None
         self._yaml_loaded = False
         self._current = self._build(force_overlay=None)
 
@@ -313,10 +315,11 @@ class SettingsStore:
         return self._yaml_loaded
 
     def current(self) -> Settings:
-        """Return cached Settings, reloading when the file mtime changes."""
+        """Return cached Settings, reloading when mtime or content changes."""
         with self._lock:
             mtime = self._stat_mtime()
-            if mtime != self._mtime:
+            content_hash = self._stat_content_hash()
+            if mtime != self._mtime or content_hash != self._content_hash:
                 self._current = self._build(force_overlay=None)
             return self._current
 
@@ -365,6 +368,16 @@ class SettingsStore:
         except FileNotFoundError:
             return None
 
+    def _stat_content_hash(self) -> str | None:
+        """Return a SHA-256 digest of the YAML bytes, or None when absent."""
+        if not self.path.is_file():
+            return None
+        try:
+            payload = self.path.read_bytes()
+        except OSError:
+            return None
+        return hashlib.sha256(payload).hexdigest()
+
     def _build(self, *, force_overlay: dict[str, object] | None) -> Settings:
         """Construct Settings from env plus YAML overlay."""
         if force_overlay is None:
@@ -373,6 +386,7 @@ class SettingsStore:
             overlay, loaded = force_overlay, True
         self._yaml_loaded = loaded
         self._mtime = self._stat_mtime()
+        self._content_hash = self._stat_content_hash()
         settings = _settings_from_overlay(overlay, env_file=self._env_file)
         apply_log_level(settings)
         return settings

@@ -8,6 +8,7 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
+from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.audit_events import (
@@ -34,8 +35,26 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.config import Settings
+    from thytrader.portfolio.models import Portfolio
 
 logger = logging.getLogger(__name__)
+
+
+class _ReloadingPortfolioFetcher:
+    """Swap the portfolio reader when shared Coinbase credentials change."""
+
+    def __init__(self, initial: PortfolioService) -> None:
+        """Bind the first portfolio service implementation."""
+        self._service = initial
+
+    def replace(self, settings: Settings) -> None:
+        """Rebuild Coinbase or demo portfolio access from fresh settings."""
+        self._service = _build_portfolio_service(settings)
+        configure_logging(settings)
+
+    async def get_portfolio(self) -> Portfolio:
+        """Return the current portfolio snapshot."""
+        return await self._service.get_portfolio()
 
 
 async def run() -> None:
@@ -49,20 +68,27 @@ async def run() -> None:
     loop.add_signal_handler(signal.SIGINT, stop_requested.set)
     loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
 
-    portfolio_service = _build_portfolio_service(settings)
+    portfolio_fetcher = _ReloadingPortfolioFetcher(_build_portfolio_service(settings))
+    credential_runtime = WorkerCredentialRuntime(
+        store,
+        on_coinbase_reload=portfolio_fetcher.replace,
+    )
     history_store, audit_store, engine, heartbeats = await _build_stores(settings)
 
     readiness_file = settings.worker_readiness_file
     try:
         logger.info("worker_started")
-        await run_worker(
-            runtime,
-            stop_requested,
-            portfolio_service=portfolio_service,
-            history_store=history_store,
-            audit_store=audit_store,
-            on_started=lambda: _mark_ready(readiness_file),
-            heartbeat_store=heartbeats,
+        await asyncio.gather(
+            run_worker(
+                runtime,
+                stop_requested,
+                portfolio_service=portfolio_fetcher,
+                history_store=history_store,
+                audit_store=audit_store,
+                on_started=lambda: _mark_ready(readiness_file),
+                heartbeat_store=heartbeats,
+            ),
+            credential_runtime.run_until_stopped(stop_requested),
         )
         logger.info("worker_stopped")
     finally:

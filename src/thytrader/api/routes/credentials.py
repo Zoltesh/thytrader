@@ -101,7 +101,7 @@ async def put_coinbase_credentials(
         key_name=key_name,
         private_key=private_key,
         action="set_coinbase_credentials",
-        detail="Coinbase Advanced Trade credentials were set. Workers require restart.",
+        detail="Coinbase Advanced Trade credentials were set.",
     )
 
 
@@ -121,7 +121,7 @@ async def delete_coinbase_credentials(
         key_name=None,
         private_key=None,
         action="clear_coinbase_credentials",
-        detail="Coinbase Advanced Trade credentials were cleared. Workers require restart.",
+        detail="Coinbase Advanced Trade credentials were cleared.",
     )
 
 
@@ -197,7 +197,7 @@ async def _apply_coinbase_mutation(
         env_path=env_path,
         persisted=persisted,
         api_hot_reloaded=True,
-        workers_require_restart=True,
+        workers_require_restart=False,
     )
 
 

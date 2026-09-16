@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import json
 import logging
+import traceback
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -44,16 +45,32 @@ class JsonLogFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Return one redacted JSON object for a log record."""
-        message = record.getMessage()
-        for value in _redaction_values(self._secret_values):
-            message = message.replace(value, _REDACTION)
-        payload = {
+        message = _redact_text(record.getMessage(), self._secret_values)
+        payload: dict[str, object] = {
             "level": record.levelname,
             "logger": record.name,
             "message": message,
             "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
         }
+        if record.exc_info is not None:
+            exc_type, exc_value, exc_tb = record.exc_info
+            if exc_type is not None:
+                payload["exception"] = {
+                    "type": exc_type.__name__,
+                    "message": _redact_text(str(exc_value), self._secret_values),
+                }
+            if exc_tb is not None:
+                formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+                payload["traceback"] = _redact_text(formatted, self._secret_values)
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _redact_text(text: str, secret_values: tuple[str, ...]) -> str:
+    """Replace configured and process-held secrets in one text blob."""
+    redacted = text
+    for value in _redaction_values(secret_values):
+        redacted = redacted.replace(value, _REDACTION)
+    return redacted
 
 
 def build_log_handler(

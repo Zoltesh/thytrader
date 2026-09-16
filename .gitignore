@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.thytrader-credentials/
 
 # Python environments and generated files
 .venv/

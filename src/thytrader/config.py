@@ -105,8 +105,17 @@ class Settings(BaseSettings):
     yolo_tiers: Annotated[tuple[YoloTier, ...], NoDecode] = ()
     notify_provider: NotifyProvider = NotifyProvider.NONE
     notify_webhook_url: SecretStr | None = None
+    trust_boundary_enabled: bool = True
+    installation_token: SecretStr | None = None
+    credentials_dir: Path = Path(".thytrader-credentials")
 
-    @field_validator("database_url", "coinbase_api_key_name", "notify_webhook_url", mode="before")
+    @field_validator(
+        "database_url",
+        "coinbase_api_key_name",
+        "notify_webhook_url",
+        "installation_token",
+        mode="before",
+    )
     @classmethod
     def normalize_optional_secret(cls, value: object) -> object:
         """Treat empty environment placeholders as absent optional secrets."""
@@ -163,6 +172,13 @@ class Settings(BaseSettings):
                 "THYTRADER_YOLO_TIERS requires THYTRADER_YOLO_ENABLED=true. "
                 "Default remains --confirm."
             )
+        return self
+
+    @model_validator(mode="after")
+    def default_trust_boundary_without_token(self) -> Self:
+        """Keep development/tests open until an installation token is configured."""
+        if self.installation_token is None and self.environment is not Environment.PRODUCTION:
+            object.__setattr__(self, "trust_boundary_enabled", False)
         return self
 
     @model_validator(mode="after")

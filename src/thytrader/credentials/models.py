@@ -11,9 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 INVALID_CREDENTIALS_PAYLOAD = "Invalid Coinbase credentials payload."
 CREDENTIALS_PERSIST_FAILED = "Could not persist Coinbase credentials."
 WORKERS_RESTART_DETAIL = (
-    "This API process rebuilt Coinbase clients. Compose and native workers still "
-    "read secrets at process start; restart them before live or ingest uses the "
-    "new keys. Setting credentials does not arm live trading."
+    "This API process rebuilt Coinbase clients. Workers on the shared credentials "
+    "volume reload secrets from disk without restart. Setting credentials does not "
+    "arm live trading."
+)
+WORKERS_RESTART_LEGACY_DETAIL = (
+    "This API process rebuilt Coinbase clients. Workers without the shared "
+    "credentials volume still require restart before live or ingest uses the new keys."
 )
 
 

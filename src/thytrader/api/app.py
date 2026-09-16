@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import logging
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - credential paths are runtime filesystem values.
 from typing import TYPE_CHECKING
 
 from coinbase.rest import RESTClient
@@ -34,6 +34,7 @@ from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.api.routes.research_studies import router as research_studies_router
 from thytrader.api.routes.risk_policy import router as risk_policy_router
+from thytrader.api.routes.security import router as security_router
 from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
 from thytrader.backtest.submission import (
@@ -121,6 +122,8 @@ from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
+from thytrader.security.boundary import TrustBoundary
+from thytrader.security.middleware import TrustBoundaryMiddleware
 from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
 from thytrader.strategies.publication import (
@@ -326,7 +329,11 @@ def create_app(
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
     app.add_exception_handler(RequestValidationError, suppress_credentials_validation_echo)
     app.state.runtime = runtime
-    app.state.credentials_env_file = credentials_env_file or Path(".env")
+    _configure_trust_boundary(
+        app,
+        settings=resolved_settings,
+        credentials_env_file=credentials_env_file,
+    )
     app.state.coinbase_clients_locked = (
         portfolio_service is not None
         or market_data_service is not None
@@ -345,6 +352,7 @@ def create_app(
         llm=operator_chat_llm,
     )
     app.include_router(health_router)
+    app.include_router(security_router)
     app.include_router(credentials_router)
     app.include_router(audit_events_router)
     app.include_router(agent_orchestration_router)
@@ -365,6 +373,24 @@ def create_app(
     app.include_router(memory_router)
     app.include_router(backtests_router)
     return app
+
+
+def _configure_trust_boundary(
+    app: FastAPI,
+    *,
+    settings: Settings,
+    credentials_env_file: Path | None,
+) -> None:
+    """Attach credential paths, trust-boundary state, and optional middleware."""
+    credentials_dir = settings.credentials_dir
+    credentials_dir.mkdir(parents=True, exist_ok=True)
+    app.state.credentials_env_file = credentials_env_file or (credentials_dir / ".env")
+    app.state.trust_boundary = TrustBoundary.from_settings(
+        settings,
+        credentials_dir=credentials_dir,
+    )
+    if settings.trust_boundary_enabled:
+        app.add_middleware(TrustBoundaryMiddleware, boundary=app.state.trust_boundary)
 
 
 def _bind_runtime(

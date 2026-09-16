@@ -10,7 +10,17 @@ export default defineConfig({
 		port: 5175,
 		strictPort: true,
 		proxy: {
-			'/api': apiProxyTarget
+			'/api': {
+				target: apiProxyTarget,
+				configure: (proxy) => {
+					const installationToken = process.env.THYTRADER_INSTALLATION_TOKEN;
+					proxy.on('proxyReq', (proxyReq) => {
+						if (installationToken) {
+							proxyReq.setHeader('Authorization', `Bearer ${installationToken}`);
+						}
+					});
+				}
+			}
 		}
 	},
 	plugins: [

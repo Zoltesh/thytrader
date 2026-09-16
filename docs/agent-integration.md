@@ -24,6 +24,13 @@ Safety rests on confirmation gating, scoped authority, immutable evidence, audit
 controls—not on excluding agents. No model requires an agent; no model excludes one. A capability is
 incomplete until the agent contract exists.
 
+Production loopback installs also enforce an application trust boundary
+([ADR 0061](decisions/0061-application-trust-boundary.md)): HTTP mutations require an installation
+credential and browser writes require CSRF. Live arming remains the published-risk-policy gate from
+[ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) plus CLI
+`--i-understand-live`. Agent CLIs read the installation token from `THYTRADER_INSTALLATION_TOKEN`
+or the shared credentials directory.
+
 ## Planned direction: agent experts that learn from evidence (hooks + V1 trainer + why-trade)
 
 A major product goal is for agents to act as **crypto-trading experts that improve from durable
