@@ -298,7 +298,8 @@
 					<p>
 						{book.product_id} · {book.phase}
 						{#if position}
-							· {position.side ?? 'long'} {position.quantity} @ {position.entry_price} · stop
+							· {position.side ?? 'long'}
+							{position.quantity} @ {position.entry_price} · stop
 							{position.stop_price} · target {position.target_price}
 							{#if position.trail_extreme}
 								· trail {position.trail_extreme}

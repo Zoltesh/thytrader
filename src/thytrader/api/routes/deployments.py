@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -46,8 +45,11 @@ from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.publication import (
     StrategyPublicationError,
-    StrategyPublicationStore,  # noqa: TC001
+    StrategyPublicationStore,  # noqa: TC001 - FastAPI Depends and loader protocol.
 )
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 

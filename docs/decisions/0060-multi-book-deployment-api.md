@@ -5,7 +5,8 @@
 - Relates to: [0012](0012-operator-diagnostics.md), [0013](0013-http-first-agent-clients.md),
   [0019](0019-ops-contract-identity.md), [0030](0030-agent-e2e-primary-surface.md),
   [0054](0054-trade-reason-journals.md),
-  [0056](0056-multi-instrument-documents-and-pyramiding.md)
+  [0056](0056-multi-instrument-documents-and-pyramiding.md),
+  [0061](0061-application-trust-boundary.md)
 
 ## Context
 
@@ -29,7 +30,9 @@ stamps `intent.product_id`, but `_record_from_submit` previously copied `deploym
 This slice must not bump `OPS_CONTRACT_ID` (`thytrader-ops-contract-v21`) or Alembic (0035 is
 reserved). It must not edit `execution/loop.py`, `execution_worker/service.py`,
 `exchanges/coinbase_broker.py`, `risk/gate.py`, or `risk/breakers.py`. Live `--i-understand-live`
-is unchanged.
+is unchanged. HTTP mutations still require [ADR 0061](0061-application-trust-boundary.md)
+installation Bearer auth in production; this slice does not weaken that boundary. Browser Deploy
+writes continue to bootstrap CSRF via `GET /api/v1/security/session` and `mutationHeaders()`.
 
 ## Decision
 

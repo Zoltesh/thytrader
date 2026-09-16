@@ -1217,8 +1217,7 @@ class OperatorDiagnostics:
         except (StrategyPublicationError, RuntimeError, TypeError, ValueError):
             return {}
         return {
-            entry.strategy_fingerprint: covered_product_ids(entry.definition)
-            for entry in entries
+            entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
         }
 
     async def _backtest_performance(

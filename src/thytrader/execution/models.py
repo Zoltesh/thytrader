@@ -354,7 +354,11 @@ def _runtime_row(
     existing = stored.get(product_id)
     if existing is not None:
         return existing
-    if product_id == snapshot.deployment.product_id and not snapshot.instrument_runtimes:
+    if (
+        product_id == snapshot.deployment.product_id
+        and not snapshot.instrument_runtimes
+        and _known_product_ids(snapshot) <= {snapshot.deployment.product_id}
+    ):
         return runtime_from_deployment(snapshot.deployment, product_id)
     return InstrumentRuntime(
         product_id=product_id,

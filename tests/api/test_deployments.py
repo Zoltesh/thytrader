@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID, uuid4  # noqa: TC003 - used in Protocol-matching draft store.
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from thytrader.api.app import create_app
-from thytrader.config import Settings
+from thytrader.config import Environment, Settings
 from thytrader.execution.ids import uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
@@ -26,6 +26,7 @@ from thytrader.execution.models import (
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
 from thytrader.strategies.models import (
     Instrument,
@@ -208,6 +209,48 @@ def test_paper_deployment_persists_and_updates_library_status() -> None:
         if item["strategy_id"] == str(definition.strategy_id)
     )
     assert entry["paper_live"] == {"paper": "running", "live": "unavailable"}
+
+
+def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enabled() -> None:
+    """Unauthenticated POST is rejected when ADR 0061 trust boundary is on."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    token = "0060-boundary-token"
+    settings = Settings(
+        environment=Environment.TEST,
+        installation_token=SecretStr(token),
+        trust_boundary_enabled=True,
+        _env_file=None,
+    )
+    app = create_app(
+        settings,
+        strategy_store=publication,
+        strategy_draft_store=InMemoryDraftStore(),
+        execution_store=execution,
+    )
+    payload = {
+        "strategy_fingerprint": fingerprint,
+        "mode": "paper",
+        "paper_starting_cash": "10000",
+    }
+    with TestClient(app) as client:
+        denied = client.post("/api/v1/deployments", json=payload)
+        allowed = client.post(
+            "/api/v1/deployments",
+            json=payload,
+            headers={INSTALLATION_AUTH_HEADER: f"Bearer {token}"},
+        )
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 201
+    body = allowed.json()
+    assert [item["product_id"] for item in body["instrument_runtimes"]] == ["BTC-USD"]
+    assert body["book_totals"] == {"open_books": 0, "working_orders": 0, "fill_count": 0}
 
 
 def test_pause_resume_and_stop_deployment() -> None:
