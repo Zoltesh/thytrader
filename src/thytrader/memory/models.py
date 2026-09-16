@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from thytrader.memory.trade_reasons import TradeReasonRecord
+from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 
 MEMORY_SCHEMA_VERSION: Literal["thytrader-experiential-memory-v1"] = (
     "thytrader-experiential-memory-v1"

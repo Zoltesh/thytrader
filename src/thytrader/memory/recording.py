@@ -202,9 +202,7 @@ def _with_reconcile(
 ) -> TradeReasonRecord:
     """Replace ledger facts on a frozen why-trade row."""
     if snapshot is None:
-        return record.model_copy(
-            update={"reconcile": TradeReasonReconcile(ledger_available=False)}
-        )
+        return record.model_copy(update={"reconcile": TradeReasonReconcile(ledger_available=False)})
     order = next((item for item in snapshot.orders if item.intent_id == record.intent_id), None)
     if order is None:
         return record.model_copy(update={"reconcile": TradeReasonReconcile()})

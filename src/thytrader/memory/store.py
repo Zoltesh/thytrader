@@ -204,9 +204,7 @@ class DisabledExperientialMemoryStore:
 
     async def counts(self) -> MemoryCounts:
         """Return zeros when storage is unconfigured."""
-        return MemoryCounts(
-            journals=0, sentiment=0, patterns=0, notifications=0, trade_reasons=0
-        )
+        return MemoryCounts(journals=0, sentiment=0, patterns=0, notifications=0, trade_reasons=0)
 
     async def append_model(self, model: ExperientialModel) -> ExperientialModel:
         """Refuse model writes without durable storage."""

@@ -661,7 +661,9 @@ class OperatorDiagnostics:
         ]
         warnings: list[str] = []
         if label == "unavailable":
-            warnings.append("Experiential memory storage is unavailable; why-trade reads are empty.")
+            warnings.append(
+                "Experiential memory storage is unavailable; why-trade reads are empty."
+            )
         return TradeReasonsReport(
             application_version=__version__,
             generated_at=now,

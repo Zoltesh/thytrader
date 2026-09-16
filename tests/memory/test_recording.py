@@ -75,8 +75,7 @@ def test_signal_kind_maps_purpose_and_book() -> None:
         is TradeReasonSignalKind.DISCRETIONARY
     )
     assert (
-        signal_kind_for(IntentPurpose.STOP, DeploymentKind.STRATEGY)
-        is TradeReasonSignalKind.STOP
+        signal_kind_for(IntentPurpose.STOP, DeploymentKind.STRATEGY) is TradeReasonSignalKind.STOP
     )
 
 

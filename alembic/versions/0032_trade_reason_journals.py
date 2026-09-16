@@ -23,8 +23,7 @@ _SIGNAL = (
 )
 _PURPOSE = "purpose IN ('entry', 'take_profit', 'stop', 'time_exit', 'bracket')"
 _TIMEFRAME = (
-    "timeframe IS NULL OR timeframe IN "
-    "('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
+    "timeframe IS NULL OR timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
 )
 
 

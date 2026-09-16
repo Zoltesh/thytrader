@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import DeploymentStatus, ExecutionStoreError
@@ -363,7 +363,7 @@ async def _audit(
     await audit.append(event)
 
 
-def storage_label(store: ExperientialMemoryStore) -> str:
+def storage_label(store: ExperientialMemoryStore) -> Literal["available", "unavailable"]:
     """Describe whether writes can persist."""
     if isinstance(store, DisabledExperientialMemoryStore):
         return "unavailable"
