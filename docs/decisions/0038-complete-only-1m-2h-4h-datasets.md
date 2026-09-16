@@ -1,6 +1,7 @@
 # 0038: Complete-only 1m, 2h, and 4h historical datasets
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0040](0040-venue-strategy-paper-live-htf-clocks.md)
+  (strategy/paper/live/HTF clocks; this ADR remains the dataset slice)
 - Date: 2026-09-15
 - Relates to: [0014](0014-watchlist-and-5m-research.md), [0016](0016-longer-complete-5m-datasets.md),
   [0019](0019-ops-contract-identity.md), [0020](0020-complete-only-15m-datasets.md),
@@ -15,9 +16,12 @@ lists additional candle granularities that were still missing from datasets: `ON
 `TWO_HOUR` (`2h`), and `FOUR_HOUR` (`4h`). [ADR 0031](0031-coinbase-first-platform-end-state.md)
 records those as destination **datasets then clocks**. This ADR is the dataset slice only.
 
-Strategy schema, paper, and live clocks stay `1h` or `5m`. Widening those clocks at the same time as
-ingest would silently let research and execution treat `1m`, `2h`, or `4h` as a strategy timeframe.
-Research `htf_filter` stays the shipped coarser set (`15m`/`30m`/`1h`/`6h`/`1d`).
+This dataset slice does **not** widen strategy, paper, or live clocks. At acceptance those clocks
+stayed `1h` or `5m`; widening them at the same time as ingest would have silently let research and
+execution treat `1m`, `2h`, or `4h` as a strategy timeframe. Research `htf_filter` stayed the then-
+shipped coarser set (`15m`/`30m`/`1h`/`6h`/`1d`).
+[ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) later made every ingested venue TF a
+strategy, paper, live, discretionary, and HTF clock.
 
 A 2,160-hour watch of 1m bars is 129,600 candles. [ADR 0016](0016-longer-complete-5m-datasets.md)
 sized `MAX_HISTORICAL_INTERVAL_COUNT` to 25,920 so a 90-day 5m lookback was representable; that cap
@@ -40,8 +44,9 @@ to interpolate.
 - Size `MAX_HISTORICAL_INTERVAL_COUNT` to 129,600 so a 2,160-hour 1m lookback is representable.
   Coinbase **page** size stays 350. One-hour watches remain `min(requested, 2,160 hours)`.
 - Do **not** widen `StrategyDefinition.timeframe`, paper/live ops-contract clocks, research warmup
-  inference, or `htf_filter` to `1m`, `2h`, or `4h`. Dataset binding still requires matching product
-  and timeframe, so a 1h/5m strategy cannot consume these datasets.
+  inference, or `htf_filter` to `1m`, `2h`, or `4h` **in this ADR**. Dataset binding still requires
+  matching product and timeframe, so a 1h/5m strategy cannot consume these datasets until a later
+  clock ADR. [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) is that later ADR.
 - Watchlist CHECK and ops-contract `expected_schema_revision` move to Alembic `0024` (after Phase 14
   `0023`). Bump `OPS_CONTRACT_ID` to `thytrader-ops-contract-v10` per
   [0019](0019-ops-contract-identity.md). Downgrade restores the 1h/5m/15m/30m/6h/1d constraint;

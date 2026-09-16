@@ -7,29 +7,22 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
-## Current delivery focus: destination capabilities (iterative)
+## Current delivery focus: remaining destination (phases 0–14 shipped)
 
-Phases 0–8 delivered the narrow vertical slice (research V1/V2/V3, paper 1h|5m, live 1h|5m,
-operator/data/research/runtime skills, Phase 7 datasets, Phase 8 research HTF filter). Phase 9's
-five catalog slices (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
-`identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`) are shipped.
-Phase 10's risk-policy registry and concurrent single-instrument paper/live are shipped.
-Phase 11's walk-forward / OOS / cross-market studies, richer templates, and V1/V2/V3 engine-support
-matrix are shipped.
-Phase 12's playbook and default-off YOLO confirmation opt-in are shipped.
-Phase 13's 5m live, ATR trailing, user-order WS, and native OCO brackets are shipped.
-Phase 14's journals, sentiment/pattern hooks, monitor, and config-gated notify are shipped.
-Per-indicator timeframes stay out of Phase 9 (ADR 0025) and are shipped as a later
-destination slice ([ADR 0042](decisions/0042-per-indicator-timeframes.md)). **Thy
-Builder should implement the next unshipped destination slice**, one vertical increment
-at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
+Phases 0–14 and every sequenced destination slice through
+[ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md) are **shipped**.
+The Coinbase spot loop an agent can already drive is real: ingest every currently listed venue TF
+(`1m`–`1d`), research including WFO/sweeps, on-demand long/short with SL/TP, paper/live, HTF and
+per-indicator clocks, YOLO live skip-confirm (live still needs `--i-understand-live`),
+journals/notify hooks, and spot shorts with attached brackets
+([ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)).
+
+Vision destination is **not** fully met. Do **not** treat shipped clocks, on-demand, or Phases 7–14
+as open work. Thy Builder should take the next item from
+[Destination capabilities](#destination-capabilities-accepted-not-current-builder-order) — not
+re-implement a shipped phase. Extra exchanges wait on an explicit yes. Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
-
-Destination items that are **accepted but not the current Builder ceiling**: extra exchanges
-and multi-instrument strategy documents. Venue clocks, on-demand trades with SL/TP, per-indicator
-timeframes, WFO/sweeps, and spot shorting with attached entry brackets are shipped. See
-[Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
 
@@ -38,7 +31,7 @@ Completed capability checklist (Phases 0–6):
 3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests, and composed studies).
 4. **Automate in paper mode:** ✅ 1h and 5m candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
-   exist; remaining live extras stay in Phase 13.
+   exist. Phase 13 live extras (5m live, ATR trailing, user-order WS, native OCO) are also shipped.
 6. **Operator/agent integration:** ✅ HTTP-first diagnostics and research CLIs, plus a separate
    confirmation-gated `thytrader-runtime` skill for paper/live control.
 
@@ -51,19 +44,23 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
 ### Iterative slices (ship separately)
 
 1. **15m datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
-   Same complete-only rules; no candle interpolation. Strategy `timeframe` and paper/live
-   clocks stay `1h`|`5m` (live `1h` only). 15m is not a research or execution clock.
+   Same complete-only rules; no candle interpolation. In **this slice**, strategy `timeframe` and
+   paper/live clocks stayed `1h`|`5m` (live `1h` only); 15m was not yet a research or execution
+   clock. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks.
 2. **30m datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
-   Same complete-only rules; no candle interpolation. Strategy `timeframe` and paper/live
-   clocks stay `1h`|`5m` (live `1h` only). 30m is not a research or execution clock.
+   Same complete-only rules; no candle interpolation. In **this slice**, strategy `timeframe` and
+   paper/live clocks stayed `1h`|`5m` (live `1h` only); 30m was not yet a research or execution
+   clock. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks.
 3. **6h datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
    Same complete-only rules; no candle interpolation. A complete UTC day is exactly four aligned
-   6h candles. Strategy `timeframe` and paper/live clocks stay `1h`|`5m` (live `1h` only). 6h is
-   not a research or execution clock.
+   6h candles. In **this slice**, strategy `timeframe` and paper/live clocks stayed `1h`|`5m`
+   (live `1h` only); 6h was not yet a research or execution clock.
+   [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks.
 4. **1d datasets** — ✅ Shipped: worker ingest/publish/verify/catalog + thin diagnostics.
    Same complete-only rules; no candle interpolation. A complete UTC day is exactly one aligned
-   1d candle. Strategy `timeframe` and paper/live clocks stay `1h`|`5m` (live `1h` only). 1d is
-   not a research or execution clock.
+   1d candle. In **this slice**, strategy `timeframe` and paper/live clocks stayed `1h`|`5m`
+   (live `1h` only); 1d was not yet a research or execution clock.
+   [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks.
 5. **Agent data-loop hardening** — ✅ Shipped: `watch_complete` is the completion decision field,
    gap inspection covers the full watch window, and every HTTP agent CLI fails closed on an unequal
    or missing ops contract. `complete` remains island completeness.
@@ -113,7 +110,7 @@ warmup and no-lookahead rules.
    warmup → undefined/null (not 0), tri-state conditions. Research V1/V2/V3, paper, and live share
    the LTF catalog. HTF may declare the same kinds inside `htf_filter`. Paper/live HTF evaluation
    shipped later ([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). No MACD/Bollinger.
-   No per-indicator timeframes. 5m live remains Phase 13.
+   No per-indicator timeframes. 5m live remained Phase 13 and later shipped.
 2. **Momentum and HLC oscillators** — ✅ Shipped ([ADR 0027](decisions/0027-phase-9-roc-williams-cci.md)):
    `roc` (close, period 2–500, warmup `period + 1`), `williams_r` (high/low/close, period 2–100),
    and `cci` (high/low/close, period 2–100, typical price SMA and population MAD, Lambert `0.015`).
@@ -159,9 +156,12 @@ policy has spare slots, capital, and allowlist room; operator risk is available;
 `set-risk-policy --confirm` publishes an immutable version; ops contract is
 `thytrader-ops-contract-v7` / Alembic `0021`.
 
-Destination still includes on-demand trades, intra-strategy pyramiding, multi-instrument strategy
-documents, daily-loss/drawdown circuit breakers, `1m`/`2h` clocks, journals, and notify
-([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
+This slice did not include on-demand trades, `1m`/`2h` clocks, journals, or notify; those shipped
+later ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md),
+[ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md),
+[ADR 0037](decisions/0037-phase-14-experiential-memory.md),
+[ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)). Intra-strategy pyramiding,
+multi-instrument strategy documents, and daily-loss/drawdown circuit breakers remain destination.
 
 ## Phase 11: Research rigor tooling — ✅ Shipped
 
@@ -209,8 +209,11 @@ lane CLIs and never starts live; `--confirm` remains the default; live start sti
 `--i-understand-live`; skipped confirms audit `confirm_skipped` or fail closed. Live YOLO
 `--confirm` skips shipped later ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)).
 
-Destination still includes on-demand trades, `1m`/`2h` clocks, journals, and notify
-([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
+This slice did not include on-demand trades, `1m`/`2h` clocks, journals, or notify; those shipped
+later ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md),
+[ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md),
+[ADR 0037](decisions/0037-phase-14-experiential-memory.md),
+[ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)).
 
 ## Phase 13: Live extras — ✅ Shipped
 
@@ -221,9 +224,10 @@ were still rejected in this slice; paper/live HTF evaluation shipped later
 ([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). Daily-loss / drawdown breakers stay
 destination.
 
-On-demand/discretionary trades with SL/TP are destination product work
-([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). They need a dedicated slice and
-ADR (intent persistence, risk, venue vs synthetic exits, audit origin). Do not treat them as a side
+On-demand/discretionary trades with SL/TP were out of this live-extras slice; they shipped later
+([ADR 0039](decisions/0039-on-demand-discretionary-trades.md),
+[ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md),
+[ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)). Do not treat them as a side
 effect of 5m live.
 
 **Exit gate met:** a published 5m strategy can arm live when credentials exist; live exits after fill
@@ -245,24 +249,28 @@ journals, sentiment, pattern hooks, and notify requests; operator `monitor` is r
 URLs are redacted; default notify sends nothing.
 
 No model training, no venue scrape, and no fill-ledger origin rewrite. Phase 13 live extras,
-on-demand SL/TP, and `1m`/`2h` clocks stay out of this slice.
+on-demand SL/TP, and `1m`/`2h` clocks were out of this memory slice; they shipped in other ADRs.
 
 ## On-demand discretionary trades with SL/TP — ✅ Shipped
 
 Long-only on-demand entries go through the existing order-intent → risk → broker path
-([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)). A discretionary book is a
-`deployments` row with `kind = discretionary` (nullable strategy identity, stored `1h` or `5m`
-clock). Stop and take-profit are required. Live rests one `trigger_bracket_gtc` after fill; paper
+([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)). A discretionary book is a `deployments` row with `kind = discretionary` (nullable strategy
+identity, stored `1h` or `5m` clock in this slice;
+[ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks).
+Stop and take-profit are required. Live rests one `trigger_bracket_gtc` after fill; paper
 uses synthetic SL/TP. Idempotent retries never call `place_order` again. Timeouts persist
 `unknown` and GET-order reconcile. Allocations nonempty deny discretionary. Strategy/paper/live
-clocks stay `1h`/`5m` in this slice. Ops contract is `thytrader-ops-contract-v11` / Alembic `0025`.
+clocks stayed `1h`/`5m` in this slice. Ops contract is `thytrader-ops-contract-v11` / Alembic `0025`.
 
 **Exit gate met:** `POST /api/v1/discretionary-orders` and `thytrader-runtime place-order --confirm`
 (live also `--i-understand-live`) place a long; the Trade UI uses the same HTTP contract with
 human origin; operator summaries include `kind`.
 
-Shorting, attached entry brackets, intra-strategy pyramiding, extra venue execution clocks, and
-YOLO-without-confirm for live stay out of this slice.
+Shorting, attached entry brackets, extra venue execution clocks, and YOLO-without-confirm for live
+were out of this on-demand slice; they shipped later
+([ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md),
+[ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md),
+[ADR 0043](decisions/0043-yolo-live-skip-confirm.md)). Intra-strategy pyramiding remains destination.
 
 ## Venue strategy, paper, live, and HTF clocks — ✅ Shipped
 
@@ -277,8 +285,13 @@ paper, and arm live against a matching complete-only dataset the same way `1h`/`
 discretionary books accept those clocks without changing intent persistence, risk, OCO, or
 reconcile-before-retry.
 
-Paper/live HTF evaluation, per-indicator timeframes, extra exchanges, shorting, and
-YOLO-without-confirm for live stay out of this slice.
+Paper/live HTF evaluation, per-indicator timeframes, shorting, and YOLO-without-confirm for live
+were out of this clock slice; they shipped later
+([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md),
+[ADR 0042](decisions/0042-per-indicator-timeframes.md),
+[ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md),
+[ADR 0043](decisions/0043-yolo-live-skip-confirm.md)). Extra exchanges stay waiting on an explicit
+yes.
 
 ## Paper and live HTF-filter evaluation — ✅ Shipped
 
@@ -343,7 +356,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Capability | Shipped today | Destination |
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
-| Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
+| Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations); on-demand entries use the same registry | Daily-loss / drawdown breakers, order-rate limits, reference-price collars |
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)) | Intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
@@ -351,7 +364,12 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) | Richer sweep axes, persisted study rows if operators need a catalog |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
-| Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043) |
+| Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043). In-app operator chat is a separate destination row |
+| Trade-reason journals | Phase 14 origin-attributed hooks (journals, sentiment/pattern, monitor, notify). No per-trade “why” record | A human or agent can open a trade and see **why it was made** — signal, published strategy version, risk decision, discretionary note, fill/reconcile facts. Durable, attributed, redacted. Same record for UI and operator reports. No interpolated candles |
+| In-app operator chat | Lane-separated skills plus playbook; no in-app LLM chat | Loopback chat; the user supplies **their** LLM API key. The chat is an **operator** using gated skills (same lanes as `ops/`). Confirmation-gated; live still `--i-understand-live` (or the HTTP equivalent). LLM keys stay server-side; Coinbase keys never go to the browser. Not a substitute for skills; it uses them |
+| Workstation IA | Capable SvelteKit workstation; strategy / backtest / research / paper-live share crowded library and deploy surfaces | Strategy create, backtest, research, and paper/live deploy are first-class, visible, uncluttered professional surfaces. Use screen real estate. Functionality is obvious without hunting. Modernize; do not weaken safety copy or confirmation |
+| Coinbase secrets UI | Server-side `.env` / Compose secrets; UI never receives keys; `.env.example` is names/placeholders only | Loopback form to **set / rotate / clear** Coinbase Advanced Trade API credentials. Keys stay server-side. The UI never echoes them, never logs them, never puts them in browser payloads. View + Trade is enough; extra permissions are reported, not treated as consent |
+| Mermaid schemas and contracts | Contributor [contract diagrams](architecture/contracts/README.md) for strategy, research-run spec, backtest result, ops contract, order-intent → risk → broker, and other durable payloads | Keep diagrams in sync when those contracts change. Link from contributor docs. Do not dump on the landing README |
 
 ## Phase 0: Repository foundation — ✅ Complete
 
@@ -402,10 +420,12 @@ shutdown released every project port and left no running project container.
 **Exit gate met:** a user can connect an operator-selected key and observe an accurate, reconcilable
 portfolio — including live market data, fees, and audit trail — without enabling order submission.
 
-## Phase 2: Historical data and strategy definitions
+## Phase 2: Historical data and strategy definitions — ✅ Shipped (narrow V1)
 
-Phase 2 remains active. Its market-data and strategy tracks provide the foundations used by the
-implemented research path and the next browser author-to-result increment.
+Phase 2 is the shipped market-data and strategy foundation used by research, paper, and live. It is
+not an open near-term sequence. Remaining destination (multi-instrument documents, a wider
+indicator catalog) lives in
+[Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 ### Phase 2A: Market-data pipeline
 
@@ -434,11 +454,14 @@ dataset paths. It is deliberately **not** a price chart, market signal, or backt
 
 #### Remaining
 
-- 5m live execution after paper on the same published 5m clock is proven (**Phase 13**, shipped).
+None for currently listed Coinbase granularities. 5m live on the same published clock shipped in
+**Phase 13**. Venue datasets and strategy/paper/live clocks now cover `1m`–`1d` (Phase 7, ADR 0038,
+ADR 0040). Watchlist ingest covers multiple products. Future Coinbase-listed granularities still
+need their own complete-only ADR.
 
 **1h exit gate met:** validated, gap-checked historical candles are queryable by immutable dataset
 fingerprints that future backtests can reference for reproducibility. Multi-timeframe and
-multi-product expansion remain before Phase 2A is considered broadly complete.
+multi-product watchlist expansion for currently listed Coinbase TFs is shipped.
 
 The gate has live PostgreSQL evidence: the full migration chain runs on PostgreSQL 18, two
 independent database engines prove stale retry-generation claims are rejected atomically, and the
@@ -446,7 +469,7 @@ installed worker plus deterministic acceptance drill cover initial publication, 
 incremental boundaries, corrupt-manifest reconciliation, provider failure, restart backoff,
 readiness, and graceful shutdown.
 
-### Phase 2B: Canonical strategy schema — 🚧 In progress
+### Phase 2B: Canonical strategy schema — ✅ Narrow V1 shipped
 
 - ✅ Backend-validated immutable publication for the conservative reference profile (see
   [canonical strategy schema](architecture/canonical-strategy-schema.md)).
@@ -459,16 +482,16 @@ readiness, and graceful shutdown.
   reloads with optimistic revision checks that reject stale saves. Publication saves, publishes, and
   consumes the matching draft atomically; separately stored append-only archive markers hide published
   versions from active selection without altering their canonical bytes or fingerprints.
-- 🚧 Editing a published version into an explicit next version and richer user-authored descriptions
-  remain.
+- ✅ Editing a published version into an explicit next version (`POST /api/v1/strategies/{id}/revise`)
+  and a 500-character user-authored description field.
 
 **Exit gate:** the same immutable strategy version can be validated and associated with a
 reproducible dataset snapshot.
 
 **Declarative publication exit gate met:** the implemented indicator and recursive-condition
 language can be validated, published, verified by fingerprint, and durably associated only with a
-verified dataset fingerprint. Phase 2B remains in progress until the remaining policy variants,
-explicit next-version workflow, richer descriptions, and broader authoring surface are implemented.
+verified dataset fingerprint. Unsupported sizing/stop variants and a visual node canvas stay later
+(not a Phase 2B leftover list). Multi-instrument documents remain destination.
 
 ## Phase 3: Backtesting
 
@@ -496,9 +519,10 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
   bid-close equity marking, executable-entry sizing, immutable fill-level evidence, and zero-spread
   economic regression to V1. V1 result bytes remain loadable/reverifiable unchanged; V2 is not
   observed order-book data or a live-fill prediction.
-- Conservative bar-level broker with latency, rejection, partial-fill, and maker-limit models.
+- ✅ `thytrader-bar-backtest-v3` maker-limit bar fills. Bar-level latency, rejection, and
+  partial-fill models beyond that V3 contract, and full order-book queue simulation, remain deferred.
 - ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later.
-- Trailing-stop state machine when the schema and market-data resolution support it.
+- ✅ ATR-multiple trailing-stop state machine in backtest, paper, and live (Phase 13 / ADR 0036).
 - ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps, WFO, and stitched OOS equity shipped as ADR 0044.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
 
@@ -512,7 +536,8 @@ versions.
 
 Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +
 `post_only`); stops and time-exits are marketable sells. Live orders use Advanced Trade REST v3 JSON
-with `RESTClient` only as signed HTTP. Remaining extras stay deferred.
+with `RESTClient` only as signed HTTP. Phase 13 extras are shipped. Remaining deferred: operator
+runbook drills; destination circuit breakers listed above.
 
 **Exit gate met for the research slice:** reference-strategy results are deterministic, disclose
 assumptions, resist lookahead, and pass adversarial fill/risk tests.

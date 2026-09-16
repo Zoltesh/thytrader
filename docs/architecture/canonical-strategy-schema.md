@@ -9,7 +9,8 @@
 > strategy `timeframe` includes every Coinbase-listed candle granularity ThyTrader ingests
 > ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)), and deployments will cover
 > single-asset **and** multi-asset paper/live. The field rules in this document are the **shipped
-> contract**. Multi-instrument documents are not legal here.
+> contract**. Multi-instrument documents are not legal here. Mermaid overview:
+> [contract diagrams — strategy](contracts/strategy.md).
 
 This document is the implementation-facing specification referenced by
 [ADR 0005](../decisions/0005-canonical-strategy-schema.md). The ADR records the decision; this
@@ -470,13 +471,18 @@ when capital protection requires it.
 - `max_open_positions` and `max_concurrent_positions` are both 1 in V1.
 - Product and timeframe are supported.
 
-### 3. Runtime validation (deferred to Phase 3+)
+### 3. Runtime validation (paper and live)
 
-- Dataset completeness and gap check.
-- Product is currently tradable on the venue.
-- Current market data is fresh.
-- Required balances and venue minimums are met.
-- Live-arm/risk policy approval exists (Phase 5).
+Paper and live already gate these before new risk-increasing orders. They are not deferred work:
+
+- Dataset completeness and gap check (complete-only publication; missing latest bars pause).
+- Current market data is fresh (stale-data cutoff blocks new risk-increasing orders).
+- Required credentials, balances, and venue minimums are met (live shorts fail closed without
+  available base).
+- Live-arm and risk-policy approval exist (Phase 5 arming; Phase 10 registry before intent persist).
+
+This is not a substitute for destination circuit breakers (daily-loss / drawdown, order-rate
+limits, reference-price collars).
 
 ### Separation from optimization
 

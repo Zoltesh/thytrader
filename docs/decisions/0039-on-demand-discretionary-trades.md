@@ -91,7 +91,11 @@ not change intent persistence, risk, OCO, or reconcile-before-retry.
 - Discretionary and strategy deployments share intent persistence, unique client ids, the risk
   registry, paper matching, live OCO, and reconcile-before-retry.
 - Intra-strategy pyramiding, shorting, attached entry brackets, daily-loss breakers, `1m`/`2h`/`4h`
-  execution clocks, extra exchanges, and YOLO-without-confirm for live stay out of this slice.
+  execution clocks, extra exchanges, and YOLO-without-confirm for live stayed out of this slice.
+  Later [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) widened clocks,
+  [ADR 0043](0043-yolo-live-skip-confirm.md) added live skip-confirm, and
+  [ADR 0045](0045-spot-shorting-and-attached-entry-brackets.md) shipped shorting and attached
+  entry brackets. Pyramiding and extra exchanges remain destination.
 
 ## Alternatives considered
 

@@ -5,13 +5,15 @@
 A research-run specification records exactly which immutable strategy and candle dataset a future
 simulation is allowed to consume, together with the deterministic request assumptions that must not
 be inherited from ambient configuration. It is an immutable research artifact, not evidence that a
-backtest ran and not authority to place an order.
+backtest ran and not authority to place an order. Mermaid:
+[contract diagrams — research-run](contracts/research-run.md).
 
 Research-run-spec publication remains an internal application boundary. The browser strategy API now
 authors revision-guarded drafts, publishes immutable strategy evidence, and submits deterministic
 backtests whose server-side workflow derives and persists the eligible run specification and immutable
 result. A read-only CLI can also evaluate an existing publication that selects the explicit signal-
-engine contract. There is still no paper broker, Coinbase order call, or live-trading path.
+engine contract. The research-run spec itself still does not grant paper, Coinbase, or live-trading
+authority; those runtimes consume published strategy semantics on a separate confirmation-gated path.
 
 ## Canonical V1 document
 

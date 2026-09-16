@@ -23,8 +23,10 @@ path is trustworthy.
 ## Product end state
 
 Accepted destination ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)). Not all
-of this is shipped; the [roadmap](../roadmap.md) sequences slices. Do not treat the current narrow
-paper/live clocks or indicator catalog as the ceiling.
+of this is shipped; the [roadmap](../roadmap.md) sequences remaining destination.
+[ADR 0046](../decisions/0046-shipped-vs-remaining-0031-destination.md) restates that venue clocks
+and on-demand SL/TP **are** implemented. Multi-instrument documents and a wider indicator catalog
+are not. Do not treat those remainders as already shipped.
 
 - **Coinbase-first.** Coinbase Advanced Trade REST v3 and WebSockets, spot only, until this path is
   trustworthy. Other venues later.
@@ -43,6 +45,19 @@ paper/live clocks or indicator catalog as the ceiling.
   and stop remain explicit operator/agent actions.
 - **Agent E2E:** an agent can do 100% of the above through confirmation-gated, auditable tools
   (`--confirm`; live also `--i-understand-live`).
+- **Trade-reason journals:** a human or an agent can open a trade and see **why it was made**
+  (signal, published strategy version, risk decision, discretionary note, fill/reconcile facts).
+  Durable, attributed, redacted. Same record for UI and operator reports. Phase 14 hooks are not
+  this record.
+- **In-app operator chat:** a loopback chat surface where the user supplies **their** LLM API key.
+  The chat is an **operator** using the same gated skills as `ops/` — not a second unsigned brain
+  and not a substitute for those skills. LLM keys stay server-side; Coinbase keys never go to the
+  browser. Confirmation-gated; live still `--i-understand-live`.
+- **Workstation IA:** strategy create, backtest, research, and paper/live deploy are first-class,
+  visible, uncluttered professional surfaces. Do not weaken safety copy or confirmation.
+- **Coinbase secrets UI:** a loopback form to set, rotate, and clear Coinbase Advanced Trade API
+  credentials. Keys stay server-side. The UI never echoes them, never logs them, never puts them in
+  browser payloads. View + Trade is enough; extra permissions are reported, not treated as consent.
 
 A user or an agent can research markets, design strategies, backtest them, paper-trade them, and
 run live Coinbase spot — with the **same published strategy semantics** in every mode.
@@ -85,6 +100,10 @@ A technically comfortable individual who wants to:
 - arm continuous live execution and leave the worker to run it;
 - manage SL/TP and trailing exits;
 - inspect health, risk state, and execution history;
+- open a trade and review **why** it was made;
+- chat with an in-app operator that uses the same gated skills (user-supplied LLM key);
+- use first-class strategy, backtest, research, and paper/live surfaces without hunting;
+- set, rotate, and clear Coinbase credentials in the loopback UI without ever seeing the secret echoed;
 - authorize an agent to do the same loop, including monitoring and notifying them.
 
 ## Shipped slice (honest present)
@@ -146,8 +165,9 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include extra exchanges and
-multi-instrument strategy documents. Venue strategy/paper/live/HTF clocks are shipped
+items include extra exchanges, multi-instrument strategy documents, trade-reason journals, in-app
+operator chat, workstation IA, and a Coinbase secrets UI. Do not treat those as shipped. Contributor
+[contract diagrams](../architecture/contracts/README.md) are shipped. Venue strategy/paper/live/HTF clocks are shipped
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
 registry and concurrent single-instrument paper/live are shipped. Phase 11's walk-forward / OOS /
@@ -168,7 +188,8 @@ Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase
 there is still no model training:
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
-  `agent`) so later learning can separate authors.
+  `agent`) so later learning can separate authors. Per-trade **why it was made** records remain
+  destination.
 - Read-only monitor of deployments, recent journals, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
 - Improvement stays subordinate to existing invariants: confirmation gates, scoped authority,
@@ -200,6 +221,8 @@ A user can install ThyTrader, configure an operator-selected Coinbase key, inspe
 
 A user **or** an authorized agent can research across Coinbase timeframes and products, author
 single- and multi-asset strategies with a wide indicator catalog, backtest them, place on-demand
-trades with SL/TP, deploy paper or live, leave automation running, monitor, journal, and get
-notified — all through confirmation-gated contracts, without interpolating candles or bypassing
-risk.
+trades with SL/TP, deploy paper or live, leave automation running, monitor, journal **why a trade
+was made**, get notified, set Coinbase credentials in the loopback UI without echoing secrets, and
+(optionally) operate through in-app chat that uses gated skills — all through confirmation-gated
+contracts, without interpolating candles or bypassing risk. Strategy, backtest, research, and
+paper/live remain first-class uncluttered workstation surfaces.

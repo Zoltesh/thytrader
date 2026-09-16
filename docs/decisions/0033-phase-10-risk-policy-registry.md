@@ -14,9 +14,14 @@ started concurrently, but nothing caps cross-strategy exposure or paper capital,
 reports `risk_policy_registry: unavailable`.
 
 Phase 10 is the portfolio / risk-policy registry: capital allocation and multi-asset paper/live
-beyond one instrument and one account-level open position. Destination still includes on-demand
+beyond one instrument and one account-level open position. Destination still included on-demand
 trades, `1m`/`2h` clocks, journals, and notify ([ADR 0031](0031-coinbase-first-platform-end-state.md));
-those stay out of this slice.
+those stayed out of this slice and later shipped
+([ADR 0039](0039-on-demand-discretionary-trades.md),
+[ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md),
+[ADR 0037](0037-phase-14-experiential-memory.md),
+[ADR 0046](0046-shipped-vs-remaining-0031-destination.md)).
+Intra-strategy pyramiding, multi-instrument documents, and daily-loss/drawdown remain destination.
 
 ## Decision
 

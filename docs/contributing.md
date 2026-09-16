@@ -20,14 +20,17 @@ teach `ops/` instruction files to edit documentation or source.
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
 - [Research studies (walk-forward, OOS, cross-market, sweeps, WFO)](architecture/research-studies.md)
+- [Contract diagrams (Mermaid)](architecture/contracts/README.md) — strategy schema, research-run spec, backtest result, ops contract, order-intent → risk → broker, and other durable payloads
 
 ## Decisions, roadmap, plans
 
 - [Architecture decision records](decisions/README.md) — includes
   [ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md) (parameter sweeps, walk-forward
-  optimization, stitched OOS equity) and
+  optimization, stitched OOS equity),
   [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md) (spot shorting and attached
-  entry brackets)
+  entry brackets), and
+  [ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md) (`1m`/`2h` clocks and on-demand
+  are shipped; multi-instrument documents are not)
 - [Delivery roadmap](roadmap.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) —
   **historical** running-instance evidence; stale Compose, 14-day clip, v3 422, and 5m paper 409 are
