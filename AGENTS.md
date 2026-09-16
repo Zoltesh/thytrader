@@ -12,7 +12,9 @@ versioned HTTP APIs). A modern professional UI still matters and must stay capab
 [product vision](docs/product/vision.md), [ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md),
 and [ADR 0031](docs/decisions/0031-coinbase-first-platform-end-state.md).
 
-Financial correctness, restart safety, secret hygiene, and auditability outrank delivery speed. Read [the documentation index](docs/README.md) before changing architecture or product behavior.
+Financial correctness, restart safety, secret hygiene, and auditability outrank delivery speed.
+Read [contributor documentation](docs/contributing.md) before changing architecture or product
+behavior. User-facing docs start at [docs/README.md](docs/README.md).
 
 ## Current direction
 
@@ -158,9 +160,10 @@ semantics, timeframes, runtime, research, data ingest, or operator reports, the
    maintain a second skill tree.
 2. Operator report schemas if payloads changed
    (`skills/thytrader-operator/references/` and related contract tests).
-3. `docs/` that operators and agents read (at least `docs/agent-integration.md`,
-   and roadmap shipped vs destination when slice status changes). Update CLI
-   `--help` when flags or invocation change.
+3. `docs/` that operators and agents read (user-facing `docs/README.md` and
+   `docs/user/`, plus `docs/agent-integration.md`, and roadmap shipped vs
+   destination when slice status changes). Update CLI `--help` when flags or
+   invocation change.
 
 A slice is **not done** if ops skills would leave an operator agent unable to
 discover or correctly invoke the new surface. Do not merge or report the work

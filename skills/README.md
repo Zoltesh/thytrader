@@ -6,7 +6,8 @@ This directory is the **primary product surface** for agent-driven E2E
 ([ADR 0030](../docs/decisions/0030-agent-e2e-primary-surface.md)). Product of record is this
 directory. Cursor auto-discovery pointers live under `.cursor/skills/` and must not diverge from
 these contracts. Operating agents should open [`ops/`](../ops/README.md) so they load these skills
-without the contributor GitNexus workflow.
+without the contributor GitNexus workflow. Humans and authorized agents: how to
+operate is in [`docs/user/operate.md`](../docs/user/operate.md).
 
 Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
 runtime mutations require `--confirm` unless YOLO covers that tier (live also `--i-understand-live`).

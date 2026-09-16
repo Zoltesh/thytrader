@@ -1,241 +1,94 @@
-# ThyTrader
+<p align="center">
+  <img src="docs/assets/thytrader-banner.svg" alt="Neon candlesticks on your laptop, an agent co-pilot, a gold moon, and T-coins" width="100%">
+</p>
 
-Thine trading platform. A Coinbase-first research and trading workstation you control: portfolio,
-on-demand trades, strategies, risk, analysis, and automated paper/live execution—operated by you,
-by agents you authorize, or by both together. Other exchanges come later.
+<h1 align="center">ThyTrader</h1>
 
-The **agent surface is the primary product**: an authorized agent should be able to learn patterns,
-keep journals, analyze sentiment, research markets, build strategies, deploy paper and live,
-monitor, and notify. A modern professional UI still matters. Human-driven and collaborative use
-remain fully supported; nothing requires an agent. Agent mutations stay confirmation-gated
-(`--confirm`; live also `--i-understand-live`). See
-[product vision](docs/product/vision.md) and [ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md).
+<p align="center">
+  <img src="docs/assets/thy-equals-your.svg" alt="thy trader equals YOUR trader" width="640">
+</p>
 
-ThyTrader is an open-source, local-first platform with a FastAPI backend, SvelteKit frontend,
-reproducible backtesting, and guarded automated Coinbase spot execution.
+<p align="center">
+  <img src="docs/assets/divider-neon.svg" alt="" width="640">
+</p>
 
-Start with the [project documentation](docs/README.md) for the product direction, architecture, safety baseline, delivery roadmap, and accepted decisions. Contributors and coding agents should also read [`AGENTS.md`](AGENTS.md).
+<p align="center"><strong>This is not just another trading UI.</strong></p>
 
-## Clone-and-run local stack
+<p align="center">
+  You research.<br>
+  You write <em>your</em> strategies.<br>
+  You automate trades <strong>on your own device</strong>.<br>
+  An agent can drive ThyTrader <strong>100%</strong> — or you never let go of the mouse.
+</p>
 
-The supported local stack uses Docker Compose. It starts PostgreSQL, applies the explicit Alembic
-migration, then starts the API, portfolio worker, market-data worker, execution worker, and web UI—with health checks and
-loopback-only host ports. From a fresh clone with Docker Compose and [`uv`](https://docs.astral.sh/uv)
-installed, run:
+<p align="center">
+  Thine stack. Thy keys. Thy agent.<br>
+  <sub>Coinbase Advanced Trade spot, local-first. Other exchanges later.</sub>
+</p>
+
+<table>
+  <tr>
+    <td align="center" width="25%">
+      <img src="docs/assets/icon-yours.svg" width="96" alt="Gold crown and mint key"><br>
+      <strong>YOUR trader</strong><br>
+      <sub><em>thy</em> is old English for <strong>your</strong>. That's the whole product.</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/icon-device.svg" width="96" alt="Laptop with neon candles and a T-coin"><br>
+      <strong>On your device</strong><br>
+      <sub>Loopback. Your metal. No rented dashboard in the cloud.</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/icon-agent.svg" width="96" alt="A magenta agent with a mint antenna"><br>
+      <strong>Agent = 100%</strong><br>
+      <sub>An authorized agent can run the entire loop. Humans still can too.</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/icon-automate.svg" width="96" alt="Candles and a gold play coin"><br>
+      <strong>Research → automate</strong><br>
+      <sub>You author it. You test it. Then it runs. Same published strategy.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  Mutations stay gated (<code>--confirm</code>; live also <code>--i-understand-live</code>).<br>
+  Missing candles are never interpolated. Secrets never print.
+</p>
+
+<p align="center"><img src="docs/assets/icon-automate.svg" width="56" alt=""></p>
+
+## Fire it up (loopback only)
+
+Needs Docker Compose and [`uv`](https://docs.astral.sh/uv). Host ports bind to **127.0.0.1**.
 
 ```bash
+git clone https://github.com/Zoltesh/thytrader.git
+cd thytrader
 make run
 ```
 
-`make run` wraps `scripts/setup_local_stack.py` (described below), so it is the single command to
-type. The equivalent direct invocation is:
+| Dashboard | API | Postgres |
+|---|---|---|
+| http://127.0.0.1:5175 | http://127.0.0.1:8200/health/ready | `127.0.0.1:5439` (loopback only) |
 
-```bash
-uv run python scripts/setup_local_stack.py
-```
-
-The command is safe to rerun. It preserves unrelated ignored `.env` entries, creates matching
-local-only database settings when needed, refuses to replace a user-managed database URL, builds the
-images, starts and waits for a healthy PostgreSQL service, runs Alembic as a one-shot gate, then
-starts API, the workers, and web only after migration succeeds. The final startup waits for all
-service health checks and does not print credentials or connection URLs. It also recognizes and
-safely updates ThyTrader's former generated `127.0.0.1:5433` database URL while continuing to reject
-arbitrary custom URLs. Duplicate ThyTrader-managed database keys are rejected as ambiguous rather
-than partially rewritten.
-
-- Dashboard: `http://127.0.0.1:5175`
-- API readiness: `http://127.0.0.1:8200/health/ready`
-- PostgreSQL: `127.0.0.1:5439` (loopback only)
-
-`THYTRADER_API_PORT` defaults to `8200`. If you override it in ignored `.env`, Compose applies the
-same value to the API listener, loopback host mapping, API readiness probe, and the web container's
-internal proxy target.
-
-The worker takes a snapshot at startup and then every five minutes by default. Configure a value
-between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ignored `.env`.
-The dashboard Refresh button is read-only; it never creates history points.
-
-The separately supervised market-data worker maintains complete-only verified Parquet datasets for
-1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h (each is also a legal strategy, paper, live, and HTF
-clock), publishes only
-complete verified Parquet and manifests, and retries every five minutes by default.
-PostgreSQL records its latest attempt, verified coverage, freshness, fingerprint, and redacted failure
-state. Its cadence, lookback, target, and dataset root are configurable through the documented
-`THYTRADER_MARKET_DATA_*` variables in ignored `.env`. Compose mounts that immutable dataset volume
-read-write only in the market-data worker and read-only in the API so browser dataset selection and
-backtest verification consume the exact artifacts the worker published.
-
-The portfolio-history panel offers `24H`, `7D`, `30D`, and `All` ranges. The API performs the
-range query and bounds the response to representative observations, preserving the range endpoints
-without returning an unbounded browser payload. The panel compares the latest value with the oldest
-displayed observation, exposes exact point timestamps and values to pointer and keyboard users, and
-marks snapshot cadence as behind when the latest persisted observation is more than two configured
-sampling intervals old. Gaps remain visible rather than being interpolated.
-
-The dashboard includes **Data-source diagnostics**: a read-only connection and candle-integrity
-check for a selected USD spot product. It shows request-time validation plus the separate worker's
-durable coverage and failure state; it is **not** a price chart, trading signal, profitability result,
-or trading-readiness claim. It uses Coinbase data when credentials are configured,
-or deterministic demo data otherwise. See the [market-data pipeline](docs/architecture/market-data.md)
-for the implemented operational contract and remaining increments.
-
-Inspect or stop the stack with:
-
-```bash
-docker compose ps
-docker compose logs -f api worker market-data-worker execution-worker web
-docker compose down
-```
-
-Inspect ingestion evidence or restart only its independent failure domain with:
-
-```bash
-curl -sS 'http://127.0.0.1:8200/api/v1/market-data/ingestion?product_id=BTC-USD'
-docker compose restart market-data-worker
-docker compose logs --tail=100 market-data-worker
-```
-
-Restart and automatic retries are idempotent for an unchanged aligned range. A failed attempt remains
-visible until a later verified publication succeeds; neither the endpoint nor dashboard refresh starts
-ingestion.
-
-When the aligned lookback window advances, the worker publishes a new immutable dataset. Overlapping
-hourly windows therefore accumulate by design and are not automatically pruned. Size the
-`thytrader_market_data` volume accordingly; do not manually remove manifests or Parquet files while
-ThyTrader is running. Automated retention is deferred until catalog/reference tracking can prove that
-no reproducible consumer still names a fingerprint.
-
-A normal `docker compose down` preserves PostgreSQL and immutable market-data volumes. Only
-`docker compose down -v` destroys them and is intentionally destructive.
-
-## Strategy research workspace
-
-Open `http://127.0.0.1:5175/strategies` after the local stack is healthy. The strategy library lists
-every strategy identity with its market and timeframe, latest version, draft/published/archived
-status, the newest backtest bound to any of its immutable versions, and its paper/live column: newest
-deployment status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
-`unavailable` means no runtime of that mode (not that the execution worker is missing). Clicking a
-paper/live cell opens the existing inspector on Deploy. From the library you can create the
-conservative reference draft, clone a published strategy into a fresh draft identity (Clone stays
-ungated), import a complete strategy definition JSON as a new draft, and archive an immutable
-publication after confirming the latest published version and fingerprint.
-
-Draft and publication semantics are unchanged: saves carry an opaque revision and reject stale
-browser tabs rather than overwriting newer edits. The builder at `/strategies/{strategy_id}` opens
-any durable draft for full-schema editing with a nested ALL/ANY/NOT rule tree and an inspector
-showing a plain-English summary, validation errors, required warmup, unsaved state, and an explicit
-V1/V2 engine-support matrix. Every library row opens the same read-only Insight panel; published
-strategies also expose a Research tab. Research explicitly selects an immutable strategy version,
-verified dataset, evaluation period, initial capital, maker/taker fees, fixed slippage, engine, and
-the V2 constant-spread stress assumption. When Coinbase credentials are present, maker/taker fields
-prefill from fee-tier suggested defaults and stay editable; demo or missing credentials leave those
-fields blank rather than inventing a tier. It lists every stored result for each exact published
-version and compares the latest result across versions; dataset and per-version result failures remain
-visible without hiding strategy evidence. **Validate & publish immutable version** (via
-`POST /api/v1/strategies/{strategy_id}/publish`) atomically consumes that mutable draft and records
-canonical strategy evidence; it does not start paper or live trading. A published version can be
-archived from the library after confirmation: that appends a permanent archive marker and hides it
-from active selection without changing its fingerprint or canonical bytes. Backtests require a
-verified dataset fingerprint and remain deterministic research artifacts.
-
-The execution worker evaluates published paper and live deployments against closed venue candles
-about every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when
-credentials exist. Sub-hour live pauses unless the authenticated user-order feed is connected. See the [architecture overview](docs/architecture/overview.md).
-
-Agents diagnose a running instance with `uv run thytrader-operator` (or `GET /api/v1/operator/*`)
-and mutate research artifacts only with `uv run thytrader-research … --confirm`. Sequence data →
-research → optional paper with `uv run thytrader-playbook` (still `--confirm` by default; never live).
-Journals and notify use `uv run thytrader-memory … --confirm` (YOLO never skips that gate).
-See [`skills/README.md`](skills/README.md).
-
-
-Use native processes for fast backend or frontend iteration. ThyTrader requires Python 3.14 and
-`uv`; install the locked environment with `uv sync`. The web workspace is pinned to Node `22.23.1`
-in `.nvmrc`, so run `nvm use` before its first install.
-
-```bash
-uv sync
-uv run thytrader-api
-uv run thytrader-worker
-uv run thytrader-market-data-worker
-uv run thytrader-execution-worker
-cd web && npm ci && npm run dev -- --open
-```
-
-The first usable vertical slice displays deterministic demo balances when Coinbase credentials are
-empty and live balances when both Coinbase variables are configured. ThyTrader accepts View + Trade
-keys and keys with additional permissions; this read-only screen never submits an order.
-
-For a user-managed PostgreSQL instance, set `THYTRADER_DATABASE_URL` in ignored `.env`, apply the
-explicit migration, then start the API and workers as separate processes:
-
-```bash
-uv run alembic upgrade head
-uv run thytrader-api
-uv run thytrader-worker
-uv run thytrader-market-data-worker
-uv run thytrader-execution-worker
-```
-
-Common stack operations are also available as Makefile targets:
+`make run` does **not** print secrets or connection URLs.
 
 ```bash
 make status   # service health
-make logs     # follow API, workers, and web logs
-make stop     # stop the stack (preserves database and market-data volumes)
+make logs     # follow API, workers, and web
+make stop     # stop (keeps database + market-data volumes)
 ```
 
-Run frontend verification with:
+Deep setup, credentials (names only), native processes: **[docs/user/setup.md](docs/user/setup.md)**
 
-```bash
-cd web
-npx playwright install chromium  # first run on a new machine only
-npm run lint
-npm run check
-npm run test
-npm run build
-```
+## User guide
 
-Run the canonical backend quality gates with:
+| | |
+|---|---|
+| <img src="docs/assets/icon-yours.svg" width="36" alt=""> **[Start here](docs/README.md)** | What it is, why it's yours |
+| <img src="docs/assets/icon-device.svg" width="36" alt=""> **[Setup](docs/user/setup.md)** | Clone-and-run, loopback, Compose, `.env` names |
+| <img src="docs/assets/thytrader-mark.svg" width="36" alt=""> **[Safety](docs/user/safety.md)** | Secrets, live arming, confirmation gates |
+| <img src="docs/assets/icon-agent.svg" width="36" alt=""> **[Operate](docs/user/operate.md)** | Browser **and/or** agent, paper vs live |
 
-```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run ty check
-```
-
-## Read-only research signal evaluation
-
-An existing published research run that explicitly selects `thytrader-bar-signal-v1` can be replayed
-against its exact verified strategy and Parquet dataset:
-
-```bash
-uv run thytrader-research-evaluate <run_fingerprint> --pretty
-```
-
-The command prints a deterministic completed-candle entry-condition trace and its SHA-256 fingerprint.
-It does not publish a run, create an order intent, apply cooldown, simulate entries or exits, calculate
-PnL, persist results, or mutate trading state. The browser research workflow separately creates a
-constrained reference draft, publishes an immutable strategy, selects a verified dataset, submits a
-deterministic backtest, and opens its immutable result detail. Paper and live deployment is a
-separate Deploy-tab runtime, not this CLI.
-See the [signal-evaluation contract](docs/architecture/signal-evaluation.md) and
-[backtest simulation](docs/architecture/backtest-simulation.md) for exact semantics and limits.
-
-## Operator and research CLIs
-
-```bash
-uv run thytrader-operator health
-uv run thytrader-research create-draft --confirm
-uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
-uv run thytrader-research plan-study --file study.json
-uv run thytrader-research submit-study --file study.json --confirm
-uv run thytrader-playbook status
-uv run thytrader-memory status
-```
-
-`thytrader-operator` is read-only. `thytrader-research` mutations require `--confirm` and cannot
-deploy or trade. `thytrader-playbook` sequences existing CLIs and never starts live.
-`thytrader-memory` mutations require `--confirm`; YOLO never covers that lane. Skills live in
-[`skills/`](skills/README.md).
+<p align="center"><sub>Art in <a href="docs/assets/">docs/assets/</a> is original ThyTrader work — no venue marks, no scraped logos.</sub></p>

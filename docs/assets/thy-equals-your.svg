@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 150" role="img" aria-label="thy trader equals YOUR trader">
+  <rect width="860" height="150" rx="24" fill="#080b0d"/>
+  <rect x="1.5" y="1.5" width="857" height="147" rx="22.5" fill="none" stroke="#f0a202" stroke-width="3"/>
+  <text x="150" y="62" text-anchor="middle" fill="#f5c542" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-style="italic">thy</text>
+  <text x="150" y="108" text-anchor="middle" fill="#8b9698" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" letter-spacing="0.28em">TRADER</text>
+  <text x="310" y="92" text-anchor="middle" fill="#5ce1b5" font-family="ui-sans-serif, system-ui, sans-serif" font-size="52" font-weight="700">=</text>
+  <text x="560" y="70" text-anchor="middle" fill="#5ce1b5" font-family="ui-sans-serif, system-ui, sans-serif" font-size="54" font-weight="800" letter-spacing="0.08em">YOUR</text>
+  <text x="560" y="116" text-anchor="middle" fill="#ff2d95" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" letter-spacing="0.32em">TRADER</text>
+  <circle cx="800" cy="40" r="10" fill="#ffd24a"/>
+  <circle cx="48" cy="118" r="8" fill="#ff2d95"/>
+  <circle cx="812" cy="116" r="6" fill="#3ee0ff"/>
+</svg>
