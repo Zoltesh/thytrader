@@ -18,6 +18,7 @@ from thytrader.execution.models import (
     DeploymentStatus,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     IntentOrigin,
     IntentPurpose,
     Order,
@@ -32,6 +33,7 @@ from thytrader.execution.models import (
 from thytrader.persistence.schema import (
     deployments,
     execution_fills,
+    execution_instrument_state,
     execution_orders,
     execution_positions,
     order_intents,
@@ -145,6 +147,7 @@ class PostgresExecutionStore:
             status=intent.status.value,
             origin=intent.origin.value,
             idempotency_key=intent.idempotency_key,
+            product_id=intent.product_id,
             created_at=intent.created_at,
         )
         try:
@@ -202,19 +205,36 @@ class PostgresExecutionStore:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return fill
 
-    async def save_position(self, position: Position | None, *, deployment_id: UUID) -> None:
-        """Replace or clear the single position for one deployment."""
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
+        """Replace or clear one product book, or every book when the product is omitted."""
         try:
             async with self._engine.begin() as connection:
+                if position is None and product_id is None:
+                    await connection.execute(
+                        delete(execution_positions).where(
+                            execution_positions.c.deployment_id == deployment_id
+                        )
+                    )
+                    return
+                key_product = product_id or (position.product_id if position is not None else "")
                 await connection.execute(
                     delete(execution_positions).where(
-                        execution_positions.c.deployment_id == deployment_id
+                        execution_positions.c.deployment_id == deployment_id,
+                        execution_positions.c.product_id == key_product,
                     )
                 )
                 if position is not None:
+                    stamped_product = position.product_id or key_product
                     await connection.execute(
                         insert(execution_positions).values(
                             deployment_id=position.deployment_id,
+                            product_id=stamped_product,
                             quantity=format(position.quantity, "f"),
                             entry_price=format(position.entry_price, "f"),
                             stop_price=format(position.stop_price, "f"),
@@ -222,9 +242,49 @@ class PostgresExecutionStore:
                             entered_bar=position.entered_bar,
                             trail_extreme=_text(position.trail_extreme),
                             side=position.side.value,
+                            add_count=position.add_count,
                             updated_at=position.updated_at,
                         )
                     )
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def save_instrument_runtime(
+        self, runtime: InstrumentRuntime, *, deployment_id: UUID
+    ) -> None:
+        """Replace one product overlay row."""
+        values = {
+            "deployment_id": deployment_id,
+            "product_id": runtime.product_id,
+            "phase": runtime.phase.value,
+            "last_evaluated_bar": runtime.last_evaluated_bar,
+            "last_signal": runtime.last_signal,
+            "pending_entry_bars": runtime.pending_entry_bars,
+            "bars_held": runtime.bars_held,
+            "cooldown_bars_remaining": runtime.cooldown_bars_remaining,
+            "pending_stop_price": _text(runtime.pending_stop_price),
+            "pending_target_price": _text(runtime.pending_target_price),
+        }
+        statement = insert(execution_instrument_state).values(values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[
+                execution_instrument_state.c.deployment_id,
+                execution_instrument_state.c.product_id,
+            ],
+            set_={
+                "phase": statement.excluded.phase,
+                "last_evaluated_bar": statement.excluded.last_evaluated_bar,
+                "last_signal": statement.excluded.last_signal,
+                "pending_entry_bars": statement.excluded.pending_entry_bars,
+                "bars_held": statement.excluded.bars_held,
+                "cooldown_bars_remaining": statement.excluded.cooldown_bars_remaining,
+                "pending_stop_price": statement.excluded.pending_stop_price,
+                "pending_target_price": statement.excluded.pending_target_price,
+            },
+        )
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(statement)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 
@@ -302,6 +362,7 @@ def _order_values(order: Order) -> dict[str, object]:
         "filled_quantity": format(order.filled_quantity, "f"),
         "status": order.status.value,
         "reject_reason": order.reject_reason,
+        "product_id": order.product_id,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
     }
@@ -353,6 +414,7 @@ def _order_from_row(row: RowMapping) -> Order:
         filled_quantity=Decimal(row["filled_quantity"]),
         status=OrderStatus(row["status"]),
         reject_reason=row["reject_reason"],
+        product_id=row["product_id"] if row["product_id"] is not None else "",
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -375,6 +437,7 @@ def _intent_from_row(row: RowMapping) -> OrderIntent:
         status=OrderStatus(row["status"]),
         origin=IntentOrigin(row["origin"]) if row["origin"] is not None else IntentOrigin.RUNTIME,
         idempotency_key=row["idempotency_key"],
+        product_id=row["product_id"] if row["product_id"] is not None else "",
         created_at=row["created_at"],
     )
 
@@ -404,7 +467,24 @@ def _position_from_row(row: RowMapping) -> Position:
         entered_bar=row["entered_bar"],
         trail_extreme=_decimal(row["trail_extreme"]),
         side=PositionSide(row["side"]) if row["side"] is not None else PositionSide.LONG,
+        product_id=row["product_id"] if row["product_id"] is not None else "",
+        add_count=int(row["add_count"]) if row["add_count"] is not None else 1,
         updated_at=row["updated_at"],
+    )
+
+
+def _runtime_from_row(row: RowMapping) -> InstrumentRuntime:
+    """Rehydrate one per-product runtime overlay from a database row."""
+    return InstrumentRuntime(
+        product_id=row["product_id"],
+        phase=RuntimePhase(row["phase"]),
+        last_evaluated_bar=row["last_evaluated_bar"],
+        last_signal=row["last_signal"],
+        pending_entry_bars=row["pending_entry_bars"],
+        bars_held=row["bars_held"],
+        cooldown_bars_remaining=row["cooldown_bars_remaining"],
+        pending_stop_price=_decimal(row["pending_stop_price"]),
+        pending_target_price=_decimal(row["pending_target_price"]),
     )
 
 
@@ -443,7 +523,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
         .mappings()
         .all()
     )
-    position_row = (
+    position_rows = (
         (
             await connection.execute(
                 select(execution_positions).where(
@@ -452,12 +532,34 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
             )
         )
         .mappings()
-        .one_or_none()
+        .all()
     )
+    runtime_rows = (
+        (
+            await connection.execute(
+                select(execution_instrument_state).where(
+                    execution_instrument_state.c.deployment_id == deployment.id
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    positions = tuple(_position_from_row(row) for row in position_rows)
+    focused = None
+    if len(positions) == 1:
+        focused = positions[0]
+    else:
+        focused = next(
+            (item for item in positions if item.product_id in {"", deployment.product_id}),
+            None,
+        )
     return DeploymentSnapshot(
         deployment=deployment,
-        position=None if position_row is None else _position_from_row(position_row),
+        position=focused,
         orders=tuple(_order_from_row(row) for row in order_rows),
         fills=tuple(_fill_from_row(row) for row in fill_rows),
         intents=tuple(_intent_from_row(row) for row in intent_rows),
+        positions=positions,
+        instrument_runtimes=tuple(_runtime_from_row(row) for row in runtime_rows),
     )

@@ -97,6 +97,7 @@ def test_operator_risk_reports_available_registry() -> None:
     assert payload["daily_loss_limit_fraction"] == "1"
     assert payload["max_entry_orders_per_minute"] == 60
     assert payload["reference_price_collar_fraction"] == "0.5"
+    assert payload["allow_intra_strategy_pyramiding"] is False
     assert "paper_capital_quote" not in payload
 
 

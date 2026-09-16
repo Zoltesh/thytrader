@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from thytrader.execution.models import (
@@ -10,6 +11,7 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     Order,
     OrderIntent,
     OrderStatus,
@@ -18,6 +20,11 @@ from thytrader.execution.models import (
 
 if TYPE_CHECKING:
     from uuid import UUID
+
+
+def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:
+    """Return the in-memory key for one product book."""
+    return (deployment_id, product_id)
 
 
 class InMemoryExecutionStore:
@@ -29,7 +36,8 @@ class InMemoryExecutionStore:
         self.intents: dict[UUID, OrderIntent] = {}
         self.orders: dict[UUID, Order] = {}
         self.fills: dict[UUID, Fill] = {}
-        self.positions: dict[UUID, Position] = {}
+        self.positions: dict[tuple[UUID, str], Position] = {}
+        self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
@@ -42,9 +50,20 @@ class InMemoryExecutionStore:
         deployment = self.deployments.get(deployment_id)
         if deployment is None:
             raise ExecutionStoreError("Deployment was not found.")
+        positions = tuple(
+            position
+            for (stored_id, _product), position in self.positions.items()
+            if stored_id == deployment_id
+        )
+        runtimes = tuple(
+            runtime
+            for (stored_id, _product), runtime in self.instrument_runtimes.items()
+            if stored_id == deployment_id
+        )
+        focused = _focused_position(positions, deployment.product_id)
         return DeploymentSnapshot(
             deployment=deployment,
-            position=self.positions.get(deployment_id),
+            position=focused,
             orders=tuple(
                 order for order in self.orders.values() if order.deployment_id == deployment_id
             ),
@@ -54,6 +73,8 @@ class InMemoryExecutionStore:
             intents=tuple(
                 intent for intent in self.intents.values() if intent.deployment_id == deployment_id
             ),
+            positions=positions,
+            instrument_runtimes=runtimes,
         )
 
     async def list_deployments(self) -> tuple[Deployment, ...]:
@@ -111,12 +132,31 @@ class InMemoryExecutionStore:
         self.fills[fill.id] = fill
         return fill
 
-    async def save_position(self, position: Position | None, *, deployment_id: UUID) -> None:
-        """Replace or clear the single position for one deployment."""
-        if position is None:
-            self.positions.pop(deployment_id, None)
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
+        """Replace or clear one product book, or every book when the product is omitted."""
+        if position is None and product_id is None:
+            for key in [item for item in self.positions if item[0] == deployment_id]:
+                self.positions.pop(key, None)
             return
-        self.positions[deployment_id] = position
+        key_product = product_id or (position.product_id if position is not None else "")
+        key = _position_key(deployment_id, key_product)
+        if position is None:
+            self.positions.pop(key, None)
+            return
+        stamped = position if position.product_id else replace(position, product_id=key_product)
+        self.positions[_position_key(deployment_id, stamped.product_id)] = stamped
+
+    async def save_instrument_runtime(
+        self, runtime: InstrumentRuntime, *, deployment_id: UUID
+    ) -> None:
+        """Replace one product overlay row."""
+        self.instrument_runtimes[_position_key(deployment_id, runtime.product_id)] = runtime
 
     async def list_open_orders(self, deployment_id: UUID) -> tuple[Order, ...]:
         """Return open or unknown orders that the runtime must observe."""
@@ -137,3 +177,15 @@ class InMemoryExecutionStore:
             ),
             None,
         )
+
+
+def _focused_position(positions: tuple[Position, ...], primary_product_id: str) -> Position | None:
+    """Return the primary book, or the sole book, for legacy snapshot.position readers."""
+    if not positions:
+        return None
+    if len(positions) == 1:
+        return positions[0]
+    for position in positions:
+        if position.product_id in {"", primary_product_id}:
+            return position
+    return None

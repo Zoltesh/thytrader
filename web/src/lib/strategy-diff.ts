@@ -227,6 +227,13 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 	}
 	changed('cooldown_bars', String(before.cooldown_bars), String(after.cooldown_bars));
 	changed('side', before.side, after.side);
+	changed(
+		'additional_instruments',
+		JSON.stringify(before.additional_instruments),
+		JSON.stringify(after.additional_instruments)
+	);
+	changed('max_open_positions', String(before.max_open_positions), String(after.max_open_positions));
+	changed('pyramiding', JSON.stringify(before.pyramiding), JSON.stringify(after.pyramiding));
 	changed('sizing.risk_fraction', before.sizing.risk_fraction, after.sizing.risk_fraction);
 	changed(
 		'sizing.min_quote_notional',
@@ -242,6 +249,11 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 		'max_strategy_exposure_fraction',
 		before.portfolio_limits.max_strategy_exposure_fraction,
 		after.portfolio_limits.max_strategy_exposure_fraction
+	);
+	changed(
+		'max_concurrent_positions',
+		String(before.portfolio_limits.max_concurrent_positions),
+		String(after.portfolio_limits.max_concurrent_positions)
 	);
 	changed(
 		'exits.initial_stop.multiple',

@@ -111,6 +111,8 @@ class OpsContractPayload(_FrozenModel):
     order_rate_limits: tuple[Literal["entry", "cancel"], ...]
     reference_price_collars: tuple[Literal["paper", "live"], ...]
     trade_reason_journals: tuple[Literal["paper", "live"], ...]
+    multi_instrument_documents: tuple[Literal["research", "paper", "live"], ...]
+    intra_strategy_pyramiding: tuple[Literal["research", "paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -339,6 +341,7 @@ class RiskPayload(_FrozenModel):
     max_entry_orders_per_minute: int = Field(ge=1, le=1000)
     max_cancellations_per_minute: int = Field(ge=1, le=1000)
     reference_price_collar_fraction: str
+    allow_intra_strategy_pyramiding: bool
     findings: tuple[RiskFinding, ...]
 
 

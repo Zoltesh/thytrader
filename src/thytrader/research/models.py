@@ -205,6 +205,18 @@ class IndicatorTimeframeDataset(_FrozenModel):
     dataset_fingerprint: FingerprintText
 
 
+class AdditionalInstrumentDataset(_FrozenModel):
+    """One extra covered product bound to verified complete-only datasets."""
+
+    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    dataset_fingerprint: FingerprintText
+    htf_dataset_fingerprint: FingerprintText | None = None
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+
+
 class ResearchRunSpecification(_FrozenModel):
     """Immutable identity-bearing request for a future deterministic research simulation."""
 
@@ -215,6 +227,10 @@ class ResearchRunSpecification(_FrozenModel):
     dataset_fingerprint: FingerprintText
     htf_dataset_fingerprint: FingerprintText | None = None
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
     )
@@ -317,6 +333,40 @@ class ResearchRunSpecification(_FrozenModel):
         return self
 
     @model_validator(mode="after")
+    def require_ordered_additional_instrument_datasets(self) -> Self:
+        """Keep extra product bindings unique, lex-ordered, and distinct from the primary."""
+        if not self.additional_instrument_datasets:
+            return self
+        product_ids = [item.product_id for item in self.additional_instrument_datasets]
+        if len(product_ids) != len(set(product_ids)):
+            raise ValueError("additional_instrument_datasets product_id values must be unique")
+        ordered = tuple(
+            sorted(self.additional_instrument_datasets, key=lambda item: item.product_id)
+        )
+        if ordered != self.additional_instrument_datasets:
+            raise ValueError("additional_instrument_datasets must be ordered by product_id")
+        reserved = {self.dataset_fingerprint}
+        if self.htf_dataset_fingerprint is not None:
+            reserved.add(self.htf_dataset_fingerprint)
+        reserved.update(item.dataset_fingerprint for item in self.indicator_dataset_fingerprints)
+        extra_fingerprints: list[str] = []
+        for binding in self.additional_instrument_datasets:
+            extra_fingerprints.append(binding.dataset_fingerprint)
+            if binding.htf_dataset_fingerprint is not None:
+                extra_fingerprints.append(binding.htf_dataset_fingerprint)
+            extra_fingerprints.extend(
+                item.dataset_fingerprint for item in binding.indicator_dataset_fingerprints
+            )
+        if any(fingerprint in reserved for fingerprint in extra_fingerprints):
+            raise ValueError(
+                "additional_instrument_datasets must differ from dataset_fingerprint and "
+                "companion HTF/extra-TF identities"
+            )
+        if len(extra_fingerprints) != len(set(extra_fingerprints)):
+            raise ValueError("additional_instrument_datasets identities must be unique")
+        return self
+
+    @model_validator(mode="after")
     def require_broker_for_spread_and_maker_contracts(self) -> Self:
         """Bind broker and fill-timing literals to the engine contract that owns them."""
         if self.engine_contract_version == "thytrader-bar-backtest-v3":
@@ -402,6 +452,8 @@ def canonical_research_run_bytes(specification: ResearchRunSpecification) -> byt
     """Revalidate and serialize a run specification into deterministic canonical UTF-8 JSON."""
     validated = ResearchRunSpecification.model_validate(specification.model_dump(mode="python"))
     payload = validated.model_dump(mode="json", exclude_none=True)
+    if not payload.get("additional_instrument_datasets"):
+        payload.pop("additional_instrument_datasets", None)
     return json.dumps(
         payload,
         sort_keys=True,

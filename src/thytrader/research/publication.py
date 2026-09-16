@@ -12,13 +12,16 @@ from thytrader.strategies.models import (
     StrategyStatus,
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
+    lockstep_product_ids,
     unbound_indicator_timeframes,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from thytrader.market_data.datasets import DatasetManifest
-    from thytrader.research.models import ResearchRunSpecification
-    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.research.models import AdditionalInstrumentDataset, ResearchRunSpecification
+    from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -40,6 +43,9 @@ def verify_research_run_eligibility(
     manifest: DatasetManifest,
     htf_manifest: DatasetManifest | None = None,
     indicator_manifests: dict[str, DatasetManifest] | None = None,
+    additional_manifests: dict[str, DatasetManifest] | None = None,
+    additional_htf_manifests: dict[str, DatasetManifest] | None = None,
+    additional_indicator_manifests: dict[str, dict[str, DatasetManifest]] | None = None,
 ) -> None:
     """Fail closed unless exact verified artifacts cover the complete run contract."""
     definition = published_strategy.definition
@@ -80,6 +86,13 @@ def verify_research_run_eligibility(
         )
     _require_htf_dataset(specification, definition, htf_manifest)
     _require_indicator_timeframe_datasets(specification, definition, indicator_manifests or {})
+    _require_additional_instrument_datasets(
+        specification,
+        definition,
+        additional_manifests=additional_manifests or {},
+        additional_htf_manifests=additional_htf_manifests or {},
+        additional_indicator_manifests=additional_indicator_manifests or {},
+    )
 
 
 def _require_decision_dataset(
@@ -193,6 +206,185 @@ def _require_indicator_timeframe_datasets(
             raise ResearchRunPublicationError(
                 "Research run indicator-timeframe dataset does not provide the required "
                 "closed-bar coverage."
+            )
+
+
+def _require_additional_instrument_datasets(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    *,
+    additional_manifests: dict[str, DatasetManifest],
+    additional_htf_manifests: dict[str, DatasetManifest],
+    additional_indicator_manifests: dict[str, dict[str, DatasetManifest]],
+) -> None:
+    """Require extra product datasets iff the strategy covers more than the primary."""
+    extra_products = tuple(
+        product_id
+        for product_id in lockstep_product_ids(definition)
+        if product_id != definition.instrument.product_id
+    )
+    declared = tuple(item.product_id for item in specification.additional_instrument_datasets)
+    if declared != extra_products:
+        raise ResearchRunPublicationError(
+            "Research run additional_instrument_datasets must match extra covered products."
+        )
+    required_extra_clocks = unbound_indicator_timeframes(definition)
+    groups = dict(extra_indicator_timeframe_groups(definition))
+    for binding in specification.additional_instrument_datasets:
+        _require_additional_ltf_coverage(
+            specification,
+            definition,
+            binding,
+            additional_manifests=additional_manifests,
+        )
+        _require_additional_htf_coverage(
+            specification,
+            definition,
+            binding,
+            additional_htf_manifests=additional_htf_manifests,
+        )
+        _require_additional_extra_tf_coverage(
+            specification,
+            binding,
+            additional_indicator_manifests=additional_indicator_manifests,
+            required_extra_clocks=required_extra_clocks,
+            groups=groups,
+        )
+
+
+def _require_additional_ltf_coverage(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    binding: AdditionalInstrumentDataset,
+    *,
+    additional_manifests: dict[str, DatasetManifest],
+) -> None:
+    """Require a complete decision-clock dataset for one extra covered product."""
+    manifest = additional_manifests.get(binding.product_id)
+    if (
+        manifest is None
+        or binding.dataset_fingerprint != manifest.content_fingerprint
+        or not manifest.complete
+        or manifest.provider != "coinbase"
+        or manifest.product_id != binding.product_id
+        or manifest.timeframe != definition.timeframe
+    ):
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument dataset identity does not match the "
+            "verified strategy and request."
+        )
+    try:
+        dataset_starts_at = _parse_canonical_utc(manifest.starts_at)
+        dataset_ends_at = _parse_canonical_utc(manifest.ends_at)
+        required_fill_end = (
+            specification.evaluation.ends_at + parse_candle_interval(definition.timeframe).duration
+        )
+    except (OverflowError, ValueError) as error:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument dataset coverage timestamps are invalid."
+        ) from error
+    if dataset_starts_at > specification.warmup.starts_at or dataset_ends_at < required_fill_end:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument dataset does not provide required coverage."
+        )
+
+
+def _require_additional_htf_coverage(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    binding: AdditionalInstrumentDataset,
+    *,
+    additional_htf_manifests: dict[str, DatasetManifest],
+) -> None:
+    """Require HTF coverage for one extra product iff the strategy declares a filter."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        if binding.htf_dataset_fingerprint is not None:
+            raise ResearchRunPublicationError(
+                "Research run additional-instrument HTF dataset is not declared by the "
+                "published strategy."
+            )
+        return
+    htf_manifest = additional_htf_manifests.get(binding.product_id)
+    if binding.htf_dataset_fingerprint is None or htf_manifest is None:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument HTF dataset fingerprint is required."
+        )
+    if (
+        binding.htf_dataset_fingerprint != htf_manifest.content_fingerprint
+        or not htf_manifest.complete
+        or htf_manifest.provider != "coinbase"
+        or htf_manifest.product_id != binding.product_id
+        or htf_manifest.timeframe != htf_filter.timeframe
+    ):
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument HTF dataset identity does not match."
+        )
+    try:
+        htf_starts_at = _parse_canonical_utc(htf_manifest.starts_at)
+        htf_ends_at = _parse_canonical_utc(htf_manifest.ends_at)
+        required_start, required_end = htf_required_coverage(
+            evaluation_starts_at=specification.evaluation.starts_at,
+            evaluation_ends_at=specification.evaluation.ends_at,
+            htf_filter=htf_filter,
+        )
+    except ValueError as error:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument HTF coverage timestamps are invalid."
+        ) from error
+    if htf_starts_at > required_start or htf_ends_at < required_end:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument HTF dataset does not provide required "
+            "closed-bar coverage."
+        )
+
+
+def _require_additional_extra_tf_coverage(
+    specification: ResearchRunSpecification,
+    binding: AdditionalInstrumentDataset,
+    *,
+    additional_indicator_manifests: dict[str, dict[str, DatasetManifest]],
+    required_extra_clocks: tuple[str, ...],
+    groups: Mapping[str, tuple[IndicatorDefinition, ...]],
+) -> None:
+    """Require extra-TF datasets for one extra product iff the strategy declares those clocks."""
+    declared_clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
+    if declared_clocks != required_extra_clocks:
+        raise ResearchRunPublicationError(
+            "Research run additional-instrument extra-TF datasets do not match the "
+            "published strategy."
+        )
+    product_clocks = additional_indicator_manifests.get(binding.product_id, {})
+    for clock in binding.indicator_dataset_fingerprints:
+        clock_manifest = product_clocks.get(clock.timeframe)
+        if (
+            clock_manifest is None
+            or clock.dataset_fingerprint != clock_manifest.content_fingerprint
+            or not clock_manifest.complete
+            or clock_manifest.provider != "coinbase"
+            or clock_manifest.product_id != binding.product_id
+            or clock_manifest.timeframe != clock.timeframe
+        ):
+            raise ResearchRunPublicationError(
+                "Research run additional-instrument extra-TF dataset identity does not match."
+            )
+        try:
+            clock_start = _parse_canonical_utc(clock_manifest.starts_at)
+            clock_end = _parse_canonical_utc(clock_manifest.ends_at)
+            required_start, required_end = closed_bar_required_coverage(
+                evaluation_starts_at=specification.evaluation.starts_at,
+                evaluation_ends_at=specification.evaluation.ends_at,
+                timeframe=clock.timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
+            )
+        except ValueError as error:
+            raise ResearchRunPublicationError(
+                "Research run additional-instrument extra-TF coverage timestamps are invalid."
+            ) from error
+        if clock_start > required_start or clock_end < required_end:
+            raise ResearchRunPublicationError(
+                "Research run additional-instrument extra-TF dataset does not provide "
+                "required closed-bar coverage."
             )
 
 

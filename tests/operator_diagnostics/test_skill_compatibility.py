@@ -63,6 +63,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "1h or 5m" not in skill
     assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
     assert "daily_loss_limit_fraction" in schemas
+    assert "allow_intra_strategy_pyramiding" in schemas
+    assert "multi_instrument_documents" in schemas
+    assert "intra_strategy_pyramiding" in schemas
     assert "DAILY_LOSS_LIMIT" in schemas
     assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
     assert "risk_breakers" in schemas
@@ -96,6 +99,7 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "adx" in skill.lower()
     assert "stdev_sample" in skill
     assert "indicator_dataset_fingerprints" in skill
+    assert "additional_instrument_datasets" in skill
     assert "evaluation_start" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
@@ -171,6 +175,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "/api/v1/credentials/coinbase" in skill
     assert "YOLO never covers credentials" in skill
     assert "0053-workstation-ia-write-only-coinbase-credentials" in skill
+    assert "--allow-intra-strategy-pyramiding" in skill
+    assert "PYRAMIDING_NOT_ALLOWED" in skill
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:

@@ -29,6 +29,7 @@ def test_get_risk_policy_returns_compiled_default_without_postgres() -> None:
     assert body["daily_loss_limit_fraction"] == "1"
     assert body["max_entry_orders_per_minute"] == 60
     assert body["reference_price_collar_fraction"] == "0.5"
+    assert body["allow_intra_strategy_pyramiding"] is False
     assert body["max_concurrent_running_deployments"] == 8
 
 

@@ -220,6 +220,37 @@ class PostgresResearchRunStore:
                 indicator_manifests[binding.timeframe] = dataset_store.load_manifest(
                     binding.dataset_fingerprint
                 )
+            additional_manifests: dict[str, DatasetManifest] = {}
+            additional_htf_manifests: dict[str, DatasetManifest] = {}
+            additional_indicator_manifests: dict[str, dict[str, DatasetManifest]] = {}
+            for extra in specification.additional_instrument_datasets:
+                await self._strategy_store.load_binding(
+                    specification.strategy_fingerprint,
+                    extra.dataset_fingerprint,
+                    dataset_store=dataset_store,
+                )
+                additional_manifests[extra.product_id] = dataset_store.load_manifest(
+                    extra.dataset_fingerprint
+                )
+                if extra.htf_dataset_fingerprint is not None:
+                    await self._strategy_store.load_binding(
+                        specification.strategy_fingerprint,
+                        extra.htf_dataset_fingerprint,
+                        dataset_store=dataset_store,
+                    )
+                    additional_htf_manifests[extra.product_id] = dataset_store.load_manifest(
+                        extra.htf_dataset_fingerprint
+                    )
+                clocks: dict[str, DatasetManifest] = {}
+                for clock in extra.indicator_dataset_fingerprints:
+                    await self._strategy_store.load_binding(
+                        specification.strategy_fingerprint,
+                        clock.dataset_fingerprint,
+                        dataset_store=dataset_store,
+                    )
+                    clocks[clock.timeframe] = dataset_store.load_manifest(clock.dataset_fingerprint)
+                if clocks:
+                    additional_indicator_manifests[extra.product_id] = clocks
         except (DatasetStoreError, OSError, StrategyPublicationError, ValueError) as error:
             raise ResearchRunPublicationError(
                 "Research run artifact binding could not be verified."
@@ -230,6 +261,9 @@ class PostgresResearchRunStore:
             manifest,
             htf_manifest=htf_manifest,
             indicator_manifests=indicator_manifests,
+            additional_manifests=additional_manifests,
+            additional_htf_manifests=additional_htf_manifests,
+            additional_indicator_manifests=additional_indicator_manifests,
         )
 
 

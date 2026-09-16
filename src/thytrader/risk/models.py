@@ -68,6 +68,7 @@ class RiskReasonCode(StrEnum):
     REFERENCE_PRICE_COLLAR = "REFERENCE_PRICE_COLLAR"
     REFERENCE_PRICE_UNAVAILABLE = "REFERENCE_PRICE_UNAVAILABLE"
     BREAKER_MARK_MISSING = "BREAKER_MARK_MISSING"
+    PYRAMIDING_NOT_ALLOWED = "PYRAMIDING_NOT_ALLOWED"
 
 
 class _FrozenModel(BaseModel):
@@ -114,6 +115,9 @@ class RiskPolicyDefinition(_FrozenModel):
         default=DEFAULT_MAX_CANCELLATIONS_PER_MINUTE, ge=1, le=1000
     )
     reference_price_collar_fraction: DecimalText = DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION
+    allow_intra_strategy_pyramiding: bool = Field(
+        default=False, exclude_if=lambda value: value is False
+    )
 
     @field_validator("product_allowlist")
     @classmethod
@@ -187,6 +191,7 @@ class RiskPolicyWrite(_FrozenModel):
         default=DEFAULT_MAX_CANCELLATIONS_PER_MINUTE, ge=1, le=1000
     )
     reference_price_collar_fraction: DecimalText = DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION
+    allow_intra_strategy_pyramiding: bool = False
 
 
 class ActiveRiskPolicy(_FrozenModel):
@@ -229,6 +234,8 @@ def canonical_risk_policy_bytes(definition: RiskPolicyDefinition) -> bytes:
     """Serialize one policy into deterministic canonical UTF-8 JSON."""
     validated = RiskPolicyDefinition.model_validate(definition.model_dump(mode="python"))
     payload = validated.model_dump(mode="json")
+    if not payload.get("allow_intra_strategy_pyramiding"):
+        payload.pop("allow_intra_strategy_pyramiding", None)
     return json.dumps(
         payload,
         sort_keys=True,

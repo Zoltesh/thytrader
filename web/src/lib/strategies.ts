@@ -239,6 +239,17 @@ export type HtfFilterDraft = {
 	when: ConditionDraft;
 };
 
+export type CoveredInstrumentDraft = {
+	product_id: string;
+	base_currency: string;
+	quote_currency?: string;
+};
+
+export type PyramidingDraft = {
+	enabled: true;
+	require_unrealized_profit: true;
+};
+
 export type BuilderModel = {
 	strategy_id: string;
 	version: number;
@@ -249,6 +260,7 @@ export type BuilderModel = {
 	created_at: string;
 	product_id: string;
 	base_currency: string;
+	additional_instruments: CoveredInstrumentDraft[];
 	timeframe: string;
 	warmup_bars: number;
 	indicators: IndicatorDraft[];
@@ -256,7 +268,7 @@ export type BuilderModel = {
 	entry: { when: ConditionDraft };
 	side: 'long' | 'short';
 	sizing: { risk_fraction: string; min_quote_notional: string; max_quote_notional: string };
-	portfolio_limits: { max_strategy_exposure_fraction: string };
+	portfolio_limits: { max_strategy_exposure_fraction: string; max_concurrent_positions: number };
 	exits: {
 		initial_stop: { kind: string; atr_indicator: string; multiple: string };
 		take_profit: { kind: string; multiple: string };
@@ -271,6 +283,8 @@ export type BuilderModel = {
 		on_unfilled_entry: string;
 	};
 	cooldown_bars: number;
+	max_open_positions: number;
+	pyramiding: PyramidingDraft | null;
 	metadata: { tags: string[]; notes: string[] };
 };
 
@@ -818,7 +832,10 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		when: ConditionDraft;
 		cooldown_bars: number;
 		side?: 'long' | 'short';
+		max_open_positions?: number;
+		pyramiding?: PyramidingDraft | null;
 	};
+	const extras = (strategy.additional_instruments as CoveredInstrumentDraft[] | undefined) ?? [];
 	const exits = strategy.exits as BuilderModel['exits'];
 	return {
 		strategy_id: strategy.strategy_id,
@@ -830,6 +847,11 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		created_at: strategy.created_at,
 		product_id: (strategy.instrument as { product_id: string }).product_id,
 		base_currency: (strategy.instrument as { base_currency: string }).base_currency,
+		additional_instruments: extras.map((item) => ({
+			product_id: item.product_id,
+			base_currency: item.base_currency,
+			quote_currency: item.quote_currency ?? 'USD'
+		})),
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
 		indicators: ((strategy.indicators as IndicatorDraft[]) ?? []).map((indicator) => ({
@@ -845,11 +867,14 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 			max_quote_notional: strategy.sizing.max_quote_notional
 		},
 		portfolio_limits: {
-			max_strategy_exposure_fraction: strategy.portfolio_limits.max_strategy_exposure_fraction
+			max_strategy_exposure_fraction: strategy.portfolio_limits.max_strategy_exposure_fraction,
+			max_concurrent_positions: strategy.portfolio_limits.max_concurrent_positions ?? 1
 		},
 		exits,
 		execution: strategy.execution as BuilderModel['execution'],
 		cooldown_bars: entry.cooldown_bars,
+		max_open_positions: entry.max_open_positions ?? 1,
+		pyramiding: entry.pyramiding ?? null,
 		metadata: strategy.metadata as BuilderModel['metadata']
 	};
 }
@@ -868,6 +893,15 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			base_currency: model.base_currency,
 			quote_currency: 'USD'
 		},
+		...(model.additional_instruments.length === 0
+			? {}
+			: {
+					additional_instruments: model.additional_instruments.map((item) => ({
+						product_id: item.product_id,
+						base_currency: item.base_currency,
+						quote_currency: item.quote_currency ?? 'USD'
+					}))
+				}),
 		timeframe: model.timeframe,
 		data_requirements: {
 			warmup_bars: model.warmup_bars,
@@ -893,10 +927,14 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			side: model.side,
 			when: model.entry.when,
 			cooldown_bars: model.cooldown_bars,
-			max_open_positions: 1
+			max_open_positions: model.max_open_positions,
+			...(model.pyramiding === null ? {} : { pyramiding: model.pyramiding })
 		},
 		sizing: { kind: 'risk_fraction', ...model.sizing },
-		portfolio_limits: { ...model.portfolio_limits, max_concurrent_positions: 1 },
+		portfolio_limits: {
+			max_strategy_exposure_fraction: model.portfolio_limits.max_strategy_exposure_fraction,
+			max_concurrent_positions: model.portfolio_limits.max_concurrent_positions
+		},
 		exits: model.exits,
 		execution: model.execution,
 		metadata: model.metadata

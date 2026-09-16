@@ -66,6 +66,7 @@ async def submit_intent(
         status=OrderStatus.PENDING,
         origin=origin,
         idempotency_key=idempotency_key,
+        product_id=product_id,
     )
     await store.save_intent(intent)
     await _record_why(store, intent=intent, deployment_id=deployment_id)
@@ -83,6 +84,7 @@ async def submit_intent(
         status=OrderStatus.PENDING,
         created_at=now,
         updated_at=now,
+        product_id=product_id,
     )
     await store.save_order(order)
     try:

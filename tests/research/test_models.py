@@ -11,6 +11,7 @@ from pydantic import ValidationError
 import pytest
 
 from thytrader.research.models import (
+    AdditionalInstrumentDataset,
     BarExecutionAssumptions,
     BrokerAssumptions,
     CapitalAssumptions,
@@ -524,3 +525,45 @@ def test_run_identity_helpers_revalidate_copied_models() -> None:
         canonical_research_run_bytes(forged)
     with pytest.raises(ValidationError):
         research_run_fingerprint(forged)
+
+
+def test_omitted_additional_instrument_datasets_preserve_reference_identity() -> None:
+    """Empty extra-product bindings must not appear in existing run fingerprints."""
+    run = _reference_run()
+    assert run.additional_instrument_datasets == ()
+    canonical = canonical_research_run_bytes(run)
+    assert b"additional_instrument_datasets" not in canonical
+    expected = Path("tests/research/golden/reference_run_spec_v1.json").read_bytes().rstrip(b"\n")
+    assert canonical == expected
+
+
+def test_additional_instrument_datasets_must_be_lexicographic_and_unique() -> None:
+    """Extra product bindings are identity-bearing and ordered by product_id."""
+    payload = _reference_run().model_dump(mode="python")
+    eth = AdditionalInstrumentDataset(
+        product_id="ETH-USD",
+        dataset_fingerprint="sha256:" + "3" * 64,
+    )
+    payload["additional_instrument_datasets"] = (eth,)
+    spec = ResearchRunSpecification.model_validate(payload)
+    canonical = canonical_research_run_bytes(spec)
+    assert b"additional_instrument_datasets" in canonical
+    assert canonical != canonical_research_run_bytes(_reference_run())
+    payload["additional_instrument_datasets"] = (
+        AdditionalInstrumentDataset(
+            product_id="SOL-USD",
+            dataset_fingerprint="sha256:" + "4" * 64,
+        ),
+        eth,
+    )
+    with pytest.raises(ValidationError, match="ordered by product_id"):
+        ResearchRunSpecification.model_validate(payload)
+    payload["additional_instrument_datasets"] = (
+        eth,
+        AdditionalInstrumentDataset(
+            product_id="ETH-USD",
+            dataset_fingerprint="sha256:" + "5" * 64,
+        ),
+    )
+    with pytest.raises(ValidationError, match="unique"):
+        ResearchRunSpecification.model_validate(payload)

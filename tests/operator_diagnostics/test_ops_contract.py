@@ -7,7 +7,9 @@ from thytrader.ops_contract import (
     EXPERIENTIAL_MODEL_ENGINES,
     HTF_FILTER_RUNTIMES,
     INDICATOR_TIMEFRAME_RUNTIMES,
+    INTRA_STRATEGY_PYRAMIDING,
     LIVE_TIMEFRAMES,
+    MULTI_INSTRUMENT_DOCUMENTS,
     OPS_CONTRACT_ID,
     PAPER_DEPLOY_FEE_FIELDS,
     PAPER_TIMEFRAMES,
@@ -28,9 +30,9 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v20"
+    assert expected["id"] == "thytrader-ops-contract-v21"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0032"
+    assert expected["expected_schema_revision"] == "0033"
     assert expected["paper_deploy_fee_fields"] == list(PAPER_DEPLOY_FEE_FIELDS)
     assert expected["paper_deploy_fee_fields"] == ["maker_fee_rate", "taker_fee_rate"]
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT
@@ -65,3 +67,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["reference_price_collars"] == ["paper", "live"]
     assert expected["trade_reason_journals"] == list(TRADE_REASON_JOURNALS)
     assert expected["trade_reason_journals"] == ["paper", "live"]
+    assert expected["multi_instrument_documents"] == list(MULTI_INSTRUMENT_DOCUMENTS)
+    assert expected["multi_instrument_documents"] == ["research", "paper", "live"]
+    assert expected["intra_strategy_pyramiding"] == list(INTRA_STRATEGY_PYRAMIDING)
+    assert expected["intra_strategy_pyramiding"] == ["research", "paper", "live"]

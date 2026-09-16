@@ -21,6 +21,7 @@ from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
+from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyPublicationError,
@@ -172,6 +173,7 @@ async def _require_risk_admission(
         active.definition,
         mode=mode,
         product_id=definition.instrument.product_id,
+        product_ids=covered_product_ids(definition),
         strategy_id=definition.strategy_id,
         paper_starting_cash=paper_starting_cash,
         deployments=deployments,

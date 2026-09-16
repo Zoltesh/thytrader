@@ -49,6 +49,7 @@ class RiskPolicyWriteBody(BaseModel):
     max_entry_orders_per_minute: int = Field(default=60, ge=1, le=1000)
     max_cancellations_per_minute: int = Field(default=60, ge=1, le=1000)
     reference_price_collar_fraction: str = "0.5"
+    allow_intra_strategy_pyramiding: bool = False
 
 
 class RiskPolicyResponse(BaseModel):
@@ -72,6 +73,7 @@ class RiskPolicyResponse(BaseModel):
     max_entry_orders_per_minute: int
     max_cancellations_per_minute: int
     reference_price_collar_fraction: str
+    allow_intra_strategy_pyramiding: bool
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -132,6 +134,7 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         max_entry_orders_per_minute=body.max_entry_orders_per_minute,
         max_cancellations_per_minute=body.max_cancellations_per_minute,
         reference_price_collar_fraction=body.reference_price_collar_fraction,
+        allow_intra_strategy_pyramiding=body.allow_intra_strategy_pyramiding,
     )
 
 
@@ -160,4 +163,5 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         max_entry_orders_per_minute=definition.max_entry_orders_per_minute,
         max_cancellations_per_minute=definition.max_cancellations_per_minute,
         reference_price_collar_fraction=definition.reference_price_collar_fraction,
+        allow_intra_strategy_pyramiding=definition.allow_intra_strategy_pyramiding,
     )

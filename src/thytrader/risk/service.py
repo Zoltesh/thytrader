@@ -24,5 +24,6 @@ async def publish_risk_policy(store: RiskPolicyStore, write: RiskPolicyWrite) ->
         max_entry_orders_per_minute=write.max_entry_orders_per_minute,
         max_cancellations_per_minute=write.max_cancellations_per_minute,
         reference_price_collar_fraction=write.reference_price_collar_fraction,
+        allow_intra_strategy_pyramiding=write.allow_intra_strategy_pyramiding,
     )
     return await store.publish(definition)

@@ -13,7 +13,8 @@ experiential-memory persistence, experiential-model engines, discretionary-order
 identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
 spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
 breakers / order-rate limits / reference-price collars, the persisted
-research-study catalog, or trade-reason journals change.
+research-study catalog, trade-reason journals, multi-instrument documents, or
+intra-strategy pyramiding change.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v20"
-EXPECTED_SCHEMA_REVISION = "0032"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v21"
+EXPECTED_SCHEMA_REVISION = "0033"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -44,6 +45,8 @@ RISK_BREAKERS: tuple[str, ...] = ("daily_loss", "drawdown")
 ORDER_RATE_LIMITS: tuple[str, ...] = ("entry", "cancel")
 REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
 TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
+MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
+INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -65,6 +68,8 @@ def expected_ops_contract() -> dict[str, object]:
         "order_rate_limits": list(ORDER_RATE_LIMITS),
         "reference_price_collars": list(REFERENCE_PRICE_COLLARS),
         "trade_reason_journals": list(TRADE_REASON_JOURNALS),
+        "multi_instrument_documents": list(MULTI_INSTRUMENT_DOCUMENTS),
+        "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

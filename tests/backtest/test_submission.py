@@ -306,6 +306,8 @@ class _LoadedStrategyStore:
             timeframe = "1h"
             htf_filter = None
             indicators = ()
+            additional_instruments = ()
+            instrument = type("Instrument", (), {"product_id": "BTC-USD"})()
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:
