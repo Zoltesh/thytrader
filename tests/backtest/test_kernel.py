@@ -390,7 +390,8 @@ def test_v4_applies_taker_slippage_on_stop_exits() -> None:
 
     assert no_slippage.trades[0].exit.reason == "stop_loss"
     assert with_slippage.trades[0].exit.reason == "stop_loss"
-    assert Decimal(with_slippage.trades[0].exit.price) < Decimal(no_slippage.trades[0].exit.price)
+    assert Decimal(with_slippage.trades[0].exit.price) == Decimal("7.92")
+    assert Decimal(no_slippage.trades[0].exit.price) == Decimal("8")
     assert no_slippage.trades[0].entry.price == with_slippage.trades[0].entry.price
 
 
@@ -403,8 +404,8 @@ def test_v4_liquidates_open_positions_at_terminal_open_without_intrabar_processi
         ("11", "12", "10", "11"),
         ("14", "15", "12", "14"),
         ("14", "15", "13.5", "14"),
-        ("14", "40", "13", "20"),
-        ("20", "21", "19", "20"),
+        ("14", "15", "13.5", "14"),
+        ("20", "40", "19", "25"),
     )
     candles = tuple(
         Candle(
@@ -422,7 +423,8 @@ def test_v4_liquidates_open_positions_at_terminal_open_without_intrabar_processi
             "evaluation": EvaluationWindow(
                 starts_at=datetime(2026, 8, 1, 2, tzinfo=UTC),
                 ends_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
-            )
+            ),
+            "costs": _v4_run(strategy).costs.model_copy(update={"fixed_slippage_bps": "0"}),
         }
     )
     result = simulate_backtest(run, strategy, candles)

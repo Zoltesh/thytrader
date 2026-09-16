@@ -133,14 +133,18 @@ class MakerLimitFillModel:
     """V3 post-only broker: rest at the reference price and fill without modeled slippage."""
 
     def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Fill a resting long entry at the posted limit, ignoring taker slippage."""
-        del slippage_bps
-        return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+        """Fill a resting maker entry at the limit, or apply taker slippage when disclosed."""
+        if slippage_bps == 0:
+            return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+        price = reference_price * (Decimal("1") + slippage_bps / Decimal("10000"))
+        return FillQuote(reference_price, price, "mark", Decimal("0"))
 
     def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Fill a resting or marketable long exit at the posted reference price."""
-        del slippage_bps
-        return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+        """Fill a resting maker exit at the limit, or apply taker slippage when disclosed."""
+        if slippage_bps == 0:
+            return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
+        price = reference_price * (Decimal("1") - slippage_bps / Decimal("10000"))
+        return FillQuote(reference_price, price, "mark", Decimal("0"))
 
     def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
         """Evaluate long exits against the same OHLC extreme the worker uses."""
