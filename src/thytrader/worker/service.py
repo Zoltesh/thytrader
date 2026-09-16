@@ -54,7 +54,6 @@ async def run_worker(
     runtime.ready = True
     if on_started is not None:
         on_started()
-    interval = runtime.settings.snapshot_interval_seconds
 
     await _record_audit_event(
         audit_store,
@@ -71,6 +70,7 @@ async def run_worker(
 
     try:
         while not stop_requested.is_set():
+            interval = runtime.settings.snapshot_interval_seconds
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop_requested.wait(), timeout=interval)
             if stop_requested.is_set():

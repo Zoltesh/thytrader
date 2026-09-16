@@ -157,6 +157,9 @@ class ConfigurationPayload(_FrozenModel):
     yolo_tiers: tuple[str, ...] = ()
     notify_provider: str = "none"
     notify_webhook_configured: bool = False
+    settings_file: str = "thytrader.yaml"
+    yaml_loaded: bool = False
+    yaml_source_of_truth: Literal[True] = True
 
 
 class ConfigurationReport(OperatorEnvelope):

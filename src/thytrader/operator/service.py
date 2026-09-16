@@ -104,8 +104,24 @@ from thytrader.research.catalog import (
     StudyCatalogUnavailableError,
 )
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
+from thytrader.settings_yaml import default_settings_path
 from thytrader.strategies.models import IndicatorKind
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
+
+
+def _yaml_settings_file(runtime: RuntimeState | None) -> str:
+    """Return the YAML settings path advertised on configuration reports."""
+    if runtime is not None and runtime.settings_store is not None:
+        return str(runtime.settings_store.path)
+    return str(default_settings_path())
+
+
+def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
+    """True when this process attached a YAML file that currently exists."""
+    if runtime is None or runtime.settings_store is None:
+        return False
+    return runtime.settings_store.yaml_loaded
+
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -217,6 +233,8 @@ class OperatorDiagnostics:
                 yolo_tiers=tuple(tier.value for tier in self.settings.yolo_tiers),
                 notify_provider=self.settings.notify_provider.value,
                 notify_webhook_configured=self.settings.notify_webhook_url is not None,
+                settings_file=_yaml_settings_file(self.runtime),
+                yaml_loaded=_yaml_settings_loaded(self.runtime),
             ),
         )
 

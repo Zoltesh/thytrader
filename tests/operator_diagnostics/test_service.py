@@ -92,6 +92,9 @@ def test_configuration_omits_raw_environment_and_credentials() -> None:
     assert dumped["payload"]["yolo_tiers"] == []
     assert dumped["payload"]["notify_provider"] == "none"
     assert dumped["payload"]["notify_webhook_configured"] is False
+    assert dumped["payload"]["yaml_source_of_truth"] is True
+    assert dumped["payload"]["yaml_loaded"] is False
+    assert dumped["payload"]["settings_file"]
 
 
 def test_exchange_reports_demo_permissions_without_balances() -> None:

@@ -81,6 +81,9 @@ contracts below:
   In-app operator chat is `/api/v1/operator-chat` plus `/chat`
   ([ADR 0051](../decisions/0051-in-app-operator-chat.md)); it uses those same skill routes and is
   not Coinbase credential storage.
+- `GET` / `PUT /api/v1/settings` is YAML non-secret settings including YOLO
+  ([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Secrets stay out.
+  Bind address and dataset root remain env-at-boot.
 
 Drafts are mutable PostgreSQL records guarded
 by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A

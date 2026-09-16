@@ -6,6 +6,7 @@ from thytrader.agent_http import request_json
 
 _DEPLOYMENTS_PREFIX = "/api/v1/deployments"
 _RISK_POLICY_PREFIX = "/api/v1/risk-policy"
+_SETTINGS_PREFIX = "/api/v1/settings"
 
 
 class RuntimeControlError(RuntimeError):
@@ -116,3 +117,13 @@ def show_risk_policy(base_url: str) -> object:
 def set_risk_policy(base_url: str, payload: dict[str, object]) -> object:
     """Publish one new immutable risk-policy version."""
     return request_json(method="PUT", url=f"{base_url}{_RISK_POLICY_PREFIX}", payload=payload)
+
+
+def show_yaml_settings(base_url: str) -> object:
+    """Return YAML non-secret settings and redacted process identity."""
+    return request_json(method="GET", url=f"{base_url}{_SETTINGS_PREFIX}")
+
+
+def set_yaml_settings(base_url: str, payload: dict[str, object]) -> object:
+    """Persist YAML non-secrets. YOLO and intervals apply without restart."""
+    return request_json(method="PUT", url=f"{base_url}{_SETTINGS_PREFIX}", payload=payload)

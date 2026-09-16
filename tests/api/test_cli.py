@@ -35,6 +35,8 @@ def test_api_process_serves_liveness_until_sigterm() -> None:
             "THYTRADER_COINBASE_API_PRIVATE_KEY": "",
             "THYTRADER_DATABASE_URL": "",
             "THYTRADER_ENVIRONMENT": "test",
+            "THYTRADER_YOLO_ENABLED": "false",
+            "THYTRADER_YOLO_TIERS": "",
         }
     )
     process = subprocess.Popen(

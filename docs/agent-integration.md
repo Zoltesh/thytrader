@@ -134,16 +134,19 @@ arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform 
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.
-See [ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md) and
-[ADR 0043](decisions/0043-yolo-live-skip-confirm.md).
+See [ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md),
+[ADR 0043](decisions/0043-yolo-live-skip-confirm.md), and
+[ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md).
 
 Shipped constraints:
 
-- Opt-in configuration (`THYTRADER_YOLO_ENABLED` plus `THYTRADER_YOLO_TIERS`); never the silent
+- Opt-in configuration (`thytrader.yaml` `yolo.enabled` plus `yolo.tiers`; leftover
+  `THYTRADER_YOLO_ENABLED` / `THYTRADER_YOLO_TIERS=paper` still parse). YAML wins leftover env
+  ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Never the silent
   default for observation skills.
 - Scope tiers: `data`, `research`, `paper`, and `live` are independently eligible. Live YOLO
   skips `--confirm` only on live start/pause/resume/stop and never skips `--i-understand-live`.
-  Live `place-order`, `set-risk-policy`, `--local` research, and memory stay confirmation-hard-gated.
+  Live `place-order`, `set-risk-policy`, `set-settings`, `--local` research, and memory stay confirmation-hard-gated.
   Paper YOLO never covers live.
 - Audit every skipped confirmation (`confirm_skipped`) or fail closed.
 - Do not collapse operator / data / research / runtime authority into one unrestricted skill.

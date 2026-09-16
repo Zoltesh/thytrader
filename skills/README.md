@@ -12,8 +12,10 @@ operate is in [`docs/user/operate.md`](../docs/user/operate.md).
 Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
 runtime mutations require `--confirm` unless YOLO covers that tier (live also `--i-understand-live`).
 YOLO is an operator-enabled opt-in (default off) that may skip `--confirm` on `data` / `research` /
-`paper` / `live` after an audit. Live YOLO never skips `--i-understand-live`. Live place-order,
-`set-risk-policy`, `--local` research, and memory stay confirmation-hard-gated. The playbook
+`paper` / `live` after an audit. YOLO on/off and tiers live in `thytrader.yaml` and apply without
+restart ([ADR 0055](../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Leftover
+`THYTRADER_YOLO_TIERS=paper` is valid. Live YOLO never skips `--i-understand-live`. Live place-order,
+`set-risk-policy`, `--local` research, `set-settings`, and memory stay confirmation-hard-gated. The playbook
 sequences existing CLIs and never starts live. Memory mutations always require `--confirm`; YOLO
 never covers that lane.
 

@@ -427,6 +427,20 @@ Alembic `0032`.
 `uv run thytrader-memory list-trade-reasons` and `uv run thytrader-operator trade-reasons`; a later
 `--confirm` note appends without rewriting fills.
 
+## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
+
+Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`
+([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). YAML wins leftover env
+and applies without restarting API or workers. `THYTRADER_YOLO_TIERS=paper` is a valid leftover
+(not JSON). Secrets stay in ignored `.env`. Loopback `/settings` exposes the YOLO toggle, tier
+enum, and moved knobs. Live still needs `--i-understand-live`. Playbook never starts live. Extra
+exchanges stay out. No ops-contract bump (remain v20 / Alembic `0032` from ADR 0054). Workstation
+IA and Coinbase secrets UI remain sibling destination / ADR 0053.
+
+**Exit gate met:** leftover env `THYTRADER_YOLO_TIERS=paper` boots; YAML `yolo.tiers: paper` after
+start allows paper skip-confirm; live skip stays 403 without a `live` tier; Settings page saves
+without a process restart.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -443,7 +457,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)) | Further composed research remaining destination |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
-| Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043). In-app operator chat is a separate destination row |
+| Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); YAML YOLO applies without restart ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043 / 0055). In-app operator chat is a separate destination row |
 | Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with published strategy identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
 | Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Loopback `/chat` and `/api/v1/operator-chat`; user-pasted LLM key in the API process; closed catalog of gated skill-lane HTTP tools ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Coinbase keys stay off this surface | Not a substitute for `ops/` skills. Coinbase secrets UI remains a separate destination. Extra exchanges stay waiting |

@@ -4,6 +4,7 @@ import {
 	DEFAULT_CONTEXT_LABEL,
 	OPERATOR_CHAT_CONTEXT_LABEL,
 	RESEARCH_CONTEXT_LABEL,
+	SETTINGS_CONTEXT_LABEL,
 	WORKSTATION_NAV,
 	isWorkstationNavActive
 } from './workstation-chrome';
@@ -17,7 +18,8 @@ describe('workstation chrome', () => {
 			'Backtests',
 			'Audit',
 			'Memory',
-			'Chat'
+			'Chat',
+			'Settings'
 		]);
 	});
 
@@ -25,6 +27,7 @@ describe('workstation chrome', () => {
 		expect(DEFAULT_CONTEXT_LABEL).toBe('Local workstation');
 		expect(RESEARCH_CONTEXT_LABEL).toBe('Research only');
 		expect(OPERATOR_CHAT_CONTEXT_LABEL).toBe('Operator chat');
+		expect(SETTINGS_CONTEXT_LABEL).toBe('Loopback settings');
 	});
 
 	it('marks Portfolio only on the dashboard route', () => {
@@ -57,5 +60,7 @@ describe('workstation chrome', () => {
 		expect(isWorkstationNavActive('/memory', '/audit')).toBe(false);
 		expect(isWorkstationNavActive('/chat', '/chat')).toBe(true);
 		expect(isWorkstationNavActive('/chat', '/memory')).toBe(false);
+		expect(isWorkstationNavActive('/settings', '/settings')).toBe(true);
+		expect(isWorkstationNavActive('/settings', '/chat')).toBe(false);
 	});
 });

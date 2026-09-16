@@ -1,0 +1,16 @@
+# ThyTrader non-secret settings. Secrets stay in ignored .env.
+# Coinbase keys, database URLs, webhook URLs, and LLM keys must not appear here.
+# YOLO, log level, intervals, notify provider, and the market-data default product
+# apply without restarting API or workers. Bind address, port, environment, and
+# dataset root stay env-at-boot and still need a restart.
+
+yolo:
+  enabled: false
+  tiers: []
+log_level: INFO
+snapshot_interval_seconds: 300
+market_data_worker_interval_seconds: 300
+market_data_worker_lookback_hours: 168
+market_data_worker_product_id: BTC-USD
+execution_worker_interval_seconds: 30
+notify_provider: none

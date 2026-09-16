@@ -22,6 +22,7 @@ from thytrader.operator.session import operator_diagnostics
 from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
 from thytrader.operator_chat.http import fetch_chat_status
 from thytrader.ops_contract import EXPECTED_SCHEMA_REVISION, STALE_IMAGE_REBUILD
+from thytrader.settings_yaml import SettingsStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -266,7 +267,7 @@ def _render(report: OperatorEnvelope, *, fmt: str, secrets: tuple[str, ...]) -> 
 
 async def _run_local(arguments: argparse.Namespace) -> int:
     """Load diagnostics from process stores and emit one report."""
-    settings = Settings()
+    settings = SettingsStore.open().current()
     secrets = configured_secrets(settings)
     async with operator_diagnostics(settings) as diagnostics:
         report = await _dispatch(diagnostics, arguments)

@@ -23,8 +23,10 @@ from thytrader.runtime_control.client import (
     place_discretionary_order,
     set_deployment_status,
     set_risk_policy,
+    set_yaml_settings,
     show_deployment,
     show_risk_policy,
+    show_yaml_settings,
     start_deployment,
 )
 
@@ -62,11 +64,12 @@ def _parser() -> argparse.ArgumentParser:
         prog="thytrader-runtime",
         description=(
             "Start, pause, resume, or stop paper and live deployments, place "
-            "discretionary orders, and publish the risk-policy registry, through "
-            "the loopback HTTP API. Mutations require --confirm unless YOLO "
-            "covers that tier. Live start and live place-order also require "
-            "--i-understand-live. Live place-order and set-risk-policy never "
-            "skip --confirm. This is not the operator or research CLI."
+            "discretionary orders, publish the risk-policy registry, and update "
+            "YAML non-secret settings (including YOLO), through the loopback HTTP "
+            "API. Mutations require --confirm unless YOLO covers that tier. Live "
+            "start and live place-order also require --i-understand-live. Live "
+            "place-order, set-risk-policy, and set-settings never skip --confirm. "
+            "This is not the operator or research CLI."
         ),
         parents=[shared],
     )
@@ -215,12 +218,54 @@ def _parser() -> argparse.ArgumentParser:
         help=_ALLOCATION_HELP,
     )
     set_policy.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    subparsers.add_parser(
+        "show-settings",
+        parents=[trailing],
+        help="Show YAML non-secret settings and YOLO without echoing secrets.",
+    )
+    set_settings = subparsers.add_parser(
+        "set-settings",
+        parents=[trailing],
+        help="Write YAML non-secret settings. YOLO applies without restart.",
+    )
+    set_settings.add_argument(
+        "--yolo-enabled",
+        choices=("true", "false"),
+        default=None,
+        help="YOLO on/off. Independent of leftover THYTRADER_YOLO_ENABLED env.",
+    )
+    set_settings.add_argument(
+        "--yolo-tiers",
+        default=None,
+        help=(
+            "Independent YOLO tiers: data, research, paper, and/or live. "
+            "Scalar paper is valid. Live still needs --i-understand-live. "
+            "Empty string clears tiers (requires --yolo-enabled false)."
+        ),
+    )
+    set_settings.add_argument(
+        "--log-level",
+        choices=("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"),
+        default=None,
+    )
+    set_settings.add_argument("--snapshot-interval-seconds", type=int, default=None)
+    set_settings.add_argument("--market-data-worker-interval-seconds", type=int, default=None)
+    set_settings.add_argument("--market-data-worker-lookback-hours", type=int, default=None)
+    set_settings.add_argument("--market-data-worker-product-id", default=None)
+    set_settings.add_argument("--execution-worker-interval-seconds", type=int, default=None)
+    set_settings.add_argument(
+        "--notify-provider",
+        choices=("none", "log", "webhook"),
+        default=None,
+        help="Webhook URL stays in ignored .env and still needs a restart.",
+    )
+    set_settings.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
 _RUNTIME_CONFIRM_MESSAGE = (
-    "Pass --confirm to change paper or live runtimes or the risk-policy "
-    "registry. Live start also requires --i-understand-live."
+    "Pass --confirm to change paper or live runtimes, the risk-policy "
+    "registry, or YAML settings. Live start also requires --i-understand-live."
 )
 
 
@@ -378,7 +423,83 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         )
         require_matching_ops_contract(base_url)
         return set_risk_policy(base_url, _risk_policy_payload(arguments))
+    if command in {"show-settings", "set-settings"}:
+        return _settings_command(arguments, base_url)
     raise AssertionError(f"unsupported runtime command: {command}")
+
+
+def _settings_command(arguments: argparse.Namespace, base_url: str) -> object:
+    """Read or replace YAML non-secrets. Writes never inherit YOLO skip-confirm."""
+    require_matching_ops_contract(base_url)
+    if arguments.command == "show-settings":
+        return show_yaml_settings(base_url)
+    _require_confirm(
+        arguments.confirm,
+        base_url=base_url,
+        command="set-settings",
+        hard_gate=True,
+    )
+    current = show_yaml_settings(base_url)
+    if not isinstance(current, dict):
+        raise RuntimeControlError("Settings response omitted YAML fields.")
+    return set_yaml_settings(base_url, _settings_write_payload(arguments, current))
+
+
+def _settings_write_payload(
+    arguments: argparse.Namespace,
+    current: dict[str, object],
+) -> dict[str, object]:
+    """Overlay CLI flags onto the current YAML settings document."""
+    tiers: object = current.get("yolo_tiers", ())
+    if arguments.yolo_tiers is not None:
+        tiers = [
+            str(part).strip().lower()
+            for part in arguments.yolo_tiers.split(",")
+            if str(part).strip()
+        ]
+    enabled = current.get("yolo_enabled", False)
+    if arguments.yolo_enabled is not None:
+        enabled = arguments.yolo_enabled == "true"
+    return {
+        "yolo_enabled": enabled,
+        "yolo_tiers": tiers,
+        "log_level": arguments.log_level or current.get("log_level", "INFO"),
+        "snapshot_interval_seconds": _int_or_current(
+            arguments.snapshot_interval_seconds,
+            current.get("snapshot_interval_seconds"),
+            300,
+        ),
+        "market_data_worker_interval_seconds": _int_or_current(
+            arguments.market_data_worker_interval_seconds,
+            current.get("market_data_worker_interval_seconds"),
+            300,
+        ),
+        "market_data_worker_lookback_hours": _int_or_current(
+            arguments.market_data_worker_lookback_hours,
+            current.get("market_data_worker_lookback_hours"),
+            168,
+        ),
+        "market_data_worker_product_id": (
+            arguments.market_data_worker_product_id
+            or current.get("market_data_worker_product_id")
+            or "BTC-USD"
+        ),
+        "execution_worker_interval_seconds": _int_or_current(
+            arguments.execution_worker_interval_seconds,
+            current.get("execution_worker_interval_seconds"),
+            30,
+        ),
+        "notify_provider": arguments.notify_provider or current.get("notify_provider") or "none",
+    }
+
+
+def _int_or_current(override: int | None, current: object, default: int) -> int:
+    """Prefer a CLI int, then the current payload, then a compiled default."""
+    if override is not None:
+        return override
+    if isinstance(current, int):
+        return current
+    return default
 
 
 def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:

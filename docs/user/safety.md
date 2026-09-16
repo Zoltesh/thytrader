@@ -27,7 +27,9 @@ theme.
 - Read-only observation (`thytrader-operator`) never places, edits, or cancels orders and never arms
   live trading.
 - Mutations use separate tools and require `--confirm` unless you explicitly enable YOLO on an
-  allowed tier. YOLO is **off** by default.
+  allowed tier. YOLO is **off** by default. Toggle it from `/settings` or `thytrader.yaml`
+  ([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); leftover
+  `THYTRADER_YOLO_TIERS=paper` is valid.
 - Live start (and live on-demand place-order) also require `--i-understand-live`. YOLO never skips
   that flag. Live place-order, risk-policy publication, `--local` research, and memory stay
   confirmation-hard-gated even when YOLO advertises `live`.

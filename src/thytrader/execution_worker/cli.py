@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 from coinbase.jwt_generator import build_ws_jwt
 from coinbase.rest import RESTClient
 
-from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
@@ -30,19 +29,22 @@ from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
+from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from thytrader.config import Settings
     from thytrader.execution.broker import Broker
     from thytrader.execution_worker.service import QuoteBalanceReader
 
 
 async def run() -> None:
     """Run execution until an operating-system shutdown signal arrives."""
-    settings = Settings()
+    settings_store = SettingsStore.open()
+    settings = settings_store.current()
     configure_logging(settings)
     if settings.database_url is None:
         message = "The execution worker requires THYTRADER_DATABASE_URL for durable state."
@@ -89,6 +91,7 @@ async def run() -> None:
                 user_feed_store=user_feed_store,
                 wake_requested=wake_requested,
                 memory_store=memory_store,
+                settings_store=settings_store,
             ),
             run_user_order_feed(
                 stop_requested,

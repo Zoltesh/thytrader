@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from coinbase.rest import RESTClient
 
-from thytrader.config import Settings
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
@@ -27,16 +26,20 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
+from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from thytrader.config import Settings
+
 
 async def run() -> None:
     """Run ingestion until an operating-system shutdown signal arrives."""
-    settings = Settings()
+    store = SettingsStore.open()
+    settings = store.current()
     configure_logging(settings)
     if settings.database_url is None:
         message = "The market-data worker requires THYTRADER_DATABASE_URL for durable state."
@@ -90,6 +93,7 @@ async def run() -> None:
                 on_readiness_changed=lambda ready: _set_readiness(readiness_file, ready),
                 watchlist=watchlist,
                 heartbeat_store=heartbeats,
+                settings_store=store,
             ),
             run_public_market_feed(
                 stop_requested,

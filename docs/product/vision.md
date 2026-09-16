@@ -178,6 +178,8 @@ equity are shipped ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-e
 Phase 12's agent playbook and default-off YOLO opt-in are shipped.
 YOLO skip-confirm for live start/pause/resume/stop is shipped
 ([ADR 0043](../decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains.
+YAML non-secret settings and runtime-reloadable YOLO are shipped
+([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)).
 Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets are shipped.
 Spot shorting and attached entry brackets are shipped
 ([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).

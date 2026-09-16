@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from thytrader.market_data.datasets import DatasetManifest, DatasetStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
+    from thytrader.settings_yaml import SettingsStore
 
 
 class IntervalRangeService(Protocol):
@@ -213,6 +214,7 @@ async def run_market_data_worker(
     watchlist: MarketDataWatchlistStore | None = None,
     timeframe: CandleInterval = CandleInterval.ONE_HOUR,
     heartbeat_store: WorkerHeartbeatStore | None = None,
+    settings_store: SettingsStore | None = None,
 ) -> None:
     """Run scheduled ingestion until a supervisor requests graceful shutdown."""
     if on_readiness_changed is not None:
@@ -223,12 +225,18 @@ async def run_market_data_worker(
             cycle_now = now_factory()
             if heartbeat_store is not None:
                 await heartbeat_store.touch("market_data_worker", cycle_now.astimezone(UTC))
+            cycle_product, cycle_lookback, cycle_interval = _reloadable_ingest_knobs(
+                product_id=product_id,
+                lookback_hours=lookback_hours,
+                interval_seconds=interval_seconds,
+                settings_store=settings_store,
+            )
             targets = await _cycle_targets(
                 watchlist,
                 provider=provider,
-                product_id=product_id,
+                product_id=cycle_product,
                 timeframe=timeframe,
-                lookback_hours=lookback_hours,
+                lookback_hours=cycle_lookback,
                 now=cycle_now,
             )
             wait_seconds = await _ingest_due_targets(
@@ -236,7 +244,7 @@ async def run_market_data_worker(
                 service=service,
                 dataset_store=dataset_store,
                 state_store=state_store,
-                interval_seconds=interval_seconds,
+                interval_seconds=cycle_interval,
                 cycle_now=cycle_now,
                 verified_targets=verified_targets,
                 stop_requested=stop_requested,
@@ -249,6 +257,24 @@ async def run_market_data_worker(
     finally:
         if on_readiness_changed is not None:
             on_readiness_changed(False)
+
+
+def _reloadable_ingest_knobs(
+    *,
+    product_id: str,
+    lookback_hours: int,
+    interval_seconds: int,
+    settings_store: SettingsStore | None,
+) -> tuple[str, int, int]:
+    """Return product/lookback/interval, re-reading YAML when a store is attached."""
+    if settings_store is None:
+        return product_id, lookback_hours, interval_seconds
+    settings = settings_store.current()
+    return (
+        settings.market_data_worker_product_id,
+        settings.market_data_worker_lookback_hours,
+        settings.market_data_worker_interval_seconds,
+    )
 
 
 async def fetch_historical_range(

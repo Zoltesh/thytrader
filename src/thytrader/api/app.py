@@ -28,6 +28,7 @@ from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.api.routes.research_studies import router as research_studies_router
 from thytrader.api.routes.risk_policy import router as risk_policy_router
+from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
 from thytrader.backtest.submission import (
     BacktestSubmitter,
@@ -113,6 +114,7 @@ from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
+from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
 from thytrader.strategies.publication import (
     DisabledStrategyPublicationStore,
@@ -157,6 +159,7 @@ def create_app(
     operator_chat_credentials: OperatorChatCredentialStore | None = None,
     operator_chat_sessions: OperatorChatSessionStore | None = None,
     operator_chat_llm: LlmClient | None = None,
+    settings_store: SettingsStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -165,8 +168,7 @@ def create_app(
     ``settings.database_url`` during the lifespan: PostgreSQL when configured,
     or disabled when absent/blank.
     """
-    resolved_settings = settings or Settings()
-    runtime = RuntimeState(settings=resolved_settings)
+    resolved_settings, runtime = _bind_runtime(settings, settings_store)
     external_store = history_store
     external_audit_event_store = audit_event_store
     external_market_data_state_store = market_data_state_store
@@ -299,8 +301,9 @@ def create_app(
         )
         _app.state.memory_store = memory or DisabledExperientialMemoryStore()
         _app.state.research_study_catalog = study_catalog or InMemoryResearchStudyCatalog()
-        _app.state.notification_sender = notifier or notification_sender_from_settings(
-            resolved_settings
+        _app.state.notification_sender = notifier or _notification_sender(
+            resolved_settings,
+            settings_store=runtime.settings_store,
         )
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
@@ -329,6 +332,7 @@ def create_app(
     app.include_router(agent_orchestration_router)
     app.include_router(operator_router)
     app.include_router(operator_chat_router)
+    app.include_router(settings_router)
     app.include_router(data_router)
     app.include_router(fees_router)
     app.include_router(market_data_router)
@@ -343,6 +347,29 @@ def create_app(
     app.include_router(memory_router)
     app.include_router(backtests_router)
     return app
+
+
+def _bind_runtime(
+    settings: Settings | None,
+    settings_store: SettingsStore | None,
+) -> tuple[Settings, RuntimeState]:
+    """Attach a YAML store when the process opened one; otherwise freeze boot settings."""
+    if settings_store is not None:
+        resolved = settings_store.current()
+        return resolved, RuntimeState(settings=resolved, settings_store=settings_store)
+    resolved = settings or Settings()
+    return resolved, RuntimeState(settings=resolved)
+
+
+def _notification_sender(
+    settings: Settings,
+    *,
+    settings_store: SettingsStore | None,
+) -> NotificationSender:
+    """Hot-reload notify_provider from YAML when a settings store is attached."""
+    if settings_store is not None:
+        return ReloadingNotificationSender(settings_store)
+    return notification_sender_from_settings(settings)
 
 
 def _init_db_stores(

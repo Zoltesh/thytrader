@@ -26,6 +26,8 @@ def test_runtime_help_describes_confirm_and_live_ack(
     output = capsys.readouterr().out
     assert "--confirm" in output
     assert "--i-understand-live" in output
+    assert "show-settings" in output
+    assert "set-settings" in output
     assert "not the operator" in output.lower() or "risk-policy registry" in output.lower()
 
 
@@ -706,3 +708,84 @@ def test_live_start_rejects_paper_fee_flags() -> None:
     assert raised.value.code != 0
     assert "paper fee" in str(raised.value).lower()
     request.assert_not_called()
+
+
+def _settings_payload(
+    *,
+    yolo_enabled: bool = False,
+    yolo_tiers: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Return GET /api/v1/settings JSON without secrets."""
+    return {
+        "yolo_enabled": yolo_enabled,
+        "yolo_tiers": list(yolo_tiers),
+        "log_level": "INFO",
+        "snapshot_interval_seconds": 300,
+        "market_data_worker_interval_seconds": 300,
+        "market_data_worker_lookback_hours": 168,
+        "market_data_worker_product_id": "BTC-USD",
+        "execution_worker_interval_seconds": 30,
+        "notify_provider": "none",
+        "settings_file": "thytrader.yaml",
+        "yaml_loaded": True,
+        "live_hard_gate": True,
+        "playbook_live_authority": False,
+        "process": {
+            "environment": "test",
+            "api_host": "127.0.0.1",
+            "api_port": 8200,
+            "containerized": False,
+            "allow_remote_access": False,
+            "market_data_dataset_root": "data/market-data",
+            "database_configured": False,
+            "coinbase_credentials_configured": False,
+            "notify_webhook_configured": False,
+            "restart_required": True,
+            "restart_required_fields": ["api_host"],
+        },
+    }
+
+
+def test_set_settings_without_confirm_does_not_write() -> None:
+    """YAML/YOLO writes never inherit YOLO skip-confirm."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("paper",),
+        ),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.set_yaml_settings") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["set-settings", "--yolo-enabled", "true", "--yolo-tiers", "paper"])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_set_settings_paper_with_confirm_puts_yaml() -> None:
+    """Confirmed YAML write sends the independent paper tier and no secrets."""
+    written = _settings_payload(yolo_enabled=True, yolo_tiers=("paper",))
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/settings": _settings_payload(),
+        "PUT /api/v1/settings": written,
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-settings",
+                "--yolo-enabled",
+                "true",
+                "--yolo-tiers",
+                "paper",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
