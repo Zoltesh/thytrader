@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -344,3 +346,61 @@ async def test_fill_ledger_is_independent_of_open_order_list() -> None:
     fills = await broker.list_fills(product_id="BTC-USD")
     assert fills[0].venue_fill_id == "hidden-fill"
     assert fills[0].venue_order_id == "filled-away"
+
+
+class _SlowTransport:
+    """A transport whose GET/POST block the calling thread, not the event loop."""
+
+    def __init__(self, *, delay_seconds: float, gets: dict[str, dict[str, Any]]) -> None:
+        """Bind one fixed-delay JSON body per GET path."""
+        self._delay_seconds = delay_seconds
+        self._gets = gets
+
+    def get(self, path: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
+        """Block the calling thread for the configured delay, then return the queued body."""
+        del params
+        time.sleep(self._delay_seconds)
+        return self._gets[path]
+
+    def post(self, path: str, data: Mapping[str, object] | None = None) -> dict[str, Any]:
+        """Unused by these tests; present to satisfy the transport protocol."""
+        del path, data
+        raise AssertionError("post() is unused by this fake.")
+
+
+@pytest.mark.anyio
+async def test_get_order_offloads_the_blocking_transport_call() -> None:
+    """A slow GET must run concurrently with other event-loop work, not stall it (F16).
+
+    A blocking `time.sleep` left on the event loop thread would serialize this GET
+    with the concurrent ticker below, so the combined wall-clock time would be close
+    to their sum. Offloading the GET to a worker thread lets both run concurrently,
+    so the combined time stays close to the slower of the two instead.
+    """
+    delay_seconds = 0.2
+    transport = _SlowTransport(
+        delay_seconds=delay_seconds,
+        gets={
+            "/api/v3/brokerage/orders/historical/venue-1": {
+                "order": {"order_id": "venue-1", "status": "OPEN", "filled_size": "0"}
+            }
+        },
+    )
+    broker = CoinbaseRestBroker(transport)
+    ticks = 0
+
+    async def _tick_while_waiting() -> None:
+        nonlocal ticks
+        for _ in range(8):
+            await asyncio.sleep(delay_seconds / 8)
+            ticks += 1
+
+    started_at = time.monotonic()
+    result, _ = await asyncio.gather(
+        broker.get_order(venue_order_id="venue-1", client_order_id="client-1"),
+        _tick_while_waiting(),
+    )
+    elapsed = time.monotonic() - started_at
+    assert result.status is OrderStatus.OPEN
+    assert ticks == 8
+    assert elapsed < delay_seconds * 1.5

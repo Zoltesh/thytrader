@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
@@ -58,7 +59,7 @@ class CoinbaseRestBroker:
         if attached is not None:
             body["attached_order_configuration"] = attached
         try:
-            payload = self._transport.post(_ORDERS_PATH, body)
+            payload = await asyncio.to_thread(self._transport.post, _ORDERS_PATH, body)
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase create-order request failed.") from error
         success = payload.get("success")
@@ -81,14 +82,16 @@ class CoinbaseRestBroker:
         """POST batch cancel, then GET the resulting order."""
         del client_order_id
         try:
-            self._transport.post(_CANCEL_PATH, {"order_ids": [venue_order_id]})
+            await asyncio.to_thread(
+                self._transport.post, _CANCEL_PATH, {"order_ids": [venue_order_id]}
+            )
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase cancel-order request failed.") from error
         return await self.get_order(venue_order_id=venue_order_id, client_order_id=venue_order_id)
 
     async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """GET /orders/historical/{order_id}, resolving client ids when needed."""
-        order_id = venue_order_id or self._venue_id_for_client(client_order_id)
+        order_id = venue_order_id or await self._venue_id_for_client(client_order_id)
         if not order_id:
             return SubmitResult(
                 status=OrderStatus.UNKNOWN,
@@ -96,7 +99,9 @@ class CoinbaseRestBroker:
                 reject_reason="not_found",
             )
         try:
-            payload = self._transport.get(_ORDER_PATH.format(order_id=order_id))
+            payload = await asyncio.to_thread(
+                self._transport.get, _ORDER_PATH.format(order_id=order_id)
+            )
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase get-order request failed.") from error
         order_payload = _nested_object(payload, "order") or payload
@@ -118,7 +123,7 @@ class CoinbaseRestBroker:
             if cursor:
                 params["cursor"] = cursor
             try:
-                payload = self._transport.get(_FILLS_PATH, params)
+                payload = await asyncio.to_thread(self._transport.get, _FILLS_PATH, params)
             except (OSError, TimeoutError, TypeError, ValueError) as error:
                 raise BrokerError("Coinbase list-fills request failed.") from error
             for item in _object_list(payload.get("fills")):
@@ -206,7 +211,7 @@ class CoinbaseRestBroker:
             cursor = next_cursor
         raise BrokerError("Coinbase order pagination exceeded the page limit.")
 
-    def _venue_id_for_client(self, client_order_id: str) -> str | None:
+    async def _venue_id_for_client(self, client_order_id: str) -> str | None:
         """Find the venue order id for one client order id from historical spot orders."""
         if not client_order_id:
             return None
@@ -219,7 +224,7 @@ class CoinbaseRestBroker:
             }
             if cursor:
                 params["cursor"] = cursor
-            payload = self._transport.get(_LIST_ORDERS_PATH, params)
+            payload = await asyncio.to_thread(self._transport.get, _LIST_ORDERS_PATH, params)
             for item in _object_list(payload.get("orders")):
                 if _text(item.get("client_order_id")) == client_order_id:
                     return _text(item.get("order_id"))

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
+
+import pytest
 
 from thytrader.backtest.service import evaluate_and_publish_backtest
 from thytrader.research.models import research_run_fingerprint
@@ -73,6 +76,20 @@ class _DatasetStore:
         return _candles()
 
 
+class _SlowDatasetStore(_DatasetStore):
+    """A dataset store whose load blocks the calling thread for a fixed delay."""
+
+    def __init__(self, delay_seconds: float) -> None:
+        """Bind the artificial per-call delay used to simulate a large study."""
+        super().__init__()
+        self._delay_seconds = delay_seconds
+
+    def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
+        """Block the calling thread, then return the deterministic fixture candles."""
+        time.sleep(self._delay_seconds)
+        return super().load_candles(content_fingerprint)
+
+
 class _ResultStore:
     """Capture canonical result publication at the service boundary."""
 
@@ -111,3 +128,42 @@ def test_service_loads_exact_artifacts_simulates_and_publishes_one_result() -> N
     assert dataset_store.loaded == [specification.dataset_fingerprint]
     assert result_store.published == [result]
     assert result.run_fingerprint == research_run_fingerprint(specification)
+
+
+@pytest.mark.anyio
+async def test_service_offloads_blocking_simulation_off_the_event_loop() -> None:
+    """A slow dataset load/simulation must not stall concurrent event-loop work (F16).
+
+    Blocking the event loop thread would serialize this backtest with the concurrent
+    ticker below, so the combined wall-clock time would be close to their sum.
+    Offloading the blocking segment to a worker thread lets both run concurrently.
+    """
+    delay_seconds = 0.2
+    run_fingerprint = "sha256:" + "c" * 64
+    run_store = _RunStore()
+    strategy_store = _StrategyStore()
+    dataset_store = _SlowDatasetStore(delay_seconds)
+    result_store = _ResultStore()
+    ticks = 0
+
+    async def _tick_while_waiting() -> None:
+        nonlocal ticks
+        for _ in range(8):
+            await asyncio.sleep(delay_seconds / 8)
+            ticks += 1
+
+    started_at = time.monotonic()
+    result, _ = await asyncio.gather(
+        evaluate_and_publish_backtest(
+            run_fingerprint,
+            run_store=run_store,
+            strategy_store=strategy_store,
+            dataset_store=dataset_store,
+            result_store=result_store,
+        ),
+        _tick_while_waiting(),
+    )
+    elapsed = time.monotonic() - started_at
+    assert result_store.published == [result]
+    assert ticks == 8
+    assert elapsed < delay_seconds * 1.5

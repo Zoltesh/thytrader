@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from thytrader.backtest.kernel import simulate_backtest
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from thytrader.research.models import ResearchRunSpecification
     from thytrader.research.publication import PublishedResearchRunSpecification
     from thytrader.research.trace import SignalTrace
+    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -70,13 +72,33 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     published_run = await run_store.load(run_fingerprint, dataset_store=dataset_store)
     specification = published_run.specification
     published_strategy = await strategy_store.load(specification.strategy_fingerprint)
+    definition = published_strategy.definition
+    # Dataset reverification, signal-trace evaluation, and bar-level simulation are
+    # synchronous CPU-bound work. A large study run inline on the event loop would
+    # delay concurrent pause/stop/status requests handled by the same API process
+    # (audit F16). Run the bounded blocking segment on a worker thread instead.
+    result, trace = await asyncio.to_thread(
+        _load_and_simulate, dataset_store, specification, definition
+    )
+    if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
+        raise RuntimeError(
+            "Backtest trace identity did not match the authoritative signal evaluation."
+        )
+    return await result_store.publish(result, trace=trace)
+
+
+def _load_and_simulate(
+    dataset_store: VerifiedCandleReader,
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+) -> tuple[BacktestResult, SignalTrace]:
+    """Reverify datasets and run the deterministic simulation off the event loop."""
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
     htf_candles = _optional_htf_candles(dataset_store, specification)
     extra_candles = _indicator_timeframe_candles(dataset_store, specification)
     additional_candles = _additional_instrument_candles(dataset_store, specification)
     additional_htf = _additional_htf_candles(dataset_store, specification)
     additional_indicator = _additional_indicator_candles(dataset_store, specification)
-    definition = published_strategy.definition
     trace = evaluate_signal_trace(specification, definition, candles, htf_candles, extra_candles)
     for product_id in lockstep_product_ids(definition):
         if product_id == definition.instrument.product_id:
@@ -98,11 +120,7 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
         additional_htf,
         additional_indicator,
     )
-    if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
-        raise RuntimeError(
-            "Backtest trace identity did not match the authoritative signal evaluation."
-        )
-    return await result_store.publish(result, trace=trace)
+    return result, trace
 
 
 def _optional_htf_candles(
