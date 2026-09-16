@@ -125,10 +125,7 @@ def _parser() -> argparse.ArgumentParser:
         "--timeframe",
         default="1h",
         choices=EXECUTION_TIMEFRAMES,
-        help=(
-            "Research timeframe. Default 1h. Paper and live may use any ingested "
-            "venue clock."
-        ),
+        help=("Research timeframe. Default 1h. Paper and live may use any ingested venue clock."),
     )
     create.add_argument(
         "--template",

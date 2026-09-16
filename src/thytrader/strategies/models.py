@@ -22,8 +22,8 @@ from pydantic import (
 )
 
 from thytrader.market_data.models import (
-    DatasetTimeframe,
     EXECUTION_TIMEFRAMES,
+    DatasetTimeframe,
     parse_candle_interval,
 )
 

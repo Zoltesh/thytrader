@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.market_data.models import DatasetTimeframe
 from thytrader.strategies.models import (
     AllCondition,
     AtrMultipleStop,
@@ -37,6 +36,7 @@ from thytrader.strategies.models import (
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from thytrader.market_data.models import DatasetTimeframe
     from thytrader.strategies.models import Instrument
 
 _OHLCV: tuple[

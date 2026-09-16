@@ -44,4 +44,4 @@ def test_ops_contract_matches_requires_payload() -> None:
         "6h",
         "1d",
     ]
-    assert expected["live_timeframes"] == list(expected["paper_timeframes"])
+    assert expected["live_timeframes"] == expected["paper_timeframes"]

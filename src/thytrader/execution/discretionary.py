@@ -676,9 +676,14 @@ def _parse_origin(value: str) -> IntentOrigin:
 
 def _parse_timeframe(value: str) -> str:
     """Allow only ingested venue execution clocks."""
-    interval = parse_candle_interval(value)
+    allowed = ", ".join(EXECUTION_TIMEFRAMES)
+    try:
+        interval = parse_candle_interval(value)
+    except ValueError as error:
+        raise ExecutionConflictError(
+            f"Discretionary orders require an ingested venue timeframe: {allowed}."
+        ) from error
     if not interval.execution_supported:
-        allowed = ", ".join(EXECUTION_TIMEFRAMES)
         raise ExecutionConflictError(
             f"Discretionary orders require an ingested venue timeframe: {allowed}."
         )
