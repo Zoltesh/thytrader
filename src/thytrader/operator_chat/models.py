@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: TC003 - Pydantic resolves this annotation at runtime.
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 CHAT_SCHEMA_VERSION: Literal["thytrader-operator-chat-v1"] = "thytrader-operator-chat-v1"
 CHAT_API_PREFIX = "/api/v1/operator-chat"
@@ -58,6 +58,20 @@ class OperatorChatCredentialWrite(_FrozenModel):
     model: str = Field(default=DEFAULT_CHAT_MODEL, min_length=1, max_length=128)
     base_url: str | None = Field(default=None, max_length=512)
     api_key: SecretStr = Field(min_length=8, max_length=4096)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_foreign_fields(cls, value: object) -> object:
+        """Refuse Coinbase or other extras without echoing their values."""
+        if not isinstance(value, dict):
+            return value
+        allowed = {"provider", "model", "base_url", "api_key"}
+        if any(key not in allowed for key in value):
+            raise ValueError(
+                "This form accepts an LLM provider key only. Coinbase credentials stay "
+                "on the separate Coinbase secrets surface."
+            )
+        return value
 
     @field_validator("model")
     @classmethod

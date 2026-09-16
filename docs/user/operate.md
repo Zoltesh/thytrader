@@ -75,8 +75,10 @@ browser. The key is held in the API process only; restarting the API clears it.
 
 The chat is an operator over the same gated skill lanes as `ops/`. Read-only diagnosis runs
 immediately. Data, research, runtime, and memory mutations wait for in-app confirmation. Live start
-and live place-order also need the understand-live checkbox. `uv run thytrader-operator chat-status`
-reports whether a key is configured; it never prints the secret.
+and live place-order also need the understand-live checkbox. Paper start and paper on-demand orders
+may include maker and taker fee assumptions; live Coinbase fees stay venue-recorded.
+`uv run thytrader-operator chat-status` reports whether a key is configured; it never prints the
+secret.
 
 ## With an agent (or the CLIs yourself)
 

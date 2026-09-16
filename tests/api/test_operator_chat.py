@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
-from pydantic import SecretStr
+from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.observability.logging import set_extra_redacted_secrets
-from thytrader.operator_chat.credentials import StoredLlmCredentials
 from thytrader.operator_chat.models import LlmCompletion, LlmToolCall
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from thytrader.operator_chat.credentials import StoredLlmCredentials
 
 
 class _ScriptedLlm:
@@ -90,8 +93,10 @@ def test_coinbase_fields_are_rejected_on_llm_credential_write() -> None:
                 "coinbase_api_key_name": "organizations/example/apiKeys/secret",
             },
         )
-    assert response.status_code == 422
+    assert response.status_code == 400
     assert "organizations/example" not in response.text
+    assert _LLM_KEY not in response.text
+    assert "Coinbase" in response.json()["detail"]
 
 
 def test_coinbase_host_base_url_is_rejected() -> None:
@@ -123,9 +128,7 @@ def test_read_only_health_tool_runs_without_confirmation() -> None:
         [
             LlmCompletion(
                 content=None,
-                tool_calls=(
-                    LlmToolCall(id="call_health", name="operator_health", arguments={}),
-                ),
+                tool_calls=(LlmToolCall(id="call_health", name="operator_health", arguments={}),),
             ),
             LlmCompletion(content="API health was read through the operator contract."),
         ]

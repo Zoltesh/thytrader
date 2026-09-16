@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from json import JSONDecodeError
 from typing import Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError
 
 from thytrader.api.dependencies import get_operator_chat_service, get_runtime_state
 from thytrader.operator_chat.credentials import OperatorChatCredentialError
@@ -33,12 +35,28 @@ async def get_operator_chat_status(
 
 @router.put("/credentials", response_model=OperatorChatStatus)
 async def put_operator_chat_credentials(
-    body: OperatorChatCredentialWrite,
+    request: Request,
     service: Annotated[OperatorChatService, Depends(get_operator_chat_service)],
 ) -> OperatorChatStatus:
     """Store a pasted LLM API key server-side. Coinbase fields are rejected."""
     try:
-        return service.replace_credentials(body)
+        raw: object = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError, ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM credentials must be JSON.",
+        ) from None
+    try:
+        write = OperatorChatCredentialWrite.model_validate(raw)
+        return service.replace_credentials(write)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This form accepts an LLM provider key only. Coinbase credentials stay "
+                "on the separate Coinbase secrets surface."
+            ),
+        ) from None
     except OperatorChatCredentialError as error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from None
 

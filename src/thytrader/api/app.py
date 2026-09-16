@@ -70,7 +70,6 @@ from thytrader.memory.store import (
     ExperientialMemoryStore,
 )
 from thytrader.operator_chat.credentials import OperatorChatCredentialStore
-from thytrader.operator_chat.llm import LlmClient
 from thytrader.operator_chat.service import OperatorChatService
 from thytrader.operator_chat.session import OperatorChatSessionStore
 from thytrader.persistence.audit_events import (
@@ -125,6 +124,7 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.protocols import ExchangeAccount
     from thytrader.execution.broker import Broker
+    from thytrader.operator_chat.llm import LlmClient
 
 _logger = logging.getLogger(__name__)
 

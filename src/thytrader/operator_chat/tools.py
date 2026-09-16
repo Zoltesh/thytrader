@@ -39,24 +39,22 @@ def chat_tools() -> tuple[ChatTool, ...]:
 
 def openai_tool_schemas() -> list[dict[str, object]]:
     """Render OpenAI function tools from the closed catalog."""
-    rendered: list[dict[str, object]] = []
-    for tool in _TOOLS:
-        rendered.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": tool.properties,
-                        "required": list(tool.required),
-                    },
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": tool.properties,
+                    "required": list(tool.required),
                 },
-            }
-        )
-    return rendered
+            },
+        }
+        for tool in _TOOLS
+    ]
 
 
 def tool_by_name(name: str) -> ChatTool | None:
@@ -536,7 +534,11 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="runtime_start",
-        description="Start paper or live for a published fingerprint. Live needs understand-live.",
+        description=(
+            "Start paper or live for a published fingerprint. Live needs understand-live. "
+            "Paper may pass maker_fee_rate and taker_fee_rate together (documented assumptions; "
+            "omitted paper uses 0.001 / 0.002). Live rejects those fields."
+        ),
         lane=ChatLane.RUNTIME,
         method="POST",
         path="/api/v1/deployments",
@@ -548,6 +550,12 @@ _TOOLS: tuple[ChatTool, ...] = (
             "strategy_fingerprint": _string("sha256: plus 64 hex."),
             "mode": _string("paper or live."),
             "paper_starting_cash": _opt_string("Paper book cash."),
+            "maker_fee_rate": _opt_string(
+                "Paper maker fee assumption. Pass with taker_fee_rate. Live rejects."
+            ),
+            "taker_fee_rate": _opt_string(
+                "Paper taker fee assumption. Pass with maker_fee_rate. Live rejects."
+            ),
         },
         required=("strategy_fingerprint", "mode"),
     ),
@@ -592,7 +600,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="runtime_place_order",
-        description="On-demand long/short with SL/TP via intent+risk. Live needs understand-live.",
+        description=(
+            "On-demand long/short with SL/TP via intent+risk. Live needs understand-live. "
+            "Paper may pass maker_fee_rate and taker_fee_rate together. Live rejects those fields."
+        ),
         lane=ChatLane.RUNTIME,
         method="POST",
         path="/api/v1/discretionary-orders",
@@ -614,6 +625,12 @@ _TOOLS: tuple[ChatTool, ...] = (
             "quote_notional": _opt_string("Quote notional."),
             "limit_price": _opt_string("Limit price."),
             "paper_starting_cash": _opt_string("Paper book cash."),
+            "maker_fee_rate": _opt_string(
+                "Paper maker fee assumption. Pass with taker_fee_rate. Live rejects."
+            ),
+            "taker_fee_rate": _opt_string(
+                "Paper taker fee assumption. Pass with maker_fee_rate. Live rejects."
+            ),
         },
         required=(
             "mode",

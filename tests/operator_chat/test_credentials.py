@@ -86,6 +86,35 @@ def test_catalog_keeps_lanes_separated() -> None:
     assert memory.hard_gate is True
 
 
+def test_runtime_start_and_place_order_forward_paper_fee_fields() -> None:
+    """Paper deploy fee fields stay on the existing HTTP body (ADR 0048)."""
+    start = tool_by_name("runtime_start")
+    assert start is not None
+    assert "maker_fee_rate" in start.properties
+    assert "taker_fee_rate" in start.properties
+    path, query, body = split_request(
+        start,
+        {
+            "strategy_fingerprint": "sha256:" + ("ab" * 32),
+            "mode": "paper",
+            "maker_fee_rate": "0.0025",
+            "taker_fee_rate": "0.004",
+        },
+    )
+    assert path == "/api/v1/deployments"
+    assert query == {}
+    assert body == {
+        "strategy_fingerprint": "sha256:" + ("ab" * 32),
+        "mode": "paper",
+        "maker_fee_rate": "0.0025",
+        "taker_fee_rate": "0.004",
+    }
+    place = tool_by_name("runtime_place_order")
+    assert place is not None
+    assert "maker_fee_rate" in place.properties
+    assert "taker_fee_rate" in place.properties
+
+
 def test_llm_messages_round_trip_assistant_tool_calls() -> None:
     """Provider resumes need the assistant tool_calls block, not only tool rows."""
     session = OperatorChatSessionStore()
@@ -104,6 +133,8 @@ def test_llm_messages_round_trip_assistant_tool_calls() -> None:
     assert serialized[0]["role"] == "assistant"
     tool_calls = serialized[0]["tool_calls"]
     assert isinstance(tool_calls, list)
-    assert tool_calls[0]["id"] == "call_health"
+    first_call = tool_calls[0]
+    assert isinstance(first_call, dict)
+    assert first_call.get("id") == "call_health"
     assert serialized[1]["role"] == "tool"
     assert serialized[1]["tool_call_id"] == "call_health"

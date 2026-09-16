@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from thytrader.operator_chat.credentials import OperatorChatCredentialStore
-from thytrader.operator_chat.llm import LlmClient, LlmClientError, OpenAICompatibleClient
+from thytrader.operator_chat.llm import LlmClientError, OpenAICompatibleClient
 from thytrader.operator_chat.loop import (
     OperatorChatError,
     collect_secrets,
@@ -23,12 +21,16 @@ from thytrader.operator_chat.models import (
     OperatorChatCredentialWrite,
     OperatorChatStatus,
 )
-from thytrader.operator_chat.session import OperatorChatSessionStore
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from fastapi import FastAPI
 
     from thytrader.config import Settings
+    from thytrader.operator_chat.credentials import OperatorChatCredentialStore
+    from thytrader.operator_chat.llm import LlmClient
+    from thytrader.operator_chat.session import OperatorChatSessionStore
 
 
 class OperatorChatService:

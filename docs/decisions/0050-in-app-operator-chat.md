@@ -1,4 +1,4 @@
-# 0048: In-app operator chat over gated skill lanes
+# 0050: In-app operator chat over gated skill lanes
 
 - Status: Accepted
 - Date: 2026-09-16
@@ -19,7 +19,10 @@ Coinbase credentials are a separate surface (destination Coinbase secrets UI). E
 waiting. Nested HTTP from the API worker back to the same Uvicorn listener would deadlock.
 
 [ADR 0047](0047-wider-fail-closed-indicator-catalog.md) already shipped the wider fail-closed
-indicator catalog. This ADR does not reopen that catalog.
+indicator catalog. [ADR 0048](0048-paper-deploy-fee-fields.md) already shipped paper deploy
+maker/taker fee fields. [ADR 0049](0049-experiential-train-v1.md) already shipped bounded
+experiential training V1 (ops contract v17, Alembic `0029`). This ADR does not reopen those
+contracts.
 
 ## Decision
 
@@ -50,9 +53,13 @@ No extra exchanges. Workstation IA of existing pages and the Coinbase secrets UI
   invent a second catalog.
 - LLM keys are lost on API restart by design.
 - Coinbase keys never enter browser payloads on this surface.
-- [ADR 0046](0046-shipped-vs-remaining-0031-destination.md) and
-  [ADR 0047](0047-wider-fail-closed-indicator-catalog.md) are unchanged; this ADR only ships the
-  in-app operator chat destination row.
+- [ADR 0046](0046-shipped-vs-remaining-0031-destination.md),
+  [ADR 0047](0047-wider-fail-closed-indicator-catalog.md),
+  [ADR 0048](0048-paper-deploy-fee-fields.md), and
+  [ADR 0049](0049-experiential-train-v1.md) are unchanged; this ADR only ships the
+  in-app operator chat destination row. Paper start/place-order tools expose the optional
+  maker/taker fee fields from ADR 0048; live still rejects them. Memory train/list/show-model
+  tools map onto ADR 0049 HTTP routes and stay confirmation-hard-gated.
 
 ## Alternatives considered
 

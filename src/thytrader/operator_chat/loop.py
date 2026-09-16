@@ -45,6 +45,8 @@ Rules:
 - Memory mutations always need confirmation. YOLO never covers memory.
 - Live place-order and set-risk-policy always need confirmation.
 - The playbook never starts live. Sequence paper via runtime_start mode=paper when asked.
+- Paper start and paper place-order may pass maker_fee_rate and taker_fee_rate together
+  (documented assumptions, not Coinbase fees). Live rejects those fields.
 - Never interpolate missing candles. Judge coverage by watch_complete.
 - Never claim a mutation executed until a tool result says it did.
 - Do not tell anyone to edit source, Compose, Dockerfiles, Alembic, or tests.
@@ -196,9 +198,13 @@ async def _handle_one_call(
         )
         return False
     needs_confirm, needs_live = await _gate(app, settings, tool, call.arguments)
-    if tool.mutation and not needs_confirm and not needs_live:
-        if not await _record_yolo_skip(app, tool, call.arguments):
-            needs_confirm = True
+    if (
+        tool.mutation
+        and not needs_confirm
+        and not needs_live
+        and not await _record_yolo_skip(app, tool, call.arguments)
+    ):
+        needs_confirm = True
     if needs_confirm or needs_live:
         pending = session.add_pending(
             lane=tool.lane,
@@ -292,7 +298,8 @@ async def _record_yolo_skip(
     arguments: dict[str, object],
 ) -> bool:
     """Audit a skipped confirmation. False means fail closed and require UI confirm."""
-    mode = arguments.get("mode") if isinstance(arguments.get("mode"), str) else None
+    raw_mode = arguments.get("mode")
+    mode = raw_mode if isinstance(raw_mode, str) else None
     if mode is None:
         mode = await _deployment_mode(app, tool, arguments)
     tier = yolo_tier_for(tool.yolo, mode=mode)

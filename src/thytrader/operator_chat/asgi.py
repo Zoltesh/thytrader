@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlencode
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fastapi import FastAPI
+    from starlette.types import Message, Receive, Scope, Send
 
 
 class LocalApiError(RuntimeError):
@@ -38,34 +39,42 @@ async def invoke_local_json(
     status_box: dict[str, int] = {}
     chunks: list[bytes] = []
 
-    async def receive() -> dict[str, object]:
+    async def receive() -> Message:
         return {"type": "http.request", "body": body, "more_body": False}
 
-    async def send(message: dict[str, object]) -> None:
-        if message["type"] == "http.response.start":
-            status_box["status"] = int(message["status"])
+    async def send(message: Message) -> None:
+        if message.get("type") == "http.response.start":
+            status_raw = message.get("status")
+            if isinstance(status_raw, int):
+                status_box["status"] = status_raw
             return
-        if message["type"] == "http.response.body":
+        if message.get("type") == "http.response.body":
             chunk = message.get("body", b"")
             if isinstance(chunk, bytes) and chunk:
                 chunks.append(chunk)
 
-    scope: dict[str, object] = {
-        "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.3"},
-        "http_version": "1.1",
-        "method": method.upper(),
-        "scheme": "http",
-        "path": path,
-        "raw_path": path.encode("ascii"),
-        "root_path": "",
-        "query_string": query_string,
-        "headers": headers,
-        "client": ("127.0.0.1", 0),
-        "server": ("127.0.0.1", 8200),
-        "extensions": {},
-    }
-    await app(scope, receive, send)
+    # ASGI scopes are loosely typed MutableMappings at the Starlette boundary.
+    scope = cast(
+        "Scope",
+        {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": method.upper(),
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "root_path": "",
+            "query_string": query_string,
+            "headers": headers,
+            "client": ("127.0.0.1", 0),
+            "server": ("127.0.0.1", 8200),
+            "extensions": {},
+        },
+    )
+    receive_fn: Receive = receive
+    send_fn: Send = send
+    await app(scope, receive_fn, send_fn)
     status = status_box.get("status", 500)
     raw = b"".join(chunks)
     parsed = _parse_body(raw)

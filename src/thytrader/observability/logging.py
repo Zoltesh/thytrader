@@ -13,18 +13,17 @@ if TYPE_CHECKING:
     from thytrader.config import Settings
 
 _REDACTION = "[REDACTED]"
-_extra_secret_values: tuple[str, ...] = ()
+_extra_secret_values: list[tuple[str, ...]] = [()]
 
 
 def extra_redacted_secrets() -> tuple[str, ...]:
     """Return process-held extras such as a pasted LLM API key."""
-    return _extra_secret_values
+    return _extra_secret_values[0]
 
 
 def set_extra_redacted_secrets(values: tuple[str, ...]) -> None:
     """Replace process-held extras. Coinbase Settings secrets stay separate."""
-    global _extra_secret_values
-    _extra_secret_values = tuple(
+    _extra_secret_values[0] = tuple(
         sorted({item for item in values if item}, key=len, reverse=True)
     )
 

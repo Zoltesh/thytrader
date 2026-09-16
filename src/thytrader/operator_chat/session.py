@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
+import json
 from threading import Lock
 from uuid import uuid4
 
@@ -110,10 +110,7 @@ class OperatorChatSessionStore:
         """Serialize the transcript for the provider without system prompt."""
         with self._lock:
             rows = tuple(self._messages)
-        payload: list[dict[str, object]] = []
-        for row in rows:
-            payload.append(_provider_message(row))
-        return payload
+        return [_provider_message(row) for row in rows]
 
 
 def _provider_message(row: ChatMessage) -> dict[str, object]:

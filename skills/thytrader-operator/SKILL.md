@@ -97,9 +97,10 @@ See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](
 
 ## In-app operator chat
 
-Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`. The user pastes **their** LLM API key into the
-API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase secrets surface.
-Status never returns `api_key`. Coinbase keys never go to the browser.
+Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`
+([ADR 0050](../../docs/decisions/0050-in-app-operator-chat.md)). The user pastes **their** LLM API
+key into the API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase
+secrets surface. Status never returns `api_key`. Coinbase keys never go to the browser.
 
 The chat invokes the same versioned HTTP skill routes as these CLIs. Operator tools stay read-only.
 Data, research, runtime, and memory mutations wait on in-app confirmation (`--confirm`). Live start
