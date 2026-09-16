@@ -47,8 +47,8 @@ class CandleInterval(StrEnum):
     """Closed-candle intervals for complete-only historical datasets.
 
     Dataset ingest, catalog, verification, strategy LTF, paper, live, and
-    research HTF tokens share this Coinbase-listed set. Paper and live still
-    reject ``htf_filter``. Missing bars are never interpolated.
+    research HTF tokens share this Coinbase-listed set. Paper and live evaluate
+    ``htf_filter`` on last-completed HTF bars. Missing bars are never interpolated.
     """
 
     ONE_HOUR = "1h"

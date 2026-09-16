@@ -17,7 +17,6 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.multi_timeframe import strategy_requires_htf
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
@@ -113,11 +112,7 @@ def _require_mode_prerequisites(
 
 
 def _require_executable_definition(mode: DeploymentMode, definition: StrategyDefinition) -> None:
-    """Reject HTF-filter publications and illegal execution clocks."""
-    if strategy_requires_htf(definition):
-        raise ExecutionConflictError(
-            "Paper and live deployments reject multi-timeframe HTF-filter strategies."
-        )
+    """Reject illegal execution clocks. HTF-filter publications are executable."""
     _require_execution_timeframe(mode, definition.timeframe)
 
 

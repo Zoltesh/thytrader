@@ -7,10 +7,9 @@ import pytest
 
 from thytrader.execution.loop import process_closed_bar
 from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, ExecutionConflictError, RuntimePhase
+from thytrader.execution.models import DeploymentMode, RuntimePhase
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
-from thytrader.execution.signals import evaluate_latest_entry
 from thytrader.market_data.models import Candle, MarketProduct
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
@@ -146,34 +145,6 @@ async def test_create_deployment_starts_five_minute_paper_and_fills_on_five_minu
     assert continuation.starts_at.minute % 5 == 0
 
 
-def _published_with_htf_filter() -> StrategyDefinition:
-    """Published 1h reference strategy with a 6h HTF trend filter."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
-    payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
-    payload["htf_filter"] = {
-        "timeframe": "6h",
-        "data_requirements": {
-            "warmup_bars": 50,
-            "required_fields": ["open", "high", "low", "close", "volume"],
-        },
-        "indicators": [
-            {"id": "htf_ema_fast", "kind": "ema", "input": "close", "parameters": {"period": 20}},
-            {"id": "htf_ema_slow", "kind": "ema", "input": "close", "parameters": {"period": 50}},
-        ],
-        "when": {
-            "all": [
-                {
-                    "left": {"indicator": "htf_ema_fast"},
-                    "operator": "greater_than",
-                    "right": {"indicator": "htf_ema_slow"},
-                }
-            ]
-        },
-    }
-    return StrategyDefinition.model_validate(payload)
-
-
 @pytest.mark.anyio
 async def test_create_deployment_starts_five_minute_live_when_allowed() -> None:
     """A published 5m strategy can arm live when credentials are allowed."""
@@ -190,34 +161,3 @@ async def test_create_deployment_starts_five_minute_live_when_allowed() -> None:
     )
     assert created.mode is DeploymentMode.LIVE
     assert created.status.value == "running"
-
-
-@pytest.mark.anyio
-async def test_create_deployment_rejects_htf_filter_paper_and_live() -> None:
-    """Paper and live must not start HTF-filter strategies until those runtimes bind HTF candles."""
-    strategy = _published_with_htf_filter()
-    catalog = _Catalog(strategy)
-    with pytest.raises(ExecutionConflictError, match="HTF-filter"):
-        await create_deployment(
-            store=InMemoryExecutionStore(),
-            publication_store=catalog,
-            strategy_fingerprint=strategy_fingerprint(strategy),
-            mode=DeploymentMode.PAPER,
-            paper_starting_cash=Decimal("10000"),
-            live_allowed=False,
-        )
-    with pytest.raises(ExecutionConflictError, match="HTF-filter"):
-        await create_deployment(
-            store=InMemoryExecutionStore(),
-            publication_store=catalog,
-            strategy_fingerprint=strategy_fingerprint(strategy),
-            mode=DeploymentMode.LIVE,
-            paper_starting_cash=None,
-            live_allowed=True,
-        )
-
-
-def test_evaluate_latest_entry_rejects_htf_filter() -> None:
-    """The paper/live signal helper must not ignore an HTF filter."""
-    with pytest.raises(ValueError, match="HTF-filter"):
-        evaluate_latest_entry(_published_with_htf_filter(), _five_minute_candles(30))

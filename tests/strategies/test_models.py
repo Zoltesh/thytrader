@@ -725,7 +725,7 @@ def test_highest_lowest_stdev_reject_wrong_sources_unknown_kinds_and_fields() ->
 
 
 def test_htf_filter_accepts_highest_lowest_and_stdev() -> None:
-    """HTF filter indicators use the same locked catalog as LTF, still research-only."""
+    """HTF filter indicators use the same locked catalog as LTF."""
     payload = reference_payload()
     payload["htf_filter"] = _htf_filter_block()
     htf = _object_mapping(payload["htf_filter"])

@@ -432,7 +432,7 @@
 							V1 is Coinbase USD spot, long-only. Research, paper, and live use any ingested venue
 							clock (this draft uses {model.timeframe} candles). Sub-hour live requires a connected
 							user-order feed. Optional HTF filters may use a strictly coarser integer-multiple
-							venue clock; paper and live reject those strategies.
+							venue clock; paper and live evaluate those strategies on last-completed HTF bars.
 						</div>
 					</section>
 				{:else if activeSection === 'indicators'}
@@ -526,7 +526,7 @@
 							</div>
 							<div class="hint">
 								The HTF <code>when</code> tree is AND-ed with LTF entry using the last completed HTF bar.
-								Paper and live reject this block.
+								Paper and live evaluate this block on live complete-only HTF candles.
 							</div>
 						{/if}
 						<label class="cooldown-row"

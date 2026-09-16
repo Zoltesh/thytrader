@@ -40,7 +40,9 @@ records. Each candle in `[evaluation.starts_at, evaluation.ends_at)` emits exact
 The extra candle required by run publication for a possible next-open fill is never supplied to the
 indicator or condition calculation. When `htf_filter` is present, HTF indicators are calculated on
 the required closed HTF bars and held onto each LTF close from the last completed HTF bar (never a
-partial HTF bar). Combined entry is the tri-state AND of HTF `when` and LTF `entry.when`.
+partial HTF bar). Combined entry is the tri-state AND of HTF `when` and LTF `entry.when`. Paper and
+live share that last-completed alignment on complete-only HTF candles
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)).
 
 Before calculation, every selected candle must:
 

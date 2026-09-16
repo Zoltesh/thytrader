@@ -30,7 +30,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0022](0022-complete-only-6h-datasets.md) | Complete-only 6h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
 | [0023](0023-complete-only-1d-datasets.md) | Complete-only 1d historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
 | [0024](0024-agent-data-loop-completeness-and-image-identity.md) | Fail-closed watch completeness and stale-image identity for every agent CLI | Accepted |
-| [0025](0025-multi-timeframe-htf-filter.md) | Optional HTF filter + LTF entry; research-only closed-bar alignment | Accepted |
+| [0025](0025-multi-timeframe-htf-filter.md) | Optional HTF filter + LTF entry; closed-bar alignment (paper/live in 0041) | Accepted — paper/live evaluation added by 0041 |
 | [0026](0026-phase-9-single-output-indicator-catalog.md) | Phase 9 first slice: `highest`, `lowest`, and population `stdev` | Accepted |
 | [0027](0027-phase-9-roc-williams-cci.md) | Phase 9 second slice: `roc`, `williams_r`, and `cci` | Accepted |
 | [0028](0028-phase-9-identity-constant.md) | Phase 9 third slice: `identity` OHLCV and `constant` levels | Accepted |
@@ -46,6 +46,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0038](0038-complete-only-1m-2h-4h-datasets.md) | Complete-only 1m, 2h, and 4h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted — clocks later extended by 0040 |
 | [0039](0039-on-demand-discretionary-trades.md) | On-demand long-only discretionary trades with required SL/TP via intent + risk | Accepted |
 | [0040](0040-venue-strategy-paper-live-htf-clocks.md) | Every ingested venue TF is a strategy, paper, live, discretionary, and HTF clock | Accepted |
+| [0041](0041-paper-live-htf-filter-evaluation.md) | Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars | Accepted |
 
 ## Status values
 

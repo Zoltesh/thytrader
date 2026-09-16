@@ -5,7 +5,8 @@
 - Relates to: [0005](0005-canonical-strategy-schema.md), [0018](0018-5m-paper-not-live.md),
   [0019](0019-ops-contract-identity.md), [0025](0025-multi-timeframe-htf-filter.md),
   [0031](0031-coinbase-first-platform-end-state.md), [0036](0036-phase-13-live-extras.md),
-  [0038](0038-complete-only-1m-2h-4h-datasets.md), [0039](0039-on-demand-discretionary-trades.md)
+  [0038](0038-complete-only-1m-2h-4h-datasets.md), [0039](0039-on-demand-discretionary-trades.md),
+  [0041](0041-paper-live-htf-filter-evaluation.md)
 
 ## Context
 
@@ -62,8 +63,9 @@ This extends ADRs 0005, 0025, and 0036's clock sets. It does not supersede 0030,
   reconcile-before-retry.
 - Agent CLIs fail closed on a v11 image (`paper_timeframes` / `live_timeframes` mismatch) until
   `make run`.
-- Paper/live HTF evaluation, per-indicator timeframes, extra exchanges, shorting, and
-  YOLO-without-confirm for live stay out.
+- Paper/live HTF evaluation was out of this clock slice.
+  [ADR 0041](0041-paper-live-htf-filter-evaluation.md) later evaluated `htf_filter` in paper and live.
+  Per-indicator timeframes, extra exchanges, shorting, and YOLO-without-confirm for live stay out.
 
 ## Alternatives considered
 

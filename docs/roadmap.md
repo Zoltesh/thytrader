@@ -93,10 +93,11 @@ research/paper costs.
 
 Optional `htf_filter` + LTF entry ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md)). Top-level
 `timeframe` remains the `1h`|`5m` decision clock in this slice. Research engines V1/V2/V3 evaluate last-completed
-HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strategies. 5m live remains
-Phase 13. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened LTF and HTF
-tokens to every ingested venue clock. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF
-candles are not in this slice.
+HTF bars and fingerprint both datasets. Paper and live rejected HTF-filter strategies in this slice.
+5m live remained Phase 13. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later
+widened LTF and HTF tokens to every ingested venue clock.
+[ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md) later evaluated those filters in paper
+and live. Per-indicator timeframes and mixed-TF crossovers are not in this slice.
 
 ## Phase 9: Wider fail-closed indicator catalog — ✅ Five slices shipped
 
@@ -109,8 +110,9 @@ warmup and no-lookahead rules.
    `highest` (high, period 2–500), `lowest` (low, period 2–500), and population `stdev` (close,
    period 2–500). Same `decimal64-half-even-v1` left-fold, inclusive current bar, insufficient
    warmup → undefined/null (not 0), tri-state conditions. Research V1/V2/V3, paper, and live share
-   the LTF catalog. HTF may declare the same kinds inside `htf_filter`; paper/live still reject that
-   block. No MACD/Bollinger. No per-indicator timeframes. 5m live remains Phase 13.
+   the LTF catalog. HTF may declare the same kinds inside `htf_filter`. Paper/live HTF evaluation
+   shipped later ([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). No MACD/Bollinger.
+   No per-indicator timeframes. 5m live remains Phase 13.
 2. **Momentum and HLC oscillators** — ✅ Shipped ([ADR 0027](decisions/0027-phase-9-roc-williams-cci.md)):
    `roc` (close, period 2–500, warmup `period + 1`), `williams_r` (high/low/close, period 2–100),
    and `cci` (high/low/close, period 2–100, typical price SMA and population MAD, Lambert `0.015`).
@@ -197,7 +199,9 @@ Destination still includes on-demand trades, `1m`/`2h` clocks, journals, and not
 5m live (same closed-bar clock as paper), ATR trailing stops, authenticated user-order WebSockets,
 and native Coinbase `trigger_bracket_gtc` OCO after live entry fills ([ADR 0036](decisions/0036-phase-13-live-extras.md)).
 Paper still simulates OCO with a post-only take-profit plus a synthetic stop. HTF-filter publications
-stay rejected. Daily-loss / drawdown breakers stay destination.
+were still rejected in this slice; paper/live HTF evaluation shipped later
+([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). Daily-loss / drawdown breakers stay
+destination.
 
 On-demand/discretionary trades with SL/TP are destination product work
 ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). They need a dedicated slice and
@@ -247,8 +251,8 @@ YOLO-without-confirm for live stay out of this slice.
 Every ingested complete-only venue granularity is a legal strategy LTF, paper clock, live clock,
 discretionary book clock, and research HTF token
 ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Sub-hour live pauses unless
-the authenticated user-order feed is connected. Paper and live still reject `htf_filter`. No
-interpolation. Ops contract is `thytrader-ops-contract-v12` / Alembic `0026`.
+the authenticated user-order feed is connected. Paper/live HTF evaluation stayed out of this clock
+slice. No interpolation. Ops contract is `thytrader-ops-contract-v12` / Alembic `0026`.
 
 **Exit gate met:** a published `1m`, `15m`, `30m`, `2h`, `4h`, `6h`, or `1d` strategy can research,
 paper, and arm live against a matching complete-only dataset the same way `1h`/`5m` already could;
@@ -257,6 +261,19 @@ reconcile-before-retry.
 
 Paper/live HTF evaluation, per-indicator timeframes, extra exchanges, shorting, and
 YOLO-without-confirm for live stay out of this slice.
+
+## Paper and live HTF-filter evaluation — ✅ Shipped
+
+Paper and live evaluate published `htf_filter` with the same last-completed closed-bar AND as
+research ([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). Complete-only HTF candles;
+no interpolation; missing HTF coverage pauses. Ops contract is `thytrader-ops-contract-v13` /
+Alembic `0026` (no new migration).
+
+**Exit gate met:** a published HTF-filter strategy can start paper and live; the worker ANDs HTF
+`when` with LTF entry on last-completed HTF bars; in-progress HTF bars never participate.
+
+Per-indicator timeframes, extra exchanges, shorting, and YOLO-without-confirm for live stay out of
+this slice.
 
 ## Destination capabilities (accepted; not current Builder order)
 
@@ -271,7 +288,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
-| Research | Single-instrument backtests; research HTF filter; Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
+| Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Five lane-separated skills plus playbook | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037) |

@@ -102,8 +102,10 @@ This is what the running product actually does today. It is **not** the end stat
 
 Shipped complete-only datasets: **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**. Strategy, paper, live,
 discretionary, and research HTF clocks are that same venue set
-([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject
-`htf_filter`. Sub-hour live pauses unless the authenticated user-order feed is connected.
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate
+`htf_filter` on last-completed complete-only HTF bars
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Sub-hour live pauses unless the
+authenticated user-order feed is connected.
 
 Coinbase candle requests are bounded (currently 350 buckets per request). Ingestion must paginate,
 deduplicate, validate, and detect gaps. Missing candles are never interpolated. The data-provider

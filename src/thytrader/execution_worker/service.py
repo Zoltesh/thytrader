@@ -262,6 +262,18 @@ async def _advance_strategy(
         )
         await store.save_deployment(paused)
         return
+    htf_candles = await _closed_htf_window(market_data, strategy)
+    if htf_candles is None:
+        paused = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail=(
+                "HTF market-data window is gapped or missing the latest completed HTF bar."
+            ),
+        )
+        await store.save_deployment(paused)
+        return
     broker: Broker = paper_broker
     if deployment.mode is DeploymentMode.LIVE:
         prepared = await _prepare_live(
@@ -297,6 +309,7 @@ async def _advance_strategy(
             store=store,
             risk_policy=risk_policy,
             portfolio=portfolio,
+            htf_candles=htf_candles,
         )
 
 
@@ -470,6 +483,42 @@ def _contiguous(candles: Sequence[Candle], bar_duration: timedelta) -> bool:
             return False
         previous = candle.starts_at
     return True
+
+
+def htf_coverage_ready(
+    candles: Sequence[Candle],
+    *,
+    expected_last_start: datetime,
+    bar_duration: timedelta,
+) -> bool:
+    """True when HTF bars are contiguous and include the latest completed HTF bar."""
+    if not candles or not _contiguous(candles, bar_duration):
+        return False
+    return candles[-1].starts_at == expected_last_start
+
+
+async def _closed_htf_window(
+    market_data: MarketDataService,
+    strategy: StrategyDefinition,
+) -> tuple[Candle, ...] | None:
+    """Fetch complete-only last-completed HTF bars, or None when gapped."""
+    htf_filter = strategy.htf_filter
+    if htf_filter is None:
+        return ()
+    _product, candles, expected_last = await _closed_window_for(
+        market_data,
+        product_id=strategy.instrument.product_id,
+        timeframe=htf_filter.timeframe,
+        warmup_bars=htf_filter.data_requirements.warmup_bars,
+    )
+    interval = parse_candle_interval(htf_filter.timeframe)
+    if not htf_coverage_ready(
+        candles,
+        expected_last_start=expected_last,
+        bar_duration=interval.duration,
+    ):
+        return None
+    return candles
 
 
 async def _closed_window(

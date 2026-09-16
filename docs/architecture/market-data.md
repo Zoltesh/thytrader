@@ -71,7 +71,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and research HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject `htf_filter`. Missing bars are never interpolated. |
+| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Missing bars are never interpolated. |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -223,7 +223,8 @@ The diagnostics create a tested boundary to expand rather than a side path to ma
 1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d/1m/2h/4h complete-only
    datasets are implemented. Phase 7 data-loop hardening is also implemented. [ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)
    later made every ingested venue TF a legal LTF, paper, live, discretionary, and HTF token.
-   Paper and live still reject `htf_filter`.
+   [ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md) later evaluated `htf_filter` in
+   paper and live.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and every shipped dataset timeframe without weakening complete-only publication.
 3. **Sub-hour live** — paper and live may evaluate closed venue bars. Sub-hour live pauses unless the
    authenticated user-order feed is connected ([ADR 0036](../decisions/0036-phase-13-live-extras.md),

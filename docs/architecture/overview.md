@@ -92,8 +92,9 @@ On-demand discretionary orders are shipped
 The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
 the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
 Every ingested venue granularity is a legal strategy, paper, live, discretionary, and HTF clock
-([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject
-`htf_filter`.
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate
+`htf_filter` on last-completed complete-only HTF bars
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)).
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:
