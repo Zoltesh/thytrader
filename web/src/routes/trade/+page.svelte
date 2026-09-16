@@ -1,10 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import {
-		listDeployments,
-		placeDiscretionaryOrder,
-		type Deployment
-	} from '$lib/deployments';
+	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
 
 	let productId = $state('BTC-USD');
 	let mode = $state<'paper' | 'live'>('paper');
@@ -87,10 +83,14 @@
 		</div>
 	</section>
 
-	<form class="ticket" data-testid="discretionary-ticket" data-hydrated={hydrated ? 'true' : 'false'}>
+	<form
+		class="ticket"
+		data-testid="discretionary-ticket"
+		data-hydrated={hydrated ? 'true' : 'false'}
+	>
 		<label>
 			Product
-			<input bind:value={productId} required pattern={"[A-Z0-9]{2,20}-USD"} />
+			<input bind:value={productId} required pattern={'[A-Z0-9]{2,20}-USD'} />
 		</label>
 		<label>
 			Mode

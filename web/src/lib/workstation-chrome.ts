@@ -9,12 +9,7 @@ export const DEFAULT_CONTEXT_LABEL = 'Local workstation';
 export const RESEARCH_CONTEXT_LABEL = 'Research only';
 
 export type WorkstationNavHref =
-	| '/'
-	| '/trade'
-	| '/strategies'
-	| '/backtests'
-	| '/audit'
-	| '/memory';
+	'/' | '/trade' | '/strategies' | '/backtests' | '/audit' | '/memory';
 
 export type WorkstationNavItem = {
 	href: WorkstationNavHref;
