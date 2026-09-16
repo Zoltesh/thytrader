@@ -38,6 +38,7 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorParameters,
     MacdIndicatorParameters,
+    StochasticIndicatorParameters,
     StrategyDefinition,
     strategy_fingerprint,
 )
@@ -1480,6 +1481,252 @@ def test_crossover_uses_only_previous_and_current_completed_values() -> None:
     trace = evaluate_signal_trace(run, strategy, candles)
 
     assert [record.entry_condition for record in trace.records] == ["matched", "not_matched"]
+
+
+def test_configurable_rolling_input_and_sample_stdev() -> None:
+    """Rolling kinds consume the selected field; sample stdev divides by N-1."""
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("1"), Decimal("2"), Decimal("0.5"), Decimal("1"), Decimal("10")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("2"),
+            Decimal("3"),
+            Decimal("1.5"),
+            Decimal("2"),
+            Decimal("10"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("4"),
+            Decimal("5"),
+            Decimal("3.5"),
+            Decimal("4"),
+            Decimal("10"),
+        ),
+        Candle(
+            start + timedelta(hours=3),
+            Decimal("8"),
+            Decimal("9"),
+            Decimal("0.25"),
+            Decimal("8"),
+            Decimal("10"),
+        ),
+    )
+    indicators = (
+        IndicatorDefinition(
+            id="sma_high",
+            kind=IndicatorKind.SMA,
+            input="high",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="highest_close",
+            kind=IndicatorKind.HIGHEST,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="close_stdev",
+            kind=IndicatorKind.STDEV,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+        IndicatorDefinition(
+            id="close_stdev_sample",
+            kind=IndicatorKind.STDEV_SAMPLE,
+            input="close",
+            parameters=IndicatorParameters(period=2),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+
+    assert [row["sma_high"] for row in rows] == [None, Decimal("2.5"), Decimal("4"), Decimal("7")]
+    assert [row["highest_close"] for row in rows] == [
+        None,
+        Decimal("2"),
+        Decimal("4"),
+        Decimal("8"),
+    ]
+    assert [row["close_stdev"] for row in rows] == [
+        None,
+        Decimal("0.5"),
+        Decimal("1"),
+        Decimal("2"),
+    ]
+    with localcontext(Context(prec=64, rounding=ROUND_HALF_EVEN, Emin=-6143, Emax=6144)):
+        sample = (
+            None,
+            Decimal("0.5").sqrt(),
+            Decimal("2").sqrt(),
+            Decimal("8").sqrt(),
+        )
+    assert [row["close_stdev_sample"] for row in rows] == list(sample)
+    prefix = calculate_indicator_rows(indicators, candles[:-1])
+    assert prefix[-1]["sma_high"] == Decimal("4")
+    assert prefix[-1]["close_stdev_sample"] == sample[2]
+
+
+def test_stochastic_and_adx_warmup_decimal_and_no_lookahead() -> None:
+    """Stochastic and ADX stay undefined until warmup and never read future candles."""
+    indicators = (
+        IndicatorDefinition(
+            id="stoch",
+            kind=IndicatorKind.STOCHASTIC,
+            input=("high", "low", "close"),
+            parameters=StochasticIndicatorParameters(k_period=2, d_period=2),
+        ),
+        IndicatorDefinition(
+            id="trend_adx",
+            kind=IndicatorKind.ADX,
+            input=("high", "low", "close"),
+            parameters=IndicatorParameters(period=2),
+        ),
+    )
+    start = datetime(2026, 7, 10, tzinfo=UTC)
+    candles = (
+        Candle(start, Decimal("10"), Decimal("12"), Decimal("8"), Decimal("11"), Decimal("1")),
+        Candle(
+            start + timedelta(hours=1),
+            Decimal("11"),
+            Decimal("14"),
+            Decimal("10"),
+            Decimal("13"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=2),
+            Decimal("13"),
+            Decimal("13"),
+            Decimal("9"),
+            Decimal("10"),
+            Decimal("1"),
+        ),
+        Candle(
+            start + timedelta(hours=3),
+            Decimal("10"),
+            Decimal("16"),
+            Decimal("10"),
+            Decimal("15"),
+            Decimal("1"),
+        ),
+    )
+
+    rows = calculate_indicator_rows(indicators, candles)
+    prefix_rows = calculate_indicator_rows(indicators, candles[:-1])
+
+    with localcontext(Context(prec=64, rounding=ROUND_HALF_EVEN, Emin=-6143, Emax=6144)):
+        k1 = Decimal(100) * (Decimal("13") - Decimal("8")) / (Decimal("14") - Decimal("8"))
+        k2 = Decimal(100) * (Decimal("10") - Decimal("9")) / (Decimal("14") - Decimal("9"))
+        k3 = Decimal(100) * (Decimal("15") - Decimal("9")) / (Decimal("16") - Decimal("9"))
+        percent_k = (None, k1, k2, k3)
+        percent_d = (None, None, (k1 + k2) / Decimal(2), (k2 + k3) / Decimal(2))
+        plus_di = (
+            None,
+            Decimal(100) * Decimal("1") / Decimal("4"),
+            Decimal(100) * Decimal("0.5") / Decimal("4"),
+            Decimal(100) * Decimal("1.75") / Decimal("5"),
+        )
+        minus_di = (
+            None,
+            Decimal(0),
+            Decimal(100) * Decimal("0.5") / Decimal("4"),
+            Decimal(100) * Decimal("0.25") / Decimal("5"),
+        )
+        dx1 = Decimal(100)
+        dx2 = Decimal(0)
+        dx3 = Decimal(100) * Decimal("30") / Decimal("40")
+        adx = (None, None, (dx1 + dx2) / Decimal(2), ((dx1 + dx2) / Decimal(2) + dx3) / Decimal(2))
+
+    assert [row["stoch.k"] for row in rows] == list(percent_k)
+    assert [row["stoch.d"] for row in rows] == list(percent_d)
+    assert [row["trend_adx.plus_di"] for row in rows] == list(plus_di)
+    assert [row["trend_adx.minus_di"] for row in rows] == list(minus_di)
+    assert [row["trend_adx.adx"] for row in rows] == list(adx)
+    assert prefix_rows[-1]["stoch.d"] == percent_d[2]
+    assert prefix_rows[-1]["trend_adx.adx"] == adx[2]
+
+
+def test_entry_conditions_can_reference_stochastic_and_adx_series() -> None:
+    """Published strategies compare stochastic and ADX through series ids."""
+    payload = _strategy().model_dump(mode="json", by_alias=True)
+    payload["indicators"] = [
+        {"id": "sma", "kind": "sma", "input": "high", "parameters": {"period": 2}},
+        {
+            "id": "stoch",
+            "kind": "stochastic",
+            "input": ["high", "low", "close"],
+            "parameters": {"k_period": 2, "d_period": 2},
+        },
+        {
+            "id": "trend_adx",
+            "kind": "adx",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+        {
+            "id": "atr",
+            "kind": "atr",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 2},
+        },
+    ]
+    payload["data_requirements"]["warmup_bars"] = 4
+    payload["entry"]["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "stoch", "series": "k"},
+                "operator": "greater_than",
+                "right": {"indicator": "stoch", "series": "d"},
+            },
+            {
+                "left": {"indicator": "trend_adx", "series": "adx"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+    strategy = StrategyDefinition.model_validate(payload)
+    run = _run(strategy).model_copy(
+        update={
+            "warmup": WarmupWindow(
+                bars=4,
+                starts_at=datetime(2026, 7, 9, 22, tzinfo=UTC),
+            )
+        }
+    )
+    prior = (
+        Candle(
+            datetime(2026, 7, 9, 22, tzinfo=UTC),
+            Decimal("10"),
+            Decimal("12"),
+            Decimal("8"),
+            Decimal("11"),
+            Decimal("10"),
+        ),
+        Candle(
+            datetime(2026, 7, 9, 23, tzinfo=UTC),
+            Decimal("11"),
+            Decimal("14"),
+            Decimal("10"),
+            Decimal("13"),
+            Decimal("10"),
+        ),
+    )
+    trace = evaluate_signal_trace(run, strategy, (*prior, *_candles()))
+
+    assert trace.indicator_ids == (
+        "sma",
+        "stoch.k",
+        "stoch.d",
+        "trend_adx.adx",
+        "trend_adx.plus_di",
+        "trend_adx.minus_di",
+        "atr",
+    )
+    assert all(record.indicator_values[1].value is not None for record in trace.records)
+    assert all(record.indicator_values[3].value is not None for record in trace.records)
 
 
 def test_trace_identity_rejects_coercible_bytes() -> None:

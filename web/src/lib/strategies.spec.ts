@@ -172,6 +172,7 @@ describe('indicator kind picker', () => {
 			'highest',
 			'lowest',
 			'stdev',
+			'stdev_sample',
 			'roc',
 			'williams_r',
 			'cci',
@@ -180,6 +181,8 @@ describe('indicator kind picker', () => {
 			'mfi',
 			'macd',
 			'bollinger',
+			'stochastic',
+			'adx',
 			'identity',
 			'constant'
 		]);
@@ -255,6 +258,32 @@ describe('indicator kind picker', () => {
 			kind: 'bollinger',
 			input: 'close',
 			parameters: { period: 20, stdev_multiplier: '2' }
+		});
+		expect(
+			serializeIndicator({
+				id: 'stoch',
+				kind: 'stochastic',
+				input: ['high', 'low', 'close'],
+				parameters: { k_period: 14, d_period: 3 }
+			})
+		).toEqual({
+			id: 'stoch',
+			kind: 'stochastic',
+			input: ['high', 'low', 'close'],
+			parameters: { k_period: 14, d_period: 3 }
+		});
+		expect(
+			serializeIndicator({
+				id: 'sma_high',
+				kind: 'sma',
+				input: 'high',
+				parameters: { period: 20 }
+			})
+		).toEqual({
+			id: 'sma_high',
+			kind: 'sma',
+			input: 'high',
+			parameters: { period: 20 }
 		});
 		expect(
 			serializeIndicator(

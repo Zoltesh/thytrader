@@ -19,6 +19,7 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorParameters,
     MacdIndicatorParameters,
+    StochasticIndicatorParameters,
     indicator_output_series,
 )
 
@@ -90,6 +91,10 @@ def _multi_series_values(
         return _macd_series(indicator, candles)
     if indicator.kind is IndicatorKind.BOLLINGER:
         return _bollinger_series(indicator, candles)
+    if indicator.kind is IndicatorKind.STOCHASTIC:
+        return _stochastic_series(indicator, candles)
+    if indicator.kind is IndicatorKind.ADX:
+        return _adx_series(indicator, candles)
     raise IndicatorCalculationError(
         f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
     )
@@ -155,6 +160,173 @@ def _bollinger_series(
         upper.append(mid + width)
         lower.append(mid - width)
     return {"middle": middle, "upper": tuple(upper), "lower": tuple(lower)}
+
+
+def _stochastic_series(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> dict[str, tuple[Decimal | None, ...]]:
+    """Return fast stochastic %K and SMA %D from the inclusive HLC window."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, StochasticIndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    highest = _rolling_extreme(
+        tuple(candle.high for candle in candles),
+        parameters.k_period,
+        maximum=True,
+    )
+    lowest = _rolling_extreme(
+        tuple(candle.low for candle in candles),
+        parameters.k_period,
+        maximum=False,
+    )
+    hundred = Decimal(100)
+    percent_k: list[Decimal | None] = []
+    for candle, high_value, low_value in zip(candles, highest, lowest, strict=True):
+        if high_value is None or low_value is None:
+            percent_k.append(None)
+            continue
+        span = high_value - low_value
+        if span == 0:
+            percent_k.append(None)
+            continue
+        percent_k.append(hundred * (candle.close - low_value) / span)
+    percent_d = _simple_moving_average_defined(tuple(percent_k), parameters.d_period)
+    return {"k": tuple(percent_k), "d": percent_d}
+
+
+def _simple_moving_average_defined(
+    values: Sequence[Decimal | None],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return SMA of an aligned series, undefined when any window value is missing."""
+    result: list[Decimal | None] = []
+    period_decimal = Decimal(period)
+    for index in range(len(values)):
+        if index + 1 < period:
+            result.append(None)
+            continue
+        window = values[index + 1 - period : index + 1]
+        if any(value is None for value in window):
+            result.append(None)
+            continue
+        total = sum((value for value in window if value is not None), start=Decimal(0))
+        result.append(total / period_decimal)
+    return tuple(result)
+
+
+def _adx_series(
+    indicator: IndicatorDefinition,
+    candles: Sequence[Candle],
+) -> dict[str, tuple[Decimal | None, ...]]:
+    """Return Wilder +DI, -DI, and ADX using the shipped ATR seed and recurrence."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, IndicatorParameters):
+        raise IndicatorCalculationError(
+            f"Indicator kind {indicator.kind.value} is not implemented by this engine contract."
+        )
+    period = parameters.period
+    hundred = Decimal(100)
+    true_ranges: list[Decimal] = []
+    plus_dm: list[Decimal] = []
+    minus_dm: list[Decimal] = []
+    previous_high: Decimal | None = None
+    previous_low: Decimal | None = None
+    previous_close: Decimal | None = None
+    for candle in candles:
+        high_low = candle.high - candle.low
+        if previous_close is None or previous_high is None or previous_low is None:
+            true_ranges.append(high_low)
+            plus_dm.append(Decimal(0))
+            minus_dm.append(Decimal(0))
+        else:
+            true_ranges.append(
+                max(
+                    high_low,
+                    abs(candle.high - previous_close),
+                    abs(candle.low - previous_close),
+                )
+            )
+            up_move = candle.high - previous_high
+            down_move = previous_low - candle.low
+            plus_dm.append(up_move if up_move > down_move and up_move > 0 else Decimal(0))
+            minus_dm.append(down_move if down_move > up_move and down_move > 0 else Decimal(0))
+        previous_high = candle.high
+        previous_low = candle.low
+        previous_close = candle.close
+    smoothed_tr = _wilder_smooth(true_ranges, period)
+    smoothed_plus = _wilder_smooth(plus_dm, period)
+    smoothed_minus = _wilder_smooth(minus_dm, period)
+    plus_di: list[Decimal | None] = []
+    minus_di: list[Decimal | None] = []
+    dx_values: list[Decimal | None] = []
+    for tr_value, plus_value, minus_value in zip(
+        smoothed_tr, smoothed_plus, smoothed_minus, strict=True
+    ):
+        if tr_value is None or plus_value is None or minus_value is None or tr_value == 0:
+            plus_di.append(None)
+            minus_di.append(None)
+            dx_values.append(None)
+            continue
+        plus_line = hundred * plus_value / tr_value
+        minus_line = hundred * minus_value / tr_value
+        plus_di.append(plus_line)
+        minus_di.append(minus_line)
+        di_sum = plus_line + minus_line
+        if di_sum == 0:
+            dx_values.append(None)
+            continue
+        dx_values.append(hundred * abs(plus_line - minus_line) / di_sum)
+    adx_values = _wilder_smooth_optional(tuple(dx_values), period)
+    return {
+        "adx": adx_values,
+        "plus_di": tuple(plus_di),
+        "minus_di": tuple(minus_di),
+    }
+
+
+def _wilder_smooth(values: Sequence[Decimal], period: int) -> tuple[Decimal | None, ...]:
+    """Return ATR-style Wilder smoothing of a fully defined series."""
+    result: list[Decimal | None] = []
+    previous: Decimal | None = None
+    for index, value in enumerate(values):
+        if index + 1 < period:
+            result.append(None)
+            continue
+        if previous is None:
+            previous = sum(values[:period], start=Decimal(0)) / Decimal(period)
+        else:
+            previous = (previous * Decimal(period - 1) + value) / Decimal(period)
+        result.append(previous)
+    return tuple(result)
+
+
+def _wilder_smooth_optional(
+    values: Sequence[Decimal | None],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return Wilder smoothing that seeds from defined values and skips holes."""
+    result: list[Decimal | None] = []
+    seed: list[Decimal] = []
+    previous: Decimal | None = None
+    period_decimal = Decimal(period)
+    for value in values:
+        if value is None:
+            result.append(None)
+            continue
+        if previous is None:
+            seed.append(value)
+            if len(seed) < period:
+                result.append(None)
+                continue
+            previous = sum(seed, start=Decimal(0)) / period_decimal
+            result.append(previous)
+            continue
+        previous = (previous * Decimal(period - 1) + value) / period_decimal
+        result.append(previous)
+    return tuple(result)
 
 
 def _indicator_values(
@@ -271,8 +443,27 @@ def _rolling_population_stdev(
     period: int,
 ) -> tuple[Decimal | None, ...]:
     """Return population stdev of each inclusive window under engine Decimal rules."""
+    return _rolling_stdev(values, period, divisor=period)
+
+
+def _rolling_sample_stdev(
+    values: Sequence[Decimal],
+    period: int,
+) -> tuple[Decimal | None, ...]:
+    """Return sample stdev of each inclusive window under engine Decimal rules."""
+    return _rolling_stdev(values, period, divisor=period - 1)
+
+
+def _rolling_stdev(
+    values: Sequence[Decimal],
+    period: int,
+    *,
+    divisor: int,
+) -> tuple[Decimal | None, ...]:
+    """Return rolling stdev using population or sample divisor after the mean fold."""
     result: list[Decimal | None] = []
     period_decimal = Decimal(period)
+    divisor_decimal = Decimal(divisor)
     for index in range(len(values)):
         if index + 1 < period:
             result.append(None)
@@ -283,7 +474,7 @@ def _rolling_population_stdev(
         for value in window:
             delta = value - mean
             sum_sq += delta * delta
-        variance = sum_sq / period_decimal
+        variance = sum_sq / divisor_decimal
         result.append(Decimal(0) if variance <= 0 else variance.sqrt())
     return tuple(result)
 
@@ -530,6 +721,7 @@ _SERIES_CALCULATORS: dict[
     IndicatorKind.HIGHEST: _rolling_highest,
     IndicatorKind.LOWEST: _rolling_lowest,
     IndicatorKind.STDEV: _rolling_population_stdev,
+    IndicatorKind.STDEV_SAMPLE: _rolling_sample_stdev,
     IndicatorKind.ROC: _rate_of_change,
     IndicatorKind.WMA: _weighted_moving_average,
     IndicatorKind.MOMENTUM: _momentum,

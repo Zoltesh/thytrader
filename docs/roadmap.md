@@ -348,6 +348,17 @@ Ops contract is `thytrader-ops-contract-v15` / Alembic `0027`. Live YOLO skip-co
 **Exit gate met:** paper short + attached live entry + fail-closed live short without base; long
 V1/V2/V3 golden fingerprints unchanged.
 
+## Wider fail-closed indicator catalog — ✅ Shipped
+
+Stochastic `%K`/`%D`, Wilder ADX / `+DI` / `-DI`, configurable rolling OHLCV inputs, and sample
+stdev join the fail-closed registry ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)).
+Same complete-only candles, last-completed per-indicator clocks, and published strategy semantics in
+backtest, paper, and live. No TA-library passthrough. No interpolated candles. Population `stdev`
+and Bollinger bands are unchanged.
+
+**Exit gate met:** kinds named in the ADR, implemented in the registry and evaluator, referenced from
+conditions, and listed in operator `indicators` plus the engine-support matrix.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -360,7 +371,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)) | Intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
-| Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Many indicators |
+| Indicators | Fail-closed catalog through [ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md) (`stochastic`/`adx` series ids, configurable rolling inputs, `stdev_sample`); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) | Richer sweep axes, persisted study rows if operators need a catalog |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |

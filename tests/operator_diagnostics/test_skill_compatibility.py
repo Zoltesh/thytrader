@@ -75,6 +75,9 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "--template" in skill
     assert "macd" in skill.lower()
     assert "bollinger" in skill.lower()
+    assert "stochastic" in skill.lower()
+    assert "adx" in skill.lower()
+    assert "stdev_sample" in skill
     assert "indicator_dataset_fingerprints" in skill
     assert "evaluation_start" in skill
     assert "do not edit" in skill.lower()

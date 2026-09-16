@@ -106,7 +106,12 @@ function indicatorText(indicator: IndicatorDraft): string {
 	if (indicator.kind === 'bollinger') {
 		return `${label}(${indicator.parameters.period},${indicator.parameters.stdev_multiplier ?? '2'})${clock} as "${indicator.id}"`;
 	}
-	return `${label}(${indicator.parameters.period})${clock} as "${indicator.id}"`;
+	if (indicator.kind === 'stochastic') {
+		return `${label}(${indicator.parameters.k_period},${indicator.parameters.d_period})${clock} as "${indicator.id}"`;
+	}
+	const source =
+		typeof indicator.input === 'string' ? `,${indicator.input}` : '';
+	return `${label}(${indicator.parameters.period}${source})${clock} as "${indicator.id}"`;
 }
 
 function diffIndicators(

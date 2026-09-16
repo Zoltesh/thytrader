@@ -145,6 +145,13 @@ class BollingerIndicatorParameters(_FrozenModel):
         return self
 
 
+class StochasticIndicatorParameters(_FrozenModel):
+    """HLC-locked fast stochastic windows: raw %K lookback and %D SMA."""
+
+    k_period: int = Field(ge=2, le=100)
+    d_period: int = Field(ge=2, le=500)
+
+
 class ConstantIndicatorParameters(_FrozenModel):
     """Named finite level repeated on every completed bar."""
 
@@ -158,6 +165,7 @@ class EmptyIndicatorParameters(_FrozenModel):
 IndicatorParameterBlock = (
     MacdIndicatorParameters
     | BollingerIndicatorParameters
+    | StochasticIndicatorParameters
     | IndicatorParameters
     | ConstantIndicatorParameters
     | EmptyIndicatorParameters
@@ -185,29 +193,49 @@ class IndicatorKind(StrEnum):
     MFI = "mfi"
     MACD = "macd"
     BOLLINGER = "bollinger"
+    STDEV_SAMPLE = "stdev_sample"
+    STOCHASTIC = "stochastic"
+    ADX = "adx"
 
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
-    IndicatorKind.EMA: "close",
-    IndicatorKind.SMA: "close",
     IndicatorKind.RSI: "close",
     IndicatorKind.VOLUME_SMA: "volume",
-    IndicatorKind.HIGHEST: "high",
-    IndicatorKind.LOWEST: "low",
-    IndicatorKind.STDEV: "close",
-    IndicatorKind.ROC: "close",
-    IndicatorKind.WMA: "close",
-    IndicatorKind.MOMENTUM: "close",
     IndicatorKind.MACD: "close",
     IndicatorKind.BOLLINGER: "close",
 }
+_CONFIGURABLE_SINGLE_SOURCE_KINDS = frozenset(
+    {
+        IndicatorKind.EMA,
+        IndicatorKind.SMA,
+        IndicatorKind.HIGHEST,
+        IndicatorKind.LOWEST,
+        IndicatorKind.STDEV,
+        IndicatorKind.STDEV_SAMPLE,
+        IndicatorKind.ROC,
+        IndicatorKind.WMA,
+        IndicatorKind.MOMENTUM,
+    }
+)
 MACD_OUTPUT_SERIES: tuple[str, ...] = ("macd", "signal", "histogram")
 BOLLINGER_OUTPUT_SERIES: tuple[str, ...] = ("middle", "upper", "lower")
+STOCHASTIC_OUTPUT_SERIES: tuple[str, ...] = ("k", "d")
+ADX_OUTPUT_SERIES: tuple[str, ...] = ("adx", "plus_di", "minus_di")
 _INDICATOR_OUTPUT_SERIES: dict[IndicatorKind, tuple[str, ...]] = {
     IndicatorKind.MACD: MACD_OUTPUT_SERIES,
     IndicatorKind.BOLLINGER: BOLLINGER_OUTPUT_SERIES,
+    IndicatorKind.STOCHASTIC: STOCHASTIC_OUTPUT_SERIES,
+    IndicatorKind.ADX: ADX_OUTPUT_SERIES,
 }
-_HLC_INPUT_KINDS = frozenset({IndicatorKind.ATR, IndicatorKind.WILLIAMS_R, IndicatorKind.CCI})
+_HLC_INPUT_KINDS = frozenset(
+    {
+        IndicatorKind.ATR,
+        IndicatorKind.WILLIAMS_R,
+        IndicatorKind.CCI,
+        IndicatorKind.STOCHASTIC,
+        IndicatorKind.ADX,
+    }
+)
 _HLCV_INPUT_KINDS = frozenset({IndicatorKind.MFI})
 _SHORT_PERIOD_KINDS = frozenset(
     {
@@ -216,6 +244,7 @@ _SHORT_PERIOD_KINDS = frozenset(
         IndicatorKind.WILLIAMS_R,
         IndicatorKind.CCI,
         IndicatorKind.MFI,
+        IndicatorKind.ADX,
     }
 )
 _LOOKBACK_WARMUP_KINDS = frozenset(
@@ -262,6 +291,9 @@ class IndicatorDefinition(_FrozenModel):
             return self
         if self.kind is IndicatorKind.BOLLINGER:
             _require_bollinger_indicator(self)
+            return self
+        if self.kind is IndicatorKind.STOCHASTIC:
+            _require_stochastic_indicator(self)
             return self
         _require_period_indicator(self)
         return self
@@ -423,6 +455,15 @@ def _require_bollinger_indicator(indicator: IndicatorDefinition) -> None:
     _require_locked_source(indicator)
 
 
+def _require_stochastic_indicator(indicator: IndicatorDefinition) -> None:
+    """Reject stochastic kinds that omit %K/%D periods or unlock high/low/close."""
+    if not isinstance(indicator.parameters, StochasticIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "stochastic parameters must declare k_period and d_period"
+        )
+    _require_locked_source(indicator)
+
+
 def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
     """Reject identity kinds that carry rolling parameters or a non-OHLCV source."""
     if not isinstance(indicator.parameters, EmptyIndicatorParameters):
@@ -452,7 +493,7 @@ def _require_period_indicator(indicator: IndicatorDefinition) -> None:
 
 
 def _require_locked_source(indicator: IndicatorDefinition) -> None:
-    """Reject period kinds whose input is not the registry-locked OHLCV source."""
+    """Reject kinds whose input is not the registry-allowed OHLCV source."""
     if indicator.kind in _HLC_INPUT_KINDS:
         if indicator.input != ("high", "low", "close"):
             if indicator.kind is IndicatorKind.ATR:
@@ -465,6 +506,12 @@ def _require_locked_source(indicator: IndicatorDefinition) -> None:
         if indicator.input != ("high", "low", "close", "volume"):
             raise ValueError(
                 f"{indicator.kind.value} input must be high, low, close, volume in canonical order"
+            )
+        return
+    if indicator.kind in _CONFIGURABLE_SINGLE_SOURCE_KINDS:
+        if indicator.input not in _IDENTITY_INPUTS:
+            raise ValueError(
+                f"{indicator.kind.value} input must be one of open, high, low, close, volume"
             )
         return
     expected = _SINGLE_SOURCE_INPUT[indicator.kind]
@@ -485,6 +532,10 @@ def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
         return _macd_min_warmup(indicator)
     if indicator.kind is IndicatorKind.BOLLINGER:
         return _bollinger_min_warmup(indicator)
+    if indicator.kind is IndicatorKind.STOCHASTIC:
+        return _stochastic_min_warmup(indicator)
+    if indicator.kind is IndicatorKind.ADX:
+        return _adx_min_warmup(indicator)
     extra = 1 if indicator.kind in _LOOKBACK_WARMUP_KINDS else 0
     parameters = indicator.parameters
     if not isinstance(parameters, IndicatorParameters):
@@ -510,6 +561,24 @@ def _bollinger_min_warmup(indicator: IndicatorDefinition) -> int:
             "bollinger parameters must declare period and stdev_multiplier"
         )
     return parameters.period
+
+
+def _stochastic_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return bars before stochastic %D is defined."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, StochasticIndicatorParameters):
+        raise ValueError(  # noqa: TRY004
+            "stochastic parameters must declare k_period and d_period"
+        )
+    return parameters.k_period + parameters.d_period - 1
+
+
+def _adx_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return bars before ADX is defined when every DX after DI warmup exists."""
+    parameters = indicator.parameters
+    if not isinstance(parameters, IndicatorParameters):
+        raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
+    return 2 * parameters.period - 1
 
 
 def _indicator_input_fields(

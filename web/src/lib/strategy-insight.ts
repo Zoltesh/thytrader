@@ -2,6 +2,7 @@ import {
 	IDENTITY_INPUT_OPTIONS,
 	INDICATOR_OUTPUT_SERIES,
 	extraIndicatorTimeframes,
+	isConfigurableRollingKind,
 	resolvedIndicatorTimeframe,
 	validHtfTimeframes,
 	type BuilderModel,
@@ -124,15 +125,23 @@ type IndicatorLike = {
 		slow_period?: number;
 		signal_period?: number;
 		stdev_multiplier?: string;
+		k_period?: number;
+		d_period?: number;
 	};
 };
 
 function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 	if (indicator.kind === 'constant') return indicator.input === undefined;
-	if (indicator.kind === 'identity') {
+	if (indicator.kind === 'identity' || isConfigurableRollingKind(indicator.kind as IndicatorKindValue)) {
 		return typeof indicator.input === 'string' && IDENTITY_INPUTS.has(indicator.input);
 	}
-	if (indicator.kind === 'atr' || indicator.kind === 'williams_r' || indicator.kind === 'cci') {
+	if (
+		indicator.kind === 'atr' ||
+		indicator.kind === 'williams_r' ||
+		indicator.kind === 'cci' ||
+		indicator.kind === 'stochastic' ||
+		indicator.kind === 'adx'
+	) {
 		return (
 			Array.isArray(indicator.input) &&
 			indicator.input.length === 3 &&
@@ -152,8 +161,6 @@ function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 		);
 	}
 	if (indicator.kind === 'volume_sma') return indicator.input === 'volume';
-	if (indicator.kind === 'highest') return indicator.input === 'high';
-	if (indicator.kind === 'lowest') return indicator.input === 'low';
 	return indicator.input === 'close';
 }
 
@@ -162,7 +169,8 @@ function indicatorPeriodMax(kind: string): number {
 		kind === 'atr' ||
 		kind === 'williams_r' ||
 		kind === 'cci' ||
-		kind === 'mfi'
+		kind === 'mfi' ||
+		kind === 'adx'
 		? 100
 		: 500;
 }
@@ -173,6 +181,14 @@ function indicatorWarmupBars(indicator: IndicatorLike): number {
 		const slow = Number(indicator.parameters.slow_period);
 		const signal = Number(indicator.parameters.signal_period);
 		return slow + signal - 1;
+	}
+	if (indicator.kind === 'stochastic') {
+		const kPeriod = Number(indicator.parameters.k_period);
+		const dPeriod = Number(indicator.parameters.d_period);
+		return kPeriod + dPeriod - 1;
+	}
+	if (indicator.kind === 'adx') {
+		return 2 * Number(indicator.parameters.period) - 1;
 	}
 	const period = Number(indicator.parameters.period);
 	return indicator.kind === 'rsi' ||
@@ -250,6 +266,21 @@ function validateIndicatorShape(indicator: IndicatorLike, label: string): string
 					`${label} "${indicator.id}" Bollinger stdev multiplier must be greater than 0 and at most 10.`
 				);
 			}
+		}
+		return problems;
+	}
+	if (indicator.kind === 'stochastic') {
+		const kPeriod = Number(indicator.parameters.k_period);
+		const dPeriod = Number(indicator.parameters.d_period);
+		if (!Number.isInteger(kPeriod) || kPeriod < 2 || kPeriod > 100) {
+			problems.push(
+				`${label} "${indicator.id}" stochastic %K period must be an integer between 2 and 100.`
+			);
+		}
+		if (!Number.isInteger(dPeriod) || dPeriod < 2 || dPeriod > 500) {
+			problems.push(
+				`${label} "${indicator.id}" stochastic %D period must be an integer between 2 and 500.`
+			);
 		}
 		return problems;
 	}
@@ -576,11 +607,11 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	},
 	{
 		label:
-			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, OHLCV identity, constant',
+			'Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, stochastic, ADX, OHLCV identity, constant',
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'exact Decimal arithmetic; paper/live share the LTF catalog and evaluate HTF kinds inside htf_filter; MACD/Bollinger conditions use series ids'
+		note: 'exact Decimal arithmetic; paper/live share the LTF catalog and evaluate HTF kinds inside htf_filter; MACD/Bollinger/stochastic/ADX conditions use series ids; rolling EMA/SMA/WMA/highest/lowest/stdev/sample-stdev/ROC/momentum accept one OHLCV field'
 	},
 	{
 		label: 'Per-indicator timeframes',

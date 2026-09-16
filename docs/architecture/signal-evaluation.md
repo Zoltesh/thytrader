@@ -82,20 +82,20 @@ library aggregation are incompatible with this engine contract.
 ### SMA and volume SMA
 
 The first value is defined after exactly `period` observations. Each value is the arithmetic mean of
-the current observation and previous `period - 1` observations. SMA consumes close; volume SMA
-consumes volume.
+the current observation and previous `period - 1` observations. SMA consumes one author-selected
+OHLCV field (`open`, `high`, `low`, `close`, or `volume`). Volume SMA remains locked to volume.
 
 ### Highest and lowest
 
-`highest` consumes high. `lowest` consumes low. The first value is defined after exactly `period`
-observations. Each value is the maximum or minimum of the current observation and previous
-`period - 1` observations, scanned oldest to newest. The window includes the current completed bar
-and never a future bar.
+`highest` and `lowest` consume one author-selected OHLCV field. The first value is defined after
+exactly `period` observations. Each value is the maximum or minimum of the current observation and
+previous `period - 1` observations, scanned oldest to newest. The window includes the current
+completed bar and never a future bar.
 
 ### Stdev
 
-`stdev` consumes close. The first value is defined after exactly `period` observations. Each value
-is the **population** standard deviation of the inclusive window:
+`stdev` consumes one author-selected OHLCV field. The first value is defined after exactly `period`
+observations. Each value is the **population** standard deviation of the inclusive window:
 
 1. `mean` is the chronological left-fold sum of the window divided by `period`;
 2. `variance` is the chronological left-fold sum of `(x - mean)^2` divided by `period`;
@@ -104,14 +104,20 @@ is the **population** standard deviation of the inclusive window:
 A non-positive variance after that fold yields `0` (flat windows are defined, not undefined). This
 is not sample stdev (`N-1`) and not a TA-library `stdev`.
 
+### Sample stdev
+
+`stdev_sample` uses the same left-fold mean and squared-deviation sum as `stdev`, then divides by
+`period - 1` (`period >= 2`). Non-positive variance yields `0`. Extra `ddof` on either kind fails
+closed. This is not a TA-library `stdev`.
+
 ### ROC
 
-`roc` consumes close. The first value is defined after `period + 1` closes because the lookback is
-exactly `period` completed bars ago. Each defined value is:
+`roc` consumes one author-selected OHLCV field. The first value is defined after `period + 1`
+observations because the lookback is exactly `period` completed bars ago. Each defined value is:
 
-`roc = 100 * (close - close[period]) / close[period]`
+`roc = 100 * (value - value[period]) / value[period]`
 
-A lookback close of `0` yields undefined, not infinity. This is not a TA-library `roc`.
+A lookback value of `0` yields undefined, not infinity. This is not a TA-library `roc`.
 
 ### Williams %R
 
@@ -134,20 +140,21 @@ not a TA-library `cci`.
 
 ### WMA
 
-`wma` consumes close. The first value is defined after exactly `period` observations. Oldest weight
-is `1` and newest weight is `period`. Each value left-folds `value * weight`, left-folds the weights,
-then divides:
+`wma` consumes one author-selected OHLCV field. The first value is defined after exactly `period`
+observations. Oldest weight is `1` and newest weight is `period`. Each value left-folds
+`value * weight`, left-folds the weights, then divides:
 
-`wma = sum(close[i] * (i + 1)) / (period * (period + 1) / 2)`
+`wma = sum(source[i] * (i + 1)) / (period * (period + 1) / 2)`
 
 This is not a TA-library `wma`.
 
 ### Momentum
 
-`momentum` consumes close. The first value is defined after `period + 1` closes because the lookback
-is exactly `period` completed bars ago, matching ROC. Each defined value is:
+`momentum` consumes one author-selected OHLCV field. The first value is defined after `period + 1`
+observations because the lookback is exactly `period` completed bars ago, matching ROC. Each defined
+value is:
 
-`momentum = close - close[period]`
+`momentum = value - value[period]`
 
 A zero lookback close is a defined difference. This is not a TA-library `mom`.
 
@@ -167,7 +174,8 @@ window is `100`; an all-negative window is `0`. This is not a TA-library `mfi`.
 
 `identity` copies one completed-bar OHLCV field: `open`, `high`, `low`, `close`, or `volume`. The
 first value is defined on the first supplied bar. Parameters are the empty object. This is not a
-rolling window and does not unlock SMA-of-open or other configurable rolling inputs.
+rolling window. Rolling kinds select their own source independently
+([ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)).
 
 ### Constant
 
@@ -207,12 +215,42 @@ A zero stdev yields equal bands at the middle (defined). This is not a TA-librar
 Trace and evaluator keys are `{id}.middle`, `{id}.upper`, and `{id}.lower`. Conditions must name
 one of those series.
 
+### Stochastic
+
+`stochastic` consumes high, low, and close. Parameters are `k_period` (2–100) and `d_period`
+(2–500). Outputs are two named series: `k` and `d`. `%K` is defined after `k_period` bars:
+
+`k = 100 * (close - lowest_low) / (highest_high - lowest_low)`
+
+The inclusive window reuses the shipped rolling max/min left-folds. A zero window range yields
+undefined `%K`. `%D` is the shipped SMA of the last `d_period` `%K` values. Any undefined `%K` in
+that window yields undefined `%D`. `%D` is first defined after `k_period + d_period - 1` bars. This
+is fast stochastic (no extra slowing period) and not a TA-library `stoch`.
+
+Trace and evaluator keys are `{id}.k` and `{id}.d`. Conditions must name one of those series.
+
+### ADX
+
+`adx` consumes high, low, and close. Parameter `period` is 2–100. Outputs are three named series:
+`adx`, `plus_di`, and `minus_di`. True range matches shipped ATR. First-bar `+DM` and `-DM` are `0`.
+Later `+DM` is the up-move when it is strictly greater than the down-move and positive; `-DM` is the
+down-move when it is strictly greater than the up-move and positive; ties are both `0`. Smoothed TR,
+`+DM`, and `-DM` use the shipped ATR Wilder seed and recurrence. `plus_di` /
+`minus_di` are `100 * smoothed_DM / smoothed_TR` and are first defined after `period` bars. A zero
+smoothed TR yields undefined DI. `DX` is `100 * abs(plus_di - minus_di) / (plus_di + minus_di)`. A
+zero DI sum yields undefined `DX`. `ADX` is that same Wilder smooth of defined `DX` values and is
+first defined after `2 * period - 1` bars when every DX after DI warmup is defined. This is not a
+TA-library `adx`.
+
+Trace and evaluator keys are `{id}.adx`, `{id}.plus_di`, and `{id}.minus_di`. Conditions must name
+one of those series.
+
 ### EMA
 
-EMA consumes close. The first value is the arithmetic mean of the first `period` closes. Later values
-use:
+EMA consumes one author-selected OHLCV field. The first value is the arithmetic mean of the first
+`period` observations. Later values use:
 
-`ema = ((period - 1) * previous_ema + 2 * close) / (period + 1)`
+`ema = ((period - 1) * previous_ema + 2 * value) / (period + 1)`
 
 ### ATR
 

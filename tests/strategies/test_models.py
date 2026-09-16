@@ -411,13 +411,27 @@ def test_strategy_accepts_volume_sma_with_volume_input() -> None:
 
 
 def test_sma_indicators_enforce_sources_bounds_and_required_fields() -> None:
-    """SMA variants reject wrong sources, out-of-range periods, and undeclared volume."""
-    wrong_sma_source = reference_payload()
-    _object_list(wrong_sma_source["indicators"]).append(
+    """SMA accepts a single OHLCV field; volume_sma stays locked; bounds still fail closed."""
+    sma_of_volume = reference_payload()
+    _object_list(sma_of_volume["indicators"]).append(
         {"id": "sma_trend", "kind": "sma", "input": "volume", "parameters": {"period": 30}}
     )
-    with pytest.raises(ValidationError, match="sma input must be close"):
-        StrategyDefinition.model_validate(wrong_sma_source)
+    definition = StrategyDefinition.model_validate(sma_of_volume)
+    assert definition.indicators[-1].input == "volume"
+
+    tuple_sma_source = reference_payload()
+    _object_list(tuple_sma_source["indicators"]).append(
+        {
+            "id": "sma_trend",
+            "kind": "sma",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 30},
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="sma input must be one of open, high, low, close, volume"
+    ):
+        StrategyDefinition.model_validate(tuple_sma_source)
 
     wrong_volume_source = reference_payload()
     _object_list(wrong_volume_source["indicators"]).append(
@@ -671,33 +685,32 @@ def test_strategy_accepts_highest_lowest_and_stdev_with_locked_inputs() -> None:
 
 
 def test_highest_lowest_stdev_reject_wrong_sources_unknown_kinds_and_fields() -> None:
-    """Unknown kinds, extra fields, and unlocked inputs fail closed."""
-    wrong_highest = reference_payload()
-    _object_list(wrong_highest["indicators"]).append(
+    """Unknown kinds, extra fields, and HLC tuples on rolling kinds fail closed."""
+    highest_close = reference_payload()
+    _object_list(highest_close["indicators"]).append(
         {"id": "channel_high", "kind": "highest", "input": "close", "parameters": {"period": 20}}
     )
-    with pytest.raises(ValidationError, match="highest input must be high"):
-        StrategyDefinition.model_validate(wrong_highest)
+    assert StrategyDefinition.model_validate(highest_close).indicators[-1].input == "close"
 
-    wrong_lowest = reference_payload()
-    _object_list(wrong_lowest["indicators"]).append(
-        {"id": "channel_low", "kind": "lowest", "input": "high", "parameters": {"period": 20}}
+    tuple_highest = reference_payload()
+    _object_list(tuple_highest["indicators"]).append(
+        {
+            "id": "channel_high",
+            "kind": "highest",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 20},
+        }
     )
-    with pytest.raises(ValidationError, match="lowest input must be low"):
-        StrategyDefinition.model_validate(wrong_lowest)
-
-    wrong_stdev = reference_payload()
-    _object_list(wrong_stdev["indicators"]).append(
-        {"id": "close_stdev", "kind": "stdev", "input": "volume", "parameters": {"period": 20}}
-    )
-    with pytest.raises(ValidationError, match="stdev input must be close"):
-        StrategyDefinition.model_validate(wrong_stdev)
+    with pytest.raises(
+        ValidationError, match="highest input must be one of open, high, low, close, volume"
+    ):
+        StrategyDefinition.model_validate(tuple_highest)
 
     unknown_kind = reference_payload()
     _object_list(unknown_kind["indicators"]).append(
-        {"id": "stoch", "kind": "stochastic", "input": "close", "parameters": {"period": 14}}
+        {"id": "keltner", "kind": "keltner", "input": "close", "parameters": {"period": 14}}
     )
-    with pytest.raises(ValidationError, match="stochastic"):
+    with pytest.raises(ValidationError, match="keltner"):
         StrategyDefinition.model_validate(unknown_kind)
 
     extra_parameter = reference_payload()
@@ -808,13 +821,26 @@ def test_strategy_accepts_roc_williams_r_and_cci_with_locked_inputs() -> None:
 
 
 def test_roc_williams_r_and_cci_reject_wrong_sources_and_period_bounds() -> None:
-    """Unlocked inputs and oscillator periods above 100 fail closed."""
-    wrong_roc = reference_payload()
-    _object_list(wrong_roc["indicators"]).append(
+    """HLC tuples on ROC fail closed; oscillator periods above 100 fail closed."""
+    roc_of_high = reference_payload()
+    _object_list(roc_of_high["indicators"]).append(
         {"id": "close_roc", "kind": "roc", "input": "high", "parameters": {"period": 20}}
     )
-    with pytest.raises(ValidationError, match="roc input must be close"):
-        StrategyDefinition.model_validate(wrong_roc)
+    assert StrategyDefinition.model_validate(roc_of_high).indicators[-1].input == "high"
+
+    tuple_roc = reference_payload()
+    _object_list(tuple_roc["indicators"]).append(
+        {
+            "id": "close_roc",
+            "kind": "roc",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 20},
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="roc input must be one of open, high, low, close, volume"
+    ):
+        StrategyDefinition.model_validate(tuple_roc)
 
     wrong_willr = reference_payload()
     _object_list(wrong_willr["indicators"]).append(
@@ -1156,20 +1182,18 @@ def test_strategy_accepts_wma_momentum_and_mfi_with_locked_inputs() -> None:
 
 
 def test_wma_momentum_and_mfi_reject_wrong_sources_and_period_bounds() -> None:
-    """Unlocked inputs and MFI periods above 100 fail closed."""
-    wrong_wma = reference_payload()
-    _object_list(wrong_wma["indicators"]).append(
+    """Configurable WMA/momentum still reject HLC tuples; MFI stays locked."""
+    wma_of_high = reference_payload()
+    _object_list(wma_of_high["indicators"]).append(
         {"id": "close_wma", "kind": "wma", "input": "high", "parameters": {"period": 20}}
     )
-    with pytest.raises(ValidationError, match="wma input must be close"):
-        StrategyDefinition.model_validate(wrong_wma)
+    assert StrategyDefinition.model_validate(wma_of_high).indicators[-1].input == "high"
 
-    wrong_mom = reference_payload()
-    _object_list(wrong_mom["indicators"]).append(
+    mom_of_volume = reference_payload()
+    _object_list(mom_of_volume["indicators"]).append(
         {"id": "close_mom", "kind": "momentum", "input": "volume", "parameters": {"period": 20}}
     )
-    with pytest.raises(ValidationError, match="momentum input must be close"):
-        StrategyDefinition.model_validate(wrong_mom)
+    assert StrategyDefinition.model_validate(mom_of_volume).indicators[-1].input == "volume"
 
     wrong_mfi = reference_payload()
     _object_list(wrong_mfi["indicators"]).append(
@@ -1452,6 +1476,176 @@ def test_htf_filter_accepts_macd_and_bollinger() -> None:
     assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
         "macd",
         "bollinger",
+    ]
+
+
+def test_strategy_accepts_stochastic_adx_and_sample_stdev() -> None:
+    """ADR 0047 kinds publish with series ids and configurable sample stdev."""
+    payload = reference_payload()
+    indicators = _object_list(payload["indicators"])
+    indicators.extend(
+        (
+            {
+                "id": "stoch",
+                "kind": "stochastic",
+                "input": ["high", "low", "close"],
+                "parameters": {"k_period": 14, "d_period": 3},
+            },
+            {
+                "id": "trend_adx",
+                "kind": "adx",
+                "input": ["high", "low", "close"],
+                "parameters": {"period": 14},
+            },
+            {
+                "id": "close_stdev_sample",
+                "kind": "stdev_sample",
+                "input": "high",
+                "parameters": {"period": 20},
+            },
+        )
+    )
+    payload["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    entry = _object_mapping(payload["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "stoch", "series": "k"},
+                "operator": "crosses_above",
+                "right": {"indicator": "stoch", "series": "d"},
+            },
+            {
+                "left": {"indicator": "trend_adx", "series": "plus_di"},
+                "operator": "greater_than",
+                "right": {"indicator": "trend_adx", "series": "minus_di"},
+            },
+            {
+                "left": {"indicator": "close_stdev_sample"},
+                "operator": "greater_than",
+                "right": {"literal": "0"},
+            },
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    by_id = {indicator.id: indicator for indicator in definition.indicators}
+    assert by_id["stoch"].kind.value == "stochastic"
+    assert by_id["trend_adx"].kind.value == "adx"
+    assert by_id["close_stdev_sample"].input == "high"
+    canonical = canonical_strategy_bytes(definition).decode()
+    assert '"series":"k"' in canonical
+    assert '"kind":"stdev_sample"' in canonical
+
+
+def test_stochastic_and_adx_reject_wrong_params_sources_and_series() -> None:
+    """Missing series, unlocked HLC, and period-shaped stochastic fail closed."""
+    missing_series = reference_payload()
+    _object_list(missing_series["indicators"]).append(
+        {
+            "id": "stoch",
+            "kind": "stochastic",
+            "input": ["high", "low", "close"],
+            "parameters": {"k_period": 14, "d_period": 3},
+        }
+    )
+    entry = _object_mapping(missing_series["entry"])
+    entry["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "stoch"},
+                "operator": "greater_than",
+                "right": {"literal": "50"},
+            }
+        ]
+    }
+    with pytest.raises(ValidationError, match="stochastic series must be one of"):
+        StrategyDefinition.model_validate(missing_series)
+
+    wrong_stoch_input = reference_payload()
+    _object_list(wrong_stoch_input["indicators"]).append(
+        {
+            "id": "stoch",
+            "kind": "stochastic",
+            "input": "close",
+            "parameters": {"k_period": 14, "d_period": 3},
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="stochastic input must be high, low, close in canonical order"
+    ):
+        StrategyDefinition.model_validate(wrong_stoch_input)
+
+    period_only = reference_payload()
+    _object_list(period_only["indicators"]).append(
+        {
+            "id": "stoch",
+            "kind": "stochastic",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 14},
+        }
+    )
+    with pytest.raises(ValidationError, match="stochastic parameters must declare"):
+        StrategyDefinition.model_validate(period_only)
+
+    short_adx_warmup = reference_payload()
+    _object_list(short_adx_warmup["indicators"]).append(
+        {
+            "id": "trend_adx",
+            "kind": "adx",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 30},
+        }
+    )
+    short_adx_warmup["data_requirements"] = {
+        "warmup_bars": 50,
+        "required_fields": ["open", "high", "low", "close", "volume"],
+    }
+    with pytest.raises(ValidationError, match="warmup"):
+        StrategyDefinition.model_validate(short_adx_warmup)
+
+    short_adx_warmup["data_requirements"]["warmup_bars"] = 59
+    StrategyDefinition.model_validate(short_adx_warmup)
+
+
+def test_htf_filter_accepts_stochastic_and_adx() -> None:
+    """HTF filter may declare stochastic and ADX on the HTF clock."""
+    payload = reference_payload()
+    payload["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(payload["htf_filter"])
+    htf["indicators"] = [
+        {
+            "id": "htf_stoch",
+            "kind": "stochastic",
+            "input": ["high", "low", "close"],
+            "parameters": {"k_period": 14, "d_period": 3},
+        },
+        {
+            "id": "htf_adx",
+            "kind": "adx",
+            "input": ["high", "low", "close"],
+            "parameters": {"period": 14},
+        },
+    ]
+    htf["when"] = {
+        "all": [
+            {
+                "left": {"indicator": "htf_adx", "series": "adx"},
+                "operator": "greater_than",
+                "right": {"literal": "20"},
+            }
+        ]
+    }
+
+    definition = StrategyDefinition.model_validate(payload)
+
+    assert definition.htf_filter is not None
+    assert [indicator.kind.value for indicator in definition.htf_filter.indicators] == [
+        "stochastic",
+        "adx",
     ]
 
 

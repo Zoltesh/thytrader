@@ -11,7 +11,7 @@ on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy
 **Shipped:** long or short, one instrument, `max_concurrent_positions = 1`, venue LTF clocks.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
-(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact
+(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, stochastic, ADX, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact
 canonical content immutably, and durably associates that strategy fingerprint with an independently
 verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
 guarded drafts, publication, and archive markers. Paper and live execution consume the same published
@@ -30,7 +30,8 @@ semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.
 [ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md),
 [ADR 0028](../decisions/0028-phase-9-identity-constant.md),
 [ADR 0029](../decisions/0029-phase-9-wma-momentum-mfi.md),
-[ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
+[ADR 0032](../decisions/0032-phase-9-macd-bollinger.md),
+[ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
 `htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
 Research V1/V2/V3, paper, and live consume that signal stage on last-completed HTF bars
 ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Optional per-indicator

@@ -67,6 +67,10 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 Shipped command groups:
 
 - `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
+
+`uv run thytrader-operator indicators` lists the fail-closed catalog an agent may author, including
+stochastic, ADX, configurable rolling inputs, and sample stdev
+([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
 - `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short).

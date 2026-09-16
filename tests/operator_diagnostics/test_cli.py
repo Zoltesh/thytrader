@@ -59,6 +59,7 @@ def test_operator_local_indicators_and_products_are_healthy(
         "highest",
         "lowest",
         "stdev",
+        "stdev_sample",
         "roc",
         "williams_r",
         "cci",
@@ -67,24 +68,27 @@ def test_operator_local_indicators_and_products_are_healthy(
         "mfi",
         "macd",
         "bollinger",
+        "stochastic",
+        "adx",
         "identity",
         "constant",
     }
     by_kind = {item["kind"]: item for item in indicators["payload"]["indicators"]}
-    assert by_kind["highest"]["inputs"] == ["high"]
-    assert by_kind["lowest"]["inputs"] == ["low"]
-    assert by_kind["stdev"]["inputs"] == ["close"]
+    assert by_kind["highest"]["inputs"] == ["open", "high", "low", "close", "volume"]
+    assert by_kind["lowest"]["inputs"] == ["open", "high", "low", "close", "volume"]
+    assert by_kind["stdev"]["inputs"] == ["open", "high", "low", "close", "volume"]
+    assert by_kind["stdev_sample"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["highest"]["period_max"] == 500
     assert by_kind["stdev"]["period_min"] == 2
-    assert by_kind["roc"]["inputs"] == ["close"]
+    assert by_kind["roc"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["roc"]["period_max"] == 500
     assert by_kind["williams_r"]["inputs"] == ["high", "low", "close"]
     assert by_kind["williams_r"]["period_max"] == 100
     assert by_kind["cci"]["inputs"] == ["high", "low", "close"]
     assert by_kind["cci"]["period_max"] == 100
-    assert by_kind["wma"]["inputs"] == ["close"]
+    assert by_kind["wma"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["wma"]["period_max"] == 500
-    assert by_kind["momentum"]["inputs"] == ["close"]
+    assert by_kind["momentum"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["momentum"]["period_max"] == 500
     assert by_kind["mfi"]["inputs"] == ["high", "low", "close", "volume"]
     assert by_kind["mfi"]["period_max"] == 100
@@ -94,6 +98,12 @@ def test_operator_local_indicators_and_products_are_healthy(
     assert by_kind["bollinger"]["inputs"] == ["close"]
     assert by_kind["bollinger"]["parameter_kind"] == "bollinger"
     assert by_kind["bollinger"]["outputs"] == ["middle", "upper", "lower"]
+    assert by_kind["stochastic"]["inputs"] == ["high", "low", "close"]
+    assert by_kind["stochastic"]["parameter_kind"] == "stochastic"
+    assert by_kind["stochastic"]["outputs"] == ["k", "d"]
+    assert by_kind["adx"]["inputs"] == ["high", "low", "close"]
+    assert by_kind["adx"]["outputs"] == ["adx", "plus_di", "minus_di"]
+    assert by_kind["adx"]["period_max"] == 100
     assert by_kind["identity"]["inputs"] == ["open", "high", "low", "close", "volume"]
     assert by_kind["identity"]["parameter_kind"] == "none"
     assert by_kind["identity"]["period_min"] is None

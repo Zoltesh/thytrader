@@ -157,6 +157,7 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         "highest",
         "lowest",
         "stdev",
+        "stdev_sample",
         "roc",
         "williams_r",
         "cci",
@@ -165,6 +166,8 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         "mfi",
         "macd",
         "bollinger",
+        "stochastic",
+        "adx",
         "identity",
         "constant",
     }

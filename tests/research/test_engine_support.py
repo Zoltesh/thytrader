@@ -27,3 +27,7 @@ def test_engine_support_matrix_has_v3_and_study_rows() -> None:
     extra = by_label["Per-indicator timeframes"]
     assert extra.v1 is True and extra.v2 is True and extra.v3 is True
     assert "last-completed" in extra.note
+    indicators = next(row for row in matrix.rows if row.label.startswith("Indicators:"))
+    assert "stochastic" in indicators.label
+    assert "ADX" in indicators.label
+    assert "sample stdev" in indicators.label
