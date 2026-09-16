@@ -29,7 +29,7 @@ const TRADE_REASON = {
 	notes: [
 		{
 			origin: 'human',
-			body: 'Paper pause was correct',
+			body: 'Manual fade of the open.',
 			recorded_at: '2026-09-16T12:00:00Z'
 		}
 	],
@@ -123,9 +123,12 @@ test('renders memory status and journals without mutation controls', async ({ pa
 	await page.goto('/memory');
 	await expect(page.getByRole('heading', { name: 'Journals and monitor' })).toBeVisible();
 	await expect(page.getByTestId('memory-status')).toContainText('none');
-	await expect(page.getByText('Paper pause was correct')).toBeVisible();
+	await expect(
+		page.getByRole('cell', { name: 'Paper pause was correct', exact: true })
+	).toBeVisible();
 	await expect(page.getByTestId('trade-reason-review')).toContainText('discretionary');
 	await expect(page.getByTestId('trade-reason-review')).toContainText('ALLOWED');
+	await expect(page.getByTestId('trade-reason-review')).toContainText('Manual fade of the open.');
 	await expect(page.getByRole('button', { name: /journal/i })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: /note/i })).toHaveCount(0);
 });
