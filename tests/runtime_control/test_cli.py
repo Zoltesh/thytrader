@@ -714,6 +714,7 @@ def test_live_start_rejects_paper_fee_flags() -> None:
     assert "paper fee" in str(raised.value).lower()
     request.assert_not_called()
 
+
 def _settings_payload(
     *,
     yolo_enabled: bool = False,
