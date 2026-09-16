@@ -12,11 +12,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.execution.models import (
     Deployment,
+    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     ExecutionStoreError,
     Fill,
+    IntentOrigin,
     IntentPurpose,
     Order,
     OrderIntent,
@@ -139,6 +141,8 @@ class PostgresExecutionStore:
             quantity=format(intent.quantity, "f"),
             candle_starts_at=intent.candle_starts_at,
             status=intent.status.value,
+            origin=intent.origin.value,
+            idempotency_key=intent.idempotency_key,
             created_at=intent.created_at,
         )
         try:
@@ -235,16 +239,30 @@ class PostgresExecutionStore:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_order_from_row(row) for row in rows)
 
+    async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
+        """Return the intent recorded under one client idempotency key, if any."""
+        statement = select(order_intents).where(order_intents.c.idempotency_key == idempotency_key)
+        try:
+            async with self._engine.connect() as connection:
+                row = (await connection.execute(statement)).mappings().one_or_none()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        if row is None:
+            return None
+        return _intent_from_row(row)
+
 
 def _deployment_values(deployment: Deployment) -> dict[str, object]:
     """Map one deployment into insertable column values."""
     return {
         "id": deployment.id,
         "strategy_fingerprint": deployment.strategy_fingerprint,
-        "strategy_id": str(deployment.strategy_id),
+        "strategy_id": None if deployment.strategy_id is None else str(deployment.strategy_id),
         "product_id": deployment.product_id,
         "mode": deployment.mode.value,
         "status": deployment.status.value,
+        "kind": deployment.kind.value,
+        "timeframe": deployment.timeframe,
         "paper_starting_cash": _text(deployment.paper_starting_cash),
         "cash": format(deployment.cash, "f"),
         "phase": deployment.phase.value,
@@ -287,10 +305,12 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
     return Deployment(
         id=row["id"],
         strategy_fingerprint=row["strategy_fingerprint"],
-        strategy_id=UUID(str(row["strategy_id"])),
+        strategy_id=None if row["strategy_id"] is None else UUID(str(row["strategy_id"])),
         product_id=row["product_id"],
         mode=DeploymentMode(row["mode"]),
         status=DeploymentStatus(row["status"]),
+        kind=DeploymentKind(row["kind"]) if row["kind"] is not None else DeploymentKind.STRATEGY,
+        timeframe=row["timeframe"],
         paper_starting_cash=_decimal(row["paper_starting_cash"]),
         cash=Decimal(row["cash"]),
         phase=RuntimePhase(row["phase"]),
@@ -342,6 +362,8 @@ def _intent_from_row(row: RowMapping) -> OrderIntent:
         quantity=Decimal(row["quantity"]),
         candle_starts_at=row["candle_starts_at"],
         status=OrderStatus(row["status"]),
+        origin=IntentOrigin(row["origin"]) if row["origin"] is not None else IntentOrigin.RUNTIME,
+        idempotency_key=row["idempotency_key"],
         created_at=row["created_at"],
     )
 

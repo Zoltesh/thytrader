@@ -62,6 +62,10 @@ class ExecutionStore(Protocol):
         """Return open or unknown orders that the runtime must observe."""
         ...
 
+    async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
+        """Return the intent recorded under one client idempotency key, if any."""
+        ...
+
 
 class DisabledExecutionStore:
     """Fail closed when execution storage is not configured."""
@@ -114,3 +118,8 @@ class DisabledExecutionStore:
         """Return no open orders when storage is unconfigured."""
         del deployment_id
         return ()
+
+    async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
+        """Return no intent when storage is unconfigured."""
+        del idempotency_key
+        return None

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
+    ExecutionConflictError,
     ExecutionStoreError,
     Fill,
     Order,
@@ -64,7 +65,9 @@ class InMemoryExecutionStore:
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return deployments for one strategy identity, newest-updated first."""
         matching = [
-            item for item in self.deployments.values() if str(item.strategy_id) == strategy_id
+            item
+            for item in self.deployments.values()
+            if item.strategy_id is not None and str(item.strategy_id) == strategy_id
         ]
         return tuple(sorted(matching, key=lambda item: item.updated_at, reverse=True))
 
@@ -77,6 +80,10 @@ class InMemoryExecutionStore:
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission."""
+        if intent.idempotency_key is not None:
+            existing = await self.get_intent_by_idempotency_key(intent.idempotency_key)
+            if existing is not None:
+                raise ExecutionConflictError("idempotency_key already used")
         self.intents[intent.id] = intent
         return intent
 
@@ -118,4 +125,15 @@ class InMemoryExecutionStore:
             order
             for order in self.orders.values()
             if order.deployment_id == deployment_id and order.status in watch
+        )
+
+    async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
+        """Return the intent recorded under one client idempotency key, if any."""
+        return next(
+            (
+                intent
+                for intent in self.intents.values()
+                if intent.idempotency_key == idempotency_key
+            ),
+            None,
         )

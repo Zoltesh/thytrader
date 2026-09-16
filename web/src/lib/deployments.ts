@@ -35,8 +35,10 @@ export type DeploymentFill = {
 
 export type Deployment = {
 	id: string;
-	strategy_fingerprint: string;
-	strategy_id: string;
+	strategy_fingerprint: string | null;
+	strategy_id: string | null;
+	kind: 'strategy' | 'discretionary' | string;
+	timeframe: string | null;
 	product_id: string;
 	mode: 'paper' | 'live';
 	status: string;
@@ -107,5 +109,25 @@ export async function resumeDeployment(id: string): Promise<Deployment> {
 export async function stopDeployment(id: string): Promise<Deployment> {
 	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/stop`, {
 		method: 'POST'
+	});
+}
+
+export async function placeDiscretionaryOrder(input: {
+	mode: 'paper' | 'live';
+	product_id: string;
+	stop_price: string;
+	take_profit_price: string;
+	idempotency_key: string;
+	origin: 'human' | 'agent';
+	entry_kind?: 'post_only_limit' | 'marketable';
+	timeframe?: '1h' | '5m';
+	quantity?: string;
+	quote_notional?: string;
+	limit_price?: string;
+	paper_starting_cash?: string;
+}): Promise<Deployment> {
+	return request<Deployment>('/api/v1/discretionary-orders', {
+		method: 'POST',
+		body: JSON.stringify(input)
 	});
 }

@@ -361,6 +361,16 @@ def test_watchlist_remaining_coinbase_granularity_migration_follows_memory() -> 
     assert "ck_market_data_watchlist_timeframe" in content
 
 
+def test_on_demand_discretionary_migration_follows_datasets() -> None:
+    """The twenty-fifth migration must add discretionary books after dataset 0024."""
+    content = Path("alembic/versions/0025_on_demand_discretionary.py").read_text(encoding="utf-8")
+    assert 'revision = "0025"' in content
+    assert 'down_revision = "0024"' in content
+    assert "kind" in content
+    assert "idempotency_key" in content
+    assert "discretionary" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

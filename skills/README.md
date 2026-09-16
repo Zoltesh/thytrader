@@ -45,7 +45,7 @@ Confirmation-gated paper and live deployment control, plus risk-policy publicati
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
-- HTTP: `/api/v1/deployments`, `/api/v1/risk-policy`
+- HTTP: `/api/v1/deployments`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`
 
 ## `thytrader-playbook`
 

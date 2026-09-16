@@ -9,6 +9,7 @@ from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
     Fill,
+    IntentOrigin,
     IntentPurpose,
     Order,
     OrderIntent,
@@ -39,12 +40,13 @@ async def submit_intent(
     price: Decimal | None,
     candle: Candle,
     stop_trigger_price: Decimal | None = None,
+    origin: IntentOrigin = IntentOrigin.RUNTIME,
+    idempotency_key: str | None = None,
 ) -> Order:
     """Record intent, submit, then persist the venue snapshot and any immediate fill."""
     now = utc_now()
-    client_order_id = (
-        f"{deployment_id}:{purpose.value}:{candle.starts_at.strftime('%Y%m%dT%H')}:{uuid7(now)}"
-    )[:128]
+    stamp = candle.starts_at.strftime("%Y%m%dT%H%M")
+    client_order_id = f"{deployment_id}:{purpose.value}:{stamp}:{uuid7(now)}"[:128]
     intent = OrderIntent(
         id=uuid7(now),
         deployment_id=deployment_id,
@@ -58,6 +60,8 @@ async def submit_intent(
         created_at=now,
         candle_starts_at=candle.starts_at,
         status=OrderStatus.PENDING,
+        origin=origin,
+        idempotency_key=idempotency_key,
     )
     await store.save_intent(intent)
     order = Order(

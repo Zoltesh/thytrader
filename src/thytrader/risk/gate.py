@@ -36,7 +36,7 @@ class ProposedEntry:
     """One sized long the runtime wants to rest after a matched closed bar."""
 
     product_id: str
-    strategy_id: UUID
+    strategy_id: UUID | None
     notional: Decimal
 
 
@@ -45,7 +45,7 @@ def evaluate_new_deployment(
     *,
     mode: DeploymentMode,
     product_id: str,
-    strategy_id: UUID,
+    strategy_id: UUID | None,
     paper_starting_cash: Decimal | None,
     deployments: Sequence[Deployment],
 ) -> RiskVerdict:
@@ -105,7 +105,7 @@ def evaluate_new_entry(
 def _paper_deploy_capital(
     policy: RiskPolicyDefinition,
     occupied: tuple[Deployment, ...],
-    strategy_id: UUID,
+    strategy_id: UUID | None,
     paper_starting_cash: Decimal | None,
 ) -> RiskVerdict:
     """Cap paper starting cash against the book and an optional per-strategy allocation."""
@@ -199,10 +199,15 @@ def _allowlist_verdict(policy: RiskPolicyDefinition, product_id: str) -> RiskVer
     )
 
 
-def _allocation_membership(policy: RiskPolicyDefinition, strategy_id: UUID) -> RiskVerdict:
-    """When allocations exist, require the strategy identity to be listed."""
+def _allocation_membership(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> RiskVerdict:
+    """When allocations exist, require a listed strategy; deny discretionary books."""
     if not policy.allocations:
         return _allow()
+    if strategy_id is None:
+        return _deny(
+            RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED,
+            "Discretionary orders are denied when risk-policy allocations are in force.",
+        )
     if any(item.strategy_id == strategy_id for item in policy.allocations):
         return _allow()
     return _deny(
@@ -211,9 +216,9 @@ def _allocation_membership(policy: RiskPolicyDefinition, strategy_id: UUID) -> R
     )
 
 
-def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID) -> Decimal | None:
+def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> Decimal | None:
     """Return the reserved quote for one strategy, if allocations are in force."""
-    if not policy.allocations:
+    if not policy.allocations or strategy_id is None:
         return None
     match = next((item for item in policy.allocations if item.strategy_id == strategy_id), None)
     if match is None:

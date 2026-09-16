@@ -118,6 +118,15 @@ def test_paper_capital_and_allowlist_and_allocation_denials() -> None:
     assert capital.reason_code is RiskReasonCode.PAPER_CAPITAL_EXCEEDED
     assert allowlist.reason_code is RiskReasonCode.PRODUCT_NOT_ALLOWLISTED
     assert unlisted.reason_code is RiskReasonCode.STRATEGY_NOT_ALLOCATED
+    discretionary = evaluate_new_deployment(
+        policy,
+        mode=DeploymentMode.PAPER,
+        product_id="BTC-USD",
+        strategy_id=None,
+        paper_starting_cash=Decimal("1000"),
+        deployments=(),
+    )
+    assert discretionary.reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED
 
 
 def test_entry_open_slot_and_exposure_caps() -> None:

@@ -57,8 +57,9 @@ It gates paper and live **entries** (not exits) with:
 
 Compiled default when no published row is active: eight running slots and eight open positions per
 mode, unit exposure fractions, empty allowlist/allocations, paper book `100000`. Operator `risk`
-reports `available` and omits account balances. Daily-loss / drawdown circuit breakers, order-rate
-limits, reference-price collars, and on-demand order risk remain destination — they are listed
+reports `available` and omits account balances. Discretionary entries use this same registry;
+nonempty allocations deny them. Daily-loss / drawdown circuit breakers, order-rate
+limits, and reference-price collars remain destination — they are listed
 below so the full catalog is visible, not claimed as shipped.
 
 ### Pre-trade (destination catalog)

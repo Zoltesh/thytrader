@@ -223,6 +223,23 @@ URLs are redacted; default notify sends nothing.
 No model training, no venue scrape, and no fill-ledger origin rewrite. Phase 13 live extras,
 on-demand SL/TP, and `1m`/`2h` clocks stay out of this slice.
 
+## On-demand discretionary trades with SL/TP — ✅ Shipped
+
+Long-only on-demand entries go through the existing order-intent → risk → broker path
+([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)). A discretionary book is a
+`deployments` row with `kind = discretionary` (nullable strategy identity, stored `1h` or `5m`
+clock). Stop and take-profit are required. Live rests one `trigger_bracket_gtc` after fill; paper
+uses synthetic SL/TP. Idempotent retries never call `place_order` again. Timeouts persist
+`unknown` and GET-order reconcile. Allocations nonempty deny discretionary. Strategy/paper/live
+clocks stay `1h`/`5m`. Ops contract is `thytrader-ops-contract-v11` / Alembic `0025`.
+
+**Exit gate met:** `POST /api/v1/discretionary-orders` and `thytrader-runtime place-order --confirm`
+(live also `--i-understand-live`) place a long; the Trade UI uses the same HTTP contract with
+human origin; operator summaries include `kind`.
+
+Shorting, attached entry brackets, intra-strategy pyramiding, `1m`/`2h`/`4h` execution clocks, and
+YOLO-without-confirm for live stay out of this slice.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -232,7 +249,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
-| On-demand trades with SL/TP | No; strategy deploy only | Yes, via order intent + risk ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)) |
+| On-demand trades with SL/TP | Yes, long-only via intent + risk ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)) | Shorting, attached entry brackets, intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals; strategy/paper/live clocks widen by later ADR |
 | Strategy / paper / live clocks | `1h`\|`5m` | Same clocks as ingested venue TFs, each widened by ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |

@@ -88,7 +88,7 @@ async def test_five_minute_live_pauses_when_user_feed_is_down() -> None:
     loaded = await store.get_deployment(snapshot.id)
     paused = await _pause_five_minute_live_if_feed_down(
         loaded,
-        strategy=strategy,
+        timeframe=strategy.timeframe,
         store=store,
         user_feed_store=InMemoryUserOrderFeedStateStore(),
     )
@@ -108,7 +108,7 @@ async def test_hourly_live_does_not_pause_for_a_down_user_feed() -> None:
     loaded = await store.get_deployment(snapshot.id)
     paused = await _pause_five_minute_live_if_feed_down(
         loaded,
-        strategy=strategy,
+        timeframe=strategy.timeframe,
         store=store,
         user_feed_store=InMemoryUserOrderFeedStateStore(),
     )

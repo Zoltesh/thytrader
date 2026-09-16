@@ -9,9 +9,15 @@ import logging
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
+from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, with_runtime
+from thytrader.execution.models import (
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    with_runtime,
+)
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
@@ -188,11 +194,53 @@ async def _process_one(
 ) -> None:
     """Load evidence and advance one deployment through newly closed bars."""
     snapshot = await store.get_deployment(deployment_id)
+    if snapshot.deployment.kind is DeploymentKind.DISCRETIONARY:
+        await _process_discretionary(
+            snapshot,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            user_feed_store=user_feed_store,
+        )
+        return
+    strategy = await _strategy_definition(
+        snapshot, store=store, publication_store=publication_store
+    )
+    if strategy is None:
+        return
+    await _advance_strategy(
+        snapshot,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+        user_feed_store=user_feed_store,
+    )
+
+
+async def _advance_strategy(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: tuple[DeploymentSnapshot, ...],
+    user_feed_store: UserOrderFeedStateStore | None,
+) -> None:
+    """Advance one published-strategy deployment through newly closed bars."""
     deployment = snapshot.deployment
-    published = await publication_store.load(deployment.strategy_fingerprint)
-    strategy = published.definition
     if await _pause_five_minute_live_if_feed_down(
-        snapshot, strategy=strategy, store=store, user_feed_store=user_feed_store
+        snapshot, timeframe=strategy.timeframe, store=store, user_feed_store=user_feed_store
     ):
         return
     product, candles, expected_last = await _closed_window(market_data, strategy)
@@ -216,7 +264,7 @@ async def _process_one(
         return
     broker: Broker = paper_broker
     if deployment.mode is DeploymentMode.LIVE:
-        snapshot = await _prepare_live(
+        prepared = await _prepare_live(
             snapshot,
             store=store,
             live_broker=live_broker,
@@ -225,8 +273,9 @@ async def _process_one(
             product_id=product.product_id,
             cooldown_bars=strategy.entry.cooldown_bars,
         )
-        if snapshot is None or live_broker is None:
+        if prepared is None or live_broker is None:
             return
+        snapshot = prepared
         broker = live_broker
         paused_with_mismatch = (
             snapshot.deployment.status is DeploymentStatus.PAUSED
@@ -235,12 +284,12 @@ async def _process_one(
         if paused_with_mismatch:
             return
     for candle in due:
-        snapshot = await store.get_deployment(deployment_id)
-        if snapshot.deployment.status is DeploymentStatus.STOPPED:
+        current = await store.get_deployment(deployment.id)
+        if current.deployment.status is DeploymentStatus.STOPPED:
             return
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
         await process_closed_bar(
-            snapshot,
+            current,
             strategy=strategy,
             product=product,
             candles=window,
@@ -248,6 +297,103 @@ async def _process_one(
             store=store,
             risk_policy=risk_policy,
             portfolio=portfolio,
+        )
+
+
+async def _strategy_definition(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    publication_store: StrategyPublicationStore,
+) -> StrategyDefinition | None:
+    """Load the published strategy, or pause when identity is missing."""
+    fingerprint = snapshot.deployment.strategy_fingerprint
+    if fingerprint is None:
+        paused = with_runtime(
+            snapshot.deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail="Strategy deployment is missing published identity.",
+        )
+        await store.save_deployment(paused)
+        return None
+    published = await publication_store.load(fingerprint)
+    return published.definition
+
+
+async def _process_discretionary(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    user_feed_store: UserOrderFeedStateStore | None,
+) -> None:
+    """Reconcile and protect a discretionary book without strategy signal evaluation."""
+    deployment = snapshot.deployment
+    timeframe = deployment.timeframe or "1h"
+    if await _pause_five_minute_live_if_feed_down(
+        snapshot, timeframe=timeframe, store=store, user_feed_store=user_feed_store
+    ):
+        return
+    product, candles, expected_last = await _closed_window_for(
+        market_data,
+        product_id=deployment.product_id,
+        timeframe=timeframe,
+        warmup_bars=3,
+    )
+    if not candles:
+        return
+    interval = parse_candle_interval(timeframe)
+    due = new_closed_bars(
+        candles,
+        last_evaluated_bar=deployment.last_evaluated_bar,
+        expected_last_start=expected_last,
+        bar_duration=interval.duration,
+    )
+    if due is None:
+        paused = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
+        )
+        await store.save_deployment(paused)
+        return
+    broker: Broker = paper_broker
+    if deployment.mode is DeploymentMode.LIVE:
+        prepared = await _prepare_live(
+            snapshot,
+            store=store,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            quote_currency="USD",
+            product_id=product.product_id,
+            cooldown_bars=0,
+        )
+        if prepared is None or live_broker is None:
+            return
+        snapshot = prepared
+        broker = live_broker
+        paused_with_mismatch = (
+            snapshot.deployment.status is DeploymentStatus.PAUSED
+            and snapshot.deployment.mismatch_detail
+        )
+        if paused_with_mismatch:
+            return
+    for candle in due:
+        current = await store.get_deployment(deployment.id)
+        if current.deployment.status is DeploymentStatus.STOPPED:
+            return
+        window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
+        await process_discretionary_bar(
+            current,
+            product=product,
+            candles=window,
+            broker=broker,
+            store=store,
         )
 
 
@@ -331,16 +477,29 @@ async def _closed_window(
     strategy: StrategyDefinition,
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
     """Fetch warmup plus the latest fully closed bar on the strategy interval."""
+    return await _closed_window_for(
+        market_data,
+        product_id=strategy.instrument.product_id,
+        timeframe=strategy.timeframe,
+        warmup_bars=strategy.data_requirements.warmup_bars,
+    )
+
+
+async def _closed_window_for(
+    market_data: MarketDataService,
+    *,
+    product_id: str,
+    timeframe: str,
+    warmup_bars: int,
+) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
+    """Fetch warmup plus the latest fully closed bar on one interval."""
     now = datetime.now(UTC)
-    interval = parse_candle_interval(strategy.timeframe)
+    interval = parse_candle_interval(timeframe)
     last_closed_end = interval.align_closed_end(now)
     last_closed_start = last_closed_end - interval.duration
-    warmup = strategy.data_requirements.warmup_bars
-    starts_at = last_closed_start - interval.duration * warmup
-    preview = await market_data.get_preview(strategy.instrument.product_id, interval)
-    report = await market_data.get_range(
-        strategy.instrument.product_id, interval, starts_at, last_closed_end, now
-    )
+    starts_at = last_closed_start - interval.duration * warmup_bars
+    preview = await market_data.get_preview(product_id, interval)
+    report = await market_data.get_range(product_id, interval, starts_at, last_closed_end, now)
     candles = tuple(
         candle
         for candle in report.quality.candles
@@ -374,13 +533,13 @@ async def _occupied_snapshots(
 async def _pause_five_minute_live_if_feed_down(
     snapshot: DeploymentSnapshot,
     *,
-    strategy: StrategyDefinition,
+    timeframe: str,
     store: ExecutionStore,
     user_feed_store: UserOrderFeedStateStore | None,
 ) -> bool:
     """Pause 5m live when the user-order feed is down. True means the cycle must stop."""
     deployment = snapshot.deployment
-    if deployment.mode is not DeploymentMode.LIVE or strategy.timeframe != "5m":
+    if deployment.mode is not DeploymentMode.LIVE or timeframe != "5m":
         return False
     if await _user_feed_connected(user_feed_store):
         return False

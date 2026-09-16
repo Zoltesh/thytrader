@@ -46,7 +46,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 |---|---|
 | Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034) for data/research/paper; live and memory stay hard-gated. |
 | Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Destination remaining venue TFs `1m`/`2h`/`4h` now have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)); they are still not strategy/paper/live clocks. |
-| On-demand trades | Not shipped; strategy deploy only. Destination: discretionary orders with SL/TP via order intent + risk (ADR 0031). |
+| On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
 | Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |

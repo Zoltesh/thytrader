@@ -223,8 +223,10 @@ class DeploymentSummary(_FrozenModel):
     """One paper or live runtime without cash, quantities, or order payloads."""
 
     deployment_id: UUID
-    strategy_id: UUID
-    strategy_fingerprint: str
+    kind: str
+    strategy_id: UUID | None
+    strategy_fingerprint: str | None
+    timeframe: SupportedTimeframe | None = None
     mode: str
     status: str
     phase: str

@@ -95,8 +95,10 @@ class DeploymentResponse(BaseModel):
     """One deployment plus optional runtime evidence."""
 
     id: UUID
-    strategy_fingerprint: str
-    strategy_id: UUID
+    strategy_fingerprint: str | None
+    strategy_id: UUID | None
+    kind: str
+    timeframe: str | None
     product_id: str
     mode: str
     status: str
@@ -264,7 +266,8 @@ async def _append_runtime_audit(
         outcome=AuditEventOutcome.SUCCESS,
         detail=(
             f"deployment_id={deployment.id} mode={deployment.mode.value} "
-            f"status={deployment.status.value} fingerprint={deployment.strategy_fingerprint}"
+            f"status={deployment.status.value} kind={deployment.kind.value} "
+            f"fingerprint={deployment.strategy_fingerprint}"
         ),
         product_id=deployment.product_id,
     )
@@ -290,6 +293,8 @@ def _deployment_response(deployment: Deployment) -> DeploymentResponse:
         id=deployment.id,
         strategy_fingerprint=deployment.strategy_fingerprint,
         strategy_id=deployment.strategy_id,
+        kind=deployment.kind.value,
+        timeframe=deployment.timeframe,
         product_id=deployment.product_id,
         mode=deployment.mode.value,
         status=deployment.status.value,

@@ -16,6 +16,21 @@ class DeploymentMode(StrEnum):
     LIVE = "live"
 
 
+class DeploymentKind(StrEnum):
+    """Whether a runtime is a published strategy or a discretionary book."""
+
+    STRATEGY = "strategy"
+    DISCRETIONARY = "discretionary"
+
+
+class IntentOrigin(StrEnum):
+    """Who requested the intent so audits can separate human, agent, and runtime."""
+
+    HUMAN = "human"
+    AGENT = "agent"
+    RUNTIME = "runtime"
+
+
 class DeploymentStatus(StrEnum):
     """Operator-visible lifecycle of one deployment."""
 
@@ -93,6 +108,8 @@ class OrderIntent:
     price: Decimal | None = None
     stop_trigger_price: Decimal | None = None
     status: OrderStatus = OrderStatus.PENDING
+    origin: IntentOrigin = IntentOrigin.RUNTIME
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,11 +164,11 @@ class Position:
 
 @dataclass(frozen=True, slots=True)
 class Deployment:
-    """One paper or live runtime bound to an immutable published strategy."""
+    """One paper or live runtime bound to a published strategy or a discretionary book."""
 
     id: UUID
-    strategy_fingerprint: str
-    strategy_id: UUID
+    strategy_fingerprint: str | None
+    strategy_id: UUID | None
     product_id: str
     mode: DeploymentMode
     status: DeploymentStatus
@@ -168,6 +185,8 @@ class Deployment:
     cooldown_bars_remaining: int = 0
     pending_stop_price: Decimal | None = None
     pending_target_price: Decimal | None = None
+    kind: DeploymentKind = DeploymentKind.STRATEGY
+    timeframe: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
