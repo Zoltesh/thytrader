@@ -4,19 +4,36 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from uuid import UUID  # noqa: TC003 - used in Protocol-matching draft store.
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from thytrader.api.app import create_app
-from thytrader.config import Settings
+from thytrader.config import Environment, Settings
+from thytrader.execution.ids import uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.execution.models import (
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    Position,
+    PositionSide,
+)
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
+from thytrader.strategies.models import (
+    Instrument,
+    StrategyDefinition,
+    StrategyStatus,
+    strategy_fingerprint,
+)
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyCatalogEntry,
@@ -192,6 +209,47 @@ def test_paper_deployment_persists_and_updates_library_status() -> None:
         if item["strategy_id"] == str(definition.strategy_id)
     )
     assert entry["paper_live"] == {"paper": "running", "live": "unavailable"}
+
+
+def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enabled() -> None:
+    """Unauthenticated POST is rejected when ADR 0061 trust boundary is on."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    settings = Settings(
+        environment=Environment.TEST,
+        installation_token=SecretStr("0060-boundary-token"),
+        trust_boundary_enabled=True,
+        _env_file=None,
+    )
+    app = create_app(
+        settings,
+        strategy_store=publication,
+        strategy_draft_store=InMemoryDraftStore(),
+        execution_store=execution,
+    )
+    payload = {
+        "strategy_fingerprint": fingerprint,
+        "mode": "paper",
+        "paper_starting_cash": "10000",
+    }
+    with TestClient(app) as client:
+        denied = client.post("/api/v1/deployments", json=payload)
+        allowed = client.post(
+            "/api/v1/deployments",
+            json=payload,
+            headers={INSTALLATION_AUTH_HEADER: "Bearer 0060-boundary-token"},
+        )
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 201
+    body = allowed.json()
+    assert [item["product_id"] for item in body["instrument_runtimes"]] == ["BTC-USD"]
+    assert body["book_totals"] == {"open_books": 0, "working_orders": 0, "fill_count": 0}
 
 
 def test_pause_resume_and_stop_deployment() -> None:
@@ -557,3 +615,261 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
             },
         )
     assert live_fees.status_code == 409
+
+
+def _two_product_strategy() -> StrategyDefinition:
+    """Return a published BTC primary with ETH extra coverage and two-book cap."""
+    definition = _published_strategy()
+    extra = Instrument(product_id="ETH-USD", base_currency="ETH", quote_currency="USD")
+    limits = definition.portfolio_limits.model_copy(update={"max_concurrent_positions": 2})
+    return definition.model_copy(
+        update={"additional_instruments": (extra,), "portfolio_limits": limits}
+    )
+
+
+def _at(hour: int) -> datetime:
+    """Return a UTC hour on 2026-09-16."""
+    return datetime(2026, 9, 16, hour, tzinfo=UTC)
+
+
+def _open_position(
+    *,
+    deployment_id: UUID,
+    product_id: str,
+    quantity: str,
+    side: PositionSide,
+    entry_price: str,
+) -> Position:
+    """Return one open product book."""
+    now = _at(1)
+    return Position(
+        deployment_id=deployment_id,
+        quantity=Decimal(quantity),
+        entry_price=Decimal(entry_price),
+        stop_price=Decimal("90") if side is PositionSide.LONG else Decimal("3200"),
+        target_price=Decimal("120") if side is PositionSide.LONG else Decimal("2700"),
+        entered_bar=now,
+        updated_at=now,
+        side=side,
+        product_id=product_id,
+        add_count=1,
+    )
+
+
+def _seed_order(
+    *,
+    deployment_id: UUID,
+    product_id: str,
+    side: OrderSide,
+    status: OrderStatus,
+    quantity: str,
+    price: str,
+    filled_quantity: str = "0",
+) -> Order:
+    """Return one venue-visible order tagged with a Coinbase product."""
+    now = _at(1)
+    return Order(
+        id=uuid4(),
+        deployment_id=deployment_id,
+        intent_id=uuid4(),
+        client_order_id=f"{product_id}-{status.value}",
+        side=side,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal(quantity),
+        status=status,
+        created_at=now,
+        updated_at=now,
+        price=Decimal(price),
+        filled_quantity=Decimal(filled_quantity),
+        product_id=product_id,
+    )
+
+
+def test_two_product_post_lists_flat_runtimes_without_seeding_store() -> None:
+    """A fresh two-product start exposes both overlays as FLAT before any fills."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _two_product_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+
+    assert created.status_code == 201
+    body = created.json()
+    products = [item["product_id"] for item in body["instrument_runtimes"]]
+    assert products == ["BTC-USD", "ETH-USD"]
+    assert {item["phase"] for item in body["instrument_runtimes"]} == {"flat"}
+    assert body["positions"] == []
+    assert body["position"] is None
+    assert body["book_totals"] == {"open_books": 0, "working_orders": 0, "fill_count": 0}
+
+
+def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
+    """N02: a sole secondary book is compatibility focus and still tagged ETH-USD."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _two_product_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+        deployment_id = UUID(created.json()["id"])
+        eth = _open_position(
+            deployment_id=deployment_id,
+            product_id="ETH-USD",
+            quantity="0.5",
+            side=PositionSide.SHORT,
+            entry_price="3000",
+        )
+        order = _seed_order(
+            deployment_id=deployment_id,
+            product_id="ETH-USD",
+            side=OrderSide.SELL,
+            status=OrderStatus.FILLED,
+            quantity="0.5",
+            price="3000",
+            filled_quantity="0.5",
+        )
+        fill = Fill(
+            id=uuid7(_at(1)),
+            deployment_id=deployment_id,
+            order_id=order.id,
+            venue_fill_id="eth-open",
+            price=Decimal("3000"),
+            quantity=Decimal("0.5"),
+            fee=Decimal("0"),
+            filled_at=_at(1),
+        )
+        asyncio.run(execution.save_position(eth, deployment_id=deployment_id))
+        asyncio.run(execution.save_order(order))
+        asyncio.run(execution.save_fill(fill))
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["product_id"] == "BTC-USD"
+    assert [item["product_id"] for item in body["positions"]] == ["ETH-USD"]
+    assert body["positions"][0]["side"] == "short"
+    assert body["positions"][0]["quantity"] == "0.5"
+    assert body["position"]["product_id"] == "ETH-USD"
+    assert body["position"]["compatibility_focus"] is True
+    runtimes = {item["product_id"]: item["phase"] for item in body["instrument_runtimes"]}
+    assert runtimes["BTC-USD"] == "flat"
+    assert runtimes["ETH-USD"] == "open"
+    assert body["orders"][0]["product_id"] == "ETH-USD"
+    assert body["fills"][0]["product_id"] == "ETH-USD"
+    assert body["book_totals"]["open_books"] == 1
+    assert body["book_totals"]["fill_count"] == 1
+    assert body["book_totals"]["open_books"] == len(body["positions"])
+    assert body["book_totals"]["fill_count"] == len(body["fills"])
+
+
+def test_two_open_books_keep_distinct_sides_and_reconcile_totals() -> None:
+    """Primary long and secondary short remain unambiguous; totals match collections."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _two_product_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+        deployment_id = UUID(created.json()["id"])
+        btc = _open_position(
+            deployment_id=deployment_id,
+            product_id="BTC-USD",
+            quantity="0.01",
+            side=PositionSide.LONG,
+            entry_price="100",
+        )
+        eth = _open_position(
+            deployment_id=deployment_id,
+            product_id="ETH-USD",
+            quantity="0.5",
+            side=PositionSide.SHORT,
+            entry_price="3000",
+        )
+        btc_order = _seed_order(
+            deployment_id=deployment_id,
+            product_id="BTC-USD",
+            side=OrderSide.BUY,
+            status=OrderStatus.OPEN,
+            quantity="0.01",
+            price="100",
+        )
+        eth_order = _seed_order(
+            deployment_id=deployment_id,
+            product_id="ETH-USD",
+            side=OrderSide.SELL,
+            status=OrderStatus.FILLED,
+            quantity="0.5",
+            price="3000",
+            filled_quantity="0.5",
+        )
+        eth_fill = Fill(
+            id=uuid7(_at(1)),
+            deployment_id=deployment_id,
+            order_id=eth_order.id,
+            venue_fill_id="eth-open",
+            price=Decimal("3000"),
+            quantity=Decimal("0.5"),
+            fee=Decimal("0"),
+            filled_at=_at(1),
+        )
+        asyncio.run(execution.save_position(btc, deployment_id=deployment_id))
+        asyncio.run(execution.save_position(eth, deployment_id=deployment_id))
+        asyncio.run(execution.save_order(btc_order))
+        asyncio.run(execution.save_order(eth_order))
+        asyncio.run(execution.save_fill(eth_fill))
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    by_product = {item["product_id"]: item for item in body["positions"]}
+    assert set(by_product) == {"BTC-USD", "ETH-USD"}
+    assert by_product["BTC-USD"]["side"] == "long"
+    assert by_product["BTC-USD"]["quantity"] == "0.01"
+    assert by_product["ETH-USD"]["side"] == "short"
+    assert by_product["ETH-USD"]["quantity"] == "0.5"
+    assert body["position"]["product_id"] == "BTC-USD"
+    assert body["position"]["compatibility_focus"] is True
+    assert by_product["ETH-USD"]["compatibility_focus"] is False
+    order_products = {item["product_id"] for item in body["orders"]}
+    assert order_products == {"BTC-USD", "ETH-USD"}
+    assert body["book_totals"]["open_books"] == 2
+    assert body["book_totals"]["working_orders"] == 1
+    assert body["book_totals"]["fill_count"] == 1
+    assert body["book_totals"]["open_books"] == len(body["positions"])
+    assert body["book_totals"]["fill_count"] == len(body["fills"])
+    working = sum(1 for item in body["orders"] if item["status"] in {"pending", "open", "unknown"})
+    assert body["book_totals"]["working_orders"] == working

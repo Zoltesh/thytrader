@@ -14,6 +14,7 @@ from thytrader.execution.models import (
     Order,
     OrderIntent,
     OrderStatus,
+    resolved_product_id,
 )
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.memory.store import MemoryStoreError
@@ -140,7 +141,7 @@ def _record_from_submit(
         deployment_id=deployment.id,
         deployment_kind=deployment.kind.value,
         mode=deployment.mode.value,
-        product_id=deployment.product_id,
+        product_id=resolved_product_id(intent.product_id, deployment),
         purpose=intent.purpose.value,
         side=intent.side.value,
         strategy=_strategy_from_scope(scope, deployment.kind),

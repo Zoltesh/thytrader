@@ -1,11 +1,18 @@
 <script lang="ts">
 	import {
+		bookTotalsReconcile,
+		canonicalBooks,
+		canonicalPositions,
 		createDeployment,
+		fillProductId,
 		listDeployments,
+		orderProductId,
 		pauseDeployment,
 		resumeDeployment,
 		stopDeployment,
-		type Deployment
+		type Deployment,
+		type DeploymentInstrumentRuntime,
+		type DeploymentPosition
 	} from '$lib/deployments';
 	import {
 		PAPER_DEFAULT_MAKER_FEE_RATE,
@@ -81,6 +88,17 @@
 		} catch {
 			/* documented 0.001 / 0.002 defaults remain */
 		}
+	}
+
+	function positionForBook(
+		deployment: Deployment,
+		book: DeploymentInstrumentRuntime
+	): DeploymentPosition | undefined {
+		return canonicalPositions(deployment).find((item) => item.product_id === book.product_id);
+	}
+
+	function protectionForBook(book: DeploymentInstrumentRuntime): string {
+		return book.phase === 'flat' ? 'flat' : 'unknown';
 	}
 
 	async function loadStrategyDeployments(): Promise<void> {
@@ -269,19 +287,37 @@
 				{#if deployment.mismatch_detail}
 					<p class="view-problem" role="alert">{deployment.mismatch_detail}</p>
 				{/if}
-				{#if deployment.position}
-					<p>
-						Position {deployment.position.quantity} @ {deployment.position.entry_price} · stop
-						{deployment.position.stop_price} · target {deployment.position.target_price}
-						{#if deployment.position.trail_extreme}
-							· trail {deployment.position.trail_extreme}
-						{/if}
+				{#if !bookTotalsReconcile(deployment)}
+					<p class="view-problem" role="alert">
+						Book totals do not reconcile to the positions, working orders, and fills on this
+						snapshot.
 					</p>
 				{/if}
+				{#each canonicalBooks(deployment) as book (book.product_id)}
+					{@const position = positionForBook(deployment, book)}
+					<p>
+						{book.product_id} · {book.phase}
+						{#if position}
+							· {position.side ?? 'long'}
+							{position.quantity} @ {position.entry_price} · stop
+							{position.stop_price} · target {position.target_price}
+							{#if position.trail_extreme}
+								· trail {position.trail_extreme}
+							{/if}
+							· {position.protection_status ?? 'unknown'}
+							{#if position.compatibility_focus}
+								· compatibility focus (not the full inventory)
+							{/if}
+						{:else}
+							· no open book · {protectionForBook(book)}
+						{/if}
+					</p>
+				{/each}
 				{#if deployment.orders.length > 0}
 					<table class="results-table" aria-label="Open and recent orders">
 						<thead>
 							<tr>
+								<th scope="col">Product</th>
 								<th scope="col">Side</th>
 								<th scope="col">Qty</th>
 								<th scope="col">Kind</th>
@@ -293,6 +329,7 @@
 						<tbody>
 							{#each deployment.orders as order (order.id)}
 								<tr>
+									<td>{orderProductId(deployment, order)}</td>
 									<td>{order.side}</td>
 									<td>{order.quantity}</td>
 									<td>{order.kind}</td>
@@ -308,6 +345,7 @@
 					<table class="results-table" aria-label="Fills">
 						<thead>
 							<tr>
+								<th scope="col">Product</th>
 								<th scope="col">Time</th>
 								<th scope="col">Qty</th>
 								<th scope="col">Price</th>
@@ -317,6 +355,7 @@
 						<tbody>
 							{#each deployment.fills as fill (fill.id)}
 								<tr>
+									<td>{fillProductId(deployment, fill)}</td>
 									<td>{fill.filled_at}</td>
 									<td>{fill.quantity}</td>
 									<td>{fill.price}</td>

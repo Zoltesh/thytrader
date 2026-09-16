@@ -21,7 +21,12 @@ Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics c
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
 reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
 JWT material or order payloads. It omits cash, quantities, and order payloads. Each deployment
-includes `kind` (`strategy` or `discretionary`) and optional strategy identity.
+includes `kind` (`strategy` or `discretionary`) and optional strategy identity. Multi-instrument
+deployments add `books[]`: `product_id`, `phase`, `side` (`null` when flat), and
+`protection_status` (`flat` \| `covered` \| `unprotected` \| `unknown`). No quantities. Do not
+treat the deployment-level `product_id` as the only open book
+([ADR 0060](../../../docs/decisions/0060-multi-book-deployment-api.md)). The `strategies` payload
+uses the same `books[]` on each deployment row.
 
 Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`.
 Hour-and-longer live still reconciles through REST. Live fill ingest pages Coinbase List Fills

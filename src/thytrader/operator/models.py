@@ -238,6 +238,15 @@ class PublicationSummary(_FrozenModel):
     archived: bool
 
 
+class DeploymentBookSummary(_FrozenModel):
+    """One product book without quantities or order payloads."""
+
+    product_id: str
+    phase: str
+    side: str | None = None
+    protection_status: str
+
+
 class DeploymentSummary(_FrozenModel):
     """One paper or live runtime without cash, quantities, or order payloads."""
 
@@ -253,6 +262,7 @@ class DeploymentSummary(_FrozenModel):
     last_evaluated_bar: datetime | None
     mismatch_present: bool
     last_signal: str | None
+    books: tuple[DeploymentBookSummary, ...] = ()
 
 
 class UserOrderFeedPayload(_FrozenModel):

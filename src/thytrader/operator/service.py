@@ -15,10 +15,16 @@ from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_sn
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
+    DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionStoreError,
     OrderStatus,
     RuntimePhase,
+    resolved_product_id,
+    snapshot_positions,
+    visible_instrument_runtimes,
 )
+from thytrader.execution.protection import book_protection_status
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
@@ -45,6 +51,7 @@ from thytrader.operator.models import (
     DataCatalogPayload,
     DataCatalogReport,
     DatasetCoverageRow,
+    DeploymentBookSummary,
     DeploymentSummary,
     DraftSummary,
     ExchangePayload,
@@ -106,7 +113,7 @@ from thytrader.research.catalog import (
 from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.settings_yaml import default_settings_path
-from thytrader.strategies.models import IndicatorKind
+from thytrader.strategies.models import IndicatorKind, covered_product_ids
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
 
 
@@ -1186,7 +1193,32 @@ class OperatorDiagnostics:
         """List deployments without cash or order payloads."""
         del components, warnings
         deployments = await self.execution.list_deployments()
-        return tuple(_deployment_summary(item) for item in deployments)
+        extra = await self._covered_products_by_fingerprint()
+        summaries: list[DeploymentSummary] = []
+        for item in deployments:
+            snapshot = await self._snapshot_or_none(item.id)
+            extra_ids = extra.get(item.strategy_fingerprint or "", (item.product_id,))
+            summaries.append(
+                _deployment_summary(item, snapshot=snapshot, extra_product_ids=extra_ids)
+            )
+        return tuple(summaries)
+
+    async def _snapshot_or_none(self, deployment_id: UUID) -> DeploymentSnapshot | None:
+        """Load one snapshot or omit books when execution storage fails."""
+        try:
+            return await self.execution.get_deployment(deployment_id)
+        except ExecutionStoreError:
+            return None
+
+    async def _covered_products_by_fingerprint(self) -> dict[str, tuple[str, ...]]:
+        """Map publications onto covered product ids for runtime book rows."""
+        try:
+            entries = await self.publications.list_published(include_archived=True)
+        except StrategyPublicationError, RuntimeError, TypeError, ValueError:
+            return {}
+        return {
+            entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
+        }
 
     async def _backtest_performance(
         self,
@@ -1642,7 +1674,12 @@ def _market_data_component(
     )
 
 
-def _deployment_summary(deployment: Deployment) -> DeploymentSummary:
+def _deployment_summary(
+    deployment: Deployment,
+    *,
+    snapshot: DeploymentSnapshot | None = None,
+    extra_product_ids: tuple[str, ...] = (),
+) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
     return DeploymentSummary(
         deployment_id=deployment.id,
@@ -1657,7 +1694,38 @@ def _deployment_summary(deployment: Deployment) -> DeploymentSummary:
         last_evaluated_bar=deployment.last_evaluated_bar,
         mismatch_present=bool(deployment.mismatch_detail),
         last_signal=deployment.last_signal,
+        books=_book_summaries(
+            snapshot, extra_product_ids=extra_product_ids or (deployment.product_id,)
+        ),
     )
+
+
+def _book_summaries(
+    snapshot: DeploymentSnapshot | None,
+    *,
+    extra_product_ids: tuple[str, ...],
+) -> tuple[DeploymentBookSummary, ...]:
+    """Project per-product phase, side, and protection without quantities."""
+    if snapshot is None:
+        return ()
+    positions = {
+        resolved_product_id(item.product_id, snapshot.deployment): item
+        for item in snapshot_positions(snapshot)
+    }
+    rows: list[DeploymentBookSummary] = []
+    for runtime in visible_instrument_runtimes(snapshot, extra_product_ids=extra_product_ids):
+        position = positions.get(runtime.product_id)
+        rows.append(
+            DeploymentBookSummary(
+                product_id=runtime.product_id,
+                phase=runtime.phase.value,
+                side=None if position is None else position.side.value,
+                protection_status=book_protection_status(
+                    snapshot, product_id=runtime.product_id, position=position
+                ).value,
+            )
+        )
+    return tuple(rows)
 
 
 def _runtime_slice(

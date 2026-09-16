@@ -64,6 +64,14 @@ keeps venue-recorded fees.
 Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
 `/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md).
 
+A multi-instrument document still starts **one** deployment. Deploy and
+`GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with
+protection status. Orders and fills carry `product_id`. `book_totals` must match those
+collections. The singular `position` field is compatibility-only (the focused book, always
+product-tagged); do not treat it as the full inventory
+([ADR 0060](../decisions/0060-multi-book-deployment-api.md)). Operator `strategies` / `runtime`
+reports include redacted `books[]` (product, phase, side, protection — no quantities).
+
 On-demand trades and published strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
 available base and never borrows. When stop and take-profit are known and trailing is off, live

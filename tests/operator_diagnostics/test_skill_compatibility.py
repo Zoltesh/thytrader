@@ -66,6 +66,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "allow_intra_strategy_pyramiding" in schemas
     assert "multi_instrument_documents" in schemas
     assert "intra_strategy_pyramiding" in schemas
+    assert "books" in schemas
+    assert "protection_status" in schemas
+    assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
     assert "DAILY_LOSS_LIMIT" in schemas
     assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
     assert "risk_breakers" in schemas
@@ -177,6 +180,10 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "0053-workstation-ia-write-only-coinbase-credentials" in skill
     assert "--allow-intra-strategy-pyramiding" in skill
     assert "PYRAMIDING_NOT_ALLOWED" in skill
+    assert "0060-multi-book-deployment-api" in skill
+    assert "instrument_runtimes" in skill
+    assert "book_totals" in skill
+    assert "compatibility" in skill.lower()
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:

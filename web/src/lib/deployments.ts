@@ -1,4 +1,7 @@
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 export type DeploymentPosition = {
+	product_id: string;
 	quantity: string;
 	entry_price: string;
 	stop_price: string;
@@ -6,12 +9,34 @@ export type DeploymentPosition = {
 	entered_bar: string;
 	side?: 'long' | 'short' | string;
 	trail_extreme?: string | null;
+	add_count?: number;
+	protection_status?: string;
+	compatibility_focus?: boolean;
+};
+
+export type DeploymentInstrumentRuntime = {
+	product_id: string;
+	phase: string;
+	last_evaluated_bar: string | null;
+	last_signal: string | null;
+	pending_entry_bars: number;
+	bars_held: number;
+	cooldown_bars_remaining: number;
+	pending_stop_price?: string | null;
+	pending_target_price?: string | null;
+};
+
+export type DeploymentBookTotals = {
+	open_books: number;
+	working_orders: number;
+	fill_count: number;
 };
 
 export type DeploymentOrder = {
 	id: string;
 	client_order_id: string;
 	venue_order_id: string | null;
+	product_id?: string;
 	side: string;
 	kind: string;
 	quantity: string;
@@ -23,11 +48,15 @@ export type DeploymentOrder = {
 	reject_reason: string | null;
 	created_at: string;
 	updated_at: string;
+	attached_child_venue_order_id?: string | null;
+	parent_order_id?: string | null;
+	pyramid_add?: boolean;
 };
 
 export type DeploymentFill = {
 	id: string;
 	order_id: string;
+	product_id?: string;
 	venue_fill_id: string;
 	price: string;
 	quantity: string;
@@ -57,11 +86,14 @@ export type Deployment = {
 	created_at: string;
 	updated_at: string;
 	position: DeploymentPosition | null;
+	positions?: DeploymentPosition[];
+	instrument_runtimes?: DeploymentInstrumentRuntime[];
+	book_totals?: DeploymentBookTotals;
 	orders: DeploymentOrder[];
 	fills: DeploymentFill[];
 };
 
-import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+const WORKING_ORDER_STATUSES = new Set(['pending', 'open', 'unknown']);
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const method = init?.method?.toUpperCase() ?? 'GET';
@@ -87,6 +119,65 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		throw new Error(message);
 	}
 	return (await response.json()) as T;
+}
+
+export function canonicalPositions(deployment: Deployment): DeploymentPosition[] {
+	if (deployment.positions && deployment.positions.length > 0) {
+		return [...deployment.positions].sort((left, right) =>
+			left.product_id.localeCompare(right.product_id)
+		);
+	}
+	if (deployment.position) {
+		return [
+			{
+				...deployment.position,
+				product_id: deployment.position.product_id || deployment.product_id,
+				protection_status: deployment.position.protection_status ?? 'unknown',
+				compatibility_focus: true
+			}
+		];
+	}
+	return [];
+}
+
+export function canonicalBooks(deployment: Deployment): DeploymentInstrumentRuntime[] {
+	if (deployment.instrument_runtimes && deployment.instrument_runtimes.length > 0) {
+		return [...deployment.instrument_runtimes].sort((left, right) =>
+			left.product_id.localeCompare(right.product_id)
+		);
+	}
+	return [
+		{
+			product_id: deployment.product_id,
+			phase: deployment.phase,
+			last_evaluated_bar: deployment.last_evaluated_bar,
+			last_signal: deployment.last_signal,
+			pending_entry_bars: deployment.pending_entry_bars,
+			bars_held: deployment.bars_held,
+			cooldown_bars_remaining: 0
+		}
+	];
+}
+
+export function bookTotalsReconcile(deployment: Deployment): boolean {
+	const totals = deployment.book_totals;
+	if (!totals) return true;
+	const working = deployment.orders.filter((order) =>
+		WORKING_ORDER_STATUSES.has(order.status)
+	).length;
+	return (
+		totals.open_books === canonicalPositions(deployment).length &&
+		totals.working_orders === working &&
+		totals.fill_count === deployment.fills.length
+	);
+}
+
+export function orderProductId(deployment: Deployment, order: DeploymentOrder): string {
+	return order.product_id || deployment.product_id;
+}
+
+export function fillProductId(deployment: Deployment, fill: DeploymentFill): string {
+	return fill.product_id || deployment.product_id;
 }
 
 export async function listDeployments(): Promise<Deployment[]> {
