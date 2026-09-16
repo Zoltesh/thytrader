@@ -23,13 +23,15 @@ PLAYBOOK_SEQUENCE: tuple[str, ...] = (
 class YoloTier(StrEnum):
     """Surfaces that may skip `--confirm` when YOLO is explicitly enabled.
 
-    Live start, live pause/resume/stop, and risk-policy publication are never
-    members of this set.
+    Live YOLO never skips ``--i-understand-live``. Risk-policy publication,
+    live place-order, ``--local`` research, and memory stay hard-gated.
+    Paper YOLO never covers a live deployment.
     """
 
     DATA = "data"
     RESEARCH = "research"
     PAPER = "paper"
+    LIVE = "live"
 
 
 class ConfirmationMode(StrEnum):
@@ -46,7 +48,12 @@ class _FrozenModel(BaseModel):
 
 
 class AgentOrchestrationStatus(_FrozenModel):
-    """Read-only confirmation-mode advertisement for agent CLIs and the playbook."""
+    """Read-only confirmation-mode advertisement for agent CLIs and the playbook.
+
+    ``live_hard_gate`` means ``--i-understand-live`` is never skipped and the
+    playbook never receives live authority. It does not forbid a ``live`` YOLO
+    tier from skipping ``--confirm`` on live start/pause/resume/stop.
+    """
 
     schema_version: Literal["thytrader-agent-orchestration-v1"] = ORCHESTRATION_SCHEMA_VERSION
     confirmation_mode: ConfirmationMode

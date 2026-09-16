@@ -20,8 +20,9 @@ no `--local` database mode. The playbook calls `thytrader-operator`, `thytrader-
 `--mode live` or `--i-understand-live`.
 
 Default remains `--confirm` on every child mutation. YOLO (operator-enabled, default off) may skip
-`--confirm` only on advertised tiers `data`, `research`, and/or `paper`. Live start, live
-pause/resume/stop, and `set-risk-policy` never YOLO.
+`--confirm` on advertised tiers `data`, `research`, `paper`, and/or `live`. This playbook still
+never starts live, never passes `--i-understand-live`, and never uses a `live` YOLO tier.
+`set-risk-policy` is not part of this playbook.
 
 ## Hard stop
 

@@ -109,10 +109,17 @@ def test_settings_default_yolo_off() -> None:
     assert settings.notify_webhook_url is None
 
 
-def test_settings_reject_live_yolo_tier() -> None:
-    """Live is never a YOLO-eligible tier."""
-    with pytest.raises(ValidationError, match="never YOLO-eligible"):
-        Settings(yolo_enabled=True, yolo_tiers="data,live", _env_file=None)
+def test_settings_accept_live_yolo_tier() -> None:
+    """Live is YOLO-eligible for `--confirm` skips when explicitly listed."""
+    settings = Settings(yolo_enabled=True, yolo_tiers="data,live", _env_file=None)
+    assert settings.yolo_enabled is True
+    assert settings.yolo_tiers == (YoloTier.DATA, YoloTier.LIVE)
+
+
+def test_settings_reject_unknown_yolo_tier() -> None:
+    """Unknown YOLO tiers remain a configuration error."""
+    with pytest.raises(ValidationError):
+        Settings(yolo_enabled=True, yolo_tiers="data,memory", _env_file=None)
 
 
 def test_settings_reject_enabled_yolo_without_tiers() -> None:
@@ -128,7 +135,7 @@ def test_settings_reject_tiers_without_enabled_flag() -> None:
 
 
 def test_settings_accept_comma_separated_yolo_tiers() -> None:
-    """Enabled YOLO parses unique non-live tiers from a comma-separated string."""
+    """Enabled YOLO parses unique tiers, including live, from a comma-separated string."""
     settings = Settings(yolo_enabled=True, yolo_tiers="data, paper", _env_file=None)
     assert settings.yolo_enabled is True
     assert settings.yolo_tiers == (YoloTier.DATA, YoloTier.PAPER)

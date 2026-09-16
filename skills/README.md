@@ -9,10 +9,12 @@ these contracts. Operating agents should open [`ops/`](../ops/README.md) so they
 without the contributor GitNexus workflow.
 
 Lane splits and confirmation gates are unchanged: operator is read-only; data, research, and
-runtime mutations require `--confirm` (live also `--i-understand-live`). YOLO is an operator-enabled
-opt-in (default off) that may skip `--confirm` on `data` / `research` / `paper` only after an audit;
-live stays hard-gated. The playbook sequences existing CLIs and never starts live. Memory mutations
-always require `--confirm`; YOLO never covers that lane.
+runtime mutations require `--confirm` unless YOLO covers that tier (live also `--i-understand-live`).
+YOLO is an operator-enabled opt-in (default off) that may skip `--confirm` on `data` / `research` /
+`paper` / `live` after an audit. Live YOLO never skips `--i-understand-live`. Live place-order,
+`set-risk-policy`, `--local` research, and memory stay confirmation-hard-gated. The playbook
+sequences existing CLIs and never starts live. Memory mutations always require `--confirm`; YOLO
+never covers that lane.
 
 ## `thytrader-operator`
 
@@ -41,7 +43,7 @@ authority.
 
 ## `thytrader-runtime`
 
-Confirmation-gated paper and live deployment control, plus risk-policy publication. Live start also requires `--i-understand-live`. Publishing a risk policy does not arm live trading. Not an extension of operator or research.
+Confirmation-gated paper and live deployment control, plus risk-policy publication. Live start also requires `--i-understand-live`. YOLO `live` may skip `--confirm` on start/pause/resume/stop. Live place-order and publishing a risk policy still require `--confirm`. Not an extension of operator or research.
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`

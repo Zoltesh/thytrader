@@ -45,7 +45,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 
 | Area | Gap |
 |---|---|
-| Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034) for data/research/paper; live and memory stay hard-gated. |
+| Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034 / 0043) for data/research/paper/live `--confirm` skips; `--i-understand-live`, live place-order, `set-risk-policy`, and memory stay hard-gated. |
 | Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Remaining venue TFs `1m`/`2h`/`4h` have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)) and are strategy/paper/live/HTF clocks ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). |
 | On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
@@ -64,20 +64,23 @@ start requires `--i-understand-live`). Observation skills stay read-only.
 **YOLO mode (shipped, default OFF):** an operator-enabled opt-in that lets agents
 skip per-action confirmation on **allowed** surfaces so end-to-end automation is
 easy when the operator wants that flexibility. See
-[ADR 0034](../decisions/0034-phase-12-agent-orchestration-yolo.md).
+[ADR 0034](../decisions/0034-phase-12-agent-orchestration-yolo.md) and
+[ADR 0043](../decisions/0043-yolo-live-skip-confirm.md).
 
 Design constraints (shipped):
 
 1. Configuration / mode flag defaults to off; enabling is an explicit operator act
    (`THYTRADER_YOLO_ENABLED` plus `THYTRADER_YOLO_TIERS`).
-2. Scope tiers: data + research may be YOLO-eligible; paper may be separately
-   gated; **live start, live pause/resume/stop, and `set-risk-policy` keep a hard
-   gate** even when YOLO is on. `--local` research always requires `--confirm`.
+2. Scope tiers: data, research, paper, and live may be independently YOLO-eligible.
+   Live YOLO skips `--confirm` on start/pause/resume/stop only. `--i-understand-live`,
+   live place-order, `set-risk-policy`, `--local` research, and memory stay hard-gated.
+   Paper YOLO never covers live.
 3. Every skipped confirmation must write an audit event (`confirm_skipped`) or fail
    closed.
 4. YOLO must never become the silent default of read-only observation skills.
 5. Authority boundaries between operator / data / research / runtime stay separate;
    YOLO does not collapse skills into one unrestricted trading agent.
+   The playbook never starts live.
 
 ## Shipped: Agent orchestration
 
@@ -99,7 +102,8 @@ YOLO only changes confirmation friction inside allowed tiers.
    remain out of Phase 9; shipped later as ADR 0042.
 5. **Phase 10** — Shipped: risk-policy registry and concurrent single-instrument paper/live.
 6. **Phase 11** — Shipped: walk-forward / OOS / cross-market studies, richer templates, V1/V2/V3 matrix (ADR 0035).
-7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live stays hard-gated.
+7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live `--confirm`
+   skip shipped later (ADR 0043).
 8. **Phase 13** — Shipped: 5m live, ATR trailing, user-order WS, native OCO (ADR 0036).
 9. **Phase 14** — Memory / hindsight last.
 

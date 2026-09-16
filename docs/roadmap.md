@@ -183,15 +183,17 @@ out of this slice.
 
 Playbook skill over existing CLIs so an agent can sequence data → research → optional paper without
 inventing a private workflow. Default remains `--confirm`. YOLO mode (default off) skips confirmation
-on allowed tiers `data`, `research`, and/or `paper` after an audited skip; live keeps a hard gate.
-See [agent integration](agent-integration.md) and
-[ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md).
+on allowed tiers `data`, `research`, `paper`, and/or `live` after an audited skip.
+`--i-understand-live` remains required for live money. See [agent integration](agent-integration.md),
+[ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md), and
+[ADR 0043](decisions/0043-yolo-live-skip-confirm.md).
 This phase serves [ADR 0030](decisions/0030-agent-e2e-primary-surface.md) (agent E2E as primary
 surface); it does not collapse skill lanes or grant live authority by inheritance.
 
 **Exit gate met:** `uv run thytrader-playbook status` advertises Safe vs YOLO; `run` calls existing
 lane CLIs and never starts live; `--confirm` remains the default; live start still needs
-`--i-understand-live`; skipped confirms audit `confirm_skipped` or fail closed.
+`--i-understand-live`; skipped confirms audit `confirm_skipped` or fail closed. Live YOLO
+`--confirm` skips shipped later ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)).
 
 Destination still includes on-demand trades, `1m`/`2h` clocks, journals, and notify
 ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)). Those stay out of this slice.
@@ -287,6 +289,20 @@ out of this slice.
 **Exit gate met:** a 5m strategy can declare a 1h EMA on the LTF list; research, paper, and live
 hold last-completed extra-TF values onto each LTF close without interpolation.
 
+## YOLO skip-confirm for live — ✅ Shipped
+
+Operator-enabled YOLO tier `live` skips `--confirm` on live start, pause, resume, and stop after
+an audited `confirm_skipped` event ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)).
+`--i-understand-live` remains required for live start and live place-order. YOLO off, a missing
+`live` tier, or unavailable audit storage fail closed. Paper YOLO does not cover live. Playbook
+never starts live. Live `place-order`, `set-risk-policy`, `--local` research, memory, kill
+switches, and venue-order cancellation stay outside this skip. Default remains `--confirm`.
+Ops contract is unchanged.
+
+**Exit gate met:** `thytrader-runtime start --mode live --i-understand-live` (no `--confirm`)
+succeeds only when YOLO advertises `live` and the skip audit writes; Safe mode still requires
+`--confirm`; playbook `run` never constructs `--mode live`.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -303,7 +319,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
-| Agent E2E | Five lane-separated skills plus playbook | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037) |
+| Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043) |
 
 ## Phase 0: Repository foundation — ✅ Complete
 
@@ -512,5 +528,6 @@ trading authority. Paper/live control is a third confirmation-gated surface, not
 research skills.
 
 Further agent E2E orchestration and YOLO opt-in are **Phase 12** and are now shipped (playbook over
-existing CLIs; YOLO default off; live remains hard-gated). They were not part of the Phase 6 exit
-gate. See [Phase 12](#phase-12-agent-orchestration--yolo-opt-in--shipped).
+existing CLIs; YOLO default off; live `--confirm` skip is [ADR 0043](decisions/0043-yolo-live-skip-confirm.md)).
+They were not part of the Phase 6 exit gate. See
+[Phase 12](#phase-12-agent-orchestration--yolo-opt-in--shipped).

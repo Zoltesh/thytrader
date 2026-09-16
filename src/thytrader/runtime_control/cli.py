@@ -32,10 +32,14 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _CONFIRM_HELP = (
-    "Required for mutations. Live start also requires --i-understand-live. "
-    "Publishing a risk policy requires --confirm only; it does not arm live trading."
+    "Required for mutations unless YOLO covers that tier. Live start also "
+    "requires --i-understand-live. Publishing a risk policy requires --confirm "
+    "only; it does not arm live trading. Live place-order never skips --confirm."
 )
-_LIVE_HELP = "Required with --confirm to start live trading. Live spends real money."
+_LIVE_HELP = (
+    "Required to start live trading or place a live order. Live spends real "
+    "money. YOLO never skips this flag."
+)
 _ALLOCATION_HELP = "Optional strategy_id:allocated_quote reservation. Repeatable."
 
 
@@ -59,9 +63,10 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Start, pause, resume, or stop paper and live deployments, place "
             "discretionary orders, and publish the risk-policy registry, through "
-            "the loopback HTTP API. Mutations require --confirm. Live start and "
-            "live place-order also require --i-understand-live. This is not the "
-            "operator or research CLI."
+            "the loopback HTTP API. Mutations require --confirm unless YOLO "
+            "covers that tier. Live start and live place-order also require "
+            "--i-understand-live. Live place-order and set-risk-policy never "
+            "skip --confirm. This is not the operator or research CLI."
         ),
         parents=[shared],
     )
@@ -165,14 +170,15 @@ def _require_confirm(
     base_url: str,
     command: str,
     hard_gate: bool = False,
+    tier: YoloTier = YoloTier.PAPER,
 ) -> None:
-    """Refuse mutations unless `--confirm` is present or YOLO covers paper."""
+    """Refuse mutations unless `--confirm` is present or YOLO covers the tier."""
     require_mutation_confirmation(
         confirmed=confirm,
         missing_message=_RUNTIME_CONFIRM_MESSAGE,
         error_type=RuntimeControlError,
         base_url=base_url,
-        tier=YoloTier.PAPER,
+        tier=tier,
         command=command,
         hard_gate=hard_gate,
     )
@@ -181,9 +187,7 @@ def _require_confirm(
 def _require_live_ack(*, mode: str, acknowledged: bool) -> None:
     """Refuse live arming unless the dedicated live acknowledgement flag is set."""
     if mode == "live" and not acknowledged:
-        raise RuntimeControlError(
-            "Live trading spends real money. Pass --confirm and --i-understand-live."
-        )
+        raise RuntimeControlError("Live trading spends real money. Pass --i-understand-live.")
 
 
 def _deployment_mode(payload: object) -> str:
@@ -196,15 +200,15 @@ def _deployment_mode(payload: object) -> str:
 
 
 def _start(arguments: argparse.Namespace, base_url: str) -> object:
-    """Start paper (YOLO-eligible) or live (hard-gated) through the existing client."""
+    """Start paper or live; live still requires `--i-understand-live`."""
     live = arguments.mode == "live"
+    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
         arguments.confirm,
         base_url=base_url,
         command="start",
-        hard_gate=live,
+        tier=YoloTier.LIVE if live else YoloTier.PAPER,
     )
-    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
     require_matching_ops_contract(base_url)
     return start_deployment(
@@ -216,15 +220,16 @@ def _start(arguments: argparse.Namespace, base_url: str) -> object:
 
 
 def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
-    """Place one paper (YOLO-eligible) or live (hard-gated) discretionary long."""
+    """Place one paper (YOLO-eligible) or live (confirm hard-gated) discretionary long."""
     live = arguments.mode == "live"
+    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
         arguments.confirm,
         base_url=base_url,
         command="place-order",
         hard_gate=live,
+        tier=YoloTier.PAPER,
     )
-    _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
     require_matching_ops_contract(base_url)
     return place_discretionary_order(
@@ -245,7 +250,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
 
 
 def _set_status(arguments: argparse.Namespace, base_url: str) -> object:
-    """Pause, resume, or stop one deployment; live control never uses YOLO."""
+    """Pause, resume, or stop one deployment; YOLO follows paper vs live tiers."""
     command = arguments.command
     require_paper_runtime_confirmation(
         confirmed=arguments.confirm,
@@ -333,7 +338,7 @@ def _paper_cash(*, mode: str, cash: str | None) -> str | None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run one runtime command; mutations require --confirm."""
+    """Run one runtime command; mutations require `--confirm` unless YOLO applies."""
     parser = _parser()
     try:
         arguments = parser.parse_args(argv)

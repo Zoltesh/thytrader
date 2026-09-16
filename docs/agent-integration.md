@@ -68,7 +68,7 @@ Shipped command groups:
 - `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
-- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm`; live also `--i-understand-live`).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
 
@@ -115,16 +115,20 @@ arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform 
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.
-See [ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md).
+See [ADR 0034](decisions/0034-phase-12-agent-orchestration-yolo.md) and
+[ADR 0043](decisions/0043-yolo-live-skip-confirm.md).
 
 Shipped constraints:
 
 - Opt-in configuration (`THYTRADER_YOLO_ENABLED` plus `THYTRADER_YOLO_TIERS`); never the silent
   default for observation skills.
-- Scope tiers: data + research eligible; paper separately gated; live start/pause/resume/stop and
-  `set-risk-policy` keep a hard gate. `--local` research always requires `--confirm`.
+- Scope tiers: `data`, `research`, `paper`, and `live` are independently eligible. Live YOLO
+  skips `--confirm` only on live start/pause/resume/stop and never skips `--i-understand-live`.
+  Live `place-order`, `set-risk-policy`, `--local` research, and memory stay confirmation-hard-gated.
+  Paper YOLO never covers live.
 - Audit every skipped confirmation (`confirm_skipped`) or fail closed.
 - Do not collapse operator / data / research / runtime authority into one unrestricted skill.
+  The playbook never starts live, including when YOLO advertises `live`.
 
 See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
 
@@ -218,7 +222,7 @@ The operator skill tells agents to:
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market studies only. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
-| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or `place-order --mode live --confirm --i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
+| Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, and notify. Operator `monitor` is read-only. YOLO never covers this lane. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

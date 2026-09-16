@@ -187,8 +187,8 @@ source:
 - [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
   backtests only, with `--confirm` on every mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
-  resume, stop, on-demand `place-order`, and risk-policy publication, with `--confirm` (live start
-  and live place-order also `--i-understand-live`).
+  resume, stop, on-demand `place-order`, and risk-policy publication, with `--confirm` unless YOLO
+  covers that tier (live start and live place-order also `--i-understand-live`).
 - [`skills/thytrader-playbook/SKILL.md`](skills/thytrader-playbook/SKILL.md) — sequences existing
   lane CLIs for data → research → optional paper. Forwards `--confirm`. Never starts live.
 - [`skills/thytrader-memory/SKILL.md`](skills/thytrader-memory/SKILL.md) — journals, sentiment and

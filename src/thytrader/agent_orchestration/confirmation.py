@@ -27,8 +27,9 @@ def require_mutation_confirmation(
 ) -> None:
     """Refuse a mutation unless `--confirm` is present or YOLO covers the tier.
 
-    ``hard_gate`` is for live start, live pause/resume/stop, risk-policy writes,
-    and ``--local`` research. Those paths never consult YOLO.
+    ``hard_gate`` is for risk-policy writes, live place-order, ``--local``
+    research, and memory. Those paths never consult YOLO. Live
+    start/pause/resume/stop use ``YoloTier.LIVE`` instead of ``hard_gate``.
     """
     if confirmed:
         return
@@ -50,13 +51,24 @@ def require_paper_runtime_confirmation(
     command: str,
     deployment_mode: Callable[[], str],
 ) -> None:
-    """Allow YOLO only for paper deployments; live control stays confirmation-gated."""
+    """Allow YOLO for paper or live control according to advertised tiers.
+
+    Paper YOLO never covers a live deployment. Live YOLO never covers paper.
+    Live start acknowledgement is a separate ``--i-understand-live`` gate.
+    """
     if confirmed:
         return
     require_matching_ops_contract(base_url)
     status = fetch_orchestration_status(base_url)
-    if not status.allows(YoloTier.PAPER):
+    if not status.allows(YoloTier.PAPER) and not status.allows(YoloTier.LIVE):
         raise error_type(missing_message)
-    if deployment_mode() == "live":
+    mode = deployment_mode()
+    if mode == "live":
+        tier = YoloTier.LIVE
+    elif mode == "paper":
+        tier = YoloTier.PAPER
+    else:
         raise error_type(missing_message)
-    record_skipped_confirmation(base_url, tier=YoloTier.PAPER, command=command)
+    if not status.allows(tier):
+        raise error_type(missing_message)
+    record_skipped_confirmation(base_url, tier=tier, command=command)

@@ -56,8 +56,8 @@ def test_start_without_confirm_does_not_call_api() -> None:
     request.assert_not_called()
 
 
-def test_live_start_without_confirm_does_not_probe_yolo() -> None:
-    """Live start is a hard gate and must not consult YOLO."""
+def test_live_start_without_ack_does_not_probe_yolo() -> None:
+    """`--i-understand-live` is checked before YOLO and is never skipped."""
     with (
         patch("thytrader.agent_http.urlopen") as urlopen,
         patch("thytrader.runtime_control.cli.start_deployment") as request,
@@ -73,7 +73,7 @@ def test_live_start_without_confirm_does_not_probe_yolo() -> None:
             ]
         )
     assert raised.value.code != 0
-    assert "Pass --confirm" in str(raised.value)
+    assert "--i-understand-live" in str(raised.value)
     urlopen.assert_not_called()
     request.assert_not_called()
 
@@ -153,6 +153,101 @@ def test_paper_start_yolo_skips_confirm() -> None:
     request.assert_called_once()
 
 
+def test_live_start_without_confirm_fails_closed_when_yolo_off() -> None:
+    """Live YOLO is fail-closed: ack without `--confirm` still needs the live tier."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "live",
+                "--i-understand-live",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_live_start_yolo_skips_confirm() -> None:
+    """Live YOLO records a skip then starts without `--confirm` when ack is present."""
+    skip = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "category": "runtime",
+        "action": "confirm_skipped",
+        "outcome": "info",
+        "tier": "live",
+        "command": "start",
+    }
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("live",),
+        ),
+        "POST /api/v1/agent-orchestration/skipped-confirmations": skip,
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.start_deployment",
+            return_value={"id": "dep", "mode": "live"},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "live",
+                "--i-understand-live",
+            ]
+        )
+    assert raised.value.code == 0
+    request.assert_called_once()
+
+
+def test_paper_yolo_does_not_skip_live_start() -> None:
+    """Paper YOLO plus `--i-understand-live` must not arm live without `--confirm`."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("paper",),
+        ),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "live",
+                "--i-understand-live",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
 def test_runtime_cli_refuses_stale_ops_contract_before_command() -> None:
     """Every runtime command stops when the ready API does not match this checkout."""
     with (
@@ -209,6 +304,65 @@ def test_paper_yolo_does_not_skip_live_pause() -> None:
         patch(
             "thytrader.runtime_control.cli.show_deployment",
             return_value={"id": "dep", "mode": "live"},
+        ),
+        patch("thytrader.runtime_control.cli.set_deployment_status") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["pause", "11111111-1111-1111-1111-111111111111"])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_live_yolo_skips_live_pause() -> None:
+    """Live YOLO records a skip then pauses a live deployment without `--confirm`."""
+    skip = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "category": "runtime",
+        "action": "confirm_skipped",
+        "outcome": "info",
+        "tier": "live",
+        "command": "pause",
+    }
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("live",),
+        ),
+        "POST /api/v1/agent-orchestration/skipped-confirmations": skip,
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.show_deployment",
+            return_value={"id": "dep", "mode": "live"},
+        ),
+        patch(
+            "thytrader.runtime_control.cli.set_deployment_status",
+            return_value={"id": "dep", "mode": "live", "status": "paused"},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["pause", "11111111-1111-1111-1111-111111111111"])
+    assert raised.value.code == 0
+    request.assert_called_once()
+
+
+def test_live_yolo_does_not_skip_paper_pause() -> None:
+    """Live YOLO must not skip confirmation on a paper deployment."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("live",),
+        ),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.show_deployment",
+            return_value={"id": "dep", "mode": "paper"},
         ),
         patch("thytrader.runtime_control.cli.set_deployment_status") as request,
         pytest.raises(SystemExit) as raised,
@@ -355,3 +509,34 @@ def test_paper_place_order_yolo_skips_confirm() -> None:
         )
     assert raised.value.code == 0
     request.assert_called_once()
+
+
+def test_live_yolo_does_not_skip_live_place_order() -> None:
+    """Live place-order stays confirmation-hard-gated even when YOLO live is on."""
+    with (
+        patch("thytrader.agent_http.urlopen") as urlopen,
+        patch("thytrader.runtime_control.cli.place_discretionary_order") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "place-order",
+                "--mode",
+                "live",
+                "--product-id",
+                "BTC-USD",
+                "--stop-price",
+                "50000",
+                "--take-profit-price",
+                "200000",
+                "--quantity",
+                "0.01",
+                "--idempotency-key",
+                "k1",
+                "--i-understand-live",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    urlopen.assert_not_called()
+    request.assert_not_called()

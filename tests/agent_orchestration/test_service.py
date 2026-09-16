@@ -30,6 +30,7 @@ def test_default_status_is_safe_with_live_hard_gate() -> None:
     assert status.live_hard_gate is True
     assert status.live_authority is False
     assert status.allows(YoloTier.DATA) is False
+    assert status.allows(YoloTier.LIVE) is False
 
 
 def test_skip_rejected_when_yolo_is_off() -> None:
@@ -63,6 +64,21 @@ def test_skip_records_lane_audit_when_yolo_covers_tier() -> None:
     assert events[0].category.value == "market_data"
     assert events[0].outcome.value == "info"
     assert "tier=data" in events[0].detail
+
+
+def test_skip_records_live_tier_on_runtime_category() -> None:
+    """Live YOLO skips audit on the runtime lane, not a separate live category."""
+    store = InMemoryAuditEventStore()
+    settings = Settings(yolo_enabled=True, yolo_tiers=(YoloTier.LIVE,), _env_file=None)
+    request = SkippedConfirmationRequest(tier=YoloTier.LIVE, command="start")
+    recorded = asyncio.run(
+        record_skipped_confirmation(settings=settings, store=store, request=request)
+    )
+    events = asyncio.run(store.list_recent())
+    assert recorded.tier == YoloTier.LIVE
+    assert recorded.category == "runtime"
+    assert events[0].action == "confirm_skipped"
+    assert "tier=live" in events[0].detail
 
 
 def test_skip_fails_closed_without_audit_store() -> None:

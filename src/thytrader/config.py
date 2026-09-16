@@ -97,30 +97,24 @@ class Settings(BaseSettings):
     @field_validator("yolo_tiers", mode="before")
     @classmethod
     def parse_yolo_tiers(cls, value: object) -> object:
-        """Parse comma-separated YOLO tiers; live is never eligible."""
+        """Parse comma-separated YOLO tiers, including optional live."""
         if value is None:
             return ()
         if isinstance(value, str):
-            parts = tuple(part.strip().lower() for part in value.split(",") if part.strip())
-            if any(part == "live" for part in parts):
-                message = (
-                    "Live is never YOLO-eligible. Pass --confirm and --i-understand-live "
-                    "to start live trading."
-                )
-                raise ValueError(message)
-            return parts
+            return tuple(part.strip().lower() for part in value.split(",") if part.strip())
         return value
 
     @model_validator(mode="after")
     def validate_yolo_opt_in(self) -> Self:
-        """YOLO stays off unless both the flag and an allowed non-live tier set are set."""
+        """YOLO stays off unless both the flag and a non-empty allowed-tier set are set."""
         unique = tuple(dict.fromkeys(self.yolo_tiers))
         if unique != self.yolo_tiers:
             raise ValueError("THYTRADER_YOLO_TIERS must not contain duplicates.")
         if self.yolo_enabled and not self.yolo_tiers:
             raise ValueError(
                 "THYTRADER_YOLO_ENABLED requires THYTRADER_YOLO_TIERS "
-                "(data, research, and/or paper). Default remains --confirm."
+                "(data, research, paper, and/or live). Default remains --confirm. "
+                "Live YOLO still requires --i-understand-live."
             )
         if self.yolo_tiers and not self.yolo_enabled:
             raise ValueError(

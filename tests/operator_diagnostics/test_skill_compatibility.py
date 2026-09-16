@@ -119,6 +119,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "not an extension" in skill.lower() or "not the operator" in skill.lower()
     assert "do not edit" in skill.lower()
     assert "make run" in skill
+    assert "YOLO" in skill or "yolo" in skill
+    assert "live" in skill.lower()
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
