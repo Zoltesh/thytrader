@@ -31,15 +31,12 @@ def is_managed_assignment(line: str) -> bool:
     stripped = line.strip()
     if stripped.startswith("export "):
         stripped = stripped.removeprefix("export ").lstrip()
-    for name in _MANAGED:
-        if stripped.startswith(f"{name}=") or stripped.startswith(f"{name} ="):
-            return True
-    return False
+    return any(stripped.startswith((f"{name}=", f"{name} =")) for name in _MANAGED)
 
 
 def env_file_writable(path: Path) -> bool:
     """True when this process can create or replace the dotenv file."""
-    parent = path.parent if path.parent != Path("") else Path(".")
+    parent = path.parent
     if not parent.exists() or not parent.is_dir():
         return False
     if not os.access(parent, os.W_OK | os.X_OK):
@@ -84,7 +81,7 @@ def _read_existing_lines(path: Path) -> list[str]:
 
 def _atomic_write(path: Path, body: str) -> None:
     """Write ``body`` via a same-directory replace and set mode 0o600."""
-    parent = path.parent if path.parent != Path("") else Path(".")
+    parent = path.parent
     fd: int | None = None
     tmp_name: str | None = None
     try:
@@ -94,10 +91,11 @@ def _atomic_write(path: Path, body: str) -> None:
             handle.write(body)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, path)
+        tmp_path = Path(tmp_name)
+        tmp_path.chmod(0o600)
+        tmp_path.replace(path)
         tmp_name = None
-        os.chmod(path, 0o600)
+        path.chmod(0o600)
     except OSError as error:
         raise CredentialsEnvError(
             "Could not persist Coinbase credentials to the env file."

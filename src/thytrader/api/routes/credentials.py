@@ -6,6 +6,7 @@ payloads. LLM keys are not accepted here.
 
 from __future__ import annotations
 
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Annotated
 
@@ -34,7 +35,7 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.runtime import RuntimeState
+from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])
 
@@ -53,7 +54,7 @@ def get_credentials_env_file(request: Request) -> Path:
 
 async def suppress_credentials_validation_echo(
     request: Request,
-    exc: RequestValidationError,
+    exc: Exception,
 ) -> JSONResponse:
     """Strip FastAPI 422 ``input`` fields on the credentials route."""
     if request.url.path.startswith("/api/v1/credentials"):
@@ -61,6 +62,8 @@ async def suppress_credentials_validation_echo(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": INVALID_CREDENTIALS_PAYLOAD},
         )
+    if not isinstance(exc, RequestValidationError):
+        raise exc
     return await request_validation_exception_handler(request, exc)
 
 
@@ -126,7 +129,7 @@ async def _read_write_pair(request: Request) -> tuple[str, str]:
     """Parse PUT JSON without putting secret values into exception details."""
     try:
         payload = await request.json()
-    except Exception:
+    except JSONDecodeError, UnicodeDecodeError, ValueError, TypeError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=INVALID_CREDENTIALS_PAYLOAD,

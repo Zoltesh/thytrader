@@ -1,6 +1,8 @@
 """Tests for dotenv persistence of Coinbase credentials."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from thytrader.credentials.envfile import (
     assignment_line,
@@ -11,9 +13,12 @@ from thytrader.credentials.envfile import (
     upsert_coinbase_env,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def test_quote_env_value_escapes_newlines_and_quotes() -> None:
-    """PEM line breaks become \\n sequences inside a quoted assignment."""
+    r"""PEM line breaks become \n sequences inside a quoted assignment."""
     assert quote_env_value('line-one\nline-two"x') == '"line-one\\nline-two\\"x"'
 
 
@@ -24,7 +29,11 @@ def test_upsert_preserves_unrelated_lines_and_replaces_keys(tmp_path: Path) -> N
         "# keep me\nTHYTRADER_LOG_LEVEL=INFO\nTHYTRADER_COINBASE_API_KEY_NAME=old\n",
         encoding="utf-8",
     )
-    upsert_coinbase_env(path=path, key_name="organizations/example/apiKeys/new", private_key="k1\nk2")
+    upsert_coinbase_env(
+        path=path,
+        key_name="organizations/example/apiKeys/new",
+        private_key="k1\nk2",
+    )
     text = path.read_text(encoding="utf-8")
     assert "# keep me" in text
     assert "THYTRADER_LOG_LEVEL=INFO" in text
@@ -51,7 +60,7 @@ def test_env_file_writable_false_for_missing_parent(tmp_path: Path) -> None:
 
 
 def test_managed_assignment_detects_export_prefix() -> None:
-    """export KEY=value lines are treated as managed Coinbase assignments."""
+    """Export KEY=value lines are treated as managed Coinbase assignments."""
     assert is_managed_assignment("export THYTRADER_COINBASE_API_KEY_NAME=x")
     assert not is_managed_assignment("THYTRADER_LOG_LEVEL=INFO")
     assert assignment_line("THYTRADER_COINBASE_API_KEY_NAME", "n") == (

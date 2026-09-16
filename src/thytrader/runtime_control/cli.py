@@ -7,8 +7,8 @@ Also exposes write-only Coinbase credential show/set/clear. Mutations stay
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
+import sys
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url

@@ -1,6 +1,8 @@
 """Write-only Coinbase credentials HTTP contract."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
 
@@ -11,9 +13,14 @@ from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 _SYNTHETIC_KEY_NAME = "organizations/example/apiKeys/thytrader-test"
 _SYNTHETIC_PRIVATE_KEY = (
-    "-----BEGIN EC PRIVATE KEY-----\nSYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n-----END EC PRIVATE KEY-----"
+    "-----BEGIN EC PRIVATE KEY-----\n"
+    "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n"
+    "-----END EC PRIVATE KEY-----"
 )
 
 

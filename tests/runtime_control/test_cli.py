@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -15,6 +15,9 @@ from tests.http_fakes import (
     urlopen_ready_then,
 )
 from thytrader.runtime_control.cli import main
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_runtime_help_describes_confirm_and_live_ack(
