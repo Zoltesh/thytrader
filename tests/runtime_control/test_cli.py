@@ -235,7 +235,7 @@ def test_runtime_help_lists_risk_policy_commands(
 def test_place_order_help_lists_venue_clocks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """place-order help must name ingested venue clocks for the discretionary book."""
+    """Place-order help must name ingested venue clocks for the discretionary book."""
     with pytest.raises(SystemExit) as raised:
         main(["place-order", "--help"])
     assert raised.value.code == 0

@@ -35,7 +35,7 @@ def test_playbook_help_describes_confirm_and_no_live(
 def test_playbook_run_help_lists_venue_clocks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """run help must name ingested venue clocks and extra-TF ingest."""
+    """Run help must name ingested venue clocks and extra-TF ingest."""
     with pytest.raises(SystemExit) as raised:
         main(["run", "--help"])
     assert raised.value.code == 0

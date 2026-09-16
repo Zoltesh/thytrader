@@ -33,7 +33,7 @@ def test_data_help_describes_confirm_and_boundaries(
 def test_watch_add_help_lists_venue_clocks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """watch-add help must name 1m, 2h, and 4h as complete-only dataset clocks."""
+    """Watch-add help must name 1m, 2h, and 4h as complete-only dataset clocks."""
     with pytest.raises(SystemExit) as raised:
         main(["watch-add", "--help"])
     assert raised.value.code == 0
