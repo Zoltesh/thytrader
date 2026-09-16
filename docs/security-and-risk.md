@@ -14,6 +14,8 @@ ThyTrader can place irreversible financial orders. Security and execution safety
 - Enforce safety at application capabilities, live-arming, risk, and confirmation boundaries rather
   than inferring operator intent from the key's permission set.
 - Never persist a private key in browser storage or send it over the UI API.
+- In-app operator chat stores a user-pasted LLM API key in the API process only. It is not a
+  Coinbase credential. Status and transcripts must not echo it; logs must redact it.
 
 For the initial local deployment, `.env` is acceptable. A future hosted or multi-user product requires encrypted per-user secret storage and a new threat model.
 

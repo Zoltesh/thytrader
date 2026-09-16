@@ -17,7 +17,7 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 - [Product vision](product/vision.md) — the destination, in product language
 - [Setup](user/setup.md) — `make run`, loopback ports, Compose, native processes
 - [Safety](user/safety.md) — secrets, loopback, confirmation, live arming
-- [Operate](user/operate.md) — browser workspace and agent how-to
+- [Operate](user/operate.md) — browser workspace, operator chat, and agent how-to
 
 Skills of record: [`skills/README.md`](../skills/README.md). Open [`ops/`](../ops/README.md) when
 you are operating a **running** instance (not changing source).

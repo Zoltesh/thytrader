@@ -23,6 +23,7 @@ from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
 from thytrader.api.routes.memory import router as memory_router
 from thytrader.api.routes.operator import router as operator_router
+from thytrader.api.routes.operator_chat import router as operator_chat_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
 from thytrader.api.routes.research_studies import router as research_studies_router
@@ -68,6 +69,9 @@ from thytrader.memory.store import (
     DisabledExperientialMemoryStore,
     ExperientialMemoryStore,
 )
+from thytrader.operator_chat.credentials import OperatorChatCredentialStore
+from thytrader.operator_chat.service import OperatorChatService
+from thytrader.operator_chat.session import OperatorChatSessionStore
 from thytrader.persistence.audit_events import (
     AuditEventStore,
     DisabledAuditEventStore,
@@ -120,6 +124,7 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.protocols import ExchangeAccount
     from thytrader.execution.broker import Broker
+    from thytrader.operator_chat.llm import LlmClient
 
 _logger = logging.getLogger(__name__)
 
@@ -146,6 +151,9 @@ def create_app(
     user_order_feed_state_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
     notification_sender: NotificationSender | None = None,
+    operator_chat_credentials: OperatorChatCredentialStore | None = None,
+    operator_chat_sessions: OperatorChatSessionStore | None = None,
+    operator_chat_llm: LlmClient | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -304,10 +312,16 @@ def create_app(
         resolved_settings
     )
     app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
+    app.state.operator_chat_service = OperatorChatService(
+        credentials=operator_chat_credentials or OperatorChatCredentialStore(),
+        sessions=operator_chat_sessions or OperatorChatSessionStore(),
+        llm=operator_chat_llm,
+    )
     app.include_router(health_router)
     app.include_router(audit_events_router)
     app.include_router(agent_orchestration_router)
     app.include_router(operator_router)
+    app.include_router(operator_chat_router)
     app.include_router(data_router)
     app.include_router(fees_router)
     app.include_router(market_data_router)

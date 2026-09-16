@@ -20,6 +20,7 @@ from thytrader.operator.redaction import configured_secrets, dumps_redacted, red
 from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics
 from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
+from thytrader.operator_chat.http import fetch_chat_status
 from thytrader.ops_contract import EXPECTED_SCHEMA_REVISION, STALE_IMAGE_REBUILD
 
 if TYPE_CHECKING:
@@ -60,7 +61,8 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Read-only diagnostics for a running ThyTrader instance. "
             "This command cannot place, edit, or cancel orders, or arm live trading. "
-            "Default transport is the loopback HTTP API; --local uses process stores."
+            "Default transport is the loopback HTTP API; --local uses process stores. "
+            "chat-status is HTTP-only and reports the in-app LLM key flag, not Coinbase."
         ),
         parents=[shared],
     )
@@ -153,6 +155,11 @@ def _parser() -> argparse.ArgumentParser:
         "schema-check",
         parents=[trailing],
         help="Verify skill docs match SCHEMA_VERSION.",
+    )
+    subparsers.add_parser(
+        "chat-status",
+        parents=[trailing],
+        help="Whether an LLM key is held in the API process (never prints the key).",
     )
     return parser
 
@@ -295,6 +302,34 @@ def _run_schema_check(*, fmt: str) -> int:
     return EXIT_HEALTHY
 
 
+def _run_chat_status(arguments: argparse.Namespace) -> int:
+    """Fetch redacted LLM-key status. HTTP-only; keys are not in --local stores."""
+    if arguments.local:
+        raise AgentHttpError(
+            "chat-status is HTTP-only because LLM keys are held in the API process, "
+            "not local stores. Do not pass --local."
+        )
+    settings = Settings()
+    secrets = configured_secrets(settings)
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    require_matching_ops_contract(base_url)
+    status = fetch_chat_status(base_url)
+    payload = status.model_dump(mode="json")
+    if arguments.format == "text":
+        configured = "yes" if status.llm_configured else "no"
+        rendered = (
+            f"llm_configured={configured}\n"
+            f"provider={status.provider or 'none'}\n"
+            f"model={status.model or 'none'}\n"
+            f"key_storage={status.key_storage}\n"
+            "coinbase_credentials_in_chat=false"
+        )
+        sys.stdout.write(f"{redact_text(rendered, secrets)}\n")
+        return EXIT_HEALTHY
+    sys.stdout.write(f"{dumps_redacted(payload, secrets)}\n")
+    return EXIT_HEALTHY
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Print one operator report and exit with 0/1/2 for healthy/degraded/failed."""
     parser = _parser()
@@ -307,6 +342,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         if arguments.command == "schema-check":
             code = _run_schema_check(fmt=arguments.format)
+        elif arguments.command == "chat-status":
+            code = _run_chat_status(arguments)
         elif arguments.local:
             code = asyncio.run(_run_local(arguments))
         else:

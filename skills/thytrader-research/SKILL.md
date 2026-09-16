@@ -19,6 +19,9 @@ Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id
 `POST /api/v1/backtests`, `POST /api/v1/research/studies`) remain valid. The agent-facing mutation
 path is `uv run thytrader-research` with `--confirm`.
 
+In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
+not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
+
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.

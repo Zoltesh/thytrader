@@ -67,6 +67,19 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
+### Operator chat
+
+Open http://127.0.0.1:5175/chat. Paste **your LLM API key** (OpenAI or OpenAI-compatible). This is
+not a Coinbase form — Coinbase keys stay on the separate secrets surface and never enter the
+browser. The key is held in the API process only; restarting the API clears it.
+
+The chat is an operator over the same gated skill lanes as `ops/`. Read-only diagnosis runs
+immediately. Data, research, runtime, and memory mutations wait for in-app confirmation. Live start
+and live place-order also need the understand-live checkbox. Paper start and paper on-demand orders
+may include maker and taker fee assumptions; live Coinbase fees stay venue-recorded.
+`uv run thytrader-operator chat-status` reports whether a key is configured; it never prints the
+secret.
+
 ## With an agent (or the CLIs yourself)
 
 Run every `uv run thytrader-*` command from the **repository root**. JSON is the default CLI

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	DEFAULT_CONTEXT_LABEL,
+	OPERATOR_CHAT_CONTEXT_LABEL,
 	RESEARCH_CONTEXT_LABEL,
 	WORKSTATION_NAV,
 	isWorkstationNavActive
@@ -15,13 +16,15 @@ describe('workstation chrome', () => {
 			'Strategies',
 			'Backtests',
 			'Audit',
-			'Memory'
+			'Memory',
+			'Chat'
 		]);
 	});
 
 	it('keeps environment labels static rather than implying health', () => {
 		expect(DEFAULT_CONTEXT_LABEL).toBe('Local workstation');
 		expect(RESEARCH_CONTEXT_LABEL).toBe('Research only');
+		expect(OPERATOR_CHAT_CONTEXT_LABEL).toBe('Operator chat');
 	});
 
 	it('marks Portfolio only on the dashboard route', () => {
@@ -52,5 +55,7 @@ describe('workstation chrome', () => {
 		expect(isWorkstationNavActive('/audit', '/backtests')).toBe(false);
 		expect(isWorkstationNavActive('/memory', '/memory')).toBe(true);
 		expect(isWorkstationNavActive('/memory', '/audit')).toBe(false);
+		expect(isWorkstationNavActive('/chat', '/chat')).toBe(true);
+		expect(isWorkstationNavActive('/chat', '/memory')).toBe(false);
 	});
 });

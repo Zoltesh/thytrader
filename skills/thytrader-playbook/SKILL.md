@@ -19,6 +19,10 @@ no `--local` database mode. The playbook calls `thytrader-operator`, `thytrader-
 `thytrader-research`, and `thytrader-runtime` `main()` functions. It never constructs
 `--mode live` or `--i-understand-live`.
 
+In-app operator chat may read playbook status (`GET /api/v1/agent-orchestration`) and sequence
+paper through `runtime_start` with `mode=paper`. Chat must not start live. Do not treat chat as
+this skill.
+
 Default remains `--confirm` on every child mutation. YOLO (operator-enabled, default off) may skip
 `--confirm` on advertised tiers `data`, `research`, `paper`, and/or `live`. This playbook still
 never starts live, never passes `--i-understand-live`, and never uses a `live` YOLO tier.

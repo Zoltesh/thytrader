@@ -18,6 +18,7 @@ from thytrader.market_data.watchlist import MarketDataWatchlistStore
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
 from thytrader.memory.notify import NotificationSender
 from thytrader.memory.store import ExperientialMemoryStore
+from thytrader.operator_chat.service import OperatorChatService
 from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
@@ -256,3 +257,12 @@ def get_worker_heartbeat_store(request: Request) -> WorkerHeartbeatStore:
         message = "Worker heartbeat store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_operator_chat_service(request: Request) -> OperatorChatService:
+    """Return the in-app operator chat service attached during app construction."""
+    service = getattr(request.app.state, "operator_chat_service", None)
+    if not isinstance(service, OperatorChatService):
+        message = "Operator chat service is unavailable."
+        raise TypeError(message)
+    return service

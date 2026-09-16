@@ -28,6 +28,8 @@ test('shared topbar marks the active route and stays reachable under 800px', asy
 	await expect(nav.getByRole('link', { name: 'Backtests' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Audit' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Memory' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Chat' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
 	await expect(nav.getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
 		'aria-current',
 		'page'
