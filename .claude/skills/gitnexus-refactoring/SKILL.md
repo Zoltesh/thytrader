@@ -59,6 +59,7 @@ checkout and reports nothing changed, which reads as a verified refactor.
 - [ ] If satisfied: rename({..., dry_run: false}) — apply edits
 - [ ] detect_changes() — verify only expected files changed
 - [ ] Run tests for affected processes
+- [ ] If the rename is a product surface, CLI, or agent API: same-change `AGENTS.md` ops-skills completion gate (not in `ops/`)
 ```
 
 ### Extract Module
@@ -71,6 +72,7 @@ checkout and reports nothing changed, which reads as a verified refactor.
 - [ ] Extract code, update imports
 - [ ] detect_changes() — verify affected scope
 - [ ] Run tests for affected processes
+- [ ] If the extract is a product surface, CLI, or agent API: same-change `AGENTS.md` ops-skills completion gate (not in `ops/`)
 ```
 
 ### Split Function/Service
@@ -84,6 +86,7 @@ checkout and reports nothing changed, which reads as a verified refactor.
 - [ ] Update callers
 - [ ] detect_changes() — verify affected scope
 - [ ] Run tests for affected processes
+- [ ] If the split is a product surface, CLI, or agent API: same-change `AGENTS.md` ops-skills completion gate (not in `ops/`)
 ```
 
 ## Tools

@@ -66,6 +66,7 @@ Repository: <name> (<path>)   Worktree: <path>   Index: <commit>, <n> behind HEA
 - [ ] detect_changes({scope: "all"}) or CLI fallback for pre-commit check
 - [ ] Confirm the checkout you edited is the checkout that was diffed
 - [ ] Assess risk level and report, stating repo/worktree/index identity
+- [ ] If this change is a product surface, CLI, HTTP agent API, strategy, timeframe, runtime, research, data ingest, or operator report: satisfy the root `AGENTS.md` ops-skills completion gate in the same change (`skills/thytrader-*`, schemas, operator-facing `docs/`). A slice is **not done** if ops skills cannot discover or invoke the new surface. Do not apply this in the `ops/` workspace.
 ```
 
 ## Understanding Output

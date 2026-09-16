@@ -81,7 +81,9 @@ uv run ty check
 
 For frontend work, run the package-manager scripts for formatting, linting, tests, and production build from the actual frontend manifest.
 
-A change is complete only when relevant tests/checks pass, GitNexus impact is reviewed, documentation is updated where needed, and `git diff` contains no unrelated edits.
+A change is complete only when relevant tests/checks pass, GitNexus impact is
+reviewed, the ops-skills completion gate below is satisfied when it applies, and
+`git diff` contains no unrelated edits.
 
 ## Python typing and code quality
 
@@ -142,18 +144,33 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 - Migrations must be forward-safe, tested, and compatible with continuously running workers where applicable.
 - Audit events must be useful, append-oriented, and redacted.
 
-## Documentation rules
+## Ops skills and operator docs (completion gate)
 
-Update documentation in the same change when modifying:
+This gate applies to **contributors** changing ThyTrader. It does **not** apply in
+the `ops/` workspace. Operating agents must never update documentation or source.
 
-- product scope or accepted architecture;
-- strategy schema or runtime semantics;
-- risk controls or execution policy;
-- storage contracts or deployment behavior;
-- public API/CLI or operator diagnostics;
-- setup, quality, or GitNexus workflow.
+When a change touches any of: product surfaces, CLI, HTTP agent APIs, strategy
+semantics, timeframes, runtime, research, data ingest, or operator reports, the
+**same change** must update:
 
-Use an ADR for durable choices with meaningful alternatives. Supersede old ADRs rather than deleting their history.
+1. The relevant `skills/thytrader-*` SKILL.md (canonical skill text operator
+   agents read). `ops/.cursor/skills/` are symlinks into `skills/`; do not
+   maintain a second skill tree.
+2. Operator report schemas if payloads changed
+   (`skills/thytrader-operator/references/` and related contract tests).
+3. `docs/` that operators and agents read (at least `docs/agent-integration.md`,
+   and roadmap shipped vs destination when slice status changes). Update CLI
+   `--help` when flags or invocation change.
+
+A slice is **not done** if ops skills would leave an operator agent unable to
+discover or correctly invoke the new surface. Do not merge or report the work
+complete until that agent can drive the surface from `skills/` alone, without
+scraping logs or inventing commands.
+
+Also update architecture, product, security, or workflow docs in the same change
+when modifying accepted architecture, risk or execution policy, storage or
+deployment contracts, or GitNexus workflow. Use an ADR for durable choices with
+meaningful alternatives. Supersede old ADRs rather than deleting their history.
 
 ## Operating a running instance
 
@@ -186,6 +203,9 @@ repository root (the parent of `ops/`).
 Operator and research skills must not deploy, arm live trading, or cancel orders. Data ingest must
 not be folded into those skills. Runtime control must not be folded into operator, data, or research.
 The playbook must not inherit live authority. Memory mutations must not inherit YOLO.
+
+Contributors update `skills/` in this checkout. Never teach the `ops/` workspace to edit
+documentation or code; `ops/` stays operator-only.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

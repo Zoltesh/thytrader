@@ -17,6 +17,16 @@ For any task involving code understanding, debugging, impact analysis, or refact
 
 > If step 1 warns the index is stale, run `node .gitnexus/run.cjs analyze` in the terminal first.
 
+## ThyTrader contributor gate
+
+GitNexus does not replace the completion gate in root `AGENTS.md`. When a change
+touches product surfaces, CLI, HTTP agent APIs, strategy semantics, timeframes,
+runtime, research, data ingest, or operator reports, the **same change** must
+update `skills/thytrader-*` and operator-facing `docs/`. A slice is **not done**
+if ops skills would leave an operator agent unable to discover or correctly
+invoke the new surface. This gate does not apply in the `ops/` workspace;
+operating agents must never update documentation or source.
+
 ## Skills
 
 | Task                                         | Skill to read       |
