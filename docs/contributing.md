@@ -10,6 +10,16 @@ Planning files stay **in git**. Do not gitignore `docs/roadmap.md`, `docs/plans/
 Operating a running instance is a different workspace: open [`ops/`](../ops/README.md). Do not
 teach `ops/` instruction files to edit documentation or source.
 
+## GitNexus
+
+Contributor agents use GitNexus for traversal, impact, and pre-commit graph checks
+(root [`AGENTS.md`](../AGENTS.md)). If GitNexus is not available in the environment
+(missing MCP, missing `.gitnexus/run.cjs`, or no index), bootstrap from the repository
+root before editing — typically `bunx gitnexus@latest analyze --embeddings --pdg --index-only`,
+then `node .gitnexus/run.cjs …` once the runner exists. Do not skip the graph. Do not
+teach this to the `ops/` workspace. Details:
+[`.claude/skills/gitnexus-cli/SKILL.md`](../.claude/skills/gitnexus-cli/SKILL.md).
+
 ## Architecture
 
 - [Architecture overview](architecture/overview.md)

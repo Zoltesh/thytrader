@@ -1,0 +1,34 @@
+---
+description: Contributors must use GitNexus and bootstrap it when MCP, the CLI runner, or the index are missing. Does not apply in the ops/ workspace.
+alwaysApply: true
+---
+
+# GitNexus (contributor)
+
+If you are operating a running instance, ignore this rule. Follow
+`thytrader-agent-operations` instead. Do not bootstrap GitNexus, edit `src/`,
+or update documentation from `ops/`.
+
+GitNexus is required for contributor work in this repository. If it is not
+available — no MCP tools, no `.gitnexus/run.cjs`, `Cannot find module`, empty
+or unregistered index, or `gitnexus` not on PATH — bootstrap from the
+repository root **before editing**. Do not skip impact analysis or
+`detect_changes` because the graph was absent at session start.
+
+Once `.gitnexus/run.cjs` exists:
+
+```bash
+node .gitnexus/run.cjs analyze --embeddings --pdg --index-only
+```
+
+If that file is missing, bootstrap (then use `node .gitnexus/run.cjs` for
+impact / detect-changes). Prefer `bunx` on npm 11, where `npx gitnexus` can
+crash (`node.target is null`; GitNexus #1939):
+
+```bash
+bunx gitnexus@latest analyze --embeddings --pdg --index-only
+```
+
+`npx gitnexus analyze` and `pnpm dlx gitnexus@latest analyze` are equivalents.
+See `.claude/skills/gitnexus-cli/SKILL.md` and root `AGENTS.md` § Use GitNexus
+first. Do not copy this duty into `ops/` instruction files.

@@ -46,6 +46,7 @@ checkout and reports nothing changed, which reads as a verified refactor.
 ```
 
 > If "Index is stale" → run `node .gitnexus/run.cjs analyze` in terminal.
+> If GitNexus is missing (no MCP, no `.gitnexus/run.cjs`, `Cannot find module`), bootstrap with `bunx gitnexus@latest analyze` (or `npx` / `pnpm dlx`; npm 11 npx crash: #1939). Do not skip the graph. See `gitnexus-cli`.
 
 ## Checklists
 

@@ -53,7 +53,7 @@ Repository: <name> (<path>)   Worktree: <path>   Index: <commit>, <n> behind HEA
 ```
 
 > If "Index is stale" → run `node .gitnexus/run.cjs analyze` in terminal.
-> If `.gitnexus/run.cjs` is missing, replace `node .gitnexus/run.cjs` with `npx gitnexus` in the fallback commands.
+> If `.gitnexus/run.cjs` is missing, bootstrap with `bunx gitnexus@latest analyze` (or `npx gitnexus` / `pnpm dlx`; npm 11 npx crash: #1939), then use `node .gitnexus/run.cjs` for impact / detect-changes. Do not skip the graph.
 
 ## Checklist
 
