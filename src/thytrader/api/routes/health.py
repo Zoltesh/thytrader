@@ -28,6 +28,7 @@ class HealthOpsContract(BaseModel):
     indicator_timeframe_runtimes: list[str]
     position_sides: list[str]
     attached_entry_brackets: list[str]
+    paper_deploy_fee_fields: list[str]
     expected_schema_revision: str
 
 

@@ -187,6 +187,8 @@ class Deployment:
     created_at: datetime
     updated_at: datetime
     paper_starting_cash: Decimal | None = None
+    paper_maker_fee_rate: Decimal | None = None
+    paper_taker_fee_rate: Decimal | None = None
     last_evaluated_bar: datetime | None = None
     last_signal: str | None = None
     mismatch_detail: str | None = None

@@ -117,6 +117,8 @@ def test_paper_post_persists_intent_and_is_idempotent() -> None:
         assert first.status_code == 201
         assert first.json()["kind"] == "discretionary"
         assert first.json()["strategy_fingerprint"] is None
+        assert first.json()["maker_fee_rate"] == "0.001"
+        assert first.json()["taker_fee_rate"] == "0.002"
         assert timeout.place_calls == 1
         second = client.post("/api/v1/discretionary-orders", json=_body())
         assert second.status_code == 201
@@ -234,3 +236,32 @@ def test_live_short_without_base_is_conflict() -> None:
     assert response.status_code == 409
     assert "INSUFFICIENT_BASE_FOR_SPOT_SHORT" in response.json()["detail"]
     assert not execution.intents
+
+
+def test_paper_discretionary_persists_fee_rates_and_rejects_live_fees() -> None:
+    """Paper tickets store fee assumptions; live tickets reject them."""
+    execution = InMemoryExecutionStore()
+    with _client(execution=execution) as client:
+        created = client.post(
+            "/api/v1/discretionary-orders",
+            json=_body(maker_fee_rate="0.0025", taker_fee_rate="0.004"),
+        )
+        one_sided = client.post(
+            "/api/v1/discretionary-orders",
+            json=_body(idempotency_key="http-2", maker_fee_rate="0.0025"),
+        )
+    assert created.status_code == 201
+    assert created.json()["maker_fee_rate"] == "0.0025"
+    assert created.json()["taker_fee_rate"] == "0.004"
+    assert one_sided.status_code == 409
+
+    live_execution = InMemoryExecutionStore()
+    with _client(
+        execution=live_execution,
+        live_credentials=True,
+        quote_reader=_UsdReader(),
+    ) as client:
+        payload = _body(mode="live", maker_fee_rate="0.001", taker_fee_rate="0.002")
+        payload.pop("paper_starting_cash")
+        response = client.post("/api/v1/discretionary-orders", json=payload)
+    assert response.status_code == 409

@@ -395,6 +395,18 @@ def test_spot_shorting_migration_follows_venue_clocks() -> None:
     assert "short" in content
 
 
+def test_paper_deploy_fee_migration_follows_spot_shorting() -> None:
+    """The twenty-eighth migration must persist paper maker/taker assumptions after 0027."""
+    content = Path("alembic/versions/0028_paper_deploy_fee_rates.py").read_text(encoding="utf-8")
+    assert 'revision = "0028"' in content
+    assert 'down_revision = "0027"' in content
+    assert "paper_maker_fee_rate" in content
+    assert "paper_taker_fee_rate" in content
+    assert "ck_deployments_paper_fee_rates" in content
+    assert "0.001" in content
+    assert "0.002" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

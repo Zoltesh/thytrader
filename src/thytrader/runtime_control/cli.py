@@ -86,6 +86,20 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--strategy-fingerprint", required=True)
     start.add_argument("--mode", required=True, choices=("paper", "live"))
     start.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
+    start.add_argument(
+        "--maker-fee-rate",
+        default=None,
+        help=(
+            "Paper maker fee assumption as a decimal string. Optional with "
+            "--taker-fee-rate; omitted paper uses documented 0.001 / 0.002. "
+            "Not observed Coinbase fees. Live rejects these flags."
+        ),
+    )
+    start.add_argument(
+        "--taker-fee-rate",
+        default=None,
+        help="Paper taker fee assumption as a decimal string. See --maker-fee-rate.",
+    )
     start.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     start.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
     place = subparsers.add_parser(
@@ -118,6 +132,19 @@ def _parser() -> argparse.ArgumentParser:
     place.add_argument("--quote-notional", default=None)
     place.add_argument("--limit-price", default=None)
     place.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
+    place.add_argument(
+        "--maker-fee-rate",
+        default=None,
+        help=(
+            "Paper maker fee assumption as a decimal string. Optional with "
+            "--taker-fee-rate on a new paper book. Live rejects these flags."
+        ),
+    )
+    place.add_argument(
+        "--taker-fee-rate",
+        default=None,
+        help="Paper taker fee assumption as a decimal string. See --maker-fee-rate.",
+    )
     place.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     place.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
     for action in ("pause", "resume", "stop"):
@@ -211,12 +238,19 @@ def _start(arguments: argparse.Namespace, base_url: str) -> object:
         tier=YoloTier.LIVE if live else YoloTier.PAPER,
     )
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
+    maker, taker = _paper_fees(
+        mode=arguments.mode,
+        maker_fee_rate=arguments.maker_fee_rate,
+        taker_fee_rate=arguments.taker_fee_rate,
+    )
     require_matching_ops_contract(base_url)
     return start_deployment(
         base_url,
         strategy_fingerprint=arguments.strategy_fingerprint,
         mode=arguments.mode,
         paper_starting_cash=cash,
+        maker_fee_rate=maker,
+        taker_fee_rate=taker,
     )
 
 
@@ -232,6 +266,11 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
         tier=YoloTier.PAPER,
     )
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
+    maker, taker = _paper_fees(
+        mode=arguments.mode,
+        maker_fee_rate=arguments.maker_fee_rate,
+        taker_fee_rate=arguments.taker_fee_rate,
+    )
     require_matching_ops_contract(base_url)
     return place_discretionary_order(
         base_url,
@@ -248,6 +287,8 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
         quote_notional=arguments.quote_notional,
         limit_price=arguments.limit_price,
         paper_starting_cash=cash,
+        maker_fee_rate=maker,
+        taker_fee_rate=taker,
     )
 
 
@@ -337,6 +378,21 @@ def _paper_cash(*, mode: str, cash: str | None) -> str | None:
     if cash is None:
         raise RuntimeControlError("Paper requires --cash.")
     return cash
+
+
+def _paper_fees(
+    *, mode: str, maker_fee_rate: str | None, taker_fee_rate: str | None
+) -> tuple[str | None, str | None]:
+    """Accept optional paper maker/taker assumptions and reject them for live."""
+    if mode == "live":
+        if maker_fee_rate is not None or taker_fee_rate is not None:
+            raise RuntimeControlError("Live start does not accept paper fee rates.")
+        return None, None
+    if (maker_fee_rate is None) != (taker_fee_rate is None):
+        raise RuntimeControlError(
+            "Paper fee rates require both --maker-fee-rate and --taker-fee-rate."
+        )
+    return maker_fee_rate, taker_fee_rate
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -28,6 +28,8 @@ def start_deployment(
     strategy_fingerprint: str,
     mode: str,
     paper_starting_cash: str | None,
+    maker_fee_rate: str | None = None,
+    taker_fee_rate: str | None = None,
 ) -> object:
     """Create one paper or live deployment through the existing HTTP contract."""
     payload: dict[str, str] = {
@@ -36,6 +38,10 @@ def start_deployment(
     }
     if paper_starting_cash is not None:
         payload["paper_starting_cash"] = paper_starting_cash
+    if maker_fee_rate is not None:
+        payload["maker_fee_rate"] = maker_fee_rate
+    if taker_fee_rate is not None:
+        payload["taker_fee_rate"] = taker_fee_rate
     return request_json(method="POST", url=f"{base_url}{_DEPLOYMENTS_PREFIX}", payload=payload)
 
 
@@ -55,6 +61,8 @@ def place_discretionary_order(
     quote_notional: str | None,
     limit_price: str | None,
     paper_starting_cash: str | None,
+    maker_fee_rate: str | None = None,
+    taker_fee_rate: str | None = None,
 ) -> object:
     """Place one long or short discretionary order through the HTTP contract."""
     payload: dict[str, str] = {
@@ -76,6 +84,10 @@ def place_discretionary_order(
         payload["limit_price"] = limit_price
     if paper_starting_cash is not None:
         payload["paper_starting_cash"] = paper_starting_cash
+    if maker_fee_rate is not None:
+        payload["maker_fee_rate"] = maker_fee_rate
+    if taker_fee_rate is not None:
+        payload["taker_fee_rate"] = taker_fee_rate
     return request_json(
         method="POST",
         url=f"{base_url}/api/v1/discretionary-orders",

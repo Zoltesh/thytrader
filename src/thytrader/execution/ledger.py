@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 PAPER_MAKER_FEE_RATE = Decimal("0.001")
 PAPER_TAKER_FEE_RATE = Decimal("0.002")
+MAX_PAPER_FEE_RATE = Decimal("0.1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,49 @@ class DeploymentLedger:
         if self.maximum_drawdown_fraction is None:
             return None
         return canonical_decimal(self.maximum_drawdown_fraction)
+
+
+def resolve_paper_fee_schedule(
+    *,
+    live: bool,
+    maker_fee_rate: Decimal | None,
+    taker_fee_rate: Decimal | None,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Resolve paper maker/taker assumptions; live never stores modeled venue rates.
+
+    Omitted paper rates become the documented ``0.001`` / ``0.002`` defaults. Provided
+    rates must both be present, finite, in ``[0, 0.1]``, and maker must not exceed taker.
+    Live rejects any supplied rates so Coinbase remains the fee authority.
+    """
+    if live:
+        if maker_fee_rate is not None or taker_fee_rate is not None:
+            raise ValueError("Live deployments do not accept paper fee rates.")
+        return None, None
+    if (maker_fee_rate is None) != (taker_fee_rate is None):
+        raise ValueError("Paper fee rates require both maker_fee_rate and taker_fee_rate.")
+    if maker_fee_rate is None or taker_fee_rate is None:
+        return PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE
+    _require_paper_fee_pair(maker_fee_rate, taker_fee_rate)
+    return maker_fee_rate, taker_fee_rate
+
+
+def effective_paper_fee_rates(
+    maker_fee_rate: Decimal | None,
+    taker_fee_rate: Decimal | None,
+) -> tuple[Decimal, Decimal]:
+    """Return stored paper rates, or the documented defaults when a book predates the columns."""
+    if maker_fee_rate is None or taker_fee_rate is None:
+        return PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE
+    return maker_fee_rate, taker_fee_rate
+
+
+def _require_paper_fee_pair(maker_fee_rate: Decimal, taker_fee_rate: Decimal) -> None:
+    """Reject out-of-range or inverted paper fee assumptions."""
+    for rate in (maker_fee_rate, taker_fee_rate):
+        if not rate.is_finite() or rate < 0 or rate > MAX_PAPER_FEE_RATE:
+            raise ValueError("Paper fee rates must be finite decimals in [0, 0.1].")
+    if maker_fee_rate > taker_fee_rate:
+        raise ValueError("maker_fee_rate must not exceed taker_fee_rate.")
 
 
 def paper_fill_fee(

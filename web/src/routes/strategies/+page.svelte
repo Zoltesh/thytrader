@@ -4,12 +4,16 @@
 	import { formatPercent } from '$lib/backtests';
 	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
+		PAPER_DEFAULT_MAKER_FEE_RATE,
+		PAPER_DEFAULT_TAKER_FEE_RATE,
+		PAPER_FEE_ENGINE_NOTE,
 		RESEARCH_FEE_ENGINE_NOTE,
 		fetchFeeProfile,
 		formatFeeProfileAsOf,
 		formatResearchFeeSourceChip,
 		readResearchFeeSuggestion,
 		researchFeeFieldSource,
+		shouldPrefillPaperFeeRates,
 		shouldPrefillResearchFeeRates,
 		type ResearchFeeSuggestion
 	} from '$lib/fees';
@@ -154,6 +158,9 @@
 	let deployFingerprint = $state('');
 	let deployMode = $state<'paper' | 'live'>('paper');
 	let deployCash = $state('10000');
+	let deployMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
+	let deployTakerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
+	let deployFeeFieldsTouched = $state(false);
 	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let feeSuggestionLoading = $state(false);
@@ -266,6 +273,18 @@
 			) {
 				applyFeeSuggestion(suggestion);
 			}
+			if (
+				shouldPrefillPaperFeeRates({
+					makerFeeRate: deployMakerFee,
+					takerFeeRate: deployTakerFee,
+					touched: deployFeeFieldsTouched,
+					suggestion
+				}) &&
+				suggestion !== null
+			) {
+				deployMakerFee = suggestion.makerFeeRate;
+				deployTakerFee = suggestion.takerFeeRate;
+			}
 		} catch {
 			if (requestId !== feeSuggestionRequestId) return;
 			latestFeeSuggestion = null;
@@ -279,6 +298,7 @@
 	$effect(() => {
 		if (researchTab !== 'deploy' || viewEntry === null) return;
 		void loadStrategyDeployments();
+		void loadFeeSuggestion();
 	});
 
 	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
@@ -775,6 +795,9 @@
 		deployFingerprint = entry.latest_fingerprint ?? '';
 		deployMode = 'paper';
 		deployCash = '10000';
+		deployMakerFee = PAPER_DEFAULT_MAKER_FEE_RATE;
+		deployTakerFee = PAPER_DEFAULT_TAKER_FEE_RATE;
+		deployFeeFieldsTouched = false;
 		if (entry.published_versions.length > 0 || entry.status !== 'draft') {
 			void loadVersionHistory(entry, requestId);
 		}
@@ -868,7 +891,9 @@
 			await createDeployment({
 				strategy_fingerprint: deployFingerprint,
 				mode: deployMode,
-				paper_starting_cash: deployMode === 'paper' ? deployCash : undefined
+				paper_starting_cash: deployMode === 'paper' ? deployCash : undefined,
+				maker_fee_rate: deployMode === 'paper' ? deployMakerFee : undefined,
+				taker_fee_rate: deployMode === 'paper' ? deployTakerFee : undefined
 			});
 			await loadStrategyDeployments();
 			await loadLibrary();
@@ -1943,6 +1968,25 @@
 								>Paper starting cash (USD)
 								<input bind:value={deployCash} /></label
 							>
+							<div class="launch-grid">
+								<label
+									>Maker fee rate
+									<input
+										inputmode="decimal"
+										bind:value={deployMakerFee}
+										oninput={() => (deployFeeFieldsTouched = true)}
+									/></label
+								>
+								<label
+									>Taker fee rate
+									<input
+										inputmode="decimal"
+										bind:value={deployTakerFee}
+										oninput={() => (deployFeeFieldsTouched = true)}
+									/></label
+								>
+							</div>
+							<p class="view-note">{PAPER_FEE_ENGINE_NOTE}</p>
 						{/if}
 						<button
 							class="launch-button"
@@ -1974,6 +2018,9 @@
 								<h4>{deployment.mode} · {deployment.status} · {deployment.phase}</h4>
 								<p>
 									Cash {deployment.cash}
+									{#if deployment.mode === 'paper' && deployment.maker_fee_rate && deployment.taker_fee_rate}
+										· paper fees {deployment.maker_fee_rate}/{deployment.taker_fee_rate}
+									{/if}
 									{#if deployment.last_signal}
 										· last signal {deployment.last_signal}
 									{/if}

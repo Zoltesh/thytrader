@@ -59,6 +59,8 @@ class PlaceDiscretionaryOrderRequest(BaseModel):
     quote_notional: str | None = None
     limit_price: str | None = None
     paper_starting_cash: str | None = None
+    maker_fee_rate: str | None = None
+    taker_fee_rate: str | None = None
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -89,6 +91,8 @@ async def post_discretionary_order(
             quote_notional=body.quote_notional,
             limit_price=body.limit_price,
             paper_starting_cash=body.paper_starting_cash,
+            paper_maker_fee_rate=body.maker_fee_rate,
+            paper_taker_fee_rate=body.taker_fee_rate,
         )
         broker = _broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
         snapshot = await place_discretionary_order(

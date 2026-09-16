@@ -53,7 +53,10 @@ artifacts.
 The execution worker evaluates published paper and live deployments against closed venue candles
 about every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot
 orders when credentials exist. Sub-hour live pauses unless the authenticated user-order feed is
-connected.
+connected. Paper deploy and new paper tickets accept optional maker/taker **assumptions** (UI
+Deploy/Trade, or `thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates
+stay `0.001` / `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects
+those fields and keeps venue-recorded fees.
 
 Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — in the
 UI Deploy tab or through `thytrader-runtime` with the gates in [Safety](safety.md).

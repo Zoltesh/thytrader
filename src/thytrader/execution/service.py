@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from thytrader.execution.ids import utc_now, uuid7
+from thytrader.execution.ledger import resolve_paper_fee_schedule
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -43,9 +44,14 @@ async def create_deployment(
     paper_starting_cash: Decimal | None,
     live_allowed: bool,
     risk_store: RiskPolicyStore | None = None,
+    paper_maker_fee_rate: Decimal | None = None,
+    paper_taker_fee_rate: Decimal | None = None,
 ) -> Deployment:
     """Start one running deployment for an immutable published strategy."""
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
+    maker_fee_rate, taker_fee_rate = _paper_fee_schedule(
+        mode, paper_maker_fee_rate, paper_taker_fee_rate
+    )
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
     _require_executable_definition(mode, definition)
@@ -70,6 +76,8 @@ async def create_deployment(
         mode=mode,
         status=DeploymentStatus.RUNNING,
         paper_starting_cash=paper_starting_cash,
+        paper_maker_fee_rate=maker_fee_rate,
+        paper_taker_fee_rate=taker_fee_rate,
         cash=cash,
         phase=RuntimePhase.FLAT,
         created_at=now,
@@ -109,6 +117,22 @@ def _require_mode_prerequisites(
         raise ExecutionConflictError("Live trading requires configured Coinbase credentials.")
     if mode is DeploymentMode.PAPER and (paper_starting_cash is None or paper_starting_cash <= 0):
         raise ExecutionConflictError("Paper deployments require a positive starting cash amount.")
+
+
+def _paper_fee_schedule(
+    mode: DeploymentMode,
+    maker_fee_rate: Decimal | None,
+    taker_fee_rate: Decimal | None,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Bind documented paper fee assumptions; live stores none."""
+    try:
+        return resolve_paper_fee_schedule(
+            live=mode is DeploymentMode.LIVE,
+            maker_fee_rate=maker_fee_rate,
+            taker_fee_rate=taker_fee_rate,
+        )
+    except ValueError as error:
+        raise ExecutionConflictError(str(error)) from error
 
 
 def _require_executable_definition(mode: DeploymentMode, definition: StrategyDefinition) -> None:
@@ -180,14 +204,14 @@ def _require_execution_timeframe(mode: DeploymentMode, timeframe: str) -> None:
         )
 
 
-def parse_decimal(value: str | None) -> Decimal | None:
+def parse_decimal(value: str | None, *, field: str = "Cash") -> Decimal | None:
     """Parse an optional decimal string from an HTTP body."""
     if value is None or value == "":
         return None
     try:
         parsed = Decimal(value)
     except InvalidOperation as error:
-        raise ExecutionConflictError("Cash must be a finite decimal string.") from error
+        raise ExecutionConflictError(f"{field} must be a finite decimal string.") from error
     if not parsed.is_finite():
-        raise ExecutionConflictError("Cash must be a finite decimal string.")
+        raise ExecutionConflictError(f"{field} must be a finite decimal string.")
     return parsed

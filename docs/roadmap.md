@@ -74,18 +74,21 @@ Remaining Coinbase-listed granularities (`1m`, `2h`, and `4h`) now have complete
 TFs shipped later in [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) and are not
 part of the Phase 7 exit.
 
-## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
+## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped
 
 Prefill Research with maker/taker rates derived from the shipped Coinbase fee-tier snapshot
 mapped through versioned schedule `coinbase-advanced-spot-fees-v1`; fields stay editable;
 submitted runs fingerprint the rates actually used; honest "suggested vs custom" labels.
-Paper deploy has no cost fields; paper keeps the documented `0.001` / `0.002` schedule.
-Live venue billing is unchanged. Design:
+Paper deploy and new paper discretionary books persist Decimal `maker_fee_rate` /
+`taker_fee_rate` assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)).
+Omitted paper rates keep the documented `0.001` / `0.002` defaults. Live venue billing is
+unchanged. Design:
 [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
 **Exit gate met:** credentials → suggested rates with override; demo/missing → blank required
-fields; submitted runs fingerprint rates; UI never claims observed Coinbase fills for
-research/paper costs.
+research fields or documented paper defaults; submitted runs fingerprint rates; paper books
+record the rates used on fills; UI never claims observed Coinbase fills for research/paper
+costs.
 
 ## Phase 8: Multi-timeframe strategy semantics — ✅ Shipped (research HTF filter)
 
@@ -359,6 +362,17 @@ and Bollinger bands are unchanged.
 **Exit gate met:** kinds named in the ADR, implemented in the registry and evaluator, referenced from
 conditions, and listed in operator `indicators` plus the engine-support matrix.
 
+## Paper deploy fee fields — ✅ Shipped
+
+Paper strategy deploy and new paper discretionary books persist Decimal maker/taker assumptions
+([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)). CLI `--maker-fee-rate` / `--taker-fee-rate`
+and HTTP `maker_fee_rate` / `taker_fee_rate` are optional together; omitted paper uses documented
+`0.001` / `0.002`. Live rejects the fields and keeps venue-recorded fees. Ops contract is
+`thytrader-ops-contract-v16` / Alembic `0028`. Extra exchanges stay out.
+
+**Exit gate met:** paper books record the chosen rates on fills; operator `fee_treatment` names
+those assumptions; copy never claims observed Coinbase fees.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -373,7 +387,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through [ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md) (`stochastic`/`adx` series ids, configurable rolling inputs, `stdev_sample`); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) | Richer sweep axes, persisted study rows if operators need a catalog |
-| Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
+| Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043). In-app operator chat is a separate destination row |
 | Trade-reason journals | Phase 14 origin-attributed hooks (journals, sentiment/pattern, monitor, notify). No per-trade “why” record | A human or agent can open a trade and see **why it was made** — signal, published strategy version, risk decision, discretionary note, fill/reconcile facts. Durable, attributed, redacted. Same record for UI and operator reports. No interpolated candles |

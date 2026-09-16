@@ -18,12 +18,16 @@ test('trade ticket places a paper long through the discretionary HTTP contract',
 			stop_price?: string;
 			take_profit_price?: string;
 			idempotency_key?: string;
+			maker_fee_rate?: string;
+			taker_fee_rate?: string;
 		};
 		expect(body.origin).toBe('human');
 		expect(body.mode).toBe('paper');
 		expect(body.side ?? 'long').toBe('long');
 		expect(body.stop_price).toBe('90000');
 		expect(body.take_profit_price).toBe('120000');
+		expect(body.maker_fee_rate).toBe('0.001');
+		expect(body.taker_fee_rate).toBe('0.002');
 		expect(body.idempotency_key).toBeTruthy();
 		await route.fulfill({
 			json: {

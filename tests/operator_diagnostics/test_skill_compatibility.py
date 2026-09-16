@@ -130,6 +130,10 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "make run" in skill
     assert "YOLO" in skill or "yolo" in skill
     assert "live" in skill.lower()
+    assert "--maker-fee-rate" in skill
+    assert "--taker-fee-rate" in skill
+    assert "0.001" in skill
+    assert "0.002" in skill
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
@@ -147,6 +151,8 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "never" in skill.lower() and "live" in skill.lower()
     assert "--i-understand-live" in skill
     assert "not an extension" in skill.lower() or "does not grant live" in skill.lower()
+    assert "0.001" in skill
+    assert "0.002" in skill
 
 
 def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:

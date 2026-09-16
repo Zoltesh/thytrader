@@ -17,6 +17,7 @@ from thytrader.execution.geometry import (
     parse_position_side,
 )
 from thytrader.execution.ids import utc_now, uuid7
+from thytrader.execution.ledger import resolve_paper_fee_schedule
 from thytrader.execution.loop import (
     _active_entry,
     _active_side,
@@ -46,6 +47,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
@@ -83,6 +85,8 @@ class DiscretionaryOrderRequest:
     quote_notional: Decimal | None
     limit_price: Decimal | None
     paper_starting_cash: Decimal | None
+    paper_maker_fee_rate: Decimal | None
+    paper_taker_fee_rate: Decimal | None
 
 
 def parse_discretionary_request(
@@ -100,6 +104,8 @@ def parse_discretionary_request(
     quote_notional: str | None = None,
     limit_price: str | None = None,
     paper_starting_cash: str | None = None,
+    paper_maker_fee_rate: str | None = None,
+    paper_taker_fee_rate: str | None = None,
 ) -> DiscretionaryOrderRequest:
     """Parse decimal strings and reject illegal combinations before risk or persist."""
     parsed_mode = _parse_mode(mode)
@@ -124,6 +130,11 @@ def parse_discretionary_request(
     cash = _optional_positive_decimal(paper_starting_cash, field="paper_starting_cash")
     if parsed_mode is DeploymentMode.LIVE and cash is not None:
         raise ExecutionConflictError("Live orders do not accept paper_starting_cash.")
+    maker, taker = _parse_paper_fee_rates(
+        mode=parsed_mode,
+        maker_fee_rate=paper_maker_fee_rate,
+        taker_fee_rate=paper_taker_fee_rate,
+    )
     return DiscretionaryOrderRequest(
         mode=parsed_mode,
         product_id=product_id,
@@ -138,6 +149,8 @@ def parse_discretionary_request(
         quote_notional=notional,
         limit_price=limit,
         paper_starting_cash=cash,
+        paper_maker_fee_rate=maker,
+        paper_taker_fee_rate=taker,
     )
 
 
@@ -174,6 +187,7 @@ async def place_discretionary_order(
         notional=sized.notional,
         live_quote_cash=live_quote_cash,
     )
+    broker = bind_paper_broker_fees(broker, snapshot.deployment)
     pending = with_runtime(
         snapshot.deployment,
         updated_at=utc_now(),
@@ -247,6 +261,7 @@ async def process_discretionary_bar(
     """Advance one discretionary book by a newly closed candle without strategy signals."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
         return snapshot
+    broker = bind_paper_broker_fees(broker, snapshot.deployment)
     candle = candles[-1]
     deployment = snapshot.deployment
     if deployment.last_evaluated_bar == candle.starts_at:
@@ -366,6 +381,7 @@ async def _book_for_entry(
     existing = await store.list_deployments()
     reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
     if reusable is not None:
+        _require_matching_paper_fees(reusable, request)
         snapshot = await store.get_deployment(reusable.id)
         await _require_entry_admission(
             risk_store,
@@ -400,6 +416,14 @@ def _new_discretionary_book(
 ) -> Deployment:
     """Build a flat discretionary book that has not been persisted yet."""
     now = utc_now()
+    try:
+        maker_fee_rate, taker_fee_rate = resolve_paper_fee_schedule(
+            live=request.mode is DeploymentMode.LIVE,
+            maker_fee_rate=request.paper_maker_fee_rate,
+            taker_fee_rate=request.paper_taker_fee_rate,
+        )
+    except ValueError as error:
+        raise ExecutionConflictError(str(error)) from error
     return Deployment(
         id=uuid7(now),
         strategy_fingerprint=None,
@@ -408,6 +432,8 @@ def _new_discretionary_book(
         mode=request.mode,
         status=DeploymentStatus.RUNNING,
         paper_starting_cash=request.paper_starting_cash,
+        paper_maker_fee_rate=maker_fee_rate,
+        paper_taker_fee_rate=taker_fee_rate,
         cash=_initial_cash(request, live_quote_cash=live_quote_cash),
         phase=RuntimePhase.FLAT,
         created_at=now,
@@ -726,6 +752,60 @@ def _require_positive_decimal(value: str, *, field: str) -> Decimal:
     parsed = _parse_decimal(value, field=field)
     if parsed <= 0:
         raise ExecutionConflictError(f"{field} must be a positive decimal string.")
+    return parsed
+
+
+def _require_matching_paper_fees(book: Deployment, request: DiscretionaryOrderRequest) -> None:
+    """Refuse a second paper ticket that would silently change the book's fee assumptions."""
+    if request.mode is not DeploymentMode.PAPER:
+        return
+    if request.paper_maker_fee_rate is None and request.paper_taker_fee_rate is None:
+        return
+    if (
+        book.paper_maker_fee_rate != request.paper_maker_fee_rate
+        or book.paper_taker_fee_rate != request.paper_taker_fee_rate
+    ):
+        raise ExecutionConflictError(
+            "Paper fee rates are fixed on the existing discretionary book."
+        )
+
+
+def _parse_paper_fee_rates(
+    *,
+    mode: DeploymentMode,
+    maker_fee_rate: str | None,
+    taker_fee_rate: str | None,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Parse optional paper fee strings without inventing live venue rates.
+
+    Omitted paper rates stay unset so a new book can default and a reused book
+    can keep its stored assumptions.
+    """
+    maker = _optional_non_negative_decimal(maker_fee_rate, field="maker_fee_rate")
+    taker = _optional_non_negative_decimal(taker_fee_rate, field="taker_fee_rate")
+    live = mode is DeploymentMode.LIVE
+    if not live and (maker is None) != (taker is None):
+        raise ExecutionConflictError(
+            "Paper fee rates require both maker_fee_rate and taker_fee_rate."
+        )
+    if not live and (maker is None or taker is None):
+        return None, None
+    try:
+        resolve_paper_fee_schedule(live=live, maker_fee_rate=maker, taker_fee_rate=taker)
+    except ValueError as error:
+        raise ExecutionConflictError(str(error)) from error
+    if live:
+        return None, None
+    return maker, taker
+
+
+def _optional_non_negative_decimal(value: str | None, *, field: str) -> Decimal | None:
+    """Parse an optional non-negative finite decimal string."""
+    if value is None or value == "":
+        return None
+    parsed = _parse_decimal(value, field=field)
+    if parsed < 0:
+        raise ExecutionConflictError(f"{field} must be a non-negative decimal string.")
     return parsed
 
 

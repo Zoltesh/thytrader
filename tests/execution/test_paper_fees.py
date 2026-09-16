@@ -6,8 +6,17 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.execution.models import Order, OrderKind, OrderSide, OrderStatus
-from thytrader.execution.paper import PaperBroker
+from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    RuntimePhase,
+)
+from thytrader.execution.paper import PaperBroker, bind_paper_broker_fees
 from thytrader.market_data.models import Candle
 
 
@@ -71,3 +80,57 @@ def test_paper_maker_match_does_not_fill_when_low_stays_above_limit() -> None:
     order = _order(kind=OrderKind.POST_ONLY_LIMIT, side=OrderSide.BUY, price=Decimal("100"))
     fill = PaperBroker().match_open_order(order, _candle(low=Decimal("100.5"), high=Decimal("102")))
     assert fill is None
+
+
+@pytest.mark.anyio
+async def test_paper_broker_constructor_rates_charge_custom_taker_fee() -> None:
+    """A bound PaperBroker charges the deployment's taker assumption on marketable fills."""
+    result = await PaperBroker(
+        maker_fee_rate=Decimal("0.0025"), taker_fee_rate=Decimal("0.004")
+    ).place_order(
+        client_order_id="mkt-custom",
+        product_id="BTC-USD",
+        side=OrderSide.SELL,
+        kind=OrderKind.MARKETABLE,
+        quantity=Decimal("2"),
+        price=Decimal("100"),
+    )
+    assert result.fill_fee == Decimal("0.8")
+
+
+def test_bind_paper_broker_fees_rebinds_shared_defaults() -> None:
+    """One worker PaperBroker is rebound per paper book so stored rates apply."""
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    deployment = Deployment(
+        id=uuid4(),
+        strategy_fingerprint="sha256:" + ("a" * 64),
+        strategy_id=UUID(int=1),
+        product_id="BTC-USD",
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        paper_starting_cash=Decimal("10000"),
+        paper_maker_fee_rate=Decimal("0.0025"),
+        paper_taker_fee_rate=Decimal("0.004"),
+        cash=Decimal("10000"),
+        phase=RuntimePhase.FLAT,
+        created_at=now,
+        updated_at=now,
+    )
+    rebound = bind_paper_broker_fees(PaperBroker(), deployment)
+    assert isinstance(rebound, PaperBroker)
+    assert rebound.maker_fee_rate == Decimal("0.0025")
+    assert rebound.taker_fee_rate == Decimal("0.004")
+    live = Deployment(
+        id=uuid4(),
+        strategy_fingerprint="sha256:" + ("b" * 64),
+        strategy_id=UUID(int=2),
+        product_id="BTC-USD",
+        mode=DeploymentMode.LIVE,
+        status=DeploymentStatus.RUNNING,
+        cash=Decimal("0"),
+        phase=RuntimePhase.FLAT,
+        created_at=now,
+        updated_at=now,
+    )
+    shared = PaperBroker()
+    assert bind_paper_broker_fees(shared, live) is shared

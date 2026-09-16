@@ -11,7 +11,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
-from thytrader.execution.ledger import ledger_from_snapshot
+from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -1112,7 +1112,7 @@ class OperatorDiagnostics:
             strategy_fingerprint=deployment.strategy_fingerprint,
             dataset_fingerprint=None,
             engine_contract_version=None,
-            fee_treatment=_runtime_fee_treatment(deployment.mode),
+            fee_treatment=_runtime_fee_treatment(deployment),
             result_fingerprint=None,
             deployment_id=deployment.id,
             trade_count=ledger.trade_count,
@@ -1521,12 +1521,16 @@ def _runtime_slice(
     )
 
 
-def _runtime_fee_treatment(mode: DeploymentMode) -> str:
+def _runtime_fee_treatment(deployment: Deployment) -> str:
     """Describe how paper versus live fees enter the fill ledger."""
-    if mode is DeploymentMode.PAPER:
+    if deployment.mode is DeploymentMode.PAPER:
+        maker, taker = effective_paper_fee_rates(
+            deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
+        )
         return (
-            "documented paper schedule: 0.001 maker / 0.002 taker on recorded fills; "
-            "last-close mark for open inventory"
+            f"documented paper assumptions: {format(maker, 'f')} maker / "
+            f"{format(taker, 'f')} taker on recorded fills; not observed Coinbase "
+            "fees; last-close mark for open inventory"
         )
     return (
         "venue fees recorded on fills; last-close mark for open inventory; "

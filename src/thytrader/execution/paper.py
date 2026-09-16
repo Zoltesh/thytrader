@@ -6,12 +6,26 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import SubmitResult
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE, paper_fill_fee
-from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
+from thytrader.execution.ledger import (
+    PAPER_MAKER_FEE_RATE,
+    PAPER_TAKER_FEE_RATE,
+    effective_paper_fee_rates,
+    paper_fill_fee,
+)
+from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+)
 
 if TYPE_CHECKING:
     from decimal import Decimal
 
+    from thytrader.execution.broker import Broker
     from thytrader.market_data.models import Candle
 
 
@@ -116,3 +130,21 @@ class PaperBroker:
             ),
             filled_at=candle.starts_at,
         )
+
+
+def bind_paper_broker_fees(broker: Broker, deployment: Deployment) -> Broker:
+    """Bind this paper book's documented maker/taker rates onto a ``PaperBroker``.
+
+    Live books and non-paper brokers are returned unchanged. Rates are modeled
+    assumptions, not observed Coinbase fees.
+    """
+    if deployment.mode is not DeploymentMode.PAPER:
+        return broker
+    if not isinstance(broker, PaperBroker):
+        return broker
+    maker_fee_rate, taker_fee_rate = effective_paper_fee_rates(
+        deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
+    )
+    if broker.maker_fee_rate == maker_fee_rate and broker.taker_fee_rate == taker_fee_rate:
+        return broker
+    return PaperBroker(maker_fee_rate=maker_fee_rate, taker_fee_rate=taker_fee_rate)
