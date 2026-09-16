@@ -66,10 +66,40 @@ def test_one_day_ninety_day_lookback_is_not_clipped() -> None:
 
 
 def test_hourly_ninety_day_lookback_stays_lookback_limited() -> None:
-    """Raising the interval cap must not expand a 2,160-hour 1h watch to 25,920 hours."""
+    """Raising the interval cap must not expand a 2,160-hour 1h watch to 129,600 hours."""
     ends_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 
     starts_at = bounded_lookback_start(ends_at, _NINETY_DAY_HOURS, CandleInterval.ONE_HOUR)
 
     assert starts_at == ends_at - timedelta(hours=_NINETY_DAY_HOURS)
     assert (ends_at - starts_at) // CandleInterval.ONE_HOUR.duration == _NINETY_DAY_HOURS
+
+
+def test_one_minute_ninety_day_lookback_is_not_clipped() -> None:
+    """A 2,160-hour 1m window must request 129,600 bars, not an 18-day clip."""
+    ends_at = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+
+    starts_at = bounded_lookback_start(ends_at, _NINETY_DAY_HOURS, CandleInterval.ONE_MINUTE)
+
+    assert starts_at == ends_at - timedelta(hours=_NINETY_DAY_HOURS)
+    assert (ends_at - starts_at) // CandleInterval.ONE_MINUTE.duration == (_NINETY_DAY_HOURS * 60)
+
+
+def test_two_hour_ninety_day_lookback_is_not_clipped() -> None:
+    """A 2,160-hour 2h window must request 1,080 bars, not an interval-cap clip."""
+    ends_at = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+
+    starts_at = bounded_lookback_start(ends_at, _NINETY_DAY_HOURS, CandleInterval.TWO_HOURS)
+
+    assert starts_at == ends_at - timedelta(hours=_NINETY_DAY_HOURS)
+    assert (ends_at - starts_at) // CandleInterval.TWO_HOURS.duration == (_NINETY_DAY_HOURS // 2)
+
+
+def test_four_hour_ninety_day_lookback_is_not_clipped() -> None:
+    """A 2,160-hour 4h window must request 540 bars, not an interval-cap clip."""
+    ends_at = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+
+    starts_at = bounded_lookback_start(ends_at, _NINETY_DAY_HOURS, CandleInterval.FOUR_HOURS)
+
+    assert starts_at == ends_at - timedelta(hours=_NINETY_DAY_HOURS)
+    assert (ends_at - starts_at) // CandleInterval.FOUR_HOURS.duration == (_NINETY_DAY_HOURS // 4)

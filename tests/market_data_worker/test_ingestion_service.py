@@ -466,6 +466,189 @@ def test_ingest_once_publishes_complete_one_day_range(tmp_path: Path) -> None:
     asyncio.run(exercise())
 
 
+def test_ingest_once_publishes_complete_one_minute_range(tmp_path: Path) -> None:
+    """One-minute ingest uses get_range and writes under the 1m partition."""
+
+    class _OneMinuteService:
+        """Stub that only implements the multi-interval range boundary."""
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
+
+        async def get_range(
+            self,
+            product_id: str,
+            timeframe: CandleInterval,
+            starts_at: datetime,
+            ends_at: datetime,
+            now: datetime,
+        ) -> CandleRangeReport:
+            """Return a complete 1m range for the requested window."""
+            self.requests.append((product_id, timeframe, starts_at, ends_at))
+            count = int((ends_at - starts_at) / timeframe.duration)
+            candles = tuple(
+                Candle(
+                    starts_at=starts_at + timeframe.duration * index,
+                    open=Decimal("100"),
+                    high=Decimal("110"),
+                    low=Decimal("90"),
+                    close=Decimal("105"),
+                    volume=Decimal("12.5"),
+                )
+                for index in range(count)
+            )
+            return analyze_range(candles, timeframe, starts_at, ends_at, now=now)
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
+        service = _OneMinuteService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=1,
+            now=ends_at + timedelta(seconds=1),
+            timeframe=CandleInterval.ONE_MINUTE,
+        )
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_MINUTE)
+        assert state is not None
+        assert state.complete is True
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert service.requests[0][1] is CandleInterval.ONE_MINUTE
+        manifests = tuple((tmp_path / "manifests").glob("*.json"))
+        assert len(manifests) == 1
+        assert "1m" in manifests[0].read_text()
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert verified[0].starts_at == ends_at - timedelta(hours=1)
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_publishes_complete_two_hour_range(tmp_path: Path) -> None:
+    """Two-hour ingest uses get_range and writes under the 2h partition."""
+
+    class _TwoHourService:
+        """Stub that only implements the multi-interval range boundary."""
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
+
+        async def get_range(
+            self,
+            product_id: str,
+            timeframe: CandleInterval,
+            starts_at: datetime,
+            ends_at: datetime,
+            now: datetime,
+        ) -> CandleRangeReport:
+            """Return a complete 2h range for the requested window."""
+            self.requests.append((product_id, timeframe, starts_at, ends_at))
+            count = int((ends_at - starts_at) / timeframe.duration)
+            candles = tuple(
+                Candle(
+                    starts_at=starts_at + timeframe.duration * index,
+                    open=Decimal("100"),
+                    high=Decimal("110"),
+                    low=Decimal("90"),
+                    close=Decimal("105"),
+                    volume=Decimal("12.5"),
+                )
+                for index in range(count)
+            )
+            return analyze_range(candles, timeframe, starts_at, ends_at, now=now)
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 6, 0, tzinfo=UTC)
+        service = _TwoHourService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=2,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=CandleInterval.TWO_HOURS,
+        )
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.TWO_HOURS)
+        assert state is not None
+        assert state.complete is True
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert service.requests[0][1] is CandleInterval.TWO_HOURS
+        manifests = tuple((tmp_path / "manifests").glob("*.json"))
+        assert len(manifests) == 1
+        assert "2h" in manifests[0].read_text()
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert verified[0].starts_at == ends_at - timedelta(hours=2)
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_publishes_complete_four_hour_range(tmp_path: Path) -> None:
+    """Four-hour ingest uses get_range and writes under the 4h partition."""
+
+    class _FourHourService:
+        """Stub that only implements the multi-interval range boundary."""
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
+
+        async def get_range(
+            self,
+            product_id: str,
+            timeframe: CandleInterval,
+            starts_at: datetime,
+            ends_at: datetime,
+            now: datetime,
+        ) -> CandleRangeReport:
+            """Return a complete 4h range for the requested window."""
+            self.requests.append((product_id, timeframe, starts_at, ends_at))
+            count = int((ends_at - starts_at) / timeframe.duration)
+            candles = tuple(
+                Candle(
+                    starts_at=starts_at + timeframe.duration * index,
+                    open=Decimal("100"),
+                    high=Decimal("110"),
+                    low=Decimal("90"),
+                    close=Decimal("105"),
+                    volume=Decimal("12.5"),
+                )
+                for index in range(count)
+            )
+            return analyze_range(candles, timeframe, starts_at, ends_at, now=now)
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 29, 4, 0, tzinfo=UTC)
+        service = _FourHourService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=4,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=CandleInterval.FOUR_HOURS,
+        )
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FOUR_HOURS)
+        assert state is not None
+        assert state.complete is True
+        assert state.status is MarketDataWorkerStatus.SUCCEEDED
+        assert service.requests[0][1] is CandleInterval.FOUR_HOURS
+        manifests = tuple((tmp_path / "manifests").glob("*.json"))
+        assert len(manifests) == 1
+        assert "4h" in manifests[0].read_text()
+        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
+        assert verified[0].starts_at == ends_at - timedelta(hours=4)
+
+    asyncio.run(exercise())
+
+
 def test_ingest_once_rejects_unrepresentable_initial_range(tmp_path: Path) -> None:
     """A minimum-date initial backfill must fail as a controlled worker error."""
 

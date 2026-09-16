@@ -11,6 +11,7 @@ from thytrader.market_data.models import (
     CandleRangeReport,
     MarketDataPreview,
     MarketProduct,
+    as_dataset_timeframe,
 )
 from thytrader.market_data.quality import analyze_candles, analyze_range
 
@@ -102,18 +103,11 @@ def _product(product_id: str, interval: CandleInterval) -> MarketProduct:
     product = next(
         (candidate for candidate in _DEMO_PRODUCTS if candidate.product_id == product_id), None
     )
-    if product is None or interval not in {
-        CandleInterval.ONE_HOUR,
-        CandleInterval.FIVE_MINUTES,
-        CandleInterval.FIFTEEN_MINUTES,
-        CandleInterval.THIRTY_MINUTES,
-        CandleInterval.SIX_HOURS,
-        CandleInterval.ONE_DAY,
-    }:
+    if product is None:
         raise ValueError(
-            "Demo market data only supports catalog USD products on 1h, 5m, 15m, "
-            "30m, 6h, and 1d timeframes."
+            "Demo market data only supports catalog USD products on supported dataset timeframes."
         )
+    as_dataset_timeframe(interval)
     return product
 
 

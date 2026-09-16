@@ -99,3 +99,82 @@ def test_one_day_is_a_dataset_interval_not_an_execution_clock() -> None:
     assert as_dataset_timeframe(interval) == "1d"
     assert CandleInterval.ONE_HOUR.execution_supported is True
     assert CandleInterval.FIVE_MINUTES.execution_supported is True
+
+
+def test_one_minute_duration_and_alignment() -> None:
+    """1m bars are UTC-aligned at every minute."""
+    interval = CandleInterval.ONE_MINUTE
+    assert interval.duration == timedelta(minutes=1)
+    assert interval.value == "1m"
+    now = datetime(2026, 9, 15, 12, 34, 40, tzinfo=UTC)
+    assert interval.align_closed_end(now) == datetime(2026, 9, 15, 12, 34, tzinfo=UTC)
+    closed = datetime(2026, 9, 15, 12, 34, tzinfo=UTC)
+    assert interval.align_closed_end(closed) == closed
+    before_minute = datetime(2026, 9, 15, 12, 33, 59, tzinfo=UTC)
+    assert interval.align_closed_end(before_minute) == datetime(2026, 9, 15, 12, 33, tzinfo=UTC)
+
+
+def test_one_minute_is_a_dataset_interval_not_an_execution_clock() -> None:
+    """1m datasets parse; paper/live still refuse that clock."""
+    interval = parse_candle_interval("1m")
+    assert interval is CandleInterval.ONE_MINUTE
+    assert interval.execution_supported is False
+    assert as_dataset_timeframe(interval) == "1m"
+    assert CandleInterval.ONE_HOUR.execution_supported is True
+    assert CandleInterval.FIVE_MINUTES.execution_supported is True
+
+
+def test_two_hour_duration_and_alignment() -> None:
+    """2h bars are UTC-aligned at even hours."""
+    interval = CandleInterval.TWO_HOURS
+    assert interval.duration == timedelta(hours=2)
+    assert interval.value == "2h"
+    now = datetime(2026, 9, 15, 13, 1, 40, tzinfo=UTC)
+    assert interval.align_closed_end(now) == datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+    closed = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+    assert interval.align_closed_end(closed) == closed
+    before_noon = datetime(2026, 9, 15, 11, 59, 59, tzinfo=UTC)
+    assert interval.align_closed_end(before_noon) == datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+    midnight = datetime(2026, 9, 16, 0, 0, tzinfo=UTC)
+    assert interval.align_closed_end(midnight) == midnight
+    twenty_two = datetime(2026, 9, 15, 22, 0, tzinfo=UTC)
+    assert interval.align_closed_end(twenty_two) == twenty_two
+
+
+def test_two_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
+    """2h datasets parse; paper/live still refuse that clock."""
+    interval = parse_candle_interval("2h")
+    assert interval is CandleInterval.TWO_HOURS
+    assert interval.execution_supported is False
+    assert as_dataset_timeframe(interval) == "2h"
+    assert CandleInterval.ONE_HOUR.execution_supported is True
+    assert CandleInterval.FIVE_MINUTES.execution_supported is True
+
+
+def test_four_hour_duration_and_alignment() -> None:
+    """4h bars are UTC-aligned at 00:00, 04:00, 08:00, 12:00, 16:00, and 20:00."""
+    interval = CandleInterval.FOUR_HOURS
+    assert interval.duration == timedelta(hours=4)
+    assert interval.value == "4h"
+    now = datetime(2026, 9, 15, 13, 1, 40, tzinfo=UTC)
+    assert interval.align_closed_end(now) == datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+    closed = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+    assert interval.align_closed_end(closed) == closed
+    before_noon = datetime(2026, 9, 15, 11, 59, 59, tzinfo=UTC)
+    assert interval.align_closed_end(before_noon) == datetime(2026, 9, 15, 8, 0, tzinfo=UTC)
+    midnight = datetime(2026, 9, 16, 0, 0, tzinfo=UTC)
+    assert interval.align_closed_end(midnight) == midnight
+    twenty = datetime(2026, 9, 15, 20, 0, tzinfo=UTC)
+    assert interval.align_closed_end(twenty) == twenty
+    four = datetime(2026, 9, 15, 4, 0, tzinfo=UTC)
+    assert interval.align_closed_end(four) == four
+
+
+def test_four_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
+    """4h datasets parse; paper/live still refuse that clock."""
+    interval = parse_candle_interval("4h")
+    assert interval is CandleInterval.FOUR_HOURS
+    assert interval.execution_supported is False
+    assert as_dataset_timeframe(interval) == "4h"
+    assert CandleInterval.ONE_HOUR.execution_supported is True
+    assert CandleInterval.FIVE_MINUTES.execution_supported is True

@@ -322,6 +322,24 @@ def test_warmup_starts_at_rejects_one_day_strategy_clock() -> None:
         warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "1d")
 
 
+def test_warmup_starts_at_rejects_one_minute_strategy_clock() -> None:
+    """Deriving warmup from a 1m timeframe must fail closed."""
+    with pytest.raises(ValueError, match="1h or 5m"):
+        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "1m")
+
+
+def test_warmup_starts_at_rejects_two_hour_strategy_clock() -> None:
+    """Deriving warmup from a 2h timeframe must fail closed."""
+    with pytest.raises(ValueError, match="1h or 5m"):
+        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "2h")
+
+
+def test_warmup_starts_at_rejects_four_hour_strategy_clock() -> None:
+    """Deriving warmup from a 4h timeframe must fail closed."""
+    with pytest.raises(ValueError, match="1h or 5m"):
+        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "4h")
+
+
 def test_run_spec_requires_exact_derived_warmup_range() -> None:
     """Warmup start must equal evaluation start minus the declared bars."""
     run = _reference_run()

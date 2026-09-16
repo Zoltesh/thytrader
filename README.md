@@ -56,7 +56,7 @@ between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ig
 The dashboard Refresh button is read-only; it never creates history points.
 
 The separately supervised market-data worker maintains complete-only verified Parquet datasets for
-1h, 5m, 15m, 30m, 6h, and 1d (strategy/paper/live clocks stay 1h|5m), publishes only
+1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h (strategy/paper/live clocks stay 1h|5m), publishes only
 complete verified Parquet and manifests, and retries every five minutes by default.
 PostgreSQL records its latest attempt, verified coverage, freshness, fingerprint, and redacted failure
 state. Its cadence, lookback, target, and dataset root are configurable through the documented

@@ -148,10 +148,13 @@ class StubCoinbaseMarketClient:
 
 
 _GRANULARITY_SECONDS = {
-    "ONE_HOUR": 60 * 60,
+    "ONE_MINUTE": 60,
     "FIVE_MINUTE": 5 * 60,
     "FIFTEEN_MINUTE": 15 * 60,
     "THIRTY_MINUTE": 30 * 60,
+    "ONE_HOUR": 60 * 60,
+    "TWO_HOUR": 2 * 60 * 60,
+    "FOUR_HOUR": 4 * 60 * 60,
     "SIX_HOUR": 6 * 60 * 60,
     "ONE_DAY": 24 * 60 * 60,
 }
@@ -552,8 +555,121 @@ def test_coinbase_market_data_one_day_empty_page_is_incomplete() -> None:
     assert report.complete is False
 
 
+def test_coinbase_market_data_keeps_oldest_bar_on_full_one_minute_page() -> None:
+    """A 350-bar 1m page must not drop the first closed bar to Coinbase's newest-350 cap."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.ONE_MINUTE.duration * 350
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.ONE_MINUTE,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.ONE_MINUTE.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 350
+    assert report.quality.candle_count == 350
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.ONE_MINUTE.duration * 349).timestamp())),
+            "ONE_MINUTE",
+            350,
+        )
+    ]
+
+
+def test_coinbase_market_data_keeps_oldest_bar_on_full_two_hour_page() -> None:
+    """A 350-bar 2h page must not drop the first closed bar to Coinbase's newest-350 cap."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.TWO_HOURS.duration * 350
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.TWO_HOURS,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.TWO_HOURS.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 350
+    assert report.quality.candle_count == 350
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.TWO_HOURS.duration * 349).timestamp())),
+            "TWO_HOUR",
+            350,
+        )
+    ]
+
+
+def test_coinbase_market_data_keeps_oldest_bar_on_full_four_hour_page() -> None:
+    """A 350-bar 4h page must not drop the first closed bar to Coinbase's newest-350 cap."""
+    client = PagedCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.FOUR_HOURS.duration * 350
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.FOUR_HOURS,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.FOUR_HOURS.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 350
+    assert report.quality.candle_count == 350
+    assert report.complete is True
+    assert report.quality.candles[0].starts_at == starts_at
+    assert client.candle_calls == [
+        (
+            "BTC-USD",
+            str(int(starts_at.timestamp())),
+            str(int((starts_at + CandleInterval.FOUR_HOURS.duration * 349).timestamp())),
+            "FOUR_HOUR",
+            350,
+        )
+    ]
+
+
+def test_coinbase_market_data_two_hour_empty_page_is_incomplete() -> None:
+    """A missing 2h bar is a hole; the adapter does not interpolate a complete range."""
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = starts_at + CandleInterval.TWO_HOURS.duration
+
+    report = asyncio.run(
+        CoinbaseMarketData(EmptyCandleCoinbaseMarketClient()).get_historical_range(
+            "BTC-USD",
+            CandleInterval.TWO_HOURS,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.TWO_HOURS.duration,
+        )
+    )
+
+    assert report.requested_candle_count == 1
+    assert report.quality.candle_count == 0
+    assert report.complete is False
+
+
 def test_coinbase_market_data_rejects_five_minute_range_past_product_cap() -> None:
-    """The product interval cap still fail-closes one request that exceeds 25,920 bars."""
+    """The product interval cap still fail-closes one request that exceeds 129,600 bars."""
     starts_at = datetime(2026, 7, 1, tzinfo=UTC)
     ends_at = starts_at + CandleInterval.FIVE_MINUTES.duration * (MAX_HISTORICAL_INTERVAL_COUNT + 1)
 

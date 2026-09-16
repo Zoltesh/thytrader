@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore
 from thytrader.market_data.worker_state import InMemoryMarketDataWorkerStateStore
 from thytrader.market_data_worker.service import run_market_data_worker
@@ -205,14 +206,7 @@ def test_watch_add_and_ingest_fifteen_minute_demo_range(tmp_path: Path) -> None:
         )
         assert eth_fifteen["complete"] is True
         assert eth_fifteen["watch_complete"] is True
-        assert catalog.json()["payload"]["supported_timeframes"] == [
-            "1h",
-            "5m",
-            "15m",
-            "30m",
-            "6h",
-            "1d",
-        ]
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
         assert any(item["timeframe"] == "15m" for item in latest.json()["datasets"])
         rejected = client.put(
             "/api/v1/data/watchlist",
@@ -261,14 +255,7 @@ def test_watch_add_and_ingest_thirty_minute_demo_range(tmp_path: Path) -> None:
         )
         assert eth_thirty["complete"] is True
         assert eth_thirty["watch_complete"] is True
-        assert catalog.json()["payload"]["supported_timeframes"] == [
-            "1h",
-            "5m",
-            "15m",
-            "30m",
-            "6h",
-            "1d",
-        ]
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
         assert any(item["timeframe"] == "30m" for item in latest.json()["datasets"])
         rejected = client.put(
             "/api/v1/data/watchlist",
@@ -317,14 +304,7 @@ def test_watch_add_and_ingest_six_hour_demo_range(tmp_path: Path) -> None:
         )
         assert eth_six["complete"] is True
         assert eth_six["watch_complete"] is True
-        assert catalog.json()["payload"]["supported_timeframes"] == [
-            "1h",
-            "5m",
-            "15m",
-            "30m",
-            "6h",
-            "1d",
-        ]
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
         assert any(item["timeframe"] == "6h" for item in latest.json()["datasets"])
         rejected = client.put(
             "/api/v1/data/watchlist",
@@ -373,14 +353,7 @@ def test_watch_add_and_ingest_one_day_demo_range(tmp_path: Path) -> None:
         )
         assert eth_day["complete"] is True
         assert eth_day["watch_complete"] is True
-        assert catalog.json()["payload"]["supported_timeframes"] == [
-            "1h",
-            "5m",
-            "15m",
-            "30m",
-            "6h",
-            "1d",
-        ]
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
         assert any(item["timeframe"] == "1d" for item in latest.json()["datasets"])
         rejected = client.put(
             "/api/v1/data/watchlist",
@@ -395,6 +368,153 @@ def test_watch_add_and_ingest_one_day_demo_range(tmp_path: Path) -> None:
     assert status.json()["state"]["status"] == "succeeded"
 
 
+def test_watch_add_and_ingest_one_minute_demo_range(tmp_path: Path) -> None:
+    """Agents can watch ETH 1m; the worker publishes a complete demo range."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
+        added = client.put(
+            "/api/v1/data/watchlist",
+            json={
+                "product_id": "ETH-USD",
+                "timeframe": "1m",
+                "lookback_hours": 1,
+                "enabled": True,
+            },
+        )
+        ingest = client.post(
+            "/api/v1/data/ingest",
+            json={"product_id": "ETH-USD", "timeframe": "1m"},
+        )
+        assert added.status_code == 200, added.text
+        assert ingest.status_code == 202, ingest.text
+        asyncio.run(_run_worker_cycle(app))
+        status = client.get("/api/v1/data/ingest?product_id=ETH-USD&timeframe=1m")
+        catalog = client.get("/api/v1/operator/data-catalog")
+        latest = client.get("/api/v1/market-data/datasets/latest")
+        rows = catalog.json()["payload"]["datasets"]
+        eth_minute = next(
+            row for row in rows if row["product_id"] == "ETH-USD" and row["timeframe"] == "1m"
+        )
+        assert eth_minute["complete"] is True
+        assert eth_minute["watch_complete"] is True
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
+        assert any(item["timeframe"] == "1m" for item in latest.json()["datasets"])
+        rejected = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "2d", "lookback_hours": 1},
+        )
+        assert rejected.status_code == 422
+
+    assert added.json()["target"]["timeframe"] == "1m"
+    assert status.status_code == 200, status.text
+    assert status.json()["ingest_requested_at"] is None
+    assert status.json()["state"]["complete"] is True
+    assert status.json()["state"]["status"] == "succeeded"
+
+
+def test_watch_add_and_ingest_two_hour_demo_range(tmp_path: Path) -> None:
+    """Agents can watch ETH 2h; the worker publishes a complete demo range."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
+        added = client.put(
+            "/api/v1/data/watchlist",
+            json={
+                "product_id": "ETH-USD",
+                "timeframe": "2h",
+                "lookback_hours": 24,
+                "enabled": True,
+            },
+        )
+        ingest = client.post(
+            "/api/v1/data/ingest",
+            json={"product_id": "ETH-USD", "timeframe": "2h"},
+        )
+        assert added.status_code == 200, added.text
+        assert ingest.status_code == 202, ingest.text
+        asyncio.run(_run_worker_cycle(app))
+        status = client.get("/api/v1/data/ingest?product_id=ETH-USD&timeframe=2h")
+        catalog = client.get("/api/v1/operator/data-catalog")
+        latest = client.get("/api/v1/market-data/datasets/latest")
+        rows = catalog.json()["payload"]["datasets"]
+        eth_two = next(
+            row for row in rows if row["product_id"] == "ETH-USD" and row["timeframe"] == "2h"
+        )
+        assert eth_two["complete"] is True
+        assert eth_two["watch_complete"] is True
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
+        assert any(item["timeframe"] == "2h" for item in latest.json()["datasets"])
+        rejected = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "2d", "lookback_hours": 1},
+        )
+        assert rejected.status_code == 422
+
+    assert added.json()["target"]["timeframe"] == "2h"
+    assert status.status_code == 200, status.text
+    assert status.json()["ingest_requested_at"] is None
+    assert status.json()["state"]["complete"] is True
+    assert status.json()["state"]["status"] == "succeeded"
+
+
+def test_watch_add_and_ingest_four_hour_demo_range(tmp_path: Path) -> None:
+    """Agents can watch ETH 4h; the worker publishes a complete demo range."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
+        added = client.put(
+            "/api/v1/data/watchlist",
+            json={
+                "product_id": "ETH-USD",
+                "timeframe": "4h",
+                "lookback_hours": 24,
+                "enabled": True,
+            },
+        )
+        ingest = client.post(
+            "/api/v1/data/ingest",
+            json={"product_id": "ETH-USD", "timeframe": "4h"},
+        )
+        assert added.status_code == 200, added.text
+        assert ingest.status_code == 202, ingest.text
+        asyncio.run(_run_worker_cycle(app))
+        status = client.get("/api/v1/data/ingest?product_id=ETH-USD&timeframe=4h")
+        catalog = client.get("/api/v1/operator/data-catalog")
+        latest = client.get("/api/v1/market-data/datasets/latest")
+        rows = catalog.json()["payload"]["datasets"]
+        eth_four = next(
+            row for row in rows if row["product_id"] == "ETH-USD" and row["timeframe"] == "4h"
+        )
+        assert eth_four["complete"] is True
+        assert eth_four["watch_complete"] is True
+        assert catalog.json()["payload"]["supported_timeframes"] == list(DATASET_TIMEFRAMES)
+        assert any(item["timeframe"] == "4h" for item in latest.json()["datasets"])
+        rejected = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "2d", "lookback_hours": 1},
+        )
+        assert rejected.status_code == 422
+
+    assert added.json()["target"]["timeframe"] == "4h"
+    assert status.status_code == 200, status.text
+    assert status.json()["ingest_requested_at"] is None
+    assert status.json()["state"]["complete"] is True
+    assert status.json()["state"]["status"] == "succeeded"
+
+
 def test_inspect_gaps_does_not_interpolate(tmp_path: Path) -> None:
     """Gap inspection reports cause codes and never claims interpolation."""
     with _client(tmp_path) as client:
@@ -403,12 +523,18 @@ def test_inspect_gaps_does_not_interpolate(tmp_path: Path) -> None:
         thirty = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=30m")
         six_hour = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=6h")
         one_day = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=1d")
+        one_minute = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=1m")
+        two_hour = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=2h")
+        four_hour = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=4h")
     assert five.status_code == 200, five.text
     assert fifteen.status_code == 200, fifteen.text
     assert thirty.status_code == 200, thirty.text
     assert six_hour.status_code == 200, six_hour.text
     assert one_day.status_code == 200, one_day.text
-    for response in (five, fifteen, thirty, six_hour, one_day):
+    assert one_minute.status_code == 200, one_minute.text
+    assert two_hour.status_code == 200, two_hour.text
+    assert four_hour.status_code == 200, four_hour.text
+    for response in (five, fifteen, thirty, six_hour, one_day, one_minute, two_hour, four_hour):
         body = response.json()
         assert body["interpolated"] is False
         assert datetime.fromisoformat(body["starts_at"]) < datetime.fromisoformat(body["ends_at"])
@@ -418,6 +544,9 @@ def test_inspect_gaps_does_not_interpolate(tmp_path: Path) -> None:
     assert thirty.json()["timeframe"] == "30m"
     assert six_hour.json()["timeframe"] == "6h"
     assert one_day.json()["timeframe"] == "1d"
+    assert one_minute.json()["timeframe"] == "1m"
+    assert two_hour.json()["timeframe"] == "2h"
+    assert four_hour.json()["timeframe"] == "4h"
 
 
 def test_unknown_product_watch_is_rejected(tmp_path: Path) -> None:

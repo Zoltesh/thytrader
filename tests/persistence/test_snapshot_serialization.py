@@ -349,6 +349,18 @@ def test_experiential_memory_migration_follows_live_extras() -> None:
     assert "'memory'" in content
 
 
+def test_watchlist_remaining_coinbase_granularity_migration_follows_memory() -> None:
+    """The twenty-fourth migration must widen watchlist timeframes to 1m, 2h, and 4h."""
+    migration = Path("alembic/versions/0024_watchlist_one_minute_two_hour_four_hour_datasets.py")
+    content = migration.read_text(encoding="utf-8")
+    assert 'revision = "0024"' in content
+    assert 'down_revision = "0023"' in content
+    assert "1m" in content
+    assert "2h" in content
+    assert "4h" in content
+    assert "ck_market_data_watchlist_timeframe" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

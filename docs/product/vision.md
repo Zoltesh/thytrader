@@ -33,7 +33,7 @@ paper/live clocks or indicator catalog as the ceiling.
   params — not only strategy-driven orders. Discretionary actions and strategy signals both create
   an **order intent**; they never bypass risk checks to call Coinbase.
 - **Strategy design:** declarative, immutable, versioned strategies using many technical indicators
-  on exchange-offered timeframes, including **1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d**, and whatever else
+  on exchange-offered timeframes, including **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**, and whatever else
   Coinbase lists.
 - **Research:** historical and cross-market analysis on complete ingested data (no interpolated
   candles).
@@ -100,10 +100,9 @@ This is what the running product actually does today. It is **not** the end stat
 
 ### Market data
 
-Shipped complete-only datasets: **5m, 15m, 30m, 1h, 6h, 1d**. Strategy, paper, and live clocks are
-**1h or 5m**. Destination granularities also include **1m**, **2h**, and any
-additional Coinbase-listed interval ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md));
-those are not legal LTF or execution clocks until a later ADR widens them.
+Shipped complete-only datasets: **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**. Strategy, paper, and live
+clocks are **1h or 5m**. `1m`, `2h`, and `4h` are not legal LTF, HTF, or execution clocks until a
+later ADR widens them ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)).
 
 Coinbase candle requests are bounded (currently 350 buckets per request). Ingestion must paginate,
 deduplicate, validate, and detect gaps. Missing candles are never interpolated. The data-provider
@@ -140,13 +139,13 @@ first automated runtime, using the shared published strategy semantics and indep
 Guarded live execution remains after paper restart, stale-data, duplicate-event, and reconciliation
 acceptance tests pass.
 
-That slice is **shipped**. Later work follows the [roadmap](../roadmap.md): experiential memory —
-plus destination items (1m/2h datasets, on-demand trades, journals) that are accepted but not
-inserted ahead of that sequence. Phase 10's risk-policy registry and concurrent single-instrument
-paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are shipped. Phase 12's
-agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR trailing, user-order
-WebSockets, and native OCO brackets are shipped; destination portfolio controls and multi-instrument
-strategy documents are not.
+That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
+items include on-demand trades and widening `1m`/`2h`/`4h` into strategy/paper/live clocks (those
+granularities are already complete-only datasets). Phase 10's risk-policy registry and concurrent
+single-instrument paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are
+shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR
+trailing, user-order WebSockets, and native OCO brackets are shipped; destination portfolio controls
+and multi-instrument strategy documents are not.
 
 ## Planned direction: agents as crypto-trading experts (hooks shipped)
 

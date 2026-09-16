@@ -258,6 +258,117 @@ def test_inspect_gaps_one_day_thirty_day_lookback_is_not_clipped(tmp_path: Path)
     asyncio.run(exercise())
 
 
+def test_inspect_gaps_one_minute_two_hour_lookback_is_not_clipped(tmp_path: Path) -> None:
+    """A 2-hour 1m watch must classify the full 120-bar window."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="ETH-USD",
+                timeframe=CandleInterval.ONE_MINUTE,
+                lookback_hours=2,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        inspection = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="ETH-USD",
+            timeframe="1m",
+            now=now,
+        )
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=2)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.ONE_MINUTE.duration == 120
+        assert len(inspection.gaps) == 120
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
+
+    asyncio.run(exercise())
+
+
+def test_inspect_gaps_two_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path) -> None:
+    """A 720-hour 2h watch must classify the full 360-bar window."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="ETH-USD",
+                timeframe=CandleInterval.TWO_HOURS,
+                lookback_hours=720,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        inspection = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="ETH-USD",
+            timeframe="2h",
+            now=now,
+        )
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.TWO_HOURS.duration == 360
+        assert len(inspection.gaps) == 360
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
+
+    asyncio.run(exercise())
+
+
+def test_inspect_gaps_four_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path) -> None:
+    """A 720-hour 4h watch must classify the full 180-bar window."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="ETH-USD",
+                timeframe=CandleInterval.FOUR_HOURS,
+                lookback_hours=720,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        inspection = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="ETH-USD",
+            timeframe="4h",
+            now=now,
+        )
+        assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
+        assert (
+            inspection.ends_at - inspection.starts_at
+        ) // CandleInterval.FOUR_HOURS.duration == 180
+        assert len(inspection.gaps) == 180
+        assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
+        assert inspection.warning is not None
+
+    asyncio.run(exercise())
+
+
 def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
     tmp_path: Path,
 ) -> None:

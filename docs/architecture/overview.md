@@ -14,7 +14,7 @@ The diagram describes the **target system shape**, not a claim that every respon
 implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
 authoring, backtests, and paper/live deployments of a published 1h or 5m strategy.
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
-6h, and 1d datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
+6h, 1d, 1m, 2h, and 4h datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
 through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
 `thytrader-risk-policy-v1` registry before intent persist.
 
@@ -91,8 +91,8 @@ On-demand/discretionary orders remain deferred
 ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
 The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
 the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
-Destination clocks include every Coinbase-listed granularity (`1m` and `2h` among them); they are
-not legal strategy/paper/live clocks until a later ADR widens them.
+Destination clocks include every Coinbase-listed granularity (`1m`, `2h`, and `4h` among them); they
+are not legal strategy/paper/live clocks until a later ADR widens them.
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:

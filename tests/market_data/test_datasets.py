@@ -289,6 +289,114 @@ def test_dataset_store_rejects_mixed_one_day_manifest_timeframe(tmp_path: Path) 
         store.load_verified(written.manifest_path)
 
 
+def test_dataset_store_writes_complete_one_minute_range(tmp_path: Path) -> None:
+    """One-minute complete ranges publish under the 1m partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(minutes=index)) for index in range(3))
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_MINUTE,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=3),
+        now=starts_at + timedelta(minutes=4),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "1m"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "1m")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+
+
+def test_dataset_store_rejects_incomplete_one_minute_range(tmp_path: Path) -> None:
+    """A 1m window missing a bar is a hole, not a complete dataset."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = (_candle_at(starts_at), _candle_at(starts_at + timedelta(minutes=2)))
+    report = analyze_range(
+        candles,
+        CandleInterval.ONE_MINUTE,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=3),
+        now=starts_at + timedelta(minutes=4),
+    )
+    assert report.complete is False
+    with pytest.raises(DatasetStoreError, match="complete"):
+        DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+
+
+def test_dataset_store_writes_complete_two_hour_range(tmp_path: Path) -> None:
+    """Two-hour complete ranges publish under the 2h partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(hours=2 * index)) for index in range(12))
+    report = analyze_range(
+        candles,
+        CandleInterval.TWO_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=26),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "2h"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "2h")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+    assert len(loaded) == 12
+
+
+def test_dataset_store_rejects_incomplete_two_hour_utc_day(tmp_path: Path) -> None:
+    """A UTC day missing one of twelve 2h candles is a hole, not a complete dataset."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(
+        _candle_at(starts_at + timedelta(hours=2 * index)) for index in range(12) if index != 3
+    )
+    report = analyze_range(
+        candles,
+        CandleInterval.TWO_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=26),
+    )
+    assert report.complete is False
+    with pytest.raises(DatasetStoreError, match="complete"):
+        DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+
+
+def test_dataset_store_writes_complete_four_hour_range(tmp_path: Path) -> None:
+    """Four-hour complete ranges publish under the 4h partition."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(_candle_at(starts_at + timedelta(hours=4 * index)) for index in range(6))
+    report = analyze_range(
+        candles,
+        CandleInterval.FOUR_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=28),
+    )
+    manifest = DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+    assert manifest.timeframe == "4h"
+    assert manifest.files[0].relative_to(tmp_path).parts[:3] == ("coinbase", "ETH-USD", "4h")
+    loaded = DatasetStore(tmp_path).load_candles(manifest.content_fingerprint)
+    assert loaded == candles
+    assert len(loaded) == 6
+
+
+def test_dataset_store_rejects_incomplete_four_hour_utc_day(tmp_path: Path) -> None:
+    """A UTC day missing one of six 4h candles is a hole, not a complete dataset."""
+    starts_at = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+    candles = tuple(
+        _candle_at(starts_at + timedelta(hours=4 * index)) for index in range(6) if index != 2
+    )
+    report = analyze_range(
+        candles,
+        CandleInterval.FOUR_HOURS,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=24),
+        now=starts_at + timedelta(hours=28),
+    )
+    assert report.complete is False
+    with pytest.raises(DatasetStoreError, match="complete"):
+        DatasetStore(tmp_path).write("coinbase", "ETH-USD", report)
+
+
 def test_dataset_store_queries_verified_candles_by_fingerprint(tmp_path: Path) -> None:
     """Backtest callers can resolve exact typed candles from an immutable fingerprint."""
     store = DatasetStore(tmp_path)

@@ -11,21 +11,32 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
 # Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
-# 25,920 five-minute bars is 90 days; 25,920 hourly bars is 1,080 days, but 1h
-# watches stay min(requested, 2,160 hours) via the existing lookback maximum.
-MAX_HISTORICAL_INTERVAL_COUNT = 25_920
+# 129,600 one-minute bars is 90 days; 25,920 five-minute bars is also 90 days.
+# 129,600 hourly bars is 5,400 days, but 1h watches stay min(requested, 2,160 hours)
+# via the existing lookback maximum.
+MAX_HISTORICAL_INTERVAL_COUNT = 129_600
 
-DatasetTimeframe = Literal["1h", "5m", "15m", "30m", "6h", "1d"]
-DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = ("1h", "5m", "15m", "30m", "6h", "1d")
-DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m|6h|1d)$"
+DatasetTimeframe = Literal["1h", "5m", "15m", "30m", "6h", "1d", "1m", "2h", "4h"]
+DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = (
+    "1h",
+    "5m",
+    "15m",
+    "30m",
+    "6h",
+    "1d",
+    "1m",
+    "2h",
+    "4h",
+)
+DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m|6h|1d|1m|2h|4h)$"
 
 
 class CandleInterval(StrEnum):
     """Closed-candle intervals for complete-only historical datasets.
 
-    Dataset ingest, catalog, and verification accept 1h, 5m, 15m, 30m, 6h, and 1d.
-    Paper still evaluates only 1h or 5m; live accepts 1h or 5m at the deployment
-    gate.
+    Dataset ingest, catalog, and verification accept every Coinbase-listed
+    Advanced Trade candle granularity. Paper still evaluates only 1h or 5m;
+    live accepts 1h or 5m at the deployment gate.
     """
 
     ONE_HOUR = "1h"
@@ -34,43 +45,34 @@ class CandleInterval(StrEnum):
     THIRTY_MINUTES = "30m"
     SIX_HOURS = "6h"
     ONE_DAY = "1d"
+    ONE_MINUTE = "1m"
+    TWO_HOURS = "2h"
+    FOUR_HOURS = "4h"
 
     @property
     def duration(self) -> timedelta:
         """Return the exact duration represented by one interval."""
-        if self is CandleInterval.ONE_HOUR:
-            return timedelta(hours=1)
-        if self is CandleInterval.FIVE_MINUTES:
-            return timedelta(minutes=5)
-        if self is CandleInterval.FIFTEEN_MINUTES:
-            return timedelta(minutes=15)
-        if self is CandleInterval.THIRTY_MINUTES:
-            return timedelta(minutes=30)
-        if self is CandleInterval.SIX_HOURS:
-            return timedelta(hours=6)
-        if self is CandleInterval.ONE_DAY:
-            return timedelta(days=1)
-        message = f"Unsupported candle interval: {self.value}."
-        raise ValueError(message)
+        try:
+            return _INTERVAL_DURATIONS[self]
+        except KeyError as error:
+            message = f"Unsupported candle interval: {self.value}."
+            raise ValueError(message) from error
 
     def align_closed_end(self, now: datetime) -> datetime:
         """Return the exclusive end of the latest fully closed bar at ``now``."""
         instant = now.astimezone(UTC).replace(second=0, microsecond=0)
-        if self is CandleInterval.ONE_HOUR:
-            return instant.replace(minute=0)
-        if self is CandleInterval.FIVE_MINUTES:
-            minute = (instant.minute // 5) * 5
+        minutes = int(self.duration.total_seconds() // 60)
+        if minutes < 1:
+            message = f"Unsupported candle interval: {self.value}."
+            raise ValueError(message)
+        if minutes < 60:
+            minute = (instant.minute // minutes) * minutes
             return instant.replace(minute=minute)
-        if self is CandleInterval.FIFTEEN_MINUTES:
-            minute = (instant.minute // 15) * 15
-            return instant.replace(minute=minute)
-        if self is CandleInterval.THIRTY_MINUTES:
-            minute = (instant.minute // 30) * 30
-            return instant.replace(minute=minute)
-        if self is CandleInterval.SIX_HOURS:
-            hour = (instant.hour // 6) * 6
+        hours = minutes // 60
+        if hours < 24:
+            hour = (instant.hour // hours) * hours
             return instant.replace(hour=hour, minute=0)
-        if self is CandleInterval.ONE_DAY:
+        if hours == 24:
             return instant.replace(hour=0, minute=0)
         message = f"Unsupported candle interval: {self.value}."
         raise ValueError(message)
@@ -79,6 +81,19 @@ class CandleInterval(StrEnum):
     def execution_supported(self) -> bool:
         """Paper and live evaluate closed 1h or 5m bars."""
         return self in {CandleInterval.ONE_HOUR, CandleInterval.FIVE_MINUTES}
+
+
+_INTERVAL_DURATIONS: dict[CandleInterval, timedelta] = {
+    CandleInterval.ONE_MINUTE: timedelta(minutes=1),
+    CandleInterval.FIVE_MINUTES: timedelta(minutes=5),
+    CandleInterval.FIFTEEN_MINUTES: timedelta(minutes=15),
+    CandleInterval.THIRTY_MINUTES: timedelta(minutes=30),
+    CandleInterval.ONE_HOUR: timedelta(hours=1),
+    CandleInterval.TWO_HOURS: timedelta(hours=2),
+    CandleInterval.FOUR_HOURS: timedelta(hours=4),
+    CandleInterval.SIX_HOURS: timedelta(hours=6),
+    CandleInterval.ONE_DAY: timedelta(days=1),
+}
 
 
 def parse_candle_interval(value: str) -> CandleInterval:
@@ -92,18 +107,9 @@ def parse_candle_interval(value: str) -> CandleInterval:
 
 def as_dataset_timeframe(interval: CandleInterval) -> DatasetTimeframe:
     """Narrow a candle interval to the dataset catalog token."""
-    if interval is CandleInterval.ONE_HOUR:
-        return "1h"
-    if interval is CandleInterval.FIVE_MINUTES:
-        return "5m"
-    if interval is CandleInterval.FIFTEEN_MINUTES:
-        return "15m"
-    if interval is CandleInterval.THIRTY_MINUTES:
-        return "30m"
-    if interval is CandleInterval.SIX_HOURS:
-        return "6h"
-    if interval is CandleInterval.ONE_DAY:
-        return "1d"
+    for token in DATASET_TIMEFRAMES:
+        if interval.value == token:
+            return token
     message = f"Unsupported candle interval: {interval.value}."
     raise ValueError(message)
 
