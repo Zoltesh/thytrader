@@ -24,7 +24,11 @@ JWT material or order payloads. It omits cash, quantities, and order payloads. E
 includes `kind` (`strategy` or `discretionary`) and optional strategy identity.
 
 Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`.
-Hour-and-longer live still reconciles through REST.
+Hour-and-longer live still reconciles through REST. Live fill ingest pages Coinbase List Fills
+until the documented `cursor` is exhausted, converts `size_in_quote` to base units, and raises
+rather than returning a partial ledger when a row is unparseable, for the wrong product/order, or
+missing `trade_time` / `commission` ([ADR 0059](../../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md)).
+Do not treat that failure as “no remaining fills.”
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, `daily_loss_limit_fraction`, `max_strategy_drawdown_fraction`, `max_entry_orders_per_minute`, `max_cancellations_per_minute`, `reference_price_collar_fraction`, `allow_intra_strategy_pyramiding`, optional `max_daily_loss_quote` / `max_portfolio_exposure_quote` / `max_venue_order_actions_per_minute` ([ADR 0063](../../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)), and pause/mismatch findings. Breaker trips prefix `mismatch_detail` with `DAILY_LOSS_LIMIT` or `STRATEGY_DRAWDOWN_LIMIT` and add a finding with that code. A live deployment still running under the compiled default (only possible from before ADR 0063) adds a `LIVE_RUNNING_ON_COMPILED_DEFAULT_POLICY` finding. The payload omits observed account balances and PnL; policy-configured fractions, integers, the pyramiding boolean, and the operator's own absolute quote caps above are allowed — they are configuration the operator set, not observed exchange balances.
 

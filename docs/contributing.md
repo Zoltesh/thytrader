@@ -45,6 +45,13 @@ teach `ops/` instruction files to edit documentation or source.
   [ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md) (YAML settings and runtime-reloadable YOLO),
   [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) (multi-instrument Coinbase
   USD spot documents and intra-strategy pyramiding),
+  [ADR 0057](decisions/0057-atomic-fill-ledger-and-product-isolation.md) (atomic fill ledger and
+  product isolation),
+  [ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md) (cursor-terminated Coinbase
+  List Fills with fail-closed parsing),
+  [ADR 0061](decisions/0061-application-trust-boundary.md) (application trust boundary),
+  [ADR 0062](decisions/0062-research-paper-semantics-audit-stage-4.md) (v4 causal maker engine and
+  research/paper semantics),
   and
   [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) (tracked CI,
   production web target, live-arming publication gate, optional absolute risk caps, purpose-aware

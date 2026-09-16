@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 import time
 from typing import TYPE_CHECKING, Any
@@ -42,6 +43,55 @@ class FakeTransport:
         self.calls.append(("POST", path, dict(data or {})))
         queue = self.posts[path]
         return queue.pop(0)
+
+
+_FILLS_PATH = "/api/v3/brokerage/orders/historical/fills"
+
+
+def _fill_json(
+    *,
+    trade_id: str,
+    order_id: str = "o1",
+    product_id: str = "BTC-USD",
+    price: str = "100",
+    size: str = "0.01",
+    commission: str = "0.1",
+    trade_time: str = "2026-01-01T00:00:00Z",
+    size_in_quote: bool | None = None,
+    entry_id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build one documented Advanced Trade fill object."""
+    payload: dict[str, Any] = {
+        "trade_id": trade_id,
+        "order_id": order_id,
+        "product_id": product_id,
+        "price": price,
+        "size": size,
+        "commission": commission,
+        "trade_time": trade_time,
+    }
+    if size_in_quote is not None:
+        payload["size_in_quote"] = size_in_quote
+    if entry_id is not None:
+        payload["entry_id"] = entry_id
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _fills_page(
+    *fills: dict[str, Any],
+    cursor: str | None = None,
+    has_next: bool | None = None,
+) -> dict[str, Any]:
+    """Build one GetFillsResponse page using documented cursor termination."""
+    payload: dict[str, Any] = {"fills": list(fills)}
+    if cursor is not None:
+        payload["cursor"] = cursor
+    if has_next is not None:
+        payload["has_next"] = has_next
+    return payload
 
 
 @pytest.mark.anyio
@@ -256,45 +306,194 @@ async def test_get_order_resolves_client_order_id_when_venue_id_is_missing() -> 
 
 
 @pytest.mark.anyio
-async def test_list_fills_paginates_until_has_next_is_false() -> None:
-    """Multi-page fill ledgers are concatenated; a missing cursor is an error."""
-    path = "/api/v3/brokerage/orders/historical/fills"
+async def test_list_fills_paginates_until_the_cursor_is_exhausted() -> None:
+    """Cursor-only List Fills pages concatenate; has_next is not required to continue."""
     transport = FakeTransport(
         gets={
-            path: [
-                {
-                    "fills": [
-                        {
-                            "trade_id": "t1",
-                            "order_id": "o1",
-                            "price": "100",
-                            "size": "0.01",
-                            "commission": "0.1",
-                            "trade_time": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                    "has_next": True,
-                    "cursor": "page-2",
-                },
-                {
-                    "fills": [
-                        {
-                            "trade_id": "t2",
-                            "order_id": "o1",
-                            "price": "101",
-                            "size": "0.02",
-                            "commission": "0",
-                            "trade_time": "2026-01-01T01:00:00Z",
-                        }
-                    ],
-                    "has_next": False,
-                },
+            _FILLS_PATH: [
+                _fills_page(_fill_json(trade_id="t1"), cursor="page-2"),
+                _fills_page(_fill_json(trade_id="t2", trade_time="2026-01-01T01:00:00Z")),
             ]
         }
     )
     fills = await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
     assert [fill.venue_fill_id for fill in fills] == ["t1", "t2"]
+    assert transport.calls[0][2]["product_types"] == ["SPOT"]
+    assert "cursor" not in transport.calls[0][2]
     assert transport.calls[1][2]["cursor"] == "page-2"
+
+
+@pytest.mark.anyio
+async def test_list_fills_rejects_has_next_true_without_a_cursor() -> None:
+    """An extra has_next flag still cannot continue the stream without a cursor."""
+    transport = FakeTransport(
+        gets={_FILLS_PATH: [_fills_page(_fill_json(trade_id="t1"), has_next=True)]}
+    )
+    with pytest.raises(BrokerError, match="without a cursor"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+
+
+@pytest.mark.anyio
+async def test_list_fills_paginates_more_than_one_hundred_executions() -> None:
+    """A full 100-row page plus a remainder page is the documented >100 execution stream."""
+    first_page = [_fill_json(trade_id=f"t-{index:03d}") for index in range(100)]
+    remainder = [_fill_json(trade_id=f"t-{index:03d}") for index in range(100, 105)]
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(*first_page, cursor="page-2"),
+                _fills_page(*remainder),
+            ]
+        }
+    )
+    fills = await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+    assert len(fills) == 105
+    assert fills[0].venue_fill_id == "t-000"
+    assert fills[-1].venue_fill_id == "t-104"
+    assert len(transport.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_list_fills_rejects_a_repeated_cursor() -> None:
+    """A repeated continuation cursor must not look like a complete fill ledger."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(_fill_json(trade_id="t1"), cursor="repeat"),
+                _fills_page(_fill_json(trade_id="t2"), cursor="repeat"),
+            ]
+        }
+    )
+    with pytest.raises(BrokerError, match="repeated cursor"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+    assert [call[2].get("cursor") for call in transport.calls] == [None, "repeat"]
+
+
+@pytest.mark.anyio
+async def test_list_fills_rejects_when_the_page_cap_is_exceeded() -> None:
+    """A unique-cursor stream that never terminates must stop at the hard page cap."""
+    pages = [_fills_page(cursor=f"cursor-{index}") for index in range(20)]
+    transport = FakeTransport(gets={_FILLS_PATH: pages})
+    with pytest.raises(BrokerError, match="page limit"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+    assert len(transport.calls) == 20
+
+
+@pytest.mark.anyio
+async def test_list_fills_converts_quote_size_to_base_quantity() -> None:
+    """size_in_quote true means size is quote; 1000 quote at price 100 is 10 base (P06)."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(
+                    _fill_json(
+                        trade_id="quote-sized",
+                        price="100",
+                        size="1000",
+                        size_in_quote=True,
+                    )
+                )
+            ]
+        }
+    )
+    fills = await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+    assert len(fills) == 1
+    assert fills[0].quantity == Decimal("10")
+    assert fills[0].price == Decimal("100")
+
+
+@pytest.mark.anyio
+async def test_list_fills_keeps_base_size_when_size_in_quote_is_false() -> None:
+    """size_in_quote false leaves size in base units."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(_fill_json(trade_id="base-sized", size="0.25", size_in_quote=False))
+            ]
+        }
+    )
+    fills = await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+    assert fills[0].quantity == Decimal("0.25")
+
+
+@pytest.mark.anyio
+async def test_list_fills_quarantines_malformed_rows() -> None:
+    """Unparseable financial fields raise BrokerError instead of dropping the row."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(
+                    _fill_json(trade_id="good", extra={"size": "not-a-decimal"}),
+                )
+            ]
+        }
+    )
+    with pytest.raises(BrokerError, match="size"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+
+
+@pytest.mark.anyio
+async def test_list_fills_quarantines_a_non_object_fill_row() -> None:
+    """A non-object fills[] entry is incomplete evidence, not a skippable row."""
+    transport = FakeTransport(gets={_FILLS_PATH: [{"fills": ["not-an-object"]}]})
+    with pytest.raises(BrokerError, match="JSON object"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+
+
+@pytest.mark.anyio
+async def test_list_fills_quarantines_the_wrong_product() -> None:
+    """A fill for another product must not join the requested product ledger."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(_fill_json(trade_id="eth", product_id="ETH-USD")),
+            ]
+        }
+    )
+    with pytest.raises(BrokerError, match="product_id"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+
+
+@pytest.mark.anyio
+async def test_list_fills_quarantines_the_wrong_order() -> None:
+    """A fill that does not belong to the requested order is incomplete membership."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(_fill_json(trade_id="other", order_id="venue-other")),
+            ]
+        }
+    )
+    with pytest.raises(BrokerError, match="order_id"):
+        await CoinbaseRestBroker(transport).list_fills(
+            product_id="BTC-USD", order_id="venue-wanted"
+        )
+
+
+@pytest.mark.anyio
+async def test_list_fills_quarantines_missing_trade_time() -> None:
+    """Missing trade_time must not be replaced with local observation time."""
+    row = _fill_json(trade_id="no-time")
+    del row["trade_time"]
+    transport = FakeTransport(gets={_FILLS_PATH: [_fills_page(row)]})
+    with pytest.raises(BrokerError, match="trade_time"):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USD")
+
+
+@pytest.mark.anyio
+async def test_list_fills_uses_stable_ids_for_the_same_execution() -> None:
+    """Re-parsing the same venue fill yields the same local fill and order identity."""
+    page = _fills_page(_fill_json(trade_id="stable", entry_id="entry-stable"))
+    first = await CoinbaseRestBroker(FakeTransport(gets={_FILLS_PATH: [dict(page)]})).list_fills(
+        product_id="BTC-USD"
+    )
+    second = await CoinbaseRestBroker(FakeTransport(gets={_FILLS_PATH: [dict(page)]})).list_fills(
+        product_id="BTC-USD"
+    )
+    assert first[0].venue_fill_id == "stable"
+    assert first[0].id == second[0].id
+    assert first[0].order_id == second[0].order_id
+    assert first[0].filled_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_list_spot_orders_requests_retail_advanced_spot_only() -> None:
@@ -326,18 +525,13 @@ async def test_fill_ledger_is_independent_of_open_order_list() -> None:
         gets={
             orders_path: [{"orders": [], "has_next": False}],
             fills_path: [
-                {
-                    "fills": [
-                        {
-                            "trade_id": "hidden-fill",
-                            "order_id": "filled-away",
-                            "price": "99.5",
-                            "size": "0.01",
-                            "trade_time": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                    "has_next": False,
-                }
+                _fills_page(
+                    _fill_json(
+                        trade_id="hidden-fill",
+                        order_id="filled-away",
+                        price="99.5",
+                    )
+                )
             ],
         }
     )

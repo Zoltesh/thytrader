@@ -85,7 +85,10 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
    `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`), strategy fingerprint, and dataset fingerprint in
    any answer. Performance timeframe is the published strategy's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
-   at last close; `MISSING_MARK` means open inventory was not marked.
+   at last close; `MISSING_MARK` means open inventory was not marked. Live REST fill ingest uses
+   documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
+   unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
+   do not treat a truncated or failed fill page as a complete ledger.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
 8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
