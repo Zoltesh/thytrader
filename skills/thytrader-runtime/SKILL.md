@@ -4,10 +4,11 @@ description: >-
   Start, pause, resume, or stop ThyTrader paper and live deployments, and publish
   the risk-policy registry, through the confirmation-gated thytrader-runtime CLI.
   Use when the user explicitly asks to deploy, pause, resume, stop, place an
-  on-demand order, or set the risk policy. Requires --confirm on every mutation.
-  Live start and live place-order also require --i-understand-live. Publishing a
-  risk policy does not arm live trading. Never diagnose through this skill and
-  never submit Coinbase orders directly.
+  on-demand order, or set the risk policy. Requires --confirm on every mutation
+  unless YOLO covers that tier. Live start and live place-order also require
+  --i-understand-live. YOLO live may skip --confirm on start/pause/resume/stop
+  only. Publishing a risk policy does not arm live trading. Never diagnose
+  through this skill and never submit Coinbase orders directly.
 ---
 
 # ThyTrader runtime
@@ -51,7 +52,9 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
-another book clock. YOLO may skip `--confirm` only for paper place-order. Repeat the same
+another book clock. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
+when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
+is enabled. Live place-order and `set-risk-policy` never skip `--confirm`. Repeat the same
 `--idempotency-key` instead of retrying a timeout.
 
 Underlying HTTP:
@@ -66,12 +69,13 @@ Underlying HTTP:
 ## Confirmation
 
 - Never mutate unless the user explicitly asked **and** `--confirm` is present, unless the user
-  explicitly asked to operate under YOLO **and** the mutation is paper (not live, not
-  `set-risk-policy`) **and** operator `configuration` / `thytrader-playbook status` shows the `paper`
-  tier enabled.
-- Never start live or place a live order without both `--confirm` and `--i-understand-live`. Live
-  start, live place-order, and `set-risk-policy` never YOLO.
-- If a required flag is missing, the CLI exits without writing. Do not retry with extra flags unless the user asked you to.
+  explicitly asked to operate under YOLO **and** operator `configuration` /
+  `thytrader-playbook status` shows the matching tier (`paper` or `live`) enabled.
+- Never start live or place a live order without `--i-understand-live`. YOLO never skips that
+  flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
+  and the skip audit succeeds. Live `place-order` and `set-risk-policy` never YOLO.
+- Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
+  Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `kind`, optional
   `strategy_fingerprint`). Keep those identities.
 - Watch status after a mutation with `uv run thytrader-operator runtime --deployment-id UUID`.

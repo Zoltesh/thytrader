@@ -206,3 +206,57 @@ def test_run_paper_uses_runtime_paper_mode(monkeypatch: pytest.MonkeyPatch) -> N
     assert runtime_calls[0][mode_index + 1] == "paper"
     assert "live" not in runtime_calls[0]
     assert "--i-understand-live" not in runtime_calls[0]
+
+
+def test_run_paper_with_live_yolo_still_never_starts_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Playbook never constructs a live start even when YOLO advertises live."""
+    runtime_calls: list[list[str]] = []
+
+    def fake_operator(argv: list[str] | None) -> None:
+        del argv
+        raise SystemExit(0)
+
+    def fake_data(argv: list[str] | None) -> None:
+        del argv
+        sys.stdout.write('{"targets":[]}\n')
+
+    def fake_runtime(argv: list[str] | None) -> None:
+        assert argv is not None
+        runtime_calls.append(list(argv))
+        sys.stdout.write('{"id":"dep-1","mode":"paper","status":"running"}\n')
+        raise SystemExit(0)
+
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.operator_main", fake_operator)
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.data_main", fake_data)
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.runtime_main", fake_runtime)
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("data", "research", "paper", "live"),
+        ),
+    }
+    fingerprint = "sha256:" + "a" * 64
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.agent_orchestration.cli.sys.stdout"),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "run",
+                "--paper-cash",
+                "10000",
+                "--strategy-fingerprint",
+                fingerprint,
+            ]
+        )
+    assert raised.value.code == EXIT_HEALTHY
+    assert runtime_calls
+    assert "--mode" in runtime_calls[0]
+    mode_index = runtime_calls[0].index("--mode")
+    assert runtime_calls[0][mode_index + 1] == "paper"
+    assert "live" not in runtime_calls[0]
+    assert "--i-understand-live" not in runtime_calls[0]

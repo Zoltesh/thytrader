@@ -85,7 +85,7 @@ Gap `cause` values:
   operator `configuration` / `thytrader-playbook status` shows the `data` tier enabled.
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with
   `--confirm` unless the user asked you to.
-- Do not enable YOLO from this skill. Live trading is never YOLO-eligible.
+- Do not enable YOLO from this skill. Live YOLO is a runtime-lane setting and does not grant this skill live authority.
 
 ## Workflow
 

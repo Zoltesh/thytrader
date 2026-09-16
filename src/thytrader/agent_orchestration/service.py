@@ -29,6 +29,7 @@ _TIER_CATEGORY: dict[YoloTier, AuditEventCategory] = {
     YoloTier.DATA: AuditEventCategory.MARKET_DATA,
     YoloTier.RESEARCH: AuditEventCategory.RESEARCH,
     YoloTier.PAPER: AuditEventCategory.RUNTIME,
+    YoloTier.LIVE: AuditEventCategory.RUNTIME,
 }
 
 
@@ -61,7 +62,8 @@ async def record_skipped_confirmation(
     status = orchestration_status(settings)
     if not status.allows(request.tier):
         raise YoloSkipRejectedError(
-            "YOLO is not enabled for this tier. Pass --confirm. Live keeps a hard gate."
+            "YOLO is not enabled for this tier. Pass --confirm. "
+            "Live start still requires --i-understand-live."
         )
     if isinstance(store, DisabledAuditEventStore):
         raise AuditEventUnavailableError(

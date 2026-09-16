@@ -1,6 +1,7 @@
 # 0034: Phase 12 agent orchestration and YOLO confirmation opt-in
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0043](0043-yolo-live-skip-confirm.md)
+  (live `--confirm` hard gate)
 - Date: 2026-09-15
 - Relates to: [0012](0012-operator-diagnostics.md), [0013](0013-http-first-agent-clients.md),
   [0019](0019-ops-contract-identity.md), [0030](0030-agent-e2e-primary-surface.md)
@@ -61,8 +62,10 @@ true`, and `live_authority: false`. Operator `configuration` reports the same fl
 ## Consequences
 
 - Agents can run a documented playbook without inventing HTTP.
-- Operators can lower confirmation friction on data, research, and paper only.
-- Live arming stays `--confirm` plus `--i-understand-live`.
+- Operators can lower confirmation friction on data, research, and paper. Live `--confirm`
+  skip arrived later in [ADR 0043](0043-yolo-live-skip-confirm.md).
+- Live arming keeps `--i-understand-live`. `--confirm` stayed required for live in this
+  slice.
 - Skill lanes stay separate. The playbook skill is not an extension of operator, data, research, or
   runtime and does not inherit live authority.
 - Phase 11 walk-forward, Phase 13 live extras, Phase 14 journals/notify, on-demand SL/TP, and
@@ -74,7 +77,10 @@ true`, and `live_authority: false`. Operator `configuration` reports the same fl
   contract.
 - **Bump the ops contract for the new prefix:** rejected; `--confirm` remains sufficient on v7
   images. YOLO and playbook status fail closed on missing routes instead.
-- **Live YOLO / inheriting live from paper YOLO:** rejected. Live keeps a dedicated hard gate.
+- **Live YOLO / inheriting live from paper YOLO:** rejected in this slice. Live kept a
+  dedicated `--confirm` hard gate until [ADR 0043](0043-yolo-live-skip-confirm.md) added an
+  explicit `live` tier that still never skips `--i-understand-live` and never grants the
+  playbook live authority. Paper YOLO still does not inherit live.
 - **Playbook calling mutation HTTP directly:** rejected; it must invoke existing lane CLIs so
   authority and stale-image preflights stay in one place.
 - **Silent default YOLO on observation skills:** rejected; operator stays read-only.

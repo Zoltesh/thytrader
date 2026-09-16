@@ -79,12 +79,34 @@ def test_post_skipped_confirmation_unavailable_without_store() -> None:
     assert response.json()["detail"]["code"] == "persistence_unavailable"
 
 
-def test_post_skipped_confirmation_rejects_live_tier() -> None:
-    """Live is not a YOLO tier on the wire."""
-    app = create_app(Settings(_env_file=None))
+def test_post_skipped_confirmation_rejects_live_tier_when_yolo_off() -> None:
+    """Live is a valid YOLO tier on the wire but Safe mode still fail-closes."""
+    store = InMemoryAuditEventStore()
+    app = create_app(Settings(_env_file=None), audit_event_store=store)
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/agent-orchestration/skipped-confirmations",
             json={"tier": "live", "command": "start"},
         )
-    assert response.status_code == 422
+    assert response.status_code == 403
+    assert asyncio.run(store.list_recent()) == ()
+
+
+def test_post_skipped_confirmation_records_live_tier_when_yolo_on() -> None:
+    """Enabled YOLO for live writes a skipped-confirmation audit event."""
+    store = InMemoryAuditEventStore()
+    settings = Settings(yolo_enabled=True, yolo_tiers=(YoloTier.LIVE,), _env_file=None)
+    app = create_app(settings, audit_event_store=store)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent-orchestration/skipped-confirmations",
+            json={"tier": "live", "command": "start"},
+        )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["action"] == "confirm_skipped"
+    assert body["category"] == "runtime"
+    assert body["tier"] == "live"
+    events = asyncio.run(store.list_recent())
+    assert len(events) == 1
+    assert events[0].action == "confirm_skipped"

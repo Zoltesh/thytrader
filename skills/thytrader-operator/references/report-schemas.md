@@ -28,7 +28,7 @@ Hour-and-longer live still reconciles through REST.
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, and pause/mismatch findings. It omits account balances and dollar amounts. Daily-loss / drawdown circuit breakers are not in this payload.
 
-Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement). Those flags never grant live authority. Live start still requires `--confirm` and `--i-understand-live`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
+Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement). Those flags never grant playbook live authority. YOLO `live` may skip `--confirm` on runtime start/pause/resume/stop; live start still requires `--i-understand-live`. Live place-order and `set-risk-policy` still require `--confirm`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
 
 The `monitor` payload is `thytrader-monitor-v1`: redacted memory status, deployments without cash, recent journals/notifications, and findings (`MEMORY_STORAGE_UNAVAILABLE`, `EXECUTION_UNAVAILABLE`, `DEPLOYMENT_PAUSED`, `DEPLOYMENT_MISMATCH`, `NOTIFICATION_FAILED`). Default-off notify (`provider=none`) is skipped, not failed. YOLO never covers journal or notify writes.
 

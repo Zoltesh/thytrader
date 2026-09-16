@@ -5,8 +5,9 @@ description: >-
   on-demand order, and publish the risk-policy registry, through the
   confirmation-gated thytrader-runtime CLI. Use when the user explicitly asks to
   deploy, pause, resume, stop, place an on-demand order, or set the risk policy.
-  Requires --confirm on every mutation. Live start and live place-order also
-  require --i-understand-live. Publishing a risk policy does not arm live
+  Requires --confirm on every mutation unless YOLO covers that tier. Live start
+  and live place-order also require --i-understand-live. YOLO live may skip
+  --confirm on start/pause/resume/stop only. Publishing a risk policy does not arm live
   trading. Never diagnose through this skill and never submit Coinbase orders
   directly.
 ---
