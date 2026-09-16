@@ -1214,7 +1214,7 @@ class OperatorDiagnostics:
         """Map publications onto covered product ids for runtime book rows."""
         try:
             entries = await self.publications.list_published(include_archived=True)
-        except (StrategyPublicationError, RuntimeError, TypeError, ValueError):
+        except StrategyPublicationError, RuntimeError, TypeError, ValueError:
             return {}
         return {
             entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
