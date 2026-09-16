@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - tmp_path fixture paths are runtime values.
 
-from pydantic import SecretStr
+import pytest  # noqa: TC002 - MonkeyPatch annotations require pytest at runtime.
 
 from thytrader.config import Settings
 from thytrader.credentials.reload import CoinbaseCredentialReloadStore
@@ -18,8 +18,7 @@ def test_reload_store_picks_up_dotenv_changes(tmp_path: Path) -> None:
     credentials_dir.mkdir()
     env_path = credentials_dir / ".env"
     env_path.write_text(
-        "THYTRADER_COINBASE_API_KEY_NAME=old-key\n"
-        "THYTRADER_COINBASE_API_PRIVATE_KEY=old-secret\n",
+        "THYTRADER_COINBASE_API_KEY_NAME=old-key\nTHYTRADER_COINBASE_API_PRIVATE_KEY=old-secret\n",
         encoding="utf-8",
     )
     base = Settings(credentials_dir=credentials_dir)
@@ -28,8 +27,7 @@ def test_reload_store_picks_up_dotenv_changes(tmp_path: Path) -> None:
     assert store.current.coinbase_api_key_name.get_secret_value() == "old-key"
 
     env_path.write_text(
-        "THYTRADER_COINBASE_API_KEY_NAME=new-key\n"
-        "THYTRADER_COINBASE_API_PRIVATE_KEY=new-secret\n",
+        "THYTRADER_COINBASE_API_KEY_NAME=new-key\nTHYTRADER_COINBASE_API_PRIVATE_KEY=new-secret\n",
         encoding="utf-8",
     )
     refreshed = store.current
@@ -37,7 +35,10 @@ def test_reload_store_picks_up_dotenv_changes(tmp_path: Path) -> None:
     assert refreshed.coinbase_api_key_name.get_secret_value() == "new-key"
 
 
-def test_worker_runtime_merges_yaml_and_dotenv(tmp_path: Path, monkeypatch) -> None:
+def test_worker_runtime_merges_yaml_and_dotenv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """YAML reload keeps non-secret knobs while dotenv supplies Coinbase secrets."""
     credentials_dir = tmp_path / "credentials"
     credentials_dir.mkdir()

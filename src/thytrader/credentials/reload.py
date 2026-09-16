@@ -50,7 +50,14 @@ class CoinbaseCredentialReloadStore:
         """Refresh YAML-backed fields before the next disk read."""
         with self._lock:
             self._base_settings = settings
-            self._refresh_from_disk()
+            key_name, private_key = self._read_coinbase_from_env()
+            from thytrader.credentials.service import settings_with_coinbase  # noqa: PLC0415
+
+            self._current = settings_with_coinbase(
+                self._base_settings,
+                key_name=key_name,
+                private_key=private_key,
+            )
 
     def _refresh_from_disk(self) -> None:
         """Reload from disk when the content hash changes."""

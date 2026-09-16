@@ -1201,6 +1201,7 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	await page.goto(`/deploy?strategy=${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Deploy' })).toBeVisible();
 	await page.getByRole('button', { name: 'Start deployment' }).click();
+	await expect.poll(() => createdBody).not.toBeNull();
 	expect(createdBody).toEqual({
 		strategy_fingerprint: fingerprint,
 		mode: 'paper',

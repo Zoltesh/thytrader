@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp  # noqa: TC002 - BaseHTTPMiddleware app parameter type.
 from starlette.requests import Request  # noqa: TC002 - middleware receives live requests.
 from starlette.responses import JSONResponse, Response
 
-from thytrader.security.boundary import TrustBoundaryError
+from thytrader.security.boundary import TrustBoundary, TrustBoundaryError
 from thytrader.security.models import CSRF_COOKIE, CSRF_HEADER, INSTALLATION_AUTH_HEADER
-
-if TYPE_CHECKING:
-    from thytrader.security.boundary import TrustBoundary
 
 
 class TrustBoundaryMiddleware(BaseHTTPMiddleware):
     """Validate Host, Origin, installation auth, and CSRF on each request."""
 
-    def __init__(self, app: Starlette, *, boundary: TrustBoundary) -> None:
+    def __init__(self, app: ASGIApp, *, boundary: TrustBoundary) -> None:
         """Bind one trust boundary instance."""
         super().__init__(app)
         self._boundary = boundary
