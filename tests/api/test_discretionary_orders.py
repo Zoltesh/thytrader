@@ -256,7 +256,11 @@ def test_paper_discretionary_persists_fee_rates_and_rejects_live_fees() -> None:
     assert one_sided.status_code == 409
 
     live_execution = InMemoryExecutionStore()
-    with _client(execution=live_execution, live_credentials=True, quote_reader=_UsdReader()) as client:
+    with _client(
+        execution=live_execution,
+        live_credentials=True,
+        quote_reader=_UsdReader(),
+    ) as client:
         payload = _body(mode="live", maker_fee_rate="0.001", taker_fee_rate="0.002")
         payload.pop("paper_starting_cash")
         response = client.post("/api/v1/discretionary-orders", json=payload)

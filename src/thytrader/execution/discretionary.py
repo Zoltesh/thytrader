@@ -47,8 +47,8 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
-from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.paper import bind_paper_broker_fees
+from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
@@ -783,19 +783,19 @@ def _parse_paper_fee_rates(
     """
     maker = _optional_non_negative_decimal(maker_fee_rate, field="maker_fee_rate")
     taker = _optional_non_negative_decimal(taker_fee_rate, field="taker_fee_rate")
+    live = mode is DeploymentMode.LIVE
+    if not live and (maker is None) != (taker is None):
+        raise ExecutionConflictError(
+            "Paper fee rates require both maker_fee_rate and taker_fee_rate."
+        )
+    if not live and (maker is None or taker is None):
+        return None, None
     try:
-        if mode is DeploymentMode.LIVE:
-            resolve_paper_fee_schedule(
-                live=True, maker_fee_rate=maker, taker_fee_rate=taker
-            )
-            return None, None
-        if (maker is None) != (taker is None):
-            raise ValueError("Paper fee rates require both maker_fee_rate and taker_fee_rate.")
-        if maker is None or taker is None:
-            return None, None
-        resolve_paper_fee_schedule(live=False, maker_fee_rate=maker, taker_fee_rate=taker)
+        resolve_paper_fee_schedule(live=live, maker_fee_rate=maker, taker_fee_rate=taker)
     except ValueError as error:
         raise ExecutionConflictError(str(error)) from error
+    if live:
+        return None, None
     return maker, taker
 
 

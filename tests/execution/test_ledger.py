@@ -39,24 +39,24 @@ def _at(hour: int) -> datetime:
 
 def test_resolve_paper_fee_schedule_defaults_validates_and_rejects_live() -> None:
     """Omitted paper rates become documented defaults; live never stores modeled rates."""
-    assert resolve_paper_fee_schedule(
-        live=False, maker_fee_rate=None, taker_fee_rate=None
-    ) == (PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE)
+    assert resolve_paper_fee_schedule(live=False, maker_fee_rate=None, taker_fee_rate=None) == (
+        PAPER_MAKER_FEE_RATE,
+        PAPER_TAKER_FEE_RATE,
+    )
     custom = resolve_paper_fee_schedule(
         live=False, maker_fee_rate=Decimal("0.0025"), taker_fee_rate=Decimal("0.004")
     )
     assert custom == (Decimal("0.0025"), Decimal("0.004"))
-    assert resolve_paper_fee_schedule(
-        live=True, maker_fee_rate=None, taker_fee_rate=None
-    ) == (None, None)
+    assert resolve_paper_fee_schedule(live=True, maker_fee_rate=None, taker_fee_rate=None) == (
+        None,
+        None,
+    )
     with pytest.raises(ValueError, match="Live deployments"):
         resolve_paper_fee_schedule(
             live=True, maker_fee_rate=Decimal("0.001"), taker_fee_rate=Decimal("0.002")
         )
     with pytest.raises(ValueError, match="both maker_fee_rate"):
-        resolve_paper_fee_schedule(
-            live=False, maker_fee_rate=Decimal("0.001"), taker_fee_rate=None
-        )
+        resolve_paper_fee_schedule(live=False, maker_fee_rate=Decimal("0.001"), taker_fee_rate=None)
     with pytest.raises(ValueError, match=r"\[0, 0.1\]"):
         resolve_paper_fee_schedule(
             live=False, maker_fee_rate=Decimal("0.2"), taker_fee_rate=Decimal("0.2")
