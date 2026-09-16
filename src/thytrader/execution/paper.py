@@ -38,9 +38,10 @@ class PaperBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Accept a paper order; marketable orders fill immediately at the mark price."""
-        del product_id, side, stop_trigger_price
+        del product_id, side, stop_trigger_price, take_profit_price
         if kind is OrderKind.TRIGGER_BRACKET:
             raise ValueError("paper does not submit venue trigger brackets")
         if kind is OrderKind.MARKETABLE:
@@ -81,9 +82,11 @@ class PaperBroker:
         del product_id, order_id
         return ()
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
         """Paper maker entries rest at the last closed candle's close."""
-        del product_id
+        del product_id, side
         return mark
 
     def match_open_order(self, order: Order, candle: Candle) -> Fill | None:

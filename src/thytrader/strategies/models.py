@@ -608,9 +608,9 @@ def is_valid_htf_pair(decision_timeframe: str, htf_timeframe: str) -> bool:
 
 
 class EntryDefinition(_FrozenModel):
-    """Define conservative long-only entry intent and cooldown limits."""
+    """Define conservative long or short entry intent and cooldown limits."""
 
-    side: Literal["long"]
+    side: Literal["long", "short"]
     when: ConditionGroup
     cooldown_bars: int = Field(ge=0, le=10_000)
     max_open_positions: Literal[1]

@@ -68,7 +68,7 @@ Shipped command groups:
 - `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
-- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
 

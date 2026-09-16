@@ -225,6 +225,7 @@ export type BuilderModel = {
 	indicators: IndicatorDraft[];
 	htf_filter: HtfFilterDraft | null;
 	entry: { when: ConditionDraft };
+	side: 'long' | 'short';
 	sizing: { risk_fraction: string; min_quote_notional: string; max_quote_notional: string };
 	portfolio_limits: { max_strategy_exposure_fraction: string };
 	exits: {
@@ -710,7 +711,11 @@ function toHtfFilterDraft(raw: unknown): HtfFilterDraft | null {
 }
 
 export function toBuilderModel(strategy: StrategyDraft, revision: number): BuilderModel {
-	const entry = strategy.entry as { when: ConditionDraft; cooldown_bars: number };
+	const entry = strategy.entry as {
+		when: ConditionDraft;
+		cooldown_bars: number;
+		side?: 'long' | 'short';
+	};
 	const exits = strategy.exits as BuilderModel['exits'];
 	return {
 		strategy_id: strategy.strategy_id,
@@ -730,6 +735,7 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		})),
 		htf_filter: toHtfFilterDraft(strategy.htf_filter),
 		entry: { when: entry.when },
+		side: entry.side === 'short' ? 'short' : 'long',
 		sizing: {
 			risk_fraction: strategy.sizing.risk_fraction,
 			min_quote_notional: strategy.sizing.min_quote_notional,
@@ -781,7 +787,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 					}
 				}),
 		entry: {
-			side: 'long',
+			side: model.side,
 			when: model.entry.when,
 			cooldown_bars: model.cooldown_bars,
 			max_open_positions: 1

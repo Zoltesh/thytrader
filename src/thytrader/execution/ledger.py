@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import OrderKind, OrderSide
+from thytrader.execution.models import OrderKind, OrderSide, PositionSide
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
@@ -115,8 +115,13 @@ def ledger_from_snapshot(
         else Decimal("0")
     )
     position = snapshot.position
-    quantity = position.quantity if position is not None else Decimal("0")
-    entry_price = position.entry_price if position is not None else None
+    quantity = Decimal("0")
+    entry_price = None
+    if position is not None:
+        quantity = position.quantity
+        if position.side is PositionSide.SHORT:
+            quantity = -quantity
+        entry_price = position.entry_price
     return mark_deployment_ledger(
         starting_cash=starting,
         cash=deployment.cash,
@@ -146,9 +151,9 @@ def mark_deployment_ledger(
         starting_cash, fills
     )
     total_fees = sum((fill.fee for fill in fills), start=Decimal("0"))
-    base_quantity = position_quantity if position_quantity > 0 else reconstructed_qty
-    entry_price = position_entry_price if position_quantity > 0 else reconstructed_entry
-    needs_mark = base_quantity > 0
+    base_quantity = reconstructed_qty if position_quantity == 0 else position_quantity
+    entry_price = position_entry_price if position_quantity != 0 else reconstructed_entry
+    needs_mark = base_quantity != 0
     mark_complete = (not needs_mark) or mark_price is not None
     unrealized: Decimal | None = None
     equity: Decimal | None = cash if not needs_mark else None
@@ -183,9 +188,116 @@ def mark_deployment_ledger(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _LotState:
+    """Open-lot bookkeeping used while folding fills into realized PnL."""
+
+    quantity: Decimal
+    entry_price: Decimal | None
+    entry_fees: Decimal
+    realized: Decimal
+    trade_count: int
+
+
 def _fill_sort_key(fill: Fill) -> tuple[datetime, str]:
     """Order fills by time, then venue id, so the ledger is deterministic."""
     return (fill.filled_at, fill.venue_fill_id)
+
+
+def _flatten(state: _LotState) -> _LotState:
+    """Close the current lot after a covering fill reaches or passes zero."""
+    return _LotState(
+        quantity=Decimal("0"),
+        entry_price=None,
+        entry_fees=Decimal("0"),
+        realized=state.realized,
+        trade_count=state.trade_count + 1,
+    )
+
+
+def _fold_buy(state: _LotState, fill: LedgerFill) -> _LotState:
+    """Apply one buy: open or add to a long, or cover a short without flipping."""
+    if state.quantity == 0:
+        return _LotState(
+            quantity=fill.quantity,
+            entry_price=fill.price,
+            entry_fees=fill.fee,
+            realized=state.realized,
+            trade_count=state.trade_count,
+        )
+    if state.quantity > 0:
+        combined = state.quantity + fill.quantity
+        basis = fill.price if state.entry_price is None else state.entry_price
+        entry_price = ((basis * state.quantity) + (fill.price * fill.quantity)) / combined
+        return _LotState(
+            quantity=combined,
+            entry_price=entry_price,
+            entry_fees=state.entry_fees + fill.fee,
+            realized=state.realized,
+            trade_count=state.trade_count,
+        )
+    covered = min(fill.quantity, -state.quantity)
+    realized = state.realized
+    entry_fees = state.entry_fees
+    if state.entry_price is not None:
+        allocated_entry_fees = entry_fees * covered / -state.quantity
+        exit_notional = fill.price * covered
+        fee_share = fill.fee * covered / fill.quantity
+        realized += (state.entry_price * covered) - exit_notional - fee_share - allocated_entry_fees
+        entry_fees -= allocated_entry_fees
+    quantity = state.quantity + fill.quantity
+    updated = _LotState(
+        quantity=quantity,
+        entry_price=state.entry_price,
+        entry_fees=entry_fees,
+        realized=realized,
+        trade_count=state.trade_count,
+    )
+    if quantity >= 0:
+        return _flatten(updated)
+    return updated
+
+
+def _fold_sell(state: _LotState, fill: LedgerFill) -> _LotState:
+    """Apply one sell: open or add to a short, or reduce a long without flipping."""
+    exit_notional = fill.price * fill.quantity
+    if state.quantity == 0:
+        return _LotState(
+            quantity=-fill.quantity,
+            entry_price=fill.price,
+            entry_fees=fill.fee,
+            realized=state.realized,
+            trade_count=state.trade_count,
+        )
+    if state.quantity < 0:
+        combined = -state.quantity + fill.quantity
+        basis = fill.price if state.entry_price is None else state.entry_price
+        entry_price = ((basis * -state.quantity) + (fill.price * fill.quantity)) / combined
+        return _LotState(
+            quantity=state.quantity - fill.quantity,
+            entry_price=entry_price,
+            entry_fees=state.entry_fees + fill.fee,
+            realized=state.realized,
+            trade_count=state.trade_count,
+        )
+    realized = state.realized
+    entry_fees = state.entry_fees
+    if state.entry_price is not None and state.quantity > 0:
+        allocated_entry_fees = entry_fees * fill.quantity / state.quantity
+        realized += exit_notional - fill.fee - (state.entry_price * fill.quantity)
+        realized -= allocated_entry_fees
+        entry_fees -= allocated_entry_fees
+    quantity = state.quantity - fill.quantity
+    updated = _LotState(
+        quantity=quantity,
+        entry_price=state.entry_price,
+        entry_fees=entry_fees,
+        realized=realized,
+        trade_count=state.trade_count,
+    )
+    if quantity <= 0:
+        return _flatten(updated)
+    return updated
 
 
 def _fold_fills(
@@ -193,46 +305,23 @@ def _fold_fills(
 ) -> tuple[Decimal, int, Decimal, Decimal | None, tuple[Decimal, ...]]:
     """Replay buys and sells for realized PnL, open quantity, and fill-event equity."""
     cash = starting_cash
-    quantity = Decimal("0")
-    entry_price: Decimal | None = None
-    entry_fees = Decimal("0")
-    realized = Decimal("0")
-    trade_count = 0
+    state = _LotState(
+        quantity=Decimal("0"),
+        entry_price=None,
+        entry_fees=Decimal("0"),
+        realized=Decimal("0"),
+        trade_count=0,
+    )
     equities: list[Decimal] = [starting_cash]
     for fill in fills:
         if fill.side is OrderSide.BUY:
             cash -= fill.price * fill.quantity + fill.fee
-            if quantity == 0:
-                entry_price = fill.price
-                quantity = fill.quantity
-                entry_fees = fill.fee
-            else:
-                combined = quantity + fill.quantity
-                if entry_price is None:
-                    entry_price = fill.price
-                else:
-                    entry_price = (
-                        (entry_price * quantity) + (fill.price * fill.quantity)
-                    ) / combined
-                entry_fees += fill.fee
-                quantity = combined
+            state = _fold_buy(state, fill)
         else:
-            exit_notional = fill.price * fill.quantity
-            cash += exit_notional - fill.fee
-            sold = fill.quantity
-            if entry_price is not None and quantity > 0:
-                allocated_entry_fees = entry_fees * sold / quantity
-                realized += exit_notional - fill.fee - (entry_price * sold) - allocated_entry_fees
-                entry_fees -= allocated_entry_fees
-            quantity -= sold
-            if quantity <= 0:
-                trade_count += 1
-                quantity = Decimal("0")
-                entry_price = None
-                entry_fees = Decimal("0")
-        mark = fill.price
-        equities.append(cash + quantity * mark)
-    return realized, trade_count, quantity, entry_price, tuple(equities)
+            cash += fill.price * fill.quantity - fill.fee
+            state = _fold_sell(state, fill)
+        equities.append(cash + state.quantity * fill.price)
+    return state.realized, state.trade_count, state.quantity, state.entry_price, tuple(equities)
 
 
 def _drawdown(equities: Sequence[Decimal]) -> tuple[Decimal | None, Decimal | None]:

@@ -42,8 +42,10 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
 | Stop | `uv run thytrader-runtime stop UUID --confirm` |
-| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
+| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side long --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
+| Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
+| Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 
@@ -51,7 +53,9 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
 `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
-`--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
+`--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
+available base and never borrow. When SL/TP are known and trailing is off, live uses an
+attached bracket on the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
 another book clock. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
 is enabled. Live place-order and `set-risk-policy` never skip `--confirm`. Repeat the same

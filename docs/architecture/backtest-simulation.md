@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic long-only bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and long-only single-position rule while resting maker limits the way the paper/live worker does. All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
+`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic single-position bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and single-position rule while resting maker limits the way the paper/live worker does. Published `entry.side` of `"short"` uses cash-and-inventory spot shorts; existing `"long"` result bytes stay identical. All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority.
 
 `thytrader-bar-v1` remains request-only and `thytrader-bar-signal-v1` remains signal-trace-only. They fail closed at this simulator boundary: a backtest requires a separately published run carrying the backtest engine contract, so old immutable request bytes never acquire new fill/PnL meaning.
 
@@ -60,9 +60,9 @@ Publication eligibility applies the same boundary contract before simulation: a 
 
 ## Position and cost model
 
-V1 is one BTC-USD-like long-only position at a time. It uses the declared ATR stop distance and risk fraction, bounded by the strategy maximum quote notional, portfolio exposure fraction, available quote cash including entry fees, and minimum quote notional. It does not create a trade if the calculated stop is non-positive or the minimum notional is unavailable.
+V1 is one BTC-USD-like position at a time, long or short from published `entry.side`. It uses the declared ATR stop distance and risk fraction, bounded by the strategy maximum quote notional, portfolio exposure fraction, available quote cash including entry fees, and minimum quote notional. It does not create a trade if the calculated stop is non-positive or the minimum notional is unavailable. Shorts sell to open (credit quote) and buy to cover.
 
-Fills are modeled marketable at the next open. V1 buy fills multiply the raw open by `1 + slippage_bps / 10,000`; V1 sell fills multiply the applicable stop, target, time-exit open, or final open by `1 - slippage_bps / 10,000`. Both legs use `taker_fee_rate`. The currently declared maker fee and maker preference are intentionally not treated as evidence of a limit-order fill in this bar-level contract.
+Fills are modeled marketable at the next open. V1 long buys multiply the raw open by `1 + slippage_bps / 10,000`; V1 long sells multiply the applicable stop, target, time-exit open, or final open by `1 - slippage_bps / 10,000`. Shorts invert those legs. Both legs use `taker_fee_rate`. The currently declared maker fee and maker preference are intentionally not treated as evidence of a limit-order fill in this bar-level contract.
 
 ### V2 constant-spread stress model
 
@@ -132,7 +132,7 @@ window inline.
 ## Explicitly not in this slice
 
 - observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
-- shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
+- margin, leverage, multiple positions, or cross-strategy portfolio allocation;
 - sensitivity analysis, parameter sweeps, or walk-forward optimization inside a single engine run
   (Phase 11 and ADR 0044 compose ordinary V1/V2/V3 submissions; see
   [research studies](research-studies.md));

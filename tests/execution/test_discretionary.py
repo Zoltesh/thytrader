@@ -91,9 +91,19 @@ class _TimeoutBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Count the submit then fail as an ambiguous timeout."""
-        del client_order_id, product_id, side, kind, quantity, price, stop_trigger_price
+        del (
+            client_order_id,
+            product_id,
+            side,
+            kind,
+            quantity,
+            price,
+            stop_trigger_price,
+            take_profit_price,
+        )
         self.place_calls += 1
         raise TimeoutError("simulated timeout")
 
@@ -117,9 +127,11 @@ class _TimeoutBroker:
         del order, candle
         return None
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
         """Unused."""
-        del product_id
+        del product_id, side
         return mark
 
 
@@ -139,9 +151,10 @@ class _LiveFillBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Record kind; fill entries and rest brackets."""
-        del product_id, side, stop_trigger_price
+        del product_id, side, stop_trigger_price, take_profit_price
         self.placed.append(kind)
         if kind is OrderKind.TRIGGER_BRACKET:
             return SubmitResult(status=OrderStatus.OPEN, venue_order_id=client_order_id)
@@ -174,9 +187,11 @@ class _LiveFillBroker:
         del order, candle
         return None
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
         """Unused."""
-        del product_id
+        del product_id, side
         return mark
 
 
@@ -384,8 +399,8 @@ async def test_paper_stop_fires_marketable_exit_on_closed_bar() -> None:
 
 
 @pytest.mark.anyio
-async def test_live_fill_rests_one_trigger_bracket() -> None:
-    """Live fakes rest exactly one OCO after an immediate fill. No Coinbase client."""
+async def test_live_fill_attaches_bracket_without_second_oco() -> None:
+    """Live discretionary entries attach SL/TP; they do not rest a second OCO."""
     store = InMemoryExecutionStore()
     broker = _LiveFillBroker()
     snapshot = await place_discretionary_order(
@@ -406,8 +421,86 @@ async def test_live_fill_rests_one_trigger_bracket() -> None:
         live_allowed=True,
         live_quote_cash=Decimal("20000"),
     )
-    assert OrderKind.TRIGGER_BRACKET in broker.placed
-    assert sum(1 for kind in broker.placed if kind is OrderKind.TRIGGER_BRACKET) == 1
-    assert any(order.kind is OrderKind.TRIGGER_BRACKET for order in snapshot.orders)
+    assert OrderKind.TRIGGER_BRACKET not in broker.placed
+    assert all(order.kind is not OrderKind.TRIGGER_BRACKET for order in snapshot.orders)
     assert snapshot.deployment.strategy_id is None
     assert snapshot.deployment.strategy_fingerprint is None
+    assert snapshot.orders[0].take_profit_price is not None
+    assert snapshot.orders[0].stop_trigger_price is not None
+
+
+@pytest.mark.anyio
+async def test_paper_short_sells_to_open_and_buys_to_cover() -> None:
+    """A paper short credits a sell entry and covers with a marketable buy."""
+    store = InMemoryExecutionStore()
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=MarketDataService(DemoMarketData()),
+        request=parse_discretionary_request(
+            mode="paper",
+            product_id="BTC-USD",
+            entry_kind="marketable",
+            side="short",
+            stop_price="200000",
+            take_profit_price="50000",
+            origin="agent",
+            idempotency_key="short-1",
+            timeframe="5m",
+            quantity="0.01",
+            paper_starting_cash="10000",
+        ),
+        live_allowed=False,
+    )
+    position = snapshot.position
+    assert position is not None
+    assert position.side.value == "short"
+    assert any(order.side is OrderSide.SELL for order in snapshot.orders)
+    start = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    spike = Candle(
+        starts_at=start,
+        open=position.entry_price,
+        high=position.stop_price + Decimal("1"),
+        low=position.entry_price,
+        close=position.stop_price + Decimal("1"),
+        volume=Decimal("10"),
+    )
+    after = await process_discretionary_bar(
+        snapshot,
+        product=_product(),
+        candles=(spike,),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert after.position is None
+    assert any(
+        order.side is OrderSide.BUY and order.kind is OrderKind.MARKETABLE for order in after.orders
+    )
+
+
+@pytest.mark.anyio
+async def test_live_short_fails_closed_without_base() -> None:
+    """Spot shorts do not borrow; missing live base inventory is a conflict."""
+    store = InMemoryExecutionStore()
+    with pytest.raises(ExecutionConflictError, match="INSUFFICIENT_BASE_FOR_SPOT_SHORT"):
+        await place_discretionary_order(
+            store=store,
+            broker=_LiveFillBroker(),
+            market_data=MarketDataService(DemoMarketData()),
+            request=parse_discretionary_request(
+                mode="live",
+                product_id="BTC-USD",
+                entry_kind="marketable",
+                side="short",
+                stop_price="200000",
+                take_profit_price="50000",
+                origin="human",
+                idempotency_key="short-live-1",
+                timeframe="5m",
+                quantity="0.01",
+            ),
+            live_allowed=True,
+            live_quote_cash=Decimal("20000"),
+            live_base_available=None,
+        )
+    assert not store.intents

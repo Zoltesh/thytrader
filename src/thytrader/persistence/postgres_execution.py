@@ -26,6 +26,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
     Position,
+    PositionSide,
     RuntimePhase,
 )
 from thytrader.persistence.schema import (
@@ -138,6 +139,7 @@ class PostgresExecutionStore:
             kind=intent.kind.value,
             price=_text(intent.price),
             stop_trigger_price=_text(intent.stop_trigger_price),
+            take_profit_price=_text(intent.take_profit_price),
             quantity=format(intent.quantity, "f"),
             candle_starts_at=intent.candle_starts_at,
             status=intent.status.value,
@@ -166,6 +168,7 @@ class PostgresExecutionStore:
                 "updated_at": statement.excluded.updated_at,
                 "price": statement.excluded.price,
                 "stop_trigger_price": statement.excluded.stop_trigger_price,
+                "take_profit_price": statement.excluded.take_profit_price,
                 "quantity": statement.excluded.quantity,
             },
         )
@@ -218,6 +221,7 @@ class PostgresExecutionStore:
                             target_price=format(position.target_price, "f"),
                             entered_bar=position.entered_bar,
                             trail_extreme=_text(position.trail_extreme),
+                            side=position.side.value,
                             updated_at=position.updated_at,
                         )
                     )
@@ -291,6 +295,7 @@ def _order_values(order: Order) -> dict[str, object]:
         "kind": order.kind.value,
         "price": _text(order.price),
         "stop_trigger_price": _text(order.stop_trigger_price),
+        "take_profit_price": _text(order.take_profit_price),
         "quantity": format(order.quantity, "f"),
         "filled_quantity": format(order.filled_quantity, "f"),
         "status": order.status.value,
@@ -339,6 +344,7 @@ def _order_from_row(row: RowMapping) -> Order:
         kind=OrderKind(row["kind"]),
         price=_decimal(row["price"]),
         stop_trigger_price=_decimal(row["stop_trigger_price"]),
+        take_profit_price=_decimal(row["take_profit_price"]),
         quantity=Decimal(row["quantity"]),
         filled_quantity=Decimal(row["filled_quantity"]),
         status=OrderStatus(row["status"]),
@@ -359,6 +365,7 @@ def _intent_from_row(row: RowMapping) -> OrderIntent:
         kind=OrderKind(row["kind"]),
         price=_decimal(row["price"]),
         stop_trigger_price=_decimal(row["stop_trigger_price"]),
+        take_profit_price=_decimal(row["take_profit_price"]),
         quantity=Decimal(row["quantity"]),
         candle_starts_at=row["candle_starts_at"],
         status=OrderStatus(row["status"]),
@@ -392,6 +399,7 @@ def _position_from_row(row: RowMapping) -> Position:
         target_price=Decimal(row["target_price"]),
         entered_bar=row["entered_bar"],
         trail_extreme=_decimal(row["trail_extreme"]),
+        side=PositionSide(row["side"]) if row["side"] is not None else PositionSide.LONG,
         updated_at=row["updated_at"],
     )
 

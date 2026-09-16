@@ -50,12 +50,13 @@ def place_discretionary_order(
     origin: str,
     entry_kind: str,
     timeframe: str,
+    side: str,
     quantity: str | None,
     quote_notional: str | None,
     limit_price: str | None,
     paper_starting_cash: str | None,
 ) -> object:
-    """Place one long-only discretionary order through the HTTP contract."""
+    """Place one long or short discretionary order through the HTTP contract."""
     payload: dict[str, str] = {
         "mode": mode,
         "product_id": product_id,
@@ -65,6 +66,7 @@ def place_discretionary_order(
         "origin": origin,
         "entry_kind": entry_kind,
         "timeframe": timeframe,
+        "side": side,
     }
     if quantity is not None:
         payload["quantity"] = quantity

@@ -21,6 +21,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
     Position,
+    PositionSide,
     RuntimePhase,
 )
 from thytrader.execution.paper import PaperBroker
@@ -86,6 +87,7 @@ class _RecordingBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """Record one submit and rest it as OPEN."""
         self.placed.append(
@@ -97,6 +99,7 @@ class _RecordingBroker:
                 "quantity": quantity,
                 "price": price,
                 "stop_trigger_price": stop_trigger_price,
+                "take_profit_price": take_profit_price,
             }
         )
         return SubmitResult(status=OrderStatus.OPEN, venue_order_id=client_order_id)
@@ -122,9 +125,11 @@ class _RecordingBroker:
         del order, candle
         return None
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
         """Unused in these tests."""
-        del product_id
+        del product_id, side
         return mark
 
 
@@ -137,8 +142,9 @@ async def _live_open(
     stop_price: Decimal = Decimal("90"),
     target_price: Decimal = Decimal("120"),
     bars_held: int = 1,
+    side: PositionSide = PositionSide.LONG,
 ) -> DeploymentSnapshot:
-    """Insert one live OPEN deployment with a long position."""
+    """Insert one live OPEN deployment with a long or short position."""
     now = utc_now()
     deployment = Deployment(
         id=uuid7(now),
@@ -165,6 +171,7 @@ async def _live_open(
             target_price=target_price,
             entered_bar=entered_bar,
             updated_at=now,
+            side=side,
         ),
         deployment_id=deployment.id,
     )
@@ -201,6 +208,39 @@ async def test_live_open_position_rests_trigger_bracket_oco() -> None:
     assert placed["stop_trigger_price"] == Decimal("90")
     assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
     assert updated.orders[0].kind is OrderKind.TRIGGER_BRACKET
+
+
+@pytest.mark.anyio
+async def test_live_short_rests_buy_trigger_bracket() -> None:
+    """Unattached live shorts rest a covering BUY OCO, never a second sell."""
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    broker = _RecordingBroker()
+    snapshot = await _live_open(
+        store,
+        strategy,
+        last_evaluated_bar=_candle(1).starts_at,
+        entered_bar=_candle(1).starts_at,
+        stop_price=Decimal("110"),
+        target_price=Decimal("80"),
+        bars_held=1,
+        side=PositionSide.SHORT,
+    )
+    updated = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=(_candle(0), _candle(1), _candle(2)),
+        broker=broker,
+        store=store,
+    )
+    assert len(broker.placed) == 1
+    placed = broker.placed[0]
+    assert placed["kind"] is OrderKind.TRIGGER_BRACKET
+    assert placed["side"] is OrderSide.BUY
+    assert placed["price"] == Decimal("80")
+    assert placed["stop_trigger_price"] == Decimal("110")
+    assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
 
 
 @pytest.mark.anyio
@@ -253,6 +293,122 @@ async def test_live_does_not_fire_synthetic_stop_while_bracket_is_open() -> None
     assert all(item["kind"] is not OrderKind.MARKETABLE for item in broker.placed)
     assert updated.position is not None
     assert updated.orders[0].kind is OrderKind.TRIGGER_BRACKET
+
+
+@pytest.mark.anyio
+async def test_attached_live_entry_skips_second_oco() -> None:
+    """A filled attached entry that opened this position must not rest a second OCO."""
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    broker = _RecordingBroker()
+    snapshot = await _live_open(
+        store,
+        strategy,
+        last_evaluated_bar=_candle(1).starts_at,
+        entered_bar=_candle(1).starts_at,
+        bars_held=1,
+    )
+    now = utc_now()
+    entry = Order(
+        id=uuid7(now),
+        deployment_id=snapshot.deployment.id,
+        intent_id=uuid7(now),
+        client_order_id="attached-entry",
+        side=OrderSide.BUY,
+        kind=OrderKind.MARKETABLE,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        stop_trigger_price=Decimal("90"),
+        take_profit_price=Decimal("120"),
+        status=OrderStatus.FILLED,
+        venue_order_id="attached-entry",
+        filled_quantity=Decimal("0.01"),
+        created_at=now,
+        updated_at=now,
+    )
+    await store.save_order(entry)
+    await store.save_fill(
+        Fill(
+            id=uuid7(now),
+            deployment_id=snapshot.deployment.id,
+            order_id=entry.id,
+            venue_fill_id="attached-entry-fill",
+            price=Decimal("100"),
+            quantity=Decimal("0.01"),
+            fee=Decimal("0"),
+            filled_at=_candle(1).starts_at,
+        )
+    )
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    updated = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=(_candle(0), _candle(1), _candle(2)),
+        broker=broker,
+        store=store,
+    )
+    assert broker.placed == []
+    assert all(order.kind is not OrderKind.TRIGGER_BRACKET for order in updated.orders)
+    assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
+
+
+@pytest.mark.anyio
+async def test_historical_attached_fill_does_not_block_later_oco() -> None:
+    """A prior attached fill must not skip OCO for a later unattached position."""
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    broker = _RecordingBroker()
+    snapshot = await _live_open(
+        store,
+        strategy,
+        last_evaluated_bar=_candle(1).starts_at,
+        entered_bar=_candle(1).starts_at,
+        bars_held=1,
+    )
+    now = utc_now()
+    stale = Order(
+        id=uuid7(now),
+        deployment_id=snapshot.deployment.id,
+        intent_id=uuid7(now),
+        client_order_id="stale-attached",
+        side=OrderSide.BUY,
+        kind=OrderKind.MARKETABLE,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        stop_trigger_price=Decimal("90"),
+        take_profit_price=Decimal("120"),
+        status=OrderStatus.FILLED,
+        venue_order_id="stale-attached",
+        filled_quantity=Decimal("0.01"),
+        created_at=now,
+        updated_at=now,
+    )
+    await store.save_order(stale)
+    await store.save_fill(
+        Fill(
+            id=uuid7(now),
+            deployment_id=snapshot.deployment.id,
+            order_id=stale.id,
+            venue_fill_id="stale-attached-fill",
+            price=Decimal("100"),
+            quantity=Decimal("0.01"),
+            fee=Decimal("0"),
+            filled_at=_candle(0).starts_at,
+        )
+    )
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    updated = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=(_candle(0), _candle(1), _candle(2)),
+        broker=broker,
+        store=store,
+    )
+    assert len(broker.placed) == 1
+    assert broker.placed[0]["kind"] is OrderKind.TRIGGER_BRACKET
+    assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
 
 
 @pytest.mark.anyio

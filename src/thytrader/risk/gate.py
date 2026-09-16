@@ -1,4 +1,4 @@
-"""Pre-trade risk checks for deployments and long entries."""
+"""Pre-trade risk checks for deployments and entries."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    OrderKind,
     OrderSide,
     OrderStatus,
     RuntimePhase,
@@ -33,7 +34,7 @@ _ACTIVE_ORDER = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 
 @dataclass(frozen=True, slots=True)
 class ProposedEntry:
-    """One sized long the runtime wants to rest after a matched closed bar."""
+    """One sized entry the runtime wants to rest after a matched closed bar."""
 
     product_id: str
     strategy_id: UUID | None
@@ -239,19 +240,20 @@ def _occupies_position_slot(snapshot: DeploymentSnapshot) -> bool:
 
 
 def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Approximate quote exposure from the open position or a working buy."""
+    """Approximate quote exposure from the open position or a working entry."""
     position = snapshot.position
     if position is not None:
         return position.quantity * position.entry_price
     for order in snapshot.orders:
-        if (
-            order.side is OrderSide.BUY
-            and order.status in _ACTIVE_ORDER
-            and order.price is not None
-        ):
-            remaining = order.quantity - order.filled_quantity
-            if remaining > 0:
-                return remaining * order.price
+        if order.status not in _ACTIVE_ORDER or order.price is None:
+            continue
+        remaining = order.quantity - order.filled_quantity
+        if remaining <= 0:
+            continue
+        if order.kind is OrderKind.TRIGGER_BRACKET:
+            continue
+        if order.side is OrderSide.BUY or order.side is OrderSide.SELL:
+            return remaining * order.price
     return Decimal("0")
 
 

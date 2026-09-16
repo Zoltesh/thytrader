@@ -51,13 +51,14 @@ class CreateDeploymentRequest(BaseModel):
 
 
 class PositionResponse(BaseModel):
-    """The single long position, when the deployment is in the market."""
+    """The single long or short position, when the deployment is in the market."""
 
     quantity: str
     entry_price: str
     stop_price: str
     target_price: str
     entered_bar: str
+    side: str = "long"
     trail_extreme: str | None = None
 
 
@@ -72,6 +73,7 @@ class OrderResponse(BaseModel):
     quantity: str
     price: str | None
     stop_trigger_price: str | None = None
+    take_profit_price: str | None = None
     filled_quantity: str
     status: str
     reject_reason: str | None
@@ -334,13 +336,14 @@ def _snapshot_response(snapshot: DeploymentSnapshot) -> DeploymentResponse:
 
 
 def _position_response(position: Position) -> PositionResponse:
-    """Serialize one open long position."""
+    """Serialize one open long or short position."""
     return PositionResponse(
         quantity=format(position.quantity, "f"),
         entry_price=format(position.entry_price, "f"),
         stop_price=format(position.stop_price, "f"),
         target_price=format(position.target_price, "f"),
         entered_bar=position.entered_bar.isoformat(),
+        side=position.side.value,
         trail_extreme=(
             None if position.trail_extreme is None else format(position.trail_extreme, "f")
         ),
@@ -359,6 +362,9 @@ def _order_response(order: Order) -> OrderResponse:
         price=None if order.price is None else format(order.price, "f"),
         stop_trigger_price=(
             None if order.stop_trigger_price is None else format(order.stop_trigger_price, "f")
+        ),
+        take_profit_price=(
+            None if order.take_profit_price is None else format(order.take_profit_price, "f")
         ),
         filled_quantity=format(order.filled_quantity, "f"),
         status=order.status.value,

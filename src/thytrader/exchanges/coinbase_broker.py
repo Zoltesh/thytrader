@@ -43,6 +43,7 @@ class CoinbaseRestBroker:
         quantity: Decimal,
         price: Decimal | None,
         stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
         """POST /orders and map the JSON acknowledgement; GET the order if needed."""
         if not client_order_id:
@@ -53,6 +54,9 @@ class CoinbaseRestBroker:
             "side": side.value.upper(),
             "order_configuration": _order_configuration(kind, quantity, price, stop_trigger_price),
         }
+        attached = _attached_order_configuration(kind, take_profit_price, stop_trigger_price)
+        if attached is not None:
+            body["attached_order_configuration"] = attached
         try:
             payload = self._transport.post(_ORDERS_PATH, body)
         except (OSError, TimeoutError, TypeError, ValueError) as error:
@@ -136,9 +140,16 @@ class CoinbaseRestBroker:
         del order, candle
         return None
 
-    def maker_limit_price(self, *, product_id: str, mark: Decimal) -> Decimal:
-        """Rest live maker buys at the current best bid, not the candle close."""
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
+        """Rest live maker buys at the best bid and maker sells at the best ask."""
         del mark
+        if side is OrderSide.SELL:
+            ask = self.best_ask(product_id)
+            if ask is None or ask <= 0:
+                raise BrokerError("Coinbase best ask is unavailable.")
+            return ask
         bid = self.best_bid(product_id)
         if bid is None or bid <= 0:
             raise BrokerError("Coinbase best bid is unavailable.")
@@ -153,6 +164,19 @@ class CoinbaseRestBroker:
         if not isinstance(bids, list) or not bids:
             return None
         first = bids[0]
+        if not isinstance(first, dict):
+            return None
+        return _decimal(first.get("price"))
+
+    def best_ask(self, product_id: str) -> Decimal | None:
+        """Return the current best ask from the product book JSON."""
+        payload = self._transport.get(_BOOK_PATH, {"product_id": product_id, "limit": 1})
+        pricebook = payload.get("pricebook")
+        mapping = pricebook if isinstance(pricebook, dict) else payload
+        asks = mapping.get("asks") if isinstance(mapping, dict) else None
+        if not isinstance(asks, list) or not asks:
+            return None
+        first = asks[0]
         if not isinstance(first, dict):
             return None
         return _decimal(first.get("price"))
@@ -237,6 +261,24 @@ def _order_configuration(
             "base_size": size,
             "limit_price": format(price, "f"),
             "post_only": True,
+        }
+    }
+
+
+def _attached_order_configuration(
+    kind: OrderKind,
+    take_profit_price: Decimal | None,
+    stop_trigger_price: Decimal | None,
+) -> dict[str, object] | None:
+    """Build attached TP/SL for an entry. Size is omitted; the child inherits the parent fill."""
+    if kind is OrderKind.TRIGGER_BRACKET:
+        return None
+    if take_profit_price is None or stop_trigger_price is None:
+        return None
+    return {
+        "trigger_bracket_gtc": {
+            "limit_price": format(take_profit_price, "f"),
+            "stop_trigger_price": format(stop_trigger_price, "f"),
         }
     }
 

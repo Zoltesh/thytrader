@@ -1,10 +1,12 @@
-"""ATR risk-fraction sizing for one long entry, quantized to venue increments."""
+"""ATR risk-fraction sizing for one long or short entry, quantized to venue increments."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
+
+from thytrader.execution.models import PositionSide
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import MarketProduct
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class SizedEntry:
-    """One executable long-entry size plus stop and take-profit prices."""
+    """One executable entry size plus stop and take-profit prices."""
 
     quantity: Decimal
     notional: Decimal
@@ -45,14 +47,76 @@ def size_long_entry(
     fee_rate: Decimal = Decimal("0"),
 ) -> SizedEntry | None:
     """Size a long using ATR stop distance, risk fraction, and quote bounds."""
+    return size_entry(
+        strategy=strategy,
+        cash=cash,
+        entry_price=entry_price,
+        atr=atr,
+        product=product,
+        fee_rate=fee_rate,
+        side=PositionSide.LONG,
+    )
+
+
+def _stop_and_target(
+    *,
+    side: PositionSide,
+    entry_price: Decimal,
+    stop_distance: Decimal,
+    take_profit_multiple: Decimal,
+    price_increment: Decimal,
+) -> tuple[Decimal, Decimal] | None:
+    """Return quantized stop and take-profit, or None when geometry is illegal."""
+    if side is PositionSide.LONG:
+        stop_price = quantize_to_increment(entry_price - stop_distance, price_increment)
+        target_price = quantize_to_increment(
+            entry_price + stop_distance * take_profit_multiple,
+            price_increment,
+            rounding=ROUND_HALF_UP,
+        )
+        if stop_price <= 0 or target_price <= entry_price:
+            return None
+        return stop_price, target_price
+    stop_price = quantize_to_increment(
+        entry_price + stop_distance,
+        price_increment,
+        rounding=ROUND_HALF_UP,
+    )
+    target_price = quantize_to_increment(
+        entry_price - stop_distance * take_profit_multiple,
+        price_increment,
+    )
+    if target_price <= 0 or stop_price <= entry_price:
+        return None
+    return stop_price, target_price
+
+
+def size_entry(
+    *,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    entry_price: Decimal,
+    atr: Decimal,
+    product: MarketProduct,
+    fee_rate: Decimal = Decimal("0"),
+    side: PositionSide = PositionSide.LONG,
+) -> SizedEntry | None:
+    """Size a long or short using ATR stop distance, risk fraction, and quote bounds."""
     if entry_price <= 0 or atr <= 0 or cash <= 0:
         return None
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
     if stop_distance <= 0:
         return None
-    stop_price = quantize_to_increment(entry_price - stop_distance, product.price_increment)
-    if stop_price <= 0:
+    levels = _stop_and_target(
+        side=side,
+        entry_price=entry_price,
+        stop_distance=stop_distance,
+        take_profit_multiple=Decimal(strategy.exits.take_profit.multiple),
+        price_increment=product.price_increment,
+    )
+    if levels is None:
         return None
+    stop_price, target_price = levels
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
     risk_quantity = requested_risk / stop_distance
     fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
@@ -68,15 +132,12 @@ def size_long_entry(
     if quantity < product.base_min_size:
         return None
     notional = quantity * entry_price
-    if notional < product.quote_min_size or notional > cash:
+    if notional < product.quote_min_size:
         return None
-    target_price = quantize_to_increment(
-        entry_price + stop_distance * Decimal(strategy.exits.take_profit.multiple),
-        product.price_increment,
-        rounding=ROUND_HALF_UP,
-    )
+    if side is PositionSide.LONG and notional > cash:
+        return None
     snapped_entry = quantize_to_increment(entry_price, product.price_increment)
-    if snapped_entry <= 0 or target_price <= snapped_entry:
+    if snapped_entry <= 0:
         return None
     return SizedEntry(
         quantity=quantity,

@@ -23,7 +23,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
 - every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
-  backtests, paper, and live; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
+  backtests, paper, and live; long or short, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025, ADR 0041) for research V1/V2/V3, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
@@ -333,8 +333,9 @@ Per-indicator extra clocks overlay last-completed values onto the decision-clock
 
 V1 constraints:
 
-- **`side` must be `"long"`.** Spot Coinbase is long-only. Short, margin, leverage, and derivatives
-  are explicitly out of scope.
+- **`side` is `"long"` or `"short"`.** Live Coinbase Advanced Trade stays **spot**: shorts sell
+  available base and fail closed when inventory is missing. Margin, leverage, and derivatives stay
+  out of scope ([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).
 - `cooldown_bars` prevents re-entry within N bars of the last exit.
 - `max_open_positions` must be 1 in V1. Pyramiding, averaging down, and martingale are rejected.
 
@@ -499,7 +500,7 @@ The initial end-to-end test vehicle:
 - **Max positions:** 1
 - **Cooldown:** 3 bars after exit
 - **Execution:** maker_only, cancel after 2 bars
-- **No shorts, no pyramiding, no averaging down**
+- **No pyramiding, no averaging down** (long or short; one position)
 
 ### Required research protocol before any "profitable" label
 

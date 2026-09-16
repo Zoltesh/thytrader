@@ -33,7 +33,7 @@ evidence are not that memory system.
 - Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
   identity OHLCV, constant, WMA, momentum, MFI, MACD, and Bollinger (Phase 9 catalog slices).
   Per-indicator timeframes are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
-- Strategy: one instrument, long-only, max concurrent positions = 1.
+- Strategy: one instrument, long or short, max concurrent positions = 1.
 - Execution: paper and live on every ingested venue clock; single-position backtests.
 - Fee **tier visibility** and research **suggested defaults** shipped
   ([fee-tier plan](2026-09-13-fee-tier-research-defaults.md)). Paper deploy has no maker/taker
@@ -47,7 +47,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 |---|---|
 | Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034 / 0043) for data/research/paper/live `--confirm` skips; `--i-understand-live`, live place-order, `set-risk-policy`, and memory stay hard-gated. |
 | Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Remaining venue TFs `1m`/`2h`/`4h` have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)) and are strategy/paper/live/HTF clocks ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). |
-| On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
+| On-demand trades | ✅ Long or short discretionary orders with required SL/TP via order intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Live shorts fail closed without available base. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. Optional per-indicator TFs shipped (ADR 0042). No TA passthrough |
 | Multi-timeframe | Research, paper, and live evaluate HTF filter + LTF entry (ADR 0025, ADR 0041). Venue LTF/HTF tokens widened by ADR 0040. Per-indicator timeframes shipped (ADR 0042) |

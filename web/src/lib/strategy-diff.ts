@@ -163,6 +163,7 @@ const FIELD_LABELS: Record<string, string> = {
 	'htf_filter.warmup_bars': 'HTF warmup bars',
 	'htf_filter.when': 'HTF filter conditions',
 	cooldown_bars: 'Entry cooldown',
+	side: 'Position side',
 	'sizing.risk_fraction': 'Risk fraction per trade',
 	'sizing.min_quote_notional': 'Minimum USD notional',
 	'sizing.max_quote_notional': 'Maximum USD notional',
@@ -220,6 +221,7 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 		);
 	}
 	changed('cooldown_bars', String(before.cooldown_bars), String(after.cooldown_bars));
+	changed('side', before.side, after.side);
 	changed('sizing.risk_fraction', before.sizing.risk_fraction, after.sizing.risk_fraction);
 	changed(
 		'sizing.min_quote_notional',

@@ -192,6 +192,57 @@ def test_simulation_fills_at_next_open_applies_taker_costs_and_closes_at_target(
     assert total_return == total_net_pnl / Decimal("10000")
 
 
+def _short_strategy() -> StrategyDefinition:
+    """Reuse the kernel fixture with published short entry geometry."""
+    payload = _strategy().model_dump(mode="python")
+    payload["entry"]["side"] = "short"
+    return StrategyDefinition.model_validate(payload)
+
+
+def test_short_v1_sells_to_open_and_stops_on_the_spike_high() -> None:
+    """Shorts credit a sell fill and cover on the fill-bar high through the stop."""
+    strategy = _short_strategy()
+    result = simulate_backtest(_run(strategy), strategy, _candles())
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.entry.candle_starts_at == datetime(2026, 8, 1, 3, tzinfo=UTC)
+    assert Decimal(trade.entry.price) < Decimal("15")
+    assert trade.exit.reason == "stop_loss"
+    assert Decimal(trade.exit.price) > Decimal(trade.entry.price)
+    assert Decimal(trade.net_pnl) < 0
+    assert Decimal(result.equity_curve[1].base_quantity) <= 0
+
+
+def test_short_v3_stops_on_the_fill_bar_when_the_high_trades_through() -> None:
+    """Maker shorts rest a sell limit and stop when a later high trades through."""
+    strategy = _short_strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("14", "40", "13", "20"),
+        ("20", "21", "19", "20"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    result = simulate_backtest(_v3_run(strategy), strategy, candles)
+
+    assert result.trades[0].entry.candle_starts_at == datetime(2026, 8, 1, 3, tzinfo=UTC)
+    assert result.trades[0].exit.reason == "stop_loss"
+    assert Decimal(result.trades[0].exit.price) > Decimal(result.trades[0].entry.price)
+
+
 def test_simulation_five_minute_timeframe_uses_five_minute_bars() -> None:
     """A 5m strategy must step, fill, and hold on five-minute candles."""
     strategy = StrategyDefinition.model_validate(

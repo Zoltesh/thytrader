@@ -1,4 +1,4 @@
-"""On-demand long entries with SL/TP through intent, risk, and the broker."""
+"""On-demand long or short entries with SL/TP through intent, risk, and the broker."""
 
 from __future__ import annotations
 
@@ -7,8 +7,18 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 import re
 from typing import TYPE_CHECKING
 
+from thytrader.execution.geometry import (
+    bracket_error_detail,
+    bracket_is_valid,
+    entry_order_side,
+    exit_order_side,
+    paper_stop_fill_price,
+    paper_stop_hit,
+    parse_position_side,
+)
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.loop import (
+    _active_entry,
     _active_side,
     _cancel_open_orders,
     _ensure_exit_protection,
@@ -32,6 +42,7 @@ from thytrader.execution.models import (
     OrderKind,
     OrderSide,
     OrderStatus,
+    PositionSide,
     RuntimePhase,
     with_runtime,
 )
@@ -57,7 +68,7 @@ _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 
 @dataclass(frozen=True, slots=True)
 class DiscretionaryOrderRequest:
-    """One validated on-demand long the API or CLI wants to rest."""
+    """One validated on-demand long or short the API or CLI wants to rest."""
 
     mode: DeploymentMode
     product_id: str
@@ -67,6 +78,7 @@ class DiscretionaryOrderRequest:
     origin: IntentOrigin
     idempotency_key: str
     timeframe: str
+    side: PositionSide
     quantity: Decimal | None
     quote_notional: Decimal | None
     limit_price: Decimal | None
@@ -83,6 +95,7 @@ def parse_discretionary_request(
     origin: str,
     idempotency_key: str,
     timeframe: str = "5m",
+    side: str = "long",
     quantity: str | None = None,
     quote_notional: str | None = None,
     limit_price: str | None = None,
@@ -93,6 +106,10 @@ def parse_discretionary_request(
     parsed_kind = _parse_entry_kind(entry_kind)
     parsed_origin = _parse_origin(origin)
     parsed_timeframe = _parse_timeframe(timeframe)
+    try:
+        parsed_side = parse_position_side(side)
+    except ValueError as error:
+        raise ExecutionConflictError(str(error)) from error
     if not _PRODUCT.match(product_id):
         raise ExecutionConflictError("product_id must be a BASE-USD spot id.")
     if not idempotency_key or len(idempotency_key) > 128:
@@ -116,6 +133,7 @@ def parse_discretionary_request(
         origin=parsed_origin,
         idempotency_key=idempotency_key,
         timeframe=parsed_timeframe,
+        side=parsed_side,
         quantity=qty,
         quote_notional=notional,
         limit_price=limit,
@@ -132,6 +150,7 @@ async def place_discretionary_order(
     live_allowed: bool,
     risk_store: RiskPolicyStore | None = None,
     live_quote_cash: Decimal | None = None,
+    live_base_available: Decimal | None = None,
 ) -> DeploymentSnapshot:
     """Persist a discretionary intent, submit once, and reconcile timeouts without retry."""
     _require_mode_prerequisites(request, live_allowed=live_allowed)
@@ -139,7 +158,15 @@ async def place_discretionary_order(
     if existing is not None:
         return await store.get_deployment(existing.deployment_id)
     product, mark_candle = await _mark_context(market_data, request)
-    sized = _size_long(request, product=product, mark=mark_candle.close)
+    sized = _size_entry(request, product=product, mark=mark_candle.close)
+    if (
+        request.side is PositionSide.SHORT
+        and request.mode is DeploymentMode.LIVE
+        and (live_base_available is None or live_base_available < sized.quantity)
+    ):
+        raise ExecutionConflictError(
+            "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
+        )
     snapshot = await _book_for_entry(
         store,
         request=request,
@@ -164,11 +191,13 @@ async def place_discretionary_order(
         deployment_id=pending.id,
         product_id=request.product_id,
         purpose=IntentPurpose.ENTRY,
-        side=OrderSide.BUY,
+        side=entry_order_side(request.side),
         kind=request.entry_kind,
         quantity=sized.quantity,
         price=sized.entry_price,
         candle=mark_candle,
+        stop_trigger_price=sized.stop_price,
+        take_profit_price=sized.take_profit_price,
         origin=request.origin,
         idempotency_key=request.idempotency_key,
     )
@@ -236,8 +265,8 @@ async def process_discretionary_bar(
 
 
 @dataclass(frozen=True, slots=True)
-class _SizedLong:
-    """Quantized long size plus stop and take-profit prices."""
+class _SizedEntry:
+    """Quantized size plus stop and take-profit prices."""
 
     quantity: Decimal
     notional: Decimal
@@ -269,13 +298,13 @@ async def _mark_context(
     return preview.product, candles[-1]
 
 
-def _size_long(
+def _size_entry(
     request: DiscretionaryOrderRequest,
     *,
     product: MarketProduct,
     mark: Decimal,
-) -> _SizedLong:
-    """Quantize size and prices; require stop below and take-profit above the entry/mark."""
+) -> _SizedEntry:
+    """Quantize size and prices; require side-correct stop and take-profit order."""
     raw_entry = request.limit_price if request.entry_kind is OrderKind.POST_ONLY_LIMIT else mark
     if raw_entry is None or raw_entry <= 0:
         raise ExecutionConflictError("Entry price must be a positive decimal.")
@@ -288,13 +317,13 @@ def _size_long(
         raise ExecutionConflictError(
             "Stop, entry, and take-profit must quantize to positive prices."
         )
-    if not stop < entry < target:
-        raise ExecutionConflictError("Longs require stop_price < entry < take_profit_price.")
+    if not bracket_is_valid(side=request.side, entry=entry, stop=stop, take_profit=target):
+        raise ExecutionConflictError(bracket_error_detail(request.side))
     quantity = _quantity_from_request(request, product=product, entry=entry)
     notional = quantity * entry
     if notional < product.quote_min_size:
         raise ExecutionConflictError("Notional is below the product quote minimum.")
-    return _SizedLong(
+    return _SizedEntry(
         quantity=quantity,
         notional=notional,
         entry_price=entry,
@@ -410,7 +439,7 @@ def _reusable_book(
     product_id: str,
     mode: DeploymentMode,
 ) -> Deployment | None:
-    """Return a flat running discretionary book that can accept a new long."""
+    """Return a flat running discretionary book that can accept a new entry."""
     matches = [
         item
         for item in deployments
@@ -477,7 +506,7 @@ async def _require_entry_admission(
     live_quote_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
 ) -> None:
-    """Fail closed when the registry rejects this sized long."""
+    """Fail closed when the registry rejects this sized entry."""
     active = await load_effective_policy(risk_store)
     peers = tuple(
         DeploymentSnapshot(deployment=item)
@@ -559,14 +588,16 @@ async def _protect_discretionary(
         return await _ensure_live_bracket(
             snapshot, candle=candle, product=product, broker=broker, store=store
         )
-    if candle.low <= position.stop_price:
+    if paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price):
         return await _marketable_discretionary_exit(
             snapshot,
             candle=candle,
             product=product,
             broker=broker,
             store=store,
-            price=min(candle.open, position.stop_price),
+            price=paper_stop_fill_price(
+                side=position.side, candle=candle, stop_price=position.stop_price
+            ),
         )
     return await _ensure_take_profit(
         snapshot, candle=candle, product=product, broker=broker, store=store
@@ -577,7 +608,7 @@ async def _watch_pending_entry(
     snapshot: DeploymentSnapshot, *, store: ExecutionStore
 ) -> DeploymentSnapshot:
     """Count wait bars; pause when the entry is unconfirmed; do not reprice."""
-    open_entry = _active_side(snapshot.orders, OrderSide.BUY)
+    open_entry = _active_entry(snapshot)
     if open_entry is None:
         return await _flatten_pending(snapshot, store=store, cooldown_bars=0)
     if open_entry.status is not OrderStatus.OPEN or open_entry.venue_order_id is None:
@@ -604,7 +635,7 @@ async def _marketable_discretionary_exit(
     store: ExecutionStore,
     price: Decimal,
 ) -> DeploymentSnapshot:
-    """Cancel resting exits, then submit a marketable sell of the open long."""
+    """Cancel resting exits, then submit a marketable cover of the open position."""
     position = snapshot.position
     if position is None:
         return snapshot
@@ -624,7 +655,7 @@ async def _marketable_discretionary_exit(
         deployment_id=snapshot.deployment.id,
         product_id=product.product_id,
         purpose=IntentPurpose.STOP,
-        side=OrderSide.SELL,
+        side=exit_order_side(position.side),
         kind=OrderKind.MARKETABLE,
         quantity=position.quantity,
         price=price,

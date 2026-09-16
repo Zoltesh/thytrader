@@ -34,7 +34,7 @@ from thytrader.backtest.models import (
     BacktestTrade,
     EquityPoint,
 )
-from thytrader.execution.trailing import ratcheted_long_stop
+from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
     CandleQualityError,
@@ -83,18 +83,19 @@ class _PendingEntry:
 
 @dataclass(frozen=True, slots=True)
 class _OpenPosition:
-    """The complete long-position state required for deterministic bar processing."""
+    """The complete long or short position state required for deterministic bar processing."""
 
     entry: BacktestFill
     stop_price: Decimal
     target_price: Decimal
     entered_bar_index: int
     trail_extreme: Decimal | None = None
+    side: Literal["long", "short"] = "long"
 
 
 @dataclass(frozen=True, slots=True)
 class _PendingMakerEntry:
-    """A close-limit buy waiting for a later bar to trade through, matching the worker."""
+    """A close-limit entry waiting for a later bar to trade through, matching the worker."""
 
     signal: SignalTraceRecord
     limit_price: Decimal
@@ -102,11 +103,12 @@ class _PendingMakerEntry:
     stop_price: Decimal
     target_price: Decimal
     waited_bars: int
+    side: Literal["long", "short"] = "long"
 
 
 @dataclass(frozen=True, slots=True)
 class _MakerPosition:
-    """An open long whose take-profit rests only after the fill bar, matching the worker."""
+    """An open position whose take-profit rests only after the fill bar, matching the worker."""
 
     entry: BacktestFill
     stop_price: Decimal
@@ -114,6 +116,7 @@ class _MakerPosition:
     entered_bar_index: int
     take_profit_resting: bool
     trail_extreme: Decimal | None = None
+    side: Literal["long", "short"] = "long"
 
 
 @dataclass(slots=True)
@@ -231,7 +234,12 @@ def _simulate_backtest(
                 pending = _PendingEntry(signal=record)
         mark_reference = candle.open if offset == evaluation_bars else candle.close
         equity_curve.append(
-            _equity_point(candle.starts_at, cash, position, fill_model.mark_price(mark_reference))
+            _equity_point(
+                candle.starts_at,
+                cash,
+                position,
+                _account_mark(fill_model, mark_reference, position),
+            )
         )
 
     if position is not None:
@@ -405,7 +413,7 @@ def _simulate_maker_backtest(
                 candle.starts_at,
                 runtime.cash,
                 _maker_as_open_position(runtime.position),
-                fill_model.mark_price(candle.close),
+                _account_mark(fill_model, candle.close, _maker_as_open_position(runtime.position)),
             )
         )
 
@@ -458,11 +466,16 @@ def _match_maker_entry(
     maker_fee_rate: Decimal,
     fill_model: FillModel,
 ) -> None:
-    """Fill a resting buy when the closed bar trades through, else wait, cancel, or reprice."""
+    """Fill a resting limit when the closed bar trades through, else wait, cancel, or reprice."""
     pending = runtime.pending
     if pending is None or runtime.position is not None:
         return
-    if candle.low <= pending.limit_price:
+    traded_through = (
+        candle.high >= pending.limit_price
+        if pending.side == "short"
+        else candle.low <= pending.limit_price
+    )
+    if traded_through:
         opened, runtime.cash = _open_maker_position(
             pending,
             candle,
@@ -493,11 +506,16 @@ def _match_maker_take_profit(
     fill_model: FillModel,
     bar_duration: timedelta,
 ) -> BacktestTrade | None:
-    """Fill a resting take-profit when a later bar's high trades through the target."""
+    """Fill a resting take-profit when a later bar trades through the target."""
     position = runtime.position
     if position is None or not position.take_profit_resting:
         return None
-    if candle.high < position.target_price:
+    hit = (
+        candle.low <= position.target_price
+        if position.side == "short"
+        else candle.high >= position.target_price
+    )
+    if not hit:
         return None
     trade, runtime.cash = _close_maker_position(
         position,
@@ -537,12 +555,22 @@ def _manage_maker_position(
     )
     position = runtime.position
     bars_held = offset - position.entered_bar_index
-    if candle.low <= position.stop_price:
+    stop_hit = (
+        candle.high >= position.stop_price
+        if position.side == "short"
+        else candle.low <= position.stop_price
+    )
+    if stop_hit:
+        raw_exit = (
+            max(candle.open, position.stop_price)
+            if position.side == "short"
+            else min(candle.open, position.stop_price)
+        )
         trade, runtime.cash = _close_maker_position(
             position,
             candle,
             cash=runtime.cash,
-            raw_exit_price=min(candle.open, position.stop_price),
+            raw_exit_price=raw_exit,
             reason="stop_loss",
             fee_rate=taker_fee_rate,
             fill_model=fill_model,
@@ -575,7 +603,7 @@ def _maybe_rest_maker_entry(
     maker_fee_rate: Decimal,
     limit_price: Decimal,
 ) -> None:
-    """Rest a post-only buy at the signal bar close when flat, off cooldown, and matched."""
+    """Rest a post-only entry at the signal bar close when flat, off cooldown, and matched."""
     if runtime.position is not None or runtime.pending is not None or runtime.cooldown_bars > 0:
         return
     if record.entry_condition is not EntryConditionOutcome.MATCHED:
@@ -597,14 +625,22 @@ def _size_maker_entry(
     limit_price: Decimal,
     maker_fee_rate: Decimal,
 ) -> _PendingMakerEntry | None:
-    """Size a resting long at the signal close using ATR risk, without filling yet."""
+    """Size a resting entry at the signal close using ATR risk, without filling yet."""
     atr = _indicator_value(signal, strategy.exits.initial_stop.atr_indicator)
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
     if stop_distance <= 0 or limit_price <= 0:
         return None
-    stop_price = limit_price - stop_distance
-    if stop_price <= 0:
-        return None
+    side: Literal["long", "short"] = strategy.entry.side
+    if side == "short":
+        stop_price = limit_price + stop_distance
+        target_price = limit_price - stop_distance * Decimal(strategy.exits.take_profit.multiple)
+        if target_price <= 0:
+            return None
+    else:
+        stop_price = limit_price - stop_distance
+        if stop_price <= 0:
+            return None
+        target_price = limit_price + stop_distance * Decimal(strategy.exits.take_profit.multiple)
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
     risk_quantity = requested_risk / stop_distance
     maximum_notional = min(
@@ -616,7 +652,6 @@ def _size_maker_entry(
     if notional < Decimal(strategy.sizing.min_quote_notional):
         return None
     quantity = notional / limit_price
-    target_price = limit_price + stop_distance * Decimal(strategy.exits.take_profit.multiple)
     return _PendingMakerEntry(
         signal=signal,
         limit_price=limit_price,
@@ -624,6 +659,7 @@ def _size_maker_entry(
         stop_price=stop_price,
         target_price=target_price,
         waited_bars=0,
+        side=side,
     )
 
 
@@ -637,11 +673,16 @@ def _open_maker_position(
     fill_model: FillModel,
 ) -> tuple[_MakerPosition | None, Decimal]:
     """Fill the resting limit at the posted price with the published maker fee."""
-    entry_quote = fill_model.buy(pending.limit_price, Decimal("0"))
+    short = pending.side == "short"
+    entry_quote = (
+        fill_model.sell(pending.limit_price, Decimal("0"))
+        if short
+        else fill_model.buy(pending.limit_price, Decimal("0"))
+    )
     entry_price = entry_quote.price
     notional = pending.quantity * entry_price
     fee = notional * maker_fee_rate
-    if notional + fee > cash:
+    if not short and notional + fee > cash:
         return None, cash
     entry = BacktestFill(
         candle_starts_at=candle.starts_at,
@@ -652,6 +693,7 @@ def _open_maker_position(
         fee_rate=canonical_decimal(maker_fee_rate),
         **_fill_evidence(entry_quote),
     )
+    next_cash = cash + notional - fee if short else cash - notional - fee
     return (
         _MakerPosition(
             entry=entry,
@@ -659,8 +701,9 @@ def _open_maker_position(
             target_price=pending.target_price,
             entered_bar_index=entry_bar_index,
             take_profit_resting=False,
+            side=pending.side,
         ),
-        cash - notional - fee,
+        next_cash,
     )
 
 
@@ -681,6 +724,7 @@ def _close_maker_position(
         stop_price=position.stop_price,
         target_price=position.target_price,
         entered_bar_index=position.entered_bar_index,
+        side=position.side,
     )
     return _close_position(
         synthetic,
@@ -706,6 +750,7 @@ def _maker_as_open_position(position: _MakerPosition | None) -> _OpenPosition | 
         target_price=position.target_price,
         entered_bar_index=position.entered_bar_index,
         trail_extreme=position.trail_extreme,
+        side=position.side,
     )
 
 
@@ -717,19 +762,30 @@ def _trail_open_position(
     record: SignalTraceRecord | None,
     is_fill_bar: bool,
 ) -> _OpenPosition:
-    """Raise a long ATR trailing stop after the fill bar; no-op when disabled."""
+    """Advance an ATR trailing stop after the fill bar; no-op when disabled."""
     policy = atr_trailing_stop(strategy.exits)
     if policy is None:
         return position
-    state = ratcheted_long_stop(
-        current_stop=position.stop_price,
-        trail_extreme=position.trail_extreme,
-        bar_high=candle.high,
-        atr=_optional_indicator_value(record, policy.atr_indicator),
-        multiple=Decimal(policy.multiple),
-        price_increment=None,
-        ratchet=not is_fill_bar,
-    )
+    if position.side == "short":
+        state = ratcheted_short_stop(
+            current_stop=position.stop_price,
+            trail_extreme=position.trail_extreme,
+            bar_low=candle.low,
+            atr=_optional_indicator_value(record, policy.atr_indicator),
+            multiple=Decimal(policy.multiple),
+            price_increment=None,
+            ratchet=not is_fill_bar,
+        )
+    else:
+        state = ratcheted_long_stop(
+            current_stop=position.stop_price,
+            trail_extreme=position.trail_extreme,
+            bar_high=candle.high,
+            atr=_optional_indicator_value(record, policy.atr_indicator),
+            multiple=Decimal(policy.multiple),
+            price_increment=None,
+            ratchet=not is_fill_bar,
+        )
     if state.stop_price == position.stop_price and state.trail_extreme == position.trail_extreme:
         return position
     return replace(position, stop_price=state.stop_price, trail_extreme=state.trail_extreme)
@@ -751,6 +807,7 @@ def _trail_maker_position(
             target_price=position.target_price,
             entered_bar_index=position.entered_bar_index,
             trail_extreme=position.trail_extreme,
+            side=position.side,
         ),
         candle,
         strategy=strategy,
@@ -814,6 +871,17 @@ def _open_position(
     fill_model: FillModel,
 ) -> tuple[_OpenPosition | None, Decimal]:
     """Model a next-open taker entry using ATR risk sizing and never overdraw quote cash."""
+    if strategy.entry.side == "short":
+        return _open_short_position(
+            pending,
+            candle,
+            strategy=strategy,
+            cash=cash,
+            entry_bar_index=entry_bar_index,
+            taker_fee_rate=taker_fee_rate,
+            slippage_bps=slippage_bps,
+            fill_model=fill_model,
+        )
     atr = _indicator_value(pending.signal, strategy.exits.initial_stop.atr_indicator)
     entry_quote = fill_model.buy(candle.open, slippage_bps)
     entry_price = entry_quote.price
@@ -856,6 +924,61 @@ def _open_position(
     )
 
 
+def _open_short_position(
+    pending: _PendingEntry,
+    candle: Candle,
+    *,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    entry_bar_index: int,
+    taker_fee_rate: Decimal,
+    slippage_bps: Decimal,
+    fill_model: FillModel,
+) -> tuple[_OpenPosition | None, Decimal]:
+    """Model a next-open taker short using ATR risk sizing; credits quote cash."""
+    atr = _indicator_value(pending.signal, strategy.exits.initial_stop.atr_indicator)
+    entry_quote = fill_model.sell(candle.open, slippage_bps)
+    entry_price = entry_quote.price
+    stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
+    if stop_distance <= 0:
+        return None, cash
+    stop_price = entry_price + stop_distance
+    target_price = entry_price - stop_distance * Decimal(strategy.exits.take_profit.multiple)
+    if target_price <= 0:
+        return None, cash
+    requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
+    risk_quantity = requested_risk / stop_distance
+    maximum_notional = min(
+        Decimal(strategy.sizing.max_quote_notional),
+        cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        cash / (Decimal("1") + taker_fee_rate),
+    )
+    notional = min(risk_quantity * entry_price, maximum_notional)
+    if notional < Decimal(strategy.sizing.min_quote_notional):
+        return None, cash
+    quantity = notional / entry_price
+    fee = notional * taker_fee_rate
+    entry = BacktestFill(
+        candle_starts_at=candle.starts_at,
+        price=canonical_decimal(entry_price),
+        quantity=canonical_decimal(quantity),
+        notional=canonical_decimal(notional),
+        fee=canonical_decimal(fee),
+        fee_rate=canonical_decimal(taker_fee_rate),
+        **_fill_evidence(entry_quote),
+    )
+    return (
+        _OpenPosition(
+            entry=entry,
+            stop_price=stop_price,
+            target_price=target_price,
+            entered_bar_index=entry_bar_index,
+            side="short",
+        ),
+        cash + notional - fee,
+    )
+
+
 def _close_if_required(
     position: _OpenPosition,
     candle: Candle,
@@ -882,6 +1005,37 @@ def _close_if_required(
             fill_model=fill_model,
             bar_duration=bar_duration,
         )
+    if position.side == "short":
+        if fill_model.buy_trigger_price(candle.high) >= position.stop_price:
+            return _close_position(
+                position,
+                candle,
+                cash=cash,
+                bar_index=bar_index,
+                raw_exit_price=max(
+                    candle.open,
+                    fill_model.reference_for_buy_trigger(position.stop_price),
+                ),
+                reason="stop_loss",
+                taker_fee_rate=taker_fee_rate,
+                slippage_bps=slippage_bps,
+                fill_model=fill_model,
+                bar_duration=bar_duration,
+            )
+        if fill_model.buy_trigger_price(candle.low) <= position.target_price:
+            return _close_position(
+                position,
+                candle,
+                cash=cash,
+                bar_index=bar_index,
+                raw_exit_price=fill_model.reference_for_buy_trigger(position.target_price),
+                reason="take_profit",
+                taker_fee_rate=taker_fee_rate,
+                slippage_bps=slippage_bps,
+                fill_model=fill_model,
+                bar_duration=bar_duration,
+            )
+        return None, cash
     if fill_model.sell_trigger_price(candle.low) <= position.stop_price:
         return _close_position(
             position,
@@ -927,9 +1081,14 @@ def _close_position(
     fill_model: FillModel,
     bar_duration: timedelta,
 ) -> tuple[BacktestTrade, Decimal]:
-    """Apply a modeled sell fill, fee, cash transition, and exact complete-trade evidence."""
+    """Apply a modeled covering fill, fee, cash transition, and exact complete-trade evidence."""
     del bar_index
-    exit_quote = fill_model.sell(raw_exit_price, slippage_bps)
+    short = position.side == "short"
+    exit_quote = (
+        fill_model.buy(raw_exit_price, slippage_bps)
+        if short
+        else fill_model.sell(raw_exit_price, slippage_bps)
+    )
     exit_price = exit_quote.price
     quantity = Decimal(position.entry.quantity)
     exit_notional = quantity * exit_price
@@ -944,9 +1103,16 @@ def _close_position(
         reason=reason,
         **_fill_evidence(exit_quote),
     )
-    entry_cost = Decimal(position.entry.notional) + Decimal(position.entry.fee)
-    net_pnl = exit_notional - exit_fee - entry_cost
-    gross_pnl = exit_notional - Decimal(position.entry.notional)
+    if short:
+        entry_credit = Decimal(position.entry.notional) - Decimal(position.entry.fee)
+        net_pnl = entry_credit - exit_notional - exit_fee
+        gross_pnl = Decimal(position.entry.notional) - exit_notional
+        next_cash = cash - exit_notional - exit_fee
+    else:
+        entry_cost = Decimal(position.entry.notional) + Decimal(position.entry.fee)
+        net_pnl = exit_notional - exit_fee - entry_cost
+        gross_pnl = exit_notional - Decimal(position.entry.notional)
+        next_cash = cash + exit_notional - exit_fee
     return (
         BacktestTrade(
             entry=position.entry,
@@ -957,7 +1123,7 @@ def _close_position(
                 position.entry.candle_starts_at, candle.starts_at, bar_duration
             ),
         ),
-        cash + exit_notional - exit_fee,
+        next_cash,
     )
 
 
@@ -989,14 +1155,24 @@ def _equity_point(
 ) -> EquityPoint:
     """Create one exact mark-to-market equity observation without decimal-float conversion."""
     quantity = Decimal("0") if position is None else Decimal(position.entry.quantity)
-    equity = cash + quantity * mark_price
+    signed = -quantity if position is not None and position.side == "short" else quantity
+    equity = cash + signed * mark_price
     return EquityPoint(
         candle_starts_at=starts_at,
         cash=canonical_decimal(cash),
-        base_quantity=canonical_decimal(quantity),
+        base_quantity=canonical_decimal(signed),
         mark_price=canonical_decimal(mark_price),
         equity=canonical_decimal(equity),
     )
+
+
+def _account_mark(
+    fill_model: FillModel, raw_price: Decimal, position: _OpenPosition | None
+) -> Decimal:
+    """Mark longs at liquidation bid/mid and shorts at cover ask/mid."""
+    if position is not None and position.side == "short":
+        return fill_model.buy_trigger_price(raw_price)
+    return fill_model.mark_price(raw_price)
 
 
 def _summary(

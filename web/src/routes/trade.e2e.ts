@@ -14,12 +14,14 @@ test('trade ticket places a paper long through the discretionary HTTP contract',
 		const body = route.request().postDataJSON() as {
 			origin?: string;
 			mode?: string;
+			side?: string;
 			stop_price?: string;
 			take_profit_price?: string;
 			idempotency_key?: string;
 		};
 		expect(body.origin).toBe('human');
 		expect(body.mode).toBe('paper');
+		expect(body.side ?? 'long').toBe('long');
 		expect(body.stop_price).toBe('90000');
 		expect(body.take_profit_price).toBe('120000');
 		expect(body.idempotency_key).toBeTruthy();
