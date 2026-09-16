@@ -85,4 +85,4 @@ persisted research-study catalog, or trade-reason journals change
 [ADR 0049](../../decisions/0049-experiential-train-v1.md),
 [ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md),
 [ADR 0052](../../decisions/0052-richer-sweep-axes-study-catalog.md),
-[ADR 0053](../../decisions/0053-trade-reason-journals.md)).
+[ADR 0054](../../decisions/0054-trade-reason-journals.md)).

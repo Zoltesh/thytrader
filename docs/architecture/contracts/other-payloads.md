@@ -107,7 +107,7 @@ monitor, studies, trade_reasons, support_bundle.
 required. Bounded V1 training is `thytrader-experiential-train-v1` (advisory
 only; [ADR 0049](../../decisions/0049-experiential-train-v1.md)). Per-trade
 “why it was made” records are `thytrader-trade-reason-v1`
-([ADR 0053](../../decisions/0053-trade-reason-journals.md)). The trainer
+([ADR 0054](../../decisions/0054-trade-reason-journals.md)). The trainer
 consumes `JournalEntry` as stored.
 
 ```mermaid

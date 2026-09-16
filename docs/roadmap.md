@@ -414,7 +414,7 @@ entry gate; operator `risk` reports fractions/ints and `DAILY_LOSS_LIMIT` /
 A human or agent can open a paper or live intent and see **why it was made**: published strategy
 version, closed-bar signal facts actually used, the risk-registry verdict, an optional
 discretionary note, and fill/reconcile facts joined from the execution ledger
-([ADR 0053](decisions/0053-trade-reason-journals.md)). Schema `thytrader-trade-reason-v1`. One row
+([ADR 0054](decisions/0054-trade-reason-journals.md)). Schema `thytrader-trade-reason-v1`. One row
 per persisted order intent. Denied risk with no intent is not recorded. Recording fails open.
 Place-order `--note` is the first note; later notes use
 `thytrader-memory add-trade-reason-note --confirm`. YOLO never covers that mutation. The ADR 0049
@@ -444,7 +444,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043). In-app operator chat is a separate destination row |
-| Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with published strategy identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0053](decisions/0053-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
+| Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with published strategy identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
 | Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Loopback `/chat` and `/api/v1/operator-chat`; user-pasted LLM key in the API process; closed catalog of gated skill-lane HTTP tools ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Coinbase keys stay off this surface | Not a substitute for `ops/` skills. Coinbase secrets UI remains a separate destination. Extra exchanges stay waiting |
 | Workstation IA | Capable SvelteKit workstation; strategy / backtest / research / paper-live share crowded library and deploy surfaces | Strategy create, backtest, research, and paper/live deploy are first-class, visible, uncluttered professional surfaces. Use screen real estate. Functionality is obvious without hunting. Modernize; do not weaken safety copy or confirmation |

@@ -1,4 +1,4 @@
-# 0053: Trade-reason journals
+# 0054: Trade-reason journals
 
 - Status: Accepted
 - Date: 2026-09-16
@@ -32,6 +32,10 @@ consumes `JournalEntry` as stored. This slice owns why-trade review; it does not
 
 [ADR 0052](0052-richer-sweep-axes-study-catalog.md) shipped richer sweep axes and the persisted
 research-study catalog. This ADR does not rewrite that catalog. Extra exchanges stay parked.
+An in-flight workstation-IA change claims ADR 0053 for layout and write-only Coinbase
+credentials without bumping the ops contract or Alembic, so this slice records as ADR 0054.
+The next ops identity after origin/main remains `thytrader-ops-contract-v20` and Alembic
+`0032`.
 
 [ADR 0046](0046-shipped-vs-remaining-0031-destination.md) restated shipped vs remaining 0031
 destination. [ADR 0047](0047-wider-fail-closed-indicator-catalog.md) shipped the wider fail-closed

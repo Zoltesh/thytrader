@@ -168,7 +168,7 @@ That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Dest
 items include extra exchanges, multi-instrument strategy documents, workstation IA, and a Coinbase
 secrets UI. Do not treat those as shipped. In-app operator chat is
 shipped ([ADR 0051](../decisions/0051-in-app-operator-chat.md)). Trade-reason journals are shipped
-([ADR 0053](../decisions/0053-trade-reason-journals.md)). Contributor
+([ADR 0054](../decisions/0054-trade-reason-journals.md)). Contributor
 [contract diagrams](../architecture/contracts/README.md) are shipped. Venue strategy/paper/live/HTF clocks are shipped
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
@@ -189,7 +189,7 @@ evidence** spanning market-data research, reproducible backtests, paper trades, 
 Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase-14-experiential-memory.md)).
 Bounded V1 training ships as a fail-closed integer ranker over those attributed local journals
 ([ADR 0049](../decisions/0049-experiential-train-v1.md)). Per-intent why-trade review ships as
-`thytrader-trade-reason-v1` ([ADR 0053](../decisions/0053-trade-reason-journals.md)):
+`thytrader-trade-reason-v1` ([ADR 0054](../decisions/0054-trade-reason-journals.md)):
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
   `agent`) so later learning can separate authors.

@@ -19,7 +19,7 @@
   [0050](0050-daily-loss-drawdown-rate-collars.md),
   [0051](0051-in-app-operator-chat.md),
   [0052](0052-richer-sweep-axes-study-catalog.md),
-  [0053](0053-trade-reason-journals.md)
+  [0054](0054-trade-reason-journals.md)
 
 ## Context
 
