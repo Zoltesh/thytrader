@@ -242,7 +242,7 @@ test('paper/live status opens the Deploy page', async ({ page }) => {
 	await expect(status).toHaveAttribute('href', `/deploy?strategy=${strategyId}`);
 	await status.click({ force: true });
 	await expect(page).toHaveURL(/\/deploy\?strategy=/);
-	await expect(page.getByRole('heading', { name: 'Deploy', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { level: 1, name: 'Deploy' })).toBeVisible();
 });
 
 test('links the latest backtest result to the backtests detail view', async ({ page }) => {
