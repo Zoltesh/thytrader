@@ -21,6 +21,9 @@ In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HT
 not extra authority: mutations still need in-app confirmation, and live still needs understand-live.
 Paper start and paper place-order tools may pass optional `maker_fee_rate` / `taker_fee_rate`
 together ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md)); live rejects them.
+`runtime_set_risk_policy` publishes the same `PUT /api/v1/risk-policy` document as this CLI,
+including daily-loss / drawdown / rate / collar fields
+([ADR 0050](../../docs/decisions/0050-daily-loss-drawdown-rate-collars.md)).
 Do not treat chat as this skill.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.

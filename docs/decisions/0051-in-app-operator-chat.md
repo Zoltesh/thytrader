@@ -1,4 +1,4 @@
-# 0050: In-app operator chat over gated skill lanes
+# 0051: In-app operator chat over gated skill lanes
 
 - Status: Accepted
 - Date: 2026-09-16
@@ -21,8 +21,9 @@ waiting. Nested HTTP from the API worker back to the same Uvicorn listener would
 [ADR 0047](0047-wider-fail-closed-indicator-catalog.md) already shipped the wider fail-closed
 indicator catalog. [ADR 0048](0048-paper-deploy-fee-fields.md) already shipped paper deploy
 maker/taker fee fields. [ADR 0049](0049-experiential-train-v1.md) already shipped bounded
-experiential training V1 (ops contract v17, Alembic `0029`). This ADR does not reopen those
-contracts.
+experiential training V1. [ADR 0050](0050-daily-loss-drawdown-rate-collars.md) already shipped
+daily-loss / drawdown breakers, order-rate limits, and reference-price collars (ops contract v18,
+Alembic `0030`). This ADR does not reopen those contracts.
 
 ## Decision
 
@@ -55,11 +56,13 @@ No extra exchanges. Workstation IA of existing pages and the Coinbase secrets UI
 - Coinbase keys never enter browser payloads on this surface.
 - [ADR 0046](0046-shipped-vs-remaining-0031-destination.md),
   [ADR 0047](0047-wider-fail-closed-indicator-catalog.md),
-  [ADR 0048](0048-paper-deploy-fee-fields.md), and
-  [ADR 0049](0049-experiential-train-v1.md) are unchanged; this ADR only ships the
+  [ADR 0048](0048-paper-deploy-fee-fields.md),
+  [ADR 0049](0049-experiential-train-v1.md), and
+  [ADR 0050](0050-daily-loss-drawdown-rate-collars.md) are unchanged; this ADR only ships the
   in-app operator chat destination row. Paper start/place-order tools expose the optional
   maker/taker fee fields from ADR 0048; live still rejects them. Memory train/list/show-model
-  tools map onto ADR 0049 HTTP routes and stay confirmation-hard-gated.
+  tools map onto ADR 0049 HTTP routes and stay confirmation-hard-gated. `runtime_set_risk_policy`
+  publishes the existing risk-policy document, including ADR 0050 breaker fields.
 
 ## Alternatives considered
 

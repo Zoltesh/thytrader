@@ -98,7 +98,7 @@ See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](
 ## In-app operator chat
 
 Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`
-([ADR 0050](../../docs/decisions/0050-in-app-operator-chat.md)). The user pastes **their** LLM API
+([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)). The user pastes **their** LLM API
 key into the API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase
 secrets surface. Status never returns `api_key`. Coinbase keys never go to the browser.
 

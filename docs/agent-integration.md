@@ -82,7 +82,7 @@ stochastic, ADX, configurable rolling inputs, and sample stdev
   experiential training (`--confirm`; YOLO never covers this lane).
 
 In-app operator chat is a loopback UI (`/chat`) and `/api/v1/operator-chat` over those same lanes
-([ADR 0050](decisions/0050-in-app-operator-chat.md)). The user pastes **their** LLM API key; that
+([ADR 0051](decisions/0051-in-app-operator-chat.md)). The user pastes **their** LLM API key; that
 is not Coinbase. `thytrader-operator chat-status` is HTTP-only and never prints the key. Chat is
 not a seventh skill lane.
 

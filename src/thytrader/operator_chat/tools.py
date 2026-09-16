@@ -661,7 +661,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="runtime_set_risk_policy",
-        description="Publish the risk-policy registry. Confirmation-hard-gated. Does not arm live.",
+        description=(
+            "Publish the risk-policy registry including daily-loss, drawdown, order-rate, and "
+            "collar fields. Confirmation-hard-gated. Does not arm live."
+        ),
         lane=ChatLane.RUNTIME,
         method="PUT",
         path="/api/v1/risk-policy",

@@ -46,6 +46,8 @@ Rules:
 - Memory train is fail-closed over attributed local journals. The result is advisory
   research input, not a live brain, order intent, or Coinbase call.
 - Live place-order and set-risk-policy always need confirmation.
+- set-risk-policy publishes the Phase 10 registry including daily-loss, drawdown, order-rate, and
+  collar fields. It does not arm live.
 - The playbook never starts live. Sequence paper via runtime_start mode=paper when asked.
 - Paper start and paper place-order may pass maker_fee_rate and taker_fee_rate together
   (documented assumptions, not Coinbase fees). Live rejects those fields.
