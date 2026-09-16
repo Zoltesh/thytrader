@@ -91,6 +91,7 @@ test('settings keeps YAML/YOLO and saves Coinbase secrets without echoing them',
 }) => {
 	const pem =
 		'-----BEGIN EC PRIVATE KEY-----\nSYNTHETIC-SETTINGS-PEM-DO-NOT-ECHO\n-----END EC PRIVATE KEY-----';
+<<<<<<< HEAD
 	await page.route('**/api/v1/settings', async (route) => {
 		if (route.request().method() === 'GET') {
 			await route.fulfill({ json: settings });
@@ -98,6 +99,8 @@ test('settings keeps YAML/YOLO and saves Coinbase secrets without echoing them',
 		}
 		await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 	});
+=======
+>>>>>>> d51e184 (fix(ui): prettier, research panel binding, and unused drawer CSS)
 	await page.route('**/api/v1/credentials/coinbase', async (route) => {
 		const method = route.request().method();
 		if (method === 'GET') {

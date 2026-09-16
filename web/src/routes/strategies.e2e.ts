@@ -737,7 +737,9 @@ test('research tab launches a backtest with engine and spread and lists version 
 
 	// Insight tab shows version results loaded per fingerprint.
 	await expect(page.getByText('Results by version')).not.toBeVisible();
-	await expect(page.getByRole('dialog', { name: 'Strategy inspector' }).getByRole('link', { name: 'Research' })).toBeVisible();
+	await expect(
+		page.getByRole('dialog', { name: 'Strategy inspector' }).getByRole('link', { name: 'Research' })
+	).toBeVisible();
 	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByText('Launch backtest')).toBeVisible();
 	await expect(page.getByLabel('Study')).toBeVisible();

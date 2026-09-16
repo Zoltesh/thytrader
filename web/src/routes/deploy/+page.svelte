@@ -93,14 +93,18 @@
 		>
 			<option value="">Select a strategy</option>
 			{#each entries as entry (entry.strategy_id)}
-				<option value={entry.strategy_id}>{entry.name} · {entry.product_id} · {entry.timeframe}</option>
+				<option value={entry.strategy_id}
+					>{entry.name} · {entry.product_id} · {entry.timeframe}</option
+				>
 			{/each}
 		</select>
 	</label>
 	{#if selectedId === ''}
 		<p class="empty-hint">Choose a published strategy. Discretionary orders stay on Trade.</p>
 	{:else if selected}
-		<p class="strategy-meta">{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}</p>
+		<p class="strategy-meta">
+			{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}
+		</p>
 		<DeployWorkstation entry={selected} {model} onChanged={() => void loadLibrary()} />
 	{/if}
 </main>

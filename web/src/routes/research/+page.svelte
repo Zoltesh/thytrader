@@ -106,7 +106,9 @@
 		>
 			<option value="">Select a strategy</option>
 			{#each entries as entry (entry.strategy_id)}
-				<option value={entry.strategy_id}>{entry.name} · {entry.product_id} · {entry.timeframe}</option>
+				<option value={entry.strategy_id}
+					>{entry.name} · {entry.product_id} · {entry.timeframe}</option
+				>
 			{/each}
 		</select>
 	</label>
@@ -117,8 +119,10 @@
 	{:else if modelError}
 		<p class="error-banner" role="alert">{modelError}</p>
 	{:else if selected && model}
-		<p class="strategy-meta">{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}</p>
-		<ResearchLaunchPanel {entry} {model} />
+		<p class="strategy-meta">
+			{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}
+		</p>
+		<ResearchLaunchPanel entry={selected} {model} />
 	{/if}
 </main>
 

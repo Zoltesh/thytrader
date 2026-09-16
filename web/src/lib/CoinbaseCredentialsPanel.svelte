@@ -130,13 +130,12 @@
 			autocomplete="off"
 			spellcheck="false"
 			rows="8"
-			placeholder="-----BEGIN EC PRIVATE KEY-----"
-		></textarea>
+			placeholder="-----BEGIN EC PRIVATE KEY-----"></textarea>
 	</label>
 	<label class="confirm">
 		<input type="checkbox" bind:checked={confirmed} />
-		I understand these secrets are stored server-side, are never shown again, and that saving them
-		does not arm live trading.
+		I understand these secrets are stored server-side, are never shown again, and that saving them does
+		not arm live trading.
 	</label>
 	<div class="actions">
 		<button

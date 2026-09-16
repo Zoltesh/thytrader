@@ -581,8 +581,7 @@
 				>
 				<a
 					class="drawer-tab"
-					href={resolve(`/deploy?strategy=${encodeURIComponent(viewEntry.strategy_id)}`)}
-					>Deploy</a
+					href={resolve(`/deploy?strategy=${encodeURIComponent(viewEntry.strategy_id)}`)}>Deploy</a
 				>
 			</div>
 			{#if viewLoading}
@@ -821,13 +820,11 @@
 				<button class="bar-button" type="button" onclick={() => openView(entry)}>View</button>
 				<a
 					class="bar-button"
-					href={resolve(`/research?strategy=${encodeURIComponent(entry.strategy_id)}`)}
-					>Research</a
+					href={resolve(`/research?strategy=${encodeURIComponent(entry.strategy_id)}`)}>Research</a
 				>
 				<a
 					class="bar-button"
-					href={resolve(`/deploy?strategy=${encodeURIComponent(entry.strategy_id)}`)}
-					>Deploy</a
+					href={resolve(`/deploy?strategy=${encodeURIComponent(entry.strategy_id)}`)}>Deploy</a
 				>
 				{#if entry.status === 'draft'}
 					<a class="bar-button" href={resolve(`/strategies/${entry.strategy_id}`)}>Edit</a>
@@ -1190,17 +1187,11 @@
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 10px;
 	}
-	.deploy-cash {
-		display: grid;
-		gap: 4px;
-		margin: 10px 0;
-	}
 	.launch-grid label {
 		display: grid;
 		gap: 4px;
 		font-size: 11px;
 	}
-	.launch-grid input,
 	.launch-grid select {
 		border: 1px solid #303a3c;
 		border-radius: 7px;
@@ -1210,81 +1201,6 @@
 		font: inherit;
 		font-size: 12px;
 		width: 100%;
-	}
-	.field-note,
-	.field-error {
-		font-size: 10px;
-		line-height: 1.35;
-	}
-	.field-note {
-		color: #77888b;
-	}
-	.field-error {
-		color: #f0a3a3;
-	}
-	.fee-source-row {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-	}
-	.fee-source-chip {
-		display: inline-flex;
-		align-items: center;
-		border: 1px solid #303a3c;
-		border-radius: 999px;
-		padding: 4px 10px;
-		font-size: 11px;
-		color: #aeb9bb;
-		background: #101617;
-	}
-	.fee-source-chip.custom {
-		color: #d8e1e2;
-		border-color: #3d4a4c;
-	}
-	.fee-source-chip.stale {
-		color: #e0c48a;
-		border-color: #5c4e2f;
-	}
-	.fee-source-action {
-		font-size: 12px;
-		padding: 4px 10px;
-	}
-	.launch-button {
-		justify-self: start;
-		border: none;
-		border-radius: 8px;
-		background: #2f6f52;
-		color: #eafff3;
-		padding: 9px 14px;
-		font: inherit;
-		font-size: 13px;
-		cursor: pointer;
-	}
-	.launch-button.live-danger {
-		background: #8c3636;
-		color: #ffe0e0;
-		font-weight: 600;
-	}
-	.launch-button.live-danger:hover:not(:disabled) {
-		background: #a54040;
-	}
-	.launch-button:disabled {
-		opacity: 0.55;
-		cursor: default;
-	}
-	.version-block {
-		border: 1px solid #232d2e;
-		border-radius: 8px;
-		padding: 10px 12px;
-		margin-bottom: 10px;
-	}
-	.version-block h4 {
-		margin: 0 0 8px;
-		font-size: 11px;
-		color: #aeb9bb;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
 	}
 	.results-table {
 		width: 100%;
@@ -1307,9 +1223,6 @@
 	}
 	.results-table td a {
 		color: #7fd0f0;
-	}
-	.comparison-table {
-		margin: 10px 0 16px;
 	}
 	@media (max-width: 900px) {
 		table {

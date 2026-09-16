@@ -365,7 +365,9 @@
 	}
 
 	function decisionLaunchDatasets(): Dataset[] {
-		return launchDatasets.filter((dataset) => dataset.timeframe === (model.timeframe ?? entry.timeframe));
+		return launchDatasets.filter(
+			(dataset) => dataset.timeframe === (model.timeframe ?? entry.timeframe)
+		);
 	}
 
 	function htfLaunchDatasets(): Dataset[] {
@@ -560,7 +562,8 @@
 				{:else if launchDatasetError}
 					<small class="field-error" role="alert">{launchDatasetError}</small>
 				{:else if decisionLaunchDatasets().length === 0}
-					<small class="field-note">No verified {entry.timeframe} datasets match this market.</small>
+					<small class="field-note">No verified {entry.timeframe} datasets match this market.</small
+					>
 				{/if}</label
 			>
 			{#if model.htf_filter}
@@ -641,7 +644,9 @@
 		</div>
 		{#if studyKind === 'oos_holdout'}
 			<div class="launch-grid">
-				<label>OOS fraction (last share) <input inputmode="decimal" bind:value={oosFraction} /></label>
+				<label
+					>OOS fraction (last share) <input inputmode="decimal" bind:value={oosFraction} /></label
+				>
 			</div>
 			<p class="view-note">
 				The same published fingerprint is simulated on in-sample then out-of-sample. OOS is the
@@ -668,8 +673,8 @@
 					research CLI.
 				{:else}
 					WFO simulates every candidate on every fold and selects only on in-sample
-					{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds selected
-					OOS returns without interpolating embargo gaps.
+					{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
+					selected OOS returns without interpolating embargo gaps.
 				{/if}
 			</p>
 		{/if}
@@ -782,8 +787,10 @@
 					? `Schedule ${latestFeeSuggestion.scheduleVersion}${latestFeeSuggestion.scheduleTierId === '' ? '' : `, band ${latestFeeSuggestion.scheduleTierId}`}`
 					: undefined}>{feeSourceChip}</span
 			>
-			<button class="secondary fee-source-action" type="button" onclick={() => void loadFeeSuggestion()}
-				>Reload fee-tier</button
+			<button
+				class="secondary fee-source-action"
+				type="button"
+				onclick={() => void loadFeeSuggestion()}>Reload fee-tier</button
 			>
 			{#if latestFeeSuggestion !== null && feeFieldSource === 'stale-suggestion'}
 				{@const suggestion = latestFeeSuggestion}
@@ -842,7 +849,9 @@
 				{#if studyResult.stitched_oos_equity.available && studyResult.stitched_oos_equity.total_return_fraction}
 					Stitched OOS return {formatPercent(studyResult.stitched_oos_equity.total_return_fraction)}
 					{#if studyResult.stitched_oos_equity.maximum_drawdown_fraction}
-						· max drawdown {formatPercent(studyResult.stitched_oos_equity.maximum_drawdown_fraction)}
+						· max drawdown {formatPercent(
+							studyResult.stitched_oos_equity.maximum_drawdown_fraction
+						)}
 					{/if}
 				{:else if studyResult.stitched_oos_equity.reason}
 					{studyResult.stitched_oos_equity.reason}
@@ -867,7 +876,8 @@
 						<td>{window.label}</td>
 						<td>{window.role}{window.selected === true ? ' · selected' : ''}</td>
 						<td>
-							<a href={resolve(`/backtests?result=${encodeURIComponent(window.result_fingerprint)}`)}
+							<a
+								href={resolve(`/backtests?result=${encodeURIComponent(window.result_fingerprint)}`)}
 								>{formatPercent(window.summary.total_return_fraction)}</a
 							>
 						</td>

@@ -15,7 +15,10 @@ export type CoinbaseCredentialsStatus = {
 	workers_restart_detail: string;
 };
 
-async function parseStatus(response: Response, fallback: string): Promise<CoinbaseCredentialsStatus> {
+async function parseStatus(
+	response: Response,
+	fallback: string
+): Promise<CoinbaseCredentialsStatus> {
 	if (!response.ok) {
 		let message = fallback;
 		try {
