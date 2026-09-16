@@ -21,25 +21,17 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.market_data.models import (
+    DatasetTimeframe,
+    EXECUTION_TIMEFRAMES,
+    parse_candle_interval,
+)
+
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_CONDITION_DEPTH = 4
 _MAX_CONDITION_NODES = 64
-STRATEGY_DECISION_TIMEFRAMES: tuple[Literal["1h", "5m"], ...] = ("1h", "5m")
-STRATEGY_HTF_TIMEFRAMES: tuple[Literal["15m", "30m", "1h", "6h", "1d"], ...] = (
-    "15m",
-    "30m",
-    "1h",
-    "6h",
-    "1d",
-)
-_TIMEFRAME_SECONDS: dict[str, int] = {
-    "5m": 300,
-    "15m": 900,
-    "30m": 1_800,
-    "1h": 3_600,
-    "6h": 21_600,
-    "1d": 86_400,
-}
+STRATEGY_DECISION_TIMEFRAMES: tuple[DatasetTimeframe, ...] = EXECUTION_TIMEFRAMES
+STRATEGY_HTF_TIMEFRAMES: tuple[DatasetTimeframe, ...] = EXECUTION_TIMEFRAMES
 
 
 def _decimal_text(value: str) -> str:
@@ -585,10 +577,10 @@ def _referenced_indicator_ids(condition: ConditionGroup) -> set[str]:
 
 def timeframe_seconds(timeframe: str) -> int:
     """Return the exact duration of one supported strategy timeframe in seconds."""
-    seconds = _TIMEFRAME_SECONDS.get(timeframe)
-    if seconds is None:
-        raise ValueError(f"unsupported strategy timeframe: {timeframe}")
-    return seconds
+    try:
+        return int(parse_candle_interval(timeframe).duration.total_seconds())
+    except ValueError as error:
+        raise ValueError(f"unsupported strategy timeframe: {timeframe}") from error
 
 
 def is_valid_htf_pair(decision_timeframe: str, htf_timeframe: str) -> bool:
@@ -621,7 +613,7 @@ class EntryDefinition(_FrozenModel):
 class HigherTimeframeFilter(_FrozenModel):
     """Optional closed-bar HTF filter AND-ed with LTF entry on the decision clock."""
 
-    timeframe: Literal["15m", "30m", "1h", "6h", "1d"]
+    timeframe: DatasetTimeframe
     data_requirements: DataRequirements
     indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
     when: ConditionGroup
@@ -813,7 +805,7 @@ class StrategyDefinition(_FrozenModel):
     status: StrategyStatus
     created_at: datetime
     instrument: Instrument
-    timeframe: Literal["1h", "5m"]
+    timeframe: DatasetTimeframe
     data_requirements: DataRequirements
     indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
     htf_filter: HigherTimeframeFilter | None = None

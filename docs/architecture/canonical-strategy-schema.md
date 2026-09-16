@@ -6,11 +6,10 @@
 > The broader authoring contract remains proposed until the unsupported variants below are built.
 >
 > **Product destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)):
-> strategy `timeframe` will eventually include every Coinbase-listed candle granularity (including
-> `1m` and `2h`), and deployments will cover single-asset **and** multi-asset paper/live. The field
-> rules in this document remain the **shipped contract** (`1h` or `5m` LTF; paper and live). Do not treat
-> destination TFs or multi-instrument documents as legal here until a later ADR widens the schema
-> the same way 0020–0023 and 0038 widened datasets without silently widening clocks.
+> strategy `timeframe` includes every Coinbase-listed candle granularity ThyTrader ingests
+> ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)), and deployments will cover
+> single-asset **and** multi-asset paper/live. The field rules in this document are the **shipped
+> contract**. Multi-instrument documents are not legal here.
 
 This document is the implementation-facing specification referenced by
 [ADR 0005](../decisions/0005-canonical-strategy-schema.md). The ADR records the decision; this
@@ -23,7 +22,8 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - frozen models with unknown-field rejection, UUIDv7 identity, UTC timestamps, string-only finite
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
-- 1h or 5m Coinbase USD spot for research, backtests, paper, and live; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
+- every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
+  backtests, paper, and live; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025) for research V1/V2/V3: HTF `when` AND-ed with LTF entry using the last completed HTF bar; paper and live reject that block;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
@@ -41,7 +41,7 @@ association, not permanent consumability; every binding load re-verifies both ex
 
 Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
 API/UI, immutable strategy publication, completed reproducible backtest results (including
-`thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed 1h or 5m bars,
+`thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed venue bars,
 and optional ATR-multiple trailing stops. Not yet implemented: other sizing/stop/trailing variants,
 richer human summaries, or paper/live evaluation of `htf_filter`. Published `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
@@ -104,7 +104,7 @@ existing single-timeframe fingerprints stay stable.
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
 | `instrument` | object | Explicit product, never inherited from runtime. |
-| `timeframe` | enum | `1h` or `5m`. This is the LTF decision clock. Paper may use either; live still requires `1h`. |
+| `timeframe` | enum | One ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). This is the LTF decision clock. Paper and live use the same clock. Sub-hour live requires a connected user-order feed. |
 | `data_requirements` | object | Minimum LTF bars and OHLCV fields needed for indicator warmup. |
 | `indicators` | array | Named LTF indicator definitions (see below). |
 | `htf_filter` | object \| omitted | Optional HTF filter (see below). Omitted from canonical JSON when null. |
@@ -288,7 +288,7 @@ It is not a second decision clock and not a paper/live clock.
 
 | Rule | Contract |
 |------|----------|
-| HTF timeframe | `15m`, `30m`, `1h`, `6h`, or `1d`; strictly coarser than LTF and an integer multiple of LTF duration |
+| HTF timeframe | Any ingested venue clock that is strictly coarser than LTF and an integer multiple of LTF duration ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)) |
 | Indicator ids | Unique within HTF and disjoint from LTF ids |
 | `when` references | HTF indicators only; LTF `entry.when` and ATR stop stay on LTF indicators |
 | Combined signal | Tri-state AND of HTF `when` and LTF `entry.when` |
@@ -296,7 +296,7 @@ It is not a second decision clock and not a paper/live clock.
 | Research | `dataset_fingerprint` is LTF; `htf_dataset_fingerprint` is required, distinct, and bound |
 | Paper / live | Reject the published strategy. Do not ignore the filter. |
 
-`15m`/`30m`/`6h`/`1d` remain illegal as top-level `timeframe`.
+`1m` cannot be HTF (nothing in the catalog is finer). `4h` LTF may use `1d` only (`6h` is not an integer multiple).
 
 ## Entry
 

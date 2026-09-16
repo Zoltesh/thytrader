@@ -25,9 +25,9 @@ at a time. Phases 7–14 below are the definitive **near-term** sequence (not a 
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not the current Builder ceiling**: remaining
-Coinbase candle **clocks** (`1m`, `2h`, `4h` strategy/paper/live — datasets shipped in
-[ADR 0038](decisions/0038-complete-only-1m-2h-4h-datasets.md)); on-demand trades with SL/TP. See
+Destination items that are **accepted but not the current Builder ceiling**: extra exchanges,
+shorting, attached entry brackets, per-indicator timeframes, and multi-instrument strategy
+documents. Venue clocks and on-demand trades with SL/TP are shipped. See
 [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
@@ -73,7 +73,8 @@ completeness from full watch coverage.
 
 Remaining Coinbase-listed granularities (`1m`, `2h`, and `4h`) now have complete-only datasets
 ([ADR 0038](decisions/0038-complete-only-1m-2h-4h-datasets.md)). Strategy/paper/live clocks for those
-TFs remain destination work and are not part of the Phase 7 exit.
+TFs shipped later in [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) and are not
+part of the Phase 7 exit.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -91,10 +92,11 @@ research/paper costs.
 ## Phase 8: Multi-timeframe strategy semantics — ✅ Shipped (research HTF filter)
 
 Optional `htf_filter` + LTF entry ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md)). Top-level
-`timeframe` remains the `1h`|`5m` decision clock. Research engines V1/V2/V3 evaluate last-completed
+`timeframe` remains the `1h`|`5m` decision clock in this slice. Research engines V1/V2/V3 evaluate last-completed
 HTF bars and fingerprint both datasets. Paper and live reject HTF-filter strategies. 5m live remains
-Phase 13. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF candles are not in this
-slice.
+Phase 13. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened LTF and HTF
+tokens to every ingested venue clock. Per-indicator timeframes, mixed-TF crossovers, and paper/live HTF
+candles are not in this slice.
 
 ## Phase 9: Wider fail-closed indicator catalog — ✅ Five slices shipped
 
@@ -231,13 +233,29 @@ Long-only on-demand entries go through the existing order-intent → risk → br
 clock). Stop and take-profit are required. Live rests one `trigger_bracket_gtc` after fill; paper
 uses synthetic SL/TP. Idempotent retries never call `place_order` again. Timeouts persist
 `unknown` and GET-order reconcile. Allocations nonempty deny discretionary. Strategy/paper/live
-clocks stay `1h`/`5m`. Ops contract is `thytrader-ops-contract-v11` / Alembic `0025`.
+clocks stay `1h`/`5m` in this slice. Ops contract is `thytrader-ops-contract-v11` / Alembic `0025`.
 
 **Exit gate met:** `POST /api/v1/discretionary-orders` and `thytrader-runtime place-order --confirm`
 (live also `--i-understand-live`) place a long; the Trade UI uses the same HTTP contract with
 human origin; operator summaries include `kind`.
 
-Shorting, attached entry brackets, intra-strategy pyramiding, `1m`/`2h`/`4h` execution clocks, and
+Shorting, attached entry brackets, intra-strategy pyramiding, extra venue execution clocks, and
+YOLO-without-confirm for live stay out of this slice.
+
+## Venue strategy, paper, live, and HTF clocks — ✅ Shipped
+
+Every ingested complete-only venue granularity is a legal strategy LTF, paper clock, live clock,
+discretionary book clock, and research HTF token
+([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Sub-hour live pauses unless
+the authenticated user-order feed is connected. Paper and live still reject `htf_filter`. No
+interpolation. Ops contract is `thytrader-ops-contract-v12` / Alembic `0026`.
+
+**Exit gate met:** a published `1m`, `15m`, `30m`, `2h`, `4h`, `6h`, or `1d` strategy can research,
+paper, and arm live against a matching complete-only dataset the same way `1h`/`5m` already could;
+discretionary books accept those clocks without changing intent persistence, risk, OCO, or
+reconcile-before-retry.
+
+Paper/live HTF evaluation, per-indicator timeframes, extra exchanges, shorting, and
 YOLO-without-confirm for live stay out of this slice.
 
 ## Destination capabilities (accepted; not current Builder order)
@@ -250,8 +268,8 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
 | On-demand trades with SL/TP | Yes, long-only via intent + risk ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)) | Shorting, attached entry brackets, intra-strategy pyramiding |
-| Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals; strategy/paper/live clocks widen by later ADR |
-| Strategy / paper / live clocks | `1h`\|`5m` | Same clocks as ingested venue TFs, each widened by ADR |
+| Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
+| Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
 | Research | Single-instrument backtests; research HTF filter; Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |

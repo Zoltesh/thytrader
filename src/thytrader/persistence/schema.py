@@ -437,7 +437,8 @@ deployments = Table(
     ),
     CheckConstraint("kind IN ('strategy', 'discretionary')", name="ck_deployments_kind"),
     CheckConstraint(
-        "timeframe IS NULL OR timeframe IN ('1h', '5m')",
+        "timeframe IS NULL OR timeframe IN "
+        "('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')",
         name="ck_deployments_timeframe",
     ),
     CheckConstraint(
@@ -449,7 +450,7 @@ deployments = Table(
         "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND strategy_id IS NOT NULL"
         ") OR ("
         "kind = 'discretionary' AND strategy_fingerprint IS NULL AND strategy_id IS NULL "
-        "AND timeframe IN ('1h', '5m')"
+        "AND timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
         ")",
         name="ck_deployments_kind_identity",
     ),

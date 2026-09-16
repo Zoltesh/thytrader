@@ -6,7 +6,8 @@
   [0018](0018-5m-paper-not-live.md), [0020](0020-complete-only-15m-datasets.md),
   [0021](0021-complete-only-30m-datasets.md), [0022](0022-complete-only-6h-datasets.md),
   [0023](0023-complete-only-1d-datasets.md), [0025](0025-multi-timeframe-htf-filter.md),
-  [0030](0030-agent-e2e-primary-surface.md)
+  [0030](0030-agent-e2e-primary-surface.md),
+  [0040](0040-venue-strategy-paper-live-htf-clocks.md)
 
 ## Context
 
@@ -61,7 +62,7 @@ End-state capabilities (accepted, **not shipped by this ADR**):
 
 - Strategy `timeframe`, paper clocks, and live clocks stay `1h`|`5m` (live `1h`) until a later ADR
   widens them the same way 0020–0023 added datasets without silently making those TFs legal LTF or
-  execution clocks.
+  execution clocks. [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) is that later ADR.
 - Complete-only publication, no interpolation, worker-owned ingest, and fingerprint-addressed
   Parquet remain mandatory for every new granularity (including future `1m` and `2h` datasets).
 - Backtest, paper, and live still consume the same published strategy semantics.

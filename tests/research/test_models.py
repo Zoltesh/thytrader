@@ -143,7 +143,7 @@ def test_run_spec_requires_uuid7_canonical_utc_and_hour_boundaries() -> None:
         )
     with pytest.raises(ValidationError, match="candle boundary"):
         EvaluationWindow(
-            starts_at=datetime(2026, 7, 10, 0, 1, tzinfo=UTC),
+            starts_at=datetime(2026, 7, 10, 0, 0, 1, tzinfo=UTC),
             ends_at=datetime(2026, 7, 20, 0, 0, tzinfo=UTC),
         )
 
@@ -178,10 +178,64 @@ def test_run_spec_accepts_five_minute_warmup_spacing() -> None:
     assert run.warmup.starts_at == datetime(2026, 7, 9, 23, 55, tzinfo=UTC)
 
 
-def test_run_spec_rejects_fifteen_minute_warmup_spacing() -> None:
-    """15m datasets do not make research run windows a 15m strategy clock."""
-    starts_at = datetime(2026, 7, 10, 0, 15, tzinfo=UTC)
-    with pytest.raises(ValidationError, match="warmup"):
+def _venue_clock_run(
+    *,
+    starts_at: datetime,
+    bar: timedelta,
+    run_id: UUID,
+) -> ResearchRunSpecification:
+    """Build one valid research-run spec for a single-bar ingested venue clock."""
+    return ResearchRunSpecification(
+        schema_version="1.0",
+        run_id=run_id,
+        created_at=datetime(2026, 7, 29, 20, 0, tzinfo=UTC),
+        strategy_fingerprint=_STRATEGY_FINGERPRINT,
+        dataset_fingerprint=_DATASET_FINGERPRINT,
+        evaluation=EvaluationWindow(
+            starts_at=starts_at,
+            ends_at=starts_at + bar,
+        ),
+        warmup=WarmupWindow(bars=1, starts_at=starts_at - bar),
+        capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
+        costs=CostAssumptions(
+            maker_fee_rate="0.004",
+            taker_fee_rate="0.006",
+            fixed_slippage_bps="2.5",
+        ),
+        bar_execution=BarExecutionAssumptions(
+            signal_timing="completed_candle_close",
+            fill_timing="next_candle_open",
+        ),
+        engine_contract_version="thytrader-bar-v1",
+        random_seed=42,
+    )
+
+
+def test_run_spec_accepts_ingested_venue_warmup_spacing() -> None:
+    """Complete-only venue clocks may space research warmup by their own duration."""
+    cases = (
+        (datetime(2026, 7, 10, 0, 1, tzinfo=UTC), timedelta(minutes=1), "1m"),
+        (datetime(2026, 7, 10, 0, 15, tzinfo=UTC), timedelta(minutes=15), "15m"),
+        (datetime(2026, 7, 10, 0, 30, tzinfo=UTC), timedelta(minutes=30), "30m"),
+        (datetime(2026, 7, 10, 2, 0, tzinfo=UTC), timedelta(hours=2), "2h"),
+        (datetime(2026, 7, 10, 4, 0, tzinfo=UTC), timedelta(hours=4), "4h"),
+        (datetime(2026, 7, 10, 6, 0, tzinfo=UTC), timedelta(hours=6), "6h"),
+        (datetime(2026, 7, 10, 0, 0, tzinfo=UTC), timedelta(days=1), "1d"),
+    )
+    for starts_at, bar, timeframe in cases:
+        run = _venue_clock_run(
+            starts_at=starts_at,
+            bar=bar,
+            run_id=UUID("019faf76-6600-7000-8000-000000000066"),
+        )
+        assert run.warmup.starts_at == starts_at - bar
+        assert warmup_starts_at(starts_at, 1, timeframe) == starts_at - bar
+
+
+def test_run_spec_rejects_hourly_warmup_on_one_minute_boundary() -> None:
+    """An inferred 1h clock must not accept a :01 bound even when spacing is one hour."""
+    starts_at = datetime(2026, 7, 10, 0, 1, tzinfo=UTC)
+    with pytest.raises(ValidationError, match="align"):
         ResearchRunSpecification(
             schema_version="1.0",
             run_id=UUID("019faf76-6600-7000-8000-000000000066"),
@@ -190,9 +244,9 @@ def test_run_spec_rejects_fifteen_minute_warmup_spacing() -> None:
             dataset_fingerprint=_DATASET_FINGERPRINT,
             evaluation=EvaluationWindow(
                 starts_at=starts_at,
-                ends_at=starts_at + timedelta(minutes=15),
+                ends_at=starts_at + timedelta(hours=1),
             ),
-            warmup=WarmupWindow(bars=1, starts_at=starts_at - timedelta(minutes=15)),
+            warmup=WarmupWindow(bars=1, starts_at=starts_at - timedelta(hours=1)),
             capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
             costs=CostAssumptions(
                 maker_fee_rate="0.004",
@@ -208,136 +262,10 @@ def test_run_spec_rejects_fifteen_minute_warmup_spacing() -> None:
         )
 
 
-def test_warmup_starts_at_rejects_fifteen_minute_strategy_clock() -> None:
-    """Deriving warmup from a 15m timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "15m")
-
-
-def test_run_spec_rejects_thirty_minute_warmup_spacing() -> None:
-    """30m datasets do not make research run windows a 30m strategy clock."""
-    starts_at = datetime(2026, 7, 10, 0, 30, tzinfo=UTC)
-    with pytest.raises(ValidationError, match="warmup"):
-        ResearchRunSpecification(
-            schema_version="1.0",
-            run_id=UUID("019faf76-6600-7000-8000-000000000067"),
-            created_at=datetime(2026, 7, 29, 20, 0, tzinfo=UTC),
-            strategy_fingerprint=_STRATEGY_FINGERPRINT,
-            dataset_fingerprint=_DATASET_FINGERPRINT,
-            evaluation=EvaluationWindow(
-                starts_at=starts_at,
-                ends_at=starts_at + timedelta(minutes=30),
-            ),
-            warmup=WarmupWindow(bars=1, starts_at=starts_at - timedelta(minutes=30)),
-            capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
-            costs=CostAssumptions(
-                maker_fee_rate="0.004",
-                taker_fee_rate="0.006",
-                fixed_slippage_bps="2.5",
-            ),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
-            engine_contract_version="thytrader-bar-v1",
-            random_seed=42,
-        )
-
-
-def test_warmup_starts_at_rejects_thirty_minute_strategy_clock() -> None:
-    """Deriving warmup from a 30m timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "30m")
-
-
-def test_run_spec_rejects_six_hour_warmup_spacing() -> None:
-    """6h datasets do not make research run windows a 6h strategy clock."""
-    starts_at = datetime(2026, 7, 10, 6, 0, tzinfo=UTC)
-    with pytest.raises(ValidationError, match="warmup"):
-        ResearchRunSpecification(
-            schema_version="1.0",
-            run_id=UUID("019faf76-6600-7000-8000-000000000068"),
-            created_at=datetime(2026, 7, 29, 20, 0, tzinfo=UTC),
-            strategy_fingerprint=_STRATEGY_FINGERPRINT,
-            dataset_fingerprint=_DATASET_FINGERPRINT,
-            evaluation=EvaluationWindow(
-                starts_at=starts_at,
-                ends_at=starts_at + timedelta(hours=6),
-            ),
-            warmup=WarmupWindow(bars=1, starts_at=starts_at - timedelta(hours=6)),
-            capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
-            costs=CostAssumptions(
-                maker_fee_rate="0.004",
-                taker_fee_rate="0.006",
-                fixed_slippage_bps="2.5",
-            ),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
-            engine_contract_version="thytrader-bar-v1",
-            random_seed=42,
-        )
-
-
-def test_warmup_starts_at_rejects_six_hour_strategy_clock() -> None:
-    """Deriving warmup from a 6h timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "6h")
-
-
-def test_run_spec_rejects_one_day_warmup_spacing() -> None:
-    """1d datasets do not make research run windows a 1d strategy clock."""
-    starts_at = datetime(2026, 7, 10, 0, 0, tzinfo=UTC)
-    with pytest.raises(ValidationError, match="warmup"):
-        ResearchRunSpecification(
-            schema_version="1.0",
-            run_id=UUID("019faf76-6600-7000-8000-00000000001d"),
-            created_at=datetime(2026, 7, 29, 20, 0, tzinfo=UTC),
-            strategy_fingerprint=_STRATEGY_FINGERPRINT,
-            dataset_fingerprint=_DATASET_FINGERPRINT,
-            evaluation=EvaluationWindow(
-                starts_at=starts_at,
-                ends_at=starts_at + timedelta(days=1),
-            ),
-            warmup=WarmupWindow(bars=1, starts_at=starts_at - timedelta(days=1)),
-            capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
-            costs=CostAssumptions(
-                maker_fee_rate="0.004",
-                taker_fee_rate="0.006",
-                fixed_slippage_bps="2.5",
-            ),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
-            engine_contract_version="thytrader-bar-v1",
-            random_seed=42,
-        )
-
-
-def test_warmup_starts_at_rejects_one_day_strategy_clock() -> None:
-    """Deriving warmup from a 1d timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "1d")
-
-
-def test_warmup_starts_at_rejects_one_minute_strategy_clock() -> None:
-    """Deriving warmup from a 1m timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "1m")
-
-
-def test_warmup_starts_at_rejects_two_hour_strategy_clock() -> None:
-    """Deriving warmup from a 2h timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "2h")
-
-
-def test_warmup_starts_at_rejects_four_hour_strategy_clock() -> None:
-    """Deriving warmup from a 4h timeframe must fail closed."""
-    with pytest.raises(ValueError, match="1h or 5m"):
-        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "4h")
+def test_warmup_starts_at_rejects_unknown_strategy_clock() -> None:
+    """Deriving warmup from a non-venue timeframe must fail closed."""
+    with pytest.raises(ValueError, match="Unsupported candle interval"):
+        warmup_starts_at(datetime(2026, 7, 10, tzinfo=UTC), 1, "3h")
 
 
 def test_run_spec_requires_exact_derived_warmup_range() -> None:

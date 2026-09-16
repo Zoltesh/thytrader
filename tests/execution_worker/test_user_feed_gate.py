@@ -1,4 +1,4 @@
-"""5m live pauses unless the authenticated user-order feed is connected and fresh."""
+"""Sub-hour live pauses unless the authenticated user-order feed is connected and fresh."""
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -103,6 +103,45 @@ async def test_hourly_live_does_not_pause_for_a_down_user_feed() -> None:
     """1h live still reconciles through REST when the user feed is down."""
     store = InMemoryExecutionStore()
     strategy = _published(timeframe="1h")
+    await _live_snapshot(store, strategy)
+    snapshot = (await store.list_deployments())[0]
+    loaded = await store.get_deployment(snapshot.id)
+    paused = await _pause_five_minute_live_if_feed_down(
+        loaded,
+        timeframe=strategy.timeframe,
+        store=store,
+        user_feed_store=InMemoryUserOrderFeedStateStore(),
+    )
+    assert paused is False
+    updated = await store.get_deployment(snapshot.id)
+    assert updated.deployment.status is DeploymentStatus.RUNNING
+
+
+@pytest.mark.anyio
+async def test_one_minute_live_pauses_when_user_feed_is_down() -> None:
+    """1m live uses the same user-feed gate as other sub-hour clocks."""
+    store = InMemoryExecutionStore()
+    strategy = _published(timeframe="1m")
+    await _live_snapshot(store, strategy)
+    snapshot = (await store.list_deployments())[0]
+    loaded = await store.get_deployment(snapshot.id)
+    paused = await _pause_five_minute_live_if_feed_down(
+        loaded,
+        timeframe=strategy.timeframe,
+        store=store,
+        user_feed_store=InMemoryUserOrderFeedStateStore(),
+    )
+    assert paused is True
+    updated = await store.get_deployment(snapshot.id)
+    assert updated.deployment.status is DeploymentStatus.PAUSED
+    assert updated.deployment.mismatch_detail == "User-order feed is not connected."
+
+
+@pytest.mark.anyio
+async def test_two_hour_live_does_not_pause_for_a_down_user_feed() -> None:
+    """2h live still reconciles through REST when the user feed is down."""
+    store = InMemoryExecutionStore()
+    strategy = _published(timeframe="2h")
     await _live_snapshot(store, strategy)
     snapshot = (await store.list_deployments())[0]
     loaded = await store.get_deployment(snapshot.id)

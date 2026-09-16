@@ -25,6 +25,7 @@ from thytrader.backtest.submission import (
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.persistence.database import create_engine, dispose
@@ -123,8 +124,11 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--timeframe",
         default="1h",
-        choices=("1h", "5m"),
-        help="Research timeframe. Default 1h. Paper and live may be 1h or 5m.",
+        choices=EXECUTION_TIMEFRAMES,
+        help=(
+            "Research timeframe. Default 1h. Paper and live may use any ingested "
+            "venue clock."
+        ),
     )
     create.add_argument(
         "--template",
@@ -452,7 +456,7 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     timeframe = "1h"
     try:
         published = await mutator.publications.load(result.strategy_fingerprint)
-        if published.definition.timeframe in {"1h", "5m"}:
+        if published.definition.timeframe in EXECUTION_TIMEFRAMES:
             timeframe = published.definition.timeframe
     except StrategyPublicationError:
         timeframe = "1h"

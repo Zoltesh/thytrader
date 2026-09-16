@@ -18,6 +18,7 @@ from thytrader.agent_orchestration.models import (
 )
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.data_control.cli import main as data_main
 from thytrader.operator.cli import main as operator_main
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
@@ -70,7 +71,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Run data health, optional ingest, research, and optional paper.",
     )
     run.add_argument("--product-id", default="BTC-USD")
-    run.add_argument("--timeframe", default="1h", choices=("1h", "5m"))
+    run.add_argument("--timeframe", default="1h", choices=EXECUTION_TIMEFRAMES)
     run.add_argument("--lookback-hours", type=int, default=168)
     run.add_argument(
         "--ensure-watch",

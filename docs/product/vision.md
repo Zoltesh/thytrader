@@ -100,9 +100,10 @@ This is what the running product actually does today. It is **not** the end stat
 
 ### Market data
 
-Shipped complete-only datasets: **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**. Strategy, paper, and live
-clocks are **1h or 5m**. `1m`, `2h`, and `4h` are not legal LTF, HTF, or execution clocks until a
-later ADR widens them ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)).
+Shipped complete-only datasets: **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**. Strategy, paper, live,
+discretionary, and research HTF clocks are that same venue set
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject
+`htf_filter`. Sub-hour live pauses unless the authenticated user-order feed is connected.
 
 Coinbase candle requests are bounded (currently 350 buckets per request). Ingestion must paginate,
 deduplicate, validate, and detect gaps. Missing candles are never interpolated. The data-provider
@@ -141,12 +142,12 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include widening `1m`/`2h`/`4h` into strategy/paper/live clocks (those granularities are
-already complete-only datasets). Phase 10's risk-policy registry and concurrent
-single-instrument paper/live are shipped. Phase 11's walk-forward / OOS / cross-market studies are
-shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped. Phase 13's 5m live, ATR
-trailing, user-order WebSockets, and native OCO brackets are shipped; destination portfolio controls
-and multi-instrument strategy documents are not.
+items include extra exchanges, shorting, attached entry brackets, per-indicator timeframes, and
+multi-instrument strategy documents. Venue strategy/paper/live/HTF clocks are shipped
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Phase 10's risk-policy
+registry and concurrent single-instrument paper/live are shipped. Phase 11's walk-forward / OOS /
+cross-market studies are shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped.
+Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets are shipped.
 
 ## Planned direction: agents as crypto-trading experts (hooks shipped)
 

@@ -429,9 +429,10 @@
 							/></label
 						>
 						<div class="hint">
-							V1 is Coinbase USD spot, long-only. Research, paper, and live: 1h or 5m (this draft uses
-							{model.timeframe} candles). 5m live requires a connected user-order feed. Optional HTF filters may use
-							15m/30m/1h/6h/1d datasets; paper and live reject those strategies.
+							V1 is Coinbase USD spot, long-only. Research, paper, and live use any ingested venue
+							clock (this draft uses {model.timeframe} candles). Sub-hour live requires a connected
+							user-order feed. Optional HTF filters may use a strictly coarser integer-multiple
+							venue clock; paper and live reject those strategies.
 						</div>
 					</section>
 				{:else if activeSection === 'indicators'}

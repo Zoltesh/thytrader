@@ -21,6 +21,7 @@ from thytrader.api.dependencies import (
 from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
 from thytrader.execution.models import DeploymentMode, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.models import DatasetTimeframe
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
@@ -281,7 +282,7 @@ async def create_strategy_draft(
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
-    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
+    timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
     template: Annotated[str, Query()] = "ema-trend",
 ) -> StrategyCreatedResponse:
     """Create and durably save a research template draft without trading authority."""

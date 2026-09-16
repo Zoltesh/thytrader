@@ -724,17 +724,16 @@ class OperatorDiagnostics:
         return 2 * self.settings.execution_worker_interval_seconds + slack
 
     async def _runtime_timeframe(self, deployment: Deployment) -> SupportedTimeframe:
-        """Prefer a stored book clock; otherwise copy 1h/5m from the published strategy."""
-        if deployment.timeframe == "5m":
-            return "5m"
-        if deployment.timeframe == "1h":
-            return "1h"
+        """Prefer a stored book clock; otherwise copy the published strategy clock."""
+        stored = _supported_clock(deployment.timeframe)
+        if stored is not None:
+            return stored
         if deployment.strategy_fingerprint is None:
             return "1h"
         return await self._strategy_timeframe(deployment.strategy_fingerprint)
 
     async def _strategy_timeframe(self, fingerprint: str) -> SupportedTimeframe:
-        """Copy 1h/5m from the published strategy; default 1h when it cannot be loaded."""
+        """Copy the published strategy clock; default 1h when it cannot be loaded."""
         load = getattr(self.publications, "load", None)
         if not callable(load):
             return "1h"
@@ -742,10 +741,10 @@ class OperatorDiagnostics:
             published = await load(fingerprint)
         except Exception:  # noqa: BLE001 - missing strategy evidence stays a 1h placeholder.
             return "1h"
-        timeframe = published.definition.timeframe
-        if timeframe in {"1h", "5m"}:
-            return timeframe
-        return "1h"
+        clock = _supported_clock(published.definition.timeframe)
+        if clock is None:
+            return "1h"
+        return clock
 
     async def _history_component(self) -> ComponentReport:
         """Treat missing portfolio history as incomplete telemetry, not health."""
@@ -1470,17 +1469,12 @@ def _market_data_component(
 
 def _deployment_summary(deployment: Deployment) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
-    timeframe: SupportedTimeframe | None = None
-    if deployment.timeframe == "1h":
-        timeframe = "1h"
-    elif deployment.timeframe == "5m":
-        timeframe = "5m"
     return DeploymentSummary(
         deployment_id=deployment.id,
         kind=deployment.kind.value,
         strategy_id=deployment.strategy_id,
         strategy_fingerprint=deployment.strategy_fingerprint,
-        timeframe=timeframe,
+        timeframe=_supported_clock(deployment.timeframe),
         mode=deployment.mode.value,
         status=deployment.status.value,
         phase=deployment.phase.value,
@@ -1637,6 +1631,19 @@ def _parse_timeframe(value: str | None) -> CandleInterval:
         return parse_candle_interval(value)
     except ValueError:
         return CandleInterval.ONE_HOUR
+
+
+def _supported_clock(value: str | None) -> SupportedTimeframe | None:
+    """Return an ingested venue clock token, otherwise omit the field."""
+    if value is None or value == "":
+        return None
+    try:
+        interval = parse_candle_interval(value)
+    except ValueError:
+        return None
+    if not interval.execution_supported:
+        return None
+    return as_dataset_timeframe(interval)
 
 
 def _catalog_provider(settings: Settings) -> str:

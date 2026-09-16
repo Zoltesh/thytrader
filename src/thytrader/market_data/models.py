@@ -28,15 +28,27 @@ DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = (
     "2h",
     "4h",
 )
+# Duration-ascending legal strategy, paper, live, discretionary, and HTF tokens.
+EXECUTION_TIMEFRAMES: tuple[DatasetTimeframe, ...] = (
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h",
+    "2h",
+    "4h",
+    "6h",
+    "1d",
+)
 DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m|6h|1d|1m|2h|4h)$"
 
 
 class CandleInterval(StrEnum):
     """Closed-candle intervals for complete-only historical datasets.
 
-    Dataset ingest, catalog, and verification accept every Coinbase-listed
-    Advanced Trade candle granularity. Paper still evaluates only 1h or 5m;
-    live accepts 1h or 5m at the deployment gate.
+    Dataset ingest, catalog, verification, strategy LTF, paper, live, and
+    research HTF tokens share this Coinbase-listed set. Paper and live still
+    reject ``htf_filter``. Missing bars are never interpolated.
     """
 
     ONE_HOUR = "1h"
@@ -79,8 +91,13 @@ class CandleInterval(StrEnum):
 
     @property
     def execution_supported(self) -> bool:
-        """Paper and live evaluate closed 1h or 5m bars."""
-        return self in {CandleInterval.ONE_HOUR, CandleInterval.FIVE_MINUTES}
+        """True when this interval is a legal strategy, paper, and live clock."""
+        return self.value in EXECUTION_TIMEFRAMES
+
+    @property
+    def requires_live_user_feed(self) -> bool:
+        """Sub-hour live pauses unless the authenticated user-order feed is connected."""
+        return self.duration < timedelta(hours=1)
 
 
 _INTERVAL_DURATIONS: dict[CandleInterval, timedelta] = {

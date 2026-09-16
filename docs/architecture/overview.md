@@ -12,9 +12,9 @@ professional workstation. Product destination is a Coinbase-first research and t
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
 implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
-authoring, backtests, and paper/live deployments of a published 1h or 5m strategy.
+authoring, backtests, and paper/live deployments of a published venue-clock strategy.
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
-6h, 1d, 1m, 2h, and 4h datasets; the execution worker evaluates closed 1h or 5m candles and submits maker orders
+6h, 1d, 1m, 2h, and 4h datasets; the execution worker evaluates closed venue candles and submits maker orders
 through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
 `thytrader-risk-policy-v1` registry before intent persist.
 
@@ -87,12 +87,13 @@ Paper and live share one execution worker and the same published strategy semant
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
 from Advanced Trade REST v3 is the live ledger. Phase 13 shipped 5m live, trailing stops, native
 brackets/OCO, and user-order WebSockets ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
-On-demand/discretionary orders remain deferred
-([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)).
+On-demand discretionary orders are shipped
+([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)).
 The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
 the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
-Destination clocks include every Coinbase-listed granularity (`1m`, `2h`, and `4h` among them); they
-are not legal strategy/paper/live clocks until a later ADR widens them.
+Every ingested venue granularity is a legal strategy, paper, live, discretionary, and HTF clock
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject
+`htf_filter`.
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:
@@ -119,10 +120,10 @@ Core automation is not implemented with cron. Containers or a service manager su
 The current `thytrader-worker` is a portfolio snapshot worker, not a strategy scheduler. The current
 market-data worker is independently supervised and owns historical market-data ingestion/publication
 plus the public Coinbase ticker-feed lifecycle and its durable feed-health evidence. Paper and live
-execution run in `thytrader-execution-worker`, which polls closed 1h or 5m candles over REST, evaluates
+execution run in `thytrader-execution-worker`, which polls closed venue candles over REST, evaluates
 the active risk policy before new entries, and talks to a paper broker or the Coinbase REST v3 adapter. Pause continues synthetic stop/time-exit handling and
 fill matching but blocks new entries; stop cancels resting orders. The worker replays contiguous
-missed closed bars after downtime and pauses when the latest bar is missing or gapped. Live 5m
+missed closed bars after downtime and pauses when the latest bar is missing or gapped. Sub-hour live
 pauses unless the authenticated user-order feed is connected. ATR trailing is durable on the
 position; live exits after fill are one Coinbase `trigger_bracket_gtc` OCO.
 

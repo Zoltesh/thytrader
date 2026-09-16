@@ -221,6 +221,40 @@ def test_parse_rejects_illegal_combinations() -> None:
         )
 
 
+def test_parse_accepts_ingested_venue_clocks() -> None:
+    """Discretionary books accept every ingested venue clock, including 1m."""
+    request = parse_discretionary_request(
+        mode="paper",
+        product_id="BTC-USD",
+        entry_kind="marketable",
+        stop_price="50000",
+        take_profit_price="200000",
+        origin="agent",
+        idempotency_key="disc-1m",
+        timeframe="1m",
+        quantity="0.01",
+        paper_starting_cash="10000",
+    )
+    assert request.timeframe == "1m"
+
+
+def test_parse_rejects_unknown_clock() -> None:
+    """A non-venue timeframe is not a discretionary book clock."""
+    with pytest.raises(ExecutionConflictError, match="ingested venue timeframe"):
+        parse_discretionary_request(
+            mode="paper",
+            product_id="BTC-USD",
+            entry_kind="marketable",
+            stop_price="1",
+            take_profit_price="3",
+            origin="agent",
+            idempotency_key="k",
+            timeframe="3h",
+            quantity="0.01",
+            paper_starting_cash="10000",
+        )
+
+
 @pytest.mark.anyio
 async def test_intent_persists_before_submit_with_unique_client_id() -> None:
     """The order intent is durable before the broker is called, with a unique client id."""

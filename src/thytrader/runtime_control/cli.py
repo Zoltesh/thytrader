@@ -16,6 +16,7 @@ from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     list_deployments,
@@ -98,7 +99,7 @@ def _parser() -> argparse.ArgumentParser:
         default="post_only_limit",
         choices=("post_only_limit", "marketable"),
     )
-    place.add_argument("--timeframe", default="5m", choices=("1h", "5m"))
+    place.add_argument("--timeframe", default="5m", choices=EXECUTION_TIMEFRAMES)
     place.add_argument("--quantity", default=None)
     place.add_argument("--quote-notional", default=None)
     place.add_argument("--limit-price", default=None)

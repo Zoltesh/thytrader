@@ -24,6 +24,7 @@
 		createDraft,
 		clonePublishedStrategy,
 		datasetEvaluationWindow,
+		EXECUTION_TIMEFRAMES,
 		fetchDraftVersion,
 		fetchStrategyHistory,
 		fetchStrategySource,
@@ -96,6 +97,7 @@
 	let launchError = $state<string | null>(null);
 	let launching = $state(false);
 	let draftTemplate = $state('ema-trend');
+	let draftTimeframe = $state('1h');
 	let studyKind = $state<'single' | 'oos_holdout' | 'walk_forward'>('single');
 	let oosFraction = $state('0.3');
 	let inSampleBars = $state('720');
@@ -484,7 +486,7 @@
 		const bounds = datasetEvaluationWindow(
 			dataset,
 			warmup,
-			viewModel?.timeframe === '5m' ? '5m' : '1h'
+			viewModel?.timeframe ?? '1h'
 		);
 		launchForm.evaluation_start = bounds.min;
 		launchForm.evaluation_end = bounds.max;
@@ -498,7 +500,7 @@
 		return datasetEvaluationWindow(
 			dataset,
 			viewModel?.warmup_bars ?? 0,
-			viewModel?.timeframe === '5m' ? '5m' : '1h'
+			viewModel?.timeframe ?? '1h'
 		);
 	}
 
@@ -818,7 +820,7 @@
 		pendingAction = 'create';
 		error = null;
 		try {
-			await createDraft({ template: draftTemplate });
+			await createDraft({ template: draftTemplate, timeframe: draftTimeframe });
 			await loadLibrary();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not create a strategy draft.';
@@ -945,6 +947,14 @@
 				<option value="rsi-mean-reversion">RSI mean reversion</option>
 				<option value="macd-trend">MACD trend</option>
 				<option value="bollinger-mean-reversion">Bollinger mean reversion</option>
+			</select></label
+		>
+		<label class="template-picker"
+			>Clock
+			<select bind:value={draftTimeframe} disabled={pendingAction !== null}>
+				{#each EXECUTION_TIMEFRAMES as clock (clock)}
+					<option value={clock}>{clock}</option>
+				{/each}
 			</select></label
 		>
 		<button class="secondary" type="button" onclick={openImport}>Import JSON…</button>
@@ -1698,9 +1708,10 @@
 				<div class="view-block">
 					<h3>Deploy</h3>
 					<p class="view-note">
-						Starts the strategy runtime on closed candles. <strong>Paper:</strong> 1h or 5m
-						(strategy clock); simulates maker fills. <strong>Live:</strong> 1h or 5m; places real
-						Coinbase spot orders. 5m live requires a connected user-order feed.
+						Starts the strategy runtime on closed candles. <strong>Paper:</strong> any ingested
+						venue clock (strategy clock); simulates maker fills. <strong>Live:</strong> the same
+						clocks; places real Coinbase spot orders. Sub-hour live requires a connected user-order
+						feed.
 					</p>
 					{#if publishedVersionsFor(viewEntry).length === 0}
 						<p class="view-note">Publish this strategy before deploying.</p>

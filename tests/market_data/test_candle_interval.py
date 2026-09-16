@@ -1,4 +1,4 @@
-"""Fifteen- and thirty-minute dataset intervals stay complete-only and off the execution clocks."""
+"""Every ingested venue interval is a complete-only dataset and an execution clock."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -29,24 +29,22 @@ def test_thirty_minute_duration_and_alignment() -> None:
     assert interval.align_closed_end(before_half) == datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 
 
-def test_fifteen_minute_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """15m datasets parse; paper/live still refuse that clock."""
+def test_fifteen_minute_is_an_execution_clock() -> None:
+    """15m datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("15m")
     assert interval is CandleInterval.FIFTEEN_MINUTES
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is True
     assert as_dataset_timeframe(interval) == "15m"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
-def test_thirty_minute_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """30m datasets parse; paper/live still refuse that clock."""
+def test_thirty_minute_is_an_execution_clock() -> None:
+    """30m datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("30m")
     assert interval is CandleInterval.THIRTY_MINUTES
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is True
     assert as_dataset_timeframe(interval) == "30m"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
 def test_six_hour_duration_and_alignment() -> None:
@@ -66,14 +64,13 @@ def test_six_hour_duration_and_alignment() -> None:
     assert interval.align_closed_end(eighteen) == eighteen
 
 
-def test_six_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """6h datasets parse; paper/live still refuse that clock."""
+def test_six_hour_is_an_execution_clock() -> None:
+    """6h datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("6h")
     assert interval is CandleInterval.SIX_HOURS
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is False
     assert as_dataset_timeframe(interval) == "6h"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
 def test_one_day_duration_and_alignment() -> None:
@@ -91,14 +88,13 @@ def test_one_day_duration_and_alignment() -> None:
     assert interval.align_closed_end(noon) == datetime(2026, 9, 13, 0, 0, tzinfo=UTC)
 
 
-def test_one_day_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """1d datasets parse; paper/live still refuse that clock."""
+def test_one_day_is_an_execution_clock() -> None:
+    """1d datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("1d")
     assert interval is CandleInterval.ONE_DAY
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is False
     assert as_dataset_timeframe(interval) == "1d"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
 def test_one_minute_duration_and_alignment() -> None:
@@ -114,14 +110,13 @@ def test_one_minute_duration_and_alignment() -> None:
     assert interval.align_closed_end(before_minute) == datetime(2026, 9, 15, 12, 33, tzinfo=UTC)
 
 
-def test_one_minute_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """1m datasets parse; paper/live still refuse that clock."""
+def test_one_minute_is_an_execution_clock() -> None:
+    """1m datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("1m")
     assert interval is CandleInterval.ONE_MINUTE
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is True
     assert as_dataset_timeframe(interval) == "1m"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
 def test_two_hour_duration_and_alignment() -> None:
@@ -141,14 +136,13 @@ def test_two_hour_duration_and_alignment() -> None:
     assert interval.align_closed_end(twenty_two) == twenty_two
 
 
-def test_two_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """2h datasets parse; paper/live still refuse that clock."""
+def test_two_hour_is_an_execution_clock() -> None:
+    """2h datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("2h")
     assert interval is CandleInterval.TWO_HOURS
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is False
     assert as_dataset_timeframe(interval) == "2h"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True
 
 
 def test_four_hour_duration_and_alignment() -> None:
@@ -170,11 +164,10 @@ def test_four_hour_duration_and_alignment() -> None:
     assert interval.align_closed_end(four) == four
 
 
-def test_four_hour_is_a_dataset_interval_not_an_execution_clock() -> None:
-    """4h datasets parse; paper/live still refuse that clock."""
+def test_four_hour_is_an_execution_clock() -> None:
+    """4h datasets parse and are a legal paper/live clock."""
     interval = parse_candle_interval("4h")
     assert interval is CandleInterval.FOUR_HOURS
-    assert interval.execution_supported is False
+    assert interval.execution_supported is True
+    assert interval.requires_live_user_feed is False
     assert as_dataset_timeframe(interval) == "4h"
-    assert CandleInterval.ONE_HOUR.execution_supported is True
-    assert CandleInterval.FIVE_MINUTES.execution_supported is True

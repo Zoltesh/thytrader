@@ -16,20 +16,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v11"
-EXPECTED_SCHEMA_REVISION = "0025"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v12"
+EXPECTED_SCHEMA_REVISION = "0026"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
     "thytrader-bar-backtest-v3",
 )
-PAPER_TIMEFRAMES: tuple[str, ...] = ("1h", "5m")
-LIVE_TIMEFRAMES: tuple[str, ...] = ("1h", "5m")
+PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
+LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 

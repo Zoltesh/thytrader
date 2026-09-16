@@ -27,7 +27,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
 )
-from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
 from thytrader.research.models import EvaluationWindow
 
 if TYPE_CHECKING:
@@ -152,7 +152,7 @@ class PlannedStudyWindow(_FrozenStudyModel):
     role: WindowRole
     fold_index: int = Field(ge=0)
     product_id: str
-    timeframe: Literal["1h", "5m"]
+    timeframe: DatasetTimeframe
     strategy_fingerprint: str
     dataset_fingerprint: str
     htf_dataset_fingerprint: str | None = None
@@ -171,7 +171,7 @@ class ResearchStudyPlan(_FrozenStudyModel):
     schema_version: Literal["thytrader-research-study-v1"] = STUDY_CONTRACT_VERSION
     kind: StudyKind
     request_fingerprint: str
-    timeframe: Literal["1h", "5m"]
+    timeframe: DatasetTimeframe
     windows: tuple[PlannedStudyWindow, ...] = Field(min_length=1)
     warnings: tuple[str, ...] = ()
 
@@ -438,13 +438,13 @@ def _require_cross_market(request: ResearchStudyRequest) -> None:
 def _plan_cross_market(
     request: ResearchStudyRequest,
     publications: dict[str, PublishedStrategy],
-) -> tuple[list[PlannedStudyWindow], Literal["1h", "5m"]]:
+) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit one full-window child per distinct product."""
     if request.markets is None:
         raise StudyPlanningError("cross_market studies require markets.")
     windows: list[PlannedStudyWindow] = []
     products: list[str] = []
-    timeframe: Literal["1h", "5m"] | None = None
+    timeframe: DatasetTimeframe | None = None
     for index, market in enumerate(request.markets):
         published = publications[market.strategy_fingerprint]
         product_id = published.definition.instrument.product_id
@@ -480,7 +480,7 @@ def _plan_single_market(
     request: ResearchStudyRequest,
     publications: dict[str, PublishedStrategy],
     warnings: list[str],
-) -> tuple[list[PlannedStudyWindow], Literal["1h", "5m"]]:
+) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit IS/OOS windows for holdout or walk-forward validation."""
     if request.strategy_fingerprint is None or request.dataset_fingerprint is None:
         raise StudyPlanningError("This study kind requires strategy and dataset fingerprints.")
@@ -583,12 +583,9 @@ def _walk_forward_splits(
     return tuple(folds)
 
 
-def _decision_timeframe(published: PublishedStrategy) -> Literal["1h", "5m"]:
+def _decision_timeframe(published: PublishedStrategy) -> DatasetTimeframe:
     """Read the published LTF clock without inventing unsupported intervals."""
-    timeframe = published.definition.timeframe
-    if timeframe == "5m":
-        return "5m"
-    return "1h"
+    return published.definition.timeframe
 
 
 def _bar_count(start: datetime, end: datetime, duration: timedelta) -> int:

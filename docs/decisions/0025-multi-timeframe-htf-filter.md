@@ -6,7 +6,8 @@
   [0008](0008-deterministic-signal-evaluation.md), [0009](0009-deterministic-bar-level-backtest-engine.md),
   [0018](0018-5m-paper-not-live.md), [0020](0020-complete-only-15m-datasets.md),
   [0021](0021-complete-only-30m-datasets.md), [0022](0022-complete-only-6h-datasets.md),
-  [0023](0023-complete-only-1d-datasets.md), [0026](0026-phase-9-single-output-indicator-catalog.md)
+  [0023](0023-complete-only-1d-datasets.md), [0026](0026-phase-9-single-output-indicator-catalog.md),
+  [0040](0040-venue-strategy-paper-live-htf-clocks.md)
 
 ## Context
 
@@ -85,6 +86,9 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
   `wma`, `momentum`, and `mfi` ([ADR 0029](0029-phase-9-wma-momentum-mfi.md)), and `macd` and
   `bollinger` ([ADR 0032](0032-phase-9-macd-bollinger.md))
   without changing HTF alignment or adding per-indicator timeframes.
+- [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) later widened LTF and HTF tokens to every
+  ingested venue clock. Alignment, last-completed HTF bars, and paper/live rejection of `htf_filter`
+  stay as decided here.
 
 ## Alternatives considered
 

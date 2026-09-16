@@ -537,9 +537,12 @@ async def _pause_five_minute_live_if_feed_down(
     store: ExecutionStore,
     user_feed_store: UserOrderFeedStateStore | None,
 ) -> bool:
-    """Pause 5m live when the user-order feed is down. True means the cycle must stop."""
+    """Pause sub-hour live when the user-order feed is down. True means the cycle must stop."""
     deployment = snapshot.deployment
-    if deployment.mode is not DeploymentMode.LIVE or timeframe != "5m":
+    if deployment.mode is not DeploymentMode.LIVE:
+        return False
+    interval = parse_candle_interval(timeframe)
+    if not interval.requires_live_user_feed:
         return False
     if await _user_feed_connected(user_feed_store):
         return False

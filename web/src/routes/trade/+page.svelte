@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
+	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
 
 	let productId = $state('BTC-USD');
 	let mode = $state<'paper' | 'live'>('paper');
-	let timeframe = $state<'1h' | '5m'>('5m');
+	let timeframe = $state<ExecutionTimeframe>('5m');
 	let entryKind = $state<'post_only_limit' | 'marketable'>('post_only_limit');
 	let limitPrice = $state('');
 	let quantity = $state('');
@@ -102,8 +103,9 @@
 		<label>
 			Clock
 			<select bind:value={timeframe}>
-				<option value="5m">5m</option>
-				<option value="1h">1h</option>
+				{#each EXECUTION_TIMEFRAMES as clock (clock)}
+					<option value={clock}>{clock}</option>
+				{/each}
 			</select>
 		</label>
 		<label>

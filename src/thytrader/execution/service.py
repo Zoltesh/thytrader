@@ -176,11 +176,13 @@ async def _load_published(
 
 
 def _require_execution_timeframe(mode: DeploymentMode, timeframe: str) -> None:
-    """Allow paper and live on closed 1h or 5m bars."""
+    """Allow paper and live on every ingested venue clock."""
     del mode
     interval = parse_candle_interval(timeframe)
     if not interval.execution_supported:
-        raise ExecutionConflictError("Paper and live deployments require a 1h or 5m timeframe.")
+        raise ExecutionConflictError(
+            "Paper and live deployments require an ingested venue timeframe."
+        )
 
 
 def parse_decimal(value: str | None) -> Decimal | None:
