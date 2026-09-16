@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from uuid import UUID  # noqa: TC003
 
+from thytrader.execution.fill_ledger import project_fill_economics
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
@@ -17,9 +18,6 @@ from thytrader.execution.models import (
     OrderStatus,
     Position,
 )
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 
 def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:
@@ -39,6 +37,7 @@ class InMemoryExecutionStore:
         self.positions: dict[tuple[UUID, str], Position] = {}
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
+        self._applied_fill_keys: set[tuple[UUID, str]] = set()
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
@@ -127,10 +126,61 @@ class InMemoryExecutionStore:
         """Insert one fill, ignoring exact venue-fill duplicates."""
         key = (fill.deployment_id, fill.venue_fill_id)
         if key in self._fill_keys:
-            return fill
+            return next(
+                (
+                    item
+                    for item in self.fills.values()
+                    if item.deployment_id == fill.deployment_id
+                    and item.venue_fill_id == fill.venue_fill_id
+                ),
+                fill,
+            )
         self._fill_keys.add(key)
         self.fills[fill.id] = fill
+        if fill.economics_applied_at is not None:
+            self._applied_fill_keys.add(key)
         return fill
+
+    async def apply_fill_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        fill: Fill,
+        order: Order,
+        cooldown_bars: int = 0,
+    ) -> tuple[bool, DeploymentSnapshot]:
+        """Insert fill evidence and apply economics in one in-memory step."""
+        snapshot = await self.get_deployment(deployment_id)
+        key = (fill.deployment_id, fill.venue_fill_id)
+        existing = next(
+            (
+                item
+                for item in snapshot.fills
+                if item.deployment_id == fill.deployment_id
+                and item.venue_fill_id == fill.venue_fill_id
+            ),
+            None,
+        )
+        if existing is not None and existing.economics_applied_at is not None:
+            return False, snapshot
+        if key not in self._fill_keys:
+            self._fill_keys.add(key)
+            self.fills[fill.id] = fill
+        projected, stamped = project_fill_economics(
+            snapshot,
+            fill=existing or fill,
+            order=order,
+            cooldown_bars=cooldown_bars,
+        )
+        self.fills[stamped.id] = stamped
+        self._applied_fill_keys.add(key)
+        self.deployments[projected.deployment.id] = projected.deployment
+        product_id = order.product_id or projected.deployment.product_id
+        if projected.position is not None:
+            self.positions[_position_key(deployment_id, product_id)] = projected.position
+        elif projected.deployment.phase.value == "flat":
+            self.positions.pop(_position_key(deployment_id, product_id), None)
+        return True, await self.get_deployment(deployment_id)
 
     async def save_position(
         self,

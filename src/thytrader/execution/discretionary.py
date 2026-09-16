@@ -676,7 +676,10 @@ async def _after_entry_submit(
             return await _pause(
                 current, store=store, detail="Filled entry has no local fill to apply."
             )
-        current = await apply_fill(current, fill=fill, order=filled, store=store, cooldown_bars=0)
+        if fill.economics_applied_at is None:
+            current = await apply_fill(
+                current, fill=fill, order=filled, store=store, cooldown_bars=0
+            )
         return await _ensure_exit_protection(
             current, candle=candle, product=product, broker=broker, store=store
         )

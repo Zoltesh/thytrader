@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -10,12 +11,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.execution.fill_ledger import project_fill_economics
 from thytrader.execution.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionConflictError,
     ExecutionStoreError,
     Fill,
     InstrumentRuntime,
@@ -114,21 +117,30 @@ class PostgresExecutionStore:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
 
-    async def save_deployment(self, deployment: Deployment) -> Deployment:
+    async def save_deployment(
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+    ) -> Deployment:
         """Replace mutable runtime fields for one existing deployment."""
-        statement = (
-            deployments.update()
-            .where(deployments.c.id == deployment.id)
-            .values(_deployment_values(deployment))
-        )
+        next_revision = deployment.revision + 1
+        values = _deployment_values(deployment)
+        values["revision"] = next_revision
+        statement = deployments.update().where(deployments.c.id == deployment.id)
+        if expected_revision is not None:
+            statement = statement.where(deployments.c.revision == expected_revision)
+        statement = statement.values(values)
         try:
             async with self._engine.begin() as connection:
                 result = await connection.execute(statement)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         if result.rowcount != 1:
+            if expected_revision is not None:
+                raise ExecutionConflictError("Deployment revision conflict.")
             raise ExecutionStoreError("Deployment was not found.")
-        return deployment
+        return replace(deployment, revision=next_revision)
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission."""
@@ -173,6 +185,9 @@ class PostgresExecutionStore:
                 "stop_trigger_price": statement.excluded.stop_trigger_price,
                 "take_profit_price": statement.excluded.take_profit_price,
                 "quantity": statement.excluded.quantity,
+                "parent_order_id": statement.excluded.parent_order_id,
+                "attached_child_venue_order_id": statement.excluded.attached_child_venue_order_id,
+                "pyramid_add": statement.excluded.pyramid_add,
             },
         )
         try:
@@ -195,6 +210,7 @@ class PostgresExecutionStore:
                 quantity=format(fill.quantity, "f"),
                 fee=format(fill.fee, "f"),
                 filled_at=fill.filled_at,
+                economics_applied_at=fill.economics_applied_at,
             )
             .on_conflict_do_nothing(constraint="ux_execution_fills_venue")
         )
@@ -204,6 +220,116 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return fill
+
+    async def apply_fill_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        fill: Fill,
+        order: Order,
+        cooldown_bars: int = 0,
+    ) -> tuple[bool, DeploymentSnapshot]:
+        """Insert fill evidence and apply economics in one database transaction."""
+        try:
+            async with self._engine.begin() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            select(deployments).where(deployments.c.id == deployment_id)
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None:
+                    raise ExecutionStoreError("Deployment was not found.")
+                deployment = _deployment_from_row(row)
+                snapshot = await _snapshot(connection, deployment)
+                existing = next(
+                    (
+                        item
+                        for item in snapshot.fills
+                        if item.venue_fill_id == fill.venue_fill_id
+                        and item.deployment_id == fill.deployment_id
+                    ),
+                    None,
+                )
+                if existing is not None and existing.economics_applied_at is not None:
+                    return False, snapshot
+                insert_statement = (
+                    insert(execution_fills)
+                    .values(
+                        id=fill.id,
+                        deployment_id=fill.deployment_id,
+                        order_id=fill.order_id,
+                        venue_fill_id=fill.venue_fill_id,
+                        price=format(fill.price, "f"),
+                        quantity=format(fill.quantity, "f"),
+                        fee=format(fill.fee, "f"),
+                        filled_at=fill.filled_at,
+                        economics_applied_at=None,
+                    )
+                    .on_conflict_do_nothing(constraint="ux_execution_fills_venue")
+                )
+                await connection.execute(insert_statement)
+                snapshot = await _snapshot(connection, deployment)
+                existing = next(
+                    (item for item in snapshot.fills if item.venue_fill_id == fill.venue_fill_id),
+                    fill,
+                )
+                if existing.economics_applied_at is not None:
+                    return False, snapshot
+                projected, stamped = project_fill_economics(
+                    snapshot, fill=existing, order=order, cooldown_bars=cooldown_bars
+                )
+                await connection.execute(
+                    execution_fills.update()
+                    .where(
+                        execution_fills.c.deployment_id == fill.deployment_id,
+                        execution_fills.c.venue_fill_id == fill.venue_fill_id,
+                    )
+                    .values(economics_applied_at=stamped.economics_applied_at)
+                )
+                next_revision = deployment.revision + 1
+                await connection.execute(
+                    deployments.update()
+                    .where(deployments.c.id == deployment_id)
+                    .values(
+                        **_deployment_values(projected.deployment),
+                        revision=next_revision,
+                    )
+                )
+                product_id = order.product_id or deployment.product_id
+                await connection.execute(
+                    delete(execution_positions).where(
+                        execution_positions.c.deployment_id == deployment_id,
+                        execution_positions.c.product_id == product_id,
+                    )
+                )
+                if projected.position is not None:
+                    position = projected.position
+                    stamped_product = position.product_id or product_id
+                    await connection.execute(
+                        insert(execution_positions).values(
+                            deployment_id=position.deployment_id,
+                            product_id=stamped_product,
+                            quantity=format(position.quantity, "f"),
+                            entry_price=format(position.entry_price, "f"),
+                            stop_price=format(position.stop_price, "f"),
+                            target_price=format(position.target_price, "f"),
+                            entered_bar=position.entered_bar,
+                            trail_extreme=_text(position.trail_extreme),
+                            side=position.side.value,
+                            add_count=position.add_count,
+                            updated_at=position.updated_at,
+                        )
+                    )
+                refreshed = await _snapshot(
+                    connection, replace(projected.deployment, revision=next_revision)
+                )
+                return True, refreshed
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
 
     async def save_position(
         self,
@@ -340,6 +466,9 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "cooldown_bars_remaining": deployment.cooldown_bars_remaining,
         "pending_stop_price": _text(deployment.pending_stop_price),
         "pending_target_price": _text(deployment.pending_target_price),
+        "revision": deployment.revision,
+        "worker_lease_holder": deployment.worker_lease_holder,
+        "worker_lease_expires_at": deployment.worker_lease_expires_at,
         "created_at": deployment.created_at,
         "updated_at": deployment.updated_at,
     }
@@ -363,6 +492,9 @@ def _order_values(order: Order) -> dict[str, object]:
         "status": order.status.value,
         "reject_reason": order.reject_reason,
         "product_id": order.product_id,
+        "parent_order_id": order.parent_order_id,
+        "attached_child_venue_order_id": order.attached_child_venue_order_id,
+        "pyramid_add": order.pyramid_add,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
     }
@@ -392,6 +524,9 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         cooldown_bars_remaining=row["cooldown_bars_remaining"],
         pending_stop_price=_decimal(row["pending_stop_price"]),
         pending_target_price=_decimal(row["pending_target_price"]),
+        revision=int(row["revision"]) if row.get("revision") is not None else 0,
+        worker_lease_holder=row.get("worker_lease_holder"),
+        worker_lease_expires_at=row.get("worker_lease_expires_at"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -415,6 +550,9 @@ def _order_from_row(row: RowMapping) -> Order:
         status=OrderStatus(row["status"]),
         reject_reason=row["reject_reason"],
         product_id=row["product_id"] if row["product_id"] is not None else "",
+        parent_order_id=row.get("parent_order_id"),
+        attached_child_venue_order_id=row.get("attached_child_venue_order_id"),
+        pyramid_add=bool(row.get("pyramid_add", False)),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -453,6 +591,7 @@ def _fill_from_row(row: RowMapping) -> Fill:
         quantity=Decimal(row["quantity"]),
         fee=Decimal(row["fee"]),
         filled_at=row["filled_at"],
+        economics_applied_at=row.get("economics_applied_at"),
     )
 
 

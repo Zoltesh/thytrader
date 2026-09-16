@@ -142,6 +142,9 @@ class Order:
     stop_trigger_price: Decimal | None = None
     take_profit_price: Decimal | None = None
     product_id: str = ""
+    parent_order_id: UUID | None = None
+    attached_child_venue_order_id: str | None = None
+    pyramid_add: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +160,7 @@ class Fill:
     fee: Decimal
     filled_at: datetime
     venue_order_id: str | None = None
+    economics_applied_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +207,9 @@ class Deployment:
     pending_target_price: Decimal | None = None
     kind: DeploymentKind = DeploymentKind.STRATEGY
     timeframe: str | None = None
+    revision: int = 0
+    worker_lease_holder: str | None = None
+    worker_lease_expires_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
