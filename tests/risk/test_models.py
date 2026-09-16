@@ -10,8 +10,10 @@ from thytrader.risk.models import (
     CapitalAllocation,
     RiskPolicyDefinition,
     RiskPolicySource,
+    RiskReasonCode,
     compiled_default_active_policy,
     compiled_default_risk_policy,
+    pauses_risk_increasing,
     risk_policy_fingerprint,
 )
 
@@ -28,6 +30,11 @@ def test_compiled_default_is_the_conservative_multi_asset_envelope() -> None:
     assert definition.max_portfolio_exposure_fraction == "1"
     assert definition.per_product_max_exposure_fraction == "1"
     assert definition.paper_capital_quote == "100000"
+    assert definition.daily_loss_limit_fraction == "1"
+    assert definition.max_strategy_drawdown_fraction == "1"
+    assert definition.max_entry_orders_per_minute == 60
+    assert definition.max_cancellations_per_minute == 60
+    assert definition.reference_price_collar_fraction == "0.5"
     active = compiled_default_active_policy()
     assert active.source is RiskPolicySource.COMPILED_DEFAULT
     assert active.policy_fingerprint == risk_policy_fingerprint(definition)
@@ -77,3 +84,12 @@ def test_allocations_must_fit_the_paper_book() -> None:
                 ),
             }
         )
+
+
+def test_only_daily_loss_and_drawdown_pause_risk_increasing() -> None:
+    """Rate and collar denies must not share the pause-on-breaker reason set."""
+    assert pauses_risk_increasing(RiskReasonCode.DAILY_LOSS_LIMIT) is True
+    assert pauses_risk_increasing(RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT) is True
+    assert pauses_risk_increasing(RiskReasonCode.ORDER_RATE_LIMIT) is False
+    assert pauses_risk_increasing(RiskReasonCode.REFERENCE_PRICE_COLLAR) is False
+    assert pauses_risk_increasing(RiskReasonCode.BREAKER_MARK_MISSING) is False

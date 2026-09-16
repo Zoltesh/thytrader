@@ -54,6 +54,11 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "make run" in skill
     assert "1h or 5m" not in skill
     assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
+    assert "daily_loss_limit_fraction" in schemas
+    assert "DAILY_LOSS_LIMIT" in schemas
+    assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
+    assert "risk_breakers" in schemas
+    assert "experiential_model_engines" in schemas
 
 
 def test_research_skill_requires_confirm_and_forbids_trading() -> None:
@@ -118,6 +123,9 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "/api/v1/deployments" in skill
     assert "show-risk-policy" in skill
     assert "set-risk-policy" in skill
+    assert "--daily-loss-limit-fraction" in skill
+    assert "--max-strategy-drawdown-fraction" in skill
+    assert "--reference-price-collar-fraction" in skill
     assert "/api/v1/risk-policy" in skill
     assert "place-order" in skill
     assert "/api/v1/discretionary-orders" in skill

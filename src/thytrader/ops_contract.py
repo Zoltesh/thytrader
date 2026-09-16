@@ -11,7 +11,8 @@ historical interval cap, the expected Alembic revision, the risk-policy
 registry contract, live extras (user-order feed / native OCO),
 experiential-memory persistence, experiential-model engines, discretionary-order
 identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
-spot shorting, attached entry brackets, or paper deploy fee fields change.
+spot shorting, attached entry brackets, paper deploy fee fields, or risk circuit
+breakers / order-rate limits / reference-price collars change.
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v17"
-EXPECTED_SCHEMA_REVISION = "0029"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v18"
+EXPECTED_SCHEMA_REVISION = "0030"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -38,6 +39,9 @@ INDICATOR_TIMEFRAME_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 POSITION_SIDES: tuple[str, ...] = ("long", "short")
 ATTACHED_ENTRY_BRACKETS: tuple[str, ...] = ("paper", "live")
 PAPER_DEPLOY_FEE_FIELDS: tuple[str, ...] = ("maker_fee_rate", "taker_fee_rate")
+RISK_BREAKERS: tuple[str, ...] = ("daily_loss", "drawdown")
+ORDER_RATE_LIMITS: tuple[str, ...] = ("entry", "cancel")
+REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -55,6 +59,9 @@ def expected_ops_contract() -> dict[str, object]:
         "attached_entry_brackets": list(ATTACHED_ENTRY_BRACKETS),
         "paper_deploy_fee_fields": list(PAPER_DEPLOY_FEE_FIELDS),
         "experiential_model_engines": list(EXPERIENTIAL_MODEL_ENGINES),
+        "risk_breakers": list(RISK_BREAKERS),
+        "order_rate_limits": list(ORDER_RATE_LIMITS),
+        "reference_price_collars": list(REFERENCE_PRICE_COLLARS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

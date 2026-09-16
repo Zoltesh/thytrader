@@ -75,6 +75,11 @@ classDiagram
     exposure fractions
     paper_capital_quote
     allocations
+    daily_loss_limit_fraction
+    max_strategy_drawdown_fraction
+    max_entry_orders_per_minute
+    max_cancellations_per_minute
+    reference_price_collar_fraction
   }
   class RiskVerdict {
     decision allow|deny

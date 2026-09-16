@@ -177,6 +177,33 @@ def _parser() -> argparse.ArgumentParser:
     set_policy.add_argument("--per-product-max-exposure-fraction", required=True)
     set_policy.add_argument("--paper-capital-quote", required=True)
     set_policy.add_argument(
+        "--daily-loss-limit-fraction",
+        default="1",
+        help="UTC-day realized plus unrealized loss cap as a fraction of the mode capital base.",
+    )
+    set_policy.add_argument(
+        "--max-strategy-drawdown-fraction",
+        default="1",
+        help="Per-strategy fill-ledger drawdown cap as a fraction of peak marked equity.",
+    )
+    set_policy.add_argument(
+        "--max-entry-orders-per-minute",
+        type=int,
+        default=60,
+        help="Rolling 60-second cap on new orders that blocks risk-increasing entries.",
+    )
+    set_policy.add_argument(
+        "--max-cancellations-per-minute",
+        type=int,
+        default=60,
+        help="Rolling 60-second cancel cap that blocks further risk-increasing entries.",
+    )
+    set_policy.add_argument(
+        "--reference-price-collar-fraction",
+        default="0.5",
+        help="Maximum |limit-last_close|/last_close for risk-increasing priced entries.",
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],
@@ -357,6 +384,11 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_portfolio_exposure_fraction": arguments.max_portfolio_exposure_fraction,
         "per_product_max_exposure_fraction": arguments.per_product_max_exposure_fraction,
         "paper_capital_quote": arguments.paper_capital_quote,
+        "daily_loss_limit_fraction": arguments.daily_loss_limit_fraction,
+        "max_strategy_drawdown_fraction": arguments.max_strategy_drawdown_fraction,
+        "max_entry_orders_per_minute": arguments.max_entry_orders_per_minute,
+        "max_cancellations_per_minute": arguments.max_cancellations_per_minute,
+        "reference_price_collar_fraction": arguments.reference_price_collar_fraction,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
     }
 

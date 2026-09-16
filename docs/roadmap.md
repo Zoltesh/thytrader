@@ -392,6 +392,23 @@ stay out. Ops contract is `thytrader-ops-contract-v17` / Alembic `0029`.
 model; `list-models` / `show-model` read it; research can attach the advisory without changing
 strategy semantics or placing orders.
 
+## Daily-loss, drawdown, rate limits, and collars — ✅ Shipped
+
+The Phase 10 registry now gates risk-increasing **entries** (not exits) with UTC-day daily-loss
+and per-strategy fill-ledger drawdown breakers, rolling 60-second order/cancel caps, and a
+last-close reference-price collar ([ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)).
+Daily-loss pauses every running book in that paper or live mode; drawdown pauses this book; rate
+and collar deny without pausing. Missing marks fail closed (`BREAKER_MARK_MISSING`) without
+pausing. Compiled defaults stay a permissive envelope (`"1"` / `60` / `"0.5"`). Schema stays
+`thytrader-risk-policy-v1`; omitted stored keys overlay those defaults. Alembic `0030`
+revises trainer `0029` with an overlay comment and does not rewrite stored policy JSON.
+Ops contract is `thytrader-ops-contract-v18` / Alembic `0030`. `--confirm` and
+`--i-understand-live` are unchanged. Extra exchanges stay out.
+
+**Exit gate met:** drawdown pause after a stop; collar skip without pause; daily-loss deny in the
+entry gate; operator `risk` reports fractions/ints and `DAILY_LOSS_LIMIT` /
+`STRATEGY_DRAWDOWN_LIMIT`.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -400,7 +417,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Capability | Shipped today | Destination |
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
-| Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations); on-demand entries use the same registry | Daily-loss / drawdown breakers, order-rate limits, reference-price collars |
+| Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations); on-demand entries use the same registry; daily-loss / drawdown breakers, order-rate limits, and reference-price collars ([ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)) | Max order qty/notional beyond exposure fractions; consecutive-error breaker; kill-switch vs trapped-position behavior |
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)) | Intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
@@ -566,7 +583,7 @@ verified dataset fingerprint. Unsupported sizing/stop variants and a visual node
   observed order-book data or a live-fill prediction.
 - ✅ `thytrader-bar-backtest-v3` maker-limit bar fills. Bar-level latency, rejection, and
   partial-fill models beyond that V3 contract, and full order-book queue simulation, remain deferred.
-- ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later.
+- ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Daily-loss / drawdown, order-rate limits, and collars are ADR 0050. Intra-strategy pyramiding and multi-instrument strategy documents remain later.
 - ✅ ATR-multiple trailing-stop state machine in backtest, paper, and live (Phase 13 / ADR 0036).
 - ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps, WFO, and stitched OOS equity shipped as ADR 0044.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
@@ -582,7 +599,7 @@ versions.
 Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +
 `post_only`); stops and time-exits are marketable sells. Live orders use Advanced Trade REST v3 JSON
 with `RESTClient` only as signed HTTP. Phase 13 extras are shipped. Remaining deferred: operator
-runbook drills; destination circuit breakers listed above.
+runbook drills; destination remainders in the table above.
 
 **Exit gate met for the research slice:** reference-strategy results are deterministic, disclose
 assumptions, resist lookahead, and pass adversarial fill/risk tests.

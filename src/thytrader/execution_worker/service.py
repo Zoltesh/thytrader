@@ -350,6 +350,13 @@ async def _evaluate_strategy_due_bars(
             live_base_available = await _currency_available(
                 quote_reader, base_currency(product.product_id)
             )
+        marks = await _portfolio_marks(
+            market_data,
+            portfolio=portfolio,
+            fallback_timeframe=strategy.timeframe,
+            current_product_id=product.product_id,
+            current_close=candle.close,
+        )
         await process_closed_bar(
             current,
             strategy=strategy,
@@ -362,6 +369,7 @@ async def _evaluate_strategy_due_bars(
             htf_candles=htf_candles,
             indicator_timeframe_candles=extra_candles,
             live_base_available=live_base_available,
+            marks=marks,
         )
 
 
@@ -669,6 +677,38 @@ async def _currency_available(reader: QuoteBalanceReader, currency: str) -> Deci
         if balance.currency == currency:
             return balance.available
     return None
+
+
+async def _portfolio_marks(
+    market_data: MarketDataService,
+    *,
+    portfolio: Sequence[DeploymentSnapshot],
+    fallback_timeframe: str,
+    current_product_id: str,
+    current_close: Decimal,
+) -> dict[str, Decimal]:
+    """Last-close marks for occupied products so mode-wide daily-loss can fail closed."""
+    marks: dict[str, Decimal] = {current_product_id: current_close}
+    for snapshot in portfolio:
+        product_id = snapshot.deployment.product_id
+        if product_id in marks:
+            continue
+        timeframe = snapshot.deployment.timeframe or fallback_timeframe
+        close = await _last_close(market_data, product_id=product_id, timeframe=timeframe)
+        if close is not None:
+            marks[product_id] = close
+    return marks
+
+
+async def _last_close(
+    market_data: MarketDataService, *, product_id: str, timeframe: str
+) -> Decimal | None:
+    """Return the latest complete close, or None when that window is empty."""
+    preview = await market_data.get_preview(product_id, parse_candle_interval(timeframe))
+    candles = preview.quality.candles
+    if not candles:
+        return None
+    return candles[-1].close
 
 
 async def _occupied_snapshots(

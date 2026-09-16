@@ -443,6 +443,11 @@ class OperatorDiagnostics:
                 live_running_deployments=live_running,
                 paper_open_positions=paper_open,
                 live_open_positions=live_open,
+                daily_loss_limit_fraction=policy.daily_loss_limit_fraction,
+                max_strategy_drawdown_fraction=policy.max_strategy_drawdown_fraction,
+                max_entry_orders_per_minute=policy.max_entry_orders_per_minute,
+                max_cancellations_per_minute=policy.max_cancellations_per_minute,
+                reference_price_collar_fraction=policy.reference_price_collar_fraction,
                 findings=findings,
             ),
         )
@@ -1151,36 +1156,19 @@ class OperatorDiagnostics:
         return candles[-1].close
 
     async def _risk_findings(self) -> tuple[tuple[RiskFinding, ...], list[ComponentReport]]:
-        """Collect pause and mismatch observations from deployments."""
+        """Collect pause, breaker, and mismatch observations from deployments."""
         components: list[ComponentReport] = []
         findings: list[RiskFinding] = []
         deployments = await self.execution.list_deployments()
         for deployment in deployments:
-            if deployment.status is DeploymentStatus.PAUSED:
-                findings.append(
-                    RiskFinding(
-                        reason_code="DEPLOYMENT_PAUSED",
-                        deployment_id=deployment.id,
-                        detail=(
-                            deployment.mismatch_detail or "Operator or runtime pause is in effect."
-                        ),
-                    )
-                )
-            if deployment.mismatch_detail:
-                findings.append(
-                    RiskFinding(
-                        reason_code="STATE_MISMATCH",
-                        deployment_id=deployment.id,
-                        detail=deployment.mismatch_detail[:500],
-                    )
-                )
+            findings.extend(_deployment_risk_findings(deployment))
         if findings:
             components.append(
                 ComponentReport(
                     name="runtime_risk",
                     status=ReportStatus.DEGRADED,
                     reason_code="FINDINGS_PRESENT",
-                    detail="One or more deployments are paused or mismatched.",
+                    detail="One or more deployments are paused, mismatched, or breaker-tripped.",
                 )
             )
         return tuple(findings), components
@@ -1307,6 +1295,38 @@ def _monitor_components(snapshot: MonitorSnapshot) -> list[ComponentReport]:
             )
         )
     return components
+
+
+_BREAKER_FINDING_CODES = {"DAILY_LOSS_LIMIT", "STRATEGY_DRAWDOWN_LIMIT"}
+
+
+def _deployment_risk_findings(deployment: Deployment) -> tuple[RiskFinding, ...]:
+    """Emit pause, mismatch, and breaker-trip findings for one deployment."""
+    findings: list[RiskFinding] = []
+    if deployment.status is DeploymentStatus.PAUSED:
+        findings.append(
+            RiskFinding(
+                reason_code="DEPLOYMENT_PAUSED",
+                deployment_id=deployment.id,
+                detail=deployment.mismatch_detail or "Operator or runtime pause is in effect.",
+            )
+        )
+    detail = deployment.mismatch_detail
+    if not detail:
+        return tuple(findings)
+    findings.append(
+        RiskFinding(
+            reason_code="STATE_MISMATCH",
+            deployment_id=deployment.id,
+            detail=detail[:500],
+        )
+    )
+    prefix = detail.split(":", 1)[0]
+    if prefix in _BREAKER_FINDING_CODES:
+        findings.append(
+            RiskFinding(reason_code=prefix, deployment_id=deployment.id, detail=detail[:500])
+        )
+    return tuple(findings)
 
 
 def _mode_slot_counts(deployments: tuple[Deployment, ...], mode: DeploymentMode) -> tuple[int, int]:

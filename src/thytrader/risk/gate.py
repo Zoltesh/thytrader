@@ -16,6 +16,11 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
+from thytrader.risk.breakers import (
+    EntryObservation,
+    evaluate_circuit_breakers,
+    evaluate_rate_and_collar,
+)
 from thytrader.risk.models import (
     RiskDecision,
     RiskPolicyDefinition,
@@ -75,13 +80,74 @@ def evaluate_new_entry(
     proposed: ProposedEntry,
     snapshots: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None = None,
+    observation: EntryObservation | None = None,
 ) -> RiskVerdict:
-    """Allow a risk-increasing entry only when open-position and exposure caps permit it."""
+    """Allow a risk-increasing entry only when slots, exposure, and breakers permit it."""
     occupied = tuple(
         item
         for item in snapshots
         if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
     )
+    membership = _entry_membership(policy, proposed=proposed, occupied=occupied)
+    if membership.decision is RiskDecision.DENY:
+        return membership
+    exposure = _exposure_verdict(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=occupied,
+        live_quote_cash=live_quote_cash,
+    )
+    if exposure.decision is RiskDecision.DENY:
+        return exposure
+    return _entry_breaker_verdict(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=occupied,
+        live_quote_cash=live_quote_cash,
+        observation=observation,
+    )
+
+
+def evaluate_runtime_breakers(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    snapshot: DeploymentSnapshot,
+    snapshots: Sequence[DeploymentSnapshot],
+    live_quote_cash: Decimal | None,
+    observation: EntryObservation,
+) -> RiskVerdict:
+    """Pause-worthy daily-loss and drawdown checks without rate or collar gates."""
+    occupied = tuple(
+        item
+        for item in snapshots
+        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
+    )
+    existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
+    tripped = evaluate_circuit_breakers(
+        policy,
+        mode=mode,
+        proposed_product_id=snapshot.deployment.product_id,
+        proposed_strategy_id=snapshot.deployment.strategy_id,
+        snapshots=occupied,
+        observation=observation,
+        capital=capital,
+    )
+    if tripped is None:
+        return _allow()
+    return tripped
+
+
+def _entry_membership(
+    policy: RiskPolicyDefinition,
+    *,
+    proposed: ProposedEntry,
+    occupied: Sequence[DeploymentSnapshot],
+) -> RiskVerdict:
+    """Apply allowlist, allocation membership, and open-position slot caps."""
     allowlisted = _allowlist_verdict(policy, proposed.product_id)
     if allowlisted.decision is RiskDecision.DENY:
         return allowlisted
@@ -94,13 +160,40 @@ def evaluate_new_entry(
             RiskReasonCode.MAX_OPEN_POSITIONS,
             "Open and pending positions already use every concurrent slot for this mode.",
         )
-    return _exposure_verdict(
+    return _allow()
+
+
+def _entry_breaker_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    occupied: Sequence[DeploymentSnapshot],
+    live_quote_cash: Decimal | None,
+    observation: EntryObservation | None,
+) -> RiskVerdict:
+    """Apply daily-loss, drawdown, rate, and collar gates when observation is present."""
+    if observation is None:
+        return _allow()
+    existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
+    tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
-        proposed=proposed,
-        occupied=occupied,
-        live_quote_cash=live_quote_cash,
+        proposed_product_id=proposed.product_id,
+        proposed_strategy_id=proposed.strategy_id,
+        snapshots=occupied,
+        observation=observation,
+        capital=capital,
     )
+    if tripped is not None:
+        return tripped
+    protected = evaluate_rate_and_collar(
+        policy, mode=mode, snapshots=occupied, observation=observation
+    )
+    if protected is not None:
+        return protected
+    return _allow()
 
 
 def _paper_deploy_capital(

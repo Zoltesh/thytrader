@@ -176,6 +176,25 @@ def ledger_from_snapshot(
     )
 
 
+def realized_pnl_since(snapshot: DeploymentSnapshot, *, since: datetime) -> Decimal:
+    """Return realized PnL attributed to fills at or after ``since``."""
+    fills = ledger_fills_from_snapshot(snapshot)
+    state = _LotState(
+        quantity=Decimal("0"),
+        entry_price=None,
+        entry_fees=Decimal("0"),
+        realized=Decimal("0"),
+        trade_count=0,
+    )
+    attributed = Decimal("0")
+    for fill in fills:
+        before = state.realized
+        state = _fold_buy(state, fill) if fill.side is OrderSide.BUY else _fold_sell(state, fill)
+        if fill.filled_at >= since:
+            attributed += state.realized - before
+    return attributed
+
+
 def mark_deployment_ledger(
     *,
     starting_cash: Decimal,

@@ -46,18 +46,24 @@ Risk controls are composable, independently testable policies with typed configu
 
 ### Shipped (Phase 10)
 
-`thytrader-risk-policy-v1` is the named Phase 10 registry ([ADR 0033](decisions/0033-phase-10-risk-policy-registry.md)).
+`thytrader-risk-policy-v1` is the named Phase 10 registry ([ADR 0033](decisions/0033-phase-10-risk-policy-registry.md),
+extended by [ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)).
 It gates paper and live **entries** (not exits) with:
 
 - product allowlist (empty means no extra restriction);
 - concurrent running-deployment and open-position caps per mode (paused occupies a running slot;
   open, pending-entry, and pending-exit occupy an open slot);
 - portfolio and per-product exposure fractions of the mode capital base;
-- paper book `paper_capital_quote` and optional per-strategy `allocations`.
+- paper book `paper_capital_quote` and optional per-strategy `allocations`;
+- UTC-day daily-loss fraction of the mode capital base;
+- per-strategy fill-ledger drawdown fraction;
+- rolling 60-second entry-order and cancellation caps;
+- last-close reference-price collar for priced risk-increasing orders.
 
 Compiled default when no published row is active: eight running slots and eight open positions per
-mode, unit exposure fractions, empty allowlist/allocations, paper book `100000`. Operator `risk`
-reports `available` and omits account balances. Discretionary entries use this same registry;
+mode, unit exposure and breaker fractions, 60 orders/cancels per minute, collar `0.5`, empty
+allowlist/allocations, paper book `100000`. Operator `risk` reports `available` and omits account
+balances (fractions and integers are allowed). Discretionary entries use this same registry;
 nonempty allocations deny them.
 
 ### Shipped execution and runtime controls
@@ -66,6 +72,10 @@ These are already product behavior (not destination remainders):
 
 - product allowlist (Phase 10; empty means no extra restriction);
 - portfolio and per-product exposure fractions of the mode capital base;
+- daily realized plus unrealized loss limit (UTC day; pauses the mode);
+- per-strategy fill-ledger drawdown limit (pauses that book);
+- order and cancellation rate limits (rolling 60s; deny without pause);
+- reference-price collar versus last close (deny without pause);
 - duplicate/idempotency protection (unique client order IDs; persist intent before submit;
   reconcile ambiguous timeouts before retry);
 - post-only enforcement for normal maker entries and ordinary take-profit exits;
@@ -73,22 +83,17 @@ These are already product behavior (not destination remainders):
   connections);
 - exchange reconciliation on restart and after ambiguous submit.
 
-Daily-loss / drawdown circuit breakers, order-rate limits, and reference-price collars remain
-destination. The lists below keep those remainders visible; they do **not** re-list the shipped
+The lists below keep remaining destination controls visible; they do **not** re-list the shipped
 controls above.
 
 ### Pre-trade (destination remainders)
 
 - maximum order quantity and notional beyond the shipped exposure fractions;
 - available-balance reserve;
-- reference-price collar;
 - minimum liquidity and maximum spread.
 
 ### Runtime (destination remainders)
 
-- daily realized/unrealized loss limit;
-- per-strategy drawdown limit;
-- order and cancellation rate limits;
 - consecutive error/rejection circuit breaker;
 - heartbeat and clock-skew monitoring beyond existing worker supervision;
 - per-strategy and global kill switches beyond pause/stop (disarming vs trapped-position behavior).

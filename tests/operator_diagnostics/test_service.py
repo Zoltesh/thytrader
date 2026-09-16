@@ -189,6 +189,8 @@ def test_risk_report_is_available_without_dollar_amounts() -> None:
     assert report.payload.policy_source == "compiled_default"
     assert report.payload.policy_fingerprint.startswith("sha256:")
     assert report.payload.max_concurrent_running_deployments == 8
+    assert report.payload.daily_loss_limit_fraction == "1"
+    assert report.payload.max_entry_orders_per_minute == 60
     dumped = report.model_dump(mode="json")
     assert "paper_capital_quote" not in dumped
     assert "cash" not in dumped

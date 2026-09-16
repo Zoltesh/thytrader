@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0029`):
+Current checkout (Alembic `0030`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v17` |
-| `expected_schema_revision` | `0029` |
+| `id` | `thytrader-ops-contract-v18` |
+| `expected_schema_revision` | `0030` |
 | `max_historical_interval_count` | `129600` |
 | `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
@@ -23,11 +23,14 @@ Current checkout (Alembic `0029`):
 | `attached_entry_brackets` | `paper`, `live` |
 | `paper_deploy_fee_fields` | `maker_fee_rate`, `taker_fee_rate` |
 | `experiential_model_engines` | `thytrader-experiential-train-v1` |
+| `risk_breakers` | `daily_loss`, `drawdown` |
+| `order_rate_limits` | `entry`, `cancel` |
+| `reference_price_collars` | `paper`, `live` |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v17
+    id thytrader-ops-contract-v18
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -38,7 +41,10 @@ classDiagram
     attached_entry_brackets
     paper_deploy_fee_fields
     experiential_model_engines
-    expected_schema_revision 0029
+    risk_breakers
+    order_rate_limits
+    reference_price_collars
+    expected_schema_revision 0030
   }
   class HealthPayload {
     api_probed
@@ -69,8 +75,10 @@ flowchart TD
 Bump `OPS_CONTRACT_ID` when paper/live clocks, engines, the interval cap, the
 expected Alembic revision, risk-policy registry, live extras, memory
 persistence, experiential-model engines, discretionary identity, HTF evaluation,
-per-indicator clocks, spot shorting, attached entry brackets, or paper deploy
-fee fields change
+per-indicator clocks, spot shorting, attached entry brackets, paper deploy fee
+fields, or risk circuit breakers / order-rate limits / reference-price collars
+change
 ([ADR 0019](../../decisions/0019-ops-contract-identity.md),
 [ADR 0048](../../decisions/0048-paper-deploy-fee-fields.md),
-[ADR 0049](../../decisions/0049-experiential-train-v1.md)).
+[ADR 0049](../../decisions/0049-experiential-train-v1.md),
+[ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md)).

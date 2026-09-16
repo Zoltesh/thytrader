@@ -28,6 +28,7 @@ from thytrader.execution.loop import (
     _flatten_pending,
     _match_resting_orders,
     _pause,
+    _pause_mode_running,
     _persist_runtime,
     apply_fill,
 )
@@ -52,11 +53,14 @@ from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
+from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
-from thytrader.risk.models import RiskDecision
+from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
 from thytrader.risk.store import load_effective_policy
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
@@ -186,6 +190,8 @@ async def place_discretionary_order(
         risk_store=risk_store,
         notional=sized.notional,
         live_quote_cash=live_quote_cash,
+        entry_price=sized.entry_price,
+        reference_price=mark_candle.close,
     )
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
     pending = with_runtime(
@@ -376,6 +382,8 @@ async def _book_for_entry(
     risk_store: RiskPolicyStore | None,
     notional: Decimal,
     live_quote_cash: Decimal | None,
+    entry_price: Decimal,
+    reference_price: Decimal,
 ) -> DeploymentSnapshot:
     """Reuse a flat running book or create one after the risk gate admits it."""
     existing = await store.list_deployments()
@@ -385,11 +393,14 @@ async def _book_for_entry(
         snapshot = await store.get_deployment(reusable.id)
         await _require_entry_admission(
             risk_store,
+            store=store,
             request=request,
             snapshot=snapshot,
             notional=notional,
             live_quote_cash=live_quote_cash,
             deployments=existing,
+            entry_price=entry_price,
+            reference_price=reference_price,
         )
         return snapshot
     _reject_occupied_book(existing, product_id=request.product_id, mode=request.mode)
@@ -401,11 +412,14 @@ async def _book_for_entry(
     candidate = _new_discretionary_book(request, live_quote_cash=live_quote_cash)
     await _require_entry_admission(
         risk_store,
+        store=store,
         request=request,
         snapshot=DeploymentSnapshot(deployment=candidate),
         notional=notional,
         live_quote_cash=live_quote_cash,
         deployments=existing,
+        entry_price=entry_price,
+        reference_price=reference_price,
     )
     created = await store.create_deployment(candidate)
     return await store.get_deployment(created.id)
@@ -526,18 +540,19 @@ async def _require_book_admission(
 async def _require_entry_admission(
     risk_store: RiskPolicyStore | None,
     *,
+    store: ExecutionStore,
     request: DiscretionaryOrderRequest,
     snapshot: DeploymentSnapshot,
     notional: Decimal,
     live_quote_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
+    entry_price: Decimal,
+    reference_price: Decimal,
 ) -> None:
     """Fail closed when the registry rejects this sized entry."""
     active = await load_effective_policy(risk_store)
-    peers = tuple(
-        DeploymentSnapshot(deployment=item)
-        for item in deployments
-        if item.id != snapshot.deployment.id and item.status in _OCCUPIED
+    peers = await _occupied_snapshots(
+        store, deployments=deployments, exclude_id=snapshot.deployment.id
     )
     live_cash = live_quote_cash if request.mode is DeploymentMode.LIVE else None
     verdict = evaluate_new_entry(
@@ -550,9 +565,64 @@ async def _require_entry_admission(
         ),
         snapshots=(*peers, snapshot),
         live_quote_cash=live_cash,
+        observation=EntryObservation(
+            as_of=utc_now(),
+            proposed_price=entry_price,
+            reference_price=reference_price,
+            marks={request.product_id: reference_price},
+        ),
     )
-    if verdict.decision is RiskDecision.DENY:
-        raise ExecutionConflictError(verdict.detail)
+    if verdict.decision is RiskDecision.ALLOW:
+        return
+    await _pause_on_breaker(
+        store=store,
+        request=request,
+        snapshot=snapshot,
+        deployments=deployments,
+        peers=peers,
+        verdict=verdict,
+    )
+    raise ExecutionConflictError(verdict.detail)
+
+
+async def _pause_on_breaker(
+    *,
+    store: ExecutionStore,
+    request: DiscretionaryOrderRequest,
+    snapshot: DeploymentSnapshot,
+    deployments: tuple[Deployment, ...],
+    peers: tuple[DeploymentSnapshot, ...],
+    verdict: RiskVerdict,
+) -> None:
+    """Pause this book, or the whole mode on daily-loss, when the gate trips."""
+    if not pauses_risk_increasing(verdict.reason_code):
+        return
+    detail = f"{verdict.reason_code.value}: {verdict.detail}"
+    if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
+        await _pause_mode_running(
+            store=store,
+            mode=request.mode,
+            portfolio=(*peers, snapshot),
+            detail=detail,
+        )
+        return
+    if any(item.id == snapshot.deployment.id for item in deployments):
+        await _pause(snapshot, store=store, detail=detail)
+
+
+async def _occupied_snapshots(
+    store: ExecutionStore,
+    *,
+    deployments: tuple[Deployment, ...],
+    exclude_id: UUID,
+) -> tuple[DeploymentSnapshot, ...]:
+    """Load occupied peer books so breakers see fills, orders, and inventory."""
+    peers: list[DeploymentSnapshot] = []
+    for item in deployments:
+        if item.id == exclude_id or item.status not in _OCCUPIED:
+            continue
+        peers.append(await store.get_deployment(item.id))
+    return tuple(peers)
 
 
 async def _after_entry_submit(

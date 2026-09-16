@@ -20,6 +20,18 @@ RISK_POLICY_SCHEMA_VERSION: Literal["thytrader-risk-policy-v1"] = "thytrader-ris
 COMPILED_POLICY_ID = UUID("01978a3e-5f2c-7d10-b3a4-0000000000aa")
 _FINGERPRINT_PREFIX = "sha256:"
 _PRODUCT_PATTERN = r"^[A-Z0-9]{2,20}-USD$"
+DEFAULT_DAILY_LOSS_LIMIT_FRACTION = "1"
+DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION = "1"
+DEFAULT_MAX_ENTRY_ORDERS_PER_MINUTE = 60
+DEFAULT_MAX_CANCELLATIONS_PER_MINUTE = 60
+DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION = "0.5"
+_LEGACY_BREAKER_KEYS: tuple[str, ...] = (
+    "daily_loss_limit_fraction",
+    "max_strategy_drawdown_fraction",
+    "max_entry_orders_per_minute",
+    "max_cancellations_per_minute",
+    "reference_price_collar_fraction",
+)
 
 
 class RiskPolicySource(StrEnum):
@@ -49,6 +61,13 @@ class RiskReasonCode(StrEnum):
     PORTFOLIO_EXPOSURE_EXCEEDED = "PORTFOLIO_EXPOSURE_EXCEEDED"
     PRODUCT_EXPOSURE_EXCEEDED = "PRODUCT_EXPOSURE_EXCEEDED"
     DISCRETIONARY_NOT_ALLOCATED = "DISCRETIONARY_NOT_ALLOCATED"
+    DAILY_LOSS_LIMIT = "DAILY_LOSS_LIMIT"
+    STRATEGY_DRAWDOWN_LIMIT = "STRATEGY_DRAWDOWN_LIMIT"
+    ORDER_RATE_LIMIT = "ORDER_RATE_LIMIT"
+    CANCEL_RATE_LIMIT = "CANCEL_RATE_LIMIT"
+    REFERENCE_PRICE_COLLAR = "REFERENCE_PRICE_COLLAR"
+    REFERENCE_PRICE_UNAVAILABLE = "REFERENCE_PRICE_UNAVAILABLE"
+    BREAKER_MARK_MISSING = "BREAKER_MARK_MISSING"
 
 
 class _FrozenModel(BaseModel):
@@ -86,6 +105,15 @@ class RiskPolicyDefinition(_FrozenModel):
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
     allocations: tuple[CapitalAllocation, ...] = ()
+    daily_loss_limit_fraction: DecimalText = DEFAULT_DAILY_LOSS_LIMIT_FRACTION
+    max_strategy_drawdown_fraction: DecimalText = DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION
+    max_entry_orders_per_minute: int = Field(
+        default=DEFAULT_MAX_ENTRY_ORDERS_PER_MINUTE, ge=1, le=1000
+    )
+    max_cancellations_per_minute: int = Field(
+        default=DEFAULT_MAX_CANCELLATIONS_PER_MINUTE, ge=1, le=1000
+    )
+    reference_price_collar_fraction: DecimalText = DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION
 
     @field_validator("product_allowlist")
     @classmethod
@@ -105,13 +133,19 @@ class RiskPolicyDefinition(_FrozenModel):
                 raise ValueError("product_allowlist entries must be BASE-USD spot products")
         return value
 
-    @field_validator("max_portfolio_exposure_fraction", "per_product_max_exposure_fraction")
+    @field_validator(
+        "max_portfolio_exposure_fraction",
+        "per_product_max_exposure_fraction",
+        "daily_loss_limit_fraction",
+        "max_strategy_drawdown_fraction",
+        "reference_price_collar_fraction",
+    )
     @classmethod
     def require_unit_fraction(cls, value: str) -> str:
-        """Keep exposure caps in (0, 1]."""
+        """Keep exposure, breaker, and collar caps in (0, 1]."""
         parsed = Decimal(value)
         if parsed <= 0 or parsed > 1:
-            raise ValueError("exposure fractions must be greater than 0 and at most 1")
+            raise ValueError("fractions must be greater than 0 and at most 1")
         return value
 
     @field_validator("paper_capital_quote")
@@ -144,6 +178,15 @@ class RiskPolicyWrite(_FrozenModel):
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
     allocations: tuple[CapitalAllocation, ...] = ()
+    daily_loss_limit_fraction: DecimalText = DEFAULT_DAILY_LOSS_LIMIT_FRACTION
+    max_strategy_drawdown_fraction: DecimalText = DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION
+    max_entry_orders_per_minute: int = Field(
+        default=DEFAULT_MAX_ENTRY_ORDERS_PER_MINUTE, ge=1, le=1000
+    )
+    max_cancellations_per_minute: int = Field(
+        default=DEFAULT_MAX_CANCELLATIONS_PER_MINUTE, ge=1, le=1000
+    )
+    reference_price_collar_fraction: DecimalText = DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION
 
 
 class ActiveRiskPolicy(_FrozenModel):
@@ -174,6 +217,11 @@ def compiled_default_risk_policy() -> RiskPolicyDefinition:
         per_product_max_exposure_fraction="1",
         paper_capital_quote="100000",
         allocations=(),
+        daily_loss_limit_fraction=DEFAULT_DAILY_LOSS_LIMIT_FRACTION,
+        max_strategy_drawdown_fraction=DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION,
+        max_entry_orders_per_minute=DEFAULT_MAX_ENTRY_ORDERS_PER_MINUTE,
+        max_cancellations_per_minute=DEFAULT_MAX_CANCELLATIONS_PER_MINUTE,
+        reference_price_collar_fraction=DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION,
     )
 
 
@@ -204,3 +252,40 @@ def compiled_default_active_policy() -> ActiveRiskPolicy:
         policy_fingerprint=risk_policy_fingerprint(definition),
         source=RiskPolicySource.COMPILED_DEFAULT,
     )
+
+
+def pauses_risk_increasing(reason_code: RiskReasonCode) -> bool:
+    """True when a tripped daily-loss or drawdown breaker must pause entries."""
+    return reason_code in {
+        RiskReasonCode.DAILY_LOSS_LIMIT,
+        RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT,
+    }
+
+
+def stored_canonical_fingerprint(raw: str) -> str:
+    """Return the SHA-256 identity of stored canonical policy bytes."""
+    digest = sha256(raw.encode("utf-8")).hexdigest()
+    return f"{_FINGERPRINT_PREFIX}{digest}"
+
+
+def definition_from_stored_json(raw: str) -> RiskPolicyDefinition:
+    """Revalidate stored JSON, overlaying compiled breaker defaults when omitted."""
+    loaded: object = json.loads(raw)
+    if not isinstance(loaded, dict):
+        raise TypeError("canonical risk policy must be a JSON object")
+    payload: dict[str, object] = {}
+    for key, value in loaded.items():
+        if not isinstance(key, str):
+            raise TypeError("canonical risk policy keys must be strings")
+        payload[key] = value
+    defaults = compiled_default_risk_policy()
+    overlay: dict[str, object] = {
+        "daily_loss_limit_fraction": defaults.daily_loss_limit_fraction,
+        "max_strategy_drawdown_fraction": defaults.max_strategy_drawdown_fraction,
+        "max_entry_orders_per_minute": defaults.max_entry_orders_per_minute,
+        "max_cancellations_per_minute": defaults.max_cancellations_per_minute,
+        "reference_price_collar_fraction": defaults.reference_price_collar_fraction,
+    }
+    for key in _LEGACY_BREAKER_KEYS:
+        payload.setdefault(key, overlay[key])
+    return RiskPolicyDefinition.model_validate(payload)
