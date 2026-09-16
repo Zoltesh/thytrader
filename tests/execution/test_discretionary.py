@@ -58,6 +58,8 @@ def _request(
     idempotency_key: str = "disc-1",
     origin: str = "agent",
     limit_price: str | None = None,
+    paper_maker_fee_rate: str | None = None,
+    paper_taker_fee_rate: str | None = None,
 ) -> DiscretionaryOrderRequest:
     """Build one valid paper long request."""
     return parse_discretionary_request(
@@ -72,6 +74,8 @@ def _request(
         quantity="0.01",
         limit_price=limit_price,
         paper_starting_cash="10000",
+        paper_maker_fee_rate=paper_maker_fee_rate,
+        paper_taker_fee_rate=paper_taker_fee_rate,
     )
 
 
@@ -504,3 +508,90 @@ async def test_live_short_fails_closed_without_base() -> None:
             live_base_available=None,
         )
     assert not store.intents
+
+
+def test_parse_paper_fee_rates_stay_optional_and_reject_live() -> None:
+    """Omitted paper rates stay unset; supplied rates validate; live rejects them."""
+    omitted = _request()
+    assert omitted.paper_maker_fee_rate is None
+    assert omitted.paper_taker_fee_rate is None
+    custom = _request(paper_maker_fee_rate="0.0025", paper_taker_fee_rate="0.004")
+    assert custom.paper_maker_fee_rate == Decimal("0.0025")
+    assert custom.paper_taker_fee_rate == Decimal("0.004")
+    with pytest.raises(ExecutionConflictError, match="both maker_fee_rate"):
+        _request(paper_maker_fee_rate="0.0025")
+    with pytest.raises(ExecutionConflictError, match="Live deployments"):
+        parse_discretionary_request(
+            mode="live",
+            product_id="BTC-USD",
+            entry_kind="marketable",
+            stop_price="50000",
+            take_profit_price="200000",
+            origin="human",
+            idempotency_key="live-fees",
+            timeframe="5m",
+            quantity="0.01",
+            paper_maker_fee_rate="0.001",
+            paper_taker_fee_rate="0.002",
+        )
+
+
+@pytest.mark.anyio
+async def test_paper_discretionary_fill_uses_book_taker_rate() -> None:
+    """A new paper book defaults omitted rates and charges them on marketable fills."""
+    store = InMemoryExecutionStore()
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=MarketDataService(DemoMarketData()),
+        request=_request(paper_maker_fee_rate="0.0025", paper_taker_fee_rate="0.004"),
+        live_allowed=False,
+    )
+    assert snapshot.deployment.paper_maker_fee_rate == Decimal("0.0025")
+    assert snapshot.deployment.paper_taker_fee_rate == Decimal("0.004")
+    assert snapshot.fills
+    fill = snapshot.fills[0]
+    assert fill.fee == fill.price * fill.quantity * Decimal("0.004")
+
+
+@pytest.mark.anyio
+async def test_reused_paper_book_rejects_different_fee_rates() -> None:
+    """A second ticket cannot silently change stored paper fee assumptions."""
+    store = InMemoryExecutionStore()
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=MarketDataService(DemoMarketData()),
+        request=_request(),
+        live_allowed=False,
+    )
+    position = snapshot.position
+    assert position is not None
+    crash = Candle(
+        starts_at=datetime(2026, 9, 15, 12, tzinfo=UTC),
+        open=position.entry_price,
+        high=position.entry_price,
+        low=position.stop_price - Decimal("1"),
+        close=position.stop_price - Decimal("1"),
+        volume=Decimal("10"),
+    )
+    flat = await process_discretionary_bar(
+        snapshot,
+        product=_product(),
+        candles=(crash,),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert flat.deployment.phase is RuntimePhase.FLAT
+    with pytest.raises(ExecutionConflictError, match="fixed"):
+        await place_discretionary_order(
+            store=store,
+            broker=PaperBroker(),
+            market_data=MarketDataService(DemoMarketData()),
+            request=_request(
+                idempotency_key="disc-2",
+                paper_maker_fee_rate="0.0025",
+                paper_taker_fee_rate="0.004",
+            ),
+            live_allowed=False,
+        )

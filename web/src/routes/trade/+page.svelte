@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
+	import { PAPER_DEFAULT_MAKER_FEE_RATE, PAPER_DEFAULT_TAKER_FEE_RATE, PAPER_FEE_ENGINE_NOTE } from '$lib/fees';
 
 	let productId = $state('BTC-USD');
 	let mode = $state<'paper' | 'live'>('paper');
@@ -14,6 +15,8 @@
 	let stopPrice = $state('');
 	let takeProfitPrice = $state('');
 	let paperCash = $state('10000');
+	let paperMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
+	let paperTakerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 	let result = $state<Deployment | null>(null);
@@ -53,7 +56,9 @@
 				quantity: quantity === '' ? undefined : quantity,
 				quote_notional: quoteNotional === '' ? undefined : quoteNotional,
 				limit_price: limitPrice === '' ? undefined : limitPrice,
-				paper_starting_cash: mode === 'paper' ? paperCash : undefined
+				paper_starting_cash: mode === 'paper' ? paperCash : undefined,
+				maker_fee_rate: mode === 'paper' ? paperMakerFee : undefined,
+				taker_fee_rate: mode === 'paper' ? paperTakerFee : undefined
 			});
 			await refreshBooks();
 		} catch (caught) {
@@ -150,6 +155,15 @@
 				Paper cash
 				<input bind:value={paperCash} required inputmode="decimal" />
 			</label>
+			<label>
+				Maker fee rate
+				<input bind:value={paperMakerFee} required inputmode="decimal" />
+			</label>
+			<label>
+				Taker fee rate
+				<input bind:value={paperTakerFee} required inputmode="decimal" />
+			</label>
+			<p class="lede">{PAPER_FEE_ENGINE_NOTE}</p>
 		{/if}
 		<button type="button" disabled={submitting} onclick={() => void submitOrder()}>
 			{submitting ? 'Submitting…' : side === 'short' ? 'Place short' : 'Place long'}

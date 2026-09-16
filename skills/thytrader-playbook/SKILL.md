@@ -47,6 +47,11 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 
 `status` is read-only. `run` forwards `--confirm` to child mutations (`watch-add`, `ingest`,
 `create-draft`, `publish`, `submit-backtest`, paper `start`). It never starts live.
+Paper start omits fee flags, so the runtime uses documented `0.001` maker / `0.002` taker
+assumptions ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md)); those are not
+observed Coinbase fees. Pass `--maker-fee-rate` / `--taker-fee-rate` through `thytrader-runtime`
+when the operator wants a different paper schedule.
+
 `--timeframe` may be any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`,
 `6h`, `1d`; default `1h`). This playbook watches only that decision clock. Extra HTF or
 per-indicator clocks still need `thytrader-data` ingest.

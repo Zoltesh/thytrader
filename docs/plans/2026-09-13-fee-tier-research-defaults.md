@@ -1,10 +1,11 @@
 # Fee-tier suggested defaults for research and paper (2026-09-13)
 
-**Status: shipped (research prefill).** Fee-tier *visibility* was already shipped (Phase 1:
-`exchanges/fees.py`, `GET /api/v1/fees`, dashboard fee panel). Research launch fields now
-prefill maker/taker from the operator's Coinbase fee-tier snapshot mapped through a versioned
-schedule. Paper deploy has no maker/taker fields; paper keeps the documented `0.001` / `0.002`
-fill schedule. Live venue billing is unchanged.
+**Status: shipped (research prefill and paper deploy fields).** Fee-tier *visibility* was already
+shipped (Phase 1: `exchanges/fees.py`, `GET /api/v1/fees`, dashboard fee panel). Research launch
+fields prefill maker/taker from the operator's Coinbase fee-tier snapshot mapped through a
+versioned schedule. Paper deploy and new paper discretionary books persist Decimal maker/taker
+assumptions ([ADR 0048](../decisions/0048-paper-deploy-fee-fields.md)). Omitted paper rates keep
+the documented `0.001` / `0.002` fill schedule. Live venue billing is unchanged.
 
 ## Intent
 
@@ -37,12 +38,12 @@ modeled fees are live venue fills.
   Suggested vs Custom vs stale, and never overwrites in-progress edits. Blank required fields
   when the suggestion is unavailable. V1/V2 copy states next-open fills use the taker rate
   even when the strategy prefers maker.
-- Paper deploy exposes no maker/taker fields. Paper fills keep the documented `0.001` maker
-  / `0.002` taker schedule.
+- Paper deploy and new paper discretionary books persist `maker_fee_rate` / `taker_fee_rate`.
+  Omitted rates keep the documented `0.001` maker / `0.002` taker schedule. Live rejects the
+  fields. Copy never claims observed Coinbase fees on paper fills.
 
 ## Remaining / out of scope
 
-- Paper cost fields on Deploy (not exposed; do not invent them).
 - Changing live Coinbase fee billing.
 - Silently mutating published fingerprints when the tier changes.
 - Claiming observed Coinbase fees on result screens.

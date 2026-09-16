@@ -47,6 +47,8 @@ export type Deployment = {
 	phase: string;
 	cash: string;
 	paper_starting_cash: string | null;
+	maker_fee_rate?: string | null;
+	taker_fee_rate?: string | null;
 	last_evaluated_bar: string | null;
 	last_signal: string | null;
 	mismatch_detail: string | null;
@@ -89,6 +91,8 @@ export async function createDeployment(input: {
 	strategy_fingerprint: string;
 	mode: 'paper' | 'live';
 	paper_starting_cash?: string;
+	maker_fee_rate?: string;
+	taker_fee_rate?: string;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/deployments', {
 		method: 'POST',
@@ -128,6 +132,8 @@ export async function placeDiscretionaryOrder(input: {
 	quote_notional?: string;
 	limit_price?: string;
 	paper_starting_cash?: string;
+	maker_fee_rate?: string;
+	taker_fee_rate?: string;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/discretionary-orders', {
 		method: 'POST',

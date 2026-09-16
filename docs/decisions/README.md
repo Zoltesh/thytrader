@@ -53,6 +53,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted |
 | [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted |
 | [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted |
+| [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted |
 
 ## Status values
 

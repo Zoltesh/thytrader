@@ -82,6 +82,8 @@ async def _running_snapshot(
     strategy: StrategyDefinition,
     *,
     cash: Decimal = Decimal("10000"),
+    paper_maker_fee_rate: Decimal | None = None,
+    paper_taker_fee_rate: Decimal | None = None,
 ) -> DeploymentSnapshot:
     """Insert one running paper deployment and return its snapshot."""
     now = utc_now()
@@ -93,6 +95,8 @@ async def _running_snapshot(
         mode=DeploymentMode.PAPER,
         status=DeploymentStatus.RUNNING,
         paper_starting_cash=cash,
+        paper_maker_fee_rate=paper_maker_fee_rate,
+        paper_taker_fee_rate=paper_taker_fee_rate,
         cash=cash,
         phase=RuntimePhase.FLAT,
         created_at=now,
@@ -156,6 +160,48 @@ async def test_paper_loop_places_maker_entry_once_then_fills() -> None:
     assert filled.fills
     fill = filled.fills[0]
     assert fill.fee == fill.price * fill.quantity * Decimal("0.001")
+
+
+@pytest.mark.anyio
+async def test_paper_loop_charges_deployment_fee_rates() -> None:
+    """Stored paper assumptions bind onto the shared PaperBroker before matching."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(
+        store,
+        strategy,
+        paper_maker_fee_rate=Decimal("0.0025"),
+        paper_taker_fee_rate=Decimal("0.004"),
+    )
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    last = warmup[-1]
+    continuation = Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    filled = await process_closed_bar(
+        pending,
+        strategy=strategy,
+        product=_product(),
+        candles=(*warmup, continuation),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert filled.fills
+    fill = filled.fills[0]
+    assert fill.fee == fill.price * fill.quantity * Decimal("0.0025")
 
 
 def _cash_capped_always_entry_strategy() -> StrategyDefinition:

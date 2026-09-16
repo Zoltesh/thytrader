@@ -4,12 +4,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from thytrader.execution.ledger import (
     PAPER_MAKER_FEE_RATE,
+    PAPER_TAKER_FEE_RATE,
     LedgerFill,
+    effective_paper_fee_rates,
     ledger_from_snapshot,
     mark_deployment_ledger,
     paper_fill_fee,
+    resolve_paper_fee_schedule,
 )
 from thytrader.execution.models import (
     Deployment,
@@ -32,6 +37,40 @@ def _at(hour: int) -> datetime:
     return datetime(2026, 1, 1, hour, tzinfo=UTC)
 
 
+def test_resolve_paper_fee_schedule_defaults_validates_and_rejects_live() -> None:
+    """Omitted paper rates become documented defaults; live never stores modeled rates."""
+    assert resolve_paper_fee_schedule(
+        live=False, maker_fee_rate=None, taker_fee_rate=None
+    ) == (PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE)
+    custom = resolve_paper_fee_schedule(
+        live=False, maker_fee_rate=Decimal("0.0025"), taker_fee_rate=Decimal("0.004")
+    )
+    assert custom == (Decimal("0.0025"), Decimal("0.004"))
+    assert resolve_paper_fee_schedule(
+        live=True, maker_fee_rate=None, taker_fee_rate=None
+    ) == (None, None)
+    with pytest.raises(ValueError, match="Live deployments"):
+        resolve_paper_fee_schedule(
+            live=True, maker_fee_rate=Decimal("0.001"), taker_fee_rate=Decimal("0.002")
+        )
+    with pytest.raises(ValueError, match="both maker_fee_rate"):
+        resolve_paper_fee_schedule(
+            live=False, maker_fee_rate=Decimal("0.001"), taker_fee_rate=None
+        )
+    with pytest.raises(ValueError, match=r"\[0, 0.1\]"):
+        resolve_paper_fee_schedule(
+            live=False, maker_fee_rate=Decimal("0.2"), taker_fee_rate=Decimal("0.2")
+        )
+    with pytest.raises(ValueError, match="must not exceed"):
+        resolve_paper_fee_schedule(
+            live=False, maker_fee_rate=Decimal("0.004"), taker_fee_rate=Decimal("0.002")
+        )
+    assert effective_paper_fee_rates(None, None) == (
+        PAPER_MAKER_FEE_RATE,
+        PAPER_TAKER_FEE_RATE,
+    )
+
+
 def test_paper_fill_fee_uses_maker_on_post_only_and_taker_on_marketable() -> None:
     """The documented paper schedule is 0.001 maker and 0.002 taker."""
     maker = paper_fill_fee(
@@ -41,6 +80,14 @@ def test_paper_fill_fee_uses_maker_on_post_only_and_taker_on_marketable() -> Non
     assert maker == Decimal("0.2")
     assert taker == Decimal("0.4")
     assert maker == Decimal("100") * Decimal("2") * PAPER_MAKER_FEE_RATE
+    custom = paper_fill_fee(
+        kind=OrderKind.POST_ONLY_LIMIT,
+        price=Decimal("100"),
+        quantity=Decimal("2"),
+        maker_fee_rate=Decimal("0.0025"),
+        taker_fee_rate=Decimal("0.004"),
+    )
+    assert custom == Decimal("0.5")
 
 
 def test_round_trip_with_fees_reports_realized_pnl_and_one_trade() -> None:

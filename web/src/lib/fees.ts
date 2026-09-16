@@ -7,6 +7,11 @@ import { compareDecimalStrings } from './portfolio';
 export const RESEARCH_FEE_ENGINE_NOTE =
 	'These are modeled research assumptions, not observed Coinbase fills. V1 and V2 next-open fills use the taker rate even when the strategy prefers maker.';
 
+export const PAPER_DEFAULT_MAKER_FEE_RATE = '0.001';
+export const PAPER_DEFAULT_TAKER_FEE_RATE = '0.002';
+export const PAPER_FEE_ENGINE_NOTE =
+	'These are documented paper fill assumptions, not observed Coinbase fees. Live Coinbase fees stay venue-recorded.';
+
 export interface FeeProfile {
 	taker_fee_rate: string;
 	maker_fee_rate: string;
@@ -178,6 +183,30 @@ export function shouldPrefillResearchFeeRates(input: {
 		!input.touched &&
 		input.makerFeeRate.trim() === '' &&
 		input.takerFeeRate.trim() === ''
+	);
+}
+
+/**
+ * Prefill paper deploy fields from a fee-tier suggestion without overwriting edits.
+ * Documented 0.001 / 0.002 defaults count as untouched until the operator types.
+ */
+export function shouldPrefillPaperFeeRates(input: {
+	makerFeeRate: string;
+	takerFeeRate: string;
+	touched: boolean;
+	suggestion: ResearchFeeSuggestion | null;
+}): boolean {
+	if (input.suggestion === null || input.touched) {
+		return false;
+	}
+	const maker = input.makerFeeRate.trim();
+	const taker = input.takerFeeRate.trim();
+	if (maker === '' && taker === '') {
+		return true;
+	}
+	return (
+		feeRatesMatch(maker, PAPER_DEFAULT_MAKER_FEE_RATE) &&
+		feeRatesMatch(taker, PAPER_DEFAULT_TAKER_FEE_RATE)
 	);
 }
 

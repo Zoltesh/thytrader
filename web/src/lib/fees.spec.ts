@@ -6,6 +6,7 @@ import {
 	formatResearchFeeSourceChip,
 	readResearchFeeSuggestion,
 	researchFeeFieldSource,
+	shouldPrefillPaperFeeRates,
 	shouldPrefillResearchFeeRates,
 	type FeeProfile,
 	type ResearchFeeSuggestion
@@ -165,5 +166,42 @@ describe('research fee field source', () => {
 		expect(formatResearchFeeSourceChip('unavailable', null)).toBe(
 			'Coinbase fee-tier suggestion unavailable. Enter modeled rates.'
 		);
+	});
+});
+
+describe('shouldPrefillPaperFeeRates', () => {
+	it('prefills documented defaults from a suggestion without overwriting edits', () => {
+		expect(
+			shouldPrefillPaperFeeRates({
+				makerFeeRate: '',
+				takerFeeRate: '',
+				touched: false,
+				suggestion
+			})
+		).toBe(true);
+		expect(
+			shouldPrefillPaperFeeRates({
+				makerFeeRate: '0.001',
+				takerFeeRate: '0.002',
+				touched: false,
+				suggestion
+			})
+		).toBe(true);
+		expect(
+			shouldPrefillPaperFeeRates({
+				makerFeeRate: '0.001',
+				takerFeeRate: '0.002',
+				touched: true,
+				suggestion
+			})
+		).toBe(false);
+		expect(
+			shouldPrefillPaperFeeRates({
+				makerFeeRate: '0.0025',
+				takerFeeRate: '0.0040',
+				touched: false,
+				suggestion
+			})
+		).toBe(false);
 	});
 });

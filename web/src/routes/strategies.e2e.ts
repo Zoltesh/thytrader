@@ -1111,6 +1111,7 @@ test('surfaces a controlled error banner when the library cannot load', async ({
 
 test('deploy tab starts paper runtime and shows fills and reject reasons', async ({ page }) => {
 	await mockLibrary(page, [publishedEntry]);
+	await mockFees(page, {}, 502);
 	await page.route('**/api/v1/strategies/source/*', async (route) =>
 		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
 	);
@@ -1130,6 +1131,8 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 		phase: 'open',
 		cash: '9900',
 		paper_starting_cash: '10000',
+		maker_fee_rate: '0.001',
+		taker_fee_rate: '0.002',
 		last_evaluated_bar: '2026-08-14T12:00:00+00:00',
 		last_signal: 'matched',
 		mismatch_detail: null,
@@ -1172,7 +1175,12 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 			}
 		]
 	};
-	let createdBody: { mode: string; paper_starting_cash?: string } | null = null;
+	let createdBody: {
+		mode: string;
+		paper_starting_cash?: string;
+		maker_fee_rate?: string;
+		taker_fee_rate?: string;
+	} | null = null;
 	await page.route('**/api/v1/deployments', async (route) => {
 		if (route.request().method() === 'POST') {
 			createdBody = (await route.request().postDataJSON()) as typeof createdBody;
@@ -1191,9 +1199,15 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	expect(createdBody).toEqual({
 		strategy_fingerprint: fingerprint,
 		mode: 'paper',
-		paper_starting_cash: '10000'
+		paper_starting_cash: '10000',
+		maker_fee_rate: '0.001',
+		taker_fee_rate: '0.002'
 	});
+	await expect(
+		page.getByText('These are documented paper fill assumptions, not observed Coinbase fees.')
+	).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'paper · running · open' })).toBeVisible();
+	await expect(page.getByText('paper fees 0.001/0.002')).toBeVisible();
 	await expect(page.getByRole('table', { name: 'Open and recent orders' })).toBeVisible();
 	await expect(page.getByRole('table', { name: 'Fills' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
@@ -1349,4 +1363,70 @@ test('resuming a paused live deployment requires explicit confirmation', async (
 	await page.getByRole('button', { name: 'Resume' }).click();
 	await page.waitForTimeout(100);
 	expect(resumeCalled).toBe(false);
+});
+
+test('deploy tab prefills paper fees from the Coinbase fee-tier suggestion', async ({ page }) => {
+	await mockLibrary(page, [publishedEntry]);
+	await mockFees(page, suggestedFeeProfile());
+	await page.route('**/api/v1/strategies/source/*', async (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	let createdBody: {
+		maker_fee_rate?: string;
+		taker_fee_rate?: string;
+		mode?: string;
+	} | null = null;
+	await page.route('**/api/v1/deployments', async (route) => {
+		if (route.request().method() === 'POST') {
+			createdBody = (await route.request().postDataJSON()) as typeof createdBody;
+			await route.fulfill({
+				status: 201,
+				json: {
+					id: '01985cf0-7b60-7000-8000-000000000115',
+					strategy_fingerprint: fingerprint,
+					strategy_id: strategyId,
+					product_id: 'BTC-USD',
+					mode: 'paper',
+					status: 'running',
+					phase: 'flat',
+					cash: '10000',
+					paper_starting_cash: '10000',
+					maker_fee_rate: '0.0025',
+					taker_fee_rate: '0.0040',
+					last_evaluated_bar: null,
+					last_signal: null,
+					mismatch_detail: null,
+					pending_entry_bars: 0,
+					bars_held: 0,
+					created_at: '2026-08-14T12:00:00+00:00',
+					updated_at: '2026-08-14T12:00:00+00:00',
+					position: null,
+					orders: [],
+					fills: []
+				}
+			});
+			return;
+		}
+		await route.fulfill({ json: { deployments: [] } });
+	});
+
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await page.locator('table tbody tr').first().click();
+	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
+	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0040');
+	await page.getByRole('button', { name: 'Start deployment' }).click();
+	await expect.poll(() => createdBody).not.toBeNull();
+	expect(createdBody).toMatchObject({
+		mode: 'paper',
+		maker_fee_rate: '0.0025',
+		taker_fee_rate: '0.0040'
+	});
 });

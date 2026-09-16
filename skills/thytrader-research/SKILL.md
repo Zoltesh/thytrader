@@ -122,8 +122,10 @@ Demo or missing credentials set `suggestion_source=unavailable` — do **not** u
 `maker_fee_rate` / `taker_fee_rate` as research defaults, and do not invent a tier. The request must
 still include explicit rates; submitted runs fingerprint those values. They are modeled
 `CostAssumptions`, not observed Coinbase fills. V1/V2 next-open fills use the **taker** rate even
-when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the documented
-`0.001` maker / `0.002` taker schedule.
+when the strategy prefers maker. Paper deploy accepts optional `maker_fee_rate` / `taker_fee_rate`
+through `thytrader-runtime` ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md));
+omitted paper rates keep the documented `0.001` maker / `0.002` taker schedule. Those paper rates
+are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.
 
 ## Confirmation
 

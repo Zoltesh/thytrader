@@ -15,8 +15,9 @@ from thytrader.execution.geometry import (
     paper_stop_hit,
 )
 from thytrader.execution.ids import utc_now
-from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE
+from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE, effective_paper_fee_rates
 from thytrader.execution.models import (
+    Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -31,6 +32,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
 from thytrader.execution.sizing import size_entry
 from thytrader.execution.submit import submit_intent
@@ -75,6 +77,7 @@ async def process_closed_bar(
         return snapshot
     if snapshot.deployment.status not in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}:
         return snapshot
+    broker = bind_paper_broker_fees(broker, snapshot.deployment)
     candle = candles[-1]
     deployment = snapshot.deployment
     if deployment.last_evaluated_bar == candle.starts_at:
@@ -858,7 +861,7 @@ async def _submit_sized_entry(
         entry_price=entry_price,
         atr=atr,
         product=product,
-        fee_rate=PAPER_MAKER_FEE_RATE,
+        fee_rate=_entry_fee_rate(snapshot.deployment),
         side=side,
     )
     if sized is None:
@@ -1100,3 +1103,13 @@ def _attached_entry_covers(snapshot: DeploymentSnapshot, position: Position) -> 
         entry.stop_trigger_price == position.stop_price
         and entry.take_profit_price == position.target_price
     )
+
+
+def _entry_fee_rate(deployment: Deployment) -> Decimal:
+    """Size paper entries with the book's maker assumption; live keeps the prior documented rate."""
+    if deployment.mode is DeploymentMode.PAPER:
+        maker_fee_rate, _taker_fee_rate = effective_paper_fee_rates(
+            deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
+        )
+        return maker_fee_rate
+    return PAPER_MAKER_FEE_RATE

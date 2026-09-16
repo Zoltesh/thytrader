@@ -48,6 +48,8 @@ class CreateDeploymentRequest(BaseModel):
     strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     mode: DeploymentMode
     paper_starting_cash: str | None = None
+    maker_fee_rate: str | None = None
+    taker_fee_rate: str | None = None
 
 
 class PositionResponse(BaseModel):
@@ -107,6 +109,8 @@ class DeploymentResponse(BaseModel):
     phase: str
     cash: str
     paper_starting_cash: str | None
+    maker_fee_rate: str | None = None
+    taker_fee_rate: str | None = None
     last_evaluated_bar: str | None
     last_signal: str | None
     mismatch_detail: str | None
@@ -142,6 +146,8 @@ async def post_deployment(
             strategy_fingerprint=body.strategy_fingerprint,
             mode=body.mode,
             paper_starting_cash=parse_decimal(body.paper_starting_cash),
+            paper_maker_fee_rate=parse_decimal(body.maker_fee_rate, field="maker_fee_rate"),
+            paper_taker_fee_rate=parse_decimal(body.taker_fee_rate, field="taker_fee_rate"),
             live_allowed=runtime.settings.coinbase_api_key_name is not None,
             risk_store=risk_store,
         )
@@ -306,6 +312,16 @@ def _deployment_response(deployment: Deployment) -> DeploymentResponse:
             None
             if deployment.paper_starting_cash is None
             else format(deployment.paper_starting_cash, "f")
+        ),
+        maker_fee_rate=(
+            None
+            if deployment.paper_maker_fee_rate is None
+            else format(deployment.paper_maker_fee_rate, "f")
+        ),
+        taker_fee_rate=(
+            None
+            if deployment.paper_taker_fee_rate is None
+            else format(deployment.paper_taker_fee_rate, "f")
         ),
         last_evaluated_bar=(
             None

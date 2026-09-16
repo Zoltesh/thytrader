@@ -38,6 +38,7 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | List deployments | `uv run thytrader-runtime list` |
 | Show one snapshot | `uv run thytrader-runtime show UUID` |
 | Start paper | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode paper --cash 10000 --confirm` |
+| Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode live --confirm --i-understand-live` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
@@ -56,7 +57,10 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
 available base and never borrow. When SL/TP are known and trailing is off, live uses an
 attached bracket on the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
-another book clock. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
+another book clock. Paper `start` and paper `place-order` accept optional `--maker-fee-rate` and
+`--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted paper rates
+use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. Live
+rejects those flags; live fills stay venue-recorded. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
 is enabled. Live place-order and `set-risk-policy` never skip `--confirm`. Repeat the same
 `--idempotency-key` instead of retrying a timeout.

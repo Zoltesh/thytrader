@@ -412,6 +412,8 @@ deployments = Table(
     Column("kind", String(16), nullable=False, server_default="strategy"),
     Column("timeframe", String(8), nullable=True),
     Column("paper_starting_cash", String(64), nullable=True),
+    Column("paper_maker_fee_rate", String(64), nullable=True),
+    Column("paper_taker_fee_rate", String(64), nullable=True),
     Column("cash", String(64), nullable=False),
     Column("phase", String(32), nullable=False),
     Column("last_evaluated_bar", DateTime(timezone=True), nullable=True),
@@ -453,6 +455,15 @@ deployments = Table(
         "AND timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
         ")",
         name="ck_deployments_kind_identity",
+    ),
+    CheckConstraint(
+        "("
+        "mode = 'paper' AND paper_maker_fee_rate IS NOT NULL "
+        "AND paper_taker_fee_rate IS NOT NULL"
+        ") OR ("
+        "mode = 'live' AND paper_maker_fee_rate IS NULL AND paper_taker_fee_rate IS NULL"
+        ")",
+        name="ck_deployments_paper_fee_rates",
     ),
 )
 

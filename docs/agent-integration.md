@@ -73,7 +73,7 @@ stochastic, ADX, configurable rolling inputs, and sample stdev
 ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
-- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
 
@@ -228,7 +228,7 @@ The operator skill tells agents to:
 |---|---|
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, and a redacted support bundle. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market / sweep / WFO studies only. HTTP by default. |
-| Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. `thytrader-playbook` may start paper only. |
+| Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, and notify. Operator `monitor` is read-only. YOLO never covers this lane. |
 

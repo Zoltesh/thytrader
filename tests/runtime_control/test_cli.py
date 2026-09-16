@@ -583,3 +583,111 @@ def test_place_order_forwards_short_side() -> None:
         )
     assert raised.value.code == 0
     assert request.call_args.kwargs["side"] == "short"
+
+
+def test_start_help_lists_paper_fee_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    """Operators can discover paper maker/taker assumptions without an API."""
+    with pytest.raises(SystemExit) as raised:
+        main(["start", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--maker-fee-rate" in output
+    assert "--taker-fee-rate" in output
+    assert "0.001" in output
+    assert "Live rejects" in output or "live rejects" in output.lower()
+
+
+def test_paper_start_forwards_fee_rates() -> None:
+    """Paper start sends optional documented fee assumptions to the HTTP helper."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.start_deployment",
+            return_value={"id": "dep", "mode": "paper"},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "paper",
+                "--cash",
+                "10000",
+                "--maker-fee-rate",
+                "0.0025",
+                "--taker-fee-rate",
+                "0.004",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    assert request.call_args.kwargs["maker_fee_rate"] == "0.0025"
+    assert request.call_args.kwargs["taker_fee_rate"] == "0.004"
+
+
+def test_paper_start_rejects_one_sided_fee_flags() -> None:
+    """Maker and taker flags must be supplied together."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "paper",
+                "--cash",
+                "10000",
+                "--maker-fee-rate",
+                "0.0025",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "--maker-fee-rate" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_live_start_rejects_paper_fee_flags() -> None:
+    """Live never accepts modeled paper fee rates."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "start",
+                "--strategy-fingerprint",
+                "sha256:" + "a" * 64,
+                "--mode",
+                "live",
+                "--maker-fee-rate",
+                "0.001",
+                "--taker-fee-rate",
+                "0.002",
+                "--confirm",
+                "--i-understand-live",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "paper fee" in str(raised.value).lower()
+    request.assert_not_called()

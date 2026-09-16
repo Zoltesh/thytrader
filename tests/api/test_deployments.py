@@ -165,6 +165,8 @@ def test_paper_deployment_persists_and_updates_library_status() -> None:
     assert body["status"] == "running"
     assert body["phase"] == "flat"
     assert body["cash"] == "10000"
+    assert body["maker_fee_rate"] == "0.001"
+    assert body["taker_fee_rate"] == "0.002"
     assert listed.status_code == 200
     assert listed.json()["deployments"][0]["id"] == body["id"]
     assert fetched.status_code == 200
@@ -257,6 +259,8 @@ def test_live_deployment_requires_credentials() -> None:
     assert allowed.status_code == 201
     assert allowed.json()["mode"] == "live"
     assert allowed.json()["cash"] == "0"
+    assert allowed.json()["maker_fee_rate"] is None
+    assert allowed.json()["taker_fee_rate"] is None
 
 
 def test_five_minute_strategy_can_start_paper_and_live() -> None:
@@ -465,3 +469,70 @@ def test_paper_start_records_runtime_audit_without_cash() -> None:
     assert "cash" not in event.detail.lower()
     assert "10000" not in event.detail
     assert fingerprint in event.detail
+
+
+def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
+    """Custom paper rates persist; live and one-sided pairs are conflicts."""
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+
+    def _fresh() -> tuple[InMemoryPublicationStore, InMemoryExecutionStore]:
+        """Return a published fingerprint bound to an empty execution store."""
+        publication = InMemoryPublicationStore()
+        publication.published[fingerprint] = PublishedStrategy(
+            strategy_fingerprint=fingerprint, definition=definition
+        )
+        return publication, InMemoryExecutionStore()
+
+    publication, execution = _fresh()
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+                "maker_fee_rate": "0.0025",
+                "taker_fee_rate": "0.004",
+            },
+        )
+    assert created.status_code == 201
+    assert created.json()["maker_fee_rate"] == "0.0025"
+    assert created.json()["taker_fee_rate"] == "0.004"
+
+    publication, execution = _fresh()
+    with _client(publication, execution) as client:
+        one_sided = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+                "maker_fee_rate": "0.0025",
+            },
+        )
+        inverted = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+                "maker_fee_rate": "0.004",
+                "taker_fee_rate": "0.002",
+            },
+        )
+    assert one_sided.status_code == 409
+    assert inverted.status_code == 409
+
+    publication, execution = _fresh()
+    with _client(publication, execution, live_credentials=True) as live_client:
+        live_fees = live_client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "live",
+                "maker_fee_rate": "0.001",
+                "taker_fee_rate": "0.002",
+            },
+        )
+    assert live_fees.status_code == 409

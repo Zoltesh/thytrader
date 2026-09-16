@@ -247,6 +247,8 @@ def test_two_fills_report_realized_pnl_and_strategy_timeframe() -> None:
         assert report.components[0].reason_code == "FILL_LEDGER"
         assert report.payload.total_return_fraction is not None
         assert report.payload.maximum_drawdown_fraction is not None
+        assert "0.001" in report.payload.fee_treatment
+        assert "not observed Coinbase" in report.payload.fee_treatment
 
     asyncio.run(_scenario())
 
@@ -258,6 +260,36 @@ def test_zero_fees_increase_realized_pnl_versus_the_same_prices() -> None:
         store, deployment_id = await _round_trip_store(fee=Decimal("0"))
         report = await _diagnostics(execution=store).performance(deployment_id=deployment_id)
         assert report.payload.total_net_pnl == canonical_decimal(Decimal("10"))
+
+
+def test_paper_performance_fee_treatment_names_stored_rates() -> None:
+    """Operator copy reports the book's paper assumptions, not Coinbase fills."""
+
+    async def _scenario() -> None:
+        store = InMemoryExecutionStore()
+        instant = _now()
+        deployment = Deployment(
+            id=uuid4(),
+            strategy_fingerprint="sha256:" + ("a" * 64),
+            strategy_id=UUID(int=1),
+            product_id="BTC-USD",
+            mode=DeploymentMode.PAPER,
+            status=DeploymentStatus.RUNNING,
+            paper_starting_cash=Decimal("10000"),
+            paper_maker_fee_rate=Decimal("0.0025"),
+            paper_taker_fee_rate=Decimal("0.004"),
+            cash=Decimal("10000"),
+            phase=RuntimePhase.FLAT,
+            created_at=instant,
+            updated_at=instant,
+        )
+        await store.create_deployment(deployment)
+        report = await _diagnostics(execution=store).performance(deployment_id=deployment.id)
+        assert "0.0025" in report.payload.fee_treatment
+        assert "0.004" in report.payload.fee_treatment
+        assert "not observed Coinbase" in report.payload.fee_treatment
+
+    asyncio.run(_scenario())
 
     asyncio.run(_scenario())
 
