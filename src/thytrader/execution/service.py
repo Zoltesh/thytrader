@@ -177,6 +177,7 @@ async def _require_risk_admission(
         strategy_id=definition.strategy_id,
         paper_starting_cash=paper_starting_cash,
         deployments=deployments,
+        policy_source=active.source,
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)

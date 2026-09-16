@@ -26,6 +26,7 @@ from thytrader.risk.breakers import (
 from thytrader.risk.models import (
     RiskDecision,
     RiskPolicyDefinition,
+    RiskPolicySource,
     RiskReasonCode,
     RiskVerdict,
 )
@@ -58,8 +59,19 @@ def evaluate_new_deployment(
     paper_starting_cash: Decimal | None,
     deployments: Sequence[Deployment],
     product_ids: Sequence[str] | None = None,
+    policy_source: RiskPolicySource = RiskPolicySource.PUBLISHED,
 ) -> RiskVerdict:
-    """Allow a new running deployment only when slots, allowlist, and paper capital permit it."""
+    """Allow a new running deployment only when slots, allowlist, and paper capital permit it.
+
+    Live deployments additionally require an operator-published policy: a fresh
+    install's compiled fallback must not become silent live authority (audit F25).
+    """
+    if mode is DeploymentMode.LIVE and policy_source is RiskPolicySource.COMPILED_DEFAULT:
+        return _deny(
+            RiskReasonCode.LIVE_REQUIRES_PUBLISHED_POLICY,
+            "Live trading requires an operator-published risk policy; the compiled "
+            "default cannot arm live orders.",
+        )
     occupied = _occupied(deployments, mode)
     covered = tuple(product_ids) if product_ids else (product_id,)
     for covered_product in covered:
@@ -276,6 +288,8 @@ def _exposure_verdict(
             "Capital base is missing or non-positive; new entries are blocked.",
         )
     portfolio_cap = capital * Decimal(policy.max_portfolio_exposure_fraction)
+    if policy.max_portfolio_exposure_quote is not None:
+        portfolio_cap = min(portfolio_cap, Decimal(policy.max_portfolio_exposure_quote))
     if existing_total + proposed.notional > portfolio_cap:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,

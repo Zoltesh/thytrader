@@ -11,6 +11,8 @@ from thytrader.execution.models import DeploymentMode, RuntimePhase
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
 from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
@@ -151,6 +153,8 @@ async def test_create_deployment_starts_five_minute_live_when_allowed() -> None:
     store = InMemoryExecutionStore()
     strategy = _always_entry_five_minute()
     catalog = _Catalog(strategy)
+    risk = InMemoryRiskPolicyStore()
+    await risk.publish(compiled_default_risk_policy())
     created = await create_deployment(
         store=store,
         publication_store=catalog,
@@ -158,6 +162,7 @@ async def test_create_deployment_starts_five_minute_live_when_allowed() -> None:
         mode=DeploymentMode.LIVE,
         paper_starting_cash=None,
         live_allowed=True,
+        risk_store=risk,
     )
     assert created.mode is DeploymentMode.LIVE
     assert created.status.value == "running"

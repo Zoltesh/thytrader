@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
-import adapter from '@sveltejs/adapter-auto';
+import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 const apiProxyTarget = process.env.THYTRADER_API_PROXY_TARGET ?? 'http://127.0.0.1:8200';
@@ -21,9 +21,10 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 
-			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
+			// Deliberate production target: a standalone Node server built by adapter-node.
+			// Compose runs the compiled `build/` output behind `server.js` (see web/server.js),
+			// which proxies `/api` to THYTRADER_API_PROXY_TARGET the same way the Vite dev
+			// server does. See docs/decisions/0063-ci-release-discipline-and-production-web-target.md.
 			adapter: adapter()
 		})
 	],

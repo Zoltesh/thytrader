@@ -406,6 +406,52 @@ def test_set_risk_policy_help_lists_breaker_flags(
     assert "--max-cancellations-per-minute" in output
     assert "--reference-price-collar-fraction" in output
     assert "--allow-intra-strategy-pyramiding" in output
+    assert "--max-daily-loss-quote" in output
+    assert "--max-portfolio-exposure-quote" in output
+    assert "--max-venue-order-actions-per-minute" in output
+
+
+def test_set_risk_policy_forwards_optional_absolute_caps_and_venue_budget() -> None:
+    """Absolute quote caps and the venue-action budget reach the HTTP payload (F25/F35)."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.set_risk_policy",
+            return_value={"policy_fingerprint": "sha256:" + "a" * 64},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-risk-policy",
+                "--max-concurrent-running-deployments",
+                "8",
+                "--max-concurrent-open-positions",
+                "8",
+                "--max-portfolio-exposure-fraction",
+                "1",
+                "--per-product-max-exposure-fraction",
+                "1",
+                "--paper-capital-quote",
+                "100000",
+                "--max-daily-loss-quote",
+                "2500",
+                "--max-portfolio-exposure-quote",
+                "50000",
+                "--max-venue-order-actions-per-minute",
+                "90",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    request.assert_called_once()
+    _base_url, payload = request.call_args.args
+    assert payload["max_daily_loss_quote"] == "2500"
+    assert payload["max_portfolio_exposure_quote"] == "50000"
+    assert payload["max_venue_order_actions_per_minute"] == 90
 
 
 def test_place_order_help_lists_venue_clocks(

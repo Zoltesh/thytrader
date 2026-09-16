@@ -550,6 +550,7 @@ async def _require_book_admission(
         strategy_id=None,
         paper_starting_cash=request.paper_starting_cash,
         deployments=deployments,
+        policy_source=active.source,
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)

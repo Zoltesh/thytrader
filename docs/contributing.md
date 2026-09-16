@@ -43,9 +43,12 @@ teach `ops/` instruction files to edit documentation or source.
   write-only Coinbase credentials),
   [ADR 0054](decisions/0054-trade-reason-journals.md) (why-trade journals),
   [ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md) (YAML settings and runtime-reloadable YOLO),
-  and
   [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) (multi-instrument Coinbase
-  USD spot documents and intra-strategy pyramiding)
+  USD spot documents and intra-strategy pyramiding),
+  and
+  [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) (tracked CI,
+  production web target, live-arming publication gate, optional absolute risk caps, purpose-aware
+  order-rate budget)
 - [Delivery roadmap](roadmap.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) —
   **historical** running-instance evidence; stale Compose, 14-day clip, v3 422, and 5m paper 409 are
@@ -86,6 +89,11 @@ An accepted decision is not immutable. Supersede it explicitly so future contrib
 understand both the current direction and why it changed.
 
 ## Native quality gates
+
+`.github/workflows/ci.yml` runs the same backend and frontend checks below on every pull request
+and on `main`, including the PostgreSQL-backed test suites against a `postgres:17` service
+container (see [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)).
+Run them locally before pushing:
 
 Frontend:
 

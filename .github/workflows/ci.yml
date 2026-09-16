@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest, ruff, ty)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: thytrader
+          POSTGRES_PASSWORD: thytrader-ci-only
+          POSTGRES_DB: thytrader
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U thytrader -d thytrader"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Apply Alembic migrations
+        env:
+          THYTRADER_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci-only@localhost:5432/thytrader
+        run: uv run alembic upgrade head
+
+      # THYTRADER_DATABASE_URL (the application's own default) is deliberately not set
+      # here: several tests assert unconfigured-database behavior and would break if
+      # Settings() picked up an ambient database URL. Only the two test-scoped
+      # variables below are set, so the PostgreSQL-backed suites run instead of skip.
+      - name: pytest (PostgreSQL-backed suites run, not skipped)
+        env:
+          THYTRADER_TEST_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci-only@localhost:5432/thytrader
+          THYTRADER_INTEGRATION_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci-only@localhost:5432/thytrader
+        run: uv run pytest
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+      - name: ty check
+        run: uv run ty check
+
+  frontend:
+    name: Frontend (lint, check, unit + browser tests, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Sync backend dependencies
+        run: uv sync --all-extras --dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Lint (prettier + eslint)
+        working-directory: web
+        run: npm run lint
+
+      - name: svelte-check
+        working-directory: web
+        run: npm run check
+
+      - name: Unit and browser tests
+        working-directory: web
+        run: npm run test
+
+      - name: Production build (adapter-node)
+        working-directory: web
+        run: npm run build
+
+      - name: Dependency audit (informational)
+        working-directory: web
+        run: npm audit --audit-level=high || true

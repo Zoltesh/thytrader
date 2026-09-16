@@ -20,6 +20,13 @@ RISK_POLICY_SCHEMA_VERSION: Literal["thytrader-risk-policy-v1"] = "thytrader-ris
 COMPILED_POLICY_ID = UUID("01978a3e-5f2c-7d10-b3a4-0000000000aa")
 _FINGERPRINT_PREFIX = "sha256:"
 _PRODUCT_PATTERN = r"^[A-Z0-9]{2,20}-USD$"
+# These compiled fractions are a wide multi-asset *research* envelope, not an audited
+# "safe" live number: no universal loss/drawdown percentage is a fact independent of
+# the operator's capital, product, and tested strategy (see ADR 0063 and F25/C-4 in
+# the 2026-09-16 audit). They stay permissive for paper; live instead requires an
+# operator-published RiskPolicyDefinition — see RiskReasonCode.LIVE_REQUIRES_PUBLISHED_POLICY
+# and evaluate_new_deployment. Operators set tighter fractions and/or the optional
+# absolute quote caps below on the policy they publish for their own live posture.
 DEFAULT_DAILY_LOSS_LIMIT_FRACTION = "1"
 DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION = "1"
 DEFAULT_MAX_ENTRY_ORDERS_PER_MINUTE = 60
@@ -69,6 +76,8 @@ class RiskReasonCode(StrEnum):
     REFERENCE_PRICE_UNAVAILABLE = "REFERENCE_PRICE_UNAVAILABLE"
     BREAKER_MARK_MISSING = "BREAKER_MARK_MISSING"
     PYRAMIDING_NOT_ALLOWED = "PYRAMIDING_NOT_ALLOWED"
+    LIVE_REQUIRES_PUBLISHED_POLICY = "LIVE_REQUIRES_PUBLISHED_POLICY"
+    VENUE_REQUEST_BUDGET_EXCEEDED = "VENUE_REQUEST_BUDGET_EXCEEDED"
 
 
 class _FrozenModel(BaseModel):
@@ -118,6 +127,24 @@ class RiskPolicyDefinition(_FrozenModel):
     allow_intra_strategy_pyramiding: bool = Field(
         default=False, exclude_if=lambda value: value is False
     )
+    # Optional absolute monetary ceilings alongside the fractional caps above. Unset
+    # (None) by default: this module does not assert a universal safe quote amount.
+    # When an operator sets one, breaker/exposure checks enforce the tighter of the
+    # fraction-derived limit and this absolute cap (see risk/breakers.py, risk/gate.py).
+    max_daily_loss_quote: DecimalText | None = Field(default=None, exclude_if=lambda v: v is None)
+    max_portfolio_exposure_quote: DecimalText | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    # A combined per-minute budget across entry, cancel, and replacement requests,
+    # i.e. every order-mutating REST call this policy's occupied books send toward
+    # one venue (audit F35). Unset (None) by default: this module does not assert
+    # a specific venue rate limit as a fact. Only new-entry admission is denied when
+    # this budget is exhausted; protective/cancellation work is never gated here
+    # because entry admission is the only caller of this check, so risk-reducing
+    # activity keeps flowing even while this cap blocks new risk-increasing orders.
+    max_venue_order_actions_per_minute: int | None = Field(
+        default=None, ge=1, le=10000, exclude_if=lambda v: v is None
+    )
 
     @field_validator("product_allowlist")
     @classmethod
@@ -125,6 +152,14 @@ class RiskPolicyDefinition(_FrozenModel):
         """Reject duplicate or malformed product identifiers."""
         if len(value) != len(set(value)):
             raise ValueError("product_allowlist must be unique")
+        return value
+
+    @field_validator("max_daily_loss_quote", "max_portfolio_exposure_quote")
+    @classmethod
+    def require_positive_absolute_cap(cls, value: str | None) -> str | None:
+        """Reject a zero or negative absolute monetary ceiling when one is set."""
+        if value is not None and Decimal(value) <= 0:
+            raise ValueError("absolute monetary caps must be greater than 0 when set")
         return value
 
     @field_validator("product_allowlist")
@@ -192,6 +227,9 @@ class RiskPolicyWrite(_FrozenModel):
     )
     reference_price_collar_fraction: DecimalText = DEFAULT_REFERENCE_PRICE_COLLAR_FRACTION
     allow_intra_strategy_pyramiding: bool = False
+    max_daily_loss_quote: DecimalText | None = None
+    max_portfolio_exposure_quote: DecimalText | None = None
+    max_venue_order_actions_per_minute: int | None = Field(default=None, ge=1, le=10000)
 
 
 class ActiveRiskPolicy(_FrozenModel):

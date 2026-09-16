@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		LOG_LEVELS,
 		YOLO_TIERS,
@@ -42,7 +43,7 @@
 		if (draft === null) {
 			return;
 		}
-		const next = new Set(draft.yolo_tiers);
+		const next = new SvelteSet(draft.yolo_tiers);
 		if (checked) {
 			next.add(tier);
 		} else {

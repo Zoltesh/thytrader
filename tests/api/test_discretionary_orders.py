@@ -163,11 +163,14 @@ def test_live_fake_broker_attaches_bracket_without_coinbase() -> None:
     """Injected live fakes attach SL/TP on the entry instead of a second OCO."""
     execution = InMemoryExecutionStore()
     broker = _LiveFillBroker()
+    risk = InMemoryRiskPolicyStore()
+    asyncio.run(risk.publish(compiled_default_risk_policy()))
     with _client(
         execution=execution,
         live_broker=broker,
         live_credentials=True,
         quote_reader=_UsdReader(),
+        risk=risk,
     ) as client:
         response = client.post(
             "/api/v1/discretionary-orders",

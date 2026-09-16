@@ -103,6 +103,7 @@ from thytrader.research.catalog import (
     StudyCatalogIntegrityError,
     StudyCatalogUnavailableError,
 )
+from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.settings_yaml import default_settings_path
 from thytrader.strategies.models import IndicatorKind
@@ -446,6 +447,21 @@ class OperatorDiagnostics:
         paper_running, paper_open = _mode_slot_counts(deployments, DeploymentMode.PAPER)
         live_running, live_open = _mode_slot_counts(deployments, DeploymentMode.LIVE)
         policy = active.definition
+        if live_running > 0 and active.source is RiskPolicySource.COMPILED_DEFAULT:
+            # New live starts require a published policy (audit F25); a running live
+            # deployment under the compiled default can only predate that gate.
+            findings = (
+                *findings,
+                RiskFinding(
+                    reason_code="LIVE_RUNNING_ON_COMPILED_DEFAULT_POLICY",
+                    deployment_id=None,
+                    detail=(
+                        "A live deployment is running under the compiled default risk "
+                        "policy. Publish an explicit policy for this operator's capital "
+                        "and product universe."
+                    ),
+                ),
+            )
         components = [
             ComponentReport(
                 name="risk_policy_registry",
@@ -479,6 +495,9 @@ class OperatorDiagnostics:
                 max_cancellations_per_minute=policy.max_cancellations_per_minute,
                 reference_price_collar_fraction=policy.reference_price_collar_fraction,
                 allow_intra_strategy_pyramiding=policy.allow_intra_strategy_pyramiding,
+                max_daily_loss_quote=policy.max_daily_loss_quote,
+                max_portfolio_exposure_quote=policy.max_portfolio_exposure_quote,
+                max_venue_order_actions_per_minute=policy.max_venue_order_actions_per_minute,
                 findings=findings,
             ),
         )

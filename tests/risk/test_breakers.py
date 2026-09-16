@@ -1,5 +1,6 @@
 """Daily-loss, drawdown, order-rate, and reference-price collar gate tests."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -10,7 +11,9 @@ from thytrader.execution.models import (
     DeploymentSnapshot,
     DeploymentStatus,
     Fill,
+    IntentPurpose,
     Order,
+    OrderIntent,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -178,6 +181,23 @@ def test_daily_loss_limit_denies_after_utc_day_loss() -> None:
     assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
 
 
+def test_absolute_daily_loss_cap_binds_tighter_than_the_fraction() -> None:
+    """An absolute daily-loss ceiling can deny even when the fraction has room (F25)."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"daily_loss_limit_fraction": "1", "max_daily_loss_quote": "10"}
+    )
+    snapshot = _round_trip_loss_snapshot()
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        observation=_observation(marks={"BTC-USD": Decimal("50")}),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+
+
 def test_drawdown_limit_denies_when_fill_ledger_drawdown_reaches_cap() -> None:
     """Per-strategy fill-ledger drawdown at the policy cap must deny."""
     policy = compiled_default_risk_policy().model_copy(
@@ -212,6 +232,93 @@ def test_order_rate_limit_denies_without_requiring_a_pause_code() -> None:
         observation=_observation(),
     )
     assert verdict.reason_code is RiskReasonCode.ORDER_RATE_LIMIT
+
+
+def test_protective_order_submissions_do_not_consume_the_entry_rate_cap() -> None:
+    """A recent protective (bracket) order must not exhaust the entry-only budget (F35)."""
+    policy = compiled_default_risk_policy().model_copy(update={"max_entry_orders_per_minute": 1})
+    entry_intent = uuid4()
+    bracket_intent = uuid4()
+    deployment = _deployment()
+    protective_order = _order(created_at=_NOW - timedelta(seconds=5))
+    protective_order = replace(protective_order, intent_id=bracket_intent)
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        orders=(protective_order,),
+        fills=(),
+        position=None,
+        intents=(
+            OrderIntent(
+                id=entry_intent,
+                deployment_id=deployment.id,
+                client_order_id="entry-client",
+                purpose=IntentPurpose.ENTRY,
+                side=OrderSide.BUY,
+                kind=OrderKind.POST_ONLY_LIMIT,
+                quantity=Decimal("0.1"),
+                created_at=_NOW - timedelta(minutes=5),
+                candle_starts_at=_NOW - timedelta(minutes=5),
+            ),
+            OrderIntent(
+                id=bracket_intent,
+                deployment_id=deployment.id,
+                client_order_id="bracket-client",
+                purpose=IntentPurpose.BRACKET,
+                side=OrderSide.SELL,
+                kind=OrderKind.TRIGGER_BRACKET,
+                quantity=Decimal("0.1"),
+                created_at=_NOW - timedelta(seconds=5),
+                candle_starts_at=_NOW - timedelta(minutes=5),
+            ),
+        ),
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        observation=_observation(),
+    )
+    assert verdict.decision is RiskDecision.ALLOW
+
+
+def test_venue_action_budget_denies_new_entries_before_any_purpose_split() -> None:
+    """A combined entry+cancel venue budget still binds even with room on both caps (F35)."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"max_venue_order_actions_per_minute": 2}
+    )
+    deployment = _deployment()
+    entry_intent = uuid4()
+    entry_order = replace(_order(created_at=_NOW - timedelta(seconds=5)), intent_id=entry_intent)
+    canceled_order = _order(created_at=_NOW - timedelta(seconds=40), status=OrderStatus.CANCELED)
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        orders=(entry_order, canceled_order),
+        fills=(),
+        position=None,
+        intents=(
+            OrderIntent(
+                id=entry_intent,
+                deployment_id=deployment.id,
+                client_order_id="entry-client",
+                purpose=IntentPurpose.ENTRY,
+                side=OrderSide.BUY,
+                kind=OrderKind.POST_ONLY_LIMIT,
+                quantity=Decimal("0.1"),
+                created_at=_NOW - timedelta(seconds=5),
+                candle_starts_at=_NOW - timedelta(seconds=5),
+            ),
+        ),
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        observation=_observation(),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.VENUE_REQUEST_BUDGET_EXCEEDED
 
 
 def test_cancel_rate_limit_denies_further_entries() -> None:

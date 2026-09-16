@@ -5,7 +5,15 @@
 export interface AuditEventItem {
 	id: string;
 	occurred_at: string;
-	category: 'connection' | 'snapshot' | 'worker_error' | 'market_data' | 'websocket' | 'research' | 'runtime' | 'memory';
+	category:
+		| 'connection'
+		| 'snapshot'
+		| 'worker_error'
+		| 'market_data'
+		| 'websocket'
+		| 'research'
+		| 'runtime'
+		| 'memory';
 	action: string;
 	outcome: 'success' | 'failure' | 'info';
 	detail: string;
