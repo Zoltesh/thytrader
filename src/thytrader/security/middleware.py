@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.types import ASGIApp  # noqa: TC002 - BaseHTTPMiddleware app parameter type.
 from starlette.requests import Request  # noqa: TC002 - middleware receives live requests.
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp  # noqa: TC002 - BaseHTTPMiddleware app parameter type.
 
 from thytrader.security.boundary import TrustBoundary, TrustBoundaryError
 from thytrader.security.models import CSRF_COOKIE, CSRF_HEADER, INSTALLATION_AUTH_HEADER
