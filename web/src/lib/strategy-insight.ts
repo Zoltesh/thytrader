@@ -132,7 +132,10 @@ type IndicatorLike = {
 
 function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
 	if (indicator.kind === 'constant') return indicator.input === undefined;
-	if (indicator.kind === 'identity' || isConfigurableRollingKind(indicator.kind as IndicatorKindValue)) {
+	if (
+		indicator.kind === 'identity' ||
+		isConfigurableRollingKind(indicator.kind as IndicatorKindValue)
+	) {
 		return typeof indicator.input === 'string' && IDENTITY_INPUTS.has(indicator.input);
 	}
 	if (

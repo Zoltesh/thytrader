@@ -6,12 +6,7 @@ export type FoldMode = 'rolling' | 'anchored';
 export type SelectionMetric =
 	'total_return_fraction' | 'total_net_pnl' | 'maximum_drawdown_fraction';
 export type SweepAxisTarget =
-	| 'indicator'
-	| 'sizing'
-	| 'exits'
-	| 'execution'
-	| 'entry_literal'
-	| 'htf_literal';
+	'indicator' | 'sizing' | 'exits' | 'execution' | 'entry_literal' | 'htf_literal';
 export type SweepParameter =
 	| 'period'
 	| 'fast_period'

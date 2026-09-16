@@ -459,10 +459,10 @@
 							MACD/Bollinger/stochastic/ADX outputs as series ids. RSI, ATR, Williams %R, CCI, MFI,
 							and ADX periods cap at 100; stochastic %K caps at 100. Momentum and MFI need period +
 							1 bars. MACD needs slow + signal − 1 bars. Stochastic needs k + d − 1 bars. ADX needs
-							2×period − 1 bars. Optional per-indicator timeframes may use a coarser integer-multiple
-							venue clock; omitting the field keeps the decision clock. Constant omits timeframe.
-							Stop ATR stays on the decision clock. Extra-TF values overlay LTF entry before the HTF
-							filter AND.
+							2×period − 1 bars. Optional per-indicator timeframes may use a coarser
+							integer-multiple venue clock; omitting the field keeps the decision clock. Constant
+							omits timeframe. Stop ATR stays on the decision clock. Extra-TF values overlay LTF
+							entry before the HTF filter AND.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}

@@ -109,8 +109,7 @@ function indicatorText(indicator: IndicatorDraft): string {
 	if (indicator.kind === 'stochastic') {
 		return `${label}(${indicator.parameters.k_period},${indicator.parameters.d_period})${clock} as "${indicator.id}"`;
 	}
-	const source =
-		typeof indicator.input === 'string' ? `,${indicator.input}` : '';
+	const source = typeof indicator.input === 'string' ? `,${indicator.input}` : '';
 	return `${label}(${indicator.parameters.period}${source})${clock} as "${indicator.id}"`;
 }
 
@@ -232,7 +231,11 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 		JSON.stringify(before.additional_instruments),
 		JSON.stringify(after.additional_instruments)
 	);
-	changed('max_open_positions', String(before.max_open_positions), String(after.max_open_positions));
+	changed(
+		'max_open_positions',
+		String(before.max_open_positions),
+		String(after.max_open_positions)
+	);
 	changed('pyramiding', JSON.stringify(before.pyramiding), JSON.stringify(after.pyramiding));
 	changed('sizing.risk_fraction', before.sizing.risk_fraction, after.sizing.risk_fraction);
 	changed(
