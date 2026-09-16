@@ -22,10 +22,10 @@ The range endpoint paginates through Coinbase's 350-candle limit using **inclusi
 `page_start` to `inclusive_end + duration`. Exclusive paging dropped the oldest bar on a full 5m
 page. The adapter still validates every candle for UTC alignment, chronological order, OHLC
 consistency, and decimal exactness, and reports expected vs received candle counts, gaps, and a
-binary completeness result. It is bounded to 25,920 candles (90 days at 5m). One-hour watches stay
+binary completeness result. It is bounded to 129,600 candles (90 days at 1m). One-hour watches stay
 `min(requested, 2,160 hours)` and cannot request ranges ending in the future.
 
-The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, and 1d historical datasets. Initial
+The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h historical datasets. Initial
 backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
 are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
 island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
@@ -71,7 +71,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, and `1d` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h`. Destination also includes `1m`, `2h`, and any additional Coinbase-listed interval ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); those are not shipped datasets or clocks. |
+| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h` or `5m`. Strategy/paper/live clocks for `1m`/`2h`/`4h` remain destination ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md), [ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)). |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -219,14 +219,13 @@ withdrawal, leverage, derivatives, or optimization authority.
 
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
-1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d complete-only datasets are
-   implemented. Phase 7 data-loop hardening is also implemented. `15m`/`30m`/`6h`/`1d` are not LTF,
-   paper, or live clocks. Phase 8 research may bind them as `htf_filter` datasets
-   ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)). Destination remaining venue
-   granularities are `1m`, `2h`, and any interval Coinbase lists later
-   ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); they follow the same
-   complete-only contract and are **not** inserted ahead of roadmap Phase 9 remaining → 14.
-2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products, 5m, 15m, 30m, 6h, and 1d without weakening complete-only publication.
+1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d/1m/2h/4h complete-only
+   datasets are implemented. Phase 7 data-loop hardening is also implemented. Extra catalog TFs are
+   not LTF, paper, or live clocks. Phase 8 research may bind `15m`/`30m`/`6h`/`1d` as `htf_filter`
+   datasets ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)). `1m`/`2h`/`4h` remain
+   illegal as LTF, HTF, paper, or live clocks until a later ADR
+   ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)).
+2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and every shipped dataset timeframe without weakening complete-only publication.
 3. **5m live** — paper and live may evaluate closed 5m bars. Live 5m pauses unless the
    authenticated user-order feed is connected ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
 

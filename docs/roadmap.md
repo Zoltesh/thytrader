@@ -25,9 +25,9 @@ at a time. Phases 7–14 below are the definitive **near-term** sequence (not a 
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
-Destination items that are **accepted but not inserted ahead of Phase 14**: remaining
-Coinbase candle granularities (`1m`, `2h`, and any newly listed interval) as complete-only datasets
-then strategy/paper/live clocks; on-demand trades with SL/TP. See
+Destination items that are **accepted but not the current Builder ceiling**: remaining
+Coinbase candle **clocks** (`1m`, `2h`, `4h` strategy/paper/live — datasets shipped in
+[ADR 0038](decisions/0038-complete-only-1m-2h-4h-datasets.md)); on-demand trades with SL/TP. See
 [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
@@ -71,9 +71,9 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
 inputs once strategy/runtime contracts explicitly allow that TF, and agents can distinguish island
 completeness from full watch coverage.
 
-Remaining Coinbase-listed granularities (`1m`, `2h`, and any interval Coinbase adds later) are
-**destination** datasets-then-clocks ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)).
-They are not part of this shipped Phase 7 exit and are not inserted ahead of Phase 13 → 14.
+Remaining Coinbase-listed granularities (`1m`, `2h`, and `4h`) now have complete-only datasets
+([ADR 0038](decisions/0038-complete-only-1m-2h-4h-datasets.md)). Strategy/paper/live clocks for those
+TFs remain destination work and are not part of the Phase 7 exit.
 
 ## Phase 7.1: Fee-tier suggested defaults for research/paper — ✅ Shipped (research)
 
@@ -233,8 +233,8 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations) | Daily-loss / drawdown breakers, order-rate limits, on-demand order risk |
 | On-demand trades with SL/TP | No; strategy deploy only | Yes, via order intent + risk ([ADR 0031](decisions/0031-coinbase-first-platform-end-state.md)) |
-| Dataset TFs | 5m, 15m, 30m, 1h, 6h, 1d complete-only | Those plus **1m**, **2h**, and any Coinbase-listed interval |
-| Strategy / paper / live clocks | `1h`\|`5m` (live `1h`) | Same clocks as ingested venue TFs, each widened by ADR |
+| Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals; strategy/paper/live clocks widen by later ADR |
+| Strategy / paper / live clocks | `1h`\|`5m` | Same clocks as ingested venue TFs, each widened by ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
 | Research | Single-instrument backtests; research HTF filter; Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |

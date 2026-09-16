@@ -318,3 +318,58 @@ def test_quality_excludes_open_one_day_bar_from_a_utc_day() -> None:
     assert report.requested_candle_count == 1
     assert report.quality.candle_count == 0
     assert report.quality.gap_count == 0
+
+
+def _exact_candle(starts_at: datetime) -> Candle:
+    """Build one exact OHLCV candle at an arbitrary UTC start."""
+    return Candle(
+        starts_at=starts_at,
+        open=Decimal("100"),
+        high=Decimal("110"),
+        low=Decimal("90"),
+        close=Decimal("105"),
+        volume=Decimal("12.5"),
+    )
+
+
+def test_missing_interval_starts_lists_absent_one_minute_bars() -> None:
+    """1m gap inspection lists missing starts without interpolating prices."""
+    starts_at = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 28, 12, 3, tzinfo=UTC)
+    present = (_exact_candle(starts_at), _exact_candle(starts_at + timedelta(minutes=2)))
+    missing = missing_interval_starts(present, CandleInterval.ONE_MINUTE, starts_at, ends_at)
+    assert missing == (starts_at + timedelta(minutes=1),)
+
+
+def test_quality_excludes_open_two_hour_bar_from_a_utc_day() -> None:
+    """A complete 2h UTC day is twelve closed bars; the open bar is not published."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    candles = tuple(_exact_candle(starts_at + timedelta(hours=2 * index)) for index in range(12))
+    report = analyze_range(
+        candles,
+        CandleInterval.TWO_HOURS,
+        starts_at,
+        starts_at + timedelta(hours=24),
+        now=datetime(2026, 7, 28, 21, tzinfo=UTC),
+    )
+    assert report.complete is False
+    assert report.requested_candle_count == 12
+    assert report.quality.candle_count == 10
+    assert report.quality.gap_count == 0
+
+
+def test_quality_excludes_open_four_hour_bar_from_a_utc_day() -> None:
+    """A complete 4h UTC day is six closed bars; the open bar is not published."""
+    starts_at = datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
+    candles = tuple(_exact_candle(starts_at + timedelta(hours=4 * index)) for index in range(6))
+    report = analyze_range(
+        candles,
+        CandleInterval.FOUR_HOURS,
+        starts_at,
+        starts_at + timedelta(hours=24),
+        now=datetime(2026, 7, 28, 21, tzinfo=UTC),
+    )
+    assert report.complete is False
+    assert report.requested_candle_count == 6
+    assert report.quality.candle_count == 5
+    assert report.quality.gap_count == 0

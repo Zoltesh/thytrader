@@ -30,6 +30,9 @@ _COINBASE_GRANULARITIES: dict[CandleInterval, str] = {
     CandleInterval.THIRTY_MINUTES: "THIRTY_MINUTE",
     CandleInterval.SIX_HOURS: "SIX_HOUR",
     CandleInterval.ONE_DAY: "ONE_DAY",
+    CandleInterval.ONE_MINUTE: "ONE_MINUTE",
+    CandleInterval.TWO_HOURS: "TWO_HOUR",
+    CandleInterval.FOUR_HOURS: "FOUR_HOUR",
 }
 
 

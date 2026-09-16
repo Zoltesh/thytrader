@@ -18,9 +18,10 @@ Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
 Supported research, paper, and live **decision** timeframes: `1h` and `5m`. Dataset ingest also
-supports `15m`, `30m`, `6h`, and `1d` under the same complete-only contract. Those extra timeframes may
-be bound as research `htf_filter` datasets (ADR 0025). Do not treat `15m`, `30m`, `6h`, or `1d` as a
-strategy, paper, or live clock.
+supports `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` under the same complete-only contract.
+`15m`/`30m`/`6h`/`1d` may be bound as research `htf_filter` datasets (ADR 0025). Do not treat
+`15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h` as a strategy, paper, or live clock. `1m`/`2h`/`4h`
+are also not HTF clocks.
 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
@@ -54,10 +55,11 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
 
 Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days) and may be set up to
-2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). Fifteen-minute
-ingest covers the same lookback (8,640 bars). Thirty-minute ingest covers the same lookback
-(4,320 bars). Six-hour ingest covers the same lookback (360 bars). Daily ingest covers the same
-lookback (90 bars). Initial
+2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). One-minute ingest
+covers the same lookback (129,600 bars). Fifteen-minute ingest covers the same lookback (8,640 bars).
+Thirty-minute ingest covers the same lookback (4,320 bars). Two-hour ingest covers the same lookback
+(1,080 bars). Four-hour ingest covers the same lookback (540 bars). Six-hour ingest covers the same
+lookback (360 bars). Daily ingest covers the same lookback (90 bars). Initial
 backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
 days stay holes. When lookback starts before an existing complete island, the worker prepends
 complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. `inspect-gaps` classifies
