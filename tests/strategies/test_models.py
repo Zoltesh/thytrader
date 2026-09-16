@@ -1997,6 +1997,10 @@ def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
     too_many_books["additional_instruments"] = [
         {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"}
     ]
+    capped = StrategyDefinition.model_validate(too_many_books)
+    assert lockstep_product_ids(capped) == ("BTC-USD", "ETH-USD")
+    assert capped.portfolio_limits.max_concurrent_positions == 1
+    _object_mapping(too_many_books["portfolio_limits"])["max_concurrent_positions"] = 3
     with pytest.raises(ValidationError, match="cannot exceed"):
         StrategyDefinition.model_validate(too_many_books)
     _object_mapping(too_many_books["portfolio_limits"])["max_concurrent_positions"] = 2

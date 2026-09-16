@@ -615,39 +615,53 @@ def _require_indicator_timeframe_window(
             )
 
 
-def _require_additional_instrument_request(
-    request: BacktestSubmissionRequest,
-    definition: StrategyDefinition,
-) -> None:
-    """Reject extra product bindings that do not match the published document."""
-    extra_products = tuple(
+def _extra_lockstep_product_ids(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Return extra covered product ids in lexicographic lockstep order."""
+    return tuple(
         product_id
         for product_id in lockstep_product_ids(definition)
         if product_id != definition.instrument.product_id
     )
+
+
+def _require_additional_product_order(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> None:
+    """Require extra dataset bindings to list the extra covered products in lockstep order."""
     declared = tuple(item.product_id for item in request.additional_instrument_datasets)
-    if declared != extra_products:
+    if declared != _extra_lockstep_product_ids(definition):
         raise BacktestSubmissionRejectedError(
             "additional_instrument_datasets must match extra covered products in product_id order."
         )
+
+
+def _require_additional_htf_fingerprint(
+    binding: AdditionalInstrumentDataset, *, has_filter: bool
+) -> None:
+    """Require extra-product HTF fingerprints exactly when the document declares htf_filter."""
+    if has_filter and binding.htf_dataset_fingerprint is None:
+        raise BacktestSubmissionRejectedError(
+            "additional_instrument_datasets require htf_dataset_fingerprint when the "
+            "strategy declares htf_filter."
+        )
+    if not has_filter and binding.htf_dataset_fingerprint is not None:
+        raise BacktestSubmissionRejectedError(
+            "additional-instrument HTF fingerprints are only valid with htf_filter."
+        )
+
+
+def _additional_request_fingerprints(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> list[str]:
+    """Collect extra-product dataset identities and reject HTF or extra-TF mismatches."""
     required_clocks = unbound_indicator_timeframes(definition)
     has_filter = definition.htf_filter is not None
-    reserved = {request.dataset_fingerprint}
-    if request.htf_dataset_fingerprint is not None:
-        reserved.add(request.htf_dataset_fingerprint)
-    reserved.update(item.dataset_fingerprint for item in request.indicator_dataset_fingerprints)
     extra_fingerprints: list[str] = []
     for binding in request.additional_instrument_datasets:
         extra_fingerprints.append(binding.dataset_fingerprint)
-        if has_filter and binding.htf_dataset_fingerprint is None:
-            raise BacktestSubmissionRejectedError(
-                "additional_instrument_datasets require htf_dataset_fingerprint when the "
-                "strategy declares htf_filter."
-            )
-        if not has_filter and binding.htf_dataset_fingerprint is not None:
-            raise BacktestSubmissionRejectedError(
-                "additional-instrument HTF fingerprints are only valid with htf_filter."
-            )
+        _require_additional_htf_fingerprint(binding, has_filter=has_filter)
         if binding.htf_dataset_fingerprint is not None:
             extra_fingerprints.append(binding.htf_dataset_fingerprint)
         clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
@@ -658,6 +672,22 @@ def _require_additional_instrument_request(
         extra_fingerprints.extend(
             item.dataset_fingerprint for item in binding.indicator_dataset_fingerprints
         )
+    return extra_fingerprints
+
+
+def _require_additional_instrument_request(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> None:
+    """Reject extra product bindings that do not match the published document."""
+    if not definition.additional_instruments and not request.additional_instrument_datasets:
+        return
+    _require_additional_product_order(request, definition)
+    extra_fingerprints = _additional_request_fingerprints(request, definition)
+    reserved = {request.dataset_fingerprint}
+    if request.htf_dataset_fingerprint is not None:
+        reserved.add(request.htf_dataset_fingerprint)
+    reserved.update(item.dataset_fingerprint for item in request.indicator_dataset_fingerprints)
     if any(fingerprint in reserved for fingerprint in extra_fingerprints):
         raise BacktestSubmissionRejectedError(
             "additional_instrument_datasets must differ from primary LTF/HTF/extra-TF identities."
@@ -675,16 +705,9 @@ def _require_additional_instrument_window(
 ) -> None:
     """Confirm extra product datasets cover the same evaluation window as the primary."""
     definition = strategy.definition
-    extra_products = tuple(
-        product_id
-        for product_id in lockstep_product_ids(definition)
-        if product_id != definition.instrument.product_id
-    )
-    declared = tuple(item.product_id for item in request.additional_instrument_datasets)
-    if declared != extra_products:
-        raise BacktestSubmissionRejectedError(
-            "additional_instrument_datasets must match extra covered products in product_id order."
-        )
+    if not definition.additional_instruments and not request.additional_instrument_datasets:
+        return
+    _require_additional_product_order(request, definition)
     required_clocks = unbound_indicator_timeframes(definition)
     groups = dict(extra_indicator_timeframe_groups(definition))
     evaluation_start, evaluation_end = _filled_window(request)
