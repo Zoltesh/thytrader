@@ -188,13 +188,13 @@ def _parser() -> argparse.ArgumentParser:
     plan = subparsers.add_parser(
         "plan-study",
         parents=[trailing],
-        help="Plan walk-forward, OOS, or cross-market windows without submitting.",
+        help="Plan OOS, walk-forward, cross-market, sweep, or WFO windows without submitting.",
     )
     plan.add_argument("--file", required=True, help="Path to a ResearchStudyRequest JSON document.")
     study = subparsers.add_parser(
         "submit-study",
         parents=[trailing],
-        help="Submit one composed research study.",
+        help="Submit one composed research study (OOS, walk-forward, sweep, or WFO).",
     )
     study.add_argument(
         "--file",

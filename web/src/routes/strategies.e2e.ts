@@ -738,7 +738,9 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(page.getByText('Launch backtest')).toBeVisible();
 	await expect(page.getByLabel('Study')).toBeVisible();
 	await expect(page.getByRole('option', { name: 'OOS holdout' })).toBeAttached();
-	await expect(page.getByRole('option', { name: 'Walk-forward' })).toBeAttached();
+	await expect(page.getByRole('option', { name: 'Walk-forward', exact: true })).toBeAttached();
+	await expect(page.getByRole('option', { name: 'Parameter sweep' })).toBeAttached();
+	await expect(page.getByRole('option', { name: 'Walk-forward optimization' })).toBeAttached();
 	await expect(page.getByRole('option', { name: 'V3 — resting maker limit' })).toBeAttached();
 	await expect(page.getByTestId('research-fee-source')).toContainText(
 		'Suggested from Coinbase fee tier'
@@ -1198,9 +1200,7 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
 });
 
-test('deploy tab shows accurate timeframe copy and allows live 5m', async ({
-	page
-}) => {
+test('deploy tab shows accurate timeframe copy and allows live 5m', async ({ page }) => {
 	const fiveMinEntry = {
 		...publishedEntry,
 		timeframe: '5m'

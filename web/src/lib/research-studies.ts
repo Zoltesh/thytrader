@@ -1,7 +1,18 @@
-/** Phase 11 research-study HTTP helpers. Studies compose existing backtests. */
+/** Research-study HTTP helpers. Studies compose existing backtests. */
 
-export type StudyKind = 'oos_holdout' | 'walk_forward' | 'cross_market';
+export type StudyKind =
+	'oos_holdout' | 'walk_forward' | 'cross_market' | 'parameter_sweep' | 'walk_forward_optimization';
 export type FoldMode = 'rolling' | 'anchored';
+export type SelectionMetric =
+	'total_return_fraction' | 'total_net_pnl' | 'maximum_drawdown_fraction';
+export type SweepParameter =
+	'period' | 'fast_period' | 'slow_period' | 'signal_period' | 'stdev_multiplier' | 'value';
+
+export type ParameterAxis = {
+	indicator_id: string;
+	parameter: SweepParameter;
+	values: string[];
+};
 
 export type ResearchStudyRequest = {
 	schema_version: 'thytrader-research-study-v1';
@@ -24,15 +35,20 @@ export type ResearchStudyRequest = {
 	out_of_sample_bars?: number;
 	step_bars?: number;
 	fold_mode?: FoldMode;
+	candidate_strategy_fingerprints?: string[];
+	parameter_axes?: ParameterAxis[];
+	selection_metric?: SelectionMetric;
 };
 
 export type StudyWindowResult = {
 	label: string;
-	role: 'in_sample' | 'out_of_sample' | 'full_window';
+	role: 'in_sample' | 'out_of_sample' | 'full_window' | 'sweep_candidate';
 	fold_index: number;
 	product_id: string;
 	run_fingerprint: string;
 	result_fingerprint: string;
+	strategy_fingerprint?: string;
+	selected?: boolean;
 	evaluation_start: string;
 	evaluation_end: string;
 	summary: {
@@ -41,6 +57,16 @@ export type StudyWindowResult = {
 		win_rate: string;
 		maximum_drawdown_fraction: string;
 	};
+};
+
+export type StitchedOosEquity = {
+	available: boolean;
+	reason?: string | null;
+	initial_equity?: string | null;
+	final_equity?: string | null;
+	total_return_fraction?: string | null;
+	maximum_drawdown_fraction?: string | null;
+	point_count: number;
 };
 
 export type ResearchStudy = {
@@ -56,6 +82,8 @@ export type ResearchStudy = {
 		is_oos_return_gap: string | null;
 	};
 	warnings: string[];
+	selection_metric?: SelectionMetric | null;
+	stitched_oos_equity?: StitchedOosEquity | null;
 };
 
 export type StrategyTemplate = { id: string; name: string; description: string };
@@ -64,6 +92,13 @@ export function engineContractLabel(version: string): string {
 	if (version.endsWith('-v3')) return 'V3';
 	if (version.endsWith('-v2')) return 'V2';
 	return 'V1';
+}
+
+export function parseParameterAxisValues(raw: string): string[] {
+	return raw
+		.split(',')
+		.map((item) => item.trim())
+		.filter((item) => item !== '');
 }
 
 export async function listStrategyTemplates(): Promise<StrategyTemplate[]> {

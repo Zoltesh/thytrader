@@ -149,7 +149,9 @@ multi-instrument strategy documents. Venue strategy/paper/live/HTF clocks are sh
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
 registry and concurrent single-instrument paper/live are shipped. Phase 11's walk-forward / OOS /
-cross-market studies are shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped.
+cross-market studies are shipped. Parameter sweeps, walk-forward optimization, and stitched OOS
+equity are shipped ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).
+Phase 12's agent playbook and default-off YOLO opt-in are shipped.
 YOLO skip-confirm for live start/pause/resume/stop is shipped
 ([ADR 0043](../decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains.
 Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets are shipped.

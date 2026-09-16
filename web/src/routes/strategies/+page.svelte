@@ -15,8 +15,12 @@
 	} from '$lib/fees';
 	import {
 		engineContractLabel,
+		parseParameterAxisValues,
 		submitResearchStudy,
-		type ResearchStudy
+		type ResearchStudy,
+		type ResearchStudyRequest,
+		type SelectionMetric,
+		type SweepParameter
 	} from '$lib/research-studies';
 	import {
 		archiveConfirmMessage,
@@ -100,12 +104,18 @@
 	let launching = $state(false);
 	let draftTemplate = $state('ema-trend');
 	let draftTimeframe = $state('1h');
-	let studyKind = $state<'single' | 'oos_holdout' | 'walk_forward'>('single');
+	let studyKind = $state<
+		'single' | 'oos_holdout' | 'walk_forward' | 'parameter_sweep' | 'walk_forward_optimization'
+	>('single');
 	let oosFraction = $state('0.3');
 	let inSampleBars = $state('720');
 	let outOfSampleBars = $state('168');
 	let stepBars = $state('168');
 	let foldMode = $state<'rolling' | 'anchored'>('rolling');
+	let axisIndicatorId = $state('fast');
+	let axisParameter = $state<SweepParameter>('period');
+	let axisValues = $state('12,26');
+	let selectionMetric = $state<SelectionMetric>('total_return_fraction');
 	let studyResult = $state<ResearchStudy | null>(null);
 	let selectedStrategyFingerprint = $state('');
 	let launchForm = $state({
@@ -356,6 +366,47 @@
 		);
 	}
 
+	function usesFoldGeometry(): boolean {
+		return studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization';
+	}
+
+	function usesParameterAxes(): boolean {
+		return studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization';
+	}
+
+	function studyGeometryFields(): Partial<ResearchStudyRequest> {
+		if (studyKind === 'oos_holdout') {
+			return { oos_fraction: oosFraction, embargo_bars: 0 };
+		}
+		if (usesFoldGeometry()) {
+			return {
+				in_sample_bars: Number(inSampleBars),
+				out_of_sample_bars: Number(outOfSampleBars),
+				step_bars: Number(stepBars),
+				fold_mode: foldMode
+			};
+		}
+		return {};
+	}
+
+	function studyCandidateFields(): Partial<ResearchStudyRequest> | string {
+		if (!usesParameterAxes()) return {};
+		const values = parseParameterAxisValues(axisValues);
+		if (values.length < 2) {
+			return 'Enter at least two comma-separated parameter values.';
+		}
+		return {
+			parameter_axes: [
+				{
+					indicator_id: axisIndicatorId.trim(),
+					parameter: axisParameter,
+					values
+				}
+			],
+			selection_metric: selectionMetric
+		};
+	}
+
 	async function runLaunch(): Promise<void> {
 		if (!viewEntry || selectedStrategyFingerprint === '' || launching) return;
 		if (launchForm.engine === '') {
@@ -364,6 +415,11 @@
 		}
 		if (launchForm.maker_fee_rate.trim() === '' || launchForm.taker_fee_rate.trim() === '') {
 			launchError = 'Enter modeled maker and taker fee rates before launching.';
+			return;
+		}
+		const candidateFields = studyKind === 'single' ? {} : studyCandidateFields();
+		if (typeof candidateFields === 'string') {
+			launchError = candidateFields;
 			return;
 		}
 		launching = true;
@@ -391,14 +447,8 @@
 					engine_contract_version: launchForm.engine,
 					spread_bps:
 						launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null,
-					...(studyKind === 'oos_holdout'
-						? { oos_fraction: oosFraction, embargo_bars: 0 }
-						: {
-								in_sample_bars: Number(inSampleBars),
-								out_of_sample_bars: Number(outOfSampleBars),
-								step_bars: Number(stepBars),
-								fold_mode: foldMode
-							})
+					...studyGeometryFields(),
+					...candidateFields
 				});
 				studyResult = study;
 				return;
@@ -1331,6 +1381,8 @@
 									<option value="single">Single window</option>
 									<option value="oos_holdout">OOS holdout</option>
 									<option value="walk_forward">Walk-forward</option>
+									<option value="parameter_sweep">Parameter sweep</option>
+									<option value="walk_forward_optimization">Walk-forward optimization</option>
 								</select></label
 							>
 							{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
@@ -1352,7 +1404,7 @@
 								the honest claim; this does not retune parameters.
 							</p>
 						{/if}
-						{#if studyKind === 'walk_forward'}
+						{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
 							<div class="launch-grid">
 								<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
 								<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
@@ -1366,9 +1418,50 @@
 								>
 							</div>
 							<p class="view-note">
-								Walk-forward validation uses the same published fingerprint on each fold. Metrics
-								are not a stitched equity curve. Cross-market studies stay on the research CLI.
+								{#if studyKind === 'walk_forward'}
+									Walk-forward validation uses the same published fingerprint on each fold.
+									Non-overlapping OOS windows may include a derived stitched equity curve.
+									Cross-market studies stay on the research CLI.
+								{:else}
+									WFO simulates every candidate on every fold and selects only on in-sample
+									{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
+									selected OOS returns without interpolating embargo gaps.
+								{/if}
 							</p>
+						{/if}
+						{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
+							<div class="launch-grid">
+								<label>Indicator id<input bind:value={axisIndicatorId} /></label>
+								<label
+									>Parameter
+									<select bind:value={axisParameter}>
+										<option value="period">period</option>
+										<option value="fast_period">fast_period</option>
+										<option value="slow_period">slow_period</option>
+										<option value="signal_period">signal_period</option>
+										<option value="stdev_multiplier">stdev_multiplier</option>
+										<option value="value">value</option>
+									</select></label
+								>
+								<label
+									>Axis values (comma-separated)
+									<input bind:value={axisValues} /></label
+								>
+								<label
+									>Selection metric
+									<select bind:value={selectionMetric}>
+										<option value="total_return_fraction">Total return</option>
+										<option value="total_net_pnl">Total net PnL</option>
+										<option value="maximum_drawdown_fraction">Max drawdown</option>
+									</select></label
+								>
+							</div>
+							{#if studyKind === 'parameter_sweep'}
+								<p class="view-note">
+									Each axis cell is one published-shaped candidate on the same window. The aggregate
+									is not an out-of-sample claim. Submit publishes missing derived fingerprints.
+								</p>
+							{/if}
 						{/if}
 						<div class="launch-grid">
 							<label
@@ -1487,6 +1580,22 @@
 								{/if}
 							</p>
 						{/if}
+						{#if studyResult.stitched_oos_equity}
+							<p class="view-note">
+								{#if studyResult.stitched_oos_equity.available && studyResult.stitched_oos_equity.total_return_fraction}
+									Stitched OOS return {formatPercent(
+										studyResult.stitched_oos_equity.total_return_fraction
+									)}
+									{#if studyResult.stitched_oos_equity.maximum_drawdown_fraction}
+										· max drawdown {formatPercent(
+											studyResult.stitched_oos_equity.maximum_drawdown_fraction
+										)}
+									{/if}
+								{:else if studyResult.stitched_oos_equity.reason}
+									{studyResult.stitched_oos_equity.reason}
+								{/if}
+							</p>
+						{/if}
 						{#each studyResult.warnings as warning (warning)}
 							<p class="view-note">{warning}</p>
 						{/each}
@@ -1503,7 +1612,7 @@
 								{#each studyResult.windows as window (window.result_fingerprint)}
 									<tr>
 										<td>{window.label}</td>
-										<td>{window.role}</td>
+										<td>{window.role}{window.selected === true ? ' · selected' : ''}</td>
 										<td>
 											<a
 												href={resolve(

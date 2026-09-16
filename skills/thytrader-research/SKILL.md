@@ -4,8 +4,8 @@ description: >-
   Create ThyTrader strategy drafts, publish immutable versions, and submit or
   compare deterministic backtests and composed research studies through the
   confirmation-gated thytrader-research CLI. Use when the user asks to create a
-  strategy, publish, run a backtest, or run an OOS / walk-forward / cross-market
-  study. Requires explicit --confirm for every mutation. Never deploys,
+  strategy, publish, run a backtest, or run an OOS / walk-forward / cross-market /
+  parameter-sweep / WFO study. Requires explicit --confirm for every mutation. Never deploys,
   paper-trades, live-trades, arms, or cancels orders.
 ---
 
@@ -56,14 +56,21 @@ Never treat a backtest as a paper or live fill.
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
-| Plan OOS / walk-forward / cross-market windows | `uv run thytrader-research plan-study --file study.json` |
+| Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 
 `list-results`, `show-result`, `list-templates`, `engine-support`, and `plan-study` are read-only and
 do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3
-backtests; they do not retune parameters or stitch a continuous equity curve. Cross-market studies
+backtests. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
+`walk_forward_optimization` select among published fingerprints or `parameter_axes` (indicator
+`period` / `fast_period` / `slow_period` / `signal_period` / `stdev_multiplier` / `value`; Cartesian
+product ≤ 8). Selection uses only in-sample `selection_metric`; it does not look ahead from OOS.
+`plan-study` derives axis candidates in memory. `submit-study --confirm` publishes missing derived
+documents, then submits ordinary backtests. Stitched OOS equity compounds non-overlapping window
+returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
+interpolated. Parameter-sweep aggregates are not an out-of-sample claim. Cross-market studies
 need 2–8 published single-instrument strategies on distinct products. See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 

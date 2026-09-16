@@ -80,8 +80,9 @@ entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops, and resting
 the paper worker. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
 does not. Entry cooldown remains unsupported on every bar engine. Optional ATR trailing uses the
 same ratchet as paper/live; disabled trailing is a no-op. Walk-forward /
-OOS / cross-market studies compose these engines ([research studies](research-studies.md)); they do
-not retune parameters. MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
+OOS / cross-market studies compose these engines ([research studies](research-studies.md)).
+Validation kinds freeze one fingerprint; parameter sweeps and WFO select among published or
+derived fingerprints without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
 are shipped on V1/V2/V3, paper, and live. Paper and live consume the same LTF catalog, extra-TF
 overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
@@ -93,8 +94,8 @@ strategy identity. Insight always shows the same summary, validation, warmup/dat
 state, and V1/V2/V3 support matrix as the builder. Research requires an explicit immutable published
 version, verified dataset, half-open evaluation period, exact initial capital, maker/taker fees,
 fixed slippage, and engine contract; V2 additionally requires an explicit constant total bid-ask
-spread. The Research tab can launch a single window or a composed OOS / walk-forward study (cross-market
-stays on the research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
+spread. The Research tab can launch a single window or a composed OOS / walk-forward / parameter-sweep
+/ WFO study (cross-market stays on the research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
 exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or missing
 credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
 observed Coinbase fills. V1/V2 next-open fills still use the taker rate even when the strategy

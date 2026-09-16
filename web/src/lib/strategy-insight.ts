@@ -657,6 +657,6 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'Phase 11 composes existing engines; it does not retune parameters or stitch a continuous equity curve'
+		note: 'Phase 11 and ADR 0044 compose existing engines for validation, sweeps, WFO, and stitched OOS equity'
 	}
 ];

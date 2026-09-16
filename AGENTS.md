@@ -184,8 +184,9 @@ source:
 - [`skills/thytrader-data/SKILL.md`](skills/thytrader-data/SKILL.md) — watchlist, ingest, and
   gap-fill only, with `--confirm` on every mutation. Ingest is a worker job (HTTP 202); the API
   dataset volume stays read-only.
-- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish, and
-  backtests only, with `--confirm` on every mutation.
+- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish,
+  backtests, and composed studies (OOS / walk-forward / sweep / WFO), with `--confirm` on every
+  mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
   resume, stop, on-demand `place-order`, and risk-policy publication, with `--confirm` unless YOLO
   covers that tier (live start and live place-order also `--i-understand-live`).

@@ -1,4 +1,4 @@
-"""Walk-forward, OOS holdout, and cross-market research study composition."""
+"""Walk-forward, OOS, cross-market, sweep, and WFO research study composition."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from pydantic import (
 
 from thytrader.backtest.models import (
     BacktestEngineContract,  # noqa: TC001 - Pydantic model field.
+    BacktestResult,  # noqa: TC001 - used as a runtime result map value.
     BacktestSummary,  # noqa: TC001 - Pydantic model field.
 )
 from thytrader.backtest.submission import (
@@ -29,6 +30,19 @@ from thytrader.backtest.submission import (
 )
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
 from thytrader.research.models import EvaluationWindow, IndicatorTimeframeDataset
+from thytrader.research.parameter_sweep import (
+    MAX_CANDIDATES,
+    ParameterAxis,
+    SelectionMetric,
+    StitchedOosEquity,
+    StitchSourceWindow,
+    derive_parameter_candidates,
+    metric_value,
+    select_candidate_fingerprint,
+    stitch_oos_equity,
+    unavailable_stitched_equity,
+)
+from thytrader.strategies.publication import StrategyPublicationError
 
 if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestSubmitter
@@ -39,15 +53,18 @@ STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_FOLDS = 24
 _MAX_MARKETS = 8
+_MAX_STUDY_WINDOWS = 128
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 
 
 class StudyKind(StrEnum):
-    """Fail-closed research-study kinds for Phase 11."""
+    """Fail-closed research-study kinds for Phase 11 and ADR 0044."""
 
     OOS_HOLDOUT = "oos_holdout"
     WALK_FORWARD = "walk_forward"
     CROSS_MARKET = "cross_market"
+    PARAMETER_SWEEP = "parameter_sweep"
+    WALK_FORWARD_OPTIMIZATION = "walk_forward_optimization"
 
 
 class FoldMode(StrEnum):
@@ -63,6 +80,7 @@ class WindowRole(StrEnum):
     IN_SAMPLE = "in_sample"
     OUT_OF_SAMPLE = "out_of_sample"
     FULL_WINDOW = "full_window"
+    SWEEP_CANDIDATE = "sweep_candidate"
 
 
 class StudyPlanningError(ValueError):
@@ -118,6 +136,18 @@ class ResearchStudyRequest(_FrozenStudyModel):
     step_bars: int | None = Field(default=None, ge=1, le=100_000)
     fold_mode: FoldMode = FoldMode.ROLLING
     markets: tuple[MarketBinding, ...] | None = None
+    candidate_strategy_fingerprints: tuple[str, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    parameter_axes: tuple[ParameterAxis, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    selection_metric: SelectionMetric = Field(
+        default=SelectionMetric.TOTAL_RETURN_FRACTION,
+        exclude_if=lambda value: value is SelectionMetric.TOTAL_RETURN_FRACTION,
+    )
 
     @field_serializer("evaluation_start", "evaluation_end", when_used="json")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -148,6 +178,12 @@ class ResearchStudyRequest(_FrozenStudyModel):
         _require_single_market(self)
         if self.kind is StudyKind.OOS_HOLDOUT:
             _require_oos_holdout(self)
+            return self
+        if self.kind is StudyKind.PARAMETER_SWEEP:
+            _require_parameter_sweep(self)
+            return self
+        if self.kind is StudyKind.WALK_FORWARD_OPTIMIZATION:
+            _require_walk_forward_optimization(self)
             return self
         _require_walk_forward(self)
         return self
@@ -197,9 +233,11 @@ class StudyWindowResult(_FrozenStudyModel):
     product_id: str
     run_fingerprint: str
     result_fingerprint: str
+    strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     evaluation_start: datetime
     evaluation_end: datetime
     summary: BacktestSummary
+    selected: bool = Field(default=False, exclude_if=lambda value: value is False)
 
     @field_serializer("evaluation_start", "evaluation_end", when_used="json")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -232,6 +270,14 @@ class ResearchStudy(_FrozenStudyModel):
     windows: tuple[StudyWindowResult, ...] = Field(min_length=1)
     aggregate: StudyAggregate
     warnings: tuple[str, ...] = ()
+    selection_metric: SelectionMetric | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    stitched_oos_equity: StitchedOosEquity | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 def request_fingerprint(request: ResearchStudyRequest) -> str:
@@ -258,10 +304,16 @@ def plan_study(
     warnings: list[str] = []
     if request.kind is StudyKind.CROSS_MARKET:
         windows, timeframe = _plan_cross_market(request, publications)
+    elif request.kind is StudyKind.PARAMETER_SWEEP:
+        windows, timeframe = _plan_parameter_sweep(request, publications, warnings)
+    elif request.kind is StudyKind.WALK_FORWARD_OPTIMIZATION:
+        windows, timeframe = _plan_walk_forward_optimization(request, publications, warnings)
     else:
         windows, timeframe = _plan_single_market(request, publications, warnings)
     if not windows:
         raise StudyPlanningError("The evaluation window cannot form any study child windows.")
+    if len(windows) > _MAX_STUDY_WINDOWS:
+        raise StudyPlanningError("A research study may emit at most 128 child windows.")
     return ResearchStudyPlan(
         kind=request.kind,
         request_fingerprint=request_fingerprint(request),
@@ -294,11 +346,18 @@ def window_submission_request(
 
 def aggregate_windows(
     windows: tuple[StudyWindowResult, ...],
+    *,
+    selected_only: bool = False,
 ) -> StudyAggregate:
-    """Summarize OOS (and optional IS) windows without stitching equity."""
-    oos = tuple(item for item in windows if item.role is not WindowRole.IN_SAMPLE)
+    """Summarize scored windows without treating stitching as a live fill."""
+    pool = windows
+    if selected_only:
+        marked = tuple(item for item in windows if item.selected)
+        if marked:
+            pool = marked
+    oos = tuple(item for item in pool if item.role is not WindowRole.IN_SAMPLE)
     scored = oos if oos else windows
-    is_windows = tuple(item for item in windows if item.role is WindowRole.IN_SAMPLE)
+    is_windows = tuple(item for item in pool if item.role is WindowRole.IN_SAMPLE)
     oos_trades = sum(item.summary.trade_count for item in scored)
     oos_wins = sum(item.summary.winning_trade_count for item in scored)
     mean_oos = _mean_decimal(tuple(item.summary.total_return_fraction for item in scored))
@@ -334,17 +393,50 @@ class ResearchStudyService:
     async def plan(self, request: ResearchStudyRequest) -> ResearchStudyPlan:
         """Return the window schedule after loading published strategies."""
         published = await self._load_publications(request)
+        published = _merge_derived_candidates(request, published)
         return plan_study(request, publications=published)
 
     async def submit(self, request: ResearchStudyRequest) -> ResearchStudy:
         """Submit or reuse each child backtest and assemble the derived study."""
-        plan = await self.plan(request)
+        published = await self._publish_derived_candidates(
+            request, await self._load_publications(request)
+        )
+        plan = plan_study(request, publications=published)
+        children, loaded_results = await self._submit_windows(request, plan)
+        windows = _annotate_selections(request, children)
+        stitched = _derived_stitched_equity(request, windows, loaded_results)
+        selected_only = request.kind is StudyKind.WALK_FORWARD_OPTIMIZATION
+        assembled = ResearchStudy(
+            study_fingerprint="sha256:" + ("0" * 64),
+            request_fingerprint=plan.request_fingerprint,
+            kind=request.kind,
+            engine_contract_version=request.engine_contract_version,
+            windows=windows,
+            aggregate=aggregate_windows(windows, selected_only=selected_only),
+            warnings=_stitch_warnings(plan.warnings, stitched),
+            selection_metric=(
+                request.selection_metric
+                if request.kind in {StudyKind.PARAMETER_SWEEP, StudyKind.WALK_FORWARD_OPTIMIZATION}
+                else None
+            ),
+            stitched_oos_equity=stitched,
+        )
+        return assembled.model_copy(update={"study_fingerprint": study_fingerprint(assembled)})
+
+    async def _submit_windows(
+        self,
+        request: ResearchStudyRequest,
+        plan: ResearchStudyPlan,
+    ) -> tuple[tuple[StudyWindowResult, ...], dict[str, BacktestResult]]:
+        """Submit every planned child and keep result documents for stitching."""
         children: list[StudyWindowResult] = []
+        loaded_results: dict[str, BacktestResult] = {}
         try:
             for window in plan.windows:
                 submission = window_submission_request(request, window)
                 identities = await self.submitter.submit(submission)
                 result = await self.results.load(identities.result_fingerprint)
+                loaded_results[identities.result_fingerprint] = result
                 children.append(
                     StudyWindowResult(
                         label=window.label,
@@ -353,6 +445,7 @@ class ResearchStudyService:
                         product_id=window.product_id,
                         run_fingerprint=identities.run_fingerprint,
                         result_fingerprint=identities.result_fingerprint,
+                        strategy_fingerprint=window.strategy_fingerprint,
                         evaluation_start=window.evaluation_start,
                         evaluation_end=window.evaluation_end,
                         summary=result.summary,
@@ -364,16 +457,46 @@ class ResearchStudyService:
             raise
         except Exception as error:
             raise ResearchStudyError("Research study submission is unavailable.") from error
-        assembled = ResearchStudy(
-            study_fingerprint="sha256:" + ("0" * 64),
-            request_fingerprint=plan.request_fingerprint,
-            kind=request.kind,
-            engine_contract_version=request.engine_contract_version,
-            windows=tuple(children),
-            aggregate=aggregate_windows(tuple(children)),
-            warnings=plan.warnings,
-        )
-        return assembled.model_copy(update={"study_fingerprint": study_fingerprint(assembled)})
+        return tuple(children), loaded_results
+
+    async def _publish_derived_candidates(
+        self,
+        request: ResearchStudyRequest,
+        publications: dict[str, PublishedStrategy],
+    ) -> dict[str, PublishedStrategy]:
+        """Persist missing axis-derived fingerprints, then return the merged map."""
+        merged = _merge_derived_candidates(request, publications)
+        if not request.parameter_axes:
+            return merged
+        published = dict(publications)
+        try:
+            for fingerprint, candidate in merged.items():
+                if fingerprint in publications:
+                    continue
+                loaded = await self._load_or_publish_derived(fingerprint, candidate)
+                published[loaded.strategy_fingerprint] = loaded
+        except StudyPlanningError:
+            raise
+        except StrategyPublicationError as error:
+            if "was not found" in str(error):
+                raise StudyPlanningError(str(error)) from error
+            raise ResearchStudyError("Research study submission is unavailable.") from error
+        except Exception as error:
+            raise ResearchStudyError("Research study submission is unavailable.") from error
+        return published
+
+    async def _load_or_publish_derived(
+        self,
+        fingerprint: str,
+        candidate: PublishedStrategy,
+    ) -> PublishedStrategy:
+        """Reuse a stored derived fingerprint or persist it for the first time."""
+        try:
+            return await self.publications.load(fingerprint)
+        except StrategyPublicationError as error:
+            if "was not found" not in str(error):
+                raise
+            return await self.publications.publish(candidate.definition)
 
     async def _load_publications(
         self, request: ResearchStudyRequest
@@ -384,6 +507,12 @@ class ResearchStudyService:
         try:
             for fingerprint in fingerprints:
                 loaded[fingerprint] = await self.publications.load(fingerprint)
+        except StrategyPublicationError as error:
+            if "was not found" in str(error):
+                raise StudyPlanningError("Published strategy was not found.") from error
+            raise ResearchStudyError("Research study submission is unavailable.") from error
+        except StudyPlanningError:
+            raise
         except Exception as error:
             raise ResearchStudyError("Research study submission is unavailable.") from error
         return loaded
@@ -397,7 +526,9 @@ def _strategy_fingerprints(request: ResearchStudyRequest) -> tuple[str, ...]:
         return tuple(dict.fromkeys(item.strategy_fingerprint for item in request.markets))
     if request.strategy_fingerprint is None:
         raise StudyPlanningError("This study kind requires strategy_fingerprint.")
-    return (request.strategy_fingerprint,)
+    fingerprints = [request.strategy_fingerprint]
+    fingerprints.extend(request.candidate_strategy_fingerprints)
+    return tuple(dict.fromkeys(fingerprints))
 
 
 def _require_single_market(request: ResearchStudyRequest) -> None:
@@ -419,6 +550,7 @@ def _require_oos_holdout(request: ResearchStudyRequest) -> None:
     fraction = Decimal(request.oos_fraction)
     if fraction <= 0 or fraction >= 1:
         raise ValueError("oos_fraction must be greater than 0 and less than 1")
+    _forbid_candidate_fields(request, kind="oos_holdout")
 
 
 def _require_walk_forward(request: ResearchStudyRequest) -> None:
@@ -431,6 +563,61 @@ def _require_walk_forward(request: ResearchStudyRequest) -> None:
         or request.step_bars is None
     ):
         raise ValueError("walk_forward requires in_sample_bars, out_of_sample_bars, and step_bars")
+    _forbid_candidate_fields(request, kind="walk_forward")
+
+
+def _require_parameter_sweep(request: ResearchStudyRequest) -> None:
+    """Require a candidate grid and forbid walk-forward splits."""
+    if request.oos_fraction is not None:
+        raise ValueError("oos_fraction is not valid for parameter_sweep")
+    if request.in_sample_bars is not None or request.out_of_sample_bars is not None:
+        raise ValueError("walk-forward bar counts are not valid for parameter_sweep")
+    if request.step_bars is not None:
+        raise ValueError("step_bars is not valid for parameter_sweep")
+    _require_candidate_source(request)
+
+
+def _require_walk_forward_optimization(request: ResearchStudyRequest) -> None:
+    """Require fold geometry plus a candidate grid."""
+    if request.oos_fraction is not None:
+        raise ValueError("oos_fraction is not valid for walk_forward_optimization")
+    if (
+        request.in_sample_bars is None
+        or request.out_of_sample_bars is None
+        or request.step_bars is None
+    ):
+        raise ValueError(
+            "walk_forward_optimization requires in_sample_bars, out_of_sample_bars, and step_bars"
+        )
+    _require_candidate_source(request)
+
+
+def _forbid_candidate_fields(request: ResearchStudyRequest, *, kind: str) -> None:
+    """Reject sweep/WFO candidate fields on validation-only study kinds."""
+    if request.candidate_strategy_fingerprints or request.parameter_axes:
+        raise ValueError(f"candidate grids are not valid for {kind}")
+
+
+def _require_candidate_source(request: ResearchStudyRequest) -> None:
+    """Require fingerprints or axes, never both, and bound the grid."""
+    has_candidates = bool(request.candidate_strategy_fingerprints)
+    has_axes = bool(request.parameter_axes)
+    if has_candidates == has_axes:
+        raise ValueError(
+            "This study kind requires candidate_strategy_fingerprints or parameter_axes, not both"
+        )
+    if has_candidates:
+        count = len(request.candidate_strategy_fingerprints)
+        if count < 2 or count > MAX_CANDIDATES:
+            raise ValueError("candidate_strategy_fingerprints requires between 2 and 8 values")
+        if len(set(request.candidate_strategy_fingerprints)) != count:
+            raise ValueError("candidate_strategy_fingerprints must be unique")
+        for fingerprint in request.candidate_strategy_fingerprints:
+            if len(fingerprint) != 71 or not fingerprint.startswith("sha256:"):
+                raise ValueError("candidate_strategy_fingerprints must be sha256 fingerprints")
+        return
+    if len(request.parameter_axes) > 4:
+        raise ValueError("parameter_axes accepts at most 4 axes")
 
 
 def _require_cross_market(request: ResearchStudyRequest) -> None:
@@ -446,6 +633,7 @@ def _require_cross_market(request: ResearchStudyRequest) -> None:
     fingerprints = [item.strategy_fingerprint for item in request.markets]
     if len(set(fingerprints)) != len(fingerprints):
         raise ValueError("cross_market markets must use distinct strategy fingerprints")
+    _forbid_candidate_fields(request, kind="cross_market")
 
 
 def _plan_cross_market(
@@ -529,6 +717,236 @@ def _plan_single_market(
     return windows, timeframe
 
 
+def _plan_parameter_sweep(
+    request: ResearchStudyRequest,
+    publications: dict[str, PublishedStrategy],
+    warnings: list[str],
+) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
+    """Emit one full-window child per candidate on the shared evaluation bounds."""
+    candidates, timeframe, product_id = _resolve_candidates(request, publications)
+    dataset_fingerprint = _required_dataset_fingerprint(request)
+    warnings.append(
+        "parameter_sweep aggregate is the equal-weight mean of candidate windows, "
+        "not an out-of-sample claim."
+    )
+    windows: list[PlannedStudyWindow] = []
+    for index, fingerprint in enumerate(candidates):
+        windows.append(
+            PlannedStudyWindow(
+                label=f"sweep-{index}",
+                role=WindowRole.SWEEP_CANDIDATE,
+                fold_index=index,
+                product_id=product_id,
+                timeframe=timeframe,
+                strategy_fingerprint=fingerprint,
+                dataset_fingerprint=dataset_fingerprint,
+                htf_dataset_fingerprint=request.htf_dataset_fingerprint,
+                indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
+                evaluation_start=request.evaluation_start,
+                evaluation_end=request.evaluation_end,
+            )
+        )
+    return windows, timeframe
+
+
+def _plan_walk_forward_optimization(
+    request: ResearchStudyRequest,
+    publications: dict[str, PublishedStrategy],
+    warnings: list[str],
+) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
+    """Emit IS and OOS children for every candidate on every fold."""
+    candidates, timeframe, product_id = _resolve_candidates(request, publications)
+    dataset_fingerprint = _required_dataset_fingerprint(request)
+    duration = parse_candle_interval(timeframe).duration
+    total_bars = _bar_count(request.evaluation_start, request.evaluation_end, duration)
+    splits = _walk_forward_splits(request, total_bars, duration, warnings)
+    windows: list[PlannedStudyWindow] = []
+    for fold_index, role, start, end in splits:
+        for candidate_index, fingerprint in enumerate(candidates):
+            windows.append(
+                PlannedStudyWindow(
+                    label=f"{role.value}-{fold_index}-{candidate_index}",
+                    role=role,
+                    fold_index=fold_index,
+                    product_id=product_id,
+                    timeframe=timeframe,
+                    strategy_fingerprint=fingerprint,
+                    dataset_fingerprint=dataset_fingerprint,
+                    htf_dataset_fingerprint=request.htf_dataset_fingerprint,
+                    indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
+                    evaluation_start=start,
+                    evaluation_end=end,
+                )
+            )
+    return windows, timeframe
+
+
+def _resolve_candidates(
+    request: ResearchStudyRequest,
+    publications: dict[str, PublishedStrategy],
+) -> tuple[tuple[str, ...], DatasetTimeframe, str]:
+    """Return candidate fingerprints that share the base product and timeframe."""
+    if request.strategy_fingerprint is None or request.dataset_fingerprint is None:
+        raise StudyPlanningError("This study kind requires strategy and dataset fingerprints.")
+    base = publications[request.strategy_fingerprint]
+    timeframe = _decision_timeframe(base)
+    product_id = base.definition.instrument.product_id
+    if request.parameter_axes:
+        derived = _derived_from_axes(request, base)
+        fingerprints = tuple(item.strategy_fingerprint for item in derived)
+        return fingerprints, timeframe, product_id
+    fingerprints = request.candidate_strategy_fingerprints
+    for fingerprint in fingerprints:
+        published = publications.get(fingerprint)
+        if published is None:
+            raise StudyPlanningError(f"Published strategy was not found: {fingerprint}.")
+        if _decision_timeframe(published) != timeframe:
+            raise StudyPlanningError("Sweep candidates must share one decision timeframe.")
+        if published.definition.instrument.product_id != product_id:
+            raise StudyPlanningError("Sweep candidates must share one product.")
+    return fingerprints, timeframe, product_id
+
+
+def _merge_derived_candidates(
+    request: ResearchStudyRequest,
+    publications: dict[str, PublishedStrategy],
+) -> dict[str, PublishedStrategy]:
+    """Add in-memory axis-derived publications without persisting them."""
+    if not request.parameter_axes:
+        return publications
+    if request.strategy_fingerprint is None:
+        raise StudyPlanningError("parameter_axes require strategy_fingerprint.")
+    base = publications[request.strategy_fingerprint]
+    merged = dict(publications)
+    for item in _derived_from_axes(request, base):
+        merged[item.strategy_fingerprint] = item
+    return merged
+
+
+def _derived_from_axes(
+    request: ResearchStudyRequest,
+    base: PublishedStrategy,
+) -> tuple[PublishedStrategy, ...]:
+    """Derive axis candidates or convert validation failures into planning errors."""
+    if request.strategy_fingerprint is None:
+        raise StudyPlanningError("parameter_axes require strategy_fingerprint.")
+    try:
+        return derive_parameter_candidates(
+            base.definition,
+            request.parameter_axes,
+            base_fingerprint=request.strategy_fingerprint,
+        )
+    except ValueError as error:
+        raise StudyPlanningError(str(error)) from error
+
+
+def _annotate_selections(
+    request: ResearchStudyRequest,
+    windows: tuple[StudyWindowResult, ...],
+) -> tuple[StudyWindowResult, ...]:
+    """Mark in-sample winners and their matching OOS or sweep children."""
+    if request.kind is StudyKind.PARAMETER_SWEEP:
+        scored = tuple(
+            (item.strategy_fingerprint, metric_value(item.summary, request.selection_metric))
+            for item in windows
+        )
+        winner = select_candidate_fingerprint(scored, request.selection_metric)
+        return tuple(
+            item.model_copy(update={"selected": item.strategy_fingerprint == winner})
+            for item in windows
+        )
+    if request.kind is not StudyKind.WALK_FORWARD_OPTIMIZATION:
+        return windows
+    selected_by_fold = _wfo_selected_by_fold(request, windows)
+    return tuple(
+        item.model_copy(
+            update={"selected": selected_by_fold.get(item.fold_index) == item.strategy_fingerprint}
+        )
+        for item in windows
+    )
+
+
+def _wfo_selected_by_fold(
+    request: ResearchStudyRequest,
+    windows: tuple[StudyWindowResult, ...],
+) -> dict[int, str]:
+    """Choose one fingerprint per fold from in-sample scores only."""
+    selected_by_fold: dict[int, str] = {}
+    for fold_index in dict.fromkeys(item.fold_index for item in windows):
+        insample = tuple(
+            item
+            for item in windows
+            if item.fold_index == fold_index and item.role is WindowRole.IN_SAMPLE
+        )
+        scored = tuple(
+            (item.strategy_fingerprint, metric_value(item.summary, request.selection_metric))
+            for item in insample
+        )
+        selected_by_fold[fold_index] = select_candidate_fingerprint(
+            scored, request.selection_metric
+        )
+    return selected_by_fold
+
+
+def _derived_stitched_equity(
+    request: ResearchStudyRequest,
+    windows: tuple[StudyWindowResult, ...],
+    results: dict[str, BacktestResult],
+) -> StitchedOosEquity | None:
+    """Stitch scored OOS paths when the study kind and window geometry allow it."""
+    if request.kind not in {
+        StudyKind.WALK_FORWARD,
+        StudyKind.WALK_FORWARD_OPTIMIZATION,
+    }:
+        return None
+    oos = tuple(item for item in windows if item.role is WindowRole.OUT_OF_SAMPLE)
+    if request.kind is StudyKind.WALK_FORWARD_OPTIMIZATION:
+        oos = tuple(item for item in oos if item.selected)
+    sources: list[StitchSourceWindow] = []
+    for item in oos:
+        result = results.get(item.result_fingerprint)
+        if result is None:
+            return unavailable_stitched_equity(
+                "Stitched OOS equity is unavailable because a child result could not be loaded."
+            )
+        sources.append(
+            StitchSourceWindow(
+                fold_index=item.fold_index,
+                evaluation_start=item.evaluation_start,
+                evaluation_end=item.evaluation_end,
+                result_fingerprint=item.result_fingerprint,
+                result=result,
+            )
+        )
+    return stitch_oos_equity(tuple(sources))
+
+
+def _stitch_warnings(
+    warnings: tuple[str, ...],
+    stitched: StitchedOosEquity | None,
+) -> tuple[str, ...]:
+    """Append an explicit stitch-unavailable reason when one exists."""
+    extra: list[str] = []
+    if (
+        stitched is not None
+        and not stitched.available
+        and stitched.reason is not None
+        and stitched.reason not in warnings
+    ):
+        extra.append(stitched.reason)
+    if (
+        stitched is not None
+        and stitched.available
+        and stitched.point_count > 0
+        and not stitched.points
+    ):
+        extra.append(
+            "Stitched OOS equity summaries are present; the point series was omitted "
+            "because it exceeded 4096 marks."
+        )
+    return warnings + tuple(extra)
+
+
 def _oos_splits(
     request: ResearchStudyRequest,
     total_bars: int,
@@ -596,6 +1014,13 @@ def _walk_forward_splits(
             "(in-sample, embargo, and out-of-sample bars)."
         )
     return tuple(folds)
+
+
+def _required_dataset_fingerprint(request: ResearchStudyRequest) -> str:
+    """Return the single-market dataset fingerprint or fail closed."""
+    if request.dataset_fingerprint is None:
+        raise StudyPlanningError("This study kind requires dataset_fingerprint.")
+    return request.dataset_fingerprint
 
 
 def _decision_timeframe(published: PublishedStrategy) -> DatasetTimeframe:

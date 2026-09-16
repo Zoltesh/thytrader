@@ -481,7 +481,9 @@ when capital protection requires it.
 
 Parameter sweeps, grid search, and auto-tuning are **not** part of strategy authoring in V1. They
 are a separate research activity that can manufacture overfit results. The schema represents one
-fixed, human-chosen parameter set.
+fixed, human-chosen parameter set. Research studies may select among published or submit-published
+derived fingerprints ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) without
+rewriting that authoring boundary.
 
 ## Reference strategy
 
