@@ -246,6 +246,7 @@ class IndicatorDefinition(_FrozenModel):
         | None
     ) = None
     parameters: IndicatorParameterBlock
+    timeframe: DatasetTimeframe | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_kind_period(self) -> Self:
@@ -431,11 +432,13 @@ def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
 
 
 def _require_constant_indicator(indicator: IndicatorDefinition) -> None:
-    """Reject constant kinds that declare an OHLCV input or a period."""
+    """Reject constant kinds that declare an OHLCV input, a period, or a timeframe."""
     if not isinstance(indicator.parameters, ConstantIndicatorParameters):
         raise ValueError("constant parameters must declare value")  # noqa: TRY004
     if indicator.input is not None:
         raise ValueError("constant must omit input")
+    if indicator.timeframe is not None:
+        raise ValueError("constant must omit timeframe")
 
 
 def _require_period_indicator(indicator: IndicatorDefinition) -> None:
@@ -467,6 +470,11 @@ def _require_locked_source(indicator: IndicatorDefinition) -> None:
     expected = _SINGLE_SOURCE_INPUT[indicator.kind]
     if indicator.input != expected:
         raise ValueError(f"{indicator.kind.value} input must be {expected}")
+
+
+def indicator_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return the closed-bar count required before one indicator produces a value."""
+    return _indicator_min_warmup(indicator)
 
 
 def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
@@ -517,12 +525,16 @@ def _indicator_input_fields(
 
 
 def _omit_absent_indicator_inputs(indicators: object) -> None:
-    """Drop null inputs so constant kinds omit the field from canonical JSON."""
+    """Drop null inputs and timeframes so omitted fields keep historical fingerprints."""
     if not isinstance(indicators, list):
         return
     for item in indicators:
-        if isinstance(item, dict) and item.get("input") is None:
+        if not isinstance(item, dict):
+            continue
+        if item.get("input") is None:
             item.pop("input", None)
+        if item.get("timeframe") is None:
+            item.pop("timeframe", None)
 
 
 def _omit_absent_operand_series(node: object) -> None:
@@ -628,6 +640,8 @@ class HigherTimeframeFilter(_FrozenModel):
         unknown = _referenced_indicator_ids(self.when) - known
         if unknown:
             raise ValueError(f"unknown HTF indicator references: {sorted(unknown)}")
+        if any(indicator.timeframe is not None for indicator in self.indicators):
+            raise ValueError("HTF indicators must omit timeframe")
         _require_condition_series(self.when, self.indicators)
         required_fields = {
             field for indicator in self.indicators for field in _indicator_input_fields(indicator)
@@ -647,7 +661,7 @@ class TimeframeDataRequirement(_FrozenModel):
     timeframe: str
     warmup_bars: int
     required_fields: tuple[Literal["open", "high", "low", "close", "volume"], ...]
-    role: Literal["decision", "filter"]
+    role: Literal["decision", "filter", "indicator"]
 
 
 class RiskFractionSizing(_FrozenModel):
@@ -864,19 +878,23 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
         definition.indicators,
         definition.exits.initial_stop.atr_indicator,
         role="initial stop",
+        decision_timeframe=definition.timeframe,
     )
     if isinstance(trailing, AtrTrailingStop):
         _require_atr_indicator(
             definition.indicators,
             trailing.atr_indicator,
             role="trailing stop",
+            decision_timeframe=definition.timeframe,
         )
+    _validate_indicator_timeframes(definition)
+    decision_indicators = decision_clock_indicators(definition)
     required_fields = {
-        field for indicator in definition.indicators for field in _indicator_input_fields(indicator)
+        field for indicator in decision_indicators for field in _indicator_input_fields(indicator)
     }
     if not required_fields.issubset(definition.data_requirements.required_fields):
         raise ValueError("required_fields must include every indicator input")
-    required_warmup = max(_indicator_min_warmup(indicator) for indicator in definition.indicators)
+    required_warmup = max(_indicator_min_warmup(indicator) for indicator in decision_indicators)
     if definition.data_requirements.warmup_bars < required_warmup:
         raise ValueError("warmup_bars must cover the longest indicator period")
 
@@ -886,11 +904,14 @@ def _require_atr_indicator(
     indicator_id: str,
     *,
     role: str,
+    decision_timeframe: str,
 ) -> None:
-    """Reject a stop reference that is missing or not an ATR."""
+    """Reject a stop reference that is missing, not an ATR, or not on the decision clock."""
     atr = next((item for item in indicators if item.id == indicator_id), None)
     if atr is None or atr.kind is not IndicatorKind.ATR:
         raise ValueError(f"{role} indicator must reference an ATR")
+    if resolved_indicator_timeframe(atr, decision_timeframe) != decision_timeframe:
+        raise ValueError(f"{role} ATR must use the strategy decision timeframe")
 
 
 def _validate_htf_filter(definition: StrategyDefinition) -> None:
@@ -910,28 +931,143 @@ def _validate_htf_filter(definition: StrategyDefinition) -> None:
         raise ValueError(f"HTF indicator ids must not reuse decision indicators: {sorted(overlap)}")
 
 
+def resolved_indicator_timeframe(indicator: IndicatorDefinition, decision_timeframe: str) -> str:
+    """Return the clock one indicator evaluates on, defaulting to the decision timeframe."""
+    if indicator.timeframe is None:
+        return decision_timeframe
+    return indicator.timeframe
+
+
+def decision_clock_indicators(definition: StrategyDefinition) -> tuple[IndicatorDefinition, ...]:
+    """Return LTF-list indicators that evaluate on the strategy decision clock."""
+    return tuple(
+        indicator
+        for indicator in definition.indicators
+        if resolved_indicator_timeframe(indicator, definition.timeframe) == definition.timeframe
+    )
+
+
+def extra_indicator_timeframe_groups(
+    definition: StrategyDefinition,
+) -> tuple[tuple[str, tuple[IndicatorDefinition, ...]], ...]:
+    """Group extra-TF LTF-list indicators by clock in venue-duration order."""
+    grouped: dict[str, list[IndicatorDefinition]] = {}
+    for indicator in definition.indicators:
+        clock = resolved_indicator_timeframe(indicator, definition.timeframe)
+        if clock == definition.timeframe:
+            continue
+        grouped.setdefault(clock, []).append(indicator)
+    return tuple(
+        (timeframe, tuple(grouped[timeframe]))
+        for timeframe in EXECUTION_TIMEFRAMES
+        if timeframe in grouped
+    )
+
+
+def extra_indicator_timeframes(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Return extra indicator clocks in venue-duration order."""
+    groups = extra_indicator_timeframe_groups(definition)
+    return tuple(timeframe for timeframe, _indicators in groups)
+
+
+def unbound_indicator_timeframes(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Return extra indicator clocks that need their own research dataset fingerprint.
+
+    An extra TF that equals ``htf_filter.timeframe`` is covered by ``htf_dataset_fingerprint``.
+    """
+    htf_timeframe = definition.htf_filter.timeframe if definition.htf_filter is not None else None
+    return tuple(
+        timeframe
+        for timeframe in extra_indicator_timeframes(definition)
+        if timeframe != htf_timeframe
+    )
+
+
+def extra_indicator_timeframe_warmup(indicators: tuple[IndicatorDefinition, ...]) -> int:
+    """Return closed-bar warmup for one extra-TF indicator group."""
+    return max(_indicator_min_warmup(indicator) for indicator in indicators)
+
+
+def extra_indicator_required_fields(
+    indicators: tuple[IndicatorDefinition, ...],
+) -> tuple[Literal["open", "high", "low", "close", "volume"], ...]:
+    """Return unique OHLCV fields consumed by one extra-TF indicator group, catalog order."""
+    needed = {field for indicator in indicators for field in _indicator_input_fields(indicator)}
+    catalog: tuple[Literal["open", "high", "low", "close", "volume"], ...] = (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    return tuple(field for field in catalog if field in needed)
+
+
+def _validate_indicator_timeframes(definition: StrategyDefinition) -> None:
+    """Reject extra indicator clocks that are not coarser integer multiples of LTF."""
+    for indicator in definition.indicators:
+        clock = resolved_indicator_timeframe(indicator, definition.timeframe)
+        if clock == definition.timeframe:
+            continue
+        if not is_valid_htf_pair(definition.timeframe, clock):
+            raise ValueError(
+                "indicator timeframe must be strictly coarser than the strategy decision "
+                "timeframe and an integer multiple of it"
+            )
+    _require_htf_coverage_for_shared_indicator_clock(definition)
+
+
+def _require_htf_coverage_for_shared_indicator_clock(definition: StrategyDefinition) -> None:
+    """When extra indicators share the HTF clock, the HTF dataset must cover them."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return
+    groups = dict(extra_indicator_timeframe_groups(definition))
+    shared = groups.get(htf_filter.timeframe)
+    if shared is None:
+        return
+    needed_warmup = extra_indicator_timeframe_warmup(shared)
+    if htf_filter.data_requirements.warmup_bars < needed_warmup:
+        raise ValueError("HTF warmup_bars must cover extra indicators on the HTF timeframe")
+    needed_fields = extra_indicator_required_fields(shared)
+    if not set(needed_fields).issubset(htf_filter.data_requirements.required_fields):
+        raise ValueError("HTF required_fields must include extra indicators on the HTF timeframe")
+
+
 def expanded_data_requirements(
     definition: StrategyDefinition,
 ) -> tuple[TimeframeDataRequirement, ...]:
     """Return every timeframe a research run must fingerprint and bind."""
-    decision = TimeframeDataRequirement(
-        timeframe=definition.timeframe,
-        warmup_bars=definition.data_requirements.warmup_bars,
-        required_fields=definition.data_requirements.required_fields,
-        role="decision",
-    )
-    htf_filter = definition.htf_filter
-    if htf_filter is None:
-        return (decision,)
-    return (
-        decision,
+    requirements: list[TimeframeDataRequirement] = [
         TimeframeDataRequirement(
-            timeframe=htf_filter.timeframe,
-            warmup_bars=htf_filter.data_requirements.warmup_bars,
-            required_fields=htf_filter.data_requirements.required_fields,
-            role="filter",
-        ),
-    )
+            timeframe=definition.timeframe,
+            warmup_bars=definition.data_requirements.warmup_bars,
+            required_fields=definition.data_requirements.required_fields,
+            role="decision",
+        )
+    ]
+    htf_filter = definition.htf_filter
+    if htf_filter is not None:
+        requirements.append(
+            TimeframeDataRequirement(
+                timeframe=htf_filter.timeframe,
+                warmup_bars=htf_filter.data_requirements.warmup_bars,
+                required_fields=htf_filter.data_requirements.required_fields,
+                role="filter",
+            )
+        )
+    for timeframe, indicators in extra_indicator_timeframe_groups(definition):
+        if htf_filter is not None and timeframe == htf_filter.timeframe:
+            continue
+        requirements.append(
+            TimeframeDataRequirement(
+                timeframe=timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(indicators),
+                required_fields=extra_indicator_required_fields(indicators),
+                role="indicator",
+            )
+        )
+    return tuple(requirements)
 
 
 def decision_and_filter_indicators(

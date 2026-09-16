@@ -71,7 +71,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Missing bars are never interpolated. |
+| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Extra-TF LTF-list indicators use the same last-completed complete-only bars ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Missing bars are never interpolated. |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |

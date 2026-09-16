@@ -1605,6 +1605,139 @@ def test_htf_filter_is_fail_closed_and_fingerprinted() -> None:
         StrategyDefinition.model_validate(unknown_htf_field)
 
 
+def test_omitted_indicator_timeframe_preserves_reference_fingerprint() -> None:
+    """Absent indicator clocks must not change existing strategy identity."""
+    definition = StrategyDefinition.model_validate(reference_payload())
+    assert all(indicator.timeframe is None for indicator in definition.indicators)
+    assert strategy_fingerprint(definition) == (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+
+
+def test_indicator_timeframe_is_fail_closed_and_fingerprinted() -> None:
+    """Extra LTF-list clocks must be coarser integer multiples with isolated warmup."""
+    payload = reference_payload()
+    slow = _object_mapping(_object_list(payload["indicators"])[1])
+    slow["timeframe"] = "6h"
+    definition = StrategyDefinition.model_validate(payload)
+    assert definition.indicators[1].timeframe == "6h"
+    requirements = expanded_data_requirements(definition)
+    assert [item.role for item in requirements] == ["decision", "indicator"]
+    assert [item.timeframe for item in requirements] == ["1h", "6h"]
+    assert strategy_fingerprint(definition) != (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+
+    shared = reference_payload()
+    shared_slow = _object_mapping(_object_list(shared["indicators"])[1])
+    shared_slow["timeframe"] = "6h"
+    shared["htf_filter"] = _htf_filter_block()
+    shared_definition = StrategyDefinition.model_validate(shared)
+    shared_requirements = expanded_data_requirements(shared_definition)
+    assert [item.role for item in shared_requirements] == ["decision", "filter"]
+    assert [item.timeframe for item in shared_requirements] == ["1h", "6h"]
+
+    explicit_ltf = reference_payload()
+    explicit_slow = _object_mapping(_object_list(explicit_ltf["indicators"])[1])
+    explicit_slow["timeframe"] = "1h"
+    StrategyDefinition.model_validate(explicit_ltf)
+
+    finer = reference_payload()
+    finer_slow = _object_mapping(_object_list(finer["indicators"])[1])
+    finer_slow["timeframe"] = "15m"
+    with pytest.raises(ValidationError, match="strictly coarser"):
+        StrategyDefinition.model_validate(finer)
+
+    non_multiple = reference_payload()
+    non_multiple["timeframe"] = "4h"
+    non_slow = _object_mapping(_object_list(non_multiple["indicators"])[1])
+    non_slow["timeframe"] = "6h"
+    with pytest.raises(ValidationError, match="strictly coarser"):
+        StrategyDefinition.model_validate(non_multiple)
+
+    constant = reference_payload()
+    rsi = _object_mapping(_object_list(constant["indicators"])[2])
+    rsi["kind"] = "constant"
+    rsi.pop("input", None)
+    rsi["parameters"] = {"value": "50"}
+    rsi["timeframe"] = "6h"
+    with pytest.raises(ValidationError, match="constant must omit timeframe"):
+        StrategyDefinition.model_validate(constant)
+
+    atr_clock = reference_payload()
+    atr = _object_mapping(_object_list(atr_clock["indicators"])[3])
+    atr["timeframe"] = "6h"
+    with pytest.raises(ValidationError, match="initial stop ATR must use the strategy decision"):
+        StrategyDefinition.model_validate(atr_clock)
+
+    htf_indicator_clock = reference_payload()
+    htf_indicator_clock["htf_filter"] = _htf_filter_block()
+    htf = _object_mapping(htf_indicator_clock["htf_filter"])
+    htf_indicators = _object_list(htf["indicators"])
+    _object_mapping(htf_indicators[0])["timeframe"] = "1d"
+    with pytest.raises(ValidationError, match="HTF indicators must omit timeframe"):
+        StrategyDefinition.model_validate(htf_indicator_clock)
+
+    short_shared = reference_payload()
+    short_slow = _object_mapping(_object_list(short_shared["indicators"])[1])
+    short_slow["timeframe"] = "6h"
+    short_shared["htf_filter"] = {
+        "timeframe": "6h",
+        "data_requirements": {
+            "warmup_bars": 2,
+            "required_fields": ["open", "high", "low", "close", "volume"],
+        },
+        "indicators": [
+            {"id": "htf_sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        ],
+        "when": {
+            "all": [
+                {
+                    "left": {"indicator": "htf_sma"},
+                    "operator": "greater_than",
+                    "right": {"literal": "0"},
+                }
+            ]
+        },
+    }
+    with pytest.raises(ValidationError, match="HTF warmup_bars must cover extra indicators"):
+        StrategyDefinition.model_validate(short_shared)
+
+    missing_volume = reference_payload()
+    indicators = _object_list(missing_volume["indicators"])
+    indicators.append(
+        {
+            "id": "htf_volume",
+            "kind": "volume_sma",
+            "input": "volume",
+            "parameters": {"period": 2},
+            "timeframe": "6h",
+        }
+    )
+    missing_volume["indicators"] = indicators
+    missing_volume["htf_filter"] = {
+        "timeframe": "6h",
+        "data_requirements": {
+            "warmup_bars": 50,
+            "required_fields": ["open", "high", "low", "close"],
+        },
+        "indicators": [
+            {"id": "htf_sma", "kind": "sma", "input": "close", "parameters": {"period": 2}},
+        ],
+        "when": {
+            "all": [
+                {
+                    "left": {"indicator": "htf_sma"},
+                    "operator": "greater_than",
+                    "right": {"literal": "0"},
+                }
+            ]
+        },
+    }
+    with pytest.raises(ValidationError, match="HTF required_fields must include extra indicators"):
+        StrategyDefinition.model_validate(missing_volume)
+
+
 def test_disabled_trailing_rejects_extra_fields() -> None:
     """Disabled trailing must stay ``{"enabled": false}`` so fingerprints remain stable."""
     payload = reference_payload()

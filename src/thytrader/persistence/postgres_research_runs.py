@@ -30,7 +30,7 @@ from thytrader.strategies.publication import StrategyPublicationError
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from thytrader.market_data.datasets import DatasetStore
+    from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -210,12 +210,26 @@ class PostgresResearchRunStore:
                     dataset_store=dataset_store,
                 )
                 htf_manifest = dataset_store.load_manifest(specification.htf_dataset_fingerprint)
+            indicator_manifests: dict[str, DatasetManifest] = {}
+            for binding in specification.indicator_dataset_fingerprints:
+                await self._strategy_store.load_binding(
+                    specification.strategy_fingerprint,
+                    binding.dataset_fingerprint,
+                    dataset_store=dataset_store,
+                )
+                indicator_manifests[binding.timeframe] = dataset_store.load_manifest(
+                    binding.dataset_fingerprint
+                )
         except (DatasetStoreError, OSError, StrategyPublicationError, ValueError) as error:
             raise ResearchRunPublicationError(
                 "Research run artifact binding could not be verified."
             ) from error
         verify_research_run_eligibility(
-            specification, published_strategy, manifest, htf_manifest=htf_manifest
+            specification,
+            published_strategy,
+            manifest,
+            htf_manifest=htf_manifest,
+            indicator_manifests=indicator_manifests,
         )
 
 

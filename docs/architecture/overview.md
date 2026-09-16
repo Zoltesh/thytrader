@@ -94,7 +94,9 @@ the full destination control catalog in [security-and-risk.md](../security-and-r
 Every ingested venue granularity is a legal strategy, paper, live, discretionary, and HTF clock
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate
 `htf_filter` on last-completed complete-only HTF bars
-([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)).
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Optional per-indicator
+timeframes overlay last-completed extra-TF bars onto the decision clock
+([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
 The following remaining target responsibilities must be exposed as supported, tested contracts before
 they are described as available:

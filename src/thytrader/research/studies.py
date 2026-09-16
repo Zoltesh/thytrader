@@ -28,7 +28,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
 )
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
-from thytrader.research.models import EvaluationWindow
+from thytrader.research.models import EvaluationWindow, IndicatorTimeframeDataset
 
 if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestSubmitter
@@ -85,6 +85,10 @@ class MarketBinding(_FrozenStudyModel):
     strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     dataset_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
 
 
 class ResearchStudyRequest(_FrozenStudyModel):
@@ -103,6 +107,10 @@ class ResearchStudyRequest(_FrozenStudyModel):
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
     oos_fraction: str | None = None
     embargo_bars: int = Field(default=0, ge=0, le=10_000)
     in_sample_bars: int | None = Field(default=None, ge=1, le=100_000)
@@ -156,6 +164,10 @@ class PlannedStudyWindow(_FrozenStudyModel):
     strategy_fingerprint: str
     dataset_fingerprint: str
     htf_dataset_fingerprint: str | None = None
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
     evaluation_start: datetime
     evaluation_end: datetime
 
@@ -268,6 +280,7 @@ def window_submission_request(
         strategy_fingerprint=window.strategy_fingerprint,
         dataset_fingerprint=window.dataset_fingerprint,
         htf_dataset_fingerprint=window.htf_dataset_fingerprint,
+        indicator_dataset_fingerprints=window.indicator_dataset_fingerprints,
         evaluation_start=window.evaluation_start,
         evaluation_end=window.evaluation_end,
         initial_quote_balance=request.initial_quote_balance,
@@ -467,6 +480,7 @@ def _plan_cross_market(
                 strategy_fingerprint=market.strategy_fingerprint,
                 dataset_fingerprint=market.dataset_fingerprint,
                 htf_dataset_fingerprint=market.htf_dataset_fingerprint,
+                indicator_dataset_fingerprints=market.indicator_dataset_fingerprints,
                 evaluation_start=request.evaluation_start,
                 evaluation_end=request.evaluation_end,
             )
@@ -507,6 +521,7 @@ def _plan_single_market(
                 strategy_fingerprint=request.strategy_fingerprint,
                 dataset_fingerprint=request.dataset_fingerprint,
                 htf_dataset_fingerprint=request.htf_dataset_fingerprint,
+                indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
                 evaluation_start=start,
                 evaluation_end=end,
             )

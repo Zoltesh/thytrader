@@ -54,6 +54,10 @@ Overlapping OOS windows (`step_bars` < `out_of_sample_bars`) are allowed and dis
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
 - `POST /api/v1/research/studies` — plan plus idempotent child submissions.
 
+Study requests forward `htf_dataset_fingerprint` and `indicator_dataset_fingerprints` onto each
+child backtest. Unbound extra indicator clocks still require those fingerprints; an extra TF that
+equals `htf_filter.timeframe` stays on the HTF dataset.
+
 ## Explicitly not in this slice
 
 - parameter sweeps or walk-forward optimization;

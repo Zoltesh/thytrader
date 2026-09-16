@@ -98,6 +98,7 @@ class OpsContractPayload(_FrozenModel):
     paper_timeframes: tuple[SupportedTimeframe, ...]
     live_timeframes: tuple[SupportedTimeframe, ...]
     htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    indicator_timeframe_runtimes: tuple[Literal["research", "paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

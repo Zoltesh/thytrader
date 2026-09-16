@@ -1,10 +1,13 @@
 import {
 	IDENTITY_INPUT_OPTIONS,
 	INDICATOR_OUTPUT_SERIES,
+	extraIndicatorTimeframes,
+	resolvedIndicatorTimeframe,
 	validHtfTimeframes,
 	type BuilderModel,
 	type ConditionDraft,
 	type HtfFilterDraft,
+	type IndicatorDraft,
 	type IndicatorKindValue,
 	type OperandDraft
 } from './strategies';
@@ -82,9 +85,26 @@ export function plainEnglishSummary(model: BuilderModel): string {
 }
 
 export function requiredDataText(model: BuilderModel): string {
-	const decision = `${model.warmup_bars} completed ${model.timeframe} bars (OHLCV) before the first signal.`;
-	if (model.htf_filter === null) return decision;
-	return `${decision} Also ${model.htf_filter.warmup_bars} completed ${model.htf_filter.timeframe} HTF bars, using only the last completed HTF bar at each LTF close. Research, paper, and live share that alignment.`;
+	const parts = [
+		`${model.warmup_bars} completed ${model.timeframe} bars (OHLCV) before the first signal.`
+	];
+	if (model.htf_filter !== null) {
+		parts.push(
+			`Also ${model.htf_filter.warmup_bars} completed ${model.htf_filter.timeframe} HTF bars, using only the last completed HTF bar at each LTF close.`
+		);
+	}
+	const extra = extraIndicatorTimeframes(model.indicators, model.timeframe).filter(
+		(timeframe) => timeframe !== model.htf_filter?.timeframe
+	);
+	if (extra.length > 0) {
+		parts.push(
+			`Extra indicator clocks ${extra.join(', ')} use last-completed bars of those timeframes.`
+		);
+	}
+	if (model.htf_filter !== null || extra.length > 0) {
+		parts.push('Research, paper, and live share that alignment.');
+	}
+	return parts.join(' ');
 }
 
 const INDICATOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
@@ -96,6 +116,7 @@ type IndicatorLike = {
 	id: string;
 	kind: string;
 	input?: unknown;
+	timeframe?: string;
 	parameters: {
 		period?: number;
 		value?: string;
@@ -183,6 +204,9 @@ function validateIndicatorShape(indicator: IndicatorLike, label: string): string
 		if (indicator.parameters.period !== undefined) {
 			problems.push(`${label} "${indicator.id}" constant must omit period.`);
 		}
+		if (indicator.timeframe !== undefined && indicator.timeframe !== '') {
+			problems.push(`${label} "${indicator.id}" constant must omit timeframe.`);
+		}
 		return problems;
 	}
 	if (indicator.kind === 'macd') {
@@ -254,11 +278,19 @@ export function validateDefinition(model: BuilderModel): string[] {
 			);
 		}
 		problems.push(...validateIndicatorShape(indicator, 'Indicator'));
-		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
+		const clock = resolvedIndicatorTimeframe(indicator, model.timeframe);
+		if (clock !== model.timeframe && !validHtfTimeframes(model.timeframe).includes(clock)) {
+			problems.push(
+				`Indicator "${indicator.id}" timeframe ${clock} must be a coarser integer multiple of ${model.timeframe}.`
+			);
+		}
+		if (clock === model.timeframe) {
+			warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
+		}
 	}
 	problems.push(...validateCondition(model.entry.when, model.indicators, 'Entry'));
 	if (model.htf_filter !== null) {
-		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe));
+		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe, model.indicators));
 	}
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(model.warmup_bars) < warmupRequirement) {
@@ -314,10 +346,22 @@ export function validateDefinition(model: BuilderModel): string[] {
 		problems.push('Time exit must hold at least one bar.');
 	}
 	const atrIds = model.indicators
-		.filter((indicator) => indicator.kind === 'atr')
+		.filter(
+			(indicator) =>
+				indicator.kind === 'atr' &&
+				resolvedIndicatorTimeframe(indicator, model.timeframe) === model.timeframe
+		)
 		.map((indicator) => indicator.id);
 	if (!atrIds.includes(model.exits.initial_stop.atr_indicator)) {
 		problems.push('The initial stop must reference a defined ATR indicator.');
+	}
+	if (
+		model.exits.trailing_stop.enabled &&
+		!atrIds.includes(model.exits.trailing_stop.atr_indicator)
+	) {
+		problems.push(
+			'The trailing stop must reference a defined ATR indicator on the decision clock.'
+		);
 	}
 	if (!Number.isInteger(model.warmup_bars) || model.warmup_bars < 1 || model.warmup_bars > 10_000) {
 		problems.push('Warmup must be an integer between 1 and 10,000 bars.');
@@ -328,7 +372,8 @@ export function validateDefinition(model: BuilderModel): string[] {
 function validateHtfFilter(
 	filter: HtfFilterDraft,
 	decisionIds: Set<string>,
-	decisionTimeframe: string
+	decisionTimeframe: string,
+	decisionIndicators: IndicatorDraft[]
 ): string[] {
 	const problems: string[] = [];
 	if (!validHtfTimeframes(decisionTimeframe).includes(filter.timeframe)) {
@@ -355,9 +400,18 @@ function validateHtfFilter(
 			);
 		}
 		problems.push(...validateIndicatorShape(indicator, 'HTF indicator'));
+		if (indicator.timeframe !== undefined && indicator.timeframe !== '') {
+			problems.push(`HTF indicator "${indicator.id}" must omit timeframe.`);
+		}
 		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 	}
 	problems.push(...validateCondition(filter.when, filter.indicators, 'HTF filter'));
+	const extraOnHtf = decisionIndicators.filter(
+		(indicator) => resolvedIndicatorTimeframe(indicator, decisionTimeframe) === filter.timeframe
+	);
+	for (const indicator of extraOnHtf) {
+		warmupNeeded.set(`ltf:${indicator.id}`, indicatorWarmupBars(indicator));
+	}
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(filter.warmup_bars) < warmupRequirement) {
 		problems.push(
@@ -530,10 +584,10 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	},
 	{
 		label: 'Per-indicator timeframes',
-		v1: false,
-		v2: false,
-		v3: false,
-		note: 'out of Phase 9; LTF uses top-level timeframe, HTF stays inside htf_filter'
+		v1: true,
+		v2: true,
+		v3: true,
+		note: 'optional LTF-list timeframe uses last-completed extra-TF bars; paper/live compose with HTF; no interpolation'
 	},
 	{
 		label: 'Risk-fraction sizing with notional bounds',

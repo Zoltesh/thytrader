@@ -107,7 +107,7 @@ existing single-timeframe fingerprints stay stable.
 | `instrument` | object | Explicit product, never inherited from runtime. |
 | `timeframe` | enum | One ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). This is the LTF decision clock. Paper and live use the same clock. Sub-hour live requires a connected user-order feed. |
 | `data_requirements` | object | Minimum LTF bars and OHLCV fields needed for indicator warmup. |
-| `indicators` | array | Named LTF indicator definitions (see below). |
+| `indicators` | array | Named indicator definitions (see below). Optional per-indicator `timeframe`. |
 | `htf_filter` | object \| omitted | Optional HTF filter (see below). Omitted from canonical JSON when null. |
 | `entry` | object | LTF signal conditions and entry constraints. |
 | `sizing` | object | Position-sizing policy. |
@@ -138,6 +138,12 @@ Indicators are named, typed definitions with stable IDs for referencing in condi
   "parameters": { "period": 20 }
 }
 ```
+
+Optional `timeframe` on an LTF-list indicator selects a coarser integer-multiple venue clock
+([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Omit the field to use the strategy
+decision clock; canonical JSON omits it when absent so existing fingerprints stay stable. `constant`
+must omit `timeframe`. HTF-filter indicators must omit `timeframe`. Stop and trailing ATR stay on
+the decision clock.
 
 ### V1 indicator catalog
 
@@ -182,13 +188,14 @@ Rules:
   referencing an undefined value evaluate to no-signal.
 
 No broad TA-library passthrough is allowed. Every supported indicator has a defined specification,
-warmup requirement, and invalid-data behavior. Stochastic, ADX, configurable rolling inputs, sample
-stdev, and per-indicator timeframes remain out of this catalog
+warmup requirement, and invalid-data behavior. Stochastic, ADX, configurable rolling inputs, and sample
+stdev remain out of this catalog
 ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md),
 [ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md),
 [ADR 0028](../decisions/0028-phase-9-identity-constant.md),
 [ADR 0029](../decisions/0029-phase-9-wma-momentum-mfi.md),
 [ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)).
+Per-indicator timeframes are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
 ## Conditions
 
@@ -298,6 +305,10 @@ It is not a second decision clock.
 | Alignment | At LTF close `T`, use the last HTF bar whose exclusive close is `≤ T`. Never a partial HTF bar. Same-close HTF bars are eligible. |
 | Research | `dataset_fingerprint` is LTF; `htf_dataset_fingerprint` is required, distinct, and bound |
 | Paper / live | Evaluate last-completed complete-only HTF bars. Do not ignore the filter. Missing HTF coverage pauses. |
+
+Per-indicator extra clocks overlay last-completed values onto the decision-clock row **before**
+`entry.when`. The HTF filter remains a separate AND. Extra TFs that are not already
+`htf_filter.timeframe` require `indicator_dataset_fingerprints`.
 
 `1m` cannot be HTF (nothing in the catalog is finer). `4h` LTF may use `1d` only (`6h` is not an integer multiple).
 

@@ -72,10 +72,13 @@ def engine_support_matrix() -> EngineSupportMatrix:
             ),
             EngineSupportRow(
                 label="Per-indicator timeframes",
-                v1=False,
-                v2=False,
-                v3=False,
-                note="out of Phase 9; LTF uses top-level timeframe, HTF stays inside htf_filter",
+                v1=True,
+                v2=True,
+                v3=True,
+                note=(
+                    "optional LTF-list timeframe uses last-completed extra-TF bars; "
+                    "paper/live compose with HTF; no interpolation"
+                ),
             ),
             EngineSupportRow(
                 label="Risk-fraction sizing with notional bounds",

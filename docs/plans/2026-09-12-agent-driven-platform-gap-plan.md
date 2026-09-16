@@ -32,7 +32,7 @@ evidence are not that memory system.
   ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
   identity OHLCV, constant, WMA, momentum, MFI, MACD, and Bollinger (Phase 9 catalog slices).
-  Per-indicator timeframes are not shipped.
+  Per-indicator timeframes are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 - Strategy: one instrument, long-only, max concurrent positions = 1.
 - Execution: paper and live on every ingested venue clock; single-position backtests.
 - Fee **tier visibility** and research **suggested defaults** shipped
@@ -49,8 +49,8 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Remaining venue TFs `1m`/`2h`/`4h` have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)) and are strategy/paper/live/HTF clocks ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). |
 | On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
-| Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
-| Multi-timeframe | Research, paper, and live evaluate HTF filter + LTF entry (ADR 0025, ADR 0041). Venue LTF/HTF tokens widened by ADR 0040. Per-indicator timeframes remain later |
+| Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. Optional per-indicator TFs shipped (ADR 0042). No TA passthrough |
+| Multi-timeframe | Research, paper, and live evaluate HTF filter + LTF entry (ADR 0025, ADR 0041). Venue LTF/HTF tokens widened by ADR 0040. Per-indicator timeframes shipped (ADR 0042) |
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |
@@ -93,10 +93,10 @@ YOLO only changes confirmation friction inside allowed tiers.
 1. **Phase 7** — Shipped: 15m/30m/6h/1d datasets and fail-closed agent data-loop hardening.
    These complete-only datasets are not strategy/paper/live clocks.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
-3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation remains later.
+3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation shipped later (ADR 0041).
 4. **Phase 9** — Five catalog slices shipped (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
    `identity`/`constant`, `wma`/`momentum`/`mfi`, then `macd`/`bollinger`). Per-indicator timeframes
-   remain out of Phase 9.
+   remain out of Phase 9; shipped later as ADR 0042.
 5. **Phase 10** — Shipped: risk-policy registry and concurrent single-instrument paper/live.
 6. **Phase 11** — Shipped: walk-forward / OOS / cross-market studies, richer templates, V1/V2/V3 matrix (ADR 0035).
 7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live stays hard-gated.

@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.models import CandleInterval, DatasetTimeframe, parse_candle_interval
 
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -198,6 +198,13 @@ class BrokerAssumptions(_FrozenModel):
         return value
 
 
+class IndicatorTimeframeDataset(_FrozenModel):
+    """One extra indicator clock bound to a verified complete-only dataset."""
+
+    timeframe: DatasetTimeframe
+    dataset_fingerprint: FingerprintText
+
+
 class ResearchRunSpecification(_FrozenModel):
     """Immutable identity-bearing request for a future deterministic research simulation."""
 
@@ -207,6 +214,10 @@ class ResearchRunSpecification(_FrozenModel):
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
     htf_dataset_fingerprint: FingerprintText | None = None
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
     evaluation: EvaluationWindow
     warmup: WarmupWindow
     capital: CapitalAssumptions
@@ -272,6 +283,37 @@ class ResearchRunSpecification(_FrozenModel):
             and self.htf_dataset_fingerprint == self.dataset_fingerprint
         ):
             raise ValueError("htf_dataset_fingerprint must differ from dataset_fingerprint")
+        return self
+
+    @model_validator(mode="after")
+    def require_distinct_indicator_dataset_identities(self) -> Self:
+        """Extra indicator datasets must be unique clocks and distinct from LTF/HTF identities."""
+        fingerprints = [item.dataset_fingerprint for item in self.indicator_dataset_fingerprints]
+        timeframes = [item.timeframe for item in self.indicator_dataset_fingerprints]
+        if len(timeframes) != len(set(timeframes)):
+            raise ValueError("indicator_dataset_fingerprints timeframes must be unique")
+        ordered = tuple(
+            sorted(
+                self.indicator_dataset_fingerprints,
+                key=lambda item: int(
+                    parse_candle_interval(item.timeframe).duration.total_seconds()
+                ),
+            )
+        )
+        if ordered != self.indicator_dataset_fingerprints:
+            raise ValueError(
+                "indicator_dataset_fingerprints must be ordered by increasing timeframe duration"
+            )
+        reserved = {self.dataset_fingerprint}
+        if self.htf_dataset_fingerprint is not None:
+            reserved.add(self.htf_dataset_fingerprint)
+        if any(fingerprint in reserved for fingerprint in fingerprints):
+            raise ValueError(
+                "indicator_dataset_fingerprints must differ from dataset_fingerprint and "
+                "htf_dataset_fingerprint"
+            )
+        if len(fingerprints) != len(set(fingerprints)):
+            raise ValueError("indicator_dataset_fingerprints identities must be unique")
         return self
 
     @model_validator(mode="after")

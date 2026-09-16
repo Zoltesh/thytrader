@@ -12,6 +12,7 @@ import {
 	parseIndicatorOperandKey,
 	researchWindowHint,
 	serializeIndicator,
+	unboundIndicatorTimeframes,
 	validHtfTimeframes
 } from './strategies';
 
@@ -50,21 +51,40 @@ describe('latestDatasets', () => {
 
 describe('validHtfTimeframes', () => {
 	it('allows coarser integer multiples only', () => {
-		expect(validHtfTimeframes('1m')).toEqual([
-			'5m',
-			'15m',
-			'30m',
-			'1h',
-			'2h',
-			'4h',
-			'6h',
-			'1d'
-		]);
+		expect(validHtfTimeframes('1m')).toEqual(['5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('5m')).toEqual(['15m', '30m', '1h', '2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('1h')).toEqual(['2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('15m')).toEqual(['30m', '1h', '2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('4h')).toEqual(['1d']);
 		expect(validHtfTimeframes('3h')).toEqual([]);
+	});
+});
+
+describe('unboundIndicatorTimeframes', () => {
+	it('omits the decision clock and HTF-filter clock', () => {
+		expect(
+			unboundIndicatorTimeframes(
+				[
+					{ id: 'ema_fast', kind: 'ema', input: 'close', parameters: { period: 20 } },
+					{
+						id: 'hour_sma',
+						kind: 'sma',
+						input: 'close',
+						timeframe: '1h',
+						parameters: { period: 20 }
+					},
+					{
+						id: 'day_sma',
+						kind: 'sma',
+						input: 'close',
+						timeframe: '1d',
+						parameters: { period: 20 }
+					}
+				],
+				'5m',
+				'1h'
+			)
+		).toEqual(['1d']);
 	});
 });
 
@@ -235,6 +255,41 @@ describe('indicator kind picker', () => {
 			kind: 'bollinger',
 			input: 'close',
 			parameters: { period: 20, stdev_multiplier: '2' }
+		});
+		expect(
+			serializeIndicator(
+				{
+					id: 'hour_sma',
+					kind: 'sma',
+					input: 'close',
+					timeframe: '1h',
+					parameters: { period: 20 }
+				},
+				'5m'
+			)
+		).toEqual({
+			id: 'hour_sma',
+			kind: 'sma',
+			input: 'close',
+			parameters: { period: 20 },
+			timeframe: '1h'
+		});
+		expect(
+			serializeIndicator(
+				{
+					id: 'ema_fast',
+					kind: 'ema',
+					input: 'close',
+					timeframe: '5m',
+					parameters: { period: 20 }
+				},
+				'5m'
+			)
+		).toEqual({
+			id: 'ema_fast',
+			kind: 'ema',
+			input: 'close',
+			parameters: { period: 20 }
 		});
 	});
 });

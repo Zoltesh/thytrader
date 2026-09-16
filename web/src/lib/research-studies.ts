@@ -17,6 +17,7 @@ export type ResearchStudyRequest = {
 	strategy_fingerprint?: string;
 	dataset_fingerprint?: string;
 	htf_dataset_fingerprint?: string;
+	indicator_dataset_fingerprints?: { timeframe: string; dataset_fingerprint: string }[];
 	oos_fraction?: string;
 	embargo_bars?: number;
 	in_sample_bars?: number;

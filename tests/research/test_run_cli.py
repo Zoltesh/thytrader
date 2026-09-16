@@ -99,3 +99,35 @@ def test_backtest_v2_execution_identity_requires_and_hashes_spread() -> None:
     assert backtest_execution_fingerprint(_parser().parse_args(with_spread)) != (
         backtest_execution_fingerprint(_parser().parse_args(different))
     )
+
+
+def test_backtest_execution_identity_includes_indicator_datasets() -> None:
+    """Extra-TF dataset bindings are execution-significant and ordered by duration."""
+    baseline = _parser().parse_args(_publication_arguments())
+    hour = "sha256:" + "c" * 64
+    day = "sha256:" + "d" * 64
+    with_hour = _parser().parse_args(
+        [*_publication_arguments(), "--indicator-dataset-fingerprint", f"1h={hour}"]
+    )
+    with_hour_then_day = _parser().parse_args(
+        [
+            *_publication_arguments(),
+            "--indicator-dataset-fingerprint",
+            f"1h={hour}",
+            "--indicator-dataset-fingerprint",
+            f"1d={day}",
+        ]
+    )
+    with_day_then_hour = _parser().parse_args(
+        [
+            *_publication_arguments(),
+            "--indicator-dataset-fingerprint",
+            f"1d={day}",
+            "--indicator-dataset-fingerprint",
+            f"1h={hour}",
+        ]
+    )
+    assert backtest_execution_fingerprint(baseline) != backtest_execution_fingerprint(with_hour)
+    assert backtest_execution_fingerprint(with_hour_then_day) == (
+        backtest_execution_fingerprint(with_day_then_hour)
+    )

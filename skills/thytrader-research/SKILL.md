@@ -73,9 +73,11 @@ need 2–8 published single-instrument strategies on distinct products. See
 Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
-declares `htf_filter`, and must omit it otherwise. Research engines V1/V2/V3 evaluate last-completed
-HTF bars only. Paper and live evaluate the same last-completed HTF bars on live complete-only candles;
-they do not bind a frozen HTF fingerprint.
+declares `htf_filter`, and must omit it otherwise. Extra indicator clocks that are not already
+`htf_filter.timeframe` require `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
+ordered by increasing duration, each distinct from LTF and HTF). Research engines V1/V2/V3 evaluate
+last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
+live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
 Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
@@ -86,7 +88,9 @@ Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowe
 `bollinger` (close; `period` plus `stdev_multiplier`; series `middle`/`upper`/`lower`), `identity`
 (one of open/high/low/close/volume, empty parameters), `constant` (`parameters.value`, no input).
 Single-output operands omit `series`. Multi-series operands must name one declared series. Do not
-invent stochastic, ADX, per-indicator timeframes, or other unlisted kinds. `crosses_above` /
+invent stochastic, ADX, or other unlisted kinds. Optional per-indicator `timeframe` on LTF-list
+indicators must be a coarser integer-multiple venue clock; omit it to keep the decision clock.
+`constant` and HTF-filter indicators omit `timeframe`. `crosses_above` /
 `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
 id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic

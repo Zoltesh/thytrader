@@ -175,6 +175,7 @@ export type IndicatorDraft = {
 	id: string;
 	kind: IndicatorKindValue;
 	input?: IndicatorInput;
+	timeframe?: string;
 	parameters: {
 		period?: number;
 		value?: string;
@@ -366,6 +367,7 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 	if (indicator.kind === 'constant') {
 		const previous = indicator.parameters.value;
 		delete indicator.input;
+		delete indicator.timeframe;
 		indicator.parameters = {
 			value: previous !== undefined && previous.length > 0 ? previous : '50'
 		};
@@ -403,7 +405,18 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 }
 
 /** Canonical indicator payload for draft save/publish. */
-export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
+export function serializeIndicator(
+	indicator: IndicatorDraft,
+	decisionTimeframe?: string
+): IndicatorDraft {
+	const extraTimeframe =
+		decisionTimeframe !== undefined &&
+		indicator.kind !== 'constant' &&
+		indicator.timeframe !== undefined &&
+		indicator.timeframe !== '' &&
+		indicator.timeframe !== decisionTimeframe
+			? indicator.timeframe
+			: undefined;
 	if (indicator.kind === 'constant') {
 		return {
 			id: indicator.id,
@@ -418,7 +431,8 @@ export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
 			input: IDENTITY_INPUTS.includes(indicator.input as IdentityInput)
 				? (indicator.input as IdentityInput)
 				: 'close',
-			parameters: {}
+			parameters: {},
+			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
 		};
 	}
 	if (indicator.kind === 'macd') {
@@ -430,7 +444,8 @@ export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
 				fast_period: indicator.parameters.fast_period ?? 12,
 				slow_period: indicator.parameters.slow_period ?? 26,
 				signal_period: indicator.parameters.signal_period ?? 9
-			}
+			},
+			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
 		};
 	}
 	if (indicator.kind === 'bollinger') {
@@ -441,14 +456,16 @@ export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
 			parameters: {
 				period: indicator.parameters.period ?? 20,
 				stdev_multiplier: indicator.parameters.stdev_multiplier ?? '2'
-			}
+			},
+			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
 		};
 	}
 	return {
 		id: indicator.id,
 		kind: indicator.kind,
 		input: indicator.input ?? lockedIndicatorInput(indicator.kind),
-		parameters: { period: indicator.parameters.period ?? 2 }
+		parameters: { period: indicator.parameters.period ?? 2 },
+		...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
 	};
 }
 
@@ -462,6 +479,47 @@ export function validHtfTimeframes(decisionTimeframe: string): string[] {
 		const seconds = TIMEFRAME_SECONDS[timeframe];
 		return seconds > decisionSeconds && seconds % decisionSeconds === 0;
 	});
+}
+
+/**
+ * Return the clock one LTF-list indicator evaluates on.
+ */
+export function resolvedIndicatorTimeframe(
+	indicator: IndicatorDraft,
+	decisionTimeframe: string
+): string {
+	if (indicator.timeframe === undefined || indicator.timeframe === '') {
+		return decisionTimeframe;
+	}
+	return indicator.timeframe;
+}
+
+/**
+ * Return extra LTF-list clocks in venue-duration order.
+ */
+export function extraIndicatorTimeframes(
+	indicators: IndicatorDraft[],
+	decisionTimeframe: string
+): string[] {
+	const clocks = new Set<string>();
+	for (const indicator of indicators) {
+		const clock = resolvedIndicatorTimeframe(indicator, decisionTimeframe);
+		if (clock !== decisionTimeframe) clocks.add(clock);
+	}
+	return EXECUTION_TIMEFRAMES.filter((timeframe) => clocks.has(timeframe));
+}
+
+/**
+ * Return extra LTF-list clocks that need their own research dataset fingerprint.
+ */
+export function unboundIndicatorTimeframes(
+	indicators: IndicatorDraft[],
+	decisionTimeframe: string,
+	htfTimeframe: string | null | undefined
+): string[] {
+	return extraIndicatorTimeframes(indicators, decisionTimeframe).filter(
+		(timeframe) => timeframe !== htfTimeframe
+	);
 }
 
 /**
@@ -666,7 +724,10 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		base_currency: (strategy.instrument as { base_currency: string }).base_currency,
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
-		indicators: (strategy.indicators as IndicatorDraft[]) ?? [],
+		indicators: ((strategy.indicators as IndicatorDraft[]) ?? []).map((indicator) => ({
+			...indicator,
+			timeframe: indicator.timeframe ?? ''
+		})),
 		htf_filter: toHtfFilterDraft(strategy.htf_filter),
 		entry: { when: entry.when },
 		sizing: {
@@ -703,7 +764,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			warmup_bars: model.warmup_bars,
 			required_fields: ['open', 'high', 'low', 'close', 'volume']
 		},
-		indicators: model.indicators.map(serializeIndicator),
+		indicators: model.indicators.map((indicator) => serializeIndicator(indicator, model.timeframe)),
 		...(model.htf_filter === null
 			? {}
 			: {
@@ -713,7 +774,9 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 							warmup_bars: model.htf_filter.warmup_bars,
 							required_fields: ['open', 'high', 'low', 'close', 'volume']
 						},
-						indicators: model.htf_filter.indicators.map(serializeIndicator),
+						indicators: model.htf_filter.indicators.map((indicator) =>
+							serializeIndicator(indicator)
+						),
 						when: model.htf_filter.when
 					}
 				}),
@@ -806,6 +869,7 @@ export type BacktestLaunchInput = {
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
 	htf_dataset_fingerprint?: string;
+	indicator_dataset_fingerprints?: { timeframe: string; dataset_fingerprint: string }[];
 	evaluation_start: string;
 	evaluation_end: string;
 	initial_quote_balance: string;

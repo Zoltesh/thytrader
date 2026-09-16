@@ -22,6 +22,10 @@ from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.store import load_effective_policy
+from thytrader.strategies.models import (
+    extra_indicator_timeframe_groups,
+    extra_indicator_timeframe_warmup,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -274,6 +278,46 @@ async def _advance_strategy(
         )
         await store.save_deployment(paused)
         return
+    await _evaluate_strategy_due_bars(
+        snapshot,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+        product=product,
+        candles=candles,
+        due=due,
+        htf_candles=htf_candles,
+    )
+
+
+async def _evaluate_strategy_due_bars(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: tuple[DeploymentSnapshot, ...],
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    due: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+) -> None:
+    """Compose extra-TF windows with the shipped closed-bar HTF evaluation path."""
+    extra_candles = await _indicator_timeframe_windows_or_pause(
+        snapshot, strategy=strategy, store=store, market_data=market_data, htf_candles=htf_candles
+    )
+    if extra_candles is None:
+        return
+    deployment = snapshot.deployment
     broker: Broker = paper_broker
     if deployment.mode is DeploymentMode.LIVE:
         prepared = await _prepare_live(
@@ -310,6 +354,7 @@ async def _advance_strategy(
             risk_policy=risk_policy,
             portfolio=portfolio,
             htf_candles=htf_candles,
+            indicator_timeframe_candles=extra_candles,
         )
 
 
@@ -519,6 +564,59 @@ async def _closed_htf_window(
     ):
         return None
     return candles
+
+
+async def _indicator_timeframe_windows_or_pause(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    htf_candles: Sequence[Candle],
+) -> dict[str, tuple[Candle, ...]] | None:
+    """Return extra-TF windows, or pause when that complete-only coverage is missing."""
+    extra_candles = await _closed_indicator_timeframe_windows(market_data, strategy, htf_candles)
+    if extra_candles is not None:
+        return extra_candles
+    paused = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail=(
+            "Indicator-timeframe market-data window is gapped or missing the latest completed bar."
+        ),
+    )
+    await store.save_deployment(paused)
+    return None
+
+
+async def _closed_indicator_timeframe_windows(
+    market_data: MarketDataService,
+    strategy: StrategyDefinition,
+    htf_candles: Sequence[Candle],
+) -> dict[str, tuple[Candle, ...]] | None:
+    """Fetch complete-only extra-TF bars, reusing the HTF window when clocks match."""
+    windows: dict[str, tuple[Candle, ...]] = {}
+    htf_timeframe = strategy.htf_filter.timeframe if strategy.htf_filter is not None else None
+    for timeframe, indicators in extra_indicator_timeframe_groups(strategy):
+        if timeframe == htf_timeframe:
+            windows[timeframe] = tuple(htf_candles)
+            continue
+        _product, candles, expected_last = await _closed_window_for(
+            market_data,
+            product_id=strategy.instrument.product_id,
+            timeframe=timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+        )
+        interval = parse_candle_interval(timeframe)
+        if not htf_coverage_ready(
+            candles,
+            expected_last_start=expected_last,
+            bar_duration=interval.duration,
+        ):
+            return None
+        windows[timeframe] = candles
+    return windows
 
 
 async def _closed_window(

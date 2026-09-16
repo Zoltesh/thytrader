@@ -36,7 +36,7 @@ from thytrader.risk.models import RiskDecision, compiled_default_risk_policy
 from thytrader.strategies.models import atr_trailing_stop
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
@@ -59,6 +59,7 @@ async def process_closed_bar(
     risk_policy: RiskPolicyDefinition | None = None,
     portfolio: Sequence[DeploymentSnapshot] = (),
     htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -109,6 +110,7 @@ async def process_closed_bar(
             risk_policy=risk_policy or compiled_default_risk_policy(),
             portfolio=portfolio,
             htf_candles=htf_candles,
+            indicator_timeframe_candles=indicator_timeframe_candles,
         )
     return await _persist_runtime(
         snapshot,
@@ -708,6 +710,7 @@ async def _maybe_enter(
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
     htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Place a post-only buy when flat, off cooldown, and the entry condition matches."""
     deployment = snapshot.deployment
@@ -724,7 +727,7 @@ async def _maybe_enter(
             htf_timeframe=htf_filter.timeframe,
         )
     try:
-        outcome = evaluate_latest_entry(strategy, candles, visible_htf)
+        outcome = evaluate_latest_entry(strategy, candles, visible_htf, indicator_timeframe_candles)
     except SignalEvaluationError as error:
         return await _pause(snapshot, store=store, detail=str(error))
     signaled = with_runtime(deployment, updated_at=utc_now(), last_signal=outcome.value)

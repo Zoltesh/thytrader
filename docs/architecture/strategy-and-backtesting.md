@@ -33,7 +33,9 @@ semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.
 [ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
 `htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
 Research V1/V2/V3, paper, and live consume that signal stage on last-completed HTF bars
-([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Historical
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Optional per-indicator
+timeframes overlay last-completed extra-TF values onto the LTF row before that AND
+([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
 [`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
 turns an eligible published run into an immutable long-only, single-position trade ledger, equity
@@ -79,8 +81,9 @@ the paper worker. V1 and V2 fill every simulated entry at the next bar open unco
 does not. Entry cooldown remains unsupported on every bar engine. Optional ATR trailing uses the
 same ratchet as paper/live; disabled trailing is a no-op. Walk-forward /
 OOS / cross-market studies compose these engines ([research studies](research-studies.md)); they do
-not retune parameters. MACD/Bollinger conditions use series ids. Per-indicator timeframes are not
-shipped. Paper and live consume the same LTF indicator catalog and do not evaluate `htf_filter`.
+not retune parameters. MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
+are shipped on V1/V2/V3, paper, and live. Paper and live consume the same LTF catalog, extra-TF
+overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
 `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting drafts, not
 proven edges.
@@ -125,7 +128,8 @@ immutable version, select a verified dataset, submit a reproducible backtest, an
 immutable evidence in the existing results screen.
 
 Backtest submission must name a published strategy fingerprint and verified dataset fingerprint
-(plus `htf_dataset_fingerprint` when the strategy declares `htf_filter`);
+(plus `htf_dataset_fingerprint` when the strategy declares `htf_filter`, and
+`indicator_dataset_fingerprints` for unbound extra indicator clocks);
 the server derives or validates all execution identity inputs and returns a result/run identity. A
 browser or agent must not pass arbitrary code, bypass publication, mutate a published version, or
 turn backtest submission into a paper/live deployment.
