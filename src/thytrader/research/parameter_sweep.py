@@ -380,6 +380,7 @@ class _StitchTracker:
     capital: Decimal = field(init=False)
     peak: Decimal = field(init=False)
     max_drawdown: Decimal = field(default_factory=lambda: Decimal(0))
+    max_drawdown_fraction: Decimal = field(default_factory=lambda: Decimal(0))
     last_timestamp: datetime | None = None
     points: list[StitchedEquityPoint] = field(default_factory=list)
 
@@ -404,6 +405,9 @@ class _StitchTracker:
         drawdown = self.peak - equity
         if drawdown > self.max_drawdown:
             self.max_drawdown = drawdown
+        drawdown_fraction = Decimal(0) if self.peak == 0 else drawdown / self.peak
+        if drawdown_fraction > self.max_drawdown_fraction:
+            self.max_drawdown_fraction = drawdown_fraction
         self.points.append(
             StitchedEquityPoint(
                 candle_starts_at=timestamp,
@@ -422,7 +426,6 @@ class _StitchTracker:
                 reason="Stitched OOS equity has no mark-to-market points.",
             )
         final = self.capital
-        drawdown_fraction = Decimal(0) if self.peak == 0 else self.max_drawdown / self.peak
         published_points = tuple(self.points)
         if len(published_points) > MAX_STITCHED_POINTS:
             published_points = ()
@@ -435,7 +438,7 @@ class _StitchTracker:
             final_equity=_canonical_decimal(final),
             total_return_fraction=return_fraction,
             maximum_drawdown=_canonical_decimal(self.max_drawdown),
-            maximum_drawdown_fraction=_canonical_decimal(drawdown_fraction),
+            maximum_drawdown_fraction=_canonical_decimal(self.max_drawdown_fraction),
             point_count=len(self.points),
             points=published_points,
         )

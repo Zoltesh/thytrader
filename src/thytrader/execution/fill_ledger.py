@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
+from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     DeploymentSnapshot,
@@ -78,6 +81,7 @@ def project_fill_economics(
     fill: Fill,
     order: Order,
     cooldown_bars: int = 0,
+    timeframe: str | None = None,
 ) -> tuple[DeploymentSnapshot, Fill]:
     """Apply one fill to cash/position in memory without persisting."""
     now = utc_now()
@@ -86,7 +90,10 @@ def project_fill_economics(
     )
     position = snapshot.position
     if position is None:
-        return _project_entry(snapshot, fill=stamped, order=order, now=now), stamped
+        return (
+            _project_entry(snapshot, fill=stamped, order=order, now=now, timeframe=timeframe),
+            stamped,
+        )
     scaling_in = (position.side is PositionSide.LONG and order.side is OrderSide.BUY) or (
         position.side is PositionSide.SHORT and order.side is OrderSide.SELL
     )
@@ -107,6 +114,7 @@ def _project_entry(
     fill: Fill,
     order: Order,
     now: datetime,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Open a long from a buy fill or a short from a sell fill."""
     deployment = snapshot.deployment
@@ -134,7 +142,27 @@ def _project_entry(
             positions=(),
             instrument_runtimes=snapshot.instrument_runtimes,
         )
-    entered_bar = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
+    bar_timeframe = deployment.timeframe or timeframe
+    if bar_timeframe is None:
+        paused = with_runtime(
+            deployment,
+            updated_at=now,
+            cash=cash,
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
+            phase=RuntimePhase.FLAT,
+            clear_pending_levels=True,
+        )
+        return DeploymentSnapshot(
+            deployment=paused,
+            position=None,
+            orders=snapshot.orders,
+            fills=_upsert_fill(snapshot.fills, fill),
+            intents=snapshot.intents,
+            positions=(),
+            instrument_runtimes=snapshot.instrument_runtimes,
+        )
+    entered_bar = entry_bar_bucket(fill.filled_at, bar_timeframe)
     position = Position(
         deployment_id=deployment.id,
         quantity=fill.quantity,
@@ -297,8 +325,10 @@ async def ingest_fill(
     order: Order,
     store: ExecutionStore,
     cooldown_bars: int = 0,
+    timeframe: str | None = None,
 ) -> FillIngestResult:
     """Persist fill evidence and apply economics exactly once."""
+    bar_timeframe = snapshot.deployment.timeframe or timeframe
     apply_transaction = getattr(store, "apply_fill_transaction", None)
     if apply_transaction is not None:
         applied, updated = await apply_transaction(
@@ -306,6 +336,7 @@ async def ingest_fill(
             fill=fill,
             order=order,
             cooldown_bars=cooldown_bars,
+            timeframe=bar_timeframe,
         )
         return FillIngestResult(applied=applied, snapshot=updated)
     existing = next(
@@ -319,7 +350,11 @@ async def ingest_fill(
     if existing is not None and existing.economics_applied_at is not None:
         return FillIngestResult(applied=False, snapshot=snapshot)
     projected, stamped = project_fill_economics(
-        snapshot, fill=fill, order=order, cooldown_bars=cooldown_bars
+        snapshot,
+        fill=fill,
+        order=order,
+        cooldown_bars=cooldown_bars,
+        timeframe=bar_timeframe,
     )
     await store.save_fill(stamped)
     product_id = resolved_product_id(order.product_id, snapshot.deployment)
@@ -339,6 +374,7 @@ async def replay_unapplied_fills(
     *,
     store: ExecutionStore,
     cooldown_bars: int = 0,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Apply any persisted fills whose economics were never committed."""
     current = snapshot
@@ -348,7 +384,12 @@ async def replay_unapplied_fills(
         if order is None:
             continue
         result = await ingest_fill(
-            current, fill=fill, order=order, store=store, cooldown_bars=cooldown_bars
+            current,
+            fill=fill,
+            order=order,
+            store=store,
+            cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
         )
         current = result.snapshot
     return current

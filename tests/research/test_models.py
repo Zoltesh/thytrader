@@ -489,7 +489,7 @@ def test_backtest_v3_requires_resting_maker_assumptions() -> None:
                 "engine_contract_version": "thytrader-bar-backtest-v3",
             }
         )
-    with pytest.raises(ValidationError, match="require the backtest V3 contract"):
+    with pytest.raises(ValidationError, match="require the backtest V3 or V4 contract"):
         ResearchRunSpecification.model_validate(
             {
                 **v1.model_dump(mode="python"),

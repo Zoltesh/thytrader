@@ -104,12 +104,15 @@ def size_entry(
     """Size a long or short using ATR stop distance, risk fraction, and quote bounds."""
     if entry_price <= 0 or atr <= 0 or cash <= 0:
         return None
+    snapped_entry = quantize_to_increment(entry_price, product.price_increment)
+    if snapped_entry <= 0:
+        return None
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
     if stop_distance <= 0:
         return None
     levels = _stop_and_target(
         side=side,
-        entry_price=entry_price,
+        entry_price=snapped_entry,
         stop_distance=stop_distance,
         take_profit_multiple=Decimal(strategy.exits.take_profit.multiple),
         price_increment=product.price_increment,
@@ -117,27 +120,29 @@ def size_entry(
     if levels is None:
         return None
     stop_price, target_price = levels
+    realized_stop_distance = (
+        (snapped_entry - stop_price) if side is PositionSide.LONG else (stop_price - snapped_entry)
+    )
+    if realized_stop_distance <= 0:
+        return None
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
-    risk_quantity = requested_risk / stop_distance
+    risk_quantity = requested_risk / realized_stop_distance
     fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
     maximum_notional = min(
         Decimal(strategy.sizing.max_quote_notional),
         cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
         fee_adjusted_cash,
     )
-    notional = min(risk_quantity * entry_price, maximum_notional)
+    notional = min(risk_quantity * snapped_entry, maximum_notional)
     if notional < Decimal(strategy.sizing.min_quote_notional):
         return None
-    quantity = quantize_to_increment(notional / entry_price, product.base_increment)
+    quantity = quantize_to_increment(notional / snapped_entry, product.base_increment)
     if quantity < product.base_min_size:
         return None
-    notional = quantity * entry_price
+    notional = quantity * snapped_entry
     if notional < product.quote_min_size:
         return None
     if side is PositionSide.LONG and notional > cash:
-        return None
-    snapped_entry = quantize_to_increment(entry_price, product.price_increment)
-    if snapped_entry <= 0:
         return None
     return SizedEntry(
         quantity=quantity,
@@ -165,34 +170,34 @@ def size_pyramid_add(
     """
     if entry_price <= 0 or cash <= 0:
         return None
-    stop_distance = (
-        (entry_price - existing_stop)
+    snapped_entry = quantize_to_increment(entry_price, product.price_increment)
+    if snapped_entry <= 0:
+        return None
+    realized_stop_distance = (
+        (snapped_entry - existing_stop)
         if side is PositionSide.LONG
-        else (existing_stop - entry_price)
+        else (existing_stop - snapped_entry)
     )
-    if stop_distance <= 0:
+    if realized_stop_distance <= 0:
         return None
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
-    risk_quantity = requested_risk / stop_distance
+    risk_quantity = requested_risk / realized_stop_distance
     fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
     maximum_notional = min(
         Decimal(strategy.sizing.max_quote_notional),
         cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
         fee_adjusted_cash,
     )
-    notional = min(risk_quantity * entry_price, maximum_notional)
+    notional = min(risk_quantity * snapped_entry, maximum_notional)
     if notional < Decimal(strategy.sizing.min_quote_notional):
         return None
-    quantity = quantize_to_increment(notional / entry_price, product.base_increment)
+    quantity = quantize_to_increment(notional / snapped_entry, product.base_increment)
     if quantity < product.base_min_size:
         return None
-    notional = quantity * entry_price
+    notional = quantity * snapped_entry
     if notional < product.quote_min_size:
         return None
     if side is PositionSide.LONG and notional > cash:
-        return None
-    snapped_entry = quantize_to_increment(entry_price, product.price_increment)
-    if snapped_entry <= 0:
         return None
     return SizedEntry(
         quantity=quantity,

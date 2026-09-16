@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 from thytrader.execution.models import OrderSide, PositionSide
+from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from decimal import Decimal
 
     from thytrader.market_data.models import Candle
@@ -69,3 +72,11 @@ def paper_stop_fill_price(*, side: PositionSide, candle: Candle, stop_price: Dec
 def base_currency(product_id: str) -> str:
     """Return the BASE from a BASE-USD product id."""
     return product_id.split("-", 1)[0]
+
+
+def entry_bar_bucket(fill_time: datetime, timeframe: str) -> datetime:
+    """Return the ``starts_at`` of the bar that contains ``fill_time`` on one timeframe."""
+    interval = parse_candle_interval(timeframe)
+    instant = fill_time.astimezone(UTC).replace(second=0, microsecond=0)
+    closed_end = interval.align_closed_end(instant + interval.duration)
+    return closed_end - interval.duration

@@ -246,6 +246,7 @@ class ResearchRunSpecification(_FrozenModel):
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
         "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
     ]
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
@@ -369,14 +370,17 @@ class ResearchRunSpecification(_FrozenModel):
     @model_validator(mode="after")
     def require_broker_for_spread_and_maker_contracts(self) -> Self:
         """Bind broker and fill-timing literals to the engine contract that owns them."""
-        if self.engine_contract_version == "thytrader-bar-backtest-v3":
+        if self.engine_contract_version in (
+            "thytrader-bar-backtest-v3",
+            "thytrader-bar-backtest-v4",
+        ):
             _require_v3_maker_assumptions(self)
             return self
         if (
             self.bar_execution.fill_timing != "next_candle_open"
             or self.bar_execution.limit_at is not None
         ):
-            raise ValueError("resting maker fills require the backtest V3 contract")
+            raise ValueError("resting maker fills require the backtest V3 or V4 contract")
         _require_v2_broker_exclusivity(self)
         return self
 
@@ -401,11 +405,15 @@ def _require_v3_maker_assumptions(specification: ResearchRunSpecification) -> No
 
 
 def _require_v2_broker_exclusivity(specification: ResearchRunSpecification) -> None:
-    """V2 is the only non-v3 contract that may carry a constant-spread broker block."""
+    """V2 is the only non-maker contract that may carry a constant-spread broker block."""
     is_v2 = specification.engine_contract_version == "thytrader-bar-backtest-v2"
+    is_maker = specification.engine_contract_version in (
+        "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
+    )
     if is_v2 and specification.broker is None:
         raise ValueError("backtest V2 requires broker assumptions")
-    if not is_v2 and specification.broker is not None:
+    if not is_v2 and not is_maker and specification.broker is not None:
         raise ValueError("broker assumptions require the backtest V2 contract")
     broker = specification.broker
     if broker is not None and (

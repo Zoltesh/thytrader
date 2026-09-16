@@ -392,12 +392,11 @@ def aggregate_windows(
         if marked:
             pool = marked
     oos = tuple(item for item in pool if item.role is not WindowRole.IN_SAMPLE)
-    scored = oos if oos else windows
     is_windows = tuple(item for item in pool if item.role is WindowRole.IN_SAMPLE)
-    oos_trades = sum(item.summary.trade_count for item in scored)
-    oos_wins = sum(item.summary.winning_trade_count for item in scored)
-    mean_oos = _mean_decimal(tuple(item.summary.total_return_fraction for item in scored))
-    mean_dd = _mean_decimal(tuple(item.summary.maximum_drawdown_fraction for item in scored))
+    oos_trades = sum(item.summary.trade_count for item in oos)
+    oos_wins = sum(item.summary.winning_trade_count for item in oos)
+    mean_oos = _mean_decimal(tuple(item.summary.total_return_fraction for item in oos))
+    mean_dd = _mean_decimal(tuple(item.summary.maximum_drawdown_fraction for item in oos))
     mean_is = _mean_decimal(tuple(item.summary.total_return_fraction for item in is_windows))
     gap = None
     if mean_is is not None and mean_oos is not None:
@@ -407,7 +406,7 @@ def aggregate_windows(
         win_rate = _canonical_decimal(Decimal(oos_wins) / Decimal(oos_trades))
     return StudyAggregate(
         window_count=len(windows),
-        oos_window_count=len(scored),
+        oos_window_count=len(oos),
         oos_trade_count=oos_trades,
         oos_winning_trade_count=oos_wins,
         oos_win_rate=win_rate,

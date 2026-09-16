@@ -133,7 +133,7 @@ async def submit_intent(
             price=result.fill_price,
             quantity=result.filled_quantity or quantity,
             fee=result.fill_fee,
-            filled_at=utc_now(),
+            filled_at=candle.starts_at,
         )
         await store.save_fill(fill)
     return submitted

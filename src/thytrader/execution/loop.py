@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.fill_ledger import ingest_fill, prior_fills_for_order
 from thytrader.execution.geometry import (
+    entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_fill_price,
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from uuid import UUID
 
+    from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
@@ -105,6 +107,7 @@ async def process_closed_bar(
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -134,6 +137,7 @@ async def process_closed_bar(
         broker=broker,
         store=store,
         cooldown_bars=strategy.entry.cooldown_bars,
+        timeframe=deployment.timeframe or strategy.timeframe,
     )
     snapshot = await _manage_position(
         snapshot,
@@ -169,6 +173,7 @@ async def process_closed_bar(
             indicator_timeframe_candles=indicator_timeframe_candles,
             live_base_available=live_base_available,
             marks=marks,
+            fee_profile=fee_profile,
         )
     return await _persist_runtime(
         snapshot,
@@ -195,6 +200,7 @@ async def _match_resting_orders(
     broker: Broker,
     store: ExecutionStore,
     cooldown_bars: int,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Apply paper or local fills for resting limits against the closed candle."""
     for order in snapshot.orders:
@@ -211,7 +217,12 @@ async def _match_resting_orders(
         )
         await store.save_order(filled)
         result = await ingest_fill(
-            snapshot, fill=fill, order=filled, store=store, cooldown_bars=cooldown_bars
+            snapshot,
+            fill=fill,
+            order=filled,
+            store=store,
+            cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
         )
         snapshot = result.snapshot
     return await store.get_deployment(snapshot.deployment.id)
@@ -224,10 +235,16 @@ async def apply_fill(
     order: Order,
     store: ExecutionStore,
     cooldown_bars: int = 0,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Update cash and position from one fill and persist the result."""
     result = await ingest_fill(
-        snapshot, fill=fill, order=order, store=store, cooldown_bars=cooldown_bars
+        snapshot,
+        fill=fill,
+        order=order,
+        store=store,
+        cooldown_bars=cooldown_bars,
+        timeframe=timeframe or snapshot.deployment.timeframe,
     )
     return result.snapshot
 
@@ -238,6 +255,7 @@ async def _apply_entry_fill(
     fill: Fill,
     order: Order,
     store: ExecutionStore,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Open a long from a buy fill or a short from a sell fill."""
     deployment = snapshot.deployment
@@ -259,7 +277,21 @@ async def _apply_entry_fill(
         await store.save_deployment(paused)
         await store.save_position(None, deployment_id=deployment.id)
         return await store.get_deployment(deployment.id)
-    entered_bar = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
+    bar_timeframe = timeframe or deployment.timeframe
+    if bar_timeframe is None:
+        paused = with_runtime(
+            deployment,
+            updated_at=now,
+            cash=cash,
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
+            phase=RuntimePhase.FLAT,
+            clear_pending_levels=True,
+        )
+        await store.save_deployment(paused)
+        await store.save_position(None, deployment_id=deployment.id)
+        return await store.get_deployment(deployment.id)
+    entered_bar = entry_bar_bucket(fill.filled_at, bar_timeframe)
     position = Position(
         deployment_id=deployment.id,
         quantity=fill.quantity,
@@ -395,6 +427,29 @@ async def _manage_position(
             return snapshot
         if snapshot.position is None:
             return snapshot
+    return await _manage_open_position(
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+    )
+
+
+async def _manage_open_position(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Trail and protect an open book after pending-entry handling."""
+    deployment = snapshot.deployment
     position = snapshot.position
     if deployment.phase not in _IN_MARKET or position is None:
         return snapshot
@@ -405,11 +460,60 @@ async def _manage_position(
         snapshot = await store.get_deployment(deployment.id)
         if snapshot.position is None:
             return snapshot
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    live = deployment.mode is DeploymentMode.LIVE
+    timed_out = snapshot.deployment.bars_held >= strategy.exits.time_exit.max_bars_held
+    if not live and not timed_out:
+        stopped = await _paper_stop_exit_if_hit(
+            snapshot,
+            strategy=strategy,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            position=position,
+        )
+        if stopped is not None:
+            return stopped
     snapshot = await _apply_trailing(
         snapshot, strategy=strategy, candles=candles, candle=candle, product=product, store=store
     )
     return await _protect_open_position(
-        snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
+        snapshot,
+        strategy=strategy,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        skip_paper_stop=not live,
+    )
+
+
+async def _paper_stop_exit_if_hit(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+    position: Position,
+) -> DeploymentSnapshot | None:
+    """Exit on the pre-trail stop when a closed bar trades through it."""
+    if not paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price):
+        return None
+    price = paper_stop_fill_price(side=position.side, candle=candle, stop_price=position.stop_price)
+    return await _marketable_exit(
+        snapshot,
+        strategy=strategy,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        purpose=IntentPurpose.STOP,
+        price=price,
     )
 
 
@@ -470,6 +574,7 @@ async def _protect_open_position(
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    skip_paper_stop: bool = False,
 ) -> DeploymentSnapshot:
     """Apply paper synthetic stops or live venue brackets after trailing."""
     position = snapshot.position
@@ -482,7 +587,11 @@ async def _protect_open_position(
         return await _ensure_live_bracket(
             snapshot, candle=candle, product=product, broker=broker, store=store
         )
-    paper_stop = paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price)
+    paper_stop = False
+    if not skip_paper_stop:
+        paper_stop = paper_stop_hit(
+            side=position.side, candle=candle, stop_price=position.stop_price
+        )
     if (not live and paper_stop) or timed_out:
         purpose = IntentPurpose.TIME_EXIT if timed_out else IntentPurpose.STOP
         price = (
@@ -931,6 +1040,7 @@ async def _maybe_enter(
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Place a post-only entry when flat, or a same-side add when pyramiding allows it."""
     mode = _entry_attempt_mode(snapshot, strategy)
@@ -980,6 +1090,7 @@ async def _maybe_enter(
         live_base_available=live_base_available,
         marks=marks,
         is_pyramid_add=pyramid_add,
+        fee_profile=fee_profile,
     )
 
 
@@ -992,9 +1103,10 @@ def _size_entry_or_add(
     atr: Decimal,
     side: PositionSide,
     is_pyramid_add: bool,
+    fee_profile: FeeProfile | None = None,
 ) -> SizedEntry | None:
     """Size a new book or a same-side add against remaining quote cash."""
-    fee_rate = _entry_fee_rate(snapshot.deployment)
+    fee_rate = _entry_fee_rate(snapshot.deployment, fee_profile=fee_profile)
     if not is_pyramid_add:
         return size_entry(
             strategy=strategy,
@@ -1061,6 +1173,7 @@ async def _submit_sized_entry(
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
     is_pyramid_add: bool = False,
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Size an entry or same-side add and rest a post-only order when policy allows it."""
     atr = latest_atr(strategy, candles)
@@ -1082,6 +1195,7 @@ async def _submit_sized_entry(
         atr=atr,
         side=side,
         is_pyramid_add=is_pyramid_add,
+        fee_profile=fee_profile,
     )
     if sized is None:
         return snapshot
@@ -1447,9 +1561,12 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
     )
 
 
-def _fill_opened_position(fill: Fill, position: Position) -> bool:
+def _fill_opened_position(fill: Fill, position: Position, *, timeframe: str | None = None) -> bool:
     """True when this fill is the entry that opened the current position."""
-    entered = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
+    if timeframe is None:
+        entered = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
+    else:
+        entered = entry_bar_bucket(fill.filled_at, timeframe)
     return entered == position.entered_bar and fill.price == position.entry_price
 
 
@@ -1504,11 +1621,13 @@ def _attached_entry_covers(snapshot: DeploymentSnapshot, position: Position) -> 
     )
 
 
-def _entry_fee_rate(deployment: Deployment) -> Decimal:
-    """Size paper entries with the book's maker assumption; live keeps the prior documented rate."""
+def _entry_fee_rate(deployment: Deployment, *, fee_profile: FeeProfile | None = None) -> Decimal:
+    """Size entries with paper assumptions or the live Coinbase maker tier when available."""
     if deployment.mode is DeploymentMode.PAPER:
         maker_fee_rate, _taker_fee_rate = effective_paper_fee_rates(
             deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
         )
         return maker_fee_rate
+    if fee_profile is not None:
+        return fee_profile.maker_fee_rate
     return PAPER_MAKER_FEE_RATE

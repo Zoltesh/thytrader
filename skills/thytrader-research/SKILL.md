@@ -32,22 +32,25 @@ route while `/health/ready` is 200 (the shared stale-image signal). Matching `0.
 current-image evidence. Open the `ops/` workspace instead of
 the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
-## When to pick backtest engine V1 vs V2 vs V3
+## When to pick backtest engine V1 vs V2 vs V3 vs V4
 
-These are **parallel research contracts**, not product releases. V3 does not obsolete V1 or V2.
-Each run fingerprints its engine; results stay comparable only within the same contract. Full
-semantics: `docs/architecture/backtest-simulation.md`. Do not confuse them with Coinbase Advanced
-Trade REST **v3** (live order API).
+These are **parallel research contracts**, not product releases. Later engines do not obsolete
+earlier fingerprints. Each run fingerprints its engine; results stay comparable only within the same
+contract. Full semantics: `docs/architecture/backtest-simulation.md` and
+[ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md). Do not confuse
+engine versions with Coinbase Advanced Trade REST **v3** (live order API).
 
 | Engine | Use when | Not for |
 |---|---|---|
 | `thytrader-bar-backtest-v1` | Fast baseline: signal on close → fill at **next open** as marketable/taker-style (fixed slippage + taker fee). Good first pass and cheap compare. | Matching paper/live maker-limit behavior; spread-stress sweeps |
 | `thytrader-bar-backtest-v2` | Same event order as V1, plus explicit constant **`spread_bps` stress** (not observed Coinbase bid/ask). Compare the same strategy at 0 / 10 / 25 / 50 bps. `spread_bps=0` matches V1 economics. | Claiming live fill quality; maker-rest realism |
-| `thytrader-bar-backtest-v3` | Closest to **paper/live**: post-only limit at signal close, wait/cancel/reprice, maker fees on limits, taker on stops. Prefer when comparing to paper maker fills. | Spread-stress sweeps (no `spread_bps`); assuming V3 “replaces” older V1/V2 evidence |
+| `thytrader-bar-backtest-v3` | Historical maker-limit contract (pre-0062): post-only limit at signal close, terminal candle may process intrabar exits beyond the declared boundary. Keep for reproducing published v3 evidence only. | Walk-forward/OOS selection, new paper/live comparison, or claiming corrected terminal boundaries |
+| `thytrader-bar-backtest-v4` | **Default for new maker research** ([ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md)): v3 maker semantics plus causal evaluation terminal, taker slippage on stops/time/end, causal same-bar trailing, and `validity_limits` on summaries. | Spread-stress sweeps (no `spread_bps`); silently comparing to pre-0062 v3 bytes |
 
-Default guidance for agents: pick the engine the user named; if they ask “compare to paper,” use V3;
-if they ask “does the idea survive friction,” use V2; if they want a quick smoke baseline, use V1.
-Never treat a backtest as a paper or live fill.
+Default guidance: v4 for OOS/walk-forward/sweeps and paper/live comparison; v2 for friction
+stress; v1 for quick smoke tests; v3 only when reproducing an existing v3 fingerprint. Never treat
+a backtest as a paper or live fill. Read `validity_limits` on v4 summaries before deployment
+claims — they document maker touch-fill, TP-before-stop ordering, and spot-short modeling limits.
 
 ## Commands
 
@@ -55,7 +58,7 @@ Never treat a backtest as a paper or live fill.
 |---|---|
 | Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
 | List draft templates | `uv run thytrader-research list-templates` |
-| Show the V1/V2/V3 engine-support matrix | `uv run thytrader-research engine-support` |
+| Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
@@ -68,8 +71,9 @@ Never treat a backtest as a paper or live fill.
 
 `list-results`, `show-result`, `list-templates`, `engine-support`, `plan-study`, `list-studies`, and
 `show-study` are read-only and
-do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3
-backtests. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
+do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
+backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
+`mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
 `walk_forward_optimization` select among published fingerprints or `parameter_axes`. Axes default
 to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_period` / `d_period` /
 `stdev_multiplier` / `value`. Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
@@ -135,7 +139,8 @@ lists only backtest v1/v2 is a stale Compose image — rebuild with `make run`.
 dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
 supplied dates do not fit, the API returns 422 with a suggested ISO range. Do not invent a window
 that the catalog cannot cover. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
-`…-v2`, or `…-v3`) per the table above.
+`…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
+reproducing a published v3 fingerprint.
 
 ## Maker/taker rates
 

@@ -48,6 +48,7 @@ def _running_snapshot() -> tuple[InMemoryExecutionStore, DeploymentSnapshot, Ord
         phase=RuntimePhase.PENDING_ENTRY,
         pending_stop_price=Decimal("90"),
         pending_target_price=Decimal("120"),
+        timeframe="1h",
         created_at=now,
         updated_at=now,
     )

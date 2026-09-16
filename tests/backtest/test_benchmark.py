@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from uuid import UUID
 
 import pytest
 
@@ -19,11 +20,17 @@ from thytrader.backtest.models import (
     backtest_result_fingerprint,
     canonical_backtest_result_bytes,
 )
+from thytrader.market_data.models import Candle
 from thytrader.persistence.backtest_benchmarks import PostgresBacktestBenchmarkReader
-
-if TYPE_CHECKING:
-    from thytrader.market_data.models import Candle
-    from thytrader.research.models import ResearchRunSpecification
+from thytrader.research.models import (
+    BarExecutionAssumptions,
+    CapitalAssumptions,
+    CostAssumptions,
+    EvaluationWindow,
+    ResearchRunSpecification,
+    WarmupWindow,
+)
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 from .test_kernel import _candles, _run, _strategy, _v2_run, _v3_run
 
@@ -194,6 +201,73 @@ def test_buy_and_hold_rejects_nonfinite_or_invalid_candles() -> None:
 
     with pytest.raises(BacktestBenchmarkError, match="OHLCV"):
         calculate_buy_and_hold_benchmark(result, specification, invalid_candles)
+
+
+def _five_minute_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
+    """Build one executable five-minute run with two evaluation bars."""
+    starts_at = datetime(2026, 8, 1, 2, 0, tzinfo=UTC)
+    return ResearchRunSpecification(
+        schema_version="1.0",
+        run_id=UUID("019cae99-3e00-7000-8000-000000000002"),
+        created_at=datetime(2026, 3, 2, 12, 50, 4, 416000, tzinfo=UTC),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        dataset_fingerprint="sha256:" + "b" * 64,
+        evaluation=EvaluationWindow(
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=10),
+        ),
+        warmup=WarmupWindow(bars=2, starts_at=starts_at - timedelta(minutes=10)),
+        capital=CapitalAssumptions(quote_currency="USD", initial_quote_balance="10000"),
+        costs=CostAssumptions(
+            maker_fee_rate="0.001",
+            taker_fee_rate="0.002",
+            fixed_slippage_bps="10",
+        ),
+        bar_execution=BarExecutionAssumptions(
+            signal_timing="completed_candle_close",
+            fill_timing="next_candle_open",
+        ),
+        engine_contract_version="thytrader-bar-backtest-v1",
+        random_seed=0,
+    )
+
+
+def _five_minute_candles() -> tuple[Candle, ...]:
+    """Return warmup, evaluation, and terminal candles on five-minute boundaries."""
+    start = datetime(2026, 8, 1, 1, 50, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("15", "30", "10", "10"),
+        ("10", "11", "9", "10"),
+    )
+    return tuple(
+        Candle(
+            starts_at=start + timedelta(minutes=5 * index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+
+
+def test_buy_and_hold_uses_five_minute_bar_interval() -> None:
+    """Benchmark coverage must follow the specification bar interval, not one hour."""
+    strategy = StrategyDefinition.model_validate(
+        {**_strategy().model_dump(mode="python"), "timeframe": "5m"}
+    )
+    specification = _five_minute_run(strategy)
+    result = simulate_backtest(specification, strategy, _five_minute_candles())
+
+    benchmark = calculate_buy_and_hold_benchmark(result, specification, _five_minute_candles())
+
+    assert benchmark.evaluation_bars == 2
+    assert benchmark.entry_candle_starts_at == specification.evaluation.starts_at
+    assert benchmark.exit_candle_starts_at == specification.evaluation.ends_at
 
 
 def test_buy_and_hold_rejects_naive_candle_timestamps() -> None:

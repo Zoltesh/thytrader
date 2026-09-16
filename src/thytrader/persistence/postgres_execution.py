@@ -228,6 +228,7 @@ class PostgresExecutionStore:
         fill: Fill,
         order: Order,
         cooldown_bars: int = 0,
+        timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
         """Insert fill evidence and apply economics in one database transaction."""
         try:
@@ -280,7 +281,11 @@ class PostgresExecutionStore:
                 if existing.economics_applied_at is not None:
                     return False, snapshot
                 projected, stamped = project_fill_economics(
-                    snapshot, fill=existing, order=order, cooldown_bars=cooldown_bars
+                    snapshot,
+                    fill=existing,
+                    order=order,
+                    cooldown_bars=cooldown_bars,
+                    timeframe=timeframe,
                 )
                 await connection.execute(
                     execution_fills.update()

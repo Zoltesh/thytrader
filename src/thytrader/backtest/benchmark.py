@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from decimal import Decimal, DecimalException, localcontext
 from typing import TYPE_CHECKING
 
@@ -26,12 +25,16 @@ from thytrader.market_data.quality import (
     validate_candle_values,
 )
 from thytrader.research.indicators import canonical_decimal
-from thytrader.research.models import ResearchRunSpecification, research_run_fingerprint
+from thytrader.research.models import (
+    ResearchRunSpecification,
+    research_run_fingerprint,
+    specification_bar_interval,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.market_data.models import Candle
+    from thytrader.market_data.models import Candle, CandleInterval
 
 
 class BacktestBenchmarkError(ValueError):
@@ -70,13 +73,14 @@ def calculate_buy_and_hold_benchmark(
 
     try:
         with localcontext(_SIMULATION_CONTEXT):
-            selected = _selected_candles(validated_specification, candles)
+            bar_interval = specification_bar_interval(validated_specification)
+            selected = _selected_candles(validated_specification, candles, bar_interval)
             evaluation_bars = int(
                 (
                     validated_specification.evaluation.ends_at
                     - validated_specification.evaluation.starts_at
-                ).total_seconds()
-                // 3600
+                )
+                / bar_interval.duration
             )
             evaluation_candles = selected[:evaluation_bars]
             terminal_candle = selected[evaluation_bars]
@@ -142,8 +146,12 @@ def calculate_buy_and_hold_benchmark(
 def _selected_candles(
     specification: ResearchRunSpecification,
     candles: Sequence[Candle],
+    bar_interval: CandleInterval | None = None,
 ) -> tuple[Candle, ...]:
     """Require exactly the evaluation candles plus the published terminal next-open candle."""
+    resolved_interval = (
+        bar_interval if bar_interval is not None else specification_bar_interval(specification)
+    )
     starts_at = specification.evaluation.starts_at
     ends_at = specification.evaluation.ends_at
     try:
@@ -154,13 +162,13 @@ def _selected_candles(
     except CandleQualityError as error:
         raise BacktestBenchmarkError("Benchmark candle timestamps are invalid.") from error
     selected = tuple(candle for candle in candles if starts_at <= candle.starts_at <= ends_at)
-    evaluation_bars = int((ends_at - starts_at).total_seconds() // 3600)
+    evaluation_bars = int((ends_at - starts_at) / resolved_interval.duration)
     if len(selected) != evaluation_bars + 1:
         raise BacktestBenchmarkError("Benchmark candle coverage is incomplete or duplicated.")
     if len({candle.starts_at for candle in selected}) != len(selected):
         raise BacktestBenchmarkError("Benchmark candle coverage is duplicated.")
     for offset, candle in enumerate(selected):
-        expected_start = starts_at + timedelta(hours=offset)
+        expected_start = starts_at + resolved_interval.duration * offset
         validate_candle_values(candle)
         if (
             candle.starts_at != expected_start

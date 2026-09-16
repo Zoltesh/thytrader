@@ -148,6 +148,7 @@ class InMemoryExecutionStore:
         fill: Fill,
         order: Order,
         cooldown_bars: int = 0,
+        timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
         """Insert fill evidence and apply economics in one in-memory step."""
         snapshot = await self.get_deployment(deployment_id)
@@ -171,6 +172,7 @@ class InMemoryExecutionStore:
             fill=existing or fill,
             order=order,
             cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
         )
         self.fills[stamped.id] = stamped
         self._applied_fill_keys.add(key)

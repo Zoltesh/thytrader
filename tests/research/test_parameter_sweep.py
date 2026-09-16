@@ -209,6 +209,46 @@ def test_stitch_compounds_nonoverlapping_oos_returns() -> None:
     assert stitched.total_return_fraction == "0.155"
 
 
+def test_stitch_tracks_contemporaneous_peak_drawdown_fraction() -> None:
+    """Maximum stitched drawdown uses each mark's peak, not the final running peak."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    mid = datetime(2026, 1, 2, tzinfo=UTC)
+    trough = datetime(2026, 1, 3, tzinfo=UTC)
+    end = datetime(2026, 1, 4, tzinfo=UTC)
+    first = _result(((start, "10000"), (mid, "12000")), _summary(ret="0.2", pnl="2000"))
+    first = first.model_copy(
+        update={"summary": first.summary.model_copy(update={"final_equity": "12000"})}
+    )
+    second = _result(
+        ((mid, "10000"), (trough, "5000"), (end, "15000")),
+        _summary(ret="0.5", drawdown="0.5"),
+    )
+    second = second.model_copy(
+        update={"summary": second.summary.model_copy(update={"final_equity": "15000"})}
+    )
+    stitched = stitch_oos_equity(
+        (
+            StitchSourceWindow(
+                fold_index=0,
+                evaluation_start=start,
+                evaluation_end=mid,
+                result_fingerprint="sha256:" + "1" * 64,
+                result=first,
+            ),
+            StitchSourceWindow(
+                fold_index=1,
+                evaluation_start=mid,
+                evaluation_end=end,
+                result_fingerprint="sha256:" + "2" * 64,
+                result=second,
+            ),
+        )
+    )
+    assert stitched.available is True
+    assert stitched.maximum_drawdown == "6000"
+    assert stitched.maximum_drawdown_fraction == "0.5"
+
+
 def test_overlapping_oos_windows_refuse_stitching() -> None:
     """Overlapping OOS paths are disclosed rather than interpolated."""
     start = datetime(2026, 1, 1, tzinfo=UTC)

@@ -74,6 +74,7 @@ class BacktestSubmissionRequest(BaseModel):
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
         "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
     ] = "thytrader-bar-backtest-v1"
     spread_bps: str | None = None
 
@@ -382,7 +383,10 @@ def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumption
     """Resolve contract-specific broker inputs, mirroring the CLI contract exactly."""
     if request.engine_contract_version == "thytrader-bar-backtest-v1":
         return None
-    if request.engine_contract_version == "thytrader-bar-backtest-v3":
+    if request.engine_contract_version in (
+        "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
+    ):
         return BrokerAssumptions(
             price_model="post_only_limit",
             spread_bps="0",
@@ -404,7 +408,10 @@ def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumption
 
 def _bar_execution_from_request(request: BacktestSubmissionRequest) -> BarExecutionAssumptions:
     """Bind fill timing to the selected engine contract."""
-    if request.engine_contract_version == "thytrader-bar-backtest-v3":
+    if request.engine_contract_version in (
+        "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
+    ):
         return BarExecutionAssumptions(
             signal_timing="completed_candle_close",
             fill_timing="resting_maker_limit",

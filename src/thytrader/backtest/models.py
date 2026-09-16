@@ -19,6 +19,7 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.backtest.research_validity import ResearchValidityLimitCode  # noqa: TC001
 from thytrader.research.models import (  # noqa: TC001
     BrokerAssumptions,
     FingerprintText,
@@ -88,6 +89,7 @@ BacktestEngineContract = Literal[
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
     "thytrader-bar-backtest-v3",
+    "thytrader-bar-backtest-v4",
 ]
 
 
@@ -97,10 +99,10 @@ def _require_result_broker_evidence(
     *,
     kind: Literal["backtest", "benchmark"],
 ) -> None:
-    """Bind broker evidence to V2/V3 contracts and keep V1 results broker-free."""
+    """Bind broker evidence to V2/V3/V4 contracts and keep V1 results broker-free."""
     if engine_contract_version == "thytrader-bar-backtest-v1":
         if broker is not None:
-            raise ValueError(f"broker assumptions require a {kind} V2 or V3 result")
+            raise ValueError(f"broker assumptions require a {kind} V2, V3, or V4 result")
         return
     if broker is None:
         raise ValueError(f"{kind} {engine_contract_version} results require broker assumptions")
@@ -191,6 +193,7 @@ class BacktestSummary(_FrozenBacktestModel):
     exposure_bars: int = Field(ge=0)
     evaluation_bars: int = Field(ge=1)
     total_spread_cost: ResultDecimalText | None = None
+    validity_limits: tuple[ResearchValidityLimitCode, ...] | None = None
 
     @model_validator(mode="after")
     def require_wins_within_trade_count(self) -> Self:

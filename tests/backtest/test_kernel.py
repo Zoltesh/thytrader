@@ -149,6 +149,13 @@ def _v3_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
     )
 
 
+def _v4_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
+    """Build one V4 run with causal maker semantics and disclosed validity limits."""
+    return _v3_run(strategy).model_copy(
+        update={"engine_contract_version": "thytrader-bar-backtest-v4"}
+    )
+
+
 def _candles() -> tuple[Candle, ...]:
     """Return warmup, one signal, one filled target, and one required final fill candle."""
     start = datetime(2026, 8, 1, tzinfo=UTC)
@@ -341,6 +348,103 @@ def test_simulation_rejects_unrepresentable_terminal_boundary_with_controlled_er
 
     with pytest.raises(BacktestSimulationError, match=r"candles|coverage"):
         simulate_backtest(run, strategy, candles)
+
+
+def test_v4_applies_taker_slippage_on_stop_exits() -> None:
+    """V4 must honor fixed_slippage_bps on taker stop exits while maker entries stay untouched."""
+    strategy = _strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("14", "15", "1", "10"),
+        ("10", "11", "9", "10"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    base_v4 = _v4_run(strategy)
+    no_slippage = simulate_backtest(
+        base_v4.model_copy(
+            update={"costs": base_v4.costs.model_copy(update={"fixed_slippage_bps": "0"})}
+        ),
+        strategy,
+        candles,
+    )
+    with_slippage = simulate_backtest(
+        base_v4.model_copy(
+            update={"costs": base_v4.costs.model_copy(update={"fixed_slippage_bps": "100"})}
+        ),
+        strategy,
+        candles,
+    )
+
+    assert no_slippage.trades[0].exit.reason == "stop_loss"
+    assert with_slippage.trades[0].exit.reason == "stop_loss"
+    assert Decimal(with_slippage.trades[0].exit.price) == Decimal("7.92")
+    assert Decimal(no_slippage.trades[0].exit.price) == Decimal("8")
+    assert no_slippage.trades[0].entry.price == with_slippage.trades[0].entry.price
+
+
+def test_v4_liquidates_open_positions_at_terminal_open_without_intrabar_processing() -> None:
+    """V4 must not process TP/stops on the post-evaluation candle."""
+    strategy = _strategy()
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    rows = (
+        ("10", "11", "9", "10"),
+        ("11", "12", "10", "11"),
+        ("14", "15", "12", "14"),
+        ("14", "15", "13.5", "14"),
+        ("14", "15", "13.5", "14"),
+        ("20", "40", "19", "25"),
+    )
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal(open_),
+            high=Decimal(high),
+            low=Decimal(low),
+            close=Decimal(close),
+            volume=Decimal("10"),
+        )
+        for index, (open_, high, low, close) in enumerate(rows)
+    )
+    run = _v4_run(strategy).model_copy(
+        update={
+            "evaluation": EvaluationWindow(
+                starts_at=datetime(2026, 8, 1, 2, tzinfo=UTC),
+                ends_at=datetime(2026, 8, 1, 5, tzinfo=UTC),
+            ),
+            "costs": _v4_run(strategy).costs.model_copy(update={"fixed_slippage_bps": "0"}),
+        }
+    )
+    result = simulate_backtest(run, strategy, candles)
+
+    assert result.trades[0].exit.reason == "evaluation_end"
+    assert result.trades[0].exit.candle_starts_at == datetime(2026, 8, 1, 5, tzinfo=UTC)
+    assert result.trades[0].exit.price == "20"
+    assert result.summary.evaluation_bars == 3
+
+
+def test_v4_attaches_validity_limits_on_new_runs() -> None:
+    """V4 summaries must disclose the F23 modeling limits that still apply."""
+    strategy = _strategy()
+    result = simulate_backtest(_v4_run(strategy), strategy, _candles())
+
+    assert result.engine_contract_version == "thytrader-bar-backtest-v4"
+    assert result.summary.validity_limits == (
+        "maker_touch_full_fill",
+        "tp_before_stop_same_bar",
+    )
 
 
 def test_v3_fills_when_the_next_bar_trades_through_the_close_limit() -> None:
