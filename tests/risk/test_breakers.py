@@ -374,6 +374,61 @@ def test_missing_reference_price_fails_closed() -> None:
     assert verdict.reason_code is RiskReasonCode.REFERENCE_PRICE_UNAVAILABLE
 
 
+def test_stale_reference_candle_fails_closed() -> None:
+    """A reference candle older than 2*interval + 300s must deny new entries."""
+    candle_at = _NOW - timedelta(hours=3)
+    verdict = evaluate_new_entry(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(),
+        observation=EntryObservation(
+            as_of=_NOW,
+            proposed_price=Decimal("100"),
+            reference_price=Decimal("100"),
+            marks={"BTC-USD": Decimal("100")},
+            reference_candle_at=candle_at,
+            reference_interval_seconds=3600,
+        ),
+    )
+    assert verdict.reason_code is RiskReasonCode.REFERENCE_PRICE_UNAVAILABLE
+
+
+def test_stopped_deployment_with_position_counts_toward_daily_loss() -> None:
+    """Stopped books with residual exposure remain in mode-wide daily-loss accounting."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"daily_loss_limit_fraction": "0.001", "paper_capital_quote": "10000"}
+    )
+    stopped_loss = _round_trip_loss_snapshot()
+    deployment = replace(
+        stopped_loss.deployment,
+        status=DeploymentStatus.STOPPED,
+        phase=RuntimePhase.OPEN,
+    )
+    stopped_loss = replace(
+        stopped_loss,
+        deployment=deployment,
+        position=Position(
+            deployment_id=deployment.id,
+            quantity=Decimal("1"),
+            entry_price=Decimal("100"),
+            stop_price=Decimal("90"),
+            target_price=Decimal("120"),
+            entered_bar=_NOW - timedelta(hours=1),
+            updated_at=_NOW,
+        ),
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(stopped_loss,),
+        observation=_observation(marks={"BTC-USD": Decimal("50")}),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+
+
 def test_missing_mark_on_open_inventory_fails_closed() -> None:
     """Daily-loss cannot invent equity; open inventory without a mark denies."""
     deployment = _deployment(phase=RuntimePhase.OPEN)

@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING
 from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
 from thytrader.execution.models import (
     DeploymentMode,
-    DeploymentStatus,
     IntentPurpose,
     OrderStatus,
 )
+from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
+from thytrader.market_data.models import CandleInterval
+from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
 if TYPE_CHECKING:
@@ -22,8 +24,8 @@ if TYPE_CHECKING:
 
     from thytrader.execution.models import DeploymentSnapshot, OrderIntent
 
-_OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _RATE_WINDOW = timedelta(seconds=60)
+_REFERENCE_FRESHNESS_GRACE_SECONDS = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +36,8 @@ class EntryObservation:
     proposed_price: Decimal | None
     reference_price: Decimal | None
     marks: Mapping[str, Decimal]
+    reference_candle_at: datetime | None = None
+    reference_interval_seconds: int | None = None
 
 
 def evaluate_circuit_breakers(
@@ -72,6 +76,9 @@ def evaluate_rate_and_collar(
     rate = _rate_verdict(policy, occupied=occupied, as_of=observation.as_of)
     if rate is not None:
         return rate
+    stale = _stale_reference_verdict(observation=observation)
+    if stale is not None:
+        return stale
     return _collar_verdict(policy, observation=observation)
 
 
@@ -211,6 +218,44 @@ def _is_entry_purpose(
     return True
 
 
+def _stale_reference_verdict(*, observation: EntryObservation) -> RiskVerdict | None:
+    """Deny when the reference candle is stale relative to the strategy interval."""
+    candle_at = observation.reference_candle_at
+    interval_seconds = observation.reference_interval_seconds
+    if candle_at is None or interval_seconds is None:
+        return None
+    interval = _candle_interval_from_seconds(interval_seconds)
+    if interval is not None:
+        freshness = evaluate_freshness(
+            product_id="reference",
+            newest_candle_at=candle_at,
+            now=observation.as_of,
+            interval=interval,
+        )
+        if freshness.status is FreshnessStatus.FRESH:
+            return None
+        return _deny(
+            RiskReasonCode.REFERENCE_PRICE_UNAVAILABLE,
+            "Reference candle is stale or missing; a fresh last-close mark is required.",
+        )
+    threshold = 2 * interval_seconds + _REFERENCE_FRESHNESS_GRACE_SECONDS
+    age = int((observation.as_of - candle_at).total_seconds())
+    if 0 <= age < threshold:
+        return None
+    return _deny(
+        RiskReasonCode.REFERENCE_PRICE_UNAVAILABLE,
+        "Reference candle is stale or missing; a fresh last-close mark is required.",
+    )
+
+
+def _candle_interval_from_seconds(interval_seconds: int) -> CandleInterval | None:
+    """Map a strategy interval length to a known candle interval, if one exists."""
+    for candidate in CandleInterval:
+        if int(candidate.duration.total_seconds()) == interval_seconds:
+            return candidate
+    return None
+
+
 def _collar_verdict(
     policy: RiskPolicyDefinition, *, observation: EntryObservation
 ) -> RiskVerdict | None:
@@ -288,12 +333,8 @@ def _drawdown_target(
 def _occupied_mode(
     snapshots: Sequence[DeploymentSnapshot], mode: DeploymentMode
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Return running and paused snapshots in one paper or live mode."""
-    return tuple(
-        item
-        for item in snapshots
-        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
-    )
+    """Return risk-bearing snapshots in one paper or live mode."""
+    return risk_bearing_snapshots(snapshots, mode)
 
 
 def _utc_day_start(moment: datetime) -> datetime:

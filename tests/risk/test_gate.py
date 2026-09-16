@@ -9,6 +9,11 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    Position,
     RuntimePhase,
 )
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
@@ -322,6 +327,57 @@ def test_live_deployment_requires_a_published_policy_not_the_compiled_default() 
         policy_source=RiskPolicySource.PUBLISHED,
     )
     assert allowed.decision is RiskDecision.ALLOW
+
+
+def test_product_exposure_counts_position_plus_working_entry_for_gate_caps() -> None:
+    """Per-product caps must include both open inventory and working entry remainder."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"per_product_max_exposure_fraction": "0.002"}
+    )
+    deployment = _deployment(strategy_id=_STRATEGY_A, phase=RuntimePhase.OPEN)
+    position = Position(
+        deployment_id=deployment.id,
+        quantity=Decimal("1"),
+        entry_price=Decimal("100"),
+        stop_price=Decimal("90"),
+        target_price=Decimal("120"),
+        entered_bar=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        product_id="BTC-USD",
+    )
+    working = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="working-entry",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("1"),
+        status=OrderStatus.OPEN,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        price=Decimal("100"),
+        filled_quantity=Decimal("0"),
+        product_id="BTC-USD",
+    )
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        orders=(working,),
+        fills=(),
+        position=position,
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("1"),
+        ),
+        snapshots=(snapshot,),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.PRODUCT_EXPOSURE_EXCEEDED
 
 
 def test_paper_deployment_is_unaffected_by_the_published_policy_requirement() -> None:
