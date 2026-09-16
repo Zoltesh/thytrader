@@ -68,7 +68,8 @@ def engine_support_matrix() -> EngineSupportMatrix:
                     "exact Decimal arithmetic; paper/live share the LTF catalog and "
                     "evaluate HTF kinds inside htf_filter; "
                     "MACD/Bollinger/stochastic/ADX conditions use series ids; "
-                    "rolling EMA/SMA/WMA/highest/lowest/stdev/sample-stdev/ROC/momentum accept one OHLCV field"
+                    "rolling EMA/SMA/WMA/highest/lowest/stdev/sample-stdev/ROC/"
+                    "momentum accept one OHLCV field"
                 ),
             ),
             EngineSupportRow(

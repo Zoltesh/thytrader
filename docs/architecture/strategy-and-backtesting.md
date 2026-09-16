@@ -83,7 +83,9 @@ does not. Entry cooldown remains unsupported on every bar engine. Optional ATR t
 same ratchet as paper/live; disabled trailing is a no-op. Walk-forward /
 OOS / cross-market studies compose these engines ([research studies](research-studies.md)).
 Validation kinds freeze one fingerprint; parameter sweeps and WFO select among published or
-derived fingerprints without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
+derived fingerprints without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).
+Richer axes and persisted catalog rows are [ADR 0052](../decisions/0052-richer-sweep-axes-study-catalog.md).
+MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
 are shipped on V1/V2/V3, paper, and live. Paper and live consume the same LTF catalog, extra-TF
 overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;

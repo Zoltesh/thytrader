@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	engineContractLabel,
 	listStrategyTemplates,
+	parametersForTarget,
 	parseParameterAxisValues,
 	submitResearchStudy
 } from './research-studies';
@@ -9,6 +10,17 @@ import {
 describe('parseParameterAxisValues', () => {
 	it('splits comma-separated axis values and drops blanks', () => {
 		expect(parseParameterAxisValues('12, 26,')).toEqual(['12', '26']);
+	});
+});
+
+describe('parametersForTarget', () => {
+	it('keeps indicator periods and exposes sizing fields', () => {
+		expect(parametersForTarget('indicator')).toContain('period');
+		expect(parametersForTarget('sizing')).toEqual([
+			'risk_fraction',
+			'min_quote_notional',
+			'max_quote_notional'
+		]);
 	});
 });
 

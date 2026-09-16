@@ -29,7 +29,7 @@ flowchart LR
   Intent --> Risk["RiskPolicyDefinition"]
   Risk -->|ALLOW| Broker["PaperBroker or CoinbaseBroker"]
   Broker --> Order["Order + Fill"]
-  Health["GET /health/ready"] --> Ops["ops_contract v18"]
+  Health["GET /health/ready"] --> Ops["ops_contract v19"]
 ```
 
 Do not dump these diagrams on [docs/README.md](../../README.md).

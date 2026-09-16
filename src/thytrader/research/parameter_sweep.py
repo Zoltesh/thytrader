@@ -13,7 +13,8 @@ from enum import StrEnum
 from hashlib import sha256
 from itertools import product
 import json
-from typing import TYPE_CHECKING, cast
+import re
+from typing import TYPE_CHECKING, Self, cast
 from uuid import UUID
 
 from pydantic import (
@@ -23,6 +24,7 @@ from pydantic import (
     ValidationError,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 from thytrader.strategies.models import (
@@ -43,10 +45,64 @@ _MAX_AXES = 4
 _MAX_VALUES_PER_AXIS = 8
 MAX_CANDIDATES = 8
 MAX_STITCHED_POINTS = 4096
-_INTEGER_PARAMETERS = frozenset({"period", "fast_period", "slow_period", "signal_period"})
-_DECIMAL_PARAMETERS = frozenset({"stdev_multiplier", "value"})
-ALLOWED_PARAMETERS = _INTEGER_PARAMETERS | _DECIMAL_PARAMETERS
+_INDICATOR_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_INTEGER_PARAMETERS = frozenset(
+    {
+        "period",
+        "fast_period",
+        "slow_period",
+        "signal_period",
+        "k_period",
+        "d_period",
+        "max_bars_held",
+        "max_entry_wait_bars",
+    }
+)
+_INDICATOR_PARAMETERS = frozenset(
+    {
+        "period",
+        "fast_period",
+        "slow_period",
+        "signal_period",
+        "k_period",
+        "d_period",
+        "stdev_multiplier",
+        "value",
+    }
+)
+_SIZING_PARAMETERS = frozenset({"risk_fraction", "min_quote_notional", "max_quote_notional"})
+_EXITS_PARAMETERS = frozenset(
+    {
+        "initial_stop_multiple",
+        "take_profit_multiple",
+        "trailing_stop_multiple",
+        "max_bars_held",
+    }
+)
+_EXECUTION_PARAMETERS = frozenset({"max_entry_wait_bars"})
+_LITERAL_PARAMETERS = frozenset({"literal"})
+_CONDITION_OPERATORS = frozenset(
+    {
+        "greater_than",
+        "greater_than_or_equal",
+        "less_than",
+        "less_than_or_equal",
+        "equals",
+    }
+)
+ALLOWED_PARAMETERS = _INDICATOR_PARAMETERS
 _SWEEP_TAG = "research-sweep-candidate"
+
+
+class SweepAxisTarget(StrEnum):
+    """Where one sweep axis writes. Product and timeframe are not sweepable."""
+
+    INDICATOR = "indicator"
+    SIZING = "sizing"
+    EXITS = "exits"
+    EXECUTION = "execution"
+    ENTRY_LITERAL = "entry_literal"
+    HTF_LITERAL = "htf_literal"
 
 
 class SelectionMetric(StrEnum):
@@ -58,23 +114,17 @@ class SelectionMetric(StrEnum):
 
 
 class ParameterAxis(BaseModel):
-    """One indicator parameter and the discrete values it may take."""
+    """One discrete sweep axis. Default target is indicator (omitted from JSON)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    indicator_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    target: SweepAxisTarget = Field(
+        default=SweepAxisTarget.INDICATOR,
+        exclude_if=lambda value: value is SweepAxisTarget.INDICATOR,
+    )
+    indicator_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     parameter: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     values: tuple[str, ...] = Field(min_length=2, max_length=_MAX_VALUES_PER_AXIS)
-
-    @field_validator("parameter")
-    @classmethod
-    def require_allowed_parameter(cls, value: str) -> str:
-        """Reject parameter names the canonical indicator models do not declare."""
-        if value not in ALLOWED_PARAMETERS:
-            raise ValueError(
-                "parameter_axes.parameter must be period, fast_period, slow_period, "
-                "signal_period, stdev_multiplier, or value"
-            )
-        return value
+    condition_operator: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("values")
     @classmethod
@@ -83,6 +133,59 @@ class ParameterAxis(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("parameter_axes.values must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_target_shape(self) -> Self:
+        """Require locator fields that match the axis target without rewriting logic."""
+        self._require_parameter_for_target()
+        self._require_locator_for_target()
+        if self.condition_operator is not None:
+            if self.target not in {SweepAxisTarget.ENTRY_LITERAL, SweepAxisTarget.HTF_LITERAL}:
+                raise ValueError("condition_operator is only valid on literal sweep axes")
+            if self.condition_operator not in _CONDITION_OPERATORS:
+                raise ValueError("condition_operator must be a non-crossover comparison operator")
+        return self
+
+    def _require_parameter_for_target(self) -> None:
+        """Reject parameter names the chosen target does not declare."""
+        allowed = _parameters_for_target(self.target)
+        if self.parameter not in allowed:
+            raise ValueError(_parameter_error(self.target))
+
+    def _require_locator_for_target(self) -> None:
+        """Require indicator_id only when the target addresses an indicator or literal."""
+        needs_indicator = self.target in {
+            SweepAxisTarget.INDICATOR,
+            SweepAxisTarget.ENTRY_LITERAL,
+            SweepAxisTarget.HTF_LITERAL,
+        }
+        if needs_indicator:
+            if self.indicator_id is None or not _INDICATOR_ID_PATTERN.fullmatch(self.indicator_id):
+                raise ValueError("parameter_axes.indicator_id is required for this target")
+            return
+        if self.indicator_id is not None:
+            raise ValueError("parameter_axes.indicator_id is not valid for this target")
+
+
+@dataclass(frozen=True, slots=True)
+class AxisCell:
+    """One Cartesian assignment used to derive a candidate document."""
+
+    target: SweepAxisTarget
+    locator: str
+    parameter: str
+    value: str
+    condition_operator: str | None = None
+
+    def identity_tuple(self) -> tuple[str, str, str]:
+        """Return the fingerprint cell. Indicator-only grids keep the ADR 0044 3-tuple."""
+        if self.target is SweepAxisTarget.INDICATOR and self.condition_operator is None:
+            return (self.locator, self.parameter, self.value)
+        return (
+            f"{self.target.value}:{self.locator}:{self.condition_operator or ''}",
+            self.parameter,
+            self.value,
+        )
 
 
 class StitchedEquityPoint(BaseModel):
@@ -126,27 +229,25 @@ class StitchSourceWindow:
     result: BacktestResult
 
 
-def expand_parameter_grid(
-    axes: tuple[ParameterAxis, ...],
-) -> tuple[tuple[tuple[str, str, str], ...], ...]:
-    """Return Cartesian cells as (indicator_id, parameter, value) tuples in axis order."""
+def expand_parameter_grid(axes: tuple[ParameterAxis, ...]) -> tuple[tuple[AxisCell, ...], ...]:
+    """Return Cartesian cells in axis declaration order."""
     if not axes:
         raise ValueError("parameter_axes is required")
     if len(axes) > _MAX_AXES:
         raise ValueError("parameter_axes accepts at most 4 axes")
-    keys = [(axis.indicator_id, axis.parameter) for axis in axes]
+    keys = [
+        (axis.target, axis.indicator_id or "", axis.parameter, axis.condition_operator or "")
+        for axis in axes
+    ]
     if len(keys) != len(set(keys)):
-        raise ValueError("parameter_axes must use distinct indicator_id and parameter pairs")
+        raise ValueError("parameter_axes must use distinct target, locator, and parameter tuples")
     size = 1
     for axis in axes:
         size *= len(axis.values)
         if size > MAX_CANDIDATES:
             raise ValueError("parameter_axes Cartesian product must be at most 8 candidates")
     return tuple(
-        tuple(
-            (axes[index].indicator_id, axes[index].parameter, value)
-            for index, value in enumerate(combo)
-        )
+        tuple(_cell_for_axis(axes[index], value) for index, value in enumerate(combo))
         for combo in product(*(axis.values for axis in axes))
     )
 
@@ -173,18 +274,20 @@ def derive_parameter_candidates(
 
 def apply_parameter_cell(
     base: StrategyDefinition,
-    cell: tuple[tuple[str, str, str], ...],
+    cell: tuple[AxisCell, ...] | tuple[tuple[str, str, str], ...],
     *,
     base_fingerprint: str,
 ) -> StrategyDefinition:
     """Substitute one grid cell and re-validate the canonical strategy document."""
+    assignments = _normalize_cell(cell)
     payload = base.model_dump(mode="python")
-    for indicator_id, parameter, raw_value in cell:
-        _assign_indicator_parameter(payload, indicator_id, parameter, raw_value)
-    payload["strategy_id"] = _deterministic_uuid7(base.created_at, base_fingerprint, cell)
+    for assignment in assignments:
+        _assign_axis_cell(payload, assignment)
+    identity = tuple(item.identity_tuple() for item in assignments)
+    payload["strategy_id"] = _deterministic_uuid7(base.created_at, base_fingerprint, identity)
     payload["version"] = 1
     payload["status"] = StrategyStatus.PUBLISHED
-    payload["name"] = _derived_name(base.name, cell)
+    payload["name"] = _derived_name(base.name, assignments)
     payload["description"] = (
         f"Derived sweep candidate from {base_fingerprint}. Not a human-authored version."
     )[:500]
@@ -356,6 +459,23 @@ def _first_overlap(windows: tuple[StitchSourceWindow, ...]) -> str | None:
     return None
 
 
+def _assign_axis_cell(payload: dict[str, object], cell: AxisCell) -> None:
+    """Write one typed assignment onto the dumped strategy document."""
+    if cell.target is SweepAxisTarget.INDICATOR:
+        _assign_indicator_parameter(payload, cell.locator, cell.parameter, cell.value)
+        return
+    if cell.target is SweepAxisTarget.SIZING:
+        _assign_sizing_parameter(payload, cell.parameter, cell.value)
+        return
+    if cell.target is SweepAxisTarget.EXITS:
+        _assign_exits_parameter(payload, cell.parameter, cell.value)
+        return
+    if cell.target is SweepAxisTarget.EXECUTION:
+        _assign_execution_parameter(payload, cell.parameter, cell.value)
+        return
+    _assign_literal_parameter(payload, cell)
+
+
 def _assign_indicator_parameter(
     payload: dict[str, object],
     indicator_id: str,
@@ -396,6 +516,170 @@ def _assign_in_indicators(
         writable[parameter] = parsed
         found = True
     return found
+
+
+def _assign_sizing_parameter(payload: dict[str, object], parameter: str, raw_value: str) -> None:
+    """Substitute one risk-fraction sizing field."""
+    sizing = payload.get("sizing")
+    if not isinstance(sizing, dict) or parameter not in sizing:
+        raise ValueError(f"sizing does not declare parameter {parameter!r}")
+    writable = cast("dict[str, int | str]", sizing)
+    writable[parameter] = _parse_parameter_value(parameter, raw_value)
+
+
+def _assign_exits_parameter(payload: dict[str, object], parameter: str, raw_value: str) -> None:
+    """Substitute one initial-stop, take-profit, trailing, or time-exit field."""
+    exits = payload.get("exits")
+    if not isinstance(exits, dict):
+        raise TypeError("exits are required for exits sweep axes")
+    parsed = _parse_parameter_value(parameter, raw_value)
+    if parameter == "initial_stop_multiple":
+        _assign_nested_multiple(exits.get("initial_stop"), "initial_stop", parsed)
+        return
+    if parameter == "take_profit_multiple":
+        _assign_nested_multiple(exits.get("take_profit"), "take_profit", parsed)
+        return
+    if parameter == "trailing_stop_multiple":
+        _assign_trailing_multiple(exits.get("trailing_stop"), parsed)
+        return
+    time_exit = exits.get("time_exit")
+    if not isinstance(time_exit, dict) or "max_bars_held" not in time_exit:
+        raise ValueError("time_exit.max_bars_held is not on the strategy")
+    writable = cast("dict[str, int | str]", time_exit)
+    writable["max_bars_held"] = parsed
+
+
+def _assign_nested_multiple(block: object, name: str, parsed: int | str) -> None:
+    """Write `multiple` onto one dumped stop or take-profit object."""
+    if not isinstance(block, dict) or "multiple" not in block:
+        raise ValueError(f"{name}.multiple is not on the strategy")
+    writable = cast("dict[str, int | str]", block)
+    writable["multiple"] = parsed
+
+
+def _assign_trailing_multiple(block: object, parsed: int | str) -> None:
+    """Write ATR trailing multiple only when trailing is enabled."""
+    if not isinstance(block, dict) or block.get("enabled") is not True:
+        raise ValueError("trailing_stop_multiple requires an enabled ATR trailing stop")
+    if "multiple" not in block:
+        raise ValueError("trailing_stop.multiple is not on the strategy")
+    writable = cast("dict[str, int | str]", block)
+    writable["multiple"] = parsed
+
+
+def _assign_execution_parameter(payload: dict[str, object], parameter: str, raw_value: str) -> None:
+    """Substitute one execution-preference integer."""
+    execution = payload.get("execution")
+    if not isinstance(execution, dict) or parameter not in execution:
+        raise ValueError(f"execution does not declare parameter {parameter!r}")
+    writable = cast("dict[str, int | str]", execution)
+    writable[parameter] = _parse_parameter_value(parameter, raw_value)
+
+
+def _assign_literal_parameter(payload: dict[str, object], cell: AxisCell) -> None:
+    """Substitute the unique matching comparison literal, or fail closed."""
+    root = _literal_root(payload, cell.target)
+    assigned = _assign_literals(
+        root,
+        cell.locator,
+        cell.value,
+        condition_operator=cell.condition_operator,
+    )
+    if assigned == 0:
+        raise ValueError(
+            f"{cell.target.value} has no unique literal comparison for indicator {cell.locator!r}"
+        )
+    if assigned > 1:
+        raise ValueError(
+            f"{cell.target.value} literal for {cell.locator!r} is ambiguous; "
+            "set condition_operator or publish candidate fingerprints"
+        )
+
+
+def _literal_root(payload: dict[str, object], target: SweepAxisTarget) -> object:
+    """Return the entry or HTF condition tree for a literal axis."""
+    if target is SweepAxisTarget.ENTRY_LITERAL:
+        entry = payload.get("entry")
+        if not isinstance(entry, dict):
+            raise ValueError("entry.when is required for entry_literal axes")
+        return entry.get("when")
+    htf = payload.get("htf_filter")
+    if not isinstance(htf, dict):
+        raise TypeError("htf_filter is required for htf_literal axes")
+    return htf.get("when")
+
+
+def _assign_literals(
+    node: object,
+    indicator_id: str,
+    raw_value: str,
+    *,
+    condition_operator: str | None,
+) -> int:
+    """Count and write matching comparison literals in a dumped condition tree."""
+    if not isinstance(node, dict):
+        return 0
+    current = cast("dict[str, object]", node)
+    assigned = 0
+    if _comparison_matches(current, indicator_id, condition_operator):
+        _write_literal(current, raw_value)
+        assigned += 1
+    for key in ("all", "any"):
+        children = current.get(key)
+        if isinstance(children, list):
+            for child in children:
+                assigned += _assign_literals(
+                    child,
+                    indicator_id,
+                    raw_value,
+                    condition_operator=condition_operator,
+                )
+    nested = current.get("not")
+    if nested is not None:
+        assigned += _assign_literals(
+            nested,
+            indicator_id,
+            raw_value,
+            condition_operator=condition_operator,
+        )
+    return assigned
+
+
+def _comparison_matches(
+    node: dict[str, object],
+    indicator_id: str,
+    condition_operator: str | None,
+) -> bool:
+    """True when this node compares the named indicator against a literal."""
+    if "left" not in node or "right" not in node:
+        return False
+    if condition_operator is not None and node.get("operator") != condition_operator:
+        return False
+    left = node.get("left")
+    right = node.get("right")
+    return (_is_indicator_operand(left, indicator_id) and _is_literal_operand(right)) or (
+        _is_indicator_operand(right, indicator_id) and _is_literal_operand(left)
+    )
+
+
+def _is_indicator_operand(operand: object, indicator_id: str) -> bool:
+    """True when the dumped operand names the given indicator."""
+    return isinstance(operand, dict) and operand.get("indicator") == indicator_id
+
+
+def _is_literal_operand(operand: object) -> bool:
+    """True when the dumped operand is a decimal literal."""
+    return isinstance(operand, dict) and "literal" in operand
+
+
+def _write_literal(node: dict[str, object], raw_value: str) -> None:
+    """Replace the literal side of a comparison with the axis value."""
+    parsed = _parse_parameter_value("literal", raw_value)
+    for side in ("left", "right"):
+        operand = node.get(side)
+        if isinstance(operand, dict) and "literal" in operand:
+            writable = cast("dict[str, int | str]", operand)
+            writable["literal"] = parsed
 
 
 def _parse_parameter_value(parameter: str, raw_value: str) -> int | str:
@@ -448,13 +732,73 @@ def _cover_warmup(
     return StrategyDefinition.model_validate(payload)
 
 
-def _derived_name(base_name: str, cell: tuple[tuple[str, str, str], ...]) -> str:
+def _derived_name(base_name: str, cell: tuple[AxisCell, ...]) -> str:
     """Build a bounded display name that still fits the schema."""
-    summary = ",".join(f"{indicator}.{parameter}={value}" for indicator, parameter, value in cell)
+    summary = ",".join(_cell_label(item) for item in cell)
     name = f"{base_name} [{summary}]"
     if len(name) <= 120:
         return name
     return f"{base_name} [sweep]"[:120]
+
+
+def _cell_label(cell: AxisCell) -> str:
+    """Render one axis assignment for the derived strategy name."""
+    if cell.target is SweepAxisTarget.INDICATOR:
+        return f"{cell.locator}.{cell.parameter}={cell.value}"
+    if cell.locator:
+        return f"{cell.target.value}.{cell.locator}.{cell.parameter}={cell.value}"
+    return f"{cell.target.value}.{cell.parameter}={cell.value}"
+
+
+def _cell_for_axis(axis: ParameterAxis, value: str) -> AxisCell:
+    """Bind one axis value into a Cartesian cell."""
+    return AxisCell(
+        target=axis.target,
+        locator=axis.indicator_id or "",
+        parameter=axis.parameter,
+        value=value,
+        condition_operator=axis.condition_operator,
+    )
+
+
+def _normalize_cell(
+    cell: tuple[AxisCell, ...] | tuple[tuple[str, str, str], ...],
+) -> tuple[AxisCell, ...]:
+    """Accept AxisCell grids or legacy indicator 3-tuples used by unit tests."""
+    if not cell:
+        raise ValueError("parameter_axes cell must not be empty")
+    first = cell[0]
+    if isinstance(first, AxisCell):
+        return cast("tuple[AxisCell, ...]", cell)
+    triples = cast("tuple[tuple[str, str, str], ...]", cell)
+    return tuple(
+        AxisCell(
+            target=SweepAxisTarget.INDICATOR,
+            locator=indicator_id,
+            parameter=parameter,
+            value=raw_value,
+        )
+        for indicator_id, parameter, raw_value in triples
+    )
+
+
+def _parameters_for_target(target: SweepAxisTarget) -> frozenset[str]:
+    """Return the fail-closed parameter names legal on one axis target."""
+    if target is SweepAxisTarget.INDICATOR:
+        return _INDICATOR_PARAMETERS
+    if target is SweepAxisTarget.SIZING:
+        return _SIZING_PARAMETERS
+    if target is SweepAxisTarget.EXITS:
+        return _EXITS_PARAMETERS
+    if target is SweepAxisTarget.EXECUTION:
+        return _EXECUTION_PARAMETERS
+    return _LITERAL_PARAMETERS
+
+
+def _parameter_error(target: SweepAxisTarget) -> str:
+    """Explain which parameter names a target accepts."""
+    names = ", ".join(sorted(_parameters_for_target(target)))
+    return f"parameter_axes.parameter must be one of: {names}"
 
 
 def _derived_metadata(metadata: StrategyMetadata) -> dict[str, object]:

@@ -29,6 +29,11 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
 )
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
+from thytrader.research.catalog import (
+    ResearchStudyCatalog,
+    StudyCatalogSummary,
+    StudyCatalogUnavailableError,
+)
 from thytrader.research.models import EvaluationWindow, IndicatorTimeframeDataset
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
@@ -295,6 +300,37 @@ def study_fingerprint(study: ResearchStudy) -> str:
     return f"{_FINGERPRINT_PREFIX}{sha256(canonical.encode()).hexdigest()}"
 
 
+def canonical_study_json(study: ResearchStudy) -> str:
+    """Return the stored canonical study document including its fingerprint."""
+    payload = study.model_dump(mode="json", exclude_none=True)
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def study_catalog_summary(study: ResearchStudy, plan: ResearchStudyPlan) -> StudyCatalogSummary:
+    """Build one catalog row from an assembled study and its window plan."""
+    selected = next(
+        (window.strategy_fingerprint for window in study.windows if window.selected),
+        None,
+    )
+    stitched = None
+    if study.stitched_oos_equity is not None:
+        stitched = study.stitched_oos_equity.available
+    return StudyCatalogSummary(
+        study_fingerprint=study.study_fingerprint,
+        request_fingerprint=study.request_fingerprint,
+        kind=study.kind.value,
+        engine_contract_version=study.engine_contract_version,
+        published_at=datetime.now(UTC),
+        product_id=plan.windows[0].product_id,
+        timeframe=plan.timeframe,
+        window_count=study.aggregate.window_count,
+        selected_strategy_fingerprint=selected,
+        mean_oos_return_fraction=study.aggregate.mean_oos_return_fraction,
+        stitched_oos_available=stitched,
+        selection_metric=study.selection_metric,
+    )
+
+
 def plan_study(
     request: ResearchStudyRequest,
     *,
@@ -389,6 +425,7 @@ class ResearchStudyService:
     publications: StrategyPublicationStore
     submitter: BacktestSubmitter
     results: BacktestResultReader
+    catalog: ResearchStudyCatalog | None = None
 
     async def plan(self, request: ResearchStudyRequest) -> ResearchStudyPlan:
         """Return the window schedule after loading published strategies."""
@@ -421,7 +458,21 @@ class ResearchStudyService:
             ),
             stitched_oos_equity=stitched,
         )
-        return assembled.model_copy(update={"study_fingerprint": study_fingerprint(assembled)})
+        study = assembled.model_copy(update={"study_fingerprint": study_fingerprint(assembled)})
+        await self._persist_catalog(study, plan)
+        return study
+
+    async def _persist_catalog(self, study: ResearchStudy, plan: ResearchStudyPlan) -> None:
+        """Store the assembled study when a catalog is configured."""
+        if self.catalog is None:
+            return
+        try:
+            await self.catalog.persist(
+                study_catalog_summary(study, plan),
+                canonical_study_json(study),
+            )
+        except StudyCatalogUnavailableError as error:
+            raise ResearchStudyError("Research study catalog is unavailable.") from error
 
     async def _submit_windows(
         self,

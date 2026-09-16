@@ -36,11 +36,13 @@ from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStor
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import DisabledWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.research.catalog import DisabledResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore
 from thytrader.strategies.authoring import DisabledStrategyDraftStore
 from thytrader.strategies.publication import DisabledStrategyPublicationStore
@@ -83,6 +85,7 @@ async def operator_diagnostics(
             risk_policies=PostgresRiskPolicyStore(engine),
             user_order_feed=PostgresUserOrderFeedStateStore(engine),
             memory_store=PostgresExperientialMemoryStore(engine),
+            research_studies=PostgresResearchStudyCatalog(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -102,6 +105,7 @@ async def operator_diagnostics(
             risk_policies=DisabledRiskPolicyStore(),
             user_order_feed=DisabledUserOrderFeedStateStore(),
             memory_store=DisabledExperientialMemoryStore(),
+            research_studies=DisabledResearchStudyCatalog(),
         )
     try:
         yield diagnostics

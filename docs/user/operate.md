@@ -91,6 +91,7 @@ uv run thytrader-research create-draft --confirm
 uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
 uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
+uv run thytrader-research list-studies
 uv run thytrader-playbook status
 uv run thytrader-memory status
 ```
@@ -99,7 +100,7 @@ uv run thytrader-memory status
 |---|---|---|
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
 | `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations |
-| `thytrader-research` | Drafts, publish, backtests, composed studies | `--confirm` on mutations; cannot deploy or trade |
+| `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
 | `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy | `--confirm`; live also `--i-understand-live` |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |

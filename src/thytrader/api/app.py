@@ -101,6 +101,7 @@ from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStor
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.worker_heartbeats import (
@@ -109,6 +110,7 @@ from thytrader.persistence.worker_heartbeats import (
 )
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
@@ -150,6 +152,7 @@ def create_app(
     risk_policy_store: RiskPolicyStore | None = None,
     user_order_feed_state_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
+    research_study_catalog: ResearchStudyCatalog | None = None,
     notification_sender: NotificationSender | None = None,
     operator_chat_credentials: OperatorChatCredentialStore | None = None,
     operator_chat_sessions: OperatorChatSessionStore | None = None,
@@ -178,6 +181,7 @@ def create_app(
     external_risk_policy_store = risk_policy_store
     external_user_order_feed_store = user_order_feed_state_store
     external_memory_store = memory_store
+    external_research_study_catalog = research_study_catalog
     external_notification_sender = notification_sender
     engine: AsyncEngine | None = None
 
@@ -200,6 +204,7 @@ def create_app(
         risk_policies = external_risk_policy_store
         user_feed_store = external_user_order_feed_store
         memory = external_memory_store
+        study_catalog = external_research_study_catalog
         notifier = external_notification_sender
         dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
         heartbeat_store: WorkerHeartbeatStore | None = None
@@ -249,6 +254,7 @@ def create_app(
                 user_feed_store = PostgresUserOrderFeedStateStore(engine)
             if memory is None:
                 memory = PostgresExperientialMemoryStore(engine)
+            study_catalog = study_catalog or PostgresResearchStudyCatalog(engine)
             if watchlist_store is None:
                 watchlist_store = PostgresMarketDataWatchlistStore(engine)
             heartbeat_store = PostgresWorkerHeartbeatStore(engine)
@@ -292,6 +298,7 @@ def create_app(
             user_feed_store or DisabledUserOrderFeedStateStore()
         )
         _app.state.memory_store = memory or DisabledExperientialMemoryStore()
+        _app.state.research_study_catalog = study_catalog or InMemoryResearchStudyCatalog()
         _app.state.notification_sender = notifier or notification_sender_from_settings(
             resolved_settings
         )

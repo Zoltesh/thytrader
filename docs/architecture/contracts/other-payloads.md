@@ -99,7 +99,7 @@ classDiagram
 
 Report kinds: health, configuration, exchange, market_data, data_catalog,
 products, indicators, strategies, performance, risk, reconciliation, runtime,
-monitor, support_bundle.
+monitor, studies, support_bundle.
 
 ## Experiential memory hooks
 

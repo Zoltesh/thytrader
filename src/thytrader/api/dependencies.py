@@ -25,6 +25,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
+from thytrader.research.catalog import ResearchStudyCatalog
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.authoring import (
@@ -226,6 +227,15 @@ def get_memory_store(request: Request) -> ExperientialMemoryStore:
     store = getattr(request.app.state, "memory_store", None)
     if not isinstance(store, ExperientialMemoryStore):
         message = "Experiential memory store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_research_study_catalog(request: Request) -> ResearchStudyCatalog:
+    """Return the persisted research-study catalog attached during app startup."""
+    store = getattr(request.app.state, "research_study_catalog", None)
+    if not isinstance(store, ResearchStudyCatalog):
+        message = "Research study catalog is unavailable."
         raise TypeError(message)
     return store
 

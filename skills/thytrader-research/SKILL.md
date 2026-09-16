@@ -5,7 +5,7 @@ description: >-
   compare deterministic backtests and composed research studies through the
   confirmation-gated thytrader-research CLI. Use when the user asks to create a
   strategy, publish, run a backtest, or run an OOS / walk-forward / cross-market /
-  parameter-sweep / WFO study. Requires explicit --confirm for every mutation. Never deploys,
+  parameter-sweep / WFO study, or to list persisted study catalog rows. Requires explicit --confirm for every mutation. Never deploys,
   paper-trades, live-trades, arms, or cancels orders.
 ---
 
@@ -16,7 +16,7 @@ Bounded research mutations only. This skill is not an extension of `thytrader-op
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to the database if the API is down.
 
 Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`,
-`POST /api/v1/backtests`, `POST /api/v1/research/studies`) remain valid. The agent-facing mutation
+`POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`) remain valid. The agent-facing mutation
 path is `uv run thytrader-research` with `--confirm`.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
@@ -61,17 +61,28 @@ Never treat a backtest as a paper or live fill.
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
 | Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
+| List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
+| Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `list-templates`, `engine-support`, and `plan-study` are read-only and
+`list-results`, `show-result`, `list-templates`, `engine-support`, `plan-study`, `list-studies`, and
+`show-study` are read-only and
 do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3
 backtests. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
-`walk_forward_optimization` select among published fingerprints or `parameter_axes` (indicator
-`period` / `fast_period` / `slow_period` / `signal_period` / `stdev_multiplier` / `value`; Cartesian
-product ≤ 8). Selection uses only in-sample `selection_metric`; it does not look ahead from OOS.
+`walk_forward_optimization` select among published fingerprints or `parameter_axes`. Axes default
+to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_period` / `d_period` /
+`stdev_multiplier` / `value`. Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
+`max_quote_notional`), `exits` (`initial_stop_multiple`, `take_profit_multiple`,
+`trailing_stop_multiple`, `max_bars_held`), `execution` (`max_entry_wait_bars`), or
+`entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8.
+Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
+not look ahead from OOS.
 `plan-study` derives axis candidates in memory. `submit-study --confirm` publishes missing derived
-documents, then submits ordinary backtests. Stitched OOS equity compounds non-overlapping window
+documents, then submits ordinary backtests, then persists a catalog row. `list-studies` is
+newest-first summaries. `show-study` omits child windows and stitched equity points. Operator
+`thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
+a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
 interpolated. Parameter-sweep aggregates are not an out-of-sample claim. Cross-market studies
 need 2–8 published single-instrument strategies on distinct products. See

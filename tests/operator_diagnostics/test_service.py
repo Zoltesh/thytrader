@@ -20,6 +20,7 @@ from thytrader.persistence.worker_heartbeats import (
 )
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.research.catalog import InMemoryResearchStudyCatalog, StudyCatalogSummary
 from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraft
 from thytrader.strategies.publication import DisabledStrategyPublicationStore
 
@@ -49,6 +50,7 @@ def _diagnostics(
     drafts: DisabledStrategyDraftStore | None = None,
     settings: Settings | None = None,
     heartbeat_store: DisabledWorkerHeartbeatStore | InMemoryWorkerHeartbeatStore | None = None,
+    research_studies: InMemoryResearchStudyCatalog | None = None,
 ) -> OperatorDiagnostics:
     """Build diagnostics against demo portfolio and disabled durable stores."""
     return OperatorDiagnostics(
@@ -62,6 +64,7 @@ def _diagnostics(
         execution=DisabledExecutionStore(),
         audit=InMemoryAuditEventStore(),
         heartbeat_store=heartbeat_store,
+        research_studies=research_studies,
     )
 
 
@@ -117,6 +120,41 @@ def test_runtime_report_omits_cash_and_includes_deployments() -> None:
     assert "cash" not in dumped
     assert report.payload.deployments == ()
     assert report.redaction.balances_omitted is True
+
+
+def test_studies_report_is_degraded_without_catalog_storage() -> None:
+    """A process without PostgreSQL must not invent an empty study catalog."""
+    report = asyncio.run(_diagnostics().studies())
+    assert report.report_kind == "studies"
+    assert report.payload.study_catalog == "unavailable"
+    assert report.payload.studies == ()
+    assert report.overall_status is ReportStatus.DEGRADED
+    assert report.redaction.balances_omitted is True
+
+
+def test_studies_report_lists_persisted_catalog_rows() -> None:
+    """Operator studies lists catalog summaries without child equity."""
+    catalog = InMemoryResearchStudyCatalog()
+    fingerprint = "sha256:" + "a" * 64
+    summary = StudyCatalogSummary(
+        study_fingerprint=fingerprint,
+        request_fingerprint="sha256:" + "b" * 64,
+        kind="parameter_sweep",
+        engine_contract_version="thytrader-bar-backtest-v1",
+        published_at=datetime(2026, 9, 16, tzinfo=UTC),
+        product_id="BTC-USD",
+        timeframe="1h",
+        window_count=2,
+        mean_oos_return_fraction="0.01",
+        stitched_oos_available=False,
+    )
+    asyncio.run(catalog.persist(summary, f'{{"study_fingerprint":"{fingerprint}"}}'))
+    report = asyncio.run(_diagnostics(research_studies=catalog).studies())
+    assert report.payload.study_catalog == "available"
+    assert report.overall_status is ReportStatus.HEALTHY
+    assert len(report.payload.studies) == 1
+    assert report.payload.studies[0].study_fingerprint == fingerprint
+    assert report.payload.studies[0].kind == "parameter_sweep"
 
 
 def test_monitor_report_is_failed_when_memory_storage_is_unavailable() -> None:

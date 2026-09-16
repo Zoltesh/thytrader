@@ -46,6 +46,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/products",
         "/indicators",
         "/support-bundle",
+        "/studies",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
@@ -76,6 +77,8 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "submit-backtest" in skill
     assert "submit-study" in skill
     assert "plan-study" in skill
+    assert "list-studies" in skill
+    assert "show-study" in skill
     assert "parameter_sweep" in skill
     assert "walk_forward_optimization" in skill
     assert "stitched" in skill.lower()

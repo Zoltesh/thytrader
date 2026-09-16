@@ -30,7 +30,16 @@ teach `ops/` instruction files to edit documentation or source.
   [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md) (spot shorting and attached
   entry brackets), and
   [ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md) (`1m`/`2h` clocks and on-demand
-  are shipped; multi-instrument documents are not)
+  are shipped; multi-instrument documents are not),
+  [ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md) (stochastic, ADX, rolling inputs,
+  sample stdev),
+  [ADR 0048](decisions/0048-paper-deploy-fee-fields.md) (paper deploy maker/taker fee assumptions),
+  [ADR 0049](decisions/0049-experiential-train-v1.md) (fail-closed experiential trainer V1),
+  [ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md) (daily-loss / drawdown breakers),
+  [ADR 0051](decisions/0051-in-app-operator-chat.md) (in-app operator chat),
+  and
+  [ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md) (richer sweep axes and persisted
+  study catalog)
 - [Delivery roadmap](roadmap.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) —
   **historical** running-instance evidence; stale Compose, 14-day clip, v3 422, and 5m paper 409 are

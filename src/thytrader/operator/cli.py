@@ -147,6 +147,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Watch deployments, recent journals, and notification delivery.",
     )
     subparsers.add_parser(
+        "studies",
+        parents=[trailing],
+        help="Persisted research-study catalog rows.",
+    )
+    subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
         help="Redacted bundle of the supported reports.",
@@ -193,6 +198,7 @@ async def _dispatch(
         "risk": diagnostics.risk,
         "reconciliation": diagnostics.reconciliation,
         "monitor": diagnostics.monitor,
+        "studies": diagnostics.studies,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)
