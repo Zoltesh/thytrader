@@ -35,8 +35,8 @@ Confirmation-gated watchlist, complete-only ingest jobs, and gap inspection. No 
 ## `thytrader-research`
 
 Confirmation-gated drafts, immutable publication, idempotent backtest submission, and composed
-research studies (OOS / walk-forward / cross-market). No paper, live, arming, or cancellation
-authority.
+research studies (OOS / walk-forward / cross-market / parameter_sweep / walk_forward_optimization).
+No paper, live, arming, or cancellation authority.
 
 - Skill: [`thytrader-research/SKILL.md`](thytrader-research/SKILL.md)
 - CLI: `uv run thytrader-research … --confirm` (HTTP by default; `--local` is explicit)

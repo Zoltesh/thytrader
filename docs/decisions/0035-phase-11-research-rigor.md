@@ -71,8 +71,10 @@ constant-spread stress. Cooldown and trailing stops remain unsupported on every 
 - Existing V1/V2/V3 result fingerprints stay unchanged.
 - Cross-market still requires one published single-instrument strategy per product (Phase 10 did
   not widen the strategy document).
-- Sensitivity/parameter sweeps, paper/live HTF, and stitched multi-window equity remain out of
-  scope.
+- Parameter sweeps, walk-forward optimization, and stitched OOS equity are research composition
+  in [ADR 0044](0044-parameter-sweeps-wfo-stitched-equity.md). This ADR remains validation-only
+  authoring: one published fingerprint per `walk_forward` fold.
+- Paper/live HTF evaluation is [ADR 0041](0041-paper-live-htf-filter-evaluation.md).
 
 ## Alternatives considered
 

@@ -12,7 +12,7 @@ This directory is the source of truth for ThyTrader's product direction, archite
 - [Immutable research-run specification](architecture/research-run-specification.md)
 - [Deterministic signal evaluation](architecture/signal-evaluation.md)
 - [Deterministic bar-level backtest simulation](architecture/backtest-simulation.md)
-- [Research studies (walk-forward, OOS, cross-market)](architecture/research-studies.md)
+- [Research studies (walk-forward, OOS, cross-market, sweeps, WFO)](architecture/research-studies.md)
 - [Security and trading-risk baseline](security-and-risk.md)
 - [Delivery roadmap](roadmap.md) — Phases 0–14 shipped (Phase 9 includes MACD/Bollinger series ids; Phase 10 is the risk-policy registry; Phase 11 is walk-forward / OOS / cross-market studies; Phase 12 is the agent playbook and default-off YOLO; Phase 13 is 5m live / trailing / user-order WS / native OCO; Phase 14 is journals, sentiment/pattern hooks, monitor, and config-gated notify); venue strategy/paper/live/HTF clocks are shipped ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)); per-indicator timeframes are shipped ([ADR 0042](decisions/0042-per-indicator-timeframes.md)); YOLO live skip-confirm is shipped ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); destination remaining items include extra exchanges, shorting, and multi-instrument documents
 - [Agent/operator integration](agent-integration.md)

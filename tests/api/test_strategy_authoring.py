@@ -44,13 +44,14 @@ class InMemoryStrategyPublicationStore:
         """Start without any published definition."""
         self.draft_store = draft_store
         self.published: StrategyDefinition | None = None
+        self.by_fingerprint: dict[str, StrategyDefinition] = {}
 
     async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
         """Return the exact immutable definition under its canonical fingerprint."""
+        fingerprint = strategy_fingerprint(definition)
         self.published = definition
-        return PublishedStrategy(
-            strategy_fingerprint=strategy_fingerprint(definition), definition=definition
-        )
+        self.by_fingerprint[fingerprint] = definition
+        return PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
 
     async def publish_draft(
         self, definition: StrategyDefinition, *, expected_revision: int
@@ -70,25 +71,28 @@ class InMemoryStrategyPublicationStore:
         return result
 
     async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
-        """Return the captured publication when fingerprints match."""
-        if self.published is None:
+        """Return a captured publication when fingerprints match."""
+        definition = self.by_fingerprint.get(strategy_fingerprint_value)
+        if definition is None and self.published is not None:
+            fingerprint = strategy_fingerprint(self.published)
+            if fingerprint == strategy_fingerprint_value:
+                definition = self.published
+        if definition is None:
             raise StrategyPublicationError("Published strategy was not found.")
-        fingerprint = strategy_fingerprint(self.published)
-        if fingerprint != strategy_fingerprint_value:
-            raise StrategyPublicationError("Published strategy was not found.")
-        return PublishedStrategy(strategy_fingerprint=fingerprint, definition=self.published)
+        return PublishedStrategy(
+            strategy_fingerprint=strategy_fingerprint(definition), definition=definition
+        )
 
     async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
-        """Return the captured publication as one catalog entry."""
+        """Return each captured publication as a catalog entry."""
         del include_archived
-        if self.published is None:
-            return ()
-        return (
+        return tuple(
             StrategyCatalogEntry(
-                strategy_fingerprint=strategy_fingerprint(self.published),
-                definition=self.published,
+                strategy_fingerprint=fingerprint,
+                definition=definition,
                 archived_at=None,
-            ),
+            )
+            for fingerprint, definition in self.by_fingerprint.items()
         )
 
     async def archive(self, strategy_fingerprint_value: str) -> StrategyCatalogEntry:

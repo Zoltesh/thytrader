@@ -1,9 +1,10 @@
-"""Unit tests for Phase 11 walk-forward / OOS / cross-market window planning."""
+"""Unit tests for walk-forward, OOS, cross-market, sweep, and WFO studies."""
 
 from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
@@ -12,6 +13,7 @@ import pytest
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.research.models import IndicatorTimeframeDataset
+from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
     FoldMode,
     MarketBinding,
@@ -26,11 +28,11 @@ from thytrader.research.studies import (
     request_fingerprint,
     window_submission_request,
 )
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.publication import PublishedStrategy
 
 if TYPE_CHECKING:
     from thytrader.persistence.backtest_results import BacktestResultSummaryView
-    from thytrader.strategies.models import StrategyDefinition
-    from thytrader.strategies.publication import PublishedStrategy
 
 
 def _published(product_id: str, timeframe: str = "1h") -> PublishedStrategy:
@@ -247,6 +249,7 @@ def test_aggregate_does_not_treat_in_sample_as_oos_performance() -> None:
                 product_id="BTC-USD",
                 run_fingerprint="sha256:" + "1" * 64,
                 result_fingerprint="sha256:" + "2" * 64,
+                strategy_fingerprint="sha256:" + "a" * 64,
                 evaluation_start=start,
                 evaluation_end=end,
                 summary=summary_is,
@@ -258,6 +261,7 @@ def test_aggregate_does_not_treat_in_sample_as_oos_performance() -> None:
                 product_id="BTC-USD",
                 run_fingerprint="sha256:" + "3" * 64,
                 result_fingerprint="sha256:" + "4" * 64,
+                strategy_fingerprint="sha256:" + "a" * 64,
                 evaluation_start=start,
                 evaluation_end=end,
                 summary=summary_oos,
@@ -308,6 +312,10 @@ def test_request_fingerprint_is_stable_for_identical_assumptions() -> None:
     second = request_fingerprint(_holdout())
     assert first == second
     assert first.startswith("sha256:")
+    payload = _holdout().model_dump(mode="json", exclude_none=True)
+    assert "candidate_strategy_fingerprints" not in payload
+    assert "parameter_axes" not in payload
+    assert "selection_metric" not in payload
 
 
 def test_submit_reuses_child_identities_and_does_not_count_is_as_oos() -> None:
@@ -401,3 +409,170 @@ def test_submit_reuses_child_identities_and_does_not_count_is_as_oos() -> None:
     assert study.aggregate.oos_trade_count == 1
     assert study.study_fingerprint.startswith("sha256:")
     assert study.study_fingerprint != "sha256:" + ("0" * 64)
+
+
+_REFERENCE = Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
+
+
+def _reference_publication() -> PublishedStrategy:
+    """Load the golden reference as a published strategy."""
+    definition = StrategyDefinition.model_validate_json(_REFERENCE.read_text(encoding="utf-8"))
+    fingerprint = strategy_fingerprint(definition)
+    return PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
+
+
+def test_parameter_sweep_emits_one_window_per_axis_cell() -> None:
+    """A two-value EMA period axis plans two sweep children on the same bounds."""
+    published = _reference_publication()
+    request = ResearchStudyRequest(
+        kind=StudyKind.PARAMETER_SWEEP,
+        evaluation_start=datetime(2026, 1, 1, tzinfo=UTC),
+        evaluation_end=datetime(2026, 1, 11, tzinfo=UTC),
+        initial_quote_balance="10000",
+        maker_fee_rate="0.001",
+        taker_fee_rate="0.002",
+        fixed_slippage_bps="10",
+        engine_contract_version="thytrader-bar-backtest-v1",
+        strategy_fingerprint=published.strategy_fingerprint,
+        dataset_fingerprint="sha256:" + "b" * 64,
+        parameter_axes=(
+            ParameterAxis(indicator_id="ema_fast", parameter="period", values=("12", "26")),
+        ),
+    )
+    plan = plan_study(request, publications={published.strategy_fingerprint: published})
+    assert len(plan.windows) == 2
+    assert all(window.role is WindowRole.SWEEP_CANDIDATE for window in plan.windows)
+    assert plan.windows[0].strategy_fingerprint != plan.windows[1].strategy_fingerprint
+    assert plan.windows[0].evaluation_start == request.evaluation_start
+    assert any("not an out-of-sample claim" in warning for warning in plan.warnings)
+
+
+def test_walk_forward_optimization_selects_on_in_sample_only() -> None:
+    """A worse OOS must not win when its in-sample score is lower."""
+    published = _reference_publication()
+    weak = "sha256:" + "1" * 64
+    strong_is = "sha256:" + "2" * 64
+    request = ResearchStudyRequest(
+        kind=StudyKind.WALK_FORWARD_OPTIMIZATION,
+        evaluation_start=datetime(2026, 1, 1, tzinfo=UTC),
+        evaluation_end=datetime(2026, 1, 21, tzinfo=UTC),
+        initial_quote_balance="10000",
+        maker_fee_rate="0.001",
+        taker_fee_rate="0.002",
+        fixed_slippage_bps="10",
+        engine_contract_version="thytrader-bar-backtest-v1",
+        strategy_fingerprint=published.strategy_fingerprint,
+        dataset_fingerprint="sha256:" + "b" * 64,
+        in_sample_bars=7 * 24,
+        out_of_sample_bars=3 * 24,
+        step_bars=3 * 24,
+        fold_mode=FoldMode.ROLLING,
+        candidate_strategy_fingerprints=(weak, strong_is),
+        selection_metric=SelectionMetric.TOTAL_RETURN_FRACTION,
+    )
+    stand_in = _published("BTC-USD")
+    publications = {
+        published.strategy_fingerprint: published,
+        weak: stand_in,
+        strong_is: stand_in,
+    }
+    planned = plan_study(request, publications=publications)
+    returns = {
+        weak: {WindowRole.IN_SAMPLE: "0.01", WindowRole.OUT_OF_SAMPLE: "0.9"},
+        strong_is: {WindowRole.IN_SAMPLE: "0.2", WindowRole.OUT_OF_SAMPLE: "0.02"},
+    }
+    ordered_returns = [
+        returns[window.strategy_fingerprint][window.role] for window in planned.windows
+    ]
+
+    class _Publications:
+        """Serve the base plus two candidate stand-ins on BTC-USD 1h."""
+
+        async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+            """Return the golden document for identity and BTC stand-ins for candidates."""
+            loaded = publications.get(strategy_fingerprint_value)
+            if loaded is None:
+                raise RuntimeError("unexpected fingerprint")
+            return loaded
+
+        async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+            """Unused in the candidate-fingerprint path."""
+            del definition
+            raise RuntimeError("unused")
+
+        async def publish_draft(
+            self, definition: StrategyDefinition, *, expected_revision: int
+        ) -> PublishedStrategy:
+            """Unused in this test."""
+            del definition, expected_revision
+            raise RuntimeError("unused")
+
+    class _Submitter:
+        """Return identities that encode the submitted strategy fingerprint."""
+
+        def __init__(self) -> None:
+            """Start empty."""
+            self.calls = 0
+
+        async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
+            """Mint a fingerprint pair from the call index."""
+            del request
+            self.calls += 1
+            suffix = str(self.calls)
+            return BacktestSubmissionResult(
+                run_fingerprint="sha256:" + suffix.ljust(64, "c"),
+                result_fingerprint="sha256:" + suffix.ljust(64, "d"),
+            )
+
+    class _Results:
+        """Return returns that would fool a lookahead selector."""
+
+        async def list_summaries(
+            self,
+            *,
+            run_fingerprint: str | None = None,
+            strategy_fingerprint: str | None = None,
+            dataset_fingerprint: str | None = None,
+            limit: int,
+            offset: int,
+        ) -> tuple[BacktestResultSummaryView, ...]:
+            """Unused by submit."""
+            del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
+            return ()
+
+        async def load(self, result_fingerprint: str) -> BacktestResult:
+            """Map result identity back to the planned child order."""
+            index = int(result_fingerprint.removeprefix("sha256:").rstrip("d")) - 1
+            return _result_with_summary(
+                BacktestSummary(
+                    initial_equity="10000",
+                    final_equity="10100",
+                    total_net_pnl="100",
+                    total_return_fraction=ordered_returns[index],
+                    gross_profit="100",
+                    gross_loss="0",
+                    win_rate="1",
+                    trade_count=1,
+                    winning_trade_count=1,
+                    maximum_drawdown="0",
+                    maximum_drawdown_fraction="0",
+                    exposure_bars=10,
+                    evaluation_bars=10,
+                )
+            )
+
+    service = ResearchStudyService(
+        publications=_Publications(),
+        submitter=_Submitter(),
+        results=_Results(),
+    )
+    study = asyncio.run(service.submit(request))
+    selected_oos = [
+        window
+        for window in study.windows
+        if window.role is WindowRole.OUT_OF_SAMPLE and window.selected
+    ]
+    assert selected_oos
+    assert all(window.strategy_fingerprint == strong_is for window in selected_oos)
+    assert study.aggregate.mean_oos_return_fraction == "0.02"
+    assert study.stitched_oos_equity is not None

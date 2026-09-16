@@ -134,5 +134,6 @@ window inline.
 - observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
 - shorts, margin, leverage, multiple positions, or cross-strategy portfolio allocation;
 - sensitivity analysis, parameter sweeps, or walk-forward optimization inside a single engine run
-  (Phase 11 composes ordinary V1/V2/V3 submissions; see [research studies](research-studies.md));
+  (Phase 11 and ADR 0044 compose ordinary V1/V2/V3 submissions; see
+  [research studies](research-studies.md));
 - paper broker, exchange adapters, Coinbase submission, or live execution.

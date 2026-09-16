@@ -35,7 +35,7 @@ Completed capability checklist (Phases 0–6):
 
 1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
 2. **Observe through supported agent interfaces:** ✅ `thytrader-operator` CLI/API and skill — no trading authority.
-3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests only).
+3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests, and composed studies).
 4. **Automate in paper mode:** ✅ 1h and 5m candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
    exist; remaining live extras stay in Phase 13.
@@ -176,8 +176,22 @@ revision. Cross-market still requires one published single-instrument strategy p
 anchored walk-forward, and 2–8 product cross-market studies; the UI can launch OOS and walk-forward
 on a published fingerprint; templates are selectable; the matrix names V3 honestly.
 
-Parameter sweeps, walk-forward optimization, stitched multi-window equity, and paper/live HTF stay
-out of this slice.
+Parameter sweeps, walk-forward optimization, and stitched OOS equity shipped later as
+[ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md). Paper/live HTF is
+[ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md).
+
+## Parameter sweeps / WFO / stitched OOS equity — ✅ Shipped
+
+Research composition can `plan-study` / `submit-study --confirm` for `parameter_sweep` and
+`walk_forward_optimization` without inventing grid math or looking ahead from OOS into selection
+([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). Child evidence stays V1/V2/V3.
+Derived axis candidates publish on submit through the existing store. Stitched OOS equity compounds
+non-overlapping window **returns**; overlapping OOS and embargo gaps are not interpolated.
+Walk-forward **validation** is unchanged. YOLO and playbook are unchanged by this slice.
+
+**Exit gate met:** agents can plan and submit sweeps (published fingerprints or parameter axes) and
+WFO; selected OOS is the WFO claim; stitched equity is derived when geometry allows; complete-only
+datasets; no ops-contract bump.
 
 ## Phase 12: Agent orchestration + YOLO opt-in — ✅ Shipped
 
@@ -316,7 +330,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Many indicators |
-| Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
+| Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) | Richer sweep axes, persisted study rows if operators need a catalog |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043) |
@@ -467,7 +481,7 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 - Conservative bar-level broker with latency, rejection, partial-fill, and maker-limit models.
 - ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later.
 - Trailing-stop state machine when the schema and market-data resolution support it.
-- ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps and walk-forward optimization remain out of scope.
+- ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps, WFO, and stitched OOS equity shipped as ADR 0044.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
 
 ### Next delivery increment
@@ -475,7 +489,7 @@ explicit next-version workflow, richer descriptions, and broader authoring surfa
 The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
 immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2/V3 support matrix,
 archives a publication without mutating its evidence, launches explicit exact-version V1/V2/V3
-research or a composed OOS/walk-forward study, and compares complete stored result histories across
+research or a composed OOS/walk-forward/sweep/WFO study, and compares complete stored result histories across
 versions.
 
 Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +

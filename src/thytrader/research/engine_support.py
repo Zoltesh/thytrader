@@ -149,8 +149,8 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 v2=True,
                 v3=True,
                 note=(
-                    "Phase 11 composes existing engines; it does not retune parameters or "
-                    "stitch a continuous equity curve"
+                    "Phase 11 and ADR 0044 compose existing engines for validation, "
+                    "parameter sweeps, WFO, and stitched OOS equity"
                 ),
             ),
         )

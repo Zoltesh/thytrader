@@ -67,6 +67,9 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "submit-backtest" in skill
     assert "submit-study" in skill
     assert "plan-study" in skill
+    assert "parameter_sweep" in skill
+    assert "walk_forward_optimization" in skill
+    assert "stitched" in skill.lower()
     assert "list-templates" in skill
     assert "engine-support" in skill
     assert "--template" in skill

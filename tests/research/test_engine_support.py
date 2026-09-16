@@ -20,6 +20,7 @@ def test_engine_support_matrix_has_v3_and_study_rows() -> None:
     assert maker.v1 is False and maker.v2 is False and maker.v3 is True
     studies = by_label["Walk-forward / OOS / cross-market studies"]
     assert studies.v1 is True and studies.v2 is True and studies.v3 is True
+    assert "0044" in studies.note
     htf = by_label["HTF filter (optional closed-bar AND with LTF entry)"]
     assert htf.v1 is True and htf.v2 is True and htf.v3 is True
     assert "paper/live" in htf.note

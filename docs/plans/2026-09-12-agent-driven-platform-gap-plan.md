@@ -52,7 +52,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. Optional per-indicator TFs shipped (ADR 0042). No TA passthrough |
 | Multi-timeframe | Research, paper, and live evaluate HTF filter + LTF entry (ADR 0025, ADR 0041). Venue LTF/HTF tokens widened by ADR 0040. Per-indicator timeframes shipped (ADR 0042) |
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
-| Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
+| Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps, WFO, and stitched OOS equity shipped ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |
 | Memory | Phase 14 shipped: origin-attributed journals, sentiment/pattern hooks, operator monitor, and config-gated notify (ADR 0037). No ML training. YOLO never covers this lane. |
 

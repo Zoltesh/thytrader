@@ -250,3 +250,40 @@ def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:
         )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "study_window_rejected"
+
+
+def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:
+    """Submitting a parameter-axis sweep persists missing derived fingerprints."""
+    client, publications, submitter = _client()
+    with client:
+        fingerprint = _publish_reference(client)
+        response = client.post(
+            "/api/v1/research/studies",
+            json={
+                "kind": "parameter_sweep",
+                "evaluation_start": "2026-01-01T00:00:00Z",
+                "evaluation_end": "2026-01-11T00:00:00Z",
+                "initial_quote_balance": "10000",
+                "maker_fee_rate": "0.001",
+                "taker_fee_rate": "0.002",
+                "fixed_slippage_bps": "10",
+                "engine_contract_version": "thytrader-bar-backtest-v1",
+                "strategy_fingerprint": fingerprint,
+                "dataset_fingerprint": "sha256:" + "b" * 64,
+                "parameter_axes": [
+                    {
+                        "indicator_id": "fast",
+                        "parameter": "period",
+                        "values": ["12", "26"],
+                    }
+                ],
+            },
+        )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "parameter_sweep"
+    assert submitter.calls == 2
+    assert len(publications.by_fingerprint) == 3
+    assert sum(1 for window in body["windows"] if window.get("selected") is True) == 1
+    assert body["selection_metric"] == "total_return_fraction"
+    assert "stitched_oos_equity" not in body

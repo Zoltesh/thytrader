@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { engineContractLabel, listStrategyTemplates, submitResearchStudy } from './research-studies';
+import {
+	engineContractLabel,
+	listStrategyTemplates,
+	parseParameterAxisValues,
+	submitResearchStudy
+} from './research-studies';
+
+describe('parseParameterAxisValues', () => {
+	it('splits comma-separated axis values and drops blanks', () => {
+		expect(parseParameterAxisValues('12, 26,')).toEqual(['12', '26']);
+	});
+});
 
 describe('engineContractLabel', () => {
 	it('names V1, V2, and V3 from engine contract versions', () => {
