@@ -199,7 +199,7 @@ skills/
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
-control, discretionary `place-order`, and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
+control, discretionary `place-order`, and risk-policy publication (`set-risk-policy --confirm`, including optional daily-loss / drawdown / rate / collar flags). `thytrader-playbook/SKILL.md` sequences those CLIs and never
 starts live. `thytrader-memory/SKILL.md` documents journals, sentiment/pattern hooks, monitor,
 notify, and `train` / `list-models` / `show-model` with `--confirm` (YOLO never covers that lane).
 Product of record is `skills/`;

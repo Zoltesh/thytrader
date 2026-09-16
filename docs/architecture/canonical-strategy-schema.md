@@ -482,8 +482,9 @@ Paper and live already gate these before new risk-increasing orders. They are no
   available base).
 - Live-arm and risk-policy approval exist (Phase 5 arming; Phase 10 registry before intent persist).
 
-This is not a substitute for destination circuit breakers (daily-loss / drawdown, order-rate
-limits, reference-price collars).
+This is not a substitute for the shipped risk-policy circuit breakers (daily-loss / drawdown,
+order-rate limits, reference-price collars) on paper/live entries
+([ADR 0050](../decisions/0050-daily-loss-drawdown-rate-collars.md)).
 
 ### Separation from optimization
 

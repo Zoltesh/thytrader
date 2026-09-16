@@ -44,6 +44,11 @@ class RiskPolicyWriteBody(BaseModel):
     per_product_max_exposure_fraction: str
     paper_capital_quote: str
     allocations: tuple[AllocationBody, ...] = ()
+    daily_loss_limit_fraction: str = "1"
+    max_strategy_drawdown_fraction: str = "1"
+    max_entry_orders_per_minute: int = Field(default=60, ge=1, le=1000)
+    max_cancellations_per_minute: int = Field(default=60, ge=1, le=1000)
+    reference_price_collar_fraction: str = "0.5"
 
 
 class RiskPolicyResponse(BaseModel):
@@ -62,6 +67,11 @@ class RiskPolicyResponse(BaseModel):
     per_product_max_exposure_fraction: str
     paper_capital_quote: str
     allocations: tuple[AllocationBody, ...]
+    daily_loss_limit_fraction: str
+    max_strategy_drawdown_fraction: str
+    max_entry_orders_per_minute: int
+    max_cancellations_per_minute: int
+    reference_price_collar_fraction: str
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -117,6 +127,11 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         per_product_max_exposure_fraction=body.per_product_max_exposure_fraction,
         paper_capital_quote=body.paper_capital_quote,
         allocations=allocations,
+        daily_loss_limit_fraction=body.daily_loss_limit_fraction,
+        max_strategy_drawdown_fraction=body.max_strategy_drawdown_fraction,
+        max_entry_orders_per_minute=body.max_entry_orders_per_minute,
+        max_cancellations_per_minute=body.max_cancellations_per_minute,
+        reference_price_collar_fraction=body.reference_price_collar_fraction,
     )
 
 
@@ -140,4 +155,9 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
             AllocationBody(strategy_id=str(item.strategy_id), allocated_quote=item.allocated_quote)
             for item in definition.allocations
         ),
+        daily_loss_limit_fraction=definition.daily_loss_limit_fraction,
+        max_strategy_drawdown_fraction=definition.max_strategy_drawdown_fraction,
+        max_entry_orders_per_minute=definition.max_entry_orders_per_minute,
+        max_cancellations_per_minute=definition.max_cancellations_per_minute,
+        reference_price_collar_fraction=definition.reference_price_collar_fraction,
     )

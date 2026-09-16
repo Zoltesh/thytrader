@@ -40,8 +40,15 @@ from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_st
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
-from thytrader.risk.models import RiskDecision, compiled_default_risk_policy
+from thytrader.risk.breakers import EntryObservation, breaker_pause_detail
+from thytrader.risk.gate import ProposedEntry, evaluate_new_entry, evaluate_runtime_breakers
+from thytrader.risk.models import (
+    RiskDecision,
+    RiskReasonCode,
+    RiskVerdict,
+    compiled_default_risk_policy,
+    pauses_risk_increasing,
+)
 from thytrader.strategies.models import atr_trailing_stop
 
 if TYPE_CHECKING:
@@ -71,6 +78,7 @@ async def process_closed_bar(
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
+    marks: Mapping[str, Decimal] | None = None,
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -110,6 +118,16 @@ async def process_closed_bar(
         broker=broker,
         store=store,
     )
+    policy = risk_policy or compiled_default_risk_policy()
+    if snapshot.deployment.status is DeploymentStatus.RUNNING:
+        snapshot = await _apply_circuit_breakers(
+            snapshot,
+            candle=candle,
+            store=store,
+            risk_policy=policy,
+            portfolio=portfolio,
+            marks=marks,
+        )
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _maybe_enter(
             snapshot,
@@ -119,11 +137,12 @@ async def process_closed_bar(
             candle=candle,
             broker=broker,
             store=store,
-            risk_policy=risk_policy or compiled_default_risk_policy(),
+            risk_policy=policy,
             portfolio=portfolio,
             htf_candles=htf_candles,
             indicator_timeframe_candles=indicator_timeframe_candles,
             live_base_available=live_base_available,
+            marks=marks,
         )
     return await _persist_runtime(
         snapshot,
@@ -792,6 +811,7 @@ async def _maybe_enter(
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
+    marks: Mapping[str, Decimal] | None = None,
 ) -> DeploymentSnapshot:
     """Place a post-only entry when flat, off cooldown, and the entry condition matches."""
     deployment = snapshot.deployment
@@ -827,6 +847,7 @@ async def _maybe_enter(
         risk_policy=risk_policy,
         portfolio=portfolio,
         live_base_available=live_base_available,
+        marks=marks,
     )
 
 
@@ -842,6 +863,7 @@ async def _submit_sized_entry(
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
     live_base_available: Decimal | None = None,
+    marks: Mapping[str, Decimal] | None = None,
 ) -> DeploymentSnapshot:
     """Size an entry and rest a post-only order when cash, ATR, and risk policy allow it."""
     atr = latest_atr(strategy, candles)
@@ -878,14 +900,24 @@ async def _submit_sized_entry(
                 "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
             ),
         )
-    admitted = _entry_admitted(
+    admitted = _entry_verdict(
         snapshot,
         product_id=product.product_id,
         notional=sized.notional,
         risk_policy=risk_policy,
         portfolio=portfolio,
+        observation=_bar_observation(
+            product_id=product.product_id,
+            candle=candle,
+            proposed_price=sized.entry_price,
+            marks=marks,
+        ),
     )
-    if not admitted:
+    if admitted.decision is RiskDecision.DENY:
+        if pauses_risk_increasing(admitted.reason_code):
+            return await _pause_for_breaker(
+                snapshot, store=store, portfolio=portfolio, verdict=admitted
+            )
         return snapshot
     pending = with_runtime(
         snapshot.deployment,
@@ -928,12 +960,36 @@ def _entry_admitted(
     notional: Decimal,
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
+    observation: EntryObservation | None = None,
 ) -> bool:
     """Return whether the active risk policy allows this sized entry."""
+    return (
+        _entry_verdict(
+            snapshot,
+            product_id=product_id,
+            notional=notional,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
+            observation=observation,
+        ).decision
+        is RiskDecision.ALLOW
+    )
+
+
+def _entry_verdict(
+    snapshot: DeploymentSnapshot,
+    *,
+    product_id: str,
+    notional: Decimal,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    observation: EntryObservation | None = None,
+) -> RiskVerdict:
+    """Return the entry gate verdict for this sized order."""
     live_cash = None
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         live_cash = snapshot.deployment.cash
-    verdict = evaluate_new_entry(
+    return evaluate_new_entry(
         risk_policy,
         mode=snapshot.deployment.mode,
         proposed=ProposedEntry(
@@ -943,8 +999,8 @@ def _entry_admitted(
         ),
         snapshots=_portfolio_with_current(portfolio, snapshot),
         live_quote_cash=live_cash,
+        observation=observation,
     )
-    return verdict.decision is RiskDecision.ALLOW
 
 
 def _portfolio_with_current(
@@ -987,6 +1043,100 @@ async def _cancel_one_order(
         )
     )
     return await store.get_deployment(order.deployment_id)
+
+
+def _bar_observation(
+    *,
+    product_id: str,
+    candle: Candle,
+    proposed_price: Decimal | None,
+    marks: Mapping[str, Decimal] | None,
+) -> EntryObservation:
+    """Build breaker observation from this bar's close plus any sibling marks."""
+    combined = dict(marks) if marks is not None else {}
+    combined[product_id] = candle.close
+    return EntryObservation(
+        as_of=utc_now(),
+        proposed_price=proposed_price,
+        reference_price=candle.close,
+        marks=combined,
+    )
+
+
+async def _apply_circuit_breakers(
+    snapshot: DeploymentSnapshot,
+    *,
+    candle: Candle,
+    store: ExecutionStore,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: Sequence[DeploymentSnapshot],
+    marks: Mapping[str, Decimal] | None,
+) -> DeploymentSnapshot:
+    """Pause when daily-loss or drawdown has already tripped before a new entry."""
+    live_cash = None
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        live_cash = snapshot.deployment.cash
+    verdict = evaluate_runtime_breakers(
+        risk_policy,
+        mode=snapshot.deployment.mode,
+        snapshot=snapshot,
+        snapshots=_portfolio_with_current(portfolio, snapshot),
+        live_quote_cash=live_cash,
+        observation=_bar_observation(
+            product_id=snapshot.deployment.product_id,
+            candle=candle,
+            proposed_price=None,
+            marks=marks,
+        ),
+    )
+    if verdict.decision is RiskDecision.ALLOW:
+        return snapshot
+    if not pauses_risk_increasing(verdict.reason_code):
+        return snapshot
+    return await _pause_for_breaker(
+        snapshot, store=store, portfolio=portfolio, verdict=verdict
+    )
+
+
+async def _pause_for_breaker(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    portfolio: Sequence[DeploymentSnapshot],
+    verdict: RiskVerdict,
+) -> DeploymentSnapshot:
+    """Pause this book, and the whole mode when the daily-loss kill trips."""
+    detail = breaker_pause_detail(verdict.reason_code, verdict.detail)
+    if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
+        await _pause_mode_running(
+            store=store,
+            mode=snapshot.deployment.mode,
+            portfolio=_portfolio_with_current(portfolio, snapshot),
+            detail=detail,
+        )
+        return await store.get_deployment(snapshot.deployment.id)
+    return await _pause(snapshot, store=store, detail=detail)
+
+
+async def _pause_mode_running(
+    *,
+    store: ExecutionStore,
+    mode: DeploymentMode,
+    portfolio: Sequence[DeploymentSnapshot],
+    detail: str,
+) -> None:
+    """Pause every running deployment in this mode; exits on paused books continue."""
+    for item in portfolio:
+        deployment = item.deployment
+        if deployment.mode is not mode or deployment.status is not DeploymentStatus.RUNNING:
+            continue
+        paused = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail=detail,
+        )
+        await store.save_deployment(paused)
 
 
 async def _pause(

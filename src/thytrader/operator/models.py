@@ -103,6 +103,9 @@ class OpsContractPayload(_FrozenModel):
     attached_entry_brackets: tuple[Literal["paper", "live"], ...]
     paper_deploy_fee_fields: tuple[Literal["maker_fee_rate", "taker_fee_rate"], ...]
     experiential_model_engines: tuple[str, ...]
+    risk_breakers: tuple[Literal["daily_loss", "drawdown"], ...]
+    order_rate_limits: tuple[Literal["entry", "cancel"], ...]
+    reference_price_collars: tuple[Literal["paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -323,6 +326,11 @@ class RiskPayload(_FrozenModel):
     live_running_deployments: int = Field(ge=0)
     paper_open_positions: int = Field(ge=0)
     live_open_positions: int = Field(ge=0)
+    daily_loss_limit_fraction: str
+    max_strategy_drawdown_fraction: str
+    max_entry_orders_per_minute: int = Field(ge=1, le=1000)
+    max_cancellations_per_minute: int = Field(ge=1, le=1000)
+    reference_price_collar_fraction: str
     findings: tuple[RiskFinding, ...]
 
 

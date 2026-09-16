@@ -50,6 +50,14 @@ _RECOMMENDATIONS: dict[str, str] = {
     "DEPLOYMENT_MISMATCH": (
         "Inspect thytrader-operator reconciliation before new risk-increasing orders."
     ),
+    "DAILY_LOSS_LIMIT": (
+        "Daily-loss breaker paused risk-increasing orders. Exits continue. Resume after the "
+        "UTC day recovers or publish a tighter/looser policy with --confirm."
+    ),
+    "STRATEGY_DRAWDOWN_LIMIT": (
+        "Drawdown breaker paused this strategy's risk-increasing orders. Exits continue. "
+        "Resume after equity recovers or publish a new risk policy with --confirm."
+    ),
 }
 
 

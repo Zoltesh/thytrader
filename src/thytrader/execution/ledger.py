@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -11,7 +12,6 @@ from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
     from uuid import UUID
 
     from thytrader.execution.models import DeploymentSnapshot, Fill, Order
@@ -174,6 +174,28 @@ def ledger_from_snapshot(
         position_entry_price=entry_price,
         mark_price=mark_price,
     )
+
+
+def realized_pnl_since(snapshot: DeploymentSnapshot, *, since: datetime) -> Decimal:
+    """Return realized PnL attributed to fills at or after ``since``."""
+    fills = ledger_fills_from_snapshot(snapshot)
+    state = _LotState(
+        quantity=Decimal("0"),
+        entry_price=None,
+        entry_fees=Decimal("0"),
+        realized=Decimal("0"),
+        trade_count=0,
+    )
+    attributed = Decimal("0")
+    for fill in fills:
+        before = state.realized
+        if fill.side is OrderSide.BUY:
+            state = _fold_buy(state, fill)
+        else:
+            state = _fold_sell(state, fill)
+        if fill.filled_at >= since:
+            attributed += state.realized - before
+    return attributed
 
 
 def mark_deployment_ledger(

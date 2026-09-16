@@ -418,6 +418,17 @@ def test_experiential_models_migration_follows_paper_deploy_fees() -> None:
     assert "experiential_journal_entries" not in content
 
 
+def test_risk_breaker_overlay_migration_follows_experiential_models() -> None:
+    """The thirtieth migration must follow 0029 without rewriting stored policy JSON."""
+    content = Path("alembic/versions/0030_risk_breaker_overlay.py").read_text(encoding="utf-8")
+    assert 'revision = "0030"' in content
+    assert 'down_revision = "0029"' in content
+    assert "published_risk_policies" in content
+    assert "ADR 0050" in content
+    assert "canonical" in content
+    assert "COMMENT ON TABLE" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

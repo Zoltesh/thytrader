@@ -17,7 +17,9 @@ from thytrader.risk.models import (
     RiskPolicySource,
     canonical_risk_policy_bytes,
     compiled_default_active_policy,
+    definition_from_stored_json,
     risk_policy_fingerprint,
+    stored_canonical_fingerprint,
 )
 from thytrader.risk.store import RiskPolicyStoreError
 
@@ -101,13 +103,13 @@ def canonical_text(definition: RiskPolicyDefinition) -> str:
 def _published_from_row(row: RowMapping) -> ActiveRiskPolicy:
     """Revalidate stored canonical JSON before treating it as the active policy."""
     raw = str(row["canonical_definition"])
-    try:
-        definition = RiskPolicyDefinition.model_validate_json(raw)
-    except ValidationError as error:
-        raise RiskPolicyStoreError("Stored risk policy failed revalidation.") from error
     fingerprint = str(row["policy_fingerprint"])
-    if fingerprint != risk_policy_fingerprint(definition):
+    if fingerprint != stored_canonical_fingerprint(raw):
         raise RiskPolicyStoreError("Stored risk-policy fingerprint does not match canonical bytes.")
+    try:
+        definition = definition_from_stored_json(raw)
+    except (ValueError, ValidationError) as error:
+        raise RiskPolicyStoreError("Stored risk policy failed revalidation.") from error
     return ActiveRiskPolicy(
         definition=definition,
         policy_fingerprint=fingerprint,

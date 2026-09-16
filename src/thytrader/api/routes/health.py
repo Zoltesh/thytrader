@@ -30,6 +30,9 @@ class HealthOpsContract(BaseModel):
     attached_entry_brackets: list[str]
     paper_deploy_fee_fields: list[str]
     experiential_model_engines: list[str]
+    risk_breakers: list[str]
+    order_rate_limits: list[str]
+    reference_price_collars: list[str]
     expected_schema_revision: str
 
 

@@ -14,6 +14,7 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    OrderSide,
     OrderStatus,
     RuntimePhase,
 )
@@ -529,6 +530,87 @@ async def test_occupied_open_slot_skips_entry_without_pausing() -> None:
     assert result.deployment.status is DeploymentStatus.RUNNING
     assert result.deployment.phase is RuntimePhase.FLAT
     assert result.orders == ()
+
+
+@pytest.mark.anyio
+async def test_drawdown_breaker_pauses_after_a_stop_loss() -> None:
+    """A tripped per-strategy drawdown breaker must pause; exits already ran."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    stop = filled.position.stop_price
+    gap_open = stop - Decimal("8")
+    crash = _next_bar(
+        window,
+        open_=gap_open,
+        high=gap_open + Decimal("1"),
+        low=gap_open - Decimal("1"),
+        close=gap_open,
+    )
+    crashed = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, crash),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert crashed.position is None
+    policy = compiled_default_risk_policy().model_copy(
+        update={"max_strategy_drawdown_fraction": "0.0001"}
+    )
+    follow = _next_bar(
+        (*window, crash),
+        open_=gap_open,
+        high=gap_open + Decimal("1"),
+        low=gap_open - Decimal("1"),
+        close=gap_open,
+    )
+    paused = await process_closed_bar(
+        crashed,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, crash, follow),
+        broker=PaperBroker(),
+        store=store,
+        risk_policy=policy,
+    )
+    assert paused.deployment.status is DeploymentStatus.PAUSED
+    assert paused.deployment.mismatch_detail is not None
+    assert paused.deployment.mismatch_detail.startswith("STRATEGY_DRAWDOWN_LIMIT:")
+    assert paused.deployment.phase is RuntimePhase.FLAT
+
+
+@pytest.mark.anyio
+async def test_reference_collar_skips_entry_without_pausing() -> None:
+    """A fat-finger maker price is denied fail-closed and must not pause the book."""
+
+    class _WideLimitBroker(PaperBroker):
+        """Rest maker entries at twice last close."""
+
+        def maker_limit_price(
+            self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+        ) -> Decimal:
+            del product_id, side
+            return mark * 2
+
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    result = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=_WideLimitBroker(),
+        store=store,
+    )
+    assert result.deployment.status is DeploymentStatus.RUNNING
+    assert result.deployment.phase is RuntimePhase.FLAT
+    assert result.orders == ()
+    assert result.deployment.last_signal == "matched"
 
 
 def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:

@@ -52,7 +52,11 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 
 `list`, `show`, and `show-risk-policy` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
-`set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
+Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
+`--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
+`--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and
+drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not
+pause. `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
 available base and never borrow. When SL/TP are known and trailing is off, live uses an

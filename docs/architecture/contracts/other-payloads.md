@@ -44,6 +44,12 @@ classDiagram
     max_portfolio_exposure_fraction
     per_product_max_exposure_fraction
     paper_capital_quote
+    allocations
+    daily_loss_limit_fraction
+    max_strategy_drawdown_fraction
+    max_entry_orders_per_minute
+    max_cancellations_per_minute
+    reference_price_collar_fraction
   }
   class CapitalAllocation {
     strategy_id
@@ -58,7 +64,7 @@ classDiagram
 ```
 
 Daily-loss / drawdown breakers, order-rate limits, and reference-price collars
-are **not** in this document.
+are on this document ([ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md)).
 
 ## Operator report envelope
 

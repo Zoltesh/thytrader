@@ -386,6 +386,21 @@ def test_runtime_help_lists_risk_policy_commands(
     assert "place-order" in output
 
 
+def test_set_risk_policy_help_lists_breaker_flags(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators can discover daily-loss, drawdown, rate, and collar flags."""
+    with pytest.raises(SystemExit) as raised:
+        main(["set-risk-policy", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--daily-loss-limit-fraction" in output
+    assert "--max-strategy-drawdown-fraction" in output
+    assert "--max-entry-orders-per-minute" in output
+    assert "--max-cancellations-per-minute" in output
+    assert "--reference-price-collar-fraction" in output
+
+
 def test_place_order_help_lists_venue_clocks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
