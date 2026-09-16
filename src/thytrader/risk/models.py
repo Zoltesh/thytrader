@@ -272,8 +272,12 @@ def definition_from_stored_json(raw: str) -> RiskPolicyDefinition:
     """Revalidate stored JSON, overlaying compiled breaker defaults when omitted."""
     loaded: object = json.loads(raw)
     if not isinstance(loaded, dict):
-        raise ValueError("canonical risk policy must be a JSON object")
-    payload: dict[str, object] = dict(loaded)
+        raise TypeError("canonical risk policy must be a JSON object")
+    payload: dict[str, object] = {}
+    for key, value in loaded.items():
+        if not isinstance(key, str):
+            raise TypeError("canonical risk policy keys must be strings")
+        payload[key] = value
     defaults = compiled_default_risk_policy()
     overlay: dict[str, object] = {
         "daily_loss_limit_fraction": defaults.daily_loss_limit_fraction,

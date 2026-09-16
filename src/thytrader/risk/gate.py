@@ -126,9 +126,7 @@ def evaluate_runtime_breakers(
         if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
     )
     existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    capital = _capital_base(
-        policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing
-    )
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
@@ -178,9 +176,7 @@ def _entry_breaker_verdict(
     if observation is None:
         return _allow()
     existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    capital = _capital_base(
-        policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing
-    )
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,

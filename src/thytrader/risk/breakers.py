@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
 from thytrader.execution.models import DeploymentMode, DeploymentStatus, OrderStatus
@@ -14,6 +13,7 @@ from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReason
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from uuid import UUID
 
     from thytrader.execution.models import DeploymentSnapshot
 
@@ -229,7 +229,9 @@ def _drawdown_target(
 ) -> DeploymentSnapshot | None:
     """Pick the occupied book whose drawdown this proposed entry would inherit."""
     if strategy_id is not None:
-        match = next((item for item in occupied if item.deployment.strategy_id == strategy_id), None)
+        match = next(
+            (item for item in occupied if item.deployment.strategy_id == strategy_id), None
+        )
         if match is not None:
             return match
     return next((item for item in occupied if item.deployment.product_id == product_id), None)

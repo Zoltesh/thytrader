@@ -216,9 +216,7 @@ def test_order_rate_limit_denies_without_requiring_a_pause_code() -> None:
 
 def test_cancel_rate_limit_denies_further_entries() -> None:
     """Exhausting the rolling-minute cancel cap blocks new risk-increasing entries."""
-    policy = compiled_default_risk_policy().model_copy(
-        update={"max_cancellations_per_minute": 1}
-    )
+    policy = compiled_default_risk_policy().model_copy(update={"max_cancellations_per_minute": 1})
     snapshot = DeploymentSnapshot(
         deployment=_deployment(),
         orders=(
@@ -286,9 +284,7 @@ def test_missing_mark_on_open_inventory_fails_closed() -> None:
             updated_at=_NOW,
         ),
     )
-    policy = compiled_default_risk_policy().model_copy(
-        update={"daily_loss_limit_fraction": "0.01"}
-    )
+    policy = compiled_default_risk_policy().model_copy(update={"daily_loss_limit_fraction": "0.01"})
     verdict = evaluate_new_entry(
         policy,
         mode=DeploymentMode.PAPER,

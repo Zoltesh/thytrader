@@ -1093,9 +1093,7 @@ async def _apply_circuit_breakers(
         return snapshot
     if not pauses_risk_increasing(verdict.reason_code):
         return snapshot
-    return await _pause_for_breaker(
-        snapshot, store=store, portfolio=portfolio, verdict=verdict
-    )
+    return await _pause_for_breaker(snapshot, store=store, portfolio=portfolio, verdict=verdict)
 
 
 async def _pause_for_breaker(
