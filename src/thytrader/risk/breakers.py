@@ -8,14 +8,19 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, OrderStatus
+from thytrader.execution.models import (
+    DeploymentMode,
+    DeploymentStatus,
+    IntentPurpose,
+    OrderStatus,
+)
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from uuid import UUID
 
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.execution.models import DeploymentSnapshot, OrderIntent
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _RATE_WINDOW = timedelta(seconds=60)
@@ -92,6 +97,8 @@ def _daily_loss_verdict(
             "Daily-loss cannot be computed without a last-close mark on open inventory.",
         )
     limit = capital * Decimal(policy.daily_loss_limit_fraction)
+    if policy.max_daily_loss_quote is not None:
+        limit = min(limit, Decimal(policy.max_daily_loss_quote))
     if loss < limit:
         return None
     return _deny(
@@ -140,17 +147,32 @@ def _rate_verdict(
     occupied: Sequence[DeploymentSnapshot],
     as_of: datetime,
 ) -> RiskVerdict | None:
-    """Deny new entries when the rolling-minute order or cancel cap is exhausted."""
+    """Deny new entries when the rolling-minute entry-order, cancel, or venue budget is exhausted.
+
+    Only ENTRY-purpose orders consume ``max_entry_orders_per_minute`` (audit F35):
+    protective (stop/take-profit/time-exit/bracket) submissions must not silently
+    exhaust the entry budget and block an unrelated new entry. This function is only
+    ever called while admitting a new risk-increasing entry (see risk/gate.py); it
+    never gates a cancellation or protective submission itself, so risk-reducing work
+    keeps flowing even while an exhausted cap denies a new entry.
+    """
     since = as_of - _RATE_WINDOW
-    orders = 0
+    entry_orders = 0
     cancels = 0
+    venue_actions = 0
     for snapshot in occupied:
+        entry_intent_ids = {
+            intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY
+        }
         for order in snapshot.orders:
             if order.created_at >= since:
-                orders += 1
+                venue_actions += 1
+                if _is_entry_purpose(order.intent_id, entry_intent_ids, snapshot.intents):
+                    entry_orders += 1
             if order.status is OrderStatus.CANCELED and order.updated_at >= since:
                 cancels += 1
-    if orders >= policy.max_entry_orders_per_minute:
+                venue_actions += 1
+    if entry_orders >= policy.max_entry_orders_per_minute:
         return _deny(
             RiskReasonCode.ORDER_RATE_LIMIT,
             "Entry orders in the last minute reached the risk-policy rate limit.",
@@ -160,7 +182,33 @@ def _rate_verdict(
             RiskReasonCode.CANCEL_RATE_LIMIT,
             "Cancellations in the last minute reached the risk-policy rate limit.",
         )
+    if (
+        policy.max_venue_order_actions_per_minute is not None
+        and venue_actions >= policy.max_venue_order_actions_per_minute
+    ):
+        return _deny(
+            RiskReasonCode.VENUE_REQUEST_BUDGET_EXCEEDED,
+            "Combined entry, cancel, and replacement requests in the last minute "
+            "reached the risk-policy venue budget.",
+        )
     return None
+
+
+def _is_entry_purpose(
+    intent_id: UUID,
+    entry_intent_ids: set[UUID],
+    intents: Sequence[OrderIntent],
+) -> bool:
+    """Return whether one order's intent purpose is ENTRY.
+
+    Prefers the immutable intent record; when no snapshot intents are available at
+    all (for example an ad-hoc snapshot without a durable store), falls back to
+    treating every order as a candidate entry so a degraded snapshot fails closed on
+    the rate cap rather than silently exempting unknown orders from it.
+    """
+    if intents:
+        return intent_id in entry_intent_ids
+    return True
 
 
 def _collar_verdict(

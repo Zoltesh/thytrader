@@ -407,6 +407,8 @@ async def test_live_fill_attaches_bracket_without_second_oco() -> None:
     """Live discretionary entries attach SL/TP; they do not rest a second OCO."""
     store = InMemoryExecutionStore()
     broker = _LiveFillBroker()
+    risk = InMemoryRiskPolicyStore()
+    await risk.publish(compiled_default_risk_policy())
     snapshot = await place_discretionary_order(
         store=store,
         broker=broker,
@@ -424,6 +426,7 @@ async def test_live_fill_attaches_bracket_without_second_oco() -> None:
         ),
         live_allowed=True,
         live_quote_cash=Decimal("20000"),
+        risk_store=risk,
     )
     assert OrderKind.TRIGGER_BRACKET not in broker.placed
     assert all(order.kind is not OrderKind.TRIGGER_BRACKET for order in snapshot.orders)

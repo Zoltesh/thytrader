@@ -227,6 +227,32 @@ def _parser() -> argparse.ArgumentParser:
         help="Permit same-side adds when the published strategy also enables pyramiding.",
     )
     set_policy.add_argument(
+        "--max-daily-loss-quote",
+        default=None,
+        help=(
+            "Optional absolute quote ceiling enforced alongside --daily-loss-limit-fraction "
+            "(whichever bound is tighter trips first). Unset by default; this CLI does not "
+            "assert a universal safe amount."
+        ),
+    )
+    set_policy.add_argument(
+        "--max-portfolio-exposure-quote",
+        default=None,
+        help=(
+            "Optional absolute quote ceiling enforced alongside "
+            "--max-portfolio-exposure-fraction. Unset by default."
+        ),
+    )
+    set_policy.add_argument(
+        "--max-venue-order-actions-per-minute",
+        type=int,
+        default=None,
+        help=(
+            "Optional combined per-minute cap across entry-order and cancellation requests "
+            "(a coarse venue-request budget). Denies only new entries; unset by default."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],
@@ -602,6 +628,9 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_cancellations_per_minute": arguments.max_cancellations_per_minute,
         "reference_price_collar_fraction": arguments.reference_price_collar_fraction,
         "allow_intra_strategy_pyramiding": arguments.allow_intra_strategy_pyramiding,
+        "max_daily_loss_quote": arguments.max_daily_loss_quote,
+        "max_portfolio_exposure_quote": arguments.max_portfolio_exposure_quote,
+        "max_venue_order_actions_per_minute": arguments.max_venue_order_actions_per_minute,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
     }
 

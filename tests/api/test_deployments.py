@@ -13,6 +13,8 @@ from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 from thytrader.strategies.publication import (
@@ -117,6 +119,7 @@ def _client(
     *,
     live_credentials: bool = False,
     audit: InMemoryAuditEventStore | None = None,
+    risk: InMemoryRiskPolicyStore | None = None,
 ) -> TestClient:
     """Build an API client with in-memory publication and execution stores."""
     settings = Settings(_env_file=None)
@@ -132,8 +135,20 @@ def _client(
         strategy_draft_store=InMemoryDraftStore(),
         execution_store=execution,
         audit_event_store=audit,
+        risk_policy_store=risk,
     )
     return TestClient(app)
+
+
+def _published_risk_policy_store() -> InMemoryRiskPolicyStore:
+    """Return a risk-policy store with a published (non-compiled-default) policy.
+
+    Live deployments require an operator-published policy (audit F25); tests that
+    exercise a live start with valid credentials publish one here.
+    """
+    store = InMemoryRiskPolicyStore()
+    asyncio.run(store.publish(compiled_default_risk_policy()))
+    return store
 
 
 def test_paper_deployment_persists_and_updates_library_status() -> None:
@@ -249,7 +264,9 @@ def test_live_deployment_requires_credentials() -> None:
             json={"strategy_fingerprint": fingerprint, "mode": "live"},
         )
 
-    with _client(publication, execution, live_credentials=True) as client:
+    with _client(
+        publication, execution, live_credentials=True, risk=_published_risk_policy_store()
+    ) as client:
         allowed = client.post(
             "/api/v1/deployments",
             json={"strategy_fingerprint": fingerprint, "mode": "live"},
@@ -287,7 +304,9 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
             json={"strategy_fingerprint": fingerprint, "mode": "live"},
         )
 
-    with _client(publication, execution, live_credentials=True) as client:
+    with _client(
+        publication, execution, live_credentials=True, risk=_published_risk_policy_store()
+    ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
             json={"strategy_fingerprint": fingerprint, "mode": "live"},
@@ -324,7 +343,9 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
             json={"strategy_fingerprint": fingerprint, "mode": "live"},
         )
 
-    with _client(publication, execution, live_credentials=True) as client:
+    with _client(
+        publication, execution, live_credentials=True, risk=_published_risk_policy_store()
+    ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
             json={"strategy_fingerprint": fingerprint, "mode": "live"},

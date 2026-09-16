@@ -342,6 +342,9 @@ class RiskPayload(_FrozenModel):
     max_cancellations_per_minute: int = Field(ge=1, le=1000)
     reference_price_collar_fraction: str
     allow_intra_strategy_pyramiding: bool
+    max_daily_loss_quote: str | None = None
+    max_portfolio_exposure_quote: str | None = None
+    max_venue_order_actions_per_minute: int | None = None
     findings: tuple[RiskFinding, ...]
 
 

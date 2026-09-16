@@ -68,6 +68,7 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
+| Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |
 | Show Coinbase credential flags | `uv run thytrader-runtime show-coinbase-credentials` |
@@ -85,6 +86,20 @@ legal; the published strategy must also enable `entry.pyramiding`. Omitted (fals
 compiled-default policy bytes stable. Schema-enabled pyramiding without this flag is denied
 (`PYRAMIDING_NOT_ALLOWED`). Backtests follow the strategy document only. `set-risk-policy`
 requires `--confirm` and does **not** require `--i-understand-live`.
+
+**Live start and live on-demand orders require a published policy** ([ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)):
+the compiled default is a wide **paper** research envelope, not a live-safe default. A fresh
+install's `start --mode live` or `place-order --mode live` is denied
+(`LIVE_REQUIRES_PUBLISHED_POLICY`) until `set-risk-policy --confirm` has published at least one
+version. Paper is unaffected. Optional `--max-daily-loss-quote` and
+`--max-portfolio-exposure-quote` add an absolute quote ceiling alongside the matching fraction
+(whichever binds tighter trips first); unset by default, since this skill does not assert a
+universal safe amount for every operator. Optional `--max-venue-order-actions-per-minute` adds a
+combined cap across entry-order and cancellation requests in the same rolling minute — a coarse
+venue-request budget that can only ever deny a **new entry**, never a cancellation or protective
+(stop/take-profit/time-exit/bracket) submission, since only new-entry admission calls this check.
+`--max-entry-orders-per-minute` itself now counts only entry-purpose orders, so recent protective
+activity no longer exhausts it and blocks an unrelated new entry.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 Optional `--note` is frozen onto the why-trade record at persist. Later review notes use
 `thytrader-memory add-trade-reason-note --confirm` (YOLO never covers that lane).

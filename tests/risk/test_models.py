@@ -97,6 +97,48 @@ def test_only_daily_loss_and_drawdown_pause_risk_increasing() -> None:
     assert pauses_risk_increasing(RiskReasonCode.BREAKER_MARK_MISSING) is False
 
 
+def test_absolute_monetary_caps_are_optional_and_must_be_positive_when_set() -> None:
+    """Unset absolute caps stay None; a zero or negative cap is rejected (F25)."""
+    default = compiled_default_risk_policy()
+    assert default.max_daily_loss_quote is None
+    assert default.max_portfolio_exposure_quote is None
+    payload = default.model_dump(mode="python")
+    with pytest.raises(ValidationError):
+        RiskPolicyDefinition.model_validate({**payload, "max_daily_loss_quote": "0"})
+    with pytest.raises(ValidationError):
+        RiskPolicyDefinition.model_validate({**payload, "max_portfolio_exposure_quote": "-5"})
+    with_cap = RiskPolicyDefinition.model_validate({**payload, "max_daily_loss_quote": "500"})
+    assert with_cap.max_daily_loss_quote == "500"
+
+
+def test_venue_action_budget_is_optional_and_bounded_when_set() -> None:
+    """The combined venue-request budget stays unset by default (F35)."""
+    default = compiled_default_risk_policy()
+    assert default.max_venue_order_actions_per_minute is None
+    payload = default.model_dump(mode="python")
+    with pytest.raises(ValidationError):
+        RiskPolicyDefinition.model_validate({**payload, "max_venue_order_actions_per_minute": 0})
+    with_budget = RiskPolicyDefinition.model_validate(
+        {**payload, "max_venue_order_actions_per_minute": 120}
+    )
+    assert with_budget.max_venue_order_actions_per_minute == 120
+    assert b"max_venue_order_actions_per_minute" not in canonical_risk_policy_bytes(default)
+    assert b"max_venue_order_actions_per_minute" in canonical_risk_policy_bytes(with_budget)
+
+
+def test_omitted_absolute_caps_preserve_compiled_fingerprint() -> None:
+    """Unset absolute caps must not change the canonical policy identity (F25)."""
+    default = compiled_default_risk_policy()
+    explicit_none = default.model_copy(
+        update={"max_daily_loss_quote": None, "max_portfolio_exposure_quote": None}
+    )
+    with_cap = default.model_copy(update={"max_daily_loss_quote": "500"})
+    assert risk_policy_fingerprint(default) == risk_policy_fingerprint(explicit_none)
+    assert risk_policy_fingerprint(with_cap) != risk_policy_fingerprint(default)
+    assert b"max_daily_loss_quote" not in canonical_risk_policy_bytes(default)
+    assert b"max_daily_loss_quote" in canonical_risk_policy_bytes(with_cap)
+
+
 def test_omitted_pyramiding_flag_preserves_compiled_fingerprint() -> None:
     """False allow_intra_strategy_pyramiding must stay omitted from canonical policy JSON."""
     default = compiled_default_risk_policy()

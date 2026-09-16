@@ -15,6 +15,8 @@ from thytrader.market_data.models import Candle, MarketProduct
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, mapped_htf_start
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
 from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
@@ -255,6 +257,8 @@ async def test_create_deployment_starts_htf_filter_paper_and_live() -> None:
         live_allowed=False,
     )
     assert paper.status is DeploymentStatus.RUNNING
+    risk = InMemoryRiskPolicyStore()
+    await risk.publish(compiled_default_risk_policy())
     live = await create_deployment(
         store=InMemoryExecutionStore(),
         publication_store=catalog,
@@ -262,6 +266,7 @@ async def test_create_deployment_starts_htf_filter_paper_and_live() -> None:
         mode=DeploymentMode.LIVE,
         paper_starting_cash=None,
         live_allowed=True,
+        risk_store=risk,
     )
     assert live.mode is DeploymentMode.LIVE
     assert live.status is DeploymentStatus.RUNNING

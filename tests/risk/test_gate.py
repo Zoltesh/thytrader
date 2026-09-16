@@ -15,6 +15,7 @@ from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate
 from thytrader.risk.models import (
     CapitalAllocation,
     RiskDecision,
+    RiskPolicySource,
     RiskReasonCode,
     compiled_default_risk_policy,
 )
@@ -266,3 +267,72 @@ def test_per_product_exposure_cap_is_independent_of_portfolio_cap() -> None:
         snapshots=(),
     )
     assert verdict.reason_code is RiskReasonCode.PRODUCT_EXPOSURE_EXCEEDED
+
+
+def test_absolute_portfolio_exposure_cap_binds_tighter_than_the_fraction() -> None:
+    """An absolute quote ceiling can deny even when the fractional cap has room (F25)."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"max_portfolio_exposure_quote": "500"}
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("600"),
+        ),
+        snapshots=(),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
+    allowed = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("400"),
+        ),
+        snapshots=(),
+    )
+    assert allowed.decision is RiskDecision.ALLOW
+
+
+def test_live_deployment_requires_a_published_policy_not_the_compiled_default() -> None:
+    """A fresh install's compiled fallback must not silently arm live orders (F25)."""
+    denied = evaluate_new_deployment(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.LIVE,
+        product_id="BTC-USD",
+        strategy_id=None,
+        paper_starting_cash=None,
+        deployments=(),
+        policy_source=RiskPolicySource.COMPILED_DEFAULT,
+    )
+    assert denied.decision is RiskDecision.DENY
+    assert denied.reason_code is RiskReasonCode.LIVE_REQUIRES_PUBLISHED_POLICY
+    allowed = evaluate_new_deployment(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.LIVE,
+        product_id="BTC-USD",
+        strategy_id=None,
+        paper_starting_cash=None,
+        deployments=(),
+        policy_source=RiskPolicySource.PUBLISHED,
+    )
+    assert allowed.decision is RiskDecision.ALLOW
+
+
+def test_paper_deployment_is_unaffected_by_the_published_policy_requirement() -> None:
+    """The live-only publication gate must not block paper starts under any source."""
+    verdict = evaluate_new_deployment(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.PAPER,
+        product_id="BTC-USD",
+        strategy_id=None,
+        paper_starting_cash=Decimal("10000"),
+        deployments=(),
+        policy_source=RiskPolicySource.COMPILED_DEFAULT,
+    )
+    assert verdict.decision is RiskDecision.ALLOW

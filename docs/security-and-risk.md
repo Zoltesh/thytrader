@@ -38,7 +38,7 @@ Never enabled automatically. It requires TLS, authentication, secure sessions/co
 
 ## Live-trading controls
 
-Live execution is disabled by default and must be explicitly armed. Arming displays the active product allowlist, notional/position limits, and loss limits. A fresh installation starts with conservative values.
+Live execution is disabled by default and must be explicitly armed. Arming displays the active product allowlist, notional/position limits, and loss limits. The compiled fallback policy is a wide **paper research** envelope, not a conservative live default: a fresh, credentialed installation cannot start a live deployment or on-demand live order until the operator publishes an explicit risk policy (`LIVE_REQUIRES_PUBLISHED_POLICY`; [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)). Paper starts are unaffected. This repository does not assert a universal "safe" loss or exposure percentage; the operator sets fractions (and, optionally, absolute quote caps below) that fit their own capital and tested strategy.
 
 Disarming blocks new risk-increasing orders. Emergency exits and cancellation behavior must be defined separately so a kill switch does not accidentally trap an open position.
 
@@ -57,16 +57,24 @@ It gates paper and live **entries** (not exits) with:
   open, pending-entry, and pending-exit occupy an open slot);
 - portfolio and per-product exposure fractions of the mode capital base;
 - paper book `paper_capital_quote` and optional per-strategy `allocations`;
-- UTC-day daily-loss fraction of the mode capital base;
+- UTC-day daily-loss fraction of the mode capital base, plus an optional absolute
+  `max_daily_loss_quote` ceiling enforced at whichever bound is tighter;
 - per-strategy fill-ledger drawdown fraction;
-- rolling 60-second entry-order and cancellation caps;
-- last-close reference-price collar for priced risk-increasing orders.
+- rolling 60-second entry-order and cancellation caps, purpose-aware since ADR 0063: only
+  `ENTRY`-purpose orders consume the entry cap, so protective (stop/take-profit/time-exit/bracket)
+  submissions never exhaust it and deny an unrelated new entry;
+- an optional combined `max_venue_order_actions_per_minute` budget across entries and cancellations
+  together, denying only new entries when the venue's overall recent request volume is high;
+- last-close reference-price collar for priced risk-increasing orders;
+- an optional absolute `max_portfolio_exposure_quote` ceiling alongside the portfolio exposure
+  fraction.
 
 Compiled default when no published row is active: eight running slots and eight open positions per
 mode, unit exposure and breaker fractions, 60 orders/cancels per minute, collar `0.5`, empty
-allowlist/allocations, paper book `100000`. Operator `risk` reports `available` and omits account
-balances (fractions and integers are allowed). Discretionary entries use this same registry;
-nonempty allocations deny them.
+allowlist/allocations, paper book `100000`, and no absolute caps or venue budget set. This default
+is a wide **paper** research envelope; a published policy is required before it can arm live
+(above). Operator `risk` reports `available` and omits account balances (fractions and integers are
+allowed). Discretionary entries use this same registry; nonempty allocations deny them.
 
 ### Shipped execution and runtime controls
 
