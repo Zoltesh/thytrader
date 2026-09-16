@@ -175,7 +175,7 @@ def test_one_minute_ltf_may_use_five_minute_htf() -> None:
 
 
 def test_evaluate_latest_entry_one_minute_holds_completed_five_minute_htf() -> None:
-    """1m paper/live uses last-completed 5m HTF (ADR 0040 clocks) and drops an in-progress 5m bar."""
+    """1m paper/live uses last-completed 5m HTF and drops an in-progress 5m bar."""
     strategy = _one_minute_five_minute_htf_strategy()
     ltf_start = datetime(2026, 7, 10, 10, 0, tzinfo=UTC)
     ltf = tuple(_candle(ltf_start + timedelta(minutes=index), "100") for index in range(6))
@@ -188,27 +188,22 @@ def test_evaluate_latest_entry_one_minute_holds_completed_five_minute_htf() -> N
     )
     through_10_03 = ltf[:4]
     through_10_04 = ltf[:5]
-    assert (
-        evaluate_latest_entry(strategy, through_10_03, htf)
-        is EntryConditionOutcome.NOT_MATCHED
-    )
-    assert (
-        evaluate_latest_entry(strategy, through_10_04, htf) is EntryConditionOutcome.MATCHED
-    )
+    assert evaluate_latest_entry(strategy, through_10_03, htf) is EntryConditionOutcome.NOT_MATCHED
+    assert evaluate_latest_entry(strategy, through_10_04, htf) is EntryConditionOutcome.MATCHED
 
 
 def test_evaluate_latest_entry_holds_last_completed_htf_and_ignores_partial() -> None:
-    """5m paper/live uses the last completed 1h bar; the in-progress noon hour never participates."""
+    """5m paper/live uses the last completed 1h bar; an in-progress noon hour is ignored."""
     strategy = _five_minute_htf_strategy()
     through_ten_fifty = _ltf_window()[:-1]
     through_ten_fifty_five = _ltf_window()
     htf = _htf_hours()
     assert (
-        evaluate_latest_entry(strategy, through_ten_fifty, htf)
-        is EntryConditionOutcome.NOT_MATCHED
+        evaluate_latest_entry(strategy, through_ten_fifty, htf) is EntryConditionOutcome.NOT_MATCHED
     )
     assert (
-        evaluate_latest_entry(strategy, through_ten_fifty_five, htf) is EntryConditionOutcome.MATCHED
+        evaluate_latest_entry(strategy, through_ten_fifty_five, htf)
+        is EntryConditionOutcome.MATCHED
     )
 
 

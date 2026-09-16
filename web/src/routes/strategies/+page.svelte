@@ -483,11 +483,7 @@
 		);
 		if (dataset === undefined) return;
 		const warmup = viewModel?.warmup_bars ?? 0;
-		const bounds = datasetEvaluationWindow(
-			dataset,
-			warmup,
-			viewModel?.timeframe ?? '1h'
-		);
+		const bounds = datasetEvaluationWindow(dataset, warmup, viewModel?.timeframe ?? '1h');
 		launchForm.evaluation_start = bounds.min;
 		launchForm.evaluation_end = bounds.max;
 	}
@@ -1708,14 +1704,13 @@
 					<h3>Deploy</h3>
 					<p class="view-note">
 						Starts the strategy runtime on closed candles. <strong>Paper:</strong> any ingested
-						venue clock (strategy clock); simulates maker fills. <strong>Live:</strong> the same
-						clocks; places real Coinbase spot orders. Sub-hour live requires a connected user-order
-						feed.
+						venue clock (strategy clock); simulates maker fills. <strong>Live:</strong> the same clocks;
+						places real Coinbase spot orders. Sub-hour live requires a connected user-order feed.
 					</p>
 					{#if viewModel?.htf_filter}
 						<p class="view-note">
-							This version ANDs last-completed {viewModel.htf_filter.timeframe} HTF bars with LTF
-							entry. Paper and live load live complete-only HTF candles; missing coverage pauses.
+							This version ANDs last-completed {viewModel.htf_filter.timeframe} HTF bars with LTF entry.
+							Paper and live load live complete-only HTF candles; missing coverage pauses.
 						</p>
 					{/if}
 					{#if publishedVersionsFor(viewEntry).length === 0}

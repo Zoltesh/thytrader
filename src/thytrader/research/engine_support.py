@@ -46,9 +46,7 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 v1=True,
                 v2=True,
                 v3=True,
-                note=(
-                    "Research V1/V2/V3 and paper/live evaluate last completed HTF bars only"
-                ),
+                note=("Research V1/V2/V3 and paper/live evaluate last completed HTF bars only"),
             ),
             EngineSupportRow(
                 label="Entry conditions (ALL / ANY / NOT, comparisons, crossovers)",
