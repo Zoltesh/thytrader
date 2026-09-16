@@ -58,13 +58,13 @@ test('settings page toggles YOLO paper without a restart and without secrets', a
 	});
 
 	await page.goto('/settings');
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-	await expect(page.getByText('Loopback settings')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+	await expect(page.getByRole('main').getByText('Loopback settings')).toBeVisible();
 	const panel = page.getByRole('region', { name: 'YAML settings and YOLO' });
 	await expect(panel).toBeVisible();
 	await panel.getByLabel('YOLO enabled').check();
 	await panel.getByLabel('paper').check();
 	await panel.getByRole('button', { name: 'Save YAML settings' }).click();
 	await expect(page.getByRole('status')).toContainText('Applied without restart');
-	await expect(page.getByText('--i-understand-live')).toBeVisible();
+	await expect(page.getByRole('status')).toContainText('--i-understand-live');
 });

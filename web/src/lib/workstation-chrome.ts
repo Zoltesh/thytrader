@@ -15,7 +15,8 @@ export type WorkstationNavHref =
 
 export type WorkstationNavItem = {
 	href: WorkstationNavHref;
-	label: 'Portfolio' | 'Trade' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory' | 'Chat' | 'Settings';
+	label:
+		'Portfolio' | 'Trade' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory' | 'Chat' | 'Settings';
 };
 
 export const WORKSTATION_NAV: readonly WorkstationNavItem[] = [

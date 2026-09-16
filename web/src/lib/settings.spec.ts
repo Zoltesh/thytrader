@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { fetchYamlSettings, saveYamlSettings, toYamlSettingsWrite, type YamlSettingsView } from './settings';
+import {
+	fetchYamlSettings,
+	saveYamlSettings,
+	toYamlSettingsWrite,
+	type YamlSettingsView
+} from './settings';
 
 const sample: YamlSettingsView = {
 	yolo_enabled: true,

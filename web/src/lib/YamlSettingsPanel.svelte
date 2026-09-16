@@ -77,8 +77,8 @@
 <section class="card" aria-label="YAML settings and YOLO">
 	<h2>YAML settings and YOLO</h2>
 	<p>
-		Non-secret knobs live in <code>thytrader.yaml</code> and apply without restarting API or workers.
-		Tiers are an independent subset, not a hierarchy. Live still needs
+		Non-secret knobs live in <code>thytrader.yaml</code> and apply without restarting API or
+		workers. Tiers are an independent subset, not a hierarchy. Live still needs
 		<code>--i-understand-live</code>. The playbook never starts live. Secrets stay out of YAML.
 	</p>
 	{#if loading}
@@ -150,7 +150,11 @@
 			</label>
 			<label>
 				Default ingest product
-				<input type="text" pattern={productPattern} bind:value={draft.market_data_worker_product_id} />
+				<input
+					type="text"
+					pattern={productPattern}
+					bind:value={draft.market_data_worker_product_id}
+				/>
 			</label>
 			<label>
 				Execution interval (seconds)
@@ -183,9 +187,18 @@
 				webhook URL stay env-at-boot.
 			</p>
 			<dl>
-				<div><dt>API</dt><dd>{view.process.api_host}:{view.process.api_port}</dd></div>
-				<div><dt>Environment</dt><dd>{view.process.environment}</dd></div>
-				<div><dt>Dataset root</dt><dd>{view.process.market_data_dataset_root}</dd></div>
+				<div>
+					<dt>API</dt>
+					<dd>{view.process.api_host}:{view.process.api_port}</dd>
+				</div>
+				<div>
+					<dt>Environment</dt>
+					<dd>{view.process.environment}</dd>
+				</div>
+				<div>
+					<dt>Dataset root</dt>
+					<dd>{view.process.market_data_dataset_root}</dd>
+				</div>
 				<div>
 					<dt>Coinbase credentials</dt>
 					<dd>{view.process.coinbase_credentials_configured ? 'configured' : 'not configured'}</dd>
