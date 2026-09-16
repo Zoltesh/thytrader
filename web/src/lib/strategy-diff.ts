@@ -89,20 +89,24 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 
 function indicatorText(indicator: IndicatorDraft): string {
 	const label = KIND_LABELS[indicator.kind] ?? indicator.kind;
+	const clock =
+		indicator.timeframe !== undefined && indicator.timeframe !== ''
+			? ` @ ${indicator.timeframe}`
+			: '';
 	if (indicator.kind === 'identity') {
 		const source = typeof indicator.input === 'string' ? indicator.input : 'close';
-		return `${label}(${source}) as "${indicator.id}"`;
+		return `${label}(${source})${clock} as "${indicator.id}"`;
 	}
 	if (indicator.kind === 'constant') {
 		return `${label}(${indicator.parameters.value ?? '0'}) as "${indicator.id}"`;
 	}
 	if (indicator.kind === 'macd') {
-		return `${label}(${indicator.parameters.fast_period},${indicator.parameters.slow_period},${indicator.parameters.signal_period}) as "${indicator.id}"`;
+		return `${label}(${indicator.parameters.fast_period},${indicator.parameters.slow_period},${indicator.parameters.signal_period})${clock} as "${indicator.id}"`;
 	}
 	if (indicator.kind === 'bollinger') {
-		return `${label}(${indicator.parameters.period},${indicator.parameters.stdev_multiplier ?? '2'}) as "${indicator.id}"`;
+		return `${label}(${indicator.parameters.period},${indicator.parameters.stdev_multiplier ?? '2'})${clock} as "${indicator.id}"`;
 	}
-	return `${label}(${indicator.parameters.period}) as "${indicator.id}"`;
+	return `${label}(${indicator.parameters.period})${clock} as "${indicator.id}"`;
 }
 
 function diffIndicators(

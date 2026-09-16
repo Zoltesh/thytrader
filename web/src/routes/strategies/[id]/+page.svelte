@@ -288,6 +288,7 @@
 			id: `indicator_${model.indicators.length + 1}`,
 			kind: 'sma',
 			input: 'close',
+			timeframe: '',
 			parameters: { period: 50 }
 		};
 		model.indicators.push(next);
@@ -440,7 +441,7 @@
 						<h2>Indicators</h2>
 						{#each model.indicators as indicator, index (index)}
 							<div class="indicator-row">
-								{@render indicatorFields(indicator)}
+								{@render indicatorFields(indicator, true)}
 								<button class="secondary" type="button" onclick={() => removeIndicator(index)}
 									>Remove</button
 								>
@@ -456,7 +457,9 @@
 							MACD/Bollinger outputs as series ids (macd/signal/histogram or middle/upper/lower).
 							RSI, ATR, Williams %R, CCI, and MFI periods cap at 100. Momentum and MFI need period +
 							1 bars. MACD needs slow + signal − 1 bars. Rolling inputs stay locked per kind.
-							Per-indicator timeframes are not shipped.
+							Optional per-indicator timeframes may use a coarser integer-multiple venue clock;
+							omitting the field keeps the decision clock. Constant omits timeframe. Stop ATR stays
+							on the decision clock. Extra-TF values overlay LTF entry before the HTF filter AND.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
@@ -481,7 +484,7 @@
 								onchange={(event) =>
 									toggleHtfFilter((event.currentTarget as HTMLInputElement).checked)}
 							/>
-							Enable higher-timeframe filter (research only)
+							Enable higher-timeframe filter
 						</label>
 						{#if model.htf_filter}
 							<div class="grid-two">
@@ -505,7 +508,7 @@
 							</div>
 							{#each model.htf_filter.indicators as indicator, index (index)}
 								<div class="indicator-row">
-									{@render indicatorFields(indicator)}
+									{@render indicatorFields(indicator, false)}
 									<button class="secondary" type="button" onclick={() => removeHtfIndicator(index)}
 										>Remove</button
 									>
@@ -704,7 +707,7 @@
 	{/if}
 </main>
 
-{#snippet indicatorFields(indicator: IndicatorDraft)}
+{#snippet indicatorFields(indicator: IndicatorDraft, allowTimeframe: boolean)}
 	<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
 	<label
 		>Kind
@@ -714,6 +717,17 @@
 			{/each}
 		</select></label
 	>
+	{#if allowTimeframe && indicator.kind !== 'constant' && model}
+		<label
+			>Timeframe
+			<select bind:value={indicator.timeframe} onchange={markDirty}>
+				<option value="">Decision clock ({model.timeframe})</option>
+				{#each validHtfTimeframes(model.timeframe) as timeframe (timeframe)}
+					<option value={timeframe}>{timeframe}</option>
+				{/each}
+			</select></label
+		>
+	{/if}
 	{#if indicator.kind === 'identity'}
 		<label
 			>Source

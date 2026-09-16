@@ -19,15 +19,16 @@ matrix are shipped.
 Phase 12's playbook and default-off YOLO confirmation opt-in are shipped.
 Phase 13's 5m live, ATR trailing, user-order WS, and native OCO brackets are shipped.
 Phase 14's journals, sentiment/pattern hooks, monitor, and config-gated notify are shipped.
-Per-indicator timeframes stay out of Phase 9 (ADR 0025). **Thy
+Per-indicator timeframes stay out of Phase 9 (ADR 0025) and are shipped as a later
+destination slice ([ADR 0042](decisions/0042-per-indicator-timeframes.md)). **Thy
 Builder should implement the next unshipped destination slice**, one vertical increment
 at a time. Phases 7–14 below are the definitive **near-term** sequence (not a wish list). Detail:
 [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md)
 and [fee-tier research defaults](plans/2026-09-13-fee-tier-research-defaults.md).
 
 Destination items that are **accepted but not the current Builder ceiling**: extra exchanges,
-shorting, attached entry brackets, per-indicator timeframes, and multi-instrument strategy
-documents. Venue clocks and on-demand trades with SL/TP are shipped. See
+shorting, attached entry brackets, and multi-instrument strategy
+documents. Venue clocks, on-demand trades with SL/TP, and per-indicator timeframes are shipped. See
 [Destination capabilities](#destination-capabilities-accepted-not-current-builder-order).
 
 Completed capability checklist (Phases 0–6):
@@ -136,7 +137,8 @@ warmup and no-lookahead rules.
    omit `series` on single-output kinds. Same shipped EMA/SMA/population-stdev arithmetic. Same
    shared LTF catalog. Still no stochastic, ADX, configurable rolling inputs, sample stdev, or
    per-indicator timeframes.
-6. **Per-indicator timeframes** — 📋 Out of Phase 9 (ADR 0025).
+6. **Per-indicator timeframes** — 📋 Out of Phase 9 (ADR 0025). Shipped later as
+   [ADR 0042](decisions/0042-per-indicator-timeframes.md).
 
 **This-slice exit gate met:** the two kinds and the series-id contract are named in the ADR,
 implemented in the registry and evaluator, referenced from conditions/crossovers, and listed
@@ -272,8 +274,18 @@ Alembic `0026` (no new migration).
 **Exit gate met:** a published HTF-filter strategy can start paper and live; the worker ANDs HTF
 `when` with LTF entry on last-completed HTF bars; in-progress HTF bars never participate.
 
-Per-indicator timeframes, extra exchanges, shorting, and YOLO-without-confirm for live stay out of
-this slice.
+## Per-indicator timeframes — ✅ Shipped
+
+LTF-list indicators may declare an optional coarser integer-multiple `timeframe`
+([ADR 0042](decisions/0042-per-indicator-timeframes.md)). Last-completed extra-TF bars overlay the
+decision-clock row before `entry.when`; `htf_filter` stays a tri-state AND. Research fingerprints
+unbound extra TFs as `indicator_dataset_fingerprints`. Paper and live load complete-only extra-TF
+windows composed with the HTF path; gaps pause. Ops contract is `thytrader-ops-contract-v14` /
+Alembic `0026` (no new migration). Extra exchanges, shorting, and YOLO-without-confirm for live stay
+out of this slice.
+
+**Exit gate met:** a 5m strategy can declare a 1h EMA on the LTF list; research, paper, and live
+hold last-completed extra-TF values onto each LTF close without interpolation.
 
 ## Destination capabilities (accepted; not current Builder order)
 
@@ -287,7 +299,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | On-demand trades with SL/TP | Yes, long-only via intent + risk ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md)) | Shorting, attached entry brackets, intra-strategy pyramiding |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
-| Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids) | Many indicators; per-indicator TFs remain out of Phase 9 |
+| Indicators | Fail-closed catalog through Phase 9 slice 5 (`macd`/`bollinger` with series ids); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Many indicators |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies (compose V1/V2/V3; no WFO) | Parameter sweeps / walk-forward optimization; stitched multi-window equity |
 | Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |

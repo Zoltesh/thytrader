@@ -28,6 +28,7 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `strategy_fingerprint` | Exact published canonical strategy fingerprint. |
 | `dataset_fingerprint` | Exact verified immutable LTF dataset fingerprint. |
 | `htf_dataset_fingerprint` | Optional exact HTF dataset fingerprint. Required iff the strategy declares `htf_filter`; must differ from `dataset_fingerprint`; omitted from canonical JSON when null. |
+| `indicator_dataset_fingerprints` | Optional extra indicator-clock bindings `{timeframe, dataset_fingerprint}`. Required iff the strategy declares unbound extra TFs; ordered by increasing duration; each identity distinct from LTF and HTF; omitted from canonical JSON when empty. When an extra TF equals `htf_filter.timeframe`, the HTF dataset covers it. |
 | `evaluation` | Non-empty, 5-minute-aligned UTC, half-open `[starts_at, ends_at)` interval. 1h strategies still require hour-aligned windows derived from hourly warmup spacing. |
 | `warmup` | `bars` plus the exact derived `starts_at`; its interval is `[starts_at, evaluation.starts_at)`. |
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
@@ -58,6 +59,9 @@ Dataset manifests describe complete candle coverage as a half-open interval
    Coverage uses `evaluation.starts_at` as the previous LTF close (first evaluation bar start) so
    first-bar crossovers have the prior mapped HTF bar. HTF datasets do not need a next-open fill
    candle.
+7. when unbound extra indicator clocks are present, each `indicator_dataset_fingerprints` binding
+   matches product and timeframe, is complete, and covers last-completed extra-TF bars plus extra-TF
+   warmup. Extra-TF datasets do not need a next-open fill candle.
 
 The final extra LTF candle is required because a signal evaluated at the close of the final eligible candle
 may only use the next candle's open as a modeled fill price. It is fill lookahead data, never signal

@@ -7,8 +7,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.multi_timeframe import htf_required_coverage
-from thytrader.strategies.models import StrategyStatus
+from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
+from thytrader.strategies.models import (
+    StrategyStatus,
+    extra_indicator_timeframe_groups,
+    extra_indicator_timeframe_warmup,
+    unbound_indicator_timeframes,
+)
 
 if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetManifest
@@ -34,6 +39,7 @@ def verify_research_run_eligibility(
     published_strategy: PublishedStrategy,
     manifest: DatasetManifest,
     htf_manifest: DatasetManifest | None = None,
+    indicator_manifests: dict[str, DatasetManifest] | None = None,
 ) -> None:
     """Fail closed unless exact verified artifacts cover the complete run contract."""
     definition = published_strategy.definition
@@ -73,6 +79,7 @@ def verify_research_run_eligibility(
             "Research run dataset lacks next-candle-open coverage for the final evaluation candle."
         )
     _require_htf_dataset(specification, definition, htf_manifest)
+    _require_indicator_timeframe_datasets(specification, definition, indicator_manifests or {})
 
 
 def _require_decision_dataset(
@@ -140,6 +147,53 @@ def _require_htf_dataset(
         raise ResearchRunPublicationError(
             "Research run HTF dataset does not provide the required closed-bar coverage."
         )
+
+
+def _require_indicator_timeframe_datasets(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    indicator_manifests: dict[str, DatasetManifest],
+) -> None:
+    """Require extra-TF datasets iff the strategy declares unbound indicator clocks."""
+    required = unbound_indicator_timeframes(definition)
+    declared = tuple(item.timeframe for item in specification.indicator_dataset_fingerprints)
+    if declared != required:
+        raise ResearchRunPublicationError(
+            "Research run indicator-timeframe datasets do not match the published strategy."
+        )
+    groups = dict(extra_indicator_timeframe_groups(definition))
+    for binding in specification.indicator_dataset_fingerprints:
+        manifest = indicator_manifests.get(binding.timeframe)
+        if (
+            manifest is None
+            or binding.dataset_fingerprint != manifest.content_fingerprint
+            or not manifest.complete
+            or manifest.provider != "coinbase"
+            or manifest.product_id != definition.instrument.product_id
+            or manifest.timeframe != binding.timeframe
+        ):
+            raise ResearchRunPublicationError(
+                "Research run indicator-timeframe dataset identity does not match the "
+                "verified strategy and request."
+            )
+        try:
+            starts_at = _parse_canonical_utc(manifest.starts_at)
+            ends_at = _parse_canonical_utc(manifest.ends_at)
+            required_start, required_end = closed_bar_required_coverage(
+                evaluation_starts_at=specification.evaluation.starts_at,
+                evaluation_ends_at=specification.evaluation.ends_at,
+                timeframe=binding.timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(groups[binding.timeframe]),
+            )
+        except ValueError as error:
+            raise ResearchRunPublicationError(
+                "Research run indicator-timeframe dataset coverage timestamps are invalid."
+            ) from error
+        if starts_at > required_start or ends_at < required_end:
+            raise ResearchRunPublicationError(
+                "Research run indicator-timeframe dataset does not provide the required "
+                "closed-bar coverage."
+            )
 
 
 def dataset_evaluation_bounds(

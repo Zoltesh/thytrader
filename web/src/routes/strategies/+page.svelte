@@ -42,6 +42,8 @@
 		reviseStrategy,
 		submitBacktest,
 		toBuilderModel,
+		extraIndicatorTimeframes,
+		unboundIndicatorTimeframes,
 		type BacktestLaunchInput,
 		type BuilderModel,
 		type Dataset,
@@ -109,6 +111,7 @@
 	let launchForm = $state({
 		dataset_fingerprint: '',
 		htf_dataset_fingerprint: '',
+		indicator_dataset_fingerprints: {} as Record<string, string>,
 		evaluation_start: '',
 		evaluation_end: '',
 		initial_quote_balance: '10000',
@@ -376,6 +379,9 @@
 					...(launchForm.htf_dataset_fingerprint === ''
 						? {}
 						: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
+					...(indicatorLaunchBindings().length === 0
+						? {}
+						: { indicator_dataset_fingerprints: indicatorLaunchBindings() }),
 					evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
 					evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
 					initial_quote_balance: launchForm.initial_quote_balance,
@@ -403,6 +409,9 @@
 				...(launchForm.htf_dataset_fingerprint === ''
 					? {}
 					: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
+				...(indicatorLaunchBindings().length === 0
+					? {}
+					: { indicator_dataset_fingerprints: indicatorLaunchBindings() }),
 				evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
 				evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
 				initial_quote_balance: launchForm.initial_quote_balance,
@@ -450,6 +459,19 @@
 			} else {
 				launchForm.htf_dataset_fingerprint = '';
 			}
+			const extra: Record<string, string> = {};
+			if (viewModel !== null) {
+				for (const timeframe of unboundIndicatorTimeframes(
+					viewModel.indicators,
+					viewModel.timeframe,
+					viewModel.htf_filter?.timeframe
+				)) {
+					extra[timeframe] =
+						launchDatasets.find((dataset) => dataset.timeframe === timeframe)
+							?.content_fingerprint ?? '';
+				}
+			}
+			launchForm.indicator_dataset_fingerprints = extra;
 		} catch (caught) {
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
 			launchDatasetError =
@@ -470,6 +492,39 @@
 		const timeframe = viewModel?.htf_filter?.timeframe;
 		if (timeframe === undefined) return [];
 		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
+	}
+
+	function indicatorLaunchBindings(): { timeframe: string; dataset_fingerprint: string }[] {
+		if (viewModel === null) return [];
+		return unboundIndicatorTimeframes(
+			viewModel.indicators,
+			viewModel.timeframe,
+			viewModel.htf_filter?.timeframe
+		)
+			.map((timeframe) => ({
+				timeframe,
+				dataset_fingerprint: launchForm.indicator_dataset_fingerprints[timeframe] ?? ''
+			}))
+			.filter((binding) => binding.dataset_fingerprint !== '');
+	}
+
+	function extraLaunchTimeframes(): string[] {
+		if (viewModel === null) return [];
+		return unboundIndicatorTimeframes(
+			viewModel.indicators,
+			viewModel.timeframe,
+			viewModel.htf_filter?.timeframe
+		);
+	}
+
+	function extraLaunchDatasets(timeframe: string): Dataset[] {
+		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
+	}
+
+	function missingExtraLaunchDatasets(): boolean {
+		return extraLaunchTimeframes().some(
+			(timeframe) => (launchForm.indicator_dataset_fingerprints[timeframe] ?? '') === ''
+		);
 	}
 
 	function selectLaunchDataset(dataset: Dataset): void {
@@ -664,6 +719,7 @@
 		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
 		launchForm.dataset_fingerprint = '';
 		launchForm.htf_dataset_fingerprint = '';
+		launchForm.indicator_dataset_fingerprints = {};
 		strategyDeployments = [];
 		deployError = null;
 		deployFingerprint = entry.latest_fingerprint ?? '';
@@ -1228,6 +1284,36 @@
 									{/if}</label
 								>
 							{/if}
+							{#each extraLaunchTimeframes() as timeframe (timeframe)}
+								<label
+									>Verified {timeframe} indicator dataset
+									<select
+										value={launchForm.indicator_dataset_fingerprints[timeframe] ?? ''}
+										onchange={(event) => {
+											launchForm.indicator_dataset_fingerprints = {
+												...launchForm.indicator_dataset_fingerprints,
+												[timeframe]: (event.currentTarget as HTMLSelectElement).value
+											};
+										}}
+									>
+										<option value="">Select a verified {timeframe} dataset</option>
+										{#each extraLaunchDatasets(timeframe) as dataset (dataset.content_fingerprint)}
+											<option value={dataset.content_fingerprint}
+												>{dataset.timeframe} · {formatUtcInputValue(
+													new Date(dataset.starts_at)
+												).replace('T', ' ')} – {formatUtcInputValue(
+													new Date(dataset.ends_at)
+												).replace('T', ' ')} UTC</option
+											>
+										{/each}
+									</select>
+									{#if extraLaunchDatasets(timeframe).length === 0}
+										<small class="field-note"
+											>No verified {timeframe} dataset for this market.</small
+										>
+									{/if}</label
+								>
+							{/each}
 						</div>
 						<div class="launch-grid">
 							<label
@@ -1371,6 +1457,7 @@
 								selectedStrategyFingerprint === '' ||
 								launchForm.dataset_fingerprint === '' ||
 								(viewModel.htf_filter !== null && launchForm.htf_dataset_fingerprint === '') ||
+								missingExtraLaunchDatasets() ||
 								launchForm.evaluation_start === '' ||
 								launchForm.evaluation_end === '' ||
 								launchForm.maker_fee_rate.trim() === '' ||
@@ -1711,6 +1798,15 @@
 						<p class="view-note">
 							This version ANDs last-completed {viewModel.htf_filter.timeframe} HTF bars with LTF entry.
 							Paper and live load live complete-only HTF candles; missing coverage pauses.
+						</p>
+					{/if}
+					{#if viewModel && extraIndicatorTimeframes(viewModel.indicators, viewModel.timeframe).length > 0}
+						<p class="view-note">
+							This version also evaluates last-completed {extraIndicatorTimeframes(
+								viewModel.indicators,
+								viewModel.timeframe
+							).join(', ')} indicator bars. Paper and live load those complete-only candles; missing
+							coverage pauses.
 						</p>
 					{/if}
 					{#if publishedVersionsFor(viewEntry).length === 0}

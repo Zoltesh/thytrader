@@ -15,6 +15,7 @@ from uuid import UUID
 
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -24,10 +25,12 @@ from thytrader.research.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
+    IndicatorTimeframeDataset,
     ResearchRunSpecification,
     WarmupWindow,
     warmup_starts_at,
 )
+from thytrader.strategies.models import unbound_indicator_timeframes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,6 +63,17 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("--strategy-fingerprint", required=True, type=_fingerprint)
     publish.add_argument("--dataset-fingerprint", required=True, type=_fingerprint)
     publish.add_argument("--htf-dataset-fingerprint", type=_fingerprint)
+    publish.add_argument(
+        "--indicator-dataset-fingerprint",
+        action="append",
+        default=[],
+        metavar="TIMEFRAME=FINGERPRINT",
+        help=(
+            "Extra indicator-timeframe dataset as TIMEFRAME=sha256:…. Repeatable. "
+            "Required for unbound extra indicator clocks; omit when the extra TF equals "
+            "htf_filter.timeframe."
+        ),
+    )
     publish.add_argument("--evaluation-start", required=True, type=_timestamp)
     publish.add_argument("--evaluation-end", required=True, type=_timestamp)
     publish.add_argument("--initial-quote-balance", required=True)
@@ -142,6 +156,11 @@ def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
     }
     if arguments.htf_dataset_fingerprint is not None:
         payload["htf_dataset_fingerprint"] = arguments.htf_dataset_fingerprint
+    if arguments.indicator_dataset_fingerprint:
+        payload["indicator_dataset_fingerprints"] = [
+            {"timeframe": item.timeframe, "dataset_fingerprint": item.dataset_fingerprint}
+            for item in _parsed_indicator_bindings(arguments.indicator_dataset_fingerprint)
+        ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
@@ -160,6 +179,52 @@ def _htf_dataset_fingerprint(
     return fingerprint
 
 
+def _parsed_indicator_bindings(
+    values: list[str],
+) -> tuple[IndicatorTimeframeDataset, ...]:
+    """Parse TIMEFRAME=sha256:… bindings and order them by increasing duration."""
+    parsed: list[IndicatorTimeframeDataset] = []
+    for value in values:
+        timeframe, separator, fingerprint = value.partition("=")
+        if separator != "=" or not timeframe or not fingerprint:
+            raise ValueError(
+                "indicator dataset fingerprint must be TIMEFRAME=sha256: followed by 64 hex"
+            )
+        _fingerprint(fingerprint)
+        parsed.append(
+            IndicatorTimeframeDataset.model_validate(
+                {"timeframe": timeframe, "dataset_fingerprint": fingerprint}
+            )
+        )
+    return tuple(
+        sorted(
+            parsed,
+            key=lambda item: int(parse_candle_interval(item.timeframe).duration.total_seconds()),
+        )
+    )
+
+
+def _indicator_dataset_fingerprints(
+    arguments: argparse.Namespace, definition: StrategyDefinition
+) -> tuple[IndicatorTimeframeDataset, ...]:
+    """Require extra-TF dataset fingerprints iff the strategy declares unbound clocks."""
+    required = unbound_indicator_timeframes(definition)
+    bindings = _parsed_indicator_bindings(list(arguments.indicator_dataset_fingerprint or []))
+    declared = tuple(item.timeframe for item in bindings)
+    if declared != required:
+        raise ValueError(
+            "indicator dataset fingerprints must match the strategy extra indicator timeframes"
+        )
+    reserved = {arguments.dataset_fingerprint}
+    if arguments.htf_dataset_fingerprint is not None:
+        reserved.add(arguments.htf_dataset_fingerprint)
+    if any(item.dataset_fingerprint in reserved for item in bindings):
+        raise ValueError(
+            "indicator dataset fingerprints must differ from the decision and HTF datasets"
+        )
+    return bindings
+
+
 async def _publish(arguments: argparse.Namespace) -> str:
     """Load strategy requirements, derive warmup, and idempotently publish one backtest run."""
     settings = Settings()
@@ -170,6 +235,9 @@ async def _publish(arguments: argparse.Namespace) -> str:
         strategy_store = PostgresStrategyPublicationStore(engine)
         strategy = await strategy_store.load(arguments.strategy_fingerprint)
         htf_dataset_fingerprint = _htf_dataset_fingerprint(arguments, strategy.definition)
+        indicator_dataset_fingerprints = _indicator_dataset_fingerprints(
+            arguments, strategy.definition
+        )
         dataset_store = DatasetStore(settings.market_data_dataset_root)
         run_store = PostgresResearchRunStore(engine)
         execution_fingerprint = backtest_execution_fingerprint(arguments)
@@ -188,6 +256,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
             strategy_fingerprint=arguments.strategy_fingerprint,
             dataset_fingerprint=arguments.dataset_fingerprint,
             htf_dataset_fingerprint=htf_dataset_fingerprint,
+            indicator_dataset_fingerprints=indicator_dataset_fingerprints,
             evaluation=EvaluationWindow(
                 starts_at=arguments.evaluation_start, ends_at=arguments.evaluation_end
             ),

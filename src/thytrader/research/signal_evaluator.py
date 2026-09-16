@@ -20,6 +20,7 @@ from thytrader.research.models import (
     specification_bar_interval,
 )
 from thytrader.research.multi_timeframe import (
+    closed_bar_starts,
     htf_candle_starts,
     index_candles_by_start,
     ltf_close,
@@ -40,9 +41,13 @@ from thytrader.strategies.models import (
     NotCondition,
     StrategyDefinition,
     decision_and_filter_indicators,
+    decision_clock_indicators,
+    extra_indicator_timeframe_groups,
+    extra_indicator_timeframe_warmup,
     indicator_value_keys,
     operand_value_key,
     strategy_fingerprint,
+    unbound_indicator_timeframes,
 )
 
 if TYPE_CHECKING:
@@ -61,6 +66,7 @@ def evaluate_signal_trace(
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> SignalTrace:
     """Evaluate deterministic entry conditions over one exact completed-candle interval."""
     try:
@@ -74,12 +80,22 @@ def evaluate_signal_trace(
         raise SignalEvaluationError("Signal evaluation inputs are invalid.") from error
     engine_contract_version = _verify_contract(specification, strategy)
     engine_candles = _required_candles(specification, candles)
+    extra_candles = dict(indicator_timeframe_candles or {})
     try:
-        indicator_rows = calculate_indicator_rows(strategy.indicators, engine_candles)
+        indicator_rows = calculate_indicator_rows(
+            decision_clock_indicators(strategy), engine_candles
+        )
     except (DecimalException, IndicatorCalculationError) as error:
         raise SignalEvaluationError(
             "Signal indicator calculation failed under the deterministic Decimal contract."
         ) from error
+    extra_rows = calculate_extra_indicator_rows(
+        strategy,
+        extra_candles,
+        htf_candles,
+        evaluation_starts_at=specification.evaluation.starts_at,
+        evaluation_ends_at=specification.evaluation.ends_at,
+    )
     htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
     declared = decision_and_filter_indicators(strategy)
     indicator_ids = tuple(key for indicator in declared for key in indicator_value_keys(indicator))
@@ -87,12 +103,21 @@ def evaluate_signal_trace(
     for index, (candle, values) in enumerate(zip(engine_candles, indicator_rows, strict=True)):
         if candle.starts_at < specification.evaluation.starts_at:
             continue
+        previous_ltf_start = _previous_ltf_start(engine_candles, index)
         previous_values = indicator_rows[index - 1] if index else None
-        ltf_outcome = _condition_outcome(strategy.entry.when, values, previous_values)
+        merged_values, merged_previous = overlay_indicator_timeframe_values(
+            strategy,
+            candle,
+            previous_ltf_start=previous_ltf_start,
+            ltf_values=values,
+            previous_ltf_values=previous_values,
+            extra_rows=extra_rows,
+        )
+        ltf_outcome = _condition_outcome(strategy.entry.when, merged_values, merged_previous)
         htf_outcome, htf_values = htf_filter_outcome(
             strategy,
             candle,
-            previous_ltf_start=_previous_ltf_start(engine_candles, index),
+            previous_ltf_start=previous_ltf_start,
             htf_rows=htf_rows,
         )
         outcome = and_entry_outcomes(ltf_outcome, htf_outcome)
@@ -102,7 +127,7 @@ def evaluate_signal_trace(
                 indicator_values=tuple(
                     IndicatorTraceValue(
                         indicator_id=key,
-                        value=_canonical_optional(_row_value(values, htf_values, key)),
+                        value=_canonical_optional(_row_value(merged_values, htf_values, key)),
                     )
                     for key in indicator_ids
                 ),
@@ -182,6 +207,78 @@ def calculate_htf_indicator_rows(
             "HTF indicator calculation failed under the deterministic Decimal contract."
         ) from error
     return {candle.starts_at: values for candle, values in zip(selected, rows, strict=True)}
+
+
+def calculate_extra_indicator_rows(
+    strategy: StrategyDefinition,
+    extra_candles: Mapping[str, Sequence[Candle]],
+    htf_candles: Sequence[Candle],
+    *,
+    evaluation_starts_at: datetime,
+    evaluation_ends_at: datetime,
+) -> dict[str, dict[datetime, Mapping[str, Decimal | None]]]:
+    """Calculate extra-TF LTF-list indicators on last-completed bars of each clock."""
+    rows_by_timeframe: dict[str, dict[datetime, Mapping[str, Decimal | None]]] = {}
+    htf_timeframe = strategy.htf_filter.timeframe if strategy.htf_filter is not None else None
+    for timeframe, indicators in extra_indicator_timeframe_groups(strategy):
+        selected_candles = extra_candles.get(timeframe)
+        if selected_candles is None and timeframe == htf_timeframe:
+            selected_candles = htf_candles
+        if not selected_candles:
+            raise SignalEvaluationError(
+                f"Candles are required for indicator timeframe {timeframe}."
+            )
+        expected_starts = closed_bar_starts(
+            evaluation_starts_at=evaluation_starts_at,
+            evaluation_ends_at=evaluation_ends_at,
+            timeframe=timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+        )
+        selected = _required_htf_candles(expected_starts, selected_candles)
+        try:
+            computed = calculate_indicator_rows(indicators, selected)
+        except (DecimalException, IndicatorCalculationError) as error:
+            raise SignalEvaluationError(
+                "Indicator-timeframe calculation failed under the deterministic Decimal contract."
+            ) from error
+        rows_by_timeframe[timeframe] = {
+            candle.starts_at: values for candle, values in zip(selected, computed, strict=True)
+        }
+    return rows_by_timeframe
+
+
+def overlay_indicator_timeframe_values(
+    strategy: StrategyDefinition,
+    candle: Candle,
+    *,
+    previous_ltf_start: datetime | None,
+    ltf_values: Mapping[str, Decimal | None],
+    previous_ltf_values: Mapping[str, Decimal | None] | None,
+    extra_rows: Mapping[str, Mapping[datetime, Mapping[str, Decimal | None]]],
+) -> tuple[dict[str, Decimal | None], dict[str, Decimal | None] | None]:
+    """Hold last-completed extra-TF values onto one LTF close without lookahead."""
+    current = dict(ltf_values)
+    previous = None if previous_ltf_values is None else dict(previous_ltf_values)
+    current_close = ltf_close(candle.starts_at, strategy.timeframe)
+    for timeframe, rows in extra_rows.items():
+        current_start = mapped_htf_start(current_close, timeframe)
+        mapped_current = rows.get(current_start)
+        if mapped_current is None:
+            raise SignalEvaluationError(
+                "Indicator timeframe alignment missed a last completed bar."
+            )
+        current.update(mapped_current)
+        if previous is None or previous_ltf_start is None:
+            continue
+        previous_close = ltf_close(previous_ltf_start, strategy.timeframe)
+        previous_start = mapped_htf_start(previous_close, timeframe)
+        mapped_previous = rows.get(previous_start)
+        if mapped_previous is None:
+            raise SignalEvaluationError(
+                "Indicator timeframe alignment missed a previous completed bar."
+            )
+        previous.update(mapped_previous)
+    return current, previous
 
 
 def _htf_indicator_rows(
@@ -313,6 +410,12 @@ def _verify_contract(
     if has_htf_filter != has_htf_dataset:
         raise SignalEvaluationError(
             "Research run HTF dataset identity does not match the published strategy."
+        )
+    required_extra = unbound_indicator_timeframes(strategy)
+    declared_extra = tuple(item.timeframe for item in specification.indicator_dataset_fingerprints)
+    if declared_extra != required_extra:
+        raise SignalEvaluationError(
+            "Research run indicator-timeframe datasets do not match the published strategy."
         )
     return engine_contract_version
 

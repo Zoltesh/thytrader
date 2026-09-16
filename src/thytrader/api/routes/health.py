@@ -25,6 +25,7 @@ class HealthOpsContract(BaseModel):
     paper_timeframes: list[str]
     live_timeframes: list[str]
     htf_filter_runtimes: list[str]
+    indicator_timeframe_runtimes: list[str]
     expected_schema_revision: str
 
 

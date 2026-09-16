@@ -19,6 +19,7 @@ from thytrader.backtest.submission import (
     _execution_fingerprint,
 )
 from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.publication import ResearchRunPublicationError
 
 
@@ -41,6 +42,7 @@ class _RequestOverrides(TypedDict, total=False):
     strategy_fingerprint: str
     dataset_fingerprint: str
     htf_dataset_fingerprint: str | None
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...]
     evaluation_start: datetime
     evaluation_end: datetime
     initial_quote_balance: str
@@ -198,6 +200,18 @@ def test_execution_fingerprint_includes_htf_dataset_only_when_present() -> None:
     assert _execution_fingerprint(baseline) != _execution_fingerprint(with_htf)
 
 
+def test_execution_fingerprint_includes_indicator_datasets() -> None:
+    """Extra-TF dataset identity is execution-significant and omitted when absent."""
+    baseline = _request()
+    extra = _request(
+        indicator_dataset_fingerprints=(
+            IndicatorTimeframeDataset(timeframe="1h", dataset_fingerprint="sha256:" + "c" * 64),
+        )
+    )
+    assert _execution_fingerprint(baseline) == _execution_fingerprint(_request())
+    assert _execution_fingerprint(baseline) != _execution_fingerprint(extra)
+
+
 @pytest.mark.anyio
 async def test_submitter_rejects_forged_invalid_financial_input_before_io(
     monkeypatch: pytest.MonkeyPatch,
@@ -291,6 +305,7 @@ class _LoadedStrategyStore:
         class _Definition:
             timeframe = "1h"
             htf_filter = None
+            indicators = ()
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:

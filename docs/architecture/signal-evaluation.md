@@ -42,7 +42,9 @@ indicator or condition calculation. When `htf_filter` is present, HTF indicators
 the required closed HTF bars and held onto each LTF close from the last completed HTF bar (never a
 partial HTF bar). Combined entry is the tri-state AND of HTF `when` and LTF `entry.when`. Paper and
 live share that last-completed alignment on complete-only HTF candles
-([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)).
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Extra-TF LTF-list indicators
+are calculated on last-completed bars of those clocks and overlay the decision-clock row before
+`entry.when` ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
 Before calculation, every selected candle must:
 

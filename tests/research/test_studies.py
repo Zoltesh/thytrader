@@ -11,6 +11,7 @@ import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
+from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.studies import (
     FoldMode,
     MarketBinding,
@@ -23,6 +24,7 @@ from thytrader.research.studies import (
     aggregate_windows,
     plan_study,
     request_fingerprint,
+    window_submission_request,
 )
 
 if TYPE_CHECKING:
@@ -96,6 +98,19 @@ def test_oos_holdout_splits_last_fraction_to_out_of_sample() -> None:
     assert insample.evaluation_end == datetime(2026, 1, 8, tzinfo=UTC)
     assert oos.evaluation_start == datetime(2026, 1, 8, tzinfo=UTC)
     assert oos.evaluation_end == datetime(2026, 1, 11, tzinfo=UTC)
+
+
+def test_plan_study_forwards_indicator_dataset_fingerprints() -> None:
+    """Child windows and submissions keep unbound extra-TF dataset bindings."""
+    extra = (IndicatorTimeframeDataset(timeframe="1h", dataset_fingerprint="sha256:" + "c" * 64),)
+    request = _holdout().model_copy(update={"indicator_dataset_fingerprints": extra})
+    plan = plan_study(
+        request,
+        publications={request.strategy_fingerprint or "": _published("BTC-USD")},
+    )
+    assert all(window.indicator_dataset_fingerprints == extra for window in plan.windows)
+    child = window_submission_request(request, plan.windows[0])
+    assert child.indicator_dataset_fingerprints == extra
 
 
 def test_walk_forward_rolling_emits_nonoverlapping_oos_when_step_equals_oos() -> None:

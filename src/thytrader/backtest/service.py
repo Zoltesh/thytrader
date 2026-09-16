@@ -71,10 +71,13 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     published_strategy = await strategy_store.load(specification.strategy_fingerprint)
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
     htf_candles = _optional_htf_candles(dataset_store, specification)
+    extra_candles = _indicator_timeframe_candles(dataset_store, specification)
     trace = evaluate_signal_trace(
-        specification, published_strategy.definition, candles, htf_candles
+        specification, published_strategy.definition, candles, htf_candles, extra_candles
     )
-    result = simulate_backtest(specification, published_strategy.definition, candles, htf_candles)
+    result = simulate_backtest(
+        specification, published_strategy.definition, candles, htf_candles, extra_candles
+    )
     if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
         raise RuntimeError(
             "Backtest trace identity did not match the authoritative signal evaluation."
@@ -90,3 +93,13 @@ def _optional_htf_candles(
     if fingerprint is None:
         return ()
     return dataset_store.load_candles(fingerprint)
+
+
+def _indicator_timeframe_candles(
+    dataset_store: VerifiedCandleReader, specification: ResearchRunSpecification
+) -> dict[str, tuple[Candle, ...]]:
+    """Load extra indicator-timeframe datasets when the research run fingerprints them."""
+    return {
+        item.timeframe: dataset_store.load_candles(item.dataset_fingerprint)
+        for item in specification.indicator_dataset_fingerprints
+    }

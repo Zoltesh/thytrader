@@ -25,16 +25,22 @@ from thytrader.research.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
+    IndicatorTimeframeDataset,
     ResearchRunSpecification,
     WarmupWindow,
     warmup_starts_at,
 )
-from thytrader.research.multi_timeframe import htf_required_coverage
+from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
 from thytrader.research.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
     evaluation_window_suggestion,
+)
+from thytrader.strategies.models import (
+    extra_indicator_timeframe_groups,
+    extra_indicator_timeframe_warmup,
+    unbound_indicator_timeframes,
 )
 
 if TYPE_CHECKING:
@@ -52,6 +58,7 @@ class BacktestSubmissionRequest(BaseModel):
     strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     initial_quote_balance: str
@@ -128,6 +135,7 @@ class PostgresBacktestSubmitter:
             request = _with_evaluation_window(request, strategy, self._dataset_store)
             _validate_submission_assumptions(request)
             _require_htf_request(request, strategy.definition)
+            _require_indicator_dataset_request(request, strategy.definition)
         except BacktestSubmissionRejectedError:
             raise
         except Exception as error:
@@ -144,6 +152,13 @@ class PostgresBacktestSubmitter:
                 await self._strategy_store.bind_dataset(
                     request.strategy_fingerprint,
                     request.htf_dataset_fingerprint,
+                    dataset_store=self._dataset_store,
+                    bound_at=now,
+                )
+            for binding in request.indicator_dataset_fingerprints:
+                await self._strategy_store.bind_dataset(
+                    request.strategy_fingerprint,
+                    binding.dataset_fingerprint,
                     dataset_store=self._dataset_store,
                     bound_at=now,
                 )
@@ -188,6 +203,7 @@ class PostgresBacktestSubmitter:
             strategy_fingerprint=request.strategy_fingerprint,
             dataset_fingerprint=request.dataset_fingerprint,
             htf_dataset_fingerprint=request.htf_dataset_fingerprint,
+            indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
             evaluation=EvaluationWindow(
                 starts_at=evaluation_start,
                 ends_at=evaluation_end,
@@ -265,6 +281,7 @@ def _with_evaluation_window(
             update={"evaluation_start": suggested_start, "evaluation_end": suggested_end}
         )
         _require_htf_window(filled, strategy, dataset_store)
+        _require_indicator_timeframe_window(filled, strategy, dataset_store)
         return filled
     if request.evaluation_start is None or request.evaluation_end is None:
         raise BacktestSubmissionRejectedError(
@@ -292,6 +309,7 @@ def _with_evaluation_window(
             )
         )
     _require_htf_window(request, strategy, dataset_store)
+    _require_indicator_timeframe_window(request, strategy, dataset_store)
     return request
 
 
@@ -401,6 +419,10 @@ def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
     }
     if request.htf_dataset_fingerprint is not None:
         payload["htf_dataset_fingerprint"] = request.htf_dataset_fingerprint
+    if request.indicator_dataset_fingerprints:
+        payload["indicator_dataset_fingerprints"] = [
+            item.model_dump(mode="json") for item in request.indicator_dataset_fingerprints
+        ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
@@ -430,6 +452,28 @@ def _require_htf_request(
     if has_fingerprint and request.htf_dataset_fingerprint == request.dataset_fingerprint:
         raise BacktestSubmissionRejectedError(
             "htf_dataset_fingerprint must differ from dataset_fingerprint."
+        )
+
+
+def _require_indicator_dataset_request(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> None:
+    """Reject extra-TF fingerprints that do not match the published definition."""
+    required = unbound_indicator_timeframes(definition)
+    declared = tuple(item.timeframe for item in request.indicator_dataset_fingerprints)
+    if declared != required:
+        raise BacktestSubmissionRejectedError(
+            "indicator_dataset_fingerprints must match the strategy extra indicator timeframes."
+        )
+    reserved = {request.dataset_fingerprint}
+    if request.htf_dataset_fingerprint is not None:
+        reserved.add(request.htf_dataset_fingerprint)
+    fingerprints = [item.dataset_fingerprint for item in request.indicator_dataset_fingerprints]
+    if any(fingerprint in reserved for fingerprint in fingerprints):
+        raise BacktestSubmissionRejectedError(
+            "indicator_dataset_fingerprints must differ from dataset_fingerprint and "
+            "htf_dataset_fingerprint."
         )
 
 
@@ -479,6 +523,56 @@ def _require_htf_window(
         raise BacktestSubmissionRejectedError(
             "Requested evaluation window is not fully covered by the HTF dataset."
         )
+
+
+def _require_indicator_timeframe_window(
+    request: BacktestSubmissionRequest,
+    strategy: PublishedStrategy,
+    dataset_store: DatasetStore,
+) -> None:
+    """Confirm extra-TF datasets cover last-completed bars for the LTF window."""
+    definition = strategy.definition
+    required = unbound_indicator_timeframes(definition)
+    declared = tuple(item.timeframe for item in request.indicator_dataset_fingerprints)
+    if declared != required:
+        raise BacktestSubmissionRejectedError(
+            "indicator_dataset_fingerprints must match the strategy extra indicator timeframes."
+        )
+    groups = dict(extra_indicator_timeframe_groups(definition))
+    evaluation_start, evaluation_end = _filled_window(request)
+    for binding in request.indicator_dataset_fingerprints:
+        try:
+            manifest = dataset_store.load_manifest(binding.dataset_fingerprint)
+        except DatasetStoreError as error:
+            raise BacktestSubmissionRejectedError(
+                "The selected indicator-timeframe dataset was not found or is not a "
+                "verified complete artifact."
+            ) from error
+        if manifest.product_id != definition.instrument.product_id:
+            raise BacktestSubmissionRejectedError(
+                "Indicator-timeframe dataset product_id must match the published strategy."
+            )
+        if manifest.timeframe != binding.timeframe:
+            raise BacktestSubmissionRejectedError(
+                "Indicator-timeframe dataset must match the declared indicator timeframe."
+            )
+        if not manifest.complete:
+            raise BacktestSubmissionRejectedError(
+                "Indicator-timeframe dataset status must be complete."
+            )
+        required_start, required_end = closed_bar_required_coverage(
+            evaluation_starts_at=evaluation_start,
+            evaluation_ends_at=evaluation_end,
+            timeframe=binding.timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(groups[binding.timeframe]),
+        )
+        starts_at = _manifest_instant(manifest.starts_at)
+        ends_at = _manifest_instant(manifest.ends_at)
+        if starts_at > required_start or ends_at < required_end:
+            raise BacktestSubmissionRejectedError(
+                "Requested evaluation window is not fully covered by the indicator-timeframe "
+                "dataset."
+            )
 
 
 def _utc_millisecond(value: datetime) -> datetime:

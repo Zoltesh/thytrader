@@ -144,9 +144,10 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include extra exchanges, shorting, attached entry brackets, per-indicator timeframes, and
+items include extra exchanges, shorting, attached entry brackets, and
 multi-instrument strategy documents. Venue strategy/paper/live/HTF clocks are shipped
-([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Phase 10's risk-policy
+([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
+are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
 registry and concurrent single-instrument paper/live are shipped. Phase 11's walk-forward / OOS /
 cross-market studies are shipped. Phase 12's agent playbook and default-off YOLO opt-in are shipped.
 Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets are shipped.

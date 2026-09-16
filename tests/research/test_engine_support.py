@@ -23,3 +23,6 @@ def test_engine_support_matrix_has_v3_and_study_rows() -> None:
     htf = by_label["HTF filter (optional closed-bar AND with LTF entry)"]
     assert htf.v1 is True and htf.v2 is True and htf.v3 is True
     assert "paper/live" in htf.note
+    extra = by_label["Per-indicator timeframes"]
+    assert extra.v1 is True and extra.v2 is True and extra.v3 is True
+    assert "last-completed" in extra.note
