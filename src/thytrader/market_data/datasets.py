@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from hashlib import sha256
+from hashlib import file_digest, sha256
 import json
 import os
+from pathlib import Path
 import re
 from stat import S_ISREG
 from threading import RLock
@@ -31,7 +32,9 @@ from thytrader.market_data.quality import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
+
+
+type _FileIdentity = tuple[Path, int, int, int, str]
 
 
 _DATASET_SCHEMA_VERSION = 1
@@ -81,9 +84,7 @@ class DatasetStore:
         """Configure the local root under which immutable datasets are published."""
         self._root = root
         self._catalog_lock = RLock()
-        self._verified_cache: dict[
-            Path, tuple[tuple[tuple[Path, int, int, int], ...], DatasetManifest]
-        ] = {}
+        self._verified_cache: dict[Path, tuple[tuple[_FileIdentity, ...], DatasetManifest]] = {}
 
     def write(
         self,
@@ -285,8 +286,8 @@ class DatasetStore:
         self._verified_cache[manifest_path] = (identity_after, manifest)
         return manifest
 
-    def _identity_matches(self, identity: tuple[tuple[Path, int, int, int], ...]) -> bool:
-        """Check that every cached file still has its verified filesystem identity."""
+    def _identity_matches(self, identity: tuple[_FileIdentity, ...]) -> bool:
+        """Check that every cached file still has its verified filesystem and content identity."""
         return all(_file_identity(expected[0]) == expected for expected in identity)
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
@@ -665,9 +666,9 @@ def _safe_dataset_path(root: Path, relative: str) -> Path:
 
 def _dataset_identity(
     manifest: DatasetManifest,
-) -> tuple[tuple[Path, int, int, int], ...] | None:
+) -> tuple[_FileIdentity, ...] | None:
     """Capture one coherent identity snapshot for a manifest and all of its files."""
-    identities: list[tuple[Path, int, int, int]] = []
+    identities: list[_FileIdentity] = []
     for path in (manifest.manifest_path, *manifest.files):
         identity = _file_identity(path)
         if identity is None:
@@ -676,15 +677,50 @@ def _dataset_identity(
     return tuple(identities)
 
 
-def _file_identity(path: Path) -> tuple[Path, int, int, int] | None:
-    """Capture one regular file's identity, or return a cache miss when stat fails."""
+def _file_identity(path: Path) -> _FileIdentity | None:
+    """Capture one regular file's metadata and content digest, or miss when either fails.
+
+    Size, modification time, and change time are not sufficient: an in-place same-size
+    rewrite can restore mtime while ctime stays unchanged in the same timestamp tick.
+    The digest is what makes that replacement a cache miss.
+    """
     try:
-        state = path.stat()
+        first = path.stat()
     except OSError:
         return None
-    if not S_ISREG(state.st_mode):
+    if not S_ISREG(first.st_mode):
         return None
-    return (path, state.st_size, int(state.st_mtime_ns), int(state.st_ctime_ns))
+    digest = _file_content_digest(path)
+    if digest is None:
+        return None
+    try:
+        second = path.stat()
+    except OSError:
+        return None
+    if not _same_regular_file_metadata(first, second):
+        return None
+    return (path, second.st_size, int(second.st_mtime_ns), int(second.st_ctime_ns), digest)
+
+
+def _same_regular_file_metadata(first: os.stat_result, second: os.stat_result) -> bool:
+    """Return True when two stat snapshots describe the same regular file metadata."""
+    return (
+        S_ISREG(second.st_mode)
+        and first.st_dev == second.st_dev
+        and first.st_ino == second.st_ino
+        and first.st_size == second.st_size
+        and int(first.st_mtime_ns) == int(second.st_mtime_ns)
+        and int(first.st_ctime_ns) == int(second.st_ctime_ns)
+    )
+
+
+def _file_content_digest(path: Path) -> str | None:
+    """Return a SHA-256 hex digest of one file's bytes, or miss when the file cannot be read."""
+    try:
+        with path.open("rb") as file:
+            return file_digest(file, "sha256").hexdigest()
+    except OSError:
+        return None
 
 
 def _fsync_file(path: Path) -> None:

@@ -132,11 +132,12 @@ returning a dataset to a future backtest or worker.
 `DatasetStore.list_verified()` serves full-history browser catalogue listings from the same deep
 verification. Because datasets accumulate and execution consumers must always reread content,
 listings reuse the previous verification result while every manifest and referenced Parquet file keeps
-its recorded file type, byte size, modification time, and change time. An ordinary in-place write or
-replacement invalidates that identity even if an actor restores the original size and modification
-time. Listings capture this identity before and after deep verification and cache only an unchanged
-snapshot; missing files or stat failures are cache misses. Deep execution loads always reread and
-reverify content regardless of this listing cache.
+its recorded file type, byte size, modification time, change time, and content digest. An ordinary
+in-place write or replacement invalidates that identity even if an actor restores the original size
+and modification time, including when change time is unchanged in the same timestamp tick. Listings
+capture this identity before and after deep verification and cache only an unchanged snapshot;
+missing files, stat failures, or digest mismatches are cache misses. Deep execution loads always
+reread and reverify content regardless of this listing cache.
 
 `DatasetStore.list_latest_verified()` does not deep-verify that cumulative history. It cheaply parses
 only the identity and time bounds needed to group manifest candidates, then deep-verifies the newest
