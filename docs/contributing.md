@@ -39,7 +39,11 @@ teach `ops/` instruction files to edit documentation or source.
   [ADR 0051](decisions/0051-in-app-operator-chat.md) (in-app operator chat),
   and
   [ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md) (richer sweep axes and persisted
-  study catalog)
+  study catalog),
+  [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) (workstation IA and
+  write-only Coinbase credentials),
+  [ADR 0054](decisions/0054-trade-reason-journals.md) (why-trade journals), and
+  [ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md) (YAML settings and YOLO)
 - [Delivery roadmap](roadmap.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) —
   **historical** running-instance evidence; stale Compose, 14-day clip, v3 422, and 5m paper 409 are

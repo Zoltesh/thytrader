@@ -164,6 +164,13 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "0055-yaml-settings-runtime-reloadable-yolo" in skill
     assert "THYTRADER_YOLO_TIERS=paper" in skill
     assert "thytrader.yaml" in skill
+    assert "show-coinbase-credentials" in skill
+    assert "set-coinbase-credentials" in skill
+    assert "clear-coinbase-credentials" in skill
+    assert "--private-key-file" in skill
+    assert "/api/v1/credentials/coinbase" in skill
+    assert "YOLO never covers credentials" in skill
+    assert "0053-workstation-ia-write-only-coinbase-credentials" in skill
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:

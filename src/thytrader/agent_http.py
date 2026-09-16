@@ -143,6 +143,7 @@ def _stale_image_missing_agent_routes(url: str) -> bool:
             "/api/v1/agent-orchestration",
             "/api/v1/memory",
             "/api/v1/operator-chat",
+            "/api/v1/credentials",
         )
     ):
         return False

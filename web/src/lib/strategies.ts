@@ -52,7 +52,26 @@ export function paperLiveStatusLabel(paperLive: StrategyLibraryPaperLive): strin
  * Tooltip for one library paper/live cell. Names both modes so the slash is not opaque.
  */
 export function paperLiveStatusTitle(paperLive: StrategyLibraryPaperLive): string {
-	return `Paper: ${paperLive.paper}. Live: ${paperLive.live}. Opens Deploy.`;
+	return `Paper: ${paperLive.paper}. Live: ${paperLive.live}. Opens the Deploy page.`;
+}
+
+/**
+ * Immutable versions a library row can launch or deploy.
+ *
+ * Some payloads only expose the latest fingerprint; treat that as vN when status
+ * is not draft.
+ */
+export function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
+	if (entry.published_versions.length > 0) return entry.published_versions;
+	if (entry.status !== 'draft' && entry.latest_fingerprint && entry.latest_version) {
+		return [
+			{
+				version: entry.latest_version,
+				strategy_fingerprint: entry.latest_fingerprint
+			}
+		];
+	}
+	return [];
 }
 
 /**

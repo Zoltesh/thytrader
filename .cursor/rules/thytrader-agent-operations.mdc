@@ -10,7 +10,7 @@ When diagnosing a running ThyTrader instance, mutating research artifacts, inges
 - `skills/thytrader-operator/SKILL.md` — read-only diagnostics
 - `skills/thytrader-data/SKILL.md` — watchlist, ingest, gap-fill with `--confirm`
 - `skills/thytrader-research/SKILL.md` — drafts, publish, backtests, composed studies with `--confirm`
-- `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop, on-demand `place-order`, and risk-policy publication with `--confirm` unless YOLO covers that tier (live start and live place-order also `--i-understand-live`)
+- `skills/thytrader-runtime/SKILL.md` — paper/live start/pause/resume/stop, on-demand `place-order`, risk-policy publication, YAML `set-settings`, and write-only Coinbase credential show/set/clear with `--confirm` unless YOLO covers that tier (live start and live place-order also `--i-understand-live`; `set-settings` and credential set/clear always `--confirm`; YOLO never covers credentials)
 - `skills/thytrader-playbook/SKILL.md` — sequence existing CLIs; `--confirm` forwarded; never live
 - `skills/thytrader-memory/SKILL.md` — journals, sentiment/pattern hooks, monitor, notify with `--confirm` (YOLO never covers this lane)
 

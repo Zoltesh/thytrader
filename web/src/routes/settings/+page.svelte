@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CoinbaseCredentialsPanel from '$lib/CoinbaseCredentialsPanel.svelte';
 	import YamlSettingsPanel from '$lib/YamlSettingsPanel.svelte';
 </script>
 
@@ -12,13 +13,14 @@
 			<p class="eyebrow">Loopback settings</p>
 			<h1>Settings</h1>
 			<p class="lede">
-				YAML is the source of truth for non-secret knobs, including YOLO. Coinbase secrets stay
-				server-side and are not on this form — a sibling workstation-IA slice owns that write-only
-				panel. LLM keys stay on Chat. Extra exchanges are out of scope.
+				YAML is the source of truth for non-secret knobs, including YOLO. Coinbase Advanced Trade
+				secrets are write-only beside that panel. LLM keys stay on Chat. Extra exchanges are out of
+				scope.
 			</p>
 		</div>
 	</section>
 	<YamlSettingsPanel />
+	<CoinbaseCredentialsPanel />
 </main>
 
 <style>

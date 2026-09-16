@@ -79,7 +79,7 @@ stochastic, ADX, configurable rolling inputs, and sample stdev
 ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
 - `thytrader-research` — drafts, publish, backtests, composed studies, and persisted study catalog reads (`--confirm` on mutations).
-- `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading.
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, why-trade review, sentiment/pattern hooks, monitor, notify, and
   fail-closed experiential training (`--confirm`; YOLO never covers this lane).
@@ -146,7 +146,7 @@ Shipped constraints:
   default for observation skills.
 - Scope tiers: `data`, `research`, `paper`, and `live` are independently eligible. Live YOLO
   skips `--confirm` only on live start/pause/resume/stop and never skips `--i-understand-live`.
-  Live `place-order`, `set-risk-policy`, `set-settings`, `--local` research, and memory stay confirmation-hard-gated.
+  Live `place-order`, `set-risk-policy`, `set-settings`, Coinbase credential set/clear, `--local` research, and memory stay confirmation-hard-gated.
   Paper YOLO never covers live.
 - Audit every skipped confirmation (`confirm_skipped`) or fail closed.
 - Do not collapse operator / data / research / runtime authority into one unrestricted skill.
@@ -211,7 +211,7 @@ skills/
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
-control, discretionary `place-order`, and risk-policy publication (`set-risk-policy --confirm`, including optional daily-loss / drawdown / rate / collar flags). `thytrader-playbook/SKILL.md` sequences those CLIs and never
+control, discretionary `place-order`, risk-policy publication (`set-risk-policy --confirm`, including optional daily-loss / drawdown / rate / collar flags), and write-only Coinbase credential show/set/clear (`--confirm` always on set/clear; `--private-key-file`; YOLO never covers credentials). `thytrader-playbook/SKILL.md` sequences those CLIs and never
 starts live. `thytrader-memory/SKILL.md` documents journals, why-trade review
 (`list-trade-reasons` / `show-trade-reason` / `add-trade-reason-note`), sentiment/pattern hooks,
 monitor, notify, and `train` / `list-models` / `show-model` with `--confirm` (YOLO never covers
@@ -251,6 +251,7 @@ The operator skill tells agents to:
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
+| Coinbase credentials | `thytrader-runtime show-coinbase-credentials` / `set-coinbase-credentials --private-key-file` / `clear-coinbase-credentials`. HTTP `GET/PUT/DELETE /api/v1/credentials/coinbase`. Presence flags only; GET never echoes secrets. Set/clear always `--confirm`. YOLO never covers this. Setting credentials does not arm live trading. LLM keys stay on `/chat`. |
 | Experiential memory | `thytrader-memory`: confirmation-gated journals, why-trade review, sentiment/pattern hooks, notify, and fail-closed `train`. Operator `monitor` and `trade-reasons` are read-only. YOLO never covers this lane. Research `create-draft --experiential-model-id` may merge the advisory into JSON (HTTP only). |
 | In-app operator chat | Loopback `/chat` plus `/api/v1/operator-chat`. Uses the same HTTP skill routes. Mutations stay confirmation-gated; live still needs understand-live. LLM keys stay in the API process; Coinbase keys never go to the browser. |
 

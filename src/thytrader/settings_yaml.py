@@ -320,6 +320,15 @@ class SettingsStore:
                 self._current = self._build(force_overlay=None)
             return self._current
 
+    def adopt_process_settings(self, settings: Settings) -> None:
+        """Replace the cached Settings without writing YAML.
+
+        Used when Coinbase secrets change in ``.env`` or process memory. Secrets
+        never enter the YAML file.
+        """
+        with self._lock:
+            self._current = settings
+
     def replace(self, write: YamlSettingsWrite) -> Settings:
         """Atomically write YAML, reload, and return the new Settings."""
         with self._lock:

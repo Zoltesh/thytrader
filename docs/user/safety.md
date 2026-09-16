@@ -14,7 +14,10 @@ theme.
 ## Secrets
 
 - Coinbase keys stay server-side. Never put them in the browser, logs, exceptions, support bundles,
-  agent output, or Git.
+  agent output, or Git. Loopback Settings (`/settings`) and
+  `thytrader-runtime set-coinbase-credentials --private-key-file` / `clear-coinbase-credentials`
+  are write-only: GET never echoes secrets; YOLO never covers set/clear. Saving credentials does
+  not arm live trading.
 - An in-app operator-chat LLM key is also server-side (API process only) and is **not** a Coinbase
   credential. Status never echoes it. Do not paste a Coinbase key into `/chat`.
 - `.env` is ignored. `.env.example` contains names and placeholders only.
@@ -31,8 +34,8 @@ theme.
   ([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); leftover
   `THYTRADER_YOLO_TIERS=paper` is valid.
 - Live start (and live on-demand place-order) also require `--i-understand-live`. YOLO never skips
-  that flag. Live place-order, risk-policy publication, `--local` research, and memory stay
-  confirmation-hard-gated even when YOLO advertises `live`.
+  that flag. Live place-order, risk-policy publication, Coinbase credential set/clear, `--local`
+  research, and memory stay confirmation-hard-gated even when YOLO advertises `live`.
 - The playbook never starts live. Memory mutations never inherit YOLO.
 
 ## Skill lanes

@@ -1,9 +1,14 @@
-"""Confirmation-gated CLI for paper and live deployment control."""
+"""Confirmation-gated CLI for paper and live deployment control.
+
+Also exposes write-only Coinbase credential show/set/clear. Mutations stay
+``--confirm``-gated; YOLO never covers credential set/clear.
+"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
@@ -19,11 +24,14 @@ from thytrader.operator.redaction import configured_secrets, dumps_redacted
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.runtime_control.client import (
     RuntimeControlError,
+    clear_coinbase_credentials,
     list_deployments,
     place_discretionary_order,
+    set_coinbase_credentials,
     set_deployment_status,
     set_risk_policy,
     set_yaml_settings,
+    show_coinbase_credentials,
     show_deployment,
     show_risk_policy,
     show_yaml_settings,
@@ -36,7 +44,8 @@ if TYPE_CHECKING:
 _CONFIRM_HELP = (
     "Required for mutations unless YOLO covers that tier. Live start also "
     "requires --i-understand-live. Publishing a risk policy requires --confirm "
-    "only; it does not arm live trading. Live place-order never skips --confirm."
+    "only; it does not arm live trading. Live place-order, set-settings, and "
+    "Coinbase credential set/clear never skip --confirm."
 )
 _LIVE_HELP = (
     "Required to start live trading or place a live order. Live spends real "
@@ -64,12 +73,13 @@ def _parser() -> argparse.ArgumentParser:
         prog="thytrader-runtime",
         description=(
             "Start, pause, resume, or stop paper and live deployments, place "
-            "discretionary orders, publish the risk-policy registry, and update "
-            "YAML non-secret settings (including YOLO), through the loopback HTTP "
-            "API. Mutations require --confirm unless YOLO covers that tier. Live "
-            "start and live place-order also require --i-understand-live. Live "
-            "place-order, set-risk-policy, and set-settings never skip --confirm. "
-            "This is not the operator or research CLI."
+            "discretionary orders, publish the risk-policy registry, update YAML "
+            "non-secret settings (including YOLO), and set or clear write-only "
+            "Coinbase credentials, through the loopback HTTP API. Mutations "
+            "require --confirm unless YOLO covers that tier. Live start and live "
+            "place-order also require --i-understand-live. Live place-order, "
+            "set-risk-policy, set-settings, and Coinbase credential set/clear "
+            "never skip --confirm. This is not the operator or research CLI."
         ),
         parents=[shared],
     )
@@ -260,12 +270,38 @@ def _parser() -> argparse.ArgumentParser:
         help="Webhook URL stays in ignored .env and still needs a restart.",
     )
     set_settings.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    subparsers.add_parser(
+        "show-coinbase-credentials",
+        parents=[trailing],
+        help="Show whether Coinbase secrets are configured; never prints them.",
+    )
+    set_creds = subparsers.add_parser(
+        "set-coinbase-credentials",
+        parents=[trailing],
+        help="Set or rotate Coinbase Advanced Trade secrets from a private-key file.",
+    )
+    set_creds.add_argument("--api-key-name", required=True, help="Coinbase API key name.")
+    set_creds.add_argument(
+        "--private-key-file",
+        required=True,
+        help="Path to the PEM private key. Never pass the key on the command line.",
+    )
+    set_creds.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    clear_creds = subparsers.add_parser(
+        "clear-coinbase-credentials",
+        parents=[trailing],
+        help="Clear Coinbase Advanced Trade secrets and return this API process to demo.",
+    )
+    clear_creds.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
 _RUNTIME_CONFIRM_MESSAGE = (
     "Pass --confirm to change paper or live runtimes, the risk-policy "
     "registry, or YAML settings. Live start also requires --i-understand-live."
+)
+_CREDENTIALS_CONFIRM_MESSAGE = (
+    "Pass --confirm to set or clear Coinbase credentials. YOLO never covers this command."
 )
 
 
@@ -276,11 +312,12 @@ def _require_confirm(
     command: str,
     hard_gate: bool = False,
     tier: YoloTier = YoloTier.PAPER,
+    missing_message: str = _RUNTIME_CONFIRM_MESSAGE,
 ) -> None:
     """Refuse mutations unless `--confirm` is present or YOLO covers the tier."""
     require_mutation_confirmation(
         confirmed=confirm,
-        missing_message=_RUNTIME_CONFIRM_MESSAGE,
+        missing_message=missing_message,
         error_type=RuntimeControlError,
         base_url=base_url,
         tier=tier,
@@ -425,6 +462,12 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         return set_risk_policy(base_url, _risk_policy_payload(arguments))
     if command in {"show-settings", "set-settings"}:
         return _settings_command(arguments, base_url)
+    if command in {
+        "show-coinbase-credentials",
+        "set-coinbase-credentials",
+        "clear-coinbase-credentials",
+    }:
+        return _credentials_command(arguments, base_url)
     raise AssertionError(f"unsupported runtime command: {command}")
 
 
@@ -501,6 +544,42 @@ def _int_or_current(override: int | None, current: object, default: int) -> int:
     if isinstance(current, int):
         return current
     return default
+
+
+def _credentials_command(arguments: argparse.Namespace, base_url: str) -> object:
+    """Show, set, or clear Coinbase secrets; mutations are confirmation-hard-gated."""
+    command = arguments.command
+    if command == "show-coinbase-credentials":
+        require_matching_ops_contract(base_url)
+        return show_coinbase_credentials(base_url)
+    _require_confirm(
+        arguments.confirm,
+        base_url=base_url,
+        command=command,
+        hard_gate=True,
+        missing_message=_CREDENTIALS_CONFIRM_MESSAGE,
+    )
+    require_matching_ops_contract(base_url)
+    if command == "clear-coinbase-credentials":
+        return clear_coinbase_credentials(base_url)
+    return set_coinbase_credentials(
+        base_url,
+        api_key_name=arguments.api_key_name.strip(),
+        private_key=_read_private_key_file(arguments.private_key_file),
+    )
+
+
+def _read_private_key_file(path_value: str) -> str:
+    """Read a PEM file for set-coinbase-credentials without logging its contents."""
+    path = Path(path_value)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise RuntimeControlError("Could not read --private-key-file.") from error
+    private_key = text.replace("\\n", "\n").strip()
+    if not private_key:
+        raise RuntimeControlError("Private key file is empty.")
+    return private_key
 
 
 def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:

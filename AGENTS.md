@@ -191,8 +191,10 @@ source:
   backtests, and composed studies (OOS / walk-forward / sweep / WFO), with `--confirm` on every
   mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
-  resume, stop, on-demand `place-order`, and risk-policy publication, with `--confirm` unless YOLO
-  covers that tier (live start and live place-order also `--i-understand-live`).
+  resume, stop, on-demand `place-order`, risk-policy publication, YAML `set-settings`, and write-only
+  Coinbase credential show/set/clear, with `--confirm` unless YOLO covers that tier (live start and
+  live place-order also `--i-understand-live`). `set-settings` and credential set/clear always need
+  `--confirm`; YOLO never covers them.
 - [`skills/thytrader-playbook/SKILL.md`](skills/thytrader-playbook/SKILL.md) — sequences existing
   lane CLIs for data → research → optional paper. Forwards `--confirm`. Never starts live.
 - [`skills/thytrader-memory/SKILL.md`](skills/thytrader-memory/SKILL.md) — journals, sentiment and

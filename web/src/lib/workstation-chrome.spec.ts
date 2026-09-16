@@ -13,12 +13,15 @@ describe('workstation chrome', () => {
 	it('preserves the primary nav labels in route order', () => {
 		expect(WORKSTATION_NAV.map((item) => item.label)).toEqual([
 			'Portfolio',
-			'Trade',
 			'Strategies',
 			'Backtests',
+			'Research',
+			'Deploy',
+			'Trade',
+			'Journals',
+			'Chat',
 			'Audit',
 			'Memory',
-			'Chat',
 			'Settings'
 		]);
 	});
@@ -42,6 +45,16 @@ describe('workstation chrome', () => {
 		expect(isWorkstationNavActive('/trade', '/trade')).toBe(true);
 		expect(isWorkstationNavActive('/trade', '/')).toBe(false);
 		expect(isWorkstationNavActive('/trade', '/strategies')).toBe(false);
+	});
+
+	it('marks first-class Research, Deploy, Journals, Chat, and Settings routes', () => {
+		expect(isWorkstationNavActive('/research', '/research')).toBe(true);
+		expect(isWorkstationNavActive('/research', '/strategies')).toBe(false);
+		expect(isWorkstationNavActive('/deploy', '/deploy')).toBe(true);
+		expect(isWorkstationNavActive('/journals', '/journals')).toBe(true);
+		expect(isWorkstationNavActive('/journals', '/memory')).toBe(false);
+		expect(isWorkstationNavActive('/chat', '/chat')).toBe(true);
+		expect(isWorkstationNavActive('/settings', '/settings')).toBe(true);
 	});
 
 	it('keeps Strategies active on the library and builder routes', () => {

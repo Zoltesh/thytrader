@@ -34,3 +34,15 @@ class RuntimeState:
         if self.settings_store is not None:
             return self.settings_store.current()
         return self._settings
+
+    def replace_process_settings(self, settings: Settings) -> None:
+        """Adopt a process Settings snapshot without writing YAML.
+
+        Coinbase secrets stay in ``.env`` / process memory. When a YAML store is
+        attached, only its in-memory cache is replaced so a later YAML mtime
+        reload still re-reads env.
+        """
+        self._settings = settings
+        store = self.settings_store
+        if store is not None:
+            store.adopt_process_settings(settings)

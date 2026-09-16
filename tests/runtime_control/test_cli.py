@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -709,7 +710,6 @@ def test_live_start_rejects_paper_fee_flags() -> None:
     assert "paper fee" in str(raised.value).lower()
     request.assert_not_called()
 
-
 def _settings_payload(
     *,
     yolo_enabled: bool = False,
@@ -789,3 +789,139 @@ def test_set_settings_paper_with_confirm_puts_yaml() -> None:
             ]
         )
     assert raised.value.code == 0
+
+
+def test_runtime_help_lists_coinbase_credential_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators can discover write-only Coinbase credential commands."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "show-coinbase-credentials" in output
+    assert "set-coinbase-credentials" in output
+    assert "clear-coinbase-credentials" in output
+
+
+def test_set_coinbase_credentials_help_requires_key_file(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The set command documents --private-key-file instead of a CLI secret."""
+    with pytest.raises(SystemExit) as raised:
+        main(["set-coinbase-credentials", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--private-key-file" in output
+    assert "--confirm" in output
+    assert "YOLO" in output or "never skip" in output.lower()
+
+
+def test_set_coinbase_credentials_without_confirm_does_not_call_api(
+    tmp_path: Path,
+) -> None:
+    """YOLO never covers credential writes; omitting --confirm skips HTTP."""
+    key_file = tmp_path / "key.pem"
+    key_file.write_text("SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n", encoding="utf-8")
+    with (
+        patch("thytrader.runtime_control.cli.set_coinbase_credentials") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-coinbase-credentials",
+                "--api-key-name",
+                "organizations/example/apiKeys/example",
+                "--private-key-file",
+                str(key_file),
+            ]
+        )
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    assert "YOLO never covers" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_set_coinbase_credentials_yolo_still_requires_confirm(
+    tmp_path: Path,
+) -> None:
+    """Live/paper YOLO does not skip Coinbase credential confirmation."""
+    key_file = tmp_path / "key.pem"
+    key_file.write_text("SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n", encoding="utf-8")
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(
+            yolo_enabled=True,
+            yolo_tiers=("paper", "live", "data", "research"),
+        ),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.runtime_control.cli.set_coinbase_credentials") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-coinbase-credentials",
+                "--api-key-name",
+                "organizations/example/apiKeys/example",
+                "--private-key-file",
+                str(key_file),
+            ]
+        )
+    assert raised.value.code != 0
+    request.assert_not_called()
+
+
+def test_set_coinbase_credentials_reads_file_and_calls_http(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--confirm plus a key file sets credentials without printing the PEM."""
+    key_file = tmp_path / "key.pem"
+    key_file.write_text("SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n", encoding="utf-8")
+    handlers = {"GET /health/ready": matching_ready_payload()}
+    status = {
+        "provider": "coinbase",
+        "configured": True,
+        "persisted": True,
+        "env_file_writable": True,
+        "api_hot_reloaded": True,
+        "workers_require_restart": True,
+        "workers_restart_detail": "restart workers",
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.set_coinbase_credentials",
+            return_value=status,
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-coinbase-credentials",
+                "--api-key-name",
+                "organizations/example/apiKeys/example",
+                "--private-key-file",
+                str(key_file),
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    request.assert_called_once()
+    assert request.call_args.kwargs["api_key_name"] == "organizations/example/apiKeys/example"
+    assert request.call_args.kwargs["private_key"] == "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO"
+    output = capsys.readouterr().out
+    assert "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO" not in output
+
+
+def test_clear_coinbase_credentials_requires_confirm() -> None:
+    """Clearing Coinbase secrets is confirmation-hard-gated."""
+    with (
+        patch("thytrader.runtime_control.cli.clear_coinbase_credentials") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["clear-coinbase-credentials"])
+    assert raised.value.code != 0
+    request.assert_not_called()

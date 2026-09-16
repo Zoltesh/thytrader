@@ -84,7 +84,7 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
    at last close; `MISSING_MARK` means open inventory was not marked.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
-8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, and risk-policy publication require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
+8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
 
 ## Forbidden
 
@@ -109,7 +109,8 @@ restart. Leftover `THYTRADER_YOLO_TIERS=paper` is valid; do not JSON-encode the 
 Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`
 ([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)). The user pastes **their** LLM API
 key into the API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase
-secrets surface. Status never returns `api_key`. Coinbase keys never go to the browser.
+secrets surface (`/settings` and `thytrader-runtime` show/set/clear-coinbase-credentials). Status
+never returns `api_key`. Coinbase keys never go to the browser.
 
 The chat invokes the same versioned HTTP skill routes as these CLIs. Operator tools stay read-only.
 Data, research, runtime, and memory mutations wait on in-app confirmation (`--confirm`). Live start

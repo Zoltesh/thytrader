@@ -23,15 +23,18 @@ test('shared topbar marks the active route and stays reachable under 800px', asy
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
 	await expect(nav).toHaveCount(1);
 	await expect(nav.getByRole('link', { name: 'Portfolio' })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'Trade' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Strategies' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Backtests' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Research' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Deploy' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Trade' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Journals' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Chat' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Audit' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Memory' })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'Chat' })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Settings' })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
 	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
+	await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
 	await expect(nav.getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
 		'aria-current',
 		'page'

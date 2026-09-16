@@ -4,92 +4,29 @@
 	import { formatPercent } from '$lib/backtests';
 	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
-		PAPER_DEFAULT_MAKER_FEE_RATE,
-		PAPER_DEFAULT_TAKER_FEE_RATE,
-		PAPER_FEE_ENGINE_NOTE,
-		RESEARCH_FEE_ENGINE_NOTE,
-		fetchFeeProfile,
-		formatFeeProfileAsOf,
-		formatResearchFeeSourceChip,
-		readResearchFeeSuggestion,
-		researchFeeFieldSource,
-		shouldPrefillPaperFeeRates,
-		shouldPrefillResearchFeeRates,
-		type ResearchFeeSuggestion
-	} from '$lib/fees';
-	import {
-		axisNeedsIndicator,
-		engineContractLabel,
-		parametersForTarget,
-		parseParameterAxisValues,
-		submitResearchStudy,
-		type ResearchStudy,
-		type ResearchStudyRequest,
-		type SelectionMetric,
-		type SweepAxisTarget,
-		type SweepParameter
-	} from '$lib/research-studies';
-	import {
 		archiveConfirmMessage,
 		archivePublishedStrategy,
 		createDraft,
 		clonePublishedStrategy,
-		datasetEvaluationWindow,
 		EXECUTION_TIMEFRAMES,
 		fetchDraftVersion,
 		fetchStrategyHistory,
 		fetchStrategySource,
 		formatUtcInputValue,
 		importStrategy,
-		latestDatasets,
-		listDatasets,
 		listStrategies,
 		PAPER_LIVE_STATUS_LEGEND,
 		PAPER_LIVE_STATUS_TITLE,
 		paperLiveStatusLabel,
 		paperLiveStatusTitle,
-		parseUtcInputValue,
-		researchWindowHint,
 		reviseStrategy,
-		submitBacktest,
 		toBuilderModel,
-		extraIndicatorTimeframes,
-		unboundIndicatorTimeframes,
-		type BacktestLaunchInput,
 		type BuilderModel,
-		type Dataset,
 		type StrategyLibraryEntry,
-		type StrategyPublishedVersion,
 		type StrategyVersionHistory
 	} from '$lib/strategies';
-	import {
-		createDeployment,
-		listDeployments,
-		pauseDeployment,
-		resumeDeployment,
-		stopDeployment,
-		type Deployment
-	} from '$lib/deployments';
 	import { semanticDiff, type SemanticDiff } from '$lib/strategy-diff';
 	import { plainEnglishSummary, requiredDataText, validateDefinition } from '$lib/strategy-insight';
-
-	type VersionResultEntry = {
-		result_fingerprint: string;
-		published_at: string;
-		engine_contract_version: string;
-		total_return_fraction: string;
-		trade_count: number;
-		win_rate: string;
-		maximum_drawdown_fraction: string;
-	};
-
-	type VersionResultGroup = {
-		version: number;
-		fingerprint: string;
-		loading: boolean;
-		error: string | null;
-		entries: VersionResultEntry[];
-	};
 
 	let entries = $state<StrategyLibraryEntry[]>([]);
 	let error = $state<string | null>(null);
@@ -102,46 +39,9 @@
 	let viewModel = $state<BuilderModel | null>(null);
 	let viewLoading = $state(false);
 	let viewError = $state<string | null>(null);
-	let researchTab = $state<'insight' | 'research' | 'versions' | 'deploy'>('insight');
-	let datasetsRequested = $state(false);
-	let launchDatasets = $state<Dataset[]>([]);
-	let launchDatasetsLoading = $state(false);
-	let launchDatasetError = $state<string | null>(null);
-	let launchError = $state<string | null>(null);
-	let launching = $state(false);
+	let researchTab = $state<'insight' | 'versions'>('insight');
 	let draftTemplate = $state('ema-trend');
 	let draftTimeframe = $state('1h');
-	let studyKind = $state<
-		'single' | 'oos_holdout' | 'walk_forward' | 'parameter_sweep' | 'walk_forward_optimization'
-	>('single');
-	let oosFraction = $state('0.3');
-	let inSampleBars = $state('720');
-	let outOfSampleBars = $state('168');
-	let stepBars = $state('168');
-	let foldMode = $state<'rolling' | 'anchored'>('rolling');
-	let axisTarget = $state<SweepAxisTarget>('indicator');
-	let axisIndicatorId = $state('fast');
-	let axisParameter = $state<SweepParameter>('period');
-	let axisValues = $state('12,26');
-	let axisConditionOperator = $state('');
-	let selectionMetric = $state<SelectionMetric>('total_return_fraction');
-	let studyResult = $state<ResearchStudy | null>(null);
-	let selectedStrategyFingerprint = $state('');
-	let launchForm = $state({
-		dataset_fingerprint: '',
-		htf_dataset_fingerprint: '',
-		indicator_dataset_fingerprints: {} as Record<string, string>,
-		evaluation_start: '',
-		evaluation_end: '',
-		initial_quote_balance: '10000',
-		maker_fee_rate: '',
-		taker_fee_rate: '',
-		fixed_slippage_bps: '10',
-		// The docs make the engine contract explicit and required; no silent default.
-		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
-		spread_bps: '8'
-	});
-	let versionResults = $state<VersionResultGroup[]>([]);
 	let versionHistory = $state<StrategyVersionHistory | null>(null);
 	let historyLoading = $state(false);
 	let historyError = $state<string | null>(null);
@@ -156,40 +56,6 @@
 	let barHeight = $state(0);
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 	let viewRequestId = 0;
-	let strategyDeployments = $state<Deployment[]>([]);
-	let deployLoading = $state(false);
-	let deploying = $state(false);
-	let deployError = $state<string | null>(null);
-	let deployFingerprint = $state('');
-	let deployMode = $state<'paper' | 'live'>('paper');
-	let deployCash = $state('10000');
-	let deployMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
-	let deployTakerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
-	let deployFeeFieldsTouched = $state(false);
-	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
-	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
-	let feeSuggestionLoading = $state(false);
-	let feeFieldsTouched = $state(false);
-	let feeSuggestionRequestId = 0;
-	const feeFieldSource = $derived(
-		researchFeeFieldSource({
-			makerFeeRate: launchForm.maker_fee_rate,
-			takerFeeRate: launchForm.taker_fee_rate,
-			applied: appliedFeeSuggestion,
-			latest: latestFeeSuggestion,
-			loading: feeSuggestionLoading
-		})
-	);
-	const feeSourceChip = $derived(
-		formatResearchFeeSourceChip(
-			feeFieldSource,
-			appliedFeeSuggestion !== null
-				? formatFeeProfileAsOf(appliedFeeSuggestion.fetchedAt)
-				: latestFeeSuggestion !== null
-					? formatFeeProfileAsOf(latestFeeSuggestion.fetchedAt)
-					: null
-		)
-	);
 
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
@@ -233,436 +99,6 @@
 		const row = document.querySelector(`tbody tr[data-strategy-id="${hoveredId}"]`);
 		if (row instanceof HTMLElement) positionBarForRow(row.getBoundingClientRect());
 	});
-
-	// Fetch the verified-dataset catalog the first time the Research tab needs
-	// it, not when the inspector opens.
-	$effect(() => {
-		const entry = viewEntry;
-		if (researchTab !== 'research' || entry === null || datasetsRequested) return;
-		datasetsRequested = true;
-		void loadLaunchDatasets(entry, viewRequestId);
-	});
-
-	function showResearchTab(): void {
-		researchTab = 'research';
-		void loadFeeSuggestion();
-	}
-
-	function applyFeeSuggestion(suggestion: ResearchFeeSuggestion): void {
-		launchForm.maker_fee_rate = suggestion.makerFeeRate;
-		launchForm.taker_fee_rate = suggestion.takerFeeRate;
-		appliedFeeSuggestion = suggestion;
-		feeFieldsTouched = false;
-	}
-
-	function onFeeFieldInput(): void {
-		feeFieldsTouched = true;
-	}
-
-	async function loadFeeSuggestion(): Promise<void> {
-		const requestId = ++feeSuggestionRequestId;
-		feeSuggestionLoading = true;
-		try {
-			const profile = await fetchFeeProfile();
-			if (requestId !== feeSuggestionRequestId) return;
-			const suggestion = readResearchFeeSuggestion(profile);
-			latestFeeSuggestion = suggestion;
-			if (
-				shouldPrefillResearchFeeRates({
-					makerFeeRate: launchForm.maker_fee_rate,
-					takerFeeRate: launchForm.taker_fee_rate,
-					touched: feeFieldsTouched,
-					suggestion
-				}) &&
-				suggestion !== null
-			) {
-				applyFeeSuggestion(suggestion);
-			}
-			if (
-				shouldPrefillPaperFeeRates({
-					makerFeeRate: deployMakerFee,
-					takerFeeRate: deployTakerFee,
-					touched: deployFeeFieldsTouched,
-					suggestion
-				}) &&
-				suggestion !== null
-			) {
-				deployMakerFee = suggestion.makerFeeRate;
-				deployTakerFee = suggestion.takerFeeRate;
-			}
-		} catch {
-			if (requestId !== feeSuggestionRequestId) return;
-			latestFeeSuggestion = null;
-		} finally {
-			if (requestId === feeSuggestionRequestId) {
-				feeSuggestionLoading = false;
-			}
-		}
-	}
-
-	$effect(() => {
-		if (researchTab !== 'deploy' || viewEntry === null) return;
-		void loadStrategyDeployments();
-		void loadFeeSuggestion();
-	});
-
-	function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
-		if (entry.published_versions.length > 0) return entry.published_versions;
-		if (entry.status !== 'draft' && entry.latest_fingerprint && entry.latest_version) {
-			return [
-				{
-					version: entry.latest_version,
-					strategy_fingerprint: entry.latest_fingerprint
-				}
-			];
-		}
-		return [];
-	}
-
-	async function loadVersionResults(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
-		if (requestId !== viewRequestId) return;
-		const publishedVersions = publishedVersionsFor(entry);
-		versionResults = publishedVersions.map((publishedVersion) => ({
-			version: publishedVersion.version,
-			fingerprint: publishedVersion.strategy_fingerprint,
-			loading: true,
-			error: null,
-			entries: []
-		}));
-		await Promise.all(
-			publishedVersions.map(async (publishedVersion, index) => {
-				const fingerprint = publishedVersion.strategy_fingerprint;
-				try {
-					const collected: VersionResultEntry[] = [];
-					const pageSize = 20;
-					let offset = 0;
-					while (true) {
-						const response = await fetch(
-							`/api/v1/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}&limit=${pageSize}&offset=${offset}`
-						);
-						if (!response.ok) throw new Error(`HTTP ${response.status}`);
-						const body = (await response.json()) as {
-							entries: {
-								result_fingerprint: string;
-								published_at: string;
-								engine_contract_version: string;
-								summary: {
-									total_return_fraction: string;
-									trade_count: number;
-									win_rate: string;
-									maximum_drawdown_fraction: string;
-								};
-							}[];
-							returned: number;
-						};
-						collected.push(
-							...body.entries.map((row) => ({
-								result_fingerprint: row.result_fingerprint,
-								published_at: row.published_at,
-								engine_contract_version: row.engine_contract_version,
-								total_return_fraction: row.summary.total_return_fraction,
-								trade_count: row.summary.trade_count,
-								win_rate: row.summary.win_rate,
-								maximum_drawdown_fraction: row.summary.maximum_drawdown_fraction
-							}))
-						);
-						if (body.returned < pageSize) break;
-						offset += body.returned;
-					}
-					if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-					versionResults[index] = {
-						version: publishedVersion.version,
-						fingerprint,
-						loading: false,
-						error: null,
-						entries: collected
-					};
-				} catch (caught) {
-					if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-					versionResults[index] = {
-						version: publishedVersion.version,
-						fingerprint,
-						loading: false,
-						error: caught instanceof Error ? caught.message : 'Could not load backtest results.',
-						entries: []
-					};
-				}
-			})
-		);
-	}
-
-	function usesFoldGeometry(): boolean {
-		return studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization';
-	}
-
-	function usesParameterAxes(): boolean {
-		return studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization';
-	}
-
-	function studyGeometryFields(): Partial<ResearchStudyRequest> {
-		if (studyKind === 'oos_holdout') {
-			return { oos_fraction: oosFraction, embargo_bars: 0 };
-		}
-		if (usesFoldGeometry()) {
-			return {
-				in_sample_bars: Number(inSampleBars),
-				out_of_sample_bars: Number(outOfSampleBars),
-				step_bars: Number(stepBars),
-				fold_mode: foldMode
-			};
-		}
-		return {};
-	}
-
-	function studyCandidateFields(): Partial<ResearchStudyRequest> | string {
-		if (!usesParameterAxes()) return {};
-		const values = parseParameterAxisValues(axisValues);
-		if (values.length < 2) {
-			return 'Enter at least two comma-separated parameter values.';
-		}
-		if (axisNeedsIndicator(axisTarget) && axisIndicatorId.trim() === '') {
-			return 'Enter the indicator id this axis locates.';
-		}
-		const axis: ParameterAxisPayload = {
-			parameter: axisParameter,
-			values
-		};
-		if (axisTarget !== 'indicator') {
-			axis.target = axisTarget;
-		}
-		if (axisNeedsIndicator(axisTarget)) {
-			axis.indicator_id = axisIndicatorId.trim();
-		}
-		if (axisConditionOperator.trim() !== '') {
-			axis.condition_operator = axisConditionOperator.trim();
-		}
-		return {
-			parameter_axes: [axis],
-			selection_metric: selectionMetric
-		};
-	}
-
-	type ParameterAxisPayload = NonNullable<ResearchStudyRequest['parameter_axes']>[number];
-
-	function onAxisTargetChange(event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value as SweepAxisTarget;
-		axisTarget = value;
-		const allowed = parametersForTarget(value);
-		if (!allowed.includes(axisParameter)) {
-			axisParameter = allowed[0] ?? 'period';
-		}
-		if (!axisNeedsIndicator(value)) {
-			axisConditionOperator = '';
-		}
-	}
-
-	async function runLaunch(): Promise<void> {
-		if (!viewEntry || selectedStrategyFingerprint === '' || launching) return;
-		if (launchForm.engine === '') {
-			launchError = 'Select an engine contract before launching.';
-			return;
-		}
-		if (launchForm.maker_fee_rate.trim() === '' || launchForm.taker_fee_rate.trim() === '') {
-			launchError = 'Enter modeled maker and taker fee rates before launching.';
-			return;
-		}
-		const candidateFields = studyKind === 'single' ? {} : studyCandidateFields();
-		if (typeof candidateFields === 'string') {
-			launchError = candidateFields;
-			return;
-		}
-		launching = true;
-		launchError = null;
-		studyResult = null;
-		try {
-			if (studyKind !== 'single') {
-				const study = await submitResearchStudy({
-					schema_version: 'thytrader-research-study-v1',
-					kind: studyKind,
-					strategy_fingerprint: selectedStrategyFingerprint,
-					dataset_fingerprint: launchForm.dataset_fingerprint,
-					...(launchForm.htf_dataset_fingerprint === ''
-						? {}
-						: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
-					...(indicatorLaunchBindings().length === 0
-						? {}
-						: { indicator_dataset_fingerprints: indicatorLaunchBindings() }),
-					evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
-					evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
-					initial_quote_balance: launchForm.initial_quote_balance,
-					maker_fee_rate: launchForm.maker_fee_rate,
-					taker_fee_rate: launchForm.taker_fee_rate,
-					fixed_slippage_bps: launchForm.fixed_slippage_bps,
-					engine_contract_version: launchForm.engine,
-					spread_bps:
-						launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null,
-					...studyGeometryFields(),
-					...candidateFields
-				});
-				studyResult = study;
-				return;
-			}
-			const input: BacktestLaunchInput = {
-				strategy_fingerprint: selectedStrategyFingerprint,
-				dataset_fingerprint: launchForm.dataset_fingerprint,
-				...(launchForm.htf_dataset_fingerprint === ''
-					? {}
-					: { htf_dataset_fingerprint: launchForm.htf_dataset_fingerprint }),
-				...(indicatorLaunchBindings().length === 0
-					? {}
-					: { indicator_dataset_fingerprints: indicatorLaunchBindings() }),
-				evaluation_start: parseUtcInputValue(launchForm.evaluation_start).toISOString(),
-				evaluation_end: parseUtcInputValue(launchForm.evaluation_end).toISOString(),
-				initial_quote_balance: launchForm.initial_quote_balance,
-				maker_fee_rate: launchForm.maker_fee_rate,
-				taker_fee_rate: launchForm.taker_fee_rate,
-				fixed_slippage_bps: launchForm.fixed_slippage_bps,
-				engine_contract_version: launchForm.engine,
-				spread_bps: launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null
-			};
-			const result = await submitBacktest(input);
-			window.location.assign(
-				resolve(`/backtests?result=${encodeURIComponent(result.result_fingerprint)}`)
-			);
-		} catch (caught) {
-			launchError = caught instanceof Error ? caught.message : 'Backtest submission failed.';
-		} finally {
-			launching = false;
-		}
-	}
-
-	// The dataset catalog is not fetched on inspector open: it can be slow on
-	// large revision histories and never blocks the evidence being viewed. The
-	// Research tab launches it on first open so "Loading strategy evidence…"
-	// stays gated only by the strategy request.
-	async function loadLaunchDatasets(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
-		if (launchDatasetsLoading) return;
-		launchDatasetsLoading = true;
-		launchDatasetError = null;
-		try {
-			const datasets = await listDatasets();
-			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === entry.product_id));
-			const ltf = viewModel?.timeframe ?? entry.timeframe;
-			const preferred = launchDatasets.find((dataset) => dataset.timeframe === ltf);
-			if (preferred !== undefined) {
-				selectLaunchDataset(preferred);
-			} else if (launchDatasets.length > 0) {
-				selectLaunchDataset(launchDatasets[0]);
-			}
-			const htfTimeframe = viewModel?.htf_filter?.timeframe;
-			if (htfTimeframe !== undefined) {
-				launchForm.htf_dataset_fingerprint =
-					launchDatasets.find((dataset) => dataset.timeframe === htfTimeframe)
-						?.content_fingerprint ?? '';
-			} else {
-				launchForm.htf_dataset_fingerprint = '';
-			}
-			const extra: Record<string, string> = {};
-			if (viewModel !== null) {
-				for (const timeframe of unboundIndicatorTimeframes(
-					viewModel.indicators,
-					viewModel.timeframe,
-					viewModel.htf_filter?.timeframe
-				)) {
-					extra[timeframe] =
-						launchDatasets.find((dataset) => dataset.timeframe === timeframe)
-							?.content_fingerprint ?? '';
-				}
-			}
-			launchForm.indicator_dataset_fingerprints = extra;
-		} catch (caught) {
-			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
-			launchDatasetError =
-				caught instanceof Error ? caught.message : 'Verified datasets are unavailable.';
-		} finally {
-			// A superseded request (another strategy opened) must not leave the
-			// next view stuck on "Loading verified datasets…".
-			launchDatasetsLoading = false;
-		}
-	}
-
-	function decisionLaunchDatasets(): Dataset[] {
-		const timeframe = viewModel?.timeframe ?? viewEntry?.timeframe;
-		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
-	}
-
-	function htfLaunchDatasets(): Dataset[] {
-		const timeframe = viewModel?.htf_filter?.timeframe;
-		if (timeframe === undefined) return [];
-		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
-	}
-
-	function indicatorLaunchBindings(): { timeframe: string; dataset_fingerprint: string }[] {
-		if (viewModel === null) return [];
-		return unboundIndicatorTimeframes(
-			viewModel.indicators,
-			viewModel.timeframe,
-			viewModel.htf_filter?.timeframe
-		)
-			.map((timeframe) => ({
-				timeframe,
-				dataset_fingerprint: launchForm.indicator_dataset_fingerprints[timeframe] ?? ''
-			}))
-			.filter((binding) => binding.dataset_fingerprint !== '');
-	}
-
-	function extraLaunchTimeframes(): string[] {
-		if (viewModel === null) return [];
-		return unboundIndicatorTimeframes(
-			viewModel.indicators,
-			viewModel.timeframe,
-			viewModel.htf_filter?.timeframe
-		);
-	}
-
-	function extraLaunchDatasets(timeframe: string): Dataset[] {
-		return launchDatasets.filter((dataset) => dataset.timeframe === timeframe);
-	}
-
-	function missingExtraLaunchDatasets(): boolean {
-		return extraLaunchTimeframes().some(
-			(timeframe) => (launchForm.indicator_dataset_fingerprints[timeframe] ?? '') === ''
-		);
-	}
-
-	function selectLaunchDataset(dataset: Dataset): void {
-		launchForm.dataset_fingerprint = dataset.content_fingerprint;
-		applyLaunchWindowDefaults();
-	}
-
-	function applyLaunchWindowDefaults(): void {
-		const dataset = launchDatasets.find(
-			(candidate) => candidate.content_fingerprint === launchForm.dataset_fingerprint
-		);
-		if (dataset === undefined) return;
-		const warmup = viewModel?.warmup_bars ?? 0;
-		const bounds = datasetEvaluationWindow(dataset, warmup, viewModel?.timeframe ?? '1h');
-		launchForm.evaluation_start = bounds.min;
-		launchForm.evaluation_end = bounds.max;
-	}
-
-	function launchWindowBounds(): { min: string; max: string } | null {
-		const dataset = launchDatasets.find(
-			(candidate) => candidate.content_fingerprint === launchForm.dataset_fingerprint
-		);
-		if (dataset === undefined) return null;
-		return datasetEvaluationWindow(
-			dataset,
-			viewModel?.warmup_bars ?? 0,
-			viewModel?.timeframe ?? '1h'
-		);
-	}
-
-	function launchWindowHint(): string | null {
-		const bounds = launchWindowBounds();
-		if (bounds === null) return null;
-		return researchWindowHint(
-			bounds,
-			viewModel?.warmup_bars ?? 0,
-			viewModel?.timeframe ?? viewEntry?.timeframe ?? '1h'
-		);
-	}
 
 	async function loadVersionHistory(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
 		historyLoading = true;
@@ -759,7 +195,6 @@
 				if (revised !== null && viewEntry?.strategy_id === entry.strategy_id) {
 					viewEntry = { ...(updatedEntry ?? entry) };
 					viewModel = toBuilderModel(revised.strategy, revised.revision);
-					applyLaunchWindowDefaults();
 				}
 			}
 		} catch (caught) {
@@ -800,7 +235,7 @@
 
 	async function openView(
 		entry: StrategyLibraryEntry,
-		tab: 'insight' | 'research' | 'versions' | 'deploy' = 'insight'
+		tab: 'insight' | 'versions' = 'insight'
 	): Promise<void> {
 		const requestId = ++viewRequestId;
 		viewEntry = entry;
@@ -808,25 +243,6 @@
 		viewError = null;
 		viewLoading = true;
 		researchTab = tab;
-		versionResults = [];
-		launchError = null;
-		launching = false;
-		datasetsRequested = false;
-		launchDatasets = [];
-		launchDatasetError = null;
-		launchDatasetsLoading = false;
-		selectedStrategyFingerprint = entry.latest_fingerprint ?? '';
-		launchForm.dataset_fingerprint = '';
-		launchForm.htf_dataset_fingerprint = '';
-		launchForm.indicator_dataset_fingerprints = {};
-		strategyDeployments = [];
-		deployError = null;
-		deployFingerprint = entry.latest_fingerprint ?? '';
-		deployMode = 'paper';
-		deployCash = '10000';
-		deployMakerFee = PAPER_DEFAULT_MAKER_FEE_RATE;
-		deployTakerFee = PAPER_DEFAULT_TAKER_FEE_RATE;
-		deployFeeFieldsTouched = false;
 		if (entry.published_versions.length > 0 || entry.status !== 'draft') {
 			void loadVersionHistory(entry, requestId);
 		}
@@ -839,18 +255,11 @@
 			} else if (entry.latest_fingerprint) {
 				const source = await fetchStrategySource(entry.latest_fingerprint);
 				loadedModel = toBuilderModel(source, 0);
-			} else {
-				if (requestId === viewRequestId) {
-					viewError = 'No immutable evidence is available for this strategy.';
-				}
+			} else if (requestId === viewRequestId) {
+				viewError = 'No immutable evidence is available for this strategy.';
 			}
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
 			viewModel = loadedModel;
-			if (loadedModel !== null) {
-				// Datasets may have loaded first; refresh window defaults with the real warmup.
-				applyLaunchWindowDefaults();
-				void loadVersionResults(entry, requestId);
-			}
 		} catch (caught) {
 			if (requestId !== viewRequestId || viewEntry?.strategy_id !== entry.strategy_id) return;
 			viewError = caught instanceof Error ? caught.message : 'Could not load strategy details.';
@@ -871,92 +280,6 @@
 		reviseError = null;
 		revising = null;
 		diffCache = {};
-		selectedStrategyFingerprint = '';
-		datasetsRequested = false;
-		launchDatasets = [];
-		launchDatasetError = null;
-		launchDatasetsLoading = false;
-		strategyDeployments = [];
-		deployError = null;
-	}
-
-	async function loadStrategyDeployments(): Promise<void> {
-		const entry = viewEntry;
-		if (entry === null) return;
-		deployLoading = true;
-		try {
-			const deployments = await listDeployments();
-			if (viewEntry?.strategy_id !== entry.strategy_id) return;
-			strategyDeployments = deployments.filter(
-				(deployment) => deployment.strategy_id === entry.strategy_id
-			);
-		} catch (caught) {
-			if (viewEntry?.strategy_id !== entry.strategy_id) return;
-			deployError = caught instanceof Error ? caught.message : 'Could not load deployments.';
-		} finally {
-			if (viewEntry?.strategy_id === entry.strategy_id) {
-				deployLoading = false;
-			}
-		}
-	}
-
-	async function deployStrategy(): Promise<void> {
-		if (deployMode === 'live') {
-			const selectedVersion = publishedVersionsFor(viewEntry!).find(
-				(v) => v.strategy_fingerprint === deployFingerprint
-			);
-			const versionLabel = selectedVersion
-				? `v${selectedVersion.version}`
-				: deployFingerprint.slice(0, 18);
-			const timeframe = viewModel?.timeframe ?? viewEntry?.timeframe ?? '1h';
-			const confirmed = window.confirm(
-				`ARM LIVE TRADING on Coinbase?\n\nThis will place REAL spot orders using your Coinbase API keys.\n\nStrategy: ${viewEntry?.name ?? 'Unknown'}\nVersion: ${versionLabel}\nFingerprint: ${deployFingerprint.slice(0, 32)}...\nTimeframe: ${timeframe}\nMarket: ${viewEntry?.product_id ?? 'Unknown'}\n\nYou are solely responsible for all trades and market risk.`
-			);
-			if (!confirmed) return;
-		}
-		deploying = true;
-		deployError = null;
-		try {
-			await createDeployment({
-				strategy_fingerprint: deployFingerprint,
-				mode: deployMode,
-				paper_starting_cash: deployMode === 'paper' ? deployCash : undefined,
-				maker_fee_rate: deployMode === 'paper' ? deployMakerFee : undefined,
-				taker_fee_rate: deployMode === 'paper' ? deployTakerFee : undefined
-			});
-			await loadStrategyDeployments();
-			await loadLibrary();
-		} catch (caught) {
-			deployError = caught instanceof Error ? caught.message : 'Could not start the deployment.';
-		} finally {
-			deploying = false;
-		}
-	}
-
-	async function changeDeployment(id: string, action: 'pause' | 'resume' | 'stop'): Promise<void> {
-		const deployment = strategyDeployments.find((d) => d.id === id);
-		if (action === 'stop') {
-			const confirmed = window.confirm(
-				'Stop this deployment permanently? Resting orders will be canceled.'
-			);
-			if (!confirmed) return;
-		}
-		if (action === 'resume' && deployment?.mode === 'live') {
-			const confirmed = window.confirm(
-				'RESUME LIVE TRADING on Coinbase?\n\nThis will RE-ARM real spot order submission using your Coinbase API keys.\n\nYou are solely responsible for all trades and market risk.'
-			);
-			if (!confirmed) return;
-		}
-		deployError = null;
-		try {
-			if (action === 'pause') await pauseDeployment(id);
-			else if (action === 'resume') await resumeDeployment(id);
-			else await stopDeployment(id);
-			await loadStrategyDeployments();
-			await loadLibrary();
-		} catch (caught) {
-			deployError = caught instanceof Error ? caught.message : 'Could not update the deployment.';
-		}
 	}
 
 	async function loadLibrary(): Promise<void> {
@@ -1064,18 +387,6 @@
 		return formatUtcInputValue(new Date(value)).replace('T', ' ');
 	}
 
-	function latestComparisonRows(): (VersionResultEntry & {
-		version: number;
-		fingerprint: string;
-	})[] {
-		return versionResults.flatMap((group) => {
-			const latest = group.entries[0];
-			return latest === undefined
-				? []
-				: [{ ...latest, version: group.version, fingerprint: group.fingerprint }];
-		});
-	}
-
 	onMount(() => void loadLibrary());
 </script>
 
@@ -1087,8 +398,8 @@
 			<p class="eyebrow">Conservative research</p>
 			<h1>Strategy library</h1>
 			<p class="lede">
-				Every strategy identity with its latest evidence. Paper and live runtimes start from the
-				Deploy tab on a published version.
+				Create and inspect strategies here. Launch research from Research, and paper or live from
+				Deploy. This drawer stays on Insight and Versions.
 			</p>
 		</div>
 	</section>
@@ -1117,7 +428,7 @@
 	</section>
 	{#if error}<div class="error-banner" role="alert">
 			<div>
-				<strong>Research operation unavailable</strong>
+				<strong>Strategy library unavailable</strong>
 				<p>{error}</p>
 			</div>
 			<button type="button" onclick={loadLibrary}>Retry library load</button>
@@ -1187,14 +498,13 @@
 									{/if}
 								</td>
 								<td>
-									<button
+									<a
 										class="paper-live-status"
-										type="button"
+										href={resolve(`/deploy?strategy=${encodeURIComponent(entry.strategy_id)}`)}
 										title={paperLiveStatusTitle(entry.paper_live)}
-										onclick={() => void openView(entry, 'deploy')}
 									>
 										{paperLiveStatusLabel(entry.paper_live)}
-									</button>
+									</a>
 								</td>
 							</tr>
 						{/each}
@@ -1256,13 +566,10 @@
 					aria-selected={researchTab === 'insight'}
 					onclick={() => (researchTab = 'insight')}>Insight</button
 				>
-				<button
+				<a
 					class="drawer-tab"
-					class:active={researchTab === 'research'}
-					type="button"
-					role="tab"
-					aria-selected={researchTab === 'research'}
-					onclick={() => showResearchTab()}>Research</button
+					href={resolve(`/research?strategy=${encodeURIComponent(viewEntry.strategy_id)}`)}
+					>Research</a
 				>
 				<button
 					class="drawer-tab"
@@ -1272,13 +579,10 @@
 					aria-selected={researchTab === 'versions'}
 					onclick={() => (researchTab = 'versions')}>Versions</button
 				>
-				<button
+				<a
 					class="drawer-tab"
-					class:active={researchTab === 'deploy'}
-					type="button"
-					role="tab"
-					aria-selected={researchTab === 'deploy'}
-					onclick={() => (researchTab = 'deploy')}>Deploy</button
+					href={resolve(`/deploy?strategy=${encodeURIComponent(viewEntry.strategy_id)}`)}
+					>Deploy</a
 				>
 			</div>
 			{#if viewLoading}
@@ -1315,478 +619,6 @@
 				<div class="view-block">
 					<h3>Engine support</h3>
 					<EngineSupportMatrix />
-				</div>
-			{:else if viewModel && researchTab === 'research'}
-				<div class="view-block">
-					<h3>Launch backtest</h3>
-					<p class="view-note">
-						Runs against the selected immutable version of this strategy. Results are deterministic
-						and reproducible.
-					</p>
-					{#if publishedVersionsFor(viewEntry).length === 0}
-						<p class="view-note">Publish this draft before launching a reproducible backtest.</p>
-					{:else}
-						<div class="launch-grid">
-							<label
-								>Strategy version
-								<select bind:value={selectedStrategyFingerprint}>
-									{#each publishedVersionsFor(viewEntry) as version (version.strategy_fingerprint)}
-										<option value={version.strategy_fingerprint}>Version {version.version}</option>
-									{/each}
-								</select></label
-							>
-							<label
-								>Verified {viewEntry.timeframe} dataset
-								<select
-									bind:value={launchForm.dataset_fingerprint}
-									onchange={() => applyLaunchWindowDefaults()}
-								>
-									<option value=""
-										>Select a verified {viewEntry.product_id} {viewEntry.timeframe} dataset</option
-									>
-									{#each decisionLaunchDatasets() as dataset (dataset.content_fingerprint)}
-										<option value={dataset.content_fingerprint}
-											>{dataset.timeframe} · {formatUtcInputValue(
-												new Date(dataset.starts_at)
-											).replace('T', ' ')} – {formatUtcInputValue(
-												new Date(dataset.ends_at)
-											).replace('T', ' ')} UTC</option
-										>
-									{/each}
-								</select>
-								{#if launchDatasetsLoading}
-									<small class="field-note">Loading verified datasets…</small>
-								{:else if launchDatasetError}
-									<small class="field-error" role="alert">{launchDatasetError}</small>
-								{:else if decisionLaunchDatasets().length === 0}
-									<small class="field-note"
-										>No verified {viewEntry.timeframe} datasets match this market.</small
-									>
-								{/if}</label
-							>
-							{#if viewModel.htf_filter}
-								<label
-									>Verified {viewModel.htf_filter.timeframe} HTF dataset
-									<select bind:value={launchForm.htf_dataset_fingerprint}>
-										<option value=""
-											>Select a verified {viewModel.htf_filter.timeframe} dataset</option
-										>
-										{#each htfLaunchDatasets() as dataset (dataset.content_fingerprint)}
-											<option value={dataset.content_fingerprint}
-												>{dataset.timeframe} · {formatUtcInputValue(
-													new Date(dataset.starts_at)
-												).replace('T', ' ')} – {formatUtcInputValue(
-													new Date(dataset.ends_at)
-												).replace('T', ' ')} UTC</option
-											>
-										{/each}
-									</select>
-									{#if htfLaunchDatasets().length === 0}
-										<small class="field-note"
-											>No verified {viewModel.htf_filter.timeframe} HTF dataset for this market.</small
-										>
-									{/if}</label
-								>
-							{/if}
-							{#each extraLaunchTimeframes() as timeframe (timeframe)}
-								<label
-									>Verified {timeframe} indicator dataset
-									<select
-										value={launchForm.indicator_dataset_fingerprints[timeframe] ?? ''}
-										onchange={(event) => {
-											launchForm.indicator_dataset_fingerprints = {
-												...launchForm.indicator_dataset_fingerprints,
-												[timeframe]: (event.currentTarget as HTMLSelectElement).value
-											};
-										}}
-									>
-										<option value="">Select a verified {timeframe} dataset</option>
-										{#each extraLaunchDatasets(timeframe) as dataset (dataset.content_fingerprint)}
-											<option value={dataset.content_fingerprint}
-												>{dataset.timeframe} · {formatUtcInputValue(
-													new Date(dataset.starts_at)
-												).replace('T', ' ')} – {formatUtcInputValue(
-													new Date(dataset.ends_at)
-												).replace('T', ' ')} UTC</option
-											>
-										{/each}
-									</select>
-									{#if extraLaunchDatasets(timeframe).length === 0}
-										<small class="field-note"
-											>No verified {timeframe} dataset for this market.</small
-										>
-									{/if}</label
-								>
-							{/each}
-						</div>
-						<div class="launch-grid">
-							<label
-								>Engine
-								<select bind:value={launchForm.engine}>
-									<option value="" disabled selected hidden>Select an engine</option>
-									<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
-									<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
-									<option value="thytrader-bar-backtest-v3">V3 — resting maker limit</option>
-								</select></label
-							>
-							<label
-								>Study
-								<select bind:value={studyKind}>
-									<option value="single">Single window</option>
-									<option value="oos_holdout">OOS holdout</option>
-									<option value="walk_forward">Walk-forward</option>
-									<option value="parameter_sweep">Parameter sweep</option>
-									<option value="walk_forward_optimization">Walk-forward optimization</option>
-								</select></label
-							>
-							{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
-								<label
-									>Constant spread (bps, total bid-ask)
-									<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
-								>
-							{/if}
-						</div>
-						{#if studyKind === 'oos_holdout'}
-							<div class="launch-grid">
-								<label
-									>OOS fraction (last share)
-									<input inputmode="decimal" bind:value={oosFraction} /></label
-								>
-							</div>
-							<p class="view-note">
-								The same published fingerprint is simulated on in-sample then out-of-sample. OOS is
-								the honest claim; this does not retune parameters.
-							</p>
-						{/if}
-						{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
-							<div class="launch-grid">
-								<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
-								<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
-								<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
-								<label
-									>Fold mode
-									<select bind:value={foldMode}>
-										<option value="rolling">Rolling</option>
-										<option value="anchored">Anchored</option>
-									</select></label
-								>
-							</div>
-							<p class="view-note">
-								{#if studyKind === 'walk_forward'}
-									Walk-forward validation uses the same published fingerprint on each fold.
-									Non-overlapping OOS windows may include a derived stitched equity curve.
-									Cross-market studies stay on the research CLI.
-								{:else}
-									WFO simulates every candidate on every fold and selects only on in-sample
-									{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
-									selected OOS returns without interpolating embargo gaps.
-								{/if}
-							</p>
-						{/if}
-						{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
-							<div class="launch-grid">
-								<label
-									>Axis target
-									<select value={axisTarget} onchange={onAxisTargetChange}>
-										<option value="indicator">indicator</option>
-										<option value="sizing">sizing</option>
-										<option value="exits">exits</option>
-										<option value="execution">execution</option>
-										<option value="entry_literal">entry_literal</option>
-										<option value="htf_literal">htf_literal</option>
-									</select></label
-								>
-								{#if axisNeedsIndicator(axisTarget)}
-									<label>Indicator id<input bind:value={axisIndicatorId} /></label>
-								{/if}
-								<label
-									>Parameter
-									<select bind:value={axisParameter}>
-										{#each parametersForTarget(axisTarget) as parameter (parameter)}
-											<option value={parameter}>{parameter}</option>
-										{/each}
-									</select></label
-								>
-								<label
-									>Axis values (comma-separated)
-									<input bind:value={axisValues} /></label
-								>
-								{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
-									<label
-										>Condition operator (optional)
-										<input bind:value={axisConditionOperator} /></label
-									>
-								{/if}
-								<label
-									>Selection metric
-									<select bind:value={selectionMetric}>
-										<option value="total_return_fraction">Total return</option>
-										<option value="total_net_pnl">Total net PnL</option>
-										<option value="maximum_drawdown_fraction">Max drawdown</option>
-									</select></label
-								>
-							</div>
-							{#if studyKind === 'parameter_sweep'}
-								<p class="view-note">
-									Each axis cell is one published-shaped candidate on the same window. The aggregate
-									is not an out-of-sample claim. Submit publishes missing derived fingerprints.
-									Product and timeframe are not sweepable.
-								</p>
-							{/if}
-						{/if}
-						<div class="launch-grid">
-							<label
-								>Evaluation start
-								<input
-									type="datetime-local"
-									bind:value={launchForm.evaluation_start}
-									min={launchWindowBounds()?.min}
-									max={launchWindowBounds()?.max}
-								/></label
-							>
-							<label
-								>Evaluation end
-								<input
-									type="datetime-local"
-									bind:value={launchForm.evaluation_end}
-									min={launchWindowBounds()?.min}
-									max={launchWindowBounds()?.max}
-								/></label
-							>
-						</div>
-						{#if launchWindowHint() !== null}
-							<p class="view-note">{launchWindowHint()}</p>
-						{/if}
-						<div class="launch-grid">
-							<label
-								>Initial capital (USD)
-								<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
-							>
-							<label
-								>Fixed slippage (bps)
-								<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
-							>
-						</div>
-						<div class="launch-grid">
-							<label
-								>Maker fee rate
-								<input
-									inputmode="decimal"
-									bind:value={launchForm.maker_fee_rate}
-									oninput={onFeeFieldInput}
-								/></label
-							>
-							<label
-								>Taker fee rate
-								<input
-									inputmode="decimal"
-									bind:value={launchForm.taker_fee_rate}
-									oninput={onFeeFieldInput}
-								/></label
-							>
-						</div>
-						<div class="fee-source-row">
-							<span
-								class="fee-source-chip"
-								class:custom={feeFieldSource === 'custom'}
-								class:stale={feeFieldSource === 'stale-suggestion'}
-								data-testid="research-fee-source"
-								title={latestFeeSuggestion !== null
-									? `Schedule ${latestFeeSuggestion.scheduleVersion}${latestFeeSuggestion.scheduleTierId === '' ? '' : `, band ${latestFeeSuggestion.scheduleTierId}`}`
-									: undefined}>{feeSourceChip}</span
-							>
-							{#if latestFeeSuggestion !== null && feeFieldSource === 'stale-suggestion'}
-								{@const suggestion = latestFeeSuggestion}
-								<button
-									class="secondary fee-source-action"
-									type="button"
-									onclick={() => applyFeeSuggestion(suggestion)}>Refresh suggestion</button
-								>
-							{:else if latestFeeSuggestion !== null && feeFieldSource === 'custom'}
-								{@const suggestion = latestFeeSuggestion}
-								<button
-									class="secondary fee-source-action"
-									type="button"
-									onclick={() => applyFeeSuggestion(suggestion)}>Apply suggested rates</button
-								>
-							{/if}
-						</div>
-						<p class="view-note">{RESEARCH_FEE_ENGINE_NOTE}</p>
-						{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
-						<button
-							class="refresh launch-button"
-							type="button"
-							onclick={runLaunch}
-							disabled={launching ||
-								selectedStrategyFingerprint === '' ||
-								launchForm.dataset_fingerprint === '' ||
-								(viewModel.htf_filter !== null && launchForm.htf_dataset_fingerprint === '') ||
-								missingExtraLaunchDatasets() ||
-								launchForm.evaluation_start === '' ||
-								launchForm.evaluation_end === '' ||
-								launchForm.maker_fee_rate.trim() === '' ||
-								launchForm.taker_fee_rate.trim() === ''}
-						>
-							{launching
-								? 'Running simulation…'
-								: studyKind === 'single'
-									? 'Run backtest'
-									: 'Run study'}
-						</button>
-					{/if}
-				</div>
-				{#if studyResult}
-					<div class="view-block" data-testid="research-study-result">
-						<h3>Research study</h3>
-						<p class="view-note">
-							{studyResult.kind} · {engineContractLabel(studyResult.engine_contract_version)} ·
-							{studyResult.aggregate.oos_window_count} OOS window(s) · fingerprint
-							{studyResult.study_fingerprint.slice(0, 18)}…
-						</p>
-						{#if studyResult.aggregate.mean_oos_return_fraction !== null}
-							<p>
-								Mean OOS return {formatPercent(studyResult.aggregate.mean_oos_return_fraction)}
-								{#if studyResult.aggregate.is_oos_return_gap !== null}
-									· IS−OOS gap {formatPercent(studyResult.aggregate.is_oos_return_gap)}
-								{/if}
-							</p>
-						{/if}
-						{#if studyResult.stitched_oos_equity}
-							<p class="view-note">
-								{#if studyResult.stitched_oos_equity.available && studyResult.stitched_oos_equity.total_return_fraction}
-									Stitched OOS return {formatPercent(
-										studyResult.stitched_oos_equity.total_return_fraction
-									)}
-									{#if studyResult.stitched_oos_equity.maximum_drawdown_fraction}
-										· max drawdown {formatPercent(
-											studyResult.stitched_oos_equity.maximum_drawdown_fraction
-										)}
-									{/if}
-								{:else if studyResult.stitched_oos_equity.reason}
-									{studyResult.stitched_oos_equity.reason}
-								{/if}
-							</p>
-						{/if}
-						{#each studyResult.warnings as warning (warning)}
-							<p class="view-note">{warning}</p>
-						{/each}
-						<table class="results-table" aria-label="Study windows">
-							<thead>
-								<tr>
-									<th scope="col">Window</th>
-									<th scope="col">Role</th>
-									<th scope="col">Return</th>
-									<th scope="col">Trades</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each studyResult.windows as window (window.result_fingerprint)}
-									<tr>
-										<td>{window.label}</td>
-										<td>{window.role}{window.selected === true ? ' · selected' : ''}</td>
-										<td>
-											<a
-												href={resolve(
-													`/backtests?result=${encodeURIComponent(window.result_fingerprint)}`
-												)}>{formatPercent(window.summary.total_return_fraction)}</a
-											>
-										</td>
-										<td>{window.summary.trade_count}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-				<div class="view-block">
-					<h3>Results by version</h3>
-					{#if latestComparisonRows().length > 1}
-						{@const comparisonRows = latestComparisonRows()}
-						<table class="results-table comparison-table" aria-label="Latest result comparison">
-							<thead>
-								<tr>
-									<th scope="col">Version</th>
-									<th scope="col">Engine</th>
-									<th scope="col">Return</th>
-									<th scope="col">Trades</th>
-									<th scope="col">Win rate</th>
-									<th scope="col">Max drawdown</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each comparisonRows as row (row.fingerprint)}
-									<tr>
-										<td>V{row.version}</td>
-										<td>{engineContractLabel(row.engine_contract_version)}</td>
-										<td>
-											<a
-												href={resolve(
-													`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`
-												)}>{formatPercent(row.total_return_fraction)}</a
-											>
-										</td>
-										<td>{row.trade_count}</td>
-										<td>{formatPercent(row.win_rate)}</td>
-										<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					{/if}
-					{#if versionResults.length === 0}
-						<p class="view-note">
-							This strategy has no immutable published versions to compare yet.
-						</p>
-					{:else}
-						{#each versionResults as version (version.fingerprint)}
-							<div class="version-block">
-								<h4>
-									Version {version.version}
-									<code>{version.fingerprint.slice(0, 18)}…</code>
-								</h4>
-								{#if version.loading}
-									<p class="view-note">Loading results…</p>
-								{:else if version.error}
-									<p class="view-problem">{version.error}</p>
-								{:else if version.entries.length === 0}
-									<p class="view-note">No backtests yet for this version.</p>
-								{:else}
-									<table class="results-table">
-										<thead>
-											<tr>
-												<th scope="col">Return</th>
-												<th scope="col">Engine</th>
-												<th scope="col">Trades</th>
-												<th scope="col">Win rate</th>
-												<th scope="col">Max drawdown</th>
-												<th scope="col">Published</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each version.entries as row (row.result_fingerprint)}
-												<tr>
-													<td>
-														<a
-															href={resolve(
-																`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`
-															)}>{formatPercent(row.total_return_fraction)}</a
-														>
-													</td>
-													<td>{engineContractLabel(row.engine_contract_version)}</td>
-													<td>{row.trade_count}</td>
-													<td>{formatPercent(row.win_rate)}</td>
-													<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
-													<td
-														>{formatUtcInputValue(new Date(row.published_at)).replace('T', ' ')}</td
-													>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								{/if}
-							</div>
-						{/each}
-					{/if}
 				</div>
 			{:else if viewModel && researchTab === 'versions'}
 				{@const viewSnapshot = viewEntry}
@@ -1966,201 +798,6 @@
 						>Edit this draft</a
 					>
 				{/if}
-			{:else if viewEntry && researchTab === 'deploy'}
-				<div class="view-block">
-					<h3>Deploy</h3>
-					<p class="view-note">
-						Starts the strategy runtime on closed candles. <strong>Paper:</strong> any ingested
-						venue clock (strategy clock); simulates maker fills. <strong>Live:</strong> the same clocks;
-						places real Coinbase spot orders. Sub-hour live requires a connected user-order feed.
-					</p>
-					{#if viewModel?.htf_filter}
-						<p class="view-note">
-							This version ANDs last-completed {viewModel.htf_filter.timeframe} HTF bars with LTF entry.
-							Paper and live load live complete-only HTF candles; missing coverage pauses.
-						</p>
-					{/if}
-					{#if viewModel && extraIndicatorTimeframes(viewModel.indicators, viewModel.timeframe).length > 0}
-						<p class="view-note">
-							This version also evaluates last-completed {extraIndicatorTimeframes(
-								viewModel.indicators,
-								viewModel.timeframe
-							).join(', ')} indicator bars. Paper and live load those complete-only candles; missing coverage
-							pauses.
-						</p>
-					{/if}
-					{#if publishedVersionsFor(viewEntry).length === 0}
-						<p class="view-note">Publish this strategy before deploying.</p>
-					{:else}
-						<div class="launch-grid">
-							<label
-								>Published version
-								<select bind:value={deployFingerprint}>
-									{#each publishedVersionsFor(viewEntry) as version (version.strategy_fingerprint)}
-										<option value={version.strategy_fingerprint}>Version {version.version}</option>
-									{/each}
-								</select></label
-							>
-							<label
-								>Mode
-								<select bind:value={deployMode}>
-									<option value="paper">Paper</option>
-									<option value="live">Live</option>
-								</select></label
-							>
-						</div>
-						{#if deployMode === 'paper'}
-							<label class="deploy-cash"
-								>Paper starting cash (USD)
-								<input bind:value={deployCash} /></label
-							>
-							<div class="launch-grid">
-								<label
-									>Maker fee rate
-									<input
-										inputmode="decimal"
-										bind:value={deployMakerFee}
-										oninput={() => (deployFeeFieldsTouched = true)}
-									/></label
-								>
-								<label
-									>Taker fee rate
-									<input
-										inputmode="decimal"
-										bind:value={deployTakerFee}
-										oninput={() => (deployFeeFieldsTouched = true)}
-									/></label
-								>
-							</div>
-							<p class="view-note">{PAPER_FEE_ENGINE_NOTE}</p>
-						{/if}
-						<button
-							class="launch-button"
-							class:live-danger={deployMode === 'live'}
-							type="button"
-							disabled={deploying || !deployFingerprint}
-							onclick={() => void deployStrategy()}
-						>
-							{deploying
-								? 'Starting…'
-								: deployMode === 'live'
-									? 'Arm live trading…'
-									: 'Start deployment'}
-						</button>
-						{#if deployError}
-							<p class="view-problem" role="alert">{deployError}</p>
-						{/if}
-					{/if}
-				</div>
-				<div class="view-block">
-					<h3>Runtime</h3>
-					{#if deployLoading}
-						<p class="view-note">Loading deployments…</p>
-					{:else if strategyDeployments.length === 0}
-						<p class="view-note">No deployments yet.</p>
-					{:else}
-						{#each strategyDeployments as deployment (deployment.id)}
-							<div class="version-block">
-								<h4>{deployment.mode} · {deployment.status} · {deployment.phase}</h4>
-								<p>
-									Cash {deployment.cash}
-									{#if deployment.mode === 'paper' && deployment.maker_fee_rate && deployment.taker_fee_rate}
-										· paper fees {deployment.maker_fee_rate}/{deployment.taker_fee_rate}
-									{/if}
-									{#if deployment.last_signal}
-										· last signal {deployment.last_signal}
-									{/if}
-									{#if deployment.last_evaluated_bar}
-										· bar {deployment.last_evaluated_bar}
-									{/if}
-								</p>
-								{#if deployment.mismatch_detail}
-									<p class="view-problem" role="alert">{deployment.mismatch_detail}</p>
-								{/if}
-								{#if deployment.position}
-									<p>
-										Position {deployment.position.quantity} @ {deployment.position.entry_price} · stop
-										{deployment.position.stop_price} · target {deployment.position.target_price}
-										{#if deployment.position.trail_extreme}
-											· trail {deployment.position.trail_extreme}
-										{/if}
-									</p>
-								{/if}
-								{#if deployment.orders.length > 0}
-									<table class="results-table" aria-label="Open and recent orders">
-										<thead>
-											<tr>
-												<th scope="col">Side</th>
-												<th scope="col">Qty</th>
-												<th scope="col">Kind</th>
-												<th scope="col">Status</th>
-												<th scope="col">Price</th>
-												<th scope="col">Reject</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each deployment.orders as order (order.id)}
-												<tr>
-													<td>{order.side}</td>
-													<td>{order.quantity}</td>
-													<td>{order.kind}</td>
-													<td>{order.status}</td>
-													<td>{order.price ?? '—'}</td>
-													<td>{order.reject_reason ?? '—'}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								{/if}
-								{#if deployment.fills.length > 0}
-									<table class="results-table" aria-label="Fills">
-										<thead>
-											<tr>
-												<th scope="col">Time</th>
-												<th scope="col">Qty</th>
-												<th scope="col">Price</th>
-												<th scope="col">Fee</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each deployment.fills as fill (fill.id)}
-												<tr>
-													<td>{fill.filled_at}</td>
-													<td>{fill.quantity}</td>
-													<td>{fill.price}</td>
-													<td>{fill.fee}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								{/if}
-								<div class="version-actions">
-									{#if deployment.status === 'running'}
-										<button
-											class="bar-button"
-											type="button"
-											onclick={() => void changeDeployment(deployment.id, 'pause')}>Pause</button
-										>
-									{/if}
-									{#if deployment.status === 'paused'}
-										<button
-											class="bar-button"
-											type="button"
-											onclick={() => void changeDeployment(deployment.id, 'resume')}>Resume</button
-										>
-									{/if}
-									{#if deployment.status !== 'stopped'}
-										<button
-											class="bar-button bar-danger"
-											type="button"
-											onclick={() => void changeDeployment(deployment.id, 'stop')}>Stop</button
-										>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					{/if}
-				</div>
 			{/if}
 		</div>
 	</div>
@@ -2182,6 +819,16 @@
 			{@const entry = entries.find((candidate) => candidate.strategy_id === hoveredId)}
 			{#if entry}
 				<button class="bar-button" type="button" onclick={() => openView(entry)}>View</button>
+				<a
+					class="bar-button"
+					href={resolve(`/research?strategy=${encodeURIComponent(entry.strategy_id)}`)}
+					>Research</a
+				>
+				<a
+					class="bar-button"
+					href={resolve(`/deploy?strategy=${encodeURIComponent(entry.strategy_id)}`)}
+					>Deploy</a
+				>
 				{#if entry.status === 'draft'}
 					<a class="bar-button" href={resolve(`/strategies/${entry.strategy_id}`)}>Edit</a>
 				{/if}
@@ -2260,6 +907,7 @@
 		padding: 0;
 		cursor: pointer;
 		text-align: left;
+		text-decoration: none;
 	}
 	.paper-live-status:hover,
 	.paper-live-status:focus-visible {
@@ -2528,6 +1176,9 @@
 		font: inherit;
 		font-size: 12px;
 		cursor: pointer;
+		text-decoration: none;
+		display: inline-flex;
+		align-items: center;
 	}
 	.drawer-tab.active {
 		background: #1d2b26;
