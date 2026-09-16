@@ -316,6 +316,62 @@ Index(
     published_backtest_results.c.dataset_fingerprint,
 )
 
+published_research_studies = Table(
+    "published_research_studies",
+    metadata,
+    Column("study_fingerprint", String(71), primary_key=True),
+    Column("request_fingerprint", String(71), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("engine_contract_version", String(64), nullable=False),
+    Column("product_id", String(32), nullable=False),
+    Column("timeframe", String(8), nullable=False),
+    Column("window_count", Integer(), nullable=False),
+    Column("selected_strategy_fingerprint", String(71), nullable=True),
+    Column("mean_oos_return_fraction", String(64), nullable=True),
+    Column("stitched_oos_available", Boolean(), nullable=True),
+    Column("selection_metric", String(64), nullable=True),
+    Column("canonical_study", Text(), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "study_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_study_fingerprint_format",
+    ),
+    CheckConstraint(
+        "request_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_study_request_fingerprint_format",
+    ),
+    CheckConstraint(
+        "kind IN ("
+        "'oos_holdout', 'walk_forward', 'cross_market', "
+        "'parameter_sweep', 'walk_forward_optimization'"
+        ")",
+        name="ck_research_study_kind",
+    ),
+    CheckConstraint(
+        "timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')",
+        name="ck_research_study_timeframe",
+    ),
+    CheckConstraint("window_count >= 1", name="ck_research_study_window_count"),
+    CheckConstraint(
+        "selected_strategy_fingerprint IS NULL OR "
+        "selected_strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_study_selected_fingerprint_format",
+    ),
+)
+
+Index(
+    "ix_published_research_studies_published_at_desc",
+    published_research_studies.c.published_at.desc(),
+    published_research_studies.c.study_fingerprint.asc(),
+)
+
+Index(
+    "ix_published_research_studies_kind_published",
+    published_research_studies.c.kind,
+    published_research_studies.c.published_at.desc(),
+    published_research_studies.c.study_fingerprint.asc(),
+)
+
 audit_events = Table(
     "audit_events",
     metadata,
@@ -783,6 +839,7 @@ __all__ = [
     "portfolio_snapshots",
     "published_backtest_results",
     "published_research_run_specs",
+    "published_research_studies",
     "published_risk_policies",
     "published_strategy_versions",
     "strategy_dataset_bindings",

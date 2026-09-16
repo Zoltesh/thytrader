@@ -19,6 +19,7 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 | GET | `/api/v1/operator/reconciliation` | `reconciliation` |
 | GET | `/api/v1/operator/runtime` | `runtime` |
 | GET | `/api/v1/operator/monitor` | `monitor` |
+| GET | `/api/v1/operator/studies` | `studies` |
 | GET | `/api/v1/operator/support-bundle` | `support_bundle` |
 
 Query parameters:

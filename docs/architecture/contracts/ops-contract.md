@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0030`):
+Current checkout (Alembic `0031`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v18` |
-| `expected_schema_revision` | `0030` |
+| `id` | `thytrader-ops-contract-v19` |
+| `expected_schema_revision` | `0031` |
 | `max_historical_interval_count` | `129600` |
 | `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
@@ -30,7 +30,7 @@ Current checkout (Alembic `0030`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v18
+    id thytrader-ops-contract-v19
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -44,7 +44,7 @@ classDiagram
     risk_breakers
     order_rate_limits
     reference_price_collars
-    expected_schema_revision 0030
+    expected_schema_revision 0031
   }
   class HealthPayload {
     api_probed
@@ -76,9 +76,10 @@ Bump `OPS_CONTRACT_ID` when paper/live clocks, engines, the interval cap, the
 expected Alembic revision, risk-policy registry, live extras, memory
 persistence, experiential-model engines, discretionary identity, HTF evaluation,
 per-indicator clocks, spot shorting, attached entry brackets, paper deploy fee
-fields, or risk circuit breakers / order-rate limits / reference-price collars
-change
+fields, risk circuit breakers / order-rate limits / reference-price collars, or
+the persisted research-study catalog change
 ([ADR 0019](../../decisions/0019-ops-contract-identity.md),
 [ADR 0048](../../decisions/0048-paper-deploy-fee-fields.md),
 [ADR 0049](../../decisions/0049-experiential-train-v1.md),
-[ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md)).
+[ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md),
+[ADR 0052](../../decisions/0052-richer-sweep-axes-study-catalog.md)).

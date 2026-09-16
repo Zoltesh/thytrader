@@ -12,6 +12,7 @@ from thytrader.research.parameter_sweep import (
     ParameterAxis,
     SelectionMetric,
     StitchSourceWindow,
+    SweepAxisTarget,
     apply_parameter_cell,
     derive_parameter_candidates,
     expand_parameter_grid,
@@ -19,7 +20,10 @@ from thytrader.research.parameter_sweep import (
     stitch_oos_equity,
 )
 from thytrader.strategies.models import (
+    AllCondition,
+    ComparisonCondition,
     IndicatorParameters,
+    LiteralOperand,
     StrategyDefinition,
     strategy_fingerprint,
 )
@@ -91,12 +95,15 @@ def test_expand_parameter_grid_is_cartesian_in_axis_order() -> None:
         ParameterAxis(indicator_id="ema_slow", parameter="period", values=("50", "80")),
     )
     grid = expand_parameter_grid(axes)
-    assert grid == (
-        (("ema_fast", "period", "12"), ("ema_slow", "period", "50")),
-        (("ema_fast", "period", "12"), ("ema_slow", "period", "80")),
-        (("ema_fast", "period", "20"), ("ema_slow", "period", "50")),
-        (("ema_fast", "period", "20"), ("ema_slow", "period", "80")),
-    )
+    assert [(cell.locator, cell.parameter, cell.value) for cell in grid[0]] == [
+        ("ema_fast", "period", "12"),
+        ("ema_slow", "period", "50"),
+    ]
+    assert [cell.identity_tuple() for cell in grid[0]] == [
+        ("ema_fast", "period", "12"),
+        ("ema_slow", "period", "50"),
+    ]
+    assert len(grid) == 4
 
 
 def test_derived_candidate_fingerprint_is_stable() -> None:
@@ -229,3 +236,107 @@ def test_overlapping_oos_windows_refuse_stitching() -> None:
     assert stitched.available is False
     assert stitched.reason is not None
     assert "overlap" in stitched.reason.lower()
+
+
+def test_indicator_axis_omits_default_target_from_canonical_json() -> None:
+    """Default indicator axes keep ADR 0044 request fingerprints stable."""
+    axis = ParameterAxis(indicator_id="ema_fast", parameter="period", values=("12", "26"))
+    payload = axis.model_dump(mode="json")
+    assert "target" not in payload
+    assert "condition_operator" not in payload
+    assert payload["indicator_id"] == "ema_fast"
+
+
+def test_sizing_axis_substitutes_risk_fraction() -> None:
+    """Richer sizing axes rewrite risk_fraction without changing the decision clock."""
+    base = _reference()
+    derived = apply_parameter_cell(
+        base,
+        expand_parameter_grid(
+            (
+                ParameterAxis(
+                    target=SweepAxisTarget.SIZING,
+                    parameter="risk_fraction",
+                    values=("0.01", "0.02"),
+                ),
+            )
+        )[0],
+        base_fingerprint=strategy_fingerprint(base),
+    )
+    assert derived.sizing.risk_fraction == "0.01"
+    assert derived.instrument.product_id == base.instrument.product_id
+    assert derived.timeframe == base.timeframe
+
+
+def test_entry_literal_axis_substitutes_the_rsi_threshold() -> None:
+    """Literal axes substitute comparison thresholds without rewriting operators."""
+    base = _reference()
+    derived = apply_parameter_cell(
+        base,
+        expand_parameter_grid(
+            (
+                ParameterAxis(
+                    target=SweepAxisTarget.ENTRY_LITERAL,
+                    indicator_id="rsi",
+                    parameter="literal",
+                    values=("30", "40"),
+                ),
+            )
+        )[0],
+        base_fingerprint=strategy_fingerprint(base),
+    )
+    when = derived.entry.when
+    assert isinstance(when, AllCondition)
+    comparison = when.all[1]
+    assert isinstance(comparison, ComparisonCondition)
+    assert isinstance(comparison.right, LiteralOperand)
+    assert comparison.right.literal == "30"
+
+
+def test_trailing_multiple_fails_when_trailing_is_disabled() -> None:
+    """Trailing axes fail closed instead of inventing an ATR trailing policy."""
+    base = _reference()
+    cell = expand_parameter_grid(
+        (
+            ParameterAxis(
+                target=SweepAxisTarget.EXITS,
+                parameter="trailing_stop_multiple",
+                values=("1", "2"),
+            ),
+        )
+    )[0]
+    with pytest.raises(ValueError, match="enabled ATR trailing"):
+        apply_parameter_cell(base, cell, base_fingerprint=strategy_fingerprint(base))
+
+
+def test_execution_axis_substitutes_max_entry_wait_bars() -> None:
+    """Execution axes rewrite wait bars without changing product or timeframe."""
+    base = _reference()
+    derived = apply_parameter_cell(
+        base,
+        expand_parameter_grid(
+            (
+                ParameterAxis(
+                    target=SweepAxisTarget.EXECUTION,
+                    parameter="max_entry_wait_bars",
+                    values=("1", "3"),
+                ),
+            )
+        )[0],
+        base_fingerprint=strategy_fingerprint(base),
+    )
+    assert derived.execution.max_entry_wait_bars == 1
+    assert derived.instrument.product_id == base.instrument.product_id
+    assert derived.timeframe == base.timeframe
+
+
+def test_sizing_axis_includes_target_in_canonical_json() -> None:
+    """Non-indicator axes serialize target so request fingerprints stay distinct."""
+    axis = ParameterAxis(
+        target=SweepAxisTarget.SIZING,
+        parameter="risk_fraction",
+        values=("0.01", "0.02"),
+    )
+    payload = axis.model_dump(mode="json")
+    assert payload["target"] == "sizing"
+    assert "indicator_id" not in payload

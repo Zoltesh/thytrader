@@ -184,6 +184,31 @@ def submit_study(base_url: str, request: ResearchStudyRequest) -> str:
     return _encode(body)
 
 
+def list_studies(base_url: str, kind: str | None, limit: int) -> str:
+    """List persisted research-study catalog rows."""
+    url = f"{base_url}/api/v1/research/studies?limit={limit}"
+    if kind:
+        url = f"{url}&kind={kind}"
+    body = _as_object(request_json(method="GET", url=url), "study catalog")
+    return _encode(body)
+
+
+def show_study(base_url: str, study_fingerprint: str) -> str:
+    """Show one persisted study summary without child equity points."""
+    body = _as_object(
+        request_json(
+            method="GET",
+            url=f"{base_url}/api/v1/research/studies/{study_fingerprint}",
+        ),
+        "study detail",
+    )
+    body.pop("windows", None)
+    stitch = body.get("stitched_oos_equity")
+    if isinstance(stitch, dict):
+        stitch.pop("points", None)
+    return _encode(body)
+
+
 def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) -> str:
     """List bounded immutable result summaries."""
     url = f"{base_url}/api/v1/backtests?limit={limit}"

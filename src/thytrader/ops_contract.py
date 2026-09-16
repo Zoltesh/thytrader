@@ -11,8 +11,9 @@ historical interval cap, the expected Alembic revision, the risk-policy
 registry contract, live extras (user-order feed / native OCO),
 experiential-memory persistence, experiential-model engines, discretionary-order
 identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
-spot shorting, attached entry brackets, paper deploy fee fields, or risk circuit
-breakers / order-rate limits / reference-price collars change.
+spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
+breakers / order-rate limits / reference-price collars, or the persisted
+research-study catalog change.
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v18"
-EXPECTED_SCHEMA_REVISION = "0030"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v19"
+EXPECTED_SCHEMA_REVISION = "0031"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",

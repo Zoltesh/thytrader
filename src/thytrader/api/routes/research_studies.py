@@ -9,12 +9,13 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
     get_backtest_result_store,
     get_backtest_submitter,
+    get_research_study_catalog,
     get_strategy_publication_store,
 )
 from thytrader.backtest.submission import (
@@ -23,6 +24,13 @@ from thytrader.backtest.submission import (
     BacktestSubmitter,
 )
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
+from thytrader.research.catalog import (
+    ResearchStudyCatalog,
+    StudyCatalogIntegrityError,
+    StudyCatalogNotFoundError,
+    StudyCatalogSummary,
+    StudyCatalogUnavailableError,
+)
 from thytrader.research.engine_support import EngineSupportMatrix, engine_support_matrix
 from thytrader.research.studies import (
     ResearchStudy,
@@ -30,6 +38,7 @@ from thytrader.research.studies import (
     ResearchStudyPlan,
     ResearchStudyRequest,
     ResearchStudyService,
+    StudyKind,
     StudyPlanningError,
 )
 from thytrader.strategies.publication import (
@@ -57,16 +66,25 @@ class StrategyTemplateListResponse(BaseModel):
     templates: tuple[StrategyTemplateEntry, ...]
 
 
+class StudyCatalogListResponse(BaseModel):
+    """Newest-first persisted study catalog rows."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    studies: tuple[StudyCatalogSummary, ...]
+
+
 def _study_service(
     publications: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
 ) -> ResearchStudyService:
     """Compose studies from the same publication and backtest services as single runs."""
     return ResearchStudyService(
         publications=publications,
         submitter=submitter,
         results=results,
+        catalog=catalog,
     )
 
 
@@ -131,3 +149,60 @@ async def submit_research_study(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Research study submission is unavailable.",
         ) from None
+
+
+@router.get("/studies", response_model=StudyCatalogListResponse)
+async def list_research_studies(
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    kind: StudyKind | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> StudyCatalogListResponse:
+    """List persisted study catalog rows without child equity curves."""
+    try:
+        rows = await catalog.list_summaries(
+            kind=kind.value if kind is not None else None,
+            limit=limit,
+        )
+    except StudyCatalogIntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "study_catalog_rejected", "message": str(error)},
+        ) from None
+    except StudyCatalogUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Research study catalog is unavailable.",
+        ) from None
+    return StudyCatalogListResponse(studies=rows)
+
+
+@router.get("/studies/{study_fingerprint}", response_model=ResearchStudy)
+async def get_research_study(
+    study_fingerprint: str,
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+) -> ResearchStudy:
+    """Return one persisted study document."""
+    try:
+        canonical = await catalog.load(study_fingerprint)
+        study = ResearchStudy.model_validate_json(canonical)
+    except StudyCatalogNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Published research study was not found.",
+        ) from None
+    except StudyCatalogUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Research study catalog is unavailable.",
+        ) from None
+    except StudyCatalogIntegrityError, ValidationError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Research study catalog is unavailable.",
+        ) from None
+    if study.study_fingerprint != study_fingerprint:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Research study catalog is unavailable.",
+        )
+    return study

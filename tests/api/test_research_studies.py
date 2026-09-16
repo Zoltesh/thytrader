@@ -18,6 +18,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionResult,
 )
 from thytrader.config import Settings
+from thytrader.research.catalog import InMemoryResearchStudyCatalog
 from thytrader.strategies.models import strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -118,6 +119,7 @@ def _client() -> tuple[TestClient, InMemoryStrategyPublicationStore, _StudySubmi
         strategy_store=publications,
         backtest_submitter=submitter,
         backtest_result_store=_StudyResults(),
+        research_study_catalog=InMemoryResearchStudyCatalog(),
     )
     return TestClient(app), publications, submitter
 
@@ -217,12 +219,23 @@ def test_submit_study_composes_child_backtests() -> None:
     with client:
         fingerprint = _publish_reference(client)
         response = client.post("/api/v1/research/studies", json=_holdout_body(fingerprint))
-    assert response.status_code == 201, response.text
-    body = response.json()
-    assert submitter.calls == 2
-    assert body["kind"] == "oos_holdout"
-    assert body["aggregate"]["oos_window_count"] == 1
-    assert body["study_fingerprint"].startswith("sha256:")
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert submitter.calls == 2
+        assert body["kind"] == "oos_holdout"
+        assert body["aggregate"]["oos_window_count"] == 1
+        assert body["study_fingerprint"].startswith("sha256:")
+        listed = client.get("/api/v1/research/studies")
+        assert listed.status_code == 200, listed.text
+        rows = listed.json()["studies"]
+        assert len(rows) == 1
+        assert rows[0]["study_fingerprint"] == body["study_fingerprint"]
+        assert rows[0]["kind"] == "oos_holdout"
+        shown = client.get(f"/api/v1/research/studies/{body['study_fingerprint']}")
+        assert shown.status_code == 200, shown.text
+        assert shown.json()["study_fingerprint"] == body["study_fingerprint"]
+        missing = client.get("/api/v1/research/studies/" + "sha256:" + ("f" * 64))
+        assert missing.status_code == 404
 
 
 def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:

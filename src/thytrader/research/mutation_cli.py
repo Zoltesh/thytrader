@@ -33,7 +33,13 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.research import http as research_http
+from thytrader.research.catalog import (
+    StudyCatalogIntegrityError,
+    StudyCatalogNotFoundError,
+    StudyCatalogUnavailableError,
+)
 from thytrader.research.engine_support import engine_support_matrix
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
 from thytrader.research.studies import (
@@ -184,6 +190,30 @@ def _parser() -> argparse.ArgumentParser:
         help="Show one immutable result summary.",
     )
     show.add_argument("--result-fingerprint", required=True)
+    studies = subparsers.add_parser(
+        "list-studies",
+        parents=[trailing],
+        help="List persisted research-study catalog rows.",
+    )
+    studies.add_argument(
+        "--kind",
+        default=None,
+        choices=(
+            "oos_holdout",
+            "walk_forward",
+            "cross_market",
+            "parameter_sweep",
+            "walk_forward_optimization",
+        ),
+        help="Optional study kind filter.",
+    )
+    studies.add_argument("--limit", type=int, default=50)
+    show_study = subparsers.add_parser(
+        "show-study",
+        parents=[trailing],
+        help="Show one persisted research study summary.",
+    )
+    show_study.add_argument("--study-fingerprint", required=True)
     subparsers.add_parser(
         "list-templates",
         parents=[trailing],
@@ -263,6 +293,7 @@ async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine | N
         submitter=PostgresBacktestSubmitter(engine, dataset_store),
         results=result_store,
         audit=PostgresAuditEventStore(engine),
+        catalog=PostgresResearchStudyCatalog(engine),
     )
     return mutator, engine
 
@@ -311,6 +342,16 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
             settings,
             lambda mutator: _show_result(mutator, arguments.result_fingerprint),
         )
+    if arguments.command == "list-studies":
+        return await _with_mutator(
+            settings,
+            lambda mutator: _list_studies(mutator, arguments.kind, arguments.limit),
+        )
+    if arguments.command == "show-study":
+        return await _with_mutator(
+            settings,
+            lambda mutator: _show_study(mutator, arguments.study_fingerprint),
+        )
     return await _dispatch_local_study(settings, arguments)
 
 
@@ -353,6 +394,12 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "show-result":
         require_matching_ops_contract(base_url)
         return research_http.show_result(base_url, arguments.result_fingerprint)
+    if arguments.command == "list-studies":
+        require_matching_ops_contract(base_url)
+        return research_http.list_studies(base_url, arguments.kind, arguments.limit)
+    if arguments.command == "show-study":
+        require_matching_ops_contract(base_url)
+        return research_http.show_study(base_url, arguments.study_fingerprint)
     return _dispatch_http_study(base_url, arguments)
 
 
@@ -524,6 +571,7 @@ async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -
         publications=mutator.publications,
         submitter=mutator.submitter,
         results=mutator.results,
+        catalog=mutator.catalog,
     )
     plan = await service.plan(request)
     return _encode(plan.model_dump(mode="json"))
@@ -533,6 +581,24 @@ async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest)
     """Submit one composed study and return the derived document."""
     study = await mutator.submit_study(request)
     return _encode(study.model_dump(mode="json"))
+
+
+async def _show_study(mutator: ResearchMutator, study_fingerprint: str) -> str:
+    """Load one persisted study without dumping child equity curves."""
+    study = await mutator.show_study(study_fingerprint)
+    payload = study.model_dump(mode="json")
+    payload.pop("windows", None)
+    if payload.get("stitched_oos_equity") is not None:
+        stitch = payload["stitched_oos_equity"]
+        if isinstance(stitch, dict):
+            stitch.pop("points", None)
+    return _encode(payload)
+
+
+async def _list_studies(mutator: ResearchMutator, kind: str | None, limit: int) -> str:
+    """List persisted study catalog rows."""
+    rows = await mutator.list_studies(kind=kind, limit=limit)
+    return _encode({"studies": [row.model_dump(mode="json") for row in rows]})
 
 
 def _experiential_model_id(arguments: argparse.Namespace) -> str | None:
@@ -565,18 +631,21 @@ def _command_output(arguments: argparse.Namespace) -> str:
         if arguments.local:
             return asyncio.run(_dispatch_local(arguments))
         return _dispatch_http(arguments)
-    except ResearchCliError as error:
+    except (
+        ResearchCliError,
+        ResearchMutationError,
+        BacktestSubmissionRejectedError,
+        StudyPlanningError,
+        StudyCatalogNotFoundError,
+        StudyCatalogIntegrityError,
+    ) as error:
         raise SystemExit(str(error)) from error
     except AgentHttpError as error:
         raise SystemExit(_agent_http_error_message(str(error))) from error
-    except ResearchMutationError as error:
-        raise SystemExit(str(error)) from error
-    except BacktestSubmissionRejectedError as error:
-        raise SystemExit(str(error)) from error
-    except StudyPlanningError as error:
-        raise SystemExit(str(error)) from error
     except ResearchStudyError as error:
         raise SystemExit("Research study submission is unavailable.") from error
+    except StudyCatalogUnavailableError as error:
+        raise SystemExit("Research study catalog is unavailable.") from error
     except BacktestSubmissionError as error:
         raise SystemExit("Backtest submission is unavailable.") from error
     except ValidationError as error:

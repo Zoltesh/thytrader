@@ -429,6 +429,16 @@ def test_risk_breaker_overlay_migration_follows_experiential_models() -> None:
     assert "COMMENT ON TABLE" in content
 
 
+def test_research_study_catalog_migration_follows_risk_breaker_overlay() -> None:
+    """The thirty-first migration must persist composed research-study rows after 0030."""
+    content = Path("alembic/versions/0031_research_study_catalog.py").read_text(encoding="utf-8")
+    assert 'revision = "0031"' in content
+    assert 'down_revision = "0030"' in content
+    assert "published_research_studies" in content
+    assert "ck_research_study_kind" in content
+    assert "parameter_sweep" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

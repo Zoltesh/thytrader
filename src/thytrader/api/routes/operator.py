@@ -20,6 +20,7 @@ from thytrader.api.dependencies import (
     get_market_data_watchlist_store,
     get_memory_store,
     get_portfolio_service,
+    get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_draft_store,
@@ -49,6 +50,7 @@ from thytrader.operator.models import (
     RiskReport,
     RuntimeReport,
     StrategiesReport,
+    StudiesReport,
     SupportBundleReport,
 )
 from thytrader.operator.service import OperatorDiagnostics
@@ -57,6 +59,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader  # noqa:
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore  # noqa: TC001
 from thytrader.portfolio.service import PortfolioService  # noqa: TC001
+from thytrader.research.catalog import ResearchStudyCatalog  # noqa: TC001
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
@@ -83,6 +86,7 @@ def get_operator_diagnostics(
     risk_policies: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     user_order_feed: Annotated[UserOrderFeedStateStore, Depends(get_user_order_feed_state_store)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    research_studies: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -104,6 +108,7 @@ def get_operator_diagnostics(
         risk_policies=risk_policies,
         user_order_feed=user_order_feed,
         memory_store=memory_store,
+        research_studies=research_studies,
     )
 
 
@@ -217,6 +222,14 @@ async def get_operator_monitor(
 ) -> MonitorReport:
     """Return deployments, recent journals, and notification delivery."""
     return await diagnostics.monitor()
+
+
+@router.get("/studies", response_model=StudiesReport)
+async def get_operator_studies(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> StudiesReport:
+    """Return persisted research-study catalog rows without child equity."""
+    return await diagnostics.studies()
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

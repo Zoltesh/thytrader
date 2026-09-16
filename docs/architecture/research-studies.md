@@ -14,15 +14,19 @@ uv run thytrader-research list-templates
 uv run thytrader-research engine-support
 uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
+uv run thytrader-research list-studies [--kind parameter_sweep]
+uv run thytrader-research show-study --study-fingerprint sha256:…
 uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
 ```
 
-`plan-study` and `engine-support` / `list-templates` are read-only. `submit-study` requires
-`--confirm`. Repeating an identical submit reuses child backtests.
+`plan-study`, `engine-support`, `list-templates`, `list-studies`, and `show-study` are read-only.
+`submit-study` requires `--confirm`. Repeating an identical submit reuses child backtests and is
+idempotent in the study catalog when canonical bytes match.
 
 Strategy authoring still represents one human-chosen parameter set. Sweeps and WFO are a separate
 research activity that can manufacture overfit results
-([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). Honest claims use selected
+([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md),
+[ADR 0052](../decisions/0052-richer-sweep-axes-study-catalog.md)). Honest claims use selected
 out-of-sample windows and disclose stitched vs equal-weight aggregates.
 
 ## Study kinds
@@ -44,17 +48,40 @@ submit-published derived fingerprints; it does not peek at OOS to choose the win
 
 ### Parameter axes
 
-Each axis names an existing indicator id and a legal parameter (`period`, `fast_period`,
-`slow_period`, `signal_period`, `stdev_multiplier`, or `value`) with 2–8 unique values. Axes do not
-rewrite entry/exit logic. Derived definitions copy the base document, substitute those parameters,
-raise `warmup_bars` when the new periods require it, and take a deterministic UUIDv7 `strategy_id`.
+Each axis has an optional `target` (`indicator` default, omitted from canonical JSON). Legal
+parameters depend on the target:
+
+| Target | Locator | Parameters |
+|---|---|---|
+| `indicator` | `indicator_id` | `period`, `fast_period`, `slow_period`, `signal_period`, `k_period`, `d_period`, `stdev_multiplier`, `value` |
+| `sizing` | none | `risk_fraction`, `min_quote_notional`, `max_quote_notional` |
+| `exits` | none | `initial_stop_multiple`, `take_profit_multiple`, `trailing_stop_multiple`, `max_bars_held` |
+| `execution` | none | `max_entry_wait_bars` |
+| `entry_literal` / `htf_literal` | `indicator_id`, optional `condition_operator` | `literal` |
+
+Values are 2–8 unique strings. Cartesian product size is at most 8. Product id and decision
+timeframe are not sweepable. Axes substitute the named field; they do not rewrite operators or
+invent trailing stops. Derived definitions copy the base document, raise `warmup_bars` when new
+periods require it, and take a deterministic UUIDv7 `strategy_id`. Indicator-only cells keep the
+ADR 0044 fingerprint 3-tuple.
+
 `plan-study` derives in memory and does not persist. `submit-study --confirm` publishes missing
-derived documents through the existing publication store, then submits ordinary backtests.
+derived documents through the existing publication store, then submits ordinary backtests, then
+stores the assembled study in the catalog.
 
 `selection_metric` is `total_return_fraction` or `total_net_pnl` (maximize) or
 `maximum_drawdown_fraction` (minimize). Ties break on the lexicographically smaller strategy
-fingerprint. Empty candidate fields and the default metric are omitted from canonical JSON so
-Phase 11 request fingerprints stay stable.
+fingerprint. Empty candidate fields, the default metric, and default `target=indicator` are omitted
+from canonical JSON so Phase 11 / ADR 0044 request fingerprints stay stable.
+
+### Persisted catalog
+
+`submit-study` writes one `published_research_studies` row (Alembic `0031`, ops contract
+`thytrader-ops-contract-v19`). PostgreSQL is durable. The API without a database keeps a
+process-local catalog. Operator `--local` without PostgreSQL reports `STUDY_CATALOG_UNAVAILABLE`
+rather than an empty healthy list. `list-studies` returns newest-first summaries without child
+equity. `show-study` omits child windows and stitched equity points. `thytrader-operator studies`
+is the same catalog without trading authority.
 
 ## Aggregate honesty
 
@@ -88,7 +115,10 @@ This is not a fourth backtest engine and does not claim live fill quality.
 - `GET /api/v1/research/engine-support` — V1/V2/V3 matrix.
 - `GET /api/v1/research/templates` — draft template ids.
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
-- `POST /api/v1/research/studies` — plan plus idempotent child submissions.
+- `POST /api/v1/research/studies` — plan plus idempotent child submissions and catalog persist.
+- `GET /api/v1/research/studies` — newest-first catalog rows (`kind`, `limit`).
+- `GET /api/v1/research/studies/{study_fingerprint}` — one persisted study document.
+- `GET /api/v1/operator/studies` — operator catalog report without child equity.
 
 Study requests forward `htf_dataset_fingerprint` and `indicator_dataset_fingerprints` onto each
 child backtest. Unbound extra indicator clocks still require those fingerprints; an extra TF that
@@ -96,10 +126,9 @@ equals `htf_filter.timeframe` stays on the HTF dataset.
 
 ## Explicitly not in this slice
 
-- persisted study rows / a new Alembic revision;
 - paper or live evaluation;
 - auto-tuning inside `save-draft` / strategy authoring;
 - interpolating candles or equity across embargo gaps;
 - carrying open positions across OOS windows in one engine run;
-- extra exchanges, shorting, or attached entry brackets;
-- an ops-contract bump (research composition only).
+- rewriting WFO in-sample selection;
+- extra exchanges or experiential ML.

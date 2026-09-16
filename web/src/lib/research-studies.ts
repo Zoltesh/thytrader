@@ -5,13 +5,61 @@ export type StudyKind =
 export type FoldMode = 'rolling' | 'anchored';
 export type SelectionMetric =
 	'total_return_fraction' | 'total_net_pnl' | 'maximum_drawdown_fraction';
+export type SweepAxisTarget =
+	| 'indicator'
+	| 'sizing'
+	| 'exits'
+	| 'execution'
+	| 'entry_literal'
+	| 'htf_literal';
 export type SweepParameter =
-	'period' | 'fast_period' | 'slow_period' | 'signal_period' | 'stdev_multiplier' | 'value';
+	| 'period'
+	| 'fast_period'
+	| 'slow_period'
+	| 'signal_period'
+	| 'k_period'
+	| 'd_period'
+	| 'stdev_multiplier'
+	| 'value'
+	| 'risk_fraction'
+	| 'min_quote_notional'
+	| 'max_quote_notional'
+	| 'initial_stop_multiple'
+	| 'take_profit_multiple'
+	| 'trailing_stop_multiple'
+	| 'max_bars_held'
+	| 'max_entry_wait_bars'
+	| 'literal';
+
+const PARAMETERS_BY_TARGET: Record<SweepAxisTarget, SweepParameter[]> = {
+	indicator: [
+		'period',
+		'fast_period',
+		'slow_period',
+		'signal_period',
+		'k_period',
+		'd_period',
+		'stdev_multiplier',
+		'value'
+	],
+	sizing: ['risk_fraction', 'min_quote_notional', 'max_quote_notional'],
+	exits: [
+		'initial_stop_multiple',
+		'take_profit_multiple',
+		'trailing_stop_multiple',
+		'max_bars_held'
+	],
+	execution: ['max_entry_wait_bars'],
+	entry_literal: ['literal'],
+	htf_literal: ['literal']
+};
 
 export type ParameterAxis = {
-	indicator_id: string;
+	target?: SweepAxisTarget;
+	indicator_id?: string;
 	parameter: SweepParameter;
 	values: string[];
+	condition_operator?: string;
 };
 
 export type ResearchStudyRequest = {
@@ -99,6 +147,14 @@ export function parseParameterAxisValues(raw: string): string[] {
 		.split(',')
 		.map((item) => item.trim())
 		.filter((item) => item !== '');
+}
+
+export function parametersForTarget(target: SweepAxisTarget): SweepParameter[] {
+	return PARAMETERS_BY_TARGET[target];
+}
+
+export function axisNeedsIndicator(target: SweepAxisTarget): boolean {
+	return target === 'indicator' || target === 'entry_literal' || target === 'htf_literal';
 }
 
 export async function listStrategyTemplates(): Promise<StrategyTemplate[]> {

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
+from thytrader.research.catalog import StudyCatalogSummary  # noqa: TC001 - Pydantic field type.
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"
@@ -29,6 +30,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "reconciliation",
     "runtime",
     "monitor",
+    "studies",
     "support_bundle",
 )
 
@@ -383,6 +385,20 @@ class MonitorReport(OperatorEnvelope):
 
     report_kind: Literal["monitor"] = "monitor"
     payload: MonitorSnapshot
+
+
+class StudiesPayload(_FrozenModel):
+    """Persisted composed research-study catalog rows without child equity."""
+
+    study_catalog: Literal["available", "unavailable"]
+    studies: tuple[StudyCatalogSummary, ...] = ()
+
+
+class StudiesReport(OperatorEnvelope):
+    """Operator-visible research-study catalog without trading authority."""
+
+    report_kind: Literal["studies"] = "studies"
+    payload: StudiesPayload
 
 
 class SupportBundlePayload(_FrozenModel):

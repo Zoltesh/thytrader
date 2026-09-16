@@ -18,12 +18,15 @@
 		type ResearchFeeSuggestion
 	} from '$lib/fees';
 	import {
+		axisNeedsIndicator,
 		engineContractLabel,
+		parametersForTarget,
 		parseParameterAxisValues,
 		submitResearchStudy,
 		type ResearchStudy,
 		type ResearchStudyRequest,
 		type SelectionMetric,
+		type SweepAxisTarget,
 		type SweepParameter
 	} from '$lib/research-studies';
 	import {
@@ -116,9 +119,11 @@
 	let outOfSampleBars = $state('168');
 	let stepBars = $state('168');
 	let foldMode = $state<'rolling' | 'anchored'>('rolling');
+	let axisTarget = $state<SweepAxisTarget>('indicator');
 	let axisIndicatorId = $state('fast');
 	let axisParameter = $state<SweepParameter>('period');
 	let axisValues = $state('12,26');
+	let axisConditionOperator = $state('');
 	let selectionMetric = $state<SelectionMetric>('total_return_fraction');
 	let studyResult = $state<ResearchStudy | null>(null);
 	let selectedStrategyFingerprint = $state('');
@@ -415,16 +420,40 @@
 		if (values.length < 2) {
 			return 'Enter at least two comma-separated parameter values.';
 		}
+		if (axisNeedsIndicator(axisTarget) && axisIndicatorId.trim() === '') {
+			return 'Enter the indicator id this axis locates.';
+		}
+		const axis: ParameterAxisPayload = {
+			parameter: axisParameter,
+			values
+		};
+		if (axisTarget !== 'indicator') {
+			axis.target = axisTarget;
+		}
+		if (axisNeedsIndicator(axisTarget)) {
+			axis.indicator_id = axisIndicatorId.trim();
+		}
+		if (axisConditionOperator.trim() !== '') {
+			axis.condition_operator = axisConditionOperator.trim();
+		}
 		return {
-			parameter_axes: [
-				{
-					indicator_id: axisIndicatorId.trim(),
-					parameter: axisParameter,
-					values
-				}
-			],
+			parameter_axes: [axis],
 			selection_metric: selectionMetric
 		};
+	}
+
+	type ParameterAxisPayload = NonNullable<ResearchStudyRequest['parameter_axes']>[number];
+
+	function onAxisTargetChange(event: Event): void {
+		const value = (event.currentTarget as HTMLSelectElement).value as SweepAxisTarget;
+		axisTarget = value;
+		const allowed = parametersForTarget(value);
+		if (!allowed.includes(axisParameter)) {
+			axisParameter = allowed[0] ?? 'period';
+		}
+		if (!axisNeedsIndicator(value)) {
+			axisConditionOperator = '';
+		}
 	}
 
 	async function runLaunch(): Promise<void> {
@@ -1456,22 +1485,38 @@
 						{/if}
 						{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
 							<div class="launch-grid">
-								<label>Indicator id<input bind:value={axisIndicatorId} /></label>
+								<label
+									>Axis target
+									<select value={axisTarget} onchange={onAxisTargetChange}>
+										<option value="indicator">indicator</option>
+										<option value="sizing">sizing</option>
+										<option value="exits">exits</option>
+										<option value="execution">execution</option>
+										<option value="entry_literal">entry_literal</option>
+										<option value="htf_literal">htf_literal</option>
+									</select></label
+								>
+								{#if axisNeedsIndicator(axisTarget)}
+									<label>Indicator id<input bind:value={axisIndicatorId} /></label>
+								{/if}
 								<label
 									>Parameter
 									<select bind:value={axisParameter}>
-										<option value="period">period</option>
-										<option value="fast_period">fast_period</option>
-										<option value="slow_period">slow_period</option>
-										<option value="signal_period">signal_period</option>
-										<option value="stdev_multiplier">stdev_multiplier</option>
-										<option value="value">value</option>
+										{#each parametersForTarget(axisTarget) as parameter (parameter)}
+											<option value={parameter}>{parameter}</option>
+										{/each}
 									</select></label
 								>
 								<label
 									>Axis values (comma-separated)
 									<input bind:value={axisValues} /></label
 								>
+								{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
+									<label
+										>Condition operator (optional)
+										<input bind:value={axisConditionOperator} /></label
+									>
+								{/if}
 								<label
 									>Selection metric
 									<select bind:value={selectionMetric}>
@@ -1485,6 +1530,7 @@
 								<p class="view-note">
 									Each axis cell is one published-shaped candidate on the same window. The aggregate
 									is not an out-of-sample claim. Submit publishes missing derived fingerprints.
+									Product and timeframe are not sweepable.
 								</p>
 							{/if}
 						{/if}

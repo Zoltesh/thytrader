@@ -67,8 +67,10 @@ contracts below:
 - `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
   the deterministic backtest engine;
 - `GET /api/v1/research/engine-support`, `GET /api/v1/research/templates`, `POST /api/v1/research/studies/plan`,
-  and `POST /api/v1/research/studies` compose walk-forward / OOS / cross-market / sweep / WFO studies
-  from those engines ([research studies](research-studies.md));
+  `POST /api/v1/research/studies`, `GET /api/v1/research/studies`, and
+  `GET /api/v1/research/studies/{study_fingerprint}` compose walk-forward / OOS / cross-market /
+  sweep / WFO studies from those engines and persist catalog rows
+  ([research studies](research-studies.md));
 - `POST /api/v1/deployments` starts a paper or live runtime for one published fingerprint; pause, resume,
   and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy
   registry before persisting a new intent.

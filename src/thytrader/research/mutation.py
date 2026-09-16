@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         BacktestResultReader,
         BacktestResultSummaryView,
     )
+    from thytrader.research.catalog import ResearchStudyCatalog, StudyCatalogSummary
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
 
@@ -40,6 +41,7 @@ class ResearchMutator:
     submitter: BacktestSubmitter
     results: BacktestResultReader
     audit: AuditEventStore
+    catalog: ResearchStudyCatalog | None = None
 
     async def create_reference_draft(
         self,
@@ -105,6 +107,7 @@ class ResearchMutator:
             publications=self.publications,
             submitter=self.submitter,
             results=self.results,
+            catalog=self.catalog,
         )
         study = await service.submit(request)
         await self._audit(
@@ -113,6 +116,24 @@ class ResearchMutator:
             f"study={study.study_fingerprint} kind={study.kind.value} windows={len(study.windows)}",
         )
         return study
+
+    async def list_studies(
+        self,
+        *,
+        kind: str | None = None,
+        limit: int = 50,
+    ) -> tuple[StudyCatalogSummary, ...]:
+        """List newest-first persisted study catalog rows."""
+        if self.catalog is None:
+            raise ResearchMutationError("Research study catalog is unavailable.")
+        return await self.catalog.list_summaries(kind=kind, limit=limit)
+
+    async def show_study(self, study_fingerprint: str) -> ResearchStudy:
+        """Load one persisted study document."""
+        if self.catalog is None:
+            raise ResearchMutationError("Research study catalog is unavailable.")
+        canonical = await self.catalog.load(study_fingerprint)
+        return ResearchStudy.model_validate_json(canonical)
 
     async def list_results(
         self,

@@ -73,6 +73,8 @@ from thytrader.operator.models import (
     RuntimeReport,
     StrategiesPayload,
     StrategiesReport,
+    StudiesPayload,
+    StudiesReport,
     SupportBundlePayload,
     SupportBundleReport,
     SupportedTimeframe,
@@ -92,6 +94,12 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryUnavailableError,
 )
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatUnavailableError
+from thytrader.research.catalog import (
+    DisabledResearchStudyCatalog,
+    ResearchStudyCatalog,
+    StudyCatalogIntegrityError,
+    StudyCatalogUnavailableError,
+)
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.strategies.models import IndicatorKind
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
@@ -138,6 +146,7 @@ class OperatorDiagnostics:
     risk_policies: RiskPolicyStore | None = None
     user_order_feed: UserOrderFeedStateStore | None = None
     memory_store: ExperientialMemoryStore | None = None
+    research_studies: ResearchStudyCatalog | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -556,6 +565,67 @@ class OperatorDiagnostics:
             partial_result_warnings=tuple(warnings),
             recommended_next_action=recommend_next_action(components),
             payload=snapshot,
+        )
+
+    async def studies(self) -> StudiesReport:
+        """List persisted composed research studies without child equity curves."""
+        now = datetime.now(UTC)
+        store = self.research_studies or DisabledResearchStudyCatalog()
+        try:
+            rows = await store.list_summaries(limit=50)
+        except StudyCatalogUnavailableError:
+            component = ComponentReport(
+                name="studies",
+                status=ReportStatus.DEGRADED,
+                reason_code="STUDY_CATALOG_UNAVAILABLE",
+                detail="Research study catalog storage is unavailable.",
+            )
+            return StudiesReport(
+                application_version=__version__,
+                generated_at=now,
+                overall_status=ReportStatus.DEGRADED,
+                components=(component,),
+                redaction=STANDARD_REDACTION,
+                partial_result_warnings=(
+                    "Research study catalog storage is unavailable; "
+                    "submitted studies are not listed.",
+                ),
+                recommended_next_action=recommend_next_action((component,)),
+                payload=StudiesPayload(study_catalog="unavailable", studies=()),
+            )
+        except StudyCatalogIntegrityError:
+            component = ComponentReport(
+                name="studies",
+                status=ReportStatus.FAILED,
+                reason_code="STUDY_CATALOG_INTEGRITY",
+                detail="Research study catalog storage failed integrity verification.",
+            )
+            return StudiesReport(
+                application_version=__version__,
+                generated_at=now,
+                overall_status=ReportStatus.FAILED,
+                components=(component,),
+                redaction=STANDARD_REDACTION,
+                partial_result_warnings=(
+                    "Research study catalog storage failed integrity verification.",
+                ),
+                recommended_next_action=recommend_next_action((component,)),
+                payload=StudiesPayload(study_catalog="unavailable", studies=()),
+            )
+        component = ComponentReport(
+            name="studies",
+            status=ReportStatus.HEALTHY,
+            reason_code="OK",
+            detail=f"{len(rows)} persisted research study row(s).",
+        )
+        return StudiesReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=ReportStatus.HEALTHY,
+            components=(component,),
+            redaction=STANDARD_REDACTION,
+            recommended_next_action=recommend_next_action((component,)),
+            payload=StudiesPayload(study_catalog="available", studies=rows),
         )
 
     async def support_bundle(self) -> SupportBundleReport:
