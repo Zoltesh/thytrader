@@ -203,7 +203,7 @@ def test_buy_and_hold_rejects_nonfinite_or_invalid_candles() -> None:
         calculate_buy_and_hold_benchmark(result, specification, invalid_candles)
 
 
-def _five_minute_run(strategy: object) -> ResearchRunSpecification:
+def _five_minute_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
     """Build one executable five-minute run with two evaluation bars."""
     starts_at = datetime(2026, 8, 1, 2, 0, tzinfo=UTC)
     return ResearchRunSpecification(

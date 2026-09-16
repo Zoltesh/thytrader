@@ -121,9 +121,7 @@ def size_entry(
         return None
     stop_price, target_price = levels
     realized_stop_distance = (
-        (snapped_entry - stop_price)
-        if side is PositionSide.LONG
-        else (stop_price - snapped_entry)
+        (snapped_entry - stop_price) if side is PositionSide.LONG else (stop_price - snapped_entry)
     )
     if realized_stop_distance <= 0:
         return None

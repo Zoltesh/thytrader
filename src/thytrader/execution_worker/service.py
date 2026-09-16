@@ -984,7 +984,7 @@ async def _live_fee_profile(
         return None
     try:
         return await get_profile()
-    except (RuntimeError, ValueError, TypeError, OSError):
+    except RuntimeError, ValueError, TypeError, OSError:
         _logger.exception("live_fee_profile_fetch_failed")
         return None
 

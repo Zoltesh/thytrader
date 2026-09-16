@@ -491,9 +491,7 @@ async def _paper_stop_exit_if_hit(
     """Exit on the pre-trail stop when a closed bar trades through it."""
     if not paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price):
         return None
-    price = paper_stop_fill_price(
-        side=position.side, candle=candle, stop_price=position.stop_price
-    )
+    price = paper_stop_fill_price(side=position.side, candle=candle, stop_price=position.stop_price)
     return await _marketable_exit(
         snapshot,
         strategy=strategy,
@@ -1550,9 +1548,7 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
     )
 
 
-def _fill_opened_position(
-    fill: Fill, position: Position, *, timeframe: str | None = None
-) -> bool:
+def _fill_opened_position(fill: Fill, position: Position, *, timeframe: str | None = None) -> bool:
     """True when this fill is the entry that opened the current position."""
     if timeframe is None:
         entered = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
@@ -1612,9 +1608,7 @@ def _attached_entry_covers(snapshot: DeploymentSnapshot, position: Position) -> 
     )
 
 
-def _entry_fee_rate(
-    deployment: Deployment, *, fee_profile: FeeProfile | None = None
-) -> Decimal:
+def _entry_fee_rate(deployment: Deployment, *, fee_profile: FeeProfile | None = None) -> Decimal:
     """Size entries with paper assumptions or the live Coinbase maker tier when available."""
     if deployment.mode is DeploymentMode.PAPER:
         maker_fee_rate, _taker_fee_rate = effective_paper_fee_rates(

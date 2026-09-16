@@ -150,7 +150,7 @@ def list_templates(base_url: str) -> str:
 
 
 def engine_support(base_url: str) -> str:
-    """Fetch the V1/V2/V3 engine-support matrix."""
+    """Fetch the V1-V4 engine-support matrix."""
     body = _as_object(
         request_json(method="GET", url=f"{base_url}/api/v1/research/engine-support"),
         "engine-support matrix",

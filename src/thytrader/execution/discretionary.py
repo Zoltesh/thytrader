@@ -295,7 +295,12 @@ async def process_discretionary_bar(
             )
         return snapshot
     snapshot = await _match_resting_orders(
-        snapshot, candle=candle, broker=broker, store=store, cooldown_bars=0
+        snapshot,
+        candle=candle,
+        broker=broker,
+        store=store,
+        cooldown_bars=0,
+        timeframe=deployment.timeframe or "1h",
     )
     snapshot = await _protect_discretionary(
         snapshot, candle=candle, product=product, broker=broker, store=store

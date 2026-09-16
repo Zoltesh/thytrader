@@ -167,6 +167,7 @@ def test_engine_support_matrix_includes_v3_and_studies() -> None:
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
         "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
     ]
     labels = {row["label"] for row in body["rows"]}
     assert "Walk-forward / OOS / cross-market studies" in labels

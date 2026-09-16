@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic single-position bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and single-position rule while resting maker limits the way the paper/live worker does. Published `entry.side` of `"short"` uses cash-and-inventory spot shorts; existing `"long"` result bytes stay identical. Multi-instrument documents evaluate covered products in lexicographic `product_id` order on each shared bar against one quote book; stored `signal_trace_fingerprint` remains the primary instrument's trace while extra products still fail closed if their candles or traces cannot be verified ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority. Mermaid: [contract diagrams — backtest result](contracts/backtest-result.md).
+`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic single-position bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and single-position rule while resting maker limits the way the paper/live worker did before [ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md). `thytrader-bar-backtest-v4` is the corrected maker contract for new research. Published `entry.side` of `"short"` uses cash-and-inventory spot shorts; existing `"long"` result bytes stay identical. Multi-instrument documents evaluate covered products in lexicographic `product_id` order on each shared bar against one quote book; stored `signal_trace_fingerprint` remains the primary instrument's trace while extra products still fail closed if their candles or traces cannot be verified ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority. Mermaid: [contract diagrams — backtest result](contracts/backtest-result.md).
 
 `thytrader-bar-v1` remains request-only and `thytrader-bar-signal-v1` remains signal-trace-only. They fail closed at this simulator boundary: a backtest requires a separately published run carrying the backtest engine contract, so old immutable request bytes never acquire new fill/PnL meaning.
 
@@ -13,7 +13,7 @@ uv run thytrader-research-run publish-backtest --strategy-fingerprint sha256:...
   --dataset-fingerprint sha256:... --evaluation-start 2026-01-01T00:00:00Z \
   --evaluation-end 2026-03-01T00:00:00Z --initial-quote-balance 10000 \
   --maker-fee-rate 0.001 --taker-fee-rate 0.002 --fixed-slippage-bps 1 \
-  --engine-contract-version thytrader-bar-backtest-v2 --spread-bps 10
+  --engine-contract-version thytrader-bar-backtest-v4 --spread-bps 10
 uv run thytrader-backtest simulate <run_fingerprint> --pretty
 uv run thytrader-backtest list --run-fingerprint <run_fingerprint>
 uv run thytrader-backtest show <result_fingerprint> --pretty
@@ -28,7 +28,7 @@ The result stores these immutable source identities:
 - published research-run fingerprint;
 - published strategy fingerprint;
 - immutable dataset fingerprint; and
-- `thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, or `thytrader-bar-backtest-v3` engine-contract version; and
+- `thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engine-contract version; and
 - for V2, a fully resolved broker-assumptions block containing the constant spread, full-fill policy,
   bid-side trigger policy, and bid-close equity-marking policy; and
 - for V3, a fully resolved broker-assumptions block containing post-only limits, resting-limit fills,
@@ -89,6 +89,19 @@ raising the initial stop; later bars never decrease the working stop.
 7. Equity marks at last close. The required extra candle after evaluation end may fill a resting entry or take-profit. An open position at that boundary still closes as `evaluation_end` so the ledger is complete.
 
 V3 results carry the published post-only broker block. `total_spread_cost` stays omitted: v3 is not the v2 spread-stress contract. Existing v1 and v2 canonical documents remain byte-identical.
+
+### V4 corrected maker-limit model
+
+`thytrader-bar-backtest-v4` ([ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)) keeps v3 broker/bar_execution identity and fixes research-boundary semantics:
+
+1. Intrabar matching runs only on declared evaluation bars. The candle at `evaluation.ends_at` may liquidate open inventory at its **open** only; no post-boundary TP/stop/entry processing.
+2. Taker exits (stop, time, evaluation end) honor published `fixed_slippage_bps`. Maker resting take-profit fills remain zero slippage.
+3. ATR trailing evaluates the entering stop before ratcheting the stop for the same bar.
+4. Summaries may include `validity_limits` documenting maker touch-full-fill optimism, TP-before-stop same-bar ordering, and spot-short synthetic inventory.
+
+v3 canonical bytes stay loadable for historical evidence. Prefer v4 for walk-forward selection and paper/live comparison.
+
+Indicator warmup and first-valid-index rules: [indicators.md](indicators.md).
 
 ## Result fields
 

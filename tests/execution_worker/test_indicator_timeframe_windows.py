@@ -69,8 +69,10 @@ async def test_extra_windows_pause_when_latest_completed_bar_is_missing(
         product_id: str,
         timeframe: str,
         warmup_bars: int,
+        deploy_anchor: datetime,
+        as_of_closed_start: datetime | None = None,
     ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-        del product_id, timeframe, warmup_bars
+        del product_id, timeframe, warmup_bars, deploy_anchor, as_of_closed_start
         candles = (
             _candle(datetime(2026, 7, 10, 8, tzinfo=UTC), "1"),
             _candle(expected_last, "50"),
@@ -101,8 +103,10 @@ async def test_extra_windows_return_complete_unbound_clock(
         product_id: str,
         timeframe: str,
         warmup_bars: int,
+        deploy_anchor: datetime,
+        as_of_closed_start: datetime | None = None,
     ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-        del product_id
+        del product_id, deploy_anchor, as_of_closed_start
         assert timeframe == "1h"
         assert warmup_bars == 2
         return _product(), extra, extra[-1].starts_at

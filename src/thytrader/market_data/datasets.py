@@ -821,8 +821,7 @@ def _rows_for_fingerprint(
         {
             **row,
             **{
-                field: canonical_decimal(Decimal(row[field]))
-                for field in _FINGERPRINT_OHLCV_FIELDS
+                field: canonical_decimal(Decimal(row[field])) for field in _FINGERPRINT_OHLCV_FIELDS
             },
         }
         for row in rows

@@ -1,17 +1,18 @@
-"""Tests for the V1/V2/V3 engine-support matrix."""
+"""Tests for the V1-V4 engine-support matrix."""
 
 from __future__ import annotations
 
 from thytrader.research.engine_support import engine_support_matrix
 
 
-def test_engine_support_matrix_has_v3_and_study_rows() -> None:
-    """The matrix names all three bar engines and Phase 11 study composition."""
+def test_engine_support_matrix_has_v4_and_study_rows() -> None:
+    """The matrix names all four bar engines and Phase 11 study composition."""
     matrix = engine_support_matrix()
     assert matrix.engines == (
         "thytrader-bar-backtest-v1",
         "thytrader-bar-backtest-v2",
         "thytrader-bar-backtest-v3",
+        "thytrader-bar-backtest-v4",
     )
     by_label = {row.label: row for row in matrix.rows}
     spread = by_label["Constant spread stress assumption"]

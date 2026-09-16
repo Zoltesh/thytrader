@@ -790,9 +790,7 @@ def _simulate_lockstep_maker_backtest(
         bar_duration=bar,
     )
 
-    validity_limits = (
-        collect_backtest_validity_limits(strategy, specification) if causal else None
-    )
+    validity_limits = collect_backtest_validity_limits(strategy, specification) if causal else None
     return BacktestResult(
         schema_version="1.0",
         engine_contract_version=_backtest_contract(specification),
@@ -1090,9 +1088,7 @@ def _simulate_maker_backtest(
             Decimal(forced_exit.exit.price),
         )
 
-    validity_limits = (
-        collect_backtest_validity_limits(strategy, specification) if causal else None
-    )
+    validity_limits = collect_backtest_validity_limits(strategy, specification) if causal else None
     return BacktestResult(
         schema_version="1.0",
         engine_contract_version=_backtest_contract(specification),

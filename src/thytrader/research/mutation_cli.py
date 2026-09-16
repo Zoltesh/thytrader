@@ -222,7 +222,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "engine-support",
         parents=[trailing],
-        help="Show the V1/V2/V3 engine-support matrix.",
+        help="Show the V1-V4 engine-support matrix.",
     )
     plan = subparsers.add_parser(
         "plan-study",
