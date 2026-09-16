@@ -734,6 +734,23 @@ def test_file_identity_treats_stat_failure_as_a_cache_miss(tmp_path: Path) -> No
     assert dataset_module._file_identity(tmp_path / "missing.parquet") is None
 
 
+def test_file_identity_detects_same_size_rewrite_with_preserved_timestamps(
+    tmp_path: Path,
+) -> None:
+    """In-place byte changes must change identity even when size and mtime are restored."""
+    path = tmp_path / "part.parquet"
+    path.write_bytes(b"abcdef")
+    before = dataset_module._file_identity(path)
+    assert before is not None
+    state = path.stat()
+    path.write_bytes(b"fedcba")
+    os.utime(path, ns=(state.st_atime_ns, state.st_mtime_ns))
+    after = dataset_module._file_identity(path)
+    assert after is not None
+    assert after != before
+    assert after[1] == before[1]
+
+
 class _ConcurrentCatalogStore(DatasetStore):
     """Detect overlapping deep verification through one shared store instance."""
 
