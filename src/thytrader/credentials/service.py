@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 from pydantic import SecretStr
 
 from thytrader.credentials.envfile import env_file_writable
-from thytrader.credentials.models import WORKERS_RESTART_DETAIL, CoinbaseCredentialsStatus
+from thytrader.credentials.models import (
+    WORKERS_RESTART_DETAIL,
+    WORKERS_RESTART_LEGACY_DETAIL,
+    CoinbaseCredentialsStatus,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,6 +46,14 @@ def settings_with_coinbase(
     )
 
 
+def shared_credentials_volume_active(settings: Settings, env_path: Path) -> bool:
+    """True when credentials are stored on the durable shared credentials directory."""
+    try:
+        return env_path.resolve().is_relative_to(settings.credentials_dir.resolve())
+    except ValueError:
+        return False
+
+
 def coinbase_status(
     settings: Settings,
     *,
@@ -51,11 +63,14 @@ def coinbase_status(
     workers_require_restart: bool,
 ) -> CoinbaseCredentialsStatus:
     """Build a write-only status payload with no secret fields."""
+    shared = shared_credentials_volume_active(settings, env_path)
     return CoinbaseCredentialsStatus(
         configured=credentials_are_configured(settings),
         persisted=persisted,
         env_file_writable=env_file_writable(env_path),
         api_hot_reloaded=api_hot_reloaded,
-        workers_require_restart=workers_require_restart,
-        workers_restart_detail=WORKERS_RESTART_DETAIL,
+        workers_require_restart=workers_require_restart and not shared,
+        workers_restart_detail=(
+            WORKERS_RESTART_DETAIL if shared else WORKERS_RESTART_LEGACY_DETAIL
+        ),
     )

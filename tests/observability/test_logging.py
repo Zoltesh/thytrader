@@ -58,3 +58,34 @@ def test_log_handler_redacts_process_held_llm_key() -> None:
         assert "[REDACTED]" in rendered
     finally:
         set_extra_redacted_secrets(())
+
+
+def test_log_handler_includes_redacted_exception_diagnostics() -> None:
+    """Structured logs retain exception type and traceback with secret redaction."""
+    secret = "super-secret-exception-token"  # noqa: S105 - synthetic fixture material.
+    settings = Settings(
+        coinbase_api_key_name=SecretStr("organizations/example/apiKeys/example"),
+        coinbase_api_private_key=SecretStr(secret),
+        _env_file=None,
+    )
+    stream = StringIO()
+    logger = logging.getLogger("thytrader.test.exception")
+    logger.handlers.clear()
+    logger.propagate = False
+    logger.setLevel(logging.ERROR)
+    logger.addHandler(build_log_handler(settings=settings, stream=stream))
+
+    def _raise_fixture_error() -> None:
+        raise ValueError(f"boom {secret}")
+
+    try:
+        _raise_fixture_error()
+    except ValueError:
+        logger.exception("adapter failed")
+
+    rendered = stream.getvalue()
+    payload = json.loads(rendered)
+    assert payload["exception"]["type"] == "ValueError"
+    assert secret not in rendered
+    assert "[REDACTED]" in payload["exception"]["message"]
+    assert "[REDACTED]" in payload["traceback"]

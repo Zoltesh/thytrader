@@ -17,6 +17,10 @@ Schema version: `thytrader-operator-report-v1` (`schema_version` on every JSON r
 
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want process stores instead of HTTP. Do not fall back from HTTP to PostgreSQL if the API is down.
 
+Production installs advertise trust-boundary status at `GET /api/v1/security/status` (no secrets).
+Read-only operator routes stay unauthenticated; mutations use installation auth per
+[ADR 0061](../../docs/decisions/0061-application-trust-boundary.md).
+
 JSON is the default CLI output. Do not add `--format json` to every command.
 
 ## Hard stop

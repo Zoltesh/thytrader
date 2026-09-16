@@ -64,7 +64,7 @@ def test_put_hot_reloads_and_does_not_echo_secrets(tmp_path: Path) -> None:
         body = written.json()
         assert body["configured"] is True
         assert body["api_hot_reloaded"] is True
-        assert body["workers_require_restart"] is True
+        assert body["workers_require_restart"] is False
         assert body["persisted"] is True
         assert _SYNTHETIC_KEY_NAME not in written.text
         assert "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO" not in written.text

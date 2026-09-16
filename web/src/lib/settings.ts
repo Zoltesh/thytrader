@@ -52,9 +52,20 @@ export interface YamlSettingsWrite {
 	notify_provider: NotifyProvider;
 }
 
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 async function readJson<T>(path: string, fallback: string, init?: RequestInit): Promise<T> {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	if (method !== 'GET' && method !== 'HEAD') {
+		await ensureBrowserCsrfSession();
+	}
 	const response = await fetch(path, {
-		headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...mutationHeaders(),
+			...(init?.headers ?? {})
+		},
 		...init
 	});
 	if (!response.ok) {

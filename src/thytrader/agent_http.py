@@ -80,10 +80,13 @@ def request_json(
     url: str,
     payload: object | None = None,
     timeout: float = 30.0,
+    extra_headers: dict[str, str] | None = None,
 ) -> object:
     """GET or mutate JSON on a previously validated loopback URL."""
     _assert_loopback_request_url(url)
     headers = {"Accept": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     data: bytes | None = None
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")

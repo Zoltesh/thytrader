@@ -6,7 +6,13 @@ log request bodies.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from thytrader.agent_http import request_json
+from thytrader.security.client import mutation_headers
+
+if TYPE_CHECKING:
+    from thytrader.config import Settings
 
 _DEPLOYMENTS_PREFIX = "/api/v1/deployments"
 _RISK_POLICY_PREFIX = "/api/v1/risk-policy"
@@ -36,6 +42,7 @@ def start_deployment(
     paper_starting_cash: str | None,
     maker_fee_rate: str | None = None,
     taker_fee_rate: str | None = None,
+    settings: Settings | None = None,
 ) -> object:
     """Create one paper or live deployment through the existing HTTP contract."""
     payload: dict[str, str] = {
@@ -48,12 +55,19 @@ def start_deployment(
         payload["maker_fee_rate"] = maker_fee_rate
     if taker_fee_rate is not None:
         payload["taker_fee_rate"] = taker_fee_rate
-    return request_json(method="POST", url=f"{base_url}{_DEPLOYMENTS_PREFIX}", payload=payload)
+    headers = mutation_headers(settings) if settings else None
+    return request_json(
+        method="POST",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}",
+        payload=payload,
+        extra_headers=headers,
+    )
 
 
 def place_discretionary_order(
     base_url: str,
     *,
+    settings: Settings | None = None,
     mode: str,
     product_id: str,
     stop_price: str,
@@ -97,20 +111,30 @@ def place_discretionary_order(
         payload["taker_fee_rate"] = taker_fee_rate
     if note is not None:
         payload["note"] = note
+    headers = mutation_headers(settings) if settings else None
     return request_json(
         method="POST",
         url=f"{base_url}/api/v1/discretionary-orders",
         payload=payload,
+        extra_headers=headers,
     )
 
 
-def set_deployment_status(base_url: str, deployment_id: str, action: str) -> object:
+def set_deployment_status(
+    base_url: str,
+    deployment_id: str,
+    action: str,
+    *,
+    settings: Settings | None = None,
+) -> object:
     """Pause, resume, or stop one deployment."""
     if action not in {"pause", "resume", "stop"}:
         raise RuntimeControlError(f"unsupported runtime action: {action}")
+    headers = mutation_headers(settings) if settings else None
     return request_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}",
+        extra_headers=headers,
     )
 
 
@@ -119,9 +143,20 @@ def show_risk_policy(base_url: str) -> object:
     return request_json(method="GET", url=f"{base_url}{_RISK_POLICY_PREFIX}")
 
 
-def set_risk_policy(base_url: str, payload: dict[str, object]) -> object:
+def set_risk_policy(
+    base_url: str,
+    payload: dict[str, object],
+    *,
+    settings: Settings | None = None,
+) -> object:
     """Publish one new immutable risk-policy version."""
-    return request_json(method="PUT", url=f"{base_url}{_RISK_POLICY_PREFIX}", payload=payload)
+    headers = mutation_headers(settings) if settings else None
+    return request_json(
+        method="PUT",
+        url=f"{base_url}{_RISK_POLICY_PREFIX}",
+        payload=payload,
+        extra_headers=headers,
+    )
 
 
 def show_yaml_settings(base_url: str) -> object:
@@ -129,9 +164,20 @@ def show_yaml_settings(base_url: str) -> object:
     return request_json(method="GET", url=f"{base_url}{_SETTINGS_PREFIX}")
 
 
-def set_yaml_settings(base_url: str, payload: dict[str, object]) -> object:
+def set_yaml_settings(
+    base_url: str,
+    payload: dict[str, object],
+    *,
+    settings: Settings | None = None,
+) -> object:
     """Persist YAML non-secrets. YOLO and intervals apply without restart."""
-    return request_json(method="PUT", url=f"{base_url}{_SETTINGS_PREFIX}", payload=payload)
+    headers = mutation_headers(settings) if settings else None
+    return request_json(
+        method="PUT",
+        url=f"{base_url}{_SETTINGS_PREFIX}",
+        payload=payload,
+        extra_headers=headers,
+    )
 
 
 def show_coinbase_credentials(base_url: str) -> object:
@@ -144,15 +190,23 @@ def set_coinbase_credentials(
     *,
     api_key_name: str,
     private_key: str,
+    settings: Settings | None = None,
 ) -> object:
     """Set or rotate Coinbase secrets through the write-only HTTP contract."""
+    headers = mutation_headers(settings) if settings else None
     return request_json(
         method="PUT",
         url=f"{base_url}{_CREDENTIALS_PREFIX}",
         payload={"api_key_name": api_key_name, "private_key": private_key},
+        extra_headers=headers,
     )
 
 
-def clear_coinbase_credentials(base_url: str) -> object:
+def clear_coinbase_credentials(base_url: str, *, settings: Settings | None = None) -> object:
     """Clear Coinbase secrets through the write-only HTTP contract."""
-    return request_json(method="DELETE", url=f"{base_url}{_CREDENTIALS_PREFIX}")
+    headers = mutation_headers(settings) if settings else None
+    return request_json(
+        method="DELETE",
+        url=f"{base_url}{_CREDENTIALS_PREFIX}",
+        extra_headers=headers,
+    )

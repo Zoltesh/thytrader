@@ -28,6 +28,7 @@ from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import ResearchStudyCatalog
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
+from thytrader.security.boundary import TrustBoundary
 from thytrader.strategies.authoring import (
     StrategyDraftStore,
 )
@@ -267,6 +268,15 @@ def get_worker_heartbeat_store(request: Request) -> WorkerHeartbeatStore:
         message = "Worker heartbeat store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_trust_boundary(request: Request) -> TrustBoundary:
+    """Return the application trust boundary attached during app construction."""
+    boundary = getattr(request.app.state, "trust_boundary", None)
+    if not isinstance(boundary, TrustBoundary):
+        message = "Trust boundary is unavailable."
+        raise TypeError(message)
+    return boundary
 
 
 def get_operator_chat_service(request: Request) -> OperatorChatService:

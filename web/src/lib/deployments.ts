@@ -61,10 +61,20 @@ export type Deployment = {
 	fills: DeploymentFill[];
 };
 
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	if (method !== 'GET' && method !== 'HEAD') {
+		await ensureBrowserCsrfSession();
+	}
 	const response = await fetch(path, {
 		...init,
-		headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) }
+		headers: {
+			'content-type': 'application/json',
+			...mutationHeaders(),
+			...(init?.headers ?? {})
+		}
 	});
 	if (!response.ok) {
 		let message = `Request failed (${response.status})`;
