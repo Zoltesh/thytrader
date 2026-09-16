@@ -220,10 +220,9 @@ def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enab
     publication.published[fingerprint] = PublishedStrategy(
         strategy_fingerprint=fingerprint, definition=definition
     )
-    token = "0060-boundary-token"
     settings = Settings(
         environment=Environment.TEST,
-        installation_token=SecretStr(token),
+        installation_token=SecretStr("0060-boundary-token"),
         trust_boundary_enabled=True,
         _env_file=None,
     )
@@ -243,7 +242,7 @@ def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enab
         allowed = client.post(
             "/api/v1/deployments",
             json=payload,
-            headers={INSTALLATION_AUTH_HEADER: f"Bearer {token}"},
+            headers={INSTALLATION_AUTH_HEADER: "Bearer 0060-boundary-token"},
         )
 
     assert denied.status_code == 401

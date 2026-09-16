@@ -45,7 +45,7 @@ from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.publication import (
     StrategyPublicationError,
-    StrategyPublicationStore,  # noqa: TC001 - FastAPI Depends and loader protocol.
+    StrategyPublicationStore,
 )
 
 if TYPE_CHECKING:
@@ -380,7 +380,7 @@ async def _covered_products(
         return (deployment.product_id,)
     try:
         published = await loader(fingerprint)
-    except (StrategyPublicationError, ExecutionStoreError):
+    except StrategyPublicationError, ExecutionStoreError:
         return (deployment.product_id,)
     return covered_product_ids(published.definition)
 
