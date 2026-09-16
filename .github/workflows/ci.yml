@@ -1,0 +1,190 @@
+# ThyTrader release gate (ADR 0063).
+#
+# Every job here must pass before a change is merge-eligible. The backend job
+# runs the PostgreSQL-backed suites against a real server with
+# THYTRADER_REQUIRE_DATABASE_TESTS=1, so a silently skipped database test fails
+# the build instead of counting as evidence.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Disposable CI-only credential. Never a deployment or venue secret.
+  CI_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci@127.0.0.1:5432/thytrader_ci
+
+jobs:
+  backend:
+    name: Backend quality and PostgreSQL suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: thytrader
+          POSTGRES_PASSWORD: thytrader-ci
+          POSTGRES_DB: thytrader_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U thytrader -d thytrader_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run ty check
+
+      - name: Migrate a fresh PostgreSQL 17 database through head
+        env:
+          THYTRADER_DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: uv run alembic upgrade head
+
+      # THYTRADER_DATABASE_URL is deliberately absent here: several suites assert
+      # fail-closed behavior when durable storage is unconfigured.
+      - name: Pytest with executed PostgreSQL coverage
+        env:
+          THYTRADER_REQUIRE_DATABASE_TESTS: "1"
+          THYTRADER_TEST_DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+          THYTRADER_INTEGRATION_DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend quality, unit tests, and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the locked packages
+        run: npm ci
+
+      - name: Install Chromium for browser-mode unit tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Prettier and ESLint
+        run: npm run lint
+
+      - name: Svelte check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm run test:unit -- --run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify the adapter-node server bundle exists
+        run: test -f build/index.js
+
+  browser:
+    name: Playwright browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The Playwright web servers boot the real API through `uv run thytrader-api`.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        working-directory: .
+        run: uv sync --frozen
+
+      - name: Install the locked packages
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: npm run test:e2e
+
+  dependency-audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the locked packages
+        run: npm ci
+
+      # Compose runs a Node process as the normal web service, so a development
+      # dependency advisory is triaged, not dismissed. Record the machine-readable
+      # snapshot even when the gate fails.
+      - name: Record the advisory snapshot
+        if: always()
+        run: npm audit --json > npm-audit.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-snapshot
+          path: web/npm-audit.json
+          if-no-files-found: warn
+
+      - name: Fail on moderate or higher advisories
+        run: npm audit --audit-level=moderate

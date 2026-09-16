@@ -42,13 +42,10 @@
 		if (draft === null) {
 			return;
 		}
-		const next = new Set(draft.yolo_tiers);
-		if (checked) {
-			next.add(tier);
-		} else {
-			next.delete(tier);
-		}
-		draft = { ...draft, yolo_tiers: YOLO_TIERS.filter((item) => next.has(item)) };
+		const next = checked
+			? [...draft.yolo_tiers, tier]
+			: draft.yolo_tiers.filter((item) => item !== tier);
+		draft = { ...draft, yolo_tiers: YOLO_TIERS.filter((item) => next.includes(item)) };
 	}
 
 	async function save(): Promise<void> {

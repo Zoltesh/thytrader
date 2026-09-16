@@ -160,7 +160,13 @@ services:
       context: ./web
       dockerfile: Dockerfile
     environment:
+      # Server-side only: the browser never learns the internal API address.
       THYTRADER_API_PROXY_TARGET: http://api:${THYTRADER_API_PORT:-8200}
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "5175"
+      # adapter-node needs the operator-visible origin to accept form/POST requests.
+      ORIGIN: ${THYTRADER_WEB_ORIGIN:-http://127.0.0.1:5175}
     ports:
       - "127.0.0.1:5175:5175"
     depends_on:
