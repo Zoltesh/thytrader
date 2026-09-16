@@ -15,6 +15,8 @@ theme.
 
 - Coinbase keys stay server-side. Never put them in the browser, logs, exceptions, support bundles,
   agent output, or Git.
+- An in-app operator-chat LLM key is also server-side (API process only) and is **not** a Coinbase
+  credential. Status never echoes it. Do not paste a Coinbase key into `/chat`.
 - `.env` is ignored. `.env.example` contains names and placeholders only.
 - `make run` / `scripts/setup_local_stack.py` must not print credentials or connection URLs.
 - View + Trade is enough for planned trading. Extra key permissions are accepted and reported; they

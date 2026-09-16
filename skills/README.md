@@ -70,6 +70,13 @@ surfaces.
 - CLI: `uv run thytrader-memory … --confirm`
 - HTTP: `/api/v1/memory`
 
+## In-app operator chat
+
+Loopback `/chat` plus `/api/v1/operator-chat` ([ADR 0048](../docs/decisions/0048-in-app-operator-chat.md)).
+The user pastes **their** LLM API key (not Coinbase). The chat uses the lane HTTP contracts above
+with the same confirmation and understand-live gates. `uv run thytrader-operator chat-status` is
+HTTP-only and never prints the key. Chat is not a seventh skill lane.
+
 See [`docs/agent-integration.md`](../docs/agent-integration.md) for the safety model.
 
 ## Skill policy

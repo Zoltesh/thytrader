@@ -17,6 +17,9 @@ authority.
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`).
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
+In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke this lane's HTTP routes. It is
+not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
+
 Supported research, paper, and live **decision** timeframes: every ingested venue clock (`1m`,
 `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). Dataset ingest uses the same complete-only
 contract. Any coarser integer-multiple venue clock may be bound as an `htf_filter`

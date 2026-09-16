@@ -69,7 +69,7 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 
 Shipped command groups:
 
-- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, support-bundle, schema-check, chat-status.
 
 `uv run thytrader-operator indicators` lists the fail-closed catalog an agent may author, including
 stochastic, ADX, configurable rolling inputs, and sample stdev
@@ -80,6 +80,11 @@ stochastic, ADX, configurable rolling inputs, and sample stdev
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify, and fail-closed
   experiential training (`--confirm`; YOLO never covers this lane).
+
+In-app operator chat is a loopback UI (`/chat`) and `/api/v1/operator-chat` over those same lanes
+([ADR 0048](decisions/0048-in-app-operator-chat.md)). The user pastes **their** LLM API key; that
+is not Coinbase. `thytrader-operator chat-status` is HTTP-only and never prints the key. Chat is
+not a seventh skill lane.
 
 Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
 
@@ -238,5 +243,6 @@ The operator skill tells agents to:
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, notify, and fail-closed `train`. Operator `monitor` is read-only. YOLO never covers this lane. Research `create-draft --experiential-model-id` may merge the advisory into JSON (HTTP only). |
+| In-app operator chat | Loopback `/chat` plus `/api/v1/operator-chat`. Uses the same HTTP skill routes. Mutations stay confirmation-gated; live still needs understand-live. LLM keys stay in the API process; Coinbase keys never go to the browser. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

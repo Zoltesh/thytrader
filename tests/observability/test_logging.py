@@ -7,7 +7,10 @@ import logging
 from pydantic import SecretStr
 
 from thytrader.config import Settings
-from thytrader.observability.logging import build_log_handler
+from thytrader.observability.logging import (
+    build_log_handler,
+    set_extra_redacted_secrets,
+)
 
 
 def test_log_handler_emits_json_without_configured_secrets() -> None:
@@ -35,3 +38,23 @@ def test_log_handler_emits_json_without_configured_secrets() -> None:
     assert payload["message"] == "credentials key=[REDACTED] private=[REDACTED]"
     assert api_key_name not in rendered
     assert private_key not in rendered
+
+
+def test_log_handler_redacts_process_held_llm_key() -> None:
+    """Pasted LLM keys are extra redactions, not Coinbase Settings secrets."""
+    llm_key = "sk-test-llm-redaction-value"
+    set_extra_redacted_secrets((llm_key,))
+    try:
+        settings = Settings(_env_file=None)
+        stream = StringIO()
+        logger = logging.getLogger("thytrader.test.llm")
+        logger.handlers.clear()
+        logger.propagate = False
+        logger.setLevel(logging.INFO)
+        logger.addHandler(build_log_handler(settings=settings, stream=stream))
+        logger.info("llm key=%s", llm_key)
+        rendered = stream.getvalue()
+        assert llm_key not in rendered
+        assert "[REDACTED]" in rendered
+    finally:
+        set_extra_redacted_secrets(())

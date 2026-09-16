@@ -5,7 +5,8 @@ description: >-
   CLI and HTTP API. Use when checking health, configuration, Coinbase connectivity,
   market-data freshness, strategy/runtime status, backtest or paper/live performance,
   reconciliation, or a redacted support bundle. Never places, edits, or cancels
-  orders and never arms live trading.
+  orders and never arms live trading. `chat-status` reports whether an in-app LLM
+  key is held in the API process; it never prints the key and is not Coinbase.
 ---
 
 # ThyTrader operator
@@ -48,6 +49,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
+| In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
 
 `--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 
@@ -92,3 +94,18 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 - Editing application source to "fix" a running instance
 
 See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](references/report-schemas.md).
+
+## In-app operator chat
+
+Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`. The user pastes **their** LLM API key into the
+API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase secrets surface.
+Status never returns `api_key`. Coinbase keys never go to the browser.
+
+The chat invokes the same versioned HTTP skill routes as these CLIs. Operator tools stay read-only.
+Data, research, runtime, and memory mutations wait on in-app confirmation (`--confirm`). Live start
+and live place-order also need the understand-live checkbox. YOLO never skips understand-live.
+Memory always confirms. The playbook never starts live. This skill stays read-only; chat is not
+extra trading authority and not a substitute for the lane skills.
+
+`chat-status` reports `llm_configured` only (`thytrader-operator-chat-v1`, not
+`thytrader-operator-report-v1`).

@@ -76,6 +76,9 @@ contracts below:
   document. `PUT` requires durable PostgreSQL storage.
 - `GET /api/v1/operator/*` is the versioned read-only agent/operator diagnostics contract; the matching
   CLI is `thytrader-operator`. Research mutations for agents use `thytrader-research` with `--confirm`.
+  In-app operator chat is `/api/v1/operator-chat` plus `/chat`
+  ([ADR 0048](../decisions/0048-in-app-operator-chat.md)); it uses those same skill routes and is
+  not Coinbase credential storage.
 
 Drafts are mutable PostgreSQL records guarded
 by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A

@@ -7,13 +7,20 @@
 
 export const DEFAULT_CONTEXT_LABEL = 'Local workstation';
 export const RESEARCH_CONTEXT_LABEL = 'Research only';
+export const OPERATOR_CHAT_CONTEXT_LABEL = 'Operator chat';
 
 export type WorkstationNavHref =
-	'/' | '/trade' | '/strategies' | '/backtests' | '/audit' | '/memory';
+	| '/'
+	| '/trade'
+	| '/strategies'
+	| '/backtests'
+	| '/audit'
+	| '/memory'
+	| '/chat';
 
 export type WorkstationNavItem = {
 	href: WorkstationNavHref;
-	label: 'Portfolio' | 'Trade' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory';
+	label: 'Portfolio' | 'Trade' | 'Strategies' | 'Backtests' | 'Audit' | 'Memory' | 'Chat';
 };
 
 export const WORKSTATION_NAV: readonly WorkstationNavItem[] = [
@@ -22,7 +29,8 @@ export const WORKSTATION_NAV: readonly WorkstationNavItem[] = [
 	{ href: '/strategies', label: 'Strategies' },
 	{ href: '/backtests', label: 'Backtests' },
 	{ href: '/audit', label: 'Audit' },
-	{ href: '/memory', label: 'Memory' }
+	{ href: '/memory', label: 'Memory' },
+	{ href: '/chat', label: 'Chat' }
 ];
 
 /**

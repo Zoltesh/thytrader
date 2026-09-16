@@ -37,6 +37,7 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "products" in output
     assert "indicators" in output
     assert "monitor" in output
+    assert "chat-status" in output
     assert "loopback HTTP" in output or "--local" in output
 
 
@@ -279,3 +280,35 @@ def test_operator_schema_check_passes_in_this_checkout(
     assert payload["schema_version"] == SCHEMA_VERSION
     assert "runtime" in payload["report_kinds"]
     assert "monitor" in payload["report_kinds"]
+
+
+def test_operator_chat_status_is_http_only_and_omits_the_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """chat-status is not --local and never echoes an LLM secret."""
+    with pytest.raises(SystemExit) as local_rejected:
+        main(["--local", "chat-status"])
+    assert "HTTP-only" in str(local_rejected.value)
+    status = {
+        "schema_version": "thytrader-operator-chat-v1",
+        "llm_configured": True,
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "base_url": "https://api.openai.com/v1",
+        "key_storage": "api_process",
+        "coinbase_credentials_in_chat": False,
+    }
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload(), status),
+        ),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["chat-status"])
+    captured = capsys.readouterr()
+    assert raised.value.code == 0
+    payload = json.loads(captured.out)
+    assert payload["llm_configured"] is True
+    assert payload["coinbase_credentials_in_chat"] is False
+    assert "api_key" not in payload

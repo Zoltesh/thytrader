@@ -52,6 +52,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "schema-check" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
+    assert "/api/v1/operator-chat" in skill
+    assert "chat-status" in skill
     assert "1h or 5m" not in skill
     assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
     assert "daily_loss_limit_fraction" in schemas

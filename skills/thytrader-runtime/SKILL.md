@@ -17,6 +17,10 @@ Confirmation-gated paper and live **control**, including the risk-policy registr
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is no `--local` database mode.
 
+In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
+not extra authority: mutations still need in-app confirmation, and live still needs understand-live.
+Do not treat chat as this skill.
+
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
 
 Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses unless the user-order feed is connected. Published `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
