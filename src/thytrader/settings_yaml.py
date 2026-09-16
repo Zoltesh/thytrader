@@ -12,7 +12,7 @@ import logging
 import os
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
@@ -108,6 +108,13 @@ def reject_secret_keys(value: object, *, path: str = "") -> None:
             reject_secret_keys(child, path=f"{path}[{index}]")
 
 
+def _as_str_object_map(value: object, *, what: str) -> dict[str, object]:
+    """Narrow a YAML mapping to ``dict[str, object]`` or fail closed."""
+    if not isinstance(value, dict):
+        raise YamlSettingsError(f"{what} must be a mapping.")
+    return {str(key): child for key, child in value.items()}
+
+
 def overlay_from_mapping(raw: Mapping[str, object]) -> dict[str, object]:
     """Translate a YAML mapping into ``Settings`` field overlays.
 
@@ -123,16 +130,15 @@ def overlay_from_mapping(raw: Mapping[str, object]) -> dict[str, object]:
     overlay: dict[str, object] = {}
     yolo = raw.get("yolo")
     if yolo is not None:
-        if not isinstance(yolo, Mapping):
-            raise YamlSettingsError("yolo must be a mapping with enabled and tiers.")
-        yolo_extra = sorted(set(yolo) - {"enabled", "tiers"})
+        yolo_mapping = _as_str_object_map(yolo, what="yolo")
+        yolo_extra = sorted(set(yolo_mapping) - {"enabled", "tiers"})
         if yolo_extra:
             message = f"Unknown YAML yolo keys: {', '.join(yolo_extra)}."
             raise YamlSettingsError(message)
-        if "enabled" in yolo:
-            overlay["yolo_enabled"] = yolo["enabled"]
-        if "tiers" in yolo:
-            overlay["yolo_tiers"] = parse_yolo_tiers_value(yolo["tiers"])
+        if "enabled" in yolo_mapping:
+            overlay["yolo_enabled"] = yolo_mapping["enabled"]
+        if "tiers" in yolo_mapping:
+            overlay["yolo_tiers"] = parse_yolo_tiers_value(yolo_mapping["tiers"])
     for field_name in YAML_SCALAR_FIELDS:
         if field_name in raw:
             overlay[field_name] = raw[field_name]
@@ -368,9 +374,14 @@ def _settings_from_overlay(
     *,
     env_file: Path | str | None,
 ) -> Settings:
-    """Build Settings from env plus YAML kwargs. YAML/kwargs win leftover env."""
+    """Build Settings from env plus YAML kwargs. YAML/kwargs win leftover env.
+
+    ``overlay`` is untrusted YAML already restricted to known keys. ``Any`` is the
+    dynamic BaseSettings ``**kwargs`` boundary; ``Settings`` validates immediately.
+    """
+    unpacked: dict[str, Any] = dict(overlay)
     try:
-        return Settings(_env_file=env_file, **overlay)
+        return Settings(_env_file=env_file, **unpacked)
     except ValidationError as error:
         message = "YAML settings are invalid against process secrets and bind knobs."
         raise YamlSettingsError(message) from error

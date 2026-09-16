@@ -14,6 +14,7 @@ from thytrader.settings_yaml import SettingsStore
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fastapi import FastAPI
     import pytest
 
 _WRITE = {
@@ -29,7 +30,7 @@ _WRITE = {
 }
 
 
-def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[SettingsStore, object]:
+def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[SettingsStore, FastAPI]:
     """Build an API with a YAML store and no leftover YOLO env."""
     monkeypatch.delenv("THYTRADER_YOLO_ENABLED", raising=False)
     monkeypatch.delenv("THYTRADER_YOLO_TIERS", raising=False)

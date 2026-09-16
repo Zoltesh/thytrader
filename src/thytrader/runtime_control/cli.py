@@ -442,7 +442,8 @@ def _settings_command(arguments: argparse.Namespace, base_url: str) -> object:
     current = show_yaml_settings(base_url)
     if not isinstance(current, dict):
         raise RuntimeControlError("Settings response omitted YAML fields.")
-    return set_yaml_settings(base_url, _settings_write_payload(arguments, current))
+    typed_current: dict[str, object] = {str(key): value for key, value in current.items()}
+    return set_yaml_settings(base_url, _settings_write_payload(arguments, typed_current))
 
 
 def _settings_write_payload(
