@@ -51,10 +51,13 @@ def test_get_settings_defaults_yolo_off(
     assert payload["yolo_tiers"] == []
     assert payload["live_hard_gate"] is True
     assert payload["playbook_live_authority"] is False
+    assert "coinbase_api_key_name" not in payload
+    assert "coinbase_api_private_key" not in payload
+    assert "notify_webhook_url" not in payload
+    assert "database_url" not in payload
     dumped = response.text.lower()
-    assert "coinbase_api" not in dumped
-    assert "webhook_url" not in dumped
-    assert "postgresql" not in dumped
+    assert "postgresql://" not in dumped
+    assert "begin private" not in dumped
 
 
 def test_put_yaml_paper_after_start_allows_paper_skip_not_live(

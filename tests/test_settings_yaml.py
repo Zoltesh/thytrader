@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
 from thytrader.agent_orchestration.models import YoloTier
 from thytrader.agent_orchestration.service import orchestration_status
@@ -15,6 +16,7 @@ from thytrader.settings_yaml import (
     dump_yaml_document,
     load_yaml_overlay,
     overlay_from_mapping,
+    reject_secret_keys,
 )
 
 if TYPE_CHECKING:
@@ -76,7 +78,7 @@ def test_yaml_wins_leftover_env_paper(
 
 
 def test_dump_yaml_document_never_includes_secrets() -> None:
-    """Canonical YAML text must not grow secret key names."""
+    """Canonical YAML mapping must not grow secret keys; comments may warn about them."""
     text = dump_yaml_document(
         {
             "yolo": {"enabled": False, "tiers": []},
@@ -84,7 +86,7 @@ def test_dump_yaml_document_never_includes_secrets() -> None:
             "notify_provider": "none",
         }
     )
-    assert "coinbase" not in text.lower()
-    assert "webhook_url" not in text
-    assert "database_url" not in text
+    loaded = yaml.safe_load(text)
+    assert isinstance(loaded, dict)
+    reject_secret_keys(loaded)
     assert "yolo:" in text

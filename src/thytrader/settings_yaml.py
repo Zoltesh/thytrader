@@ -68,10 +68,6 @@ RESTART_REQUIRED_FIELDS: tuple[str, ...] = (
     "containerized",
     "allow_remote_access",
     "market_data_dataset_root",
-    "database_url",
-    "coinbase_api_key_name",
-    "coinbase_api_private_key",
-    "notify_webhook_url",
 )
 LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
