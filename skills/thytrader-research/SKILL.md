@@ -50,7 +50,7 @@ Never treat a backtest as a paper or live fill.
 
 | Need | Command |
 |---|---|
-| Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] --confirm` |
+| Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
 | List draft templates | `uv run thytrader-research list-templates` |
 | Show the V1/V2/V3 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
@@ -77,6 +77,10 @@ need 2–8 published single-instrument strategies on distinct products. See
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
 `--timeframe` (any ingested venue clock) for another USD spot product. Paper and live may start that published fingerprint.
+Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
+`GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
+create-draft JSON. It does not change published strategy semantics, place orders, or arm live
+trading. Train models with `skills/thytrader-memory/SKILL.md`.
 Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy

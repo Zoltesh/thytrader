@@ -101,6 +101,25 @@ def notify(base_url: str, payload: dict[str, object]) -> object:
     )
 
 
+def list_models(base_url: str) -> object:
+    """Return newest-first trained experiential models."""
+    return request_json(method="GET", url=f"{base_url}{MEMORY_API_PREFIX}/models")
+
+
+def show_model(base_url: str, model_id: str) -> object:
+    """Return one trained model by id."""
+    return request_json(method="GET", url=f"{base_url}{MEMORY_API_PREFIX}/models/{model_id}")
+
+
+def train_model(base_url: str, payload: dict[str, object]) -> object:
+    """Train one fail-closed model from attributed local journal evidence."""
+    return request_json(
+        method="POST",
+        url=f"{base_url}{MEMORY_API_PREFIX}/models",
+        payload=payload,
+    )
+
+
 def _filtered(url: str, **params: str | None) -> str:
     """Append non-empty query parameters."""
     encoded = urlencode({key: value for key, value in params.items() if value})

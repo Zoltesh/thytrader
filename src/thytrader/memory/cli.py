@@ -15,12 +15,15 @@ from thytrader.memory.client import (
     add_pattern,
     add_sentiment,
     list_journals,
+    list_models,
     list_notifications,
     list_patterns,
     list_sentiment,
     memory_status,
     monitor,
     notify,
+    show_model,
+    train_model,
 )
 from thytrader.memory.models import (
     ActorOrigin,
@@ -38,10 +41,12 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _CONFIRM_HELP = (
-    "Required for journal, sentiment, pattern, and notify mutations. YOLO never covers this lane."
+    "Required for journal, sentiment, pattern, notify, and train mutations. "
+    "YOLO never covers this lane."
 )
 _CONFIRM_MESSAGE = (
-    "Pass --confirm to write journals, sentiment, pattern observations, or notifications."
+    "Pass --confirm to write journals, sentiment, pattern observations, "
+    "notifications, or trained models."
 )
 
 
@@ -77,10 +82,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-memory",
         description=(
-            "Journals, sentiment and pattern-learning hooks, monitor, and user "
-            "notification through the loopback HTTP API. Mutations require --confirm. "
-            "YOLO never skips that gate. This is not operator, data, research, "
-            "runtime, or playbook. It does not place orders."
+            "Journals, sentiment and pattern-learning hooks, monitor, user "
+            "notification, and fail-closed experiential training through the "
+            "loopback HTTP API. Mutations require --confirm. YOLO never skips "
+            "that gate. This is not operator, data, research, runtime, or "
+            "playbook. It does not place orders. Training consumes attributed "
+            "local journals; it does not own trade-reason review surfaces."
         ),
         parents=[shared],
     )
@@ -176,6 +183,30 @@ def _parser() -> argparse.ArgumentParser:
         choices=tuple(item.value for item in NotifySeverity),
     )
     send.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    subparsers.add_parser(
+        "list-models",
+        parents=[trailing],
+        help="List trained experiential models.",
+    )
+    show_m = subparsers.add_parser(
+        "show-model",
+        parents=[trailing],
+        help="Show one trained experiential model.",
+    )
+    show_m.add_argument("--model-id", required=True, help="Trained model UUID.")
+    train = subparsers.add_parser(
+        "train",
+        parents=[trailing],
+        help="Train one fail-closed model from attributed local journal evidence.",
+    )
+    _origin_arg(train, required=True)
+    train.add_argument(
+        "--seed",
+        type=int,
+        default=1,
+        help="Deterministic ranking seed. Default 1.",
+    )
+    train.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -208,6 +239,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         "list-sentiment",
         "list-patterns",
         "list-notifications",
+        "list-models",
+        "show-model",
     }:
         require_matching_ops_contract(base_url)
         return _read(command, arguments, base_url)
@@ -233,6 +266,10 @@ def _read(command: str, arguments: argparse.Namespace, base_url: str) -> object:
             origin=origin,
             pattern_key=getattr(arguments, "pattern_key", None),
         )
+    if command == "list-models":
+        return list_models(base_url)
+    if command == "show-model":
+        return show_model(base_url, arguments.model_id)
     return list_notifications(base_url, origin=origin)
 
 
@@ -261,6 +298,11 @@ def _mutate(command: str, arguments: argparse.Namespace, base_url: str) -> objec
                 "body": arguments.body,
                 "severity": arguments.severity,
             },
+        )
+    if command == "train":
+        return train_model(
+            base_url,
+            {"origin": arguments.origin, "seed": arguments.seed},
         )
     raise AssertionError(f"unsupported memory command: {command}")
 

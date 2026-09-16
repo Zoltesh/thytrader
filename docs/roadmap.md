@@ -16,6 +16,8 @@ The Coinbase spot loop an agent can already drive is real: ingest every currentl
 per-indicator clocks, YOLO live skip-confirm (live still needs `--i-understand-live`),
 journals/notify hooks, and spot shorts with attached brackets
 ([ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)).
+Fail-closed experiential training V1 is shipped
+([ADR 0049](decisions/0049-experiential-train-v1.md)).
 
 Vision destination is **not** fully met. Do **not** treat shipped clocks, on-demand, or Phases 7–14
 as open work. Thy Builder should take the next item from
@@ -251,7 +253,8 @@ Ops contract is `thytrader-ops-contract-v9` / Alembic `0023`.
 journals, sentiment, pattern hooks, and notify requests; operator `monitor` is read-only; webhook
 URLs are redacted; default notify sends nothing.
 
-No model training, no venue scrape, and no fill-ledger origin rewrite. Phase 13 live extras,
+No venue scrape and no fill-ledger origin rewrite. Model training is a follow-on
+([ADR 0049](decisions/0049-experiential-train-v1.md)). Phase 13 live extras,
 on-demand SL/TP, and `1m`/`2h` clocks were out of this memory slice; they shipped in other ADRs.
 
 ## On-demand discretionary trades with SL/TP — ✅ Shipped
@@ -373,6 +376,22 @@ and HTTP `maker_fee_rate` / `taker_fee_rate` are optional together; omitted pape
 **Exit gate met:** paper books record the chosen rates on fills; operator `fee_treatment` names
 those assumptions; copy never claims observed Coinbase fees.
 
+## Bounded experiential training V1 — ✅ Shipped
+
+A fail-closed integer ranker trains from origin-attributed local journals, sentiment, and pattern
+hooks ([ADR 0049](decisions/0049-experiential-train-v1.md)). Engine
+`thytrader-experiential-train-v1`. Documents `thytrader-experiential-model-v1` and
+`thytrader-experiential-advisory-v1`. Evidence is local only (backtest / research / market_data /
+deployment / paper_fill / live_fill); dangling pointers fail the train; missing candles are never
+interpolated. Output is advisory research input. `create-draft --experiential-model-id` is HTTP-only
+and merges that advisory into JSON. YOLO never covers `train`. Journal schema and review UI stay
+with the sibling why-trade slice; this trainer consumes `JournalEntry` as stored. Extra exchanges
+stay out. Ops contract is `thytrader-ops-contract-v17` / Alembic `0029`.
+
+**Exit gate met:** `uv run thytrader-memory train --origin agent --confirm` writes a fingerprintable
+model; `list-models` / `show-model` read it; research can attach the advisory without changing
+strategy semantics or placing orders.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -391,6 +410,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043). In-app operator chat is a separate destination row |
 | Trade-reason journals | Phase 14 origin-attributed hooks (journals, sentiment/pattern, monitor, notify). No per-trade “why” record | A human or agent can open a trade and see **why it was made** — signal, published strategy version, risk decision, discretionary note, fill/reconcile facts. Durable, attributed, redacted. Same record for UI and operator reports. No interpolated candles |
+| Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Lane-separated skills plus playbook; no in-app LLM chat | Loopback chat; the user supplies **their** LLM API key. The chat is an **operator** using gated skills (same lanes as `ops/`). Confirmation-gated; live still `--i-understand-live` (or the HTTP equivalent). LLM keys stay server-side; Coinbase keys never go to the browser. Not a substitute for skills; it uses them |
 | Workstation IA | Capable SvelteKit workstation; strategy / backtest / research / paper-live share crowded library and deploy surfaces | Strategy create, backtest, research, and paper/live deploy are first-class, visible, uncluttered professional surfaces. Use screen real estate. Functionality is obvious without hunting. Modernize; do not weaken safety copy or confirmation |
 | Coinbase secrets UI | Server-side `.env` / Compose secrets; UI never receives keys; `.env.example` is names/placeholders only | Loopback form to **set / rotate / clear** Coinbase Advanced Trade API credentials. Keys stay server-side. The UI never echoes them, never logs them, never puts them in browser payloads. View + Trade is enough; extra permissions are reported, not treated as consent |

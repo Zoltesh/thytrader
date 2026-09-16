@@ -98,8 +98,9 @@ monitor, support_bundle.
 ## Experiential memory hooks
 
 `thytrader-experiential-memory-v1` journals. Origin `human` or `agent` is
-required. No model training. Per-trade “why it was made” records remain
-destination.
+required. Bounded V1 training is `thytrader-experiential-train-v1` (advisory
+only; [ADR 0049](../../decisions/0049-experiential-train-v1.md)). Per-trade
+“why it was made” records remain destination.
 
 ```mermaid
 classDiagram
@@ -114,4 +115,12 @@ classDiagram
     runtime_mode none|research|paper|live
     lesson_outcome
   }
+  class ExperientialModel {
+    schema_version thytrader-experiential-model-v1
+    engine_id thytrader-experiential-train-v1
+    seed
+    fingerprint
+    advisory
+  }
+  ExperientialModel ..> JournalEntry : trains from evidenced rows
 ```

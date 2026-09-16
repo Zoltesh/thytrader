@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Table, desc, func, insert, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.memory.models import (
     ActorOrigin,
     DeliveryStatus,
     EvidenceKind,
+    ExperientialModel,
     JournalEntry,
     JournalKind,
     LessonOutcome,
@@ -27,12 +28,15 @@ from thytrader.memory.models import (
 from thytrader.memory.store import MemoryStoreError
 from thytrader.persistence.schema import (
     experiential_journal_entries,
+    experiential_models,
     experiential_notifications,
     experiential_pattern_observations,
     experiential_sentiment_snapshots,
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
     from sqlalchemy.sql.selectable import Select
@@ -219,6 +223,62 @@ class PostgresExperientialMemoryStore:
             notifications=notifications,
         )
 
+    async def append_model(self, model: ExperientialModel) -> ExperientialModel:
+        """Insert one trained model or return the existing fingerprint match."""
+        existing = await self.get_model_by_fingerprint(model.fingerprint)
+        if existing is not None:
+            return existing
+        values = {
+            "id": model.id,
+            "recorded_at": model.recorded_at,
+            "origin": model.origin.value,
+            "engine_id": model.engine_id,
+            "seed": model.seed,
+            "fingerprint": model.fingerprint,
+            "canonical_document": model.model_dump_json(),
+        }
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(insert(experiential_models).values(**values))
+        except IntegrityError:
+            raced = await self.get_model_by_fingerprint(model.fingerprint)
+            if raced is not None:
+                return raced
+            raise MemoryStoreError("Experiential memory storage is unavailable.") from None
+        except SQLAlchemyError as error:
+            raise MemoryStoreError("Experiential memory storage is unavailable.") from error
+        return model
+
+    async def get_model(self, model_id: UUID) -> ExperientialModel | None:
+        """Load one trained model by id."""
+        statement = select(experiential_models).where(experiential_models.c.id == model_id)
+        row = await _one(self._engine, statement)
+        if row is None:
+            return None
+        return _model_from_row(row)
+
+    async def get_model_by_fingerprint(self, fingerprint: str) -> ExperientialModel | None:
+        """Load one trained model by content identity."""
+        statement = select(experiential_models).where(
+            experiential_models.c.fingerprint == fingerprint
+        )
+        row = await _one(self._engine, statement)
+        if row is None:
+            return None
+        return _model_from_row(row)
+
+    async def list_models(self, *, limit: int = 50) -> tuple[ExperientialModel, ...]:
+        """Return newest-first trained models."""
+        statement = select(experiential_models)
+        rows = await _list(
+            self._engine,
+            statement,
+            experiential_models,
+            limit,
+            timestamp="recorded_at",
+        )
+        return tuple(_model_from_row(row) for row in rows)
+
 
 async def _insert(engine: AsyncEngine, table: Table, values: dict[str, object]) -> None:
     """Insert one row or raise MemoryStoreError."""
@@ -234,16 +294,34 @@ async def _list(
     statement: Select[tuple[object, ...]],
     table: Table,
     limit: int,
+    *,
+    timestamp: str = "occurred_at",
 ) -> tuple[RowMapping, ...]:
     """Run a newest-first select."""
     bounded = _bounded_limit(limit)
-    ordered = statement.order_by(desc(table.c.occurred_at), desc(table.c.id)).limit(bounded)
+    stamp = table.c[timestamp]
+    ordered = statement.order_by(desc(stamp), desc(table.c.id)).limit(bounded)
     try:
         async with engine.connect() as connection:
             rows = (await connection.execute(ordered)).mappings().all()
     except SQLAlchemyError as error:
         raise MemoryStoreError("Experiential memory storage is unavailable.") from error
     return tuple(rows)
+
+
+async def _one(
+    engine: AsyncEngine,
+    statement: Select[tuple[object, ...]],
+) -> RowMapping | None:
+    """Return one mapping or None."""
+    try:
+        async with engine.connect() as connection:
+            row = (await connection.execute(statement.limit(1))).mappings().first()
+    except SQLAlchemyError as error:
+        raise MemoryStoreError("Experiential memory storage is unavailable.") from error
+    if row is None:
+        return None
+    return row
 
 
 async def _count(connection: AsyncConnection, table: Table) -> int:
@@ -256,7 +334,7 @@ def _bounded_limit(limit: int) -> int:
     """Reject non-positive limits and cap list size."""
     if limit < 1:
         raise ValueError("limit must be positive")
-    return min(limit, 100)
+    return min(limit, 10_000)
 
 
 def _journal_from_row(row: RowMapping) -> JournalEntry:
@@ -323,3 +401,8 @@ def _notification_from_row(row: RowMapping) -> NotificationRecord:
         detail=str(row["detail"]),
         journal_id=row["journal_id"],
     )
+
+
+def _model_from_row(row: RowMapping) -> ExperientialModel:
+    """Revalidate one stored experiential-model document."""
+    return ExperientialModel.model_validate_json(str(row["canonical_document"]))

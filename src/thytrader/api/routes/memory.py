@@ -1,21 +1,28 @@
-"""HTTP contract for journals, sentiment/pattern hooks, monitor, and notify."""
+"""HTTP contract for journals, hooks, monitor, notify, and experiential models."""
 
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
+    get_backtest_result_store,
+    get_dataset_store,
     get_execution_store,
     get_memory_store,
     get_notification_sender,
     get_runtime_state,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.memory.evidence import LocalEvidenceResolver
 from thytrader.memory.models import (
+    ExperientialModel,
+    ExperientialTrainWrite,
     JournalEntry,
     JournalWrite,
     MemoryStatus,
@@ -40,7 +47,11 @@ from thytrader.memory.service import (
     submit_notification,
 )
 from thytrader.memory.store import ExperientialMemoryStore, MemoryStoreError
+from thytrader.memory.training import ExperientialTrainingError, train_experiential_model
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.persistence.backtest_results import (
+    BacktestResultReader,  # noqa: TC001 - FastAPI Depends.
+)
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
@@ -72,6 +83,13 @@ class NotificationListResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     notifications: tuple[NotificationRecord, ...]
+
+
+class ModelListResponse(BaseModel):
+    """Newest-first trained experiential-model listing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    models: tuple[ExperientialModel, ...]
 
 
 @router.get("", response_model=MemoryStatus)
@@ -216,6 +234,54 @@ async def post_notification(
     try:
         return await submit_notification(store, audit, sender, body)
     except (ValueError, ValidationError, MemoryStoreError) as error:
+        raise _write_error(error) from None
+
+
+@router.get("/models", response_model=ModelListResponse)
+async def get_models(
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+) -> ModelListResponse:
+    """List newest-first trained experiential models."""
+    try:
+        rows = await store.list_models()
+    except MemoryStoreError as error:
+        raise _read_error(error) from None
+    return ModelListResponse(models=rows)
+
+
+@router.get("/models/{model_id}", response_model=ExperientialModel)
+async def get_model(
+    model_id: UUID,
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+) -> ExperientialModel:
+    """Return one trained model or 404."""
+    try:
+        model = await store.get_model(model_id)
+    except MemoryStoreError as error:
+        raise _read_error(error) from None
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model was not found.")
+    return model
+
+
+@router.post("/models", status_code=status.HTTP_201_CREATED, response_model=ExperientialModel)
+async def post_model(
+    body: ExperientialTrainWrite,
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    backtests: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> ExperientialModel:
+    """Train one fail-closed model from attributed local journal evidence."""
+    resolver = LocalEvidenceResolver(
+        backtests=backtests,
+        datasets=datasets,
+        execution=execution,
+    )
+    try:
+        return await train_experiential_model(store, audit, resolver, body)
+    except (ExperientialTrainingError, ValueError, ValidationError, MemoryStoreError) as error:
         raise _write_error(error) from None
 
 

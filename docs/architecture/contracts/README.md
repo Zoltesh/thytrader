@@ -15,7 +15,7 @@ same change that changes the contract.
 | [Backtest result](backtest-result.md) | Immutable simulation evidence | `thytrader.backtest.models.BacktestResult` |
 | [Ops contract](ops-contract.md) | CLI versus running-image identity | `thytrader.ops_contract`, `OpsContractPayload` |
 | [Order intent → risk → broker](execution.md) | Paper/live execution boundary | `OrderIntent`, `RiskPolicyDefinition`, brokers |
-| [Other durable payloads](other-payloads.md) | Dataset manifest, risk policy, operator envelope, memory hooks | `DatasetManifest`, `RiskPolicyDefinition`, `OperatorEnvelope`, `JournalEntry` |
+| [Other durable payloads](other-payloads.md) | Dataset manifest, risk policy, operator envelope, memory hooks and V1 model | `DatasetManifest`, `RiskPolicyDefinition`, `OperatorEnvelope`, `JournalEntry`, `ExperientialModel` |
 
 ```mermaid
 flowchart LR

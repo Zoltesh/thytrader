@@ -60,7 +60,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps, WFO, and stitched OOS equity shipped ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |
-| Memory | Phase 14 shipped: origin-attributed journals, sentiment/pattern hooks, operator monitor, and config-gated notify (ADR 0037). No ML training. YOLO never covers this lane. |
+| Memory | Phase 14 shipped: origin-attributed journals, sentiment/pattern hooks, operator monitor, and config-gated notify (ADR 0037). Bounded V1 trainer ships on those attributed local rows (ADR 0049): fail-closed, fingerprintable, advisory research input only. YOLO never covers this lane. Trade-reason review UI is a sibling. |
 
 ## Shipped: Safe mode vs YOLO mode
 

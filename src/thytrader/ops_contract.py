@@ -9,9 +9,9 @@ current.
 Bump `OPS_CONTRACT_ID` whenever paper/live timeframes, backtest engines, the
 historical interval cap, the expected Alembic revision, the risk-policy
 registry contract, live extras (user-order feed / native OCO),
-experiential-memory persistence, discretionary-order identity, paper/live
-HTF-filter evaluation, per-indicator timeframe evaluation, spot shorting,
-attached entry brackets, or paper deploy fee fields change.
+experiential-memory persistence, experiential-model engines, discretionary-order
+identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
+spot shorting, attached entry brackets, or paper deploy fee fields change.
 """
 
 from __future__ import annotations
@@ -23,13 +23,14 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v16"
-EXPECTED_SCHEMA_REVISION = "0028"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v17"
+EXPECTED_SCHEMA_REVISION = "0029"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
     "thytrader-bar-backtest-v3",
 )
+EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 HTF_FILTER_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
@@ -53,6 +54,7 @@ def expected_ops_contract() -> dict[str, object]:
         "position_sides": list(POSITION_SIDES),
         "attached_entry_brackets": list(ATTACHED_ENTRY_BRACKETS),
         "paper_deploy_fee_fields": list(PAPER_DEPLOY_FEE_FIELDS),
+        "experiential_model_engines": list(EXPERIENTIAL_MODEL_ENGINES),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 
