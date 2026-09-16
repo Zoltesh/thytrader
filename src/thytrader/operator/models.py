@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
+from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
 from thytrader.research.catalog import StudyCatalogSummary  # noqa: TC001 - Pydantic field type.
 
@@ -31,6 +32,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "runtime",
     "monitor",
     "studies",
+    "trade_reasons",
     "support_bundle",
 )
 
@@ -108,6 +110,7 @@ class OpsContractPayload(_FrozenModel):
     risk_breakers: tuple[Literal["daily_loss", "drawdown"], ...]
     order_rate_limits: tuple[Literal["entry", "cancel"], ...]
     reference_price_collars: tuple[Literal["paper", "live"], ...]
+    trade_reason_journals: tuple[Literal["paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -381,7 +384,7 @@ class RuntimeReport(OperatorEnvelope):
 
 
 class MonitorReport(OperatorEnvelope):
-    """Read-only composite of deployments, journals, and notification delivery."""
+    """Read-only composite of deployments, journals, why-trade records, and notify."""
 
     report_kind: Literal["monitor"] = "monitor"
     payload: MonitorSnapshot
@@ -399,6 +402,20 @@ class StudiesReport(OperatorEnvelope):
 
     report_kind: Literal["studies"] = "studies"
     payload: StudiesPayload
+
+
+class TradeReasonsPayload(_FrozenModel):
+    """Same why-trade records as the memory HTTP contract, wrapped for operators."""
+
+    storage: Literal["available", "unavailable"]
+    trade_reasons: tuple[TradeReasonRecord, ...]
+
+
+class TradeReasonsReport(OperatorEnvelope):
+    """Read-only why-trade journals for human and agent review."""
+
+    report_kind: Literal["trade_reasons"] = "trade_reasons"
+    payload: TradeReasonsPayload
 
 
 class SupportBundlePayload(_FrozenModel):

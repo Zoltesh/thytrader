@@ -52,6 +52,7 @@ from thytrader.operator.models import (
     StrategiesReport,
     StudiesReport,
     SupportBundleReport,
+    TradeReasonsReport,
 )
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
@@ -220,7 +221,7 @@ async def get_operator_runtime(
 async def get_operator_monitor(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
 ) -> MonitorReport:
-    """Return deployments, recent journals, and notification delivery."""
+    """Return deployments, recent journals, why-trade records, and notification delivery."""
     return await diagnostics.monitor()
 
 
@@ -230,6 +231,16 @@ async def get_operator_studies(
 ) -> StudiesReport:
     """Return persisted research-study catalog rows without child equity."""
     return await diagnostics.studies()
+
+
+@router.get("/trade-reasons", response_model=TradeReasonsReport)
+async def get_operator_trade_reasons(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    intent_id: UUID | None = None,
+    deployment_id: UUID | None = None,
+) -> TradeReasonsReport:
+    """Return composed why-trade journals for human and agent review."""
+    return await diagnostics.trade_reasons(intent_id=intent_id, deployment_id=deployment_id)
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

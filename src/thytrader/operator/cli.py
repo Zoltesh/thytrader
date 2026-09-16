@@ -144,8 +144,15 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "monitor",
         parents=[trailing],
-        help="Watch deployments, recent journals, and notification delivery.",
+        help="Watch deployments, recent journals, why-trade records, and notify.",
     )
+    trade_reasons = subparsers.add_parser(
+        "trade-reasons",
+        parents=[trailing],
+        help="Review why a paper or live intent was persisted.",
+    )
+    trade_reasons.add_argument("--deployment-id", default=None)
+    trade_reasons.add_argument("--intent-id", default=None)
     subparsers.add_parser(
         "studies",
         parents=[trailing],
@@ -190,6 +197,11 @@ async def _dispatch(
         )
     if command == "runtime":
         return await diagnostics.runtime_report(_uuid_or_none(arguments.deployment_id))
+    if command == "trade-reasons":
+        return await diagnostics.trade_reasons(
+            intent_id=_uuid_or_none(getattr(arguments, "intent_id", None)),
+            deployment_id=_uuid_or_none(getattr(arguments, "deployment_id", None)),
+        )
     factories = {
         "health": lambda: diagnostics.health(probe_api=True),
         "configuration": diagnostics.configuration,
@@ -229,6 +241,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str]:
     deployment_id = getattr(arguments, "deployment_id", None)
     if isinstance(deployment_id, str) and deployment_id:
         query["deployment_id"] = deployment_id
+    intent_id = getattr(arguments, "intent_id", None)
+    if isinstance(intent_id, str) and intent_id:
+        query["intent_id"] = intent_id
     return query
 
 

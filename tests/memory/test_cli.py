@@ -21,6 +21,7 @@ def test_memory_help_describes_confirm_and_no_yolo(
     output = capsys.readouterr().out.lower()
     assert "--confirm" in output
     assert "yolo never" in output or "not operator" in output
+    assert "list-trade-reasons" in output
 
 
 def test_add_journal_requires_confirm_even_if_yolo_on() -> None:
@@ -37,6 +38,22 @@ def test_add_journal_requires_confirm_even_if_yolo_on() -> None:
                 "Paused",
                 "--body",
                 "Stale candles.",
+            ]
+        )
+
+
+def test_add_trade_reason_note_requires_confirm() -> None:
+    """YOLO never covers why-trade note mutations."""
+    with pytest.raises(SystemExit, match="Pass --confirm"):
+        main(
+            [
+                "add-trade-reason-note",
+                "--intent-id",
+                "01985cf0-7b60-7000-8000-000000000011",
+                "--origin",
+                "human",
+                "--body",
+                "Reviewed.",
             ]
         )
 

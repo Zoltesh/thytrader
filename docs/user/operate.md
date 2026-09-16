@@ -103,7 +103,7 @@ uv run thytrader-memory status
 | `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
 | `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy | `--confirm`; live also `--i-understand-live` |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
-| `thytrader-memory` | Journals, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
+| `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 
 Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Missing candles are
 never interpolated.

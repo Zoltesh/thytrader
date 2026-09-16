@@ -1,15 +1,14 @@
 ---
 name: thytrader-memory
 description: >-
-  Record ThyTrader journals, sentiment and pattern-learning hooks, watch the
-  monitor, request user notifications, and train a fail-closed experiential
-  model from attributed local journal evidence through thytrader-memory. Use
-  when the user asks to journal a fact or lesson, record sentiment, note a
-  pattern, inspect monitor findings, notify themselves, or train/list/show an
-  experiential model. Mutations require --confirm. YOLO never covers this lane.
-  Never deploys, paper-trades, live-trades, arms, or cancels orders. Not an
-  extension of operator, data, research, runtime, or playbook skills. Does not
-  own trade-reason review surfaces.
+  Record ThyTrader journals, why-trade review notes, sentiment and pattern-learning
+  hooks, watch the monitor, request user notifications, and train a fail-closed
+  experiential model from attributed local journal evidence through thytrader-memory.
+  Use when the user asks to journal a fact or lesson, review why a trade was made,
+  record sentiment, note a pattern, inspect monitor findings, notify themselves, or
+  train/list/show an experiential model. Mutations require --confirm. YOLO never
+  covers this lane. Never deploys, paper-trades, live-trades, arms, or cancels
+  orders. Not an extension of operator, data, research, runtime, or playbook skills.
 ---
 
 # ThyTrader memory
@@ -29,8 +28,8 @@ confirmation; YOLO never covers this lane. Do not treat chat as this skill.
 
 Origin is required on every write: `human` or `agent`. Journals, sentiment, and pattern rows are
 append-only hooks. They are not a substitute for audit trails or immutable backtest/fill evidence.
-`train` consumes attributed local journals as stored. It does not invent journal kinds or own
-human/agent review surfaces. There is no venue sentiment scrape.
+`train` consumes attributed local journals as stored. It does not invent journal kinds.
+Why-trade review is this lane (`thytrader-trade-reason-v1`). There is no venue sentiment scrape.
 
 Notify default is `THYTRADER_NOTIFY_PROVIDER=none` (persist as skipped, send nothing). `log` writes
 a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`. Never print that URL.
@@ -62,12 +61,17 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Train from attributed local evidence | `uv run thytrader-memory train --origin agent [--seed 1] --confirm` |
 | List trained models | `uv run thytrader-memory list-models` |
 | Show one trained model | `uv run thytrader-memory show-model --model-id UUID` |
+| List why-trade records | `uv run thytrader-memory list-trade-reasons [--origin human\|agent\|runtime] [--deployment-id UUID] [--intent-id UUID]` |
+| Show one why-trade record | `uv run thytrader-memory show-trade-reason --intent-id UUID` |
+| Append a why-trade note | `uv run thytrader-memory add-trade-reason-note --intent-id UUID --origin human --body "…" --confirm` |
 
-`status`, `monitor`, `list-*`, and `show-model` are read-only. Mutations require `--confirm`. YOLO
-never skips that gate. Lessons require `--lesson-outcome` other than `none`. Evidence ids are
-required only when `--evidence-kind` is not `none`. `train` is fail-closed: unevidenced rows are
-skipped; dangling local evidence refuses the whole train. Output is advisory, not a live policy.
-Pass a model id into research with `uv run thytrader-research create-draft --experiential-model-id UUID --confirm` (HTTP only).
+`status`, `monitor`, `list-*`, `show-model`, and `show-trade-reason` are read-only. Mutations
+require `--confirm`. YOLO never skips that gate. Lessons require `--lesson-outcome` other than
+`none`. Evidence ids are required only when `--evidence-kind` is not `none`. `train` is
+fail-closed: unevidenced rows are skipped; dangling local evidence refuses the whole train.
+Output is advisory, not a live policy. Place-order `--note` is the first why-trade note; later
+notes use `add-trade-reason-note --confirm`. Pass a model id into research with
+`uv run thytrader-research create-draft --experiential-model-id UUID --confirm` (HTTP only).
 
 Underlying HTTP used by this CLI:
 
@@ -80,15 +84,19 @@ Underlying HTTP used by this CLI:
 - `GET|POST /api/v1/memory/notifications`
 - `GET|POST /api/v1/memory/models`
 - `GET /api/v1/memory/models/{id}`
+- `GET /api/v1/memory/trade-reasons`
+- `GET /api/v1/memory/trade-reasons/{intent_id}`
+- `POST /api/v1/memory/trade-reasons/{intent_id}/notes`
 
 Operator `monitor` (`uv run thytrader-operator monitor`) is the same watch wrapped in
-`thytrader-operator-report-v1`. Use that for diagnostics; use this skill to write.
+`thytrader-operator-report-v1`. Operator `trade-reasons` is the same why-trade payload wrapped for
+diagnostics. Use that for diagnostics; use this skill to write notes.
 
 ## Confirmation
 
 - Never mutate unless the user explicitly asked **and** `--confirm` is present.
 - Do not retry with `--confirm` unless the user asked you to.
-- Do not consult YOLO for this lane. `THYTRADER_YOLO_ENABLED` never covers journals, notify, or train.
+- Do not consult YOLO for this lane. `THYTRADER_YOLO_ENABLED` never covers journals, notify, train, or why-trade notes.
 - Keep origin, kind, evidence identities, and model fingerprints in any answer.
 
 ## Forbidden
@@ -99,7 +107,7 @@ Operator `monitor` (`uv run thytrader-operator monitor`) is the same watch wrapp
 - Interpolating candles or treating journals as fill-ledger origin
 - Treating a trained model as a live brain, order intent, or Coinbase call
 - Scraping external sentiment
-- Building a trade-reason review UI or duplicating journal schema (sibling owns those)
+- Interpolating candles or rewriting fill-ledger origin from why-trade notes
 - Direct PostgreSQL access
 - Editing application source to persist memory on a running instance
 - Collapsing this lane into operator, data, research, runtime, or playbook

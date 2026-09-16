@@ -1,4 +1,4 @@
-"""HTTP contract for journals, hooks, monitor, notify, and experiential models."""
+"""HTTP contract for journals, why-trade review, hooks, notify, and models."""
 
 from __future__ import annotations
 
@@ -39,14 +39,23 @@ from thytrader.memory.service import (
     build_monitor,
     kind_or_none,
     load_memory_status,
+    load_trade_reason,
+    load_trade_reasons,
     origin_or_none,
     record_journal,
     record_pattern,
     record_sentiment,
+    record_trade_reason_note,
     storage_label,
     submit_notification,
+    trade_reason_origin_or_none,
 )
 from thytrader.memory.store import ExperientialMemoryStore, MemoryStoreError
+from thytrader.memory.trade_reasons import (
+    TradeReasonListResponse,
+    TradeReasonNoteWrite,
+    TradeReasonRecord,
+)
 from thytrader.memory.training import ExperientialTrainingError, train_experiential_model
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.backtest_results import (
@@ -282,6 +291,78 @@ async def post_model(
     try:
         return await train_experiential_model(store, audit, resolver, body)
     except (ExperientialTrainingError, ValueError, ValidationError, MemoryStoreError) as error:
+        raise _write_error(error) from None
+
+
+@router.get("/trade-reasons", response_model=TradeReasonListResponse)
+async def get_trade_reasons(
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+    origin: Annotated[str | None, Query()] = None,
+    deployment_id: Annotated[UUID | None, Query()] = None,
+    intent_id: Annotated[UUID | None, Query()] = None,
+) -> TradeReasonListResponse:
+    """List newest-first composed why-trade records."""
+    try:
+        rows = await load_trade_reasons(
+            store,
+            execution,
+            origin=trade_reason_origin_or_none(origin),
+            deployment_id=deployment_id,
+            intent_id=intent_id,
+        )
+    except (ValueError, MemoryStoreError) as error:
+        raise _read_error(error) from None
+    return TradeReasonListResponse(trade_reasons=rows)
+
+
+@router.get("/trade-reasons/{intent_id}", response_model=TradeReasonRecord)
+async def get_trade_reason(
+    intent_id: UUID,
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> TradeReasonRecord:
+    """Return one composed why-trade record or 404."""
+    try:
+        row = await load_trade_reason(store, execution, intent_id)
+    except MemoryStoreError as error:
+        raise _read_error(error) from None
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trade-reason record was not found.",
+        )
+    return row
+
+
+@router.post(
+    "/trade-reasons/{intent_id}/notes",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TradeReasonRecord,
+)
+async def post_trade_reason_note(
+    intent_id: UUID,
+    body: TradeReasonNoteWrite,
+    store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> TradeReasonRecord:
+    """Append one attributed note to an existing why-trade record."""
+    try:
+        return await record_trade_reason_note(
+            store,
+            execution,
+            intent_id=intent_id,
+            origin=body.origin,
+            body=body.body,
+        )
+    except ValueError as error:
+        if str(error) == "Trade-reason record was not found.":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from None
+        raise _write_error(error) from None
+    except MemoryStoreError as error:
         raise _write_error(error) from None
 
 

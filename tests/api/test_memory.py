@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -21,6 +22,14 @@ from thytrader.memory.models import (
 )
 from thytrader.memory.notify import RecordingNotificationSender
 from thytrader.memory.store import DisabledExperientialMemoryStore, InMemoryExperientialMemoryStore
+from thytrader.memory.trade_reasons import (
+    TradeReasonOrigin,
+    TradeReasonRecord,
+    TradeReasonRisk,
+    TradeReasonSignal,
+    TradeReasonSignalKind,
+    TradeReasonStrategy,
+)
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 
@@ -182,3 +191,68 @@ def test_notify_skipped_with_recording_sender() -> None:
     assert all(
         finding["reason_code"] != "NOTIFICATION_FAILED" for finding in monitor.json()["findings"]
     )
+
+
+_FP = "sha256:" + ("c" * 64)
+
+
+def test_trade_reasons_list_show_and_note() -> None:
+    """GET list/show and POST notes share the composed why-trade payload."""
+    store = InMemoryExperientialMemoryStore()
+    intent_id = uuid4()
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
+    asyncio.run(
+        store.append_trade_reason(
+            TradeReasonRecord(
+                created_at=now,
+                origin=TradeReasonOrigin.RUNTIME,
+                intent_id=intent_id,
+                deployment_id=uuid4(),
+                deployment_kind="strategy",
+                mode="paper",
+                product_id="BTC-USD",
+                purpose="entry",
+                side="buy",
+                strategy=TradeReasonStrategy(
+                    strategy_id=uuid4(),
+                    strategy_fingerprint=_FP,
+                    name="ref",
+                    version=1,
+                ),
+                signal=TradeReasonSignal(
+                    kind=TradeReasonSignalKind.STRATEGY_ENTRY,
+                    last_signal="matched",
+                    candle_starts_at=now,
+                    timeframe="1h",
+                ),
+                risk=TradeReasonRisk(
+                    decision="allow",
+                    reason_code="ALLOWED",
+                    detail="Admitted.",
+                    policy_fingerprint=_FP,
+                    policy_source="compiled_default",
+                ),
+            )
+        )
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        memory_store=store,
+        audit_event_store=InMemoryAuditEventStore(),
+    )
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/memory/trade-reasons")
+        shown = client.get(f"/api/v1/memory/trade-reasons/{intent_id}")
+        noted = client.post(
+            f"/api/v1/memory/trade-reasons/{intent_id}/notes",
+            json={"origin": "human", "body": "Reviewed the fade."},
+        )
+        missing = client.get("/api/v1/memory/trade-reasons/11111111-1111-1111-1111-111111111111")
+    assert listed.status_code == 200
+    assert listed.json()["schema_version"] == "thytrader-trade-reason-v1"
+    assert listed.json()["trade_reasons"][0]["intent_id"] == str(intent_id)
+    assert shown.status_code == 200
+    assert shown.json()["risk"]["decision"] == "allow"
+    assert noted.status_code == 201
+    assert noted.json()["notes"][0]["body"] == "Reviewed the fade."
+    assert missing.status_code == 404

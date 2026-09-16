@@ -39,6 +39,7 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "monitor" in output
     assert "studies" in output
     assert "chat-status" in output
+    assert "trade-reasons" in output
     assert "loopback HTTP" in output or "--local" in output
 
 

@@ -134,6 +134,7 @@ export async function placeDiscretionaryOrder(input: {
 	paper_starting_cash?: string;
 	maker_fee_rate?: string;
 	taker_fee_rate?: string;
+	note?: string;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/discretionary-orders', {
 		method: 'POST',

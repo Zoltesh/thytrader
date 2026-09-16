@@ -42,6 +42,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/reconciliation",
         "/runtime",
         "/monitor",
+        "/trade-reasons",
         "/data-catalog",
         "/products",
         "/indicators",
@@ -63,6 +64,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
     assert "risk_breakers" in schemas
     assert "experiential_model_engines" in schemas
+    assert "trade_reason_journals" in schemas
 
 
 def test_research_skill_requires_confirm_and_forbids_trading() -> None:
@@ -181,6 +183,8 @@ def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:
     assert "--confirm" in skill
     assert "YOLO never" in skill or "yolo never" in skill.lower()
     assert "add-journal" in skill
+    assert "list-trade-reasons" in skill
+    assert "add-trade-reason-note" in skill
     assert "notify" in skill
     assert "/api/v1/memory" in skill
     assert "train" in skill

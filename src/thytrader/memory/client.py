@@ -120,6 +120,42 @@ def train_model(base_url: str, payload: dict[str, object]) -> object:
     )
 
 
+def list_trade_reasons(
+    base_url: str,
+    *,
+    origin: str | None = None,
+    deployment_id: str | None = None,
+    intent_id: str | None = None,
+) -> object:
+    """Return newest-first why-trade records."""
+    return request_json(
+        method="GET",
+        url=_filtered(
+            f"{base_url}{MEMORY_API_PREFIX}/trade-reasons",
+            origin=origin,
+            deployment_id=deployment_id,
+            intent_id=intent_id,
+        ),
+    )
+
+
+def show_trade_reason(base_url: str, intent_id: str) -> object:
+    """Return one composed why-trade record."""
+    return request_json(
+        method="GET",
+        url=f"{base_url}{MEMORY_API_PREFIX}/trade-reasons/{intent_id}",
+    )
+
+
+def add_trade_reason_note(base_url: str, intent_id: str, payload: dict[str, object]) -> object:
+    """Append one attributed note to a why-trade record."""
+    return request_json(
+        method="POST",
+        url=f"{base_url}{MEMORY_API_PREFIX}/trade-reasons/{intent_id}/notes",
+        payload=payload,
+    )
+
+
 def _filtered(url: str, **params: str | None) -> str:
     """Append non-empty query parameters."""
     encoded = urlencode({key: value for key, value in params.items() if value})

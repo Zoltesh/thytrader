@@ -12,8 +12,8 @@ registry contract, live extras (user-order feed / native OCO),
 experiential-memory persistence, experiential-model engines, discretionary-order
 identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
 spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
-breakers / order-rate limits / reference-price collars, or the persisted
-research-study catalog change.
+breakers / order-rate limits / reference-price collars, the persisted
+research-study catalog, or trade-reason journals change.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v19"
-EXPECTED_SCHEMA_REVISION = "0031"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v20"
+EXPECTED_SCHEMA_REVISION = "0032"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -43,6 +43,7 @@ PAPER_DEPLOY_FEE_FIELDS: tuple[str, ...] = ("maker_fee_rate", "taker_fee_rate")
 RISK_BREAKERS: tuple[str, ...] = ("daily_loss", "drawdown")
 ORDER_RATE_LIMITS: tuple[str, ...] = ("entry", "cancel")
 REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
+TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -63,6 +64,7 @@ def expected_ops_contract() -> dict[str, object]:
         "risk_breakers": list(RISK_BREAKERS),
         "order_rate_limits": list(ORDER_RATE_LIMITS),
         "reference_price_collars": list(REFERENCE_PRICE_COLLARS),
+        "trade_reason_journals": list(TRADE_REASON_JOURNALS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

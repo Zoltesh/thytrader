@@ -17,7 +17,9 @@
   [0048](0048-paper-deploy-fee-fields.md),
   [0049](0049-experiential-train-v1.md),
   [0050](0050-daily-loss-drawdown-rate-collars.md),
-  [0052](0052-richer-sweep-axes-study-catalog.md)
+  [0051](0051-in-app-operator-chat.md),
+  [0052](0052-richer-sweep-axes-study-catalog.md),
+  [0054](0054-trade-reason-journals.md)
 
 ## Context
 
@@ -33,7 +35,7 @@ Default-filling a missing health `ops_contract` would hide that mismatch.
 
 Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 
-- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v19`)
+- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v20`)
 - `max_historical_interval_count`
 - `backtest_engines` (v1, v2, v3)
 - `paper_timeframes` (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`)
@@ -47,7 +49,8 @@ Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 - `risk_breakers` (`daily_loss`, `drawdown`)
 - `order_rate_limits` (`entry`, `cancel`)
 - `reference_price_collars` (`paper`, `live`)
-- `expected_schema_revision` (`0031`)
+- `trade_reason_journals` (`paper`, `live`)
+- `expected_schema_revision` (`0032`)
 
 A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`

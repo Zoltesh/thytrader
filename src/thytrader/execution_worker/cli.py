@@ -25,6 +25,7 @@ from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
@@ -51,6 +52,7 @@ async def run() -> None:
     store = PostgresExecutionStore(engine)
     publication_store = PostgresStrategyPublicationStore(engine)
     risk_store = PostgresRiskPolicyStore(engine)
+    memory_store = PostgresExperientialMemoryStore(engine)
     heartbeats = PostgresWorkerHeartbeatStore(engine)
     market_data, live_broker, quote_reader = _build_live_dependencies(settings)
     try:
@@ -86,6 +88,7 @@ async def run() -> None:
                 risk_store=risk_store,
                 user_feed_store=user_feed_store,
                 wake_requested=wake_requested,
+                memory_store=memory_store,
             ),
             run_user_order_feed(
                 stop_requested,

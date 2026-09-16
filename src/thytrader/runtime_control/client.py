@@ -63,6 +63,7 @@ def place_discretionary_order(
     paper_starting_cash: str | None,
     maker_fee_rate: str | None = None,
     taker_fee_rate: str | None = None,
+    note: str | None = None,
 ) -> object:
     """Place one long or short discretionary order through the HTTP contract."""
     payload: dict[str, str] = {
@@ -88,6 +89,8 @@ def place_discretionary_order(
         payload["maker_fee_rate"] = maker_fee_rate
     if taker_fee_rate is not None:
         payload["taker_fee_rate"] = taker_fee_rate
+    if note is not None:
+        payload["note"] = note
     return request_json(
         method="POST",
         url=f"{base_url}/api/v1/discretionary-orders",

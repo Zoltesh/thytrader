@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import DeploymentStatus, ExecutionStoreError
@@ -26,9 +26,18 @@ from thytrader.memory.models import (
     SentimentSnapshot,
     SentimentWrite,
 )
+from thytrader.memory.recording import (
+    append_attributed_note,
+    compose_trade_reasons,
+)
 from thytrader.memory.store import (
     DisabledExperientialMemoryStore,
     ExperientialMemoryStore,
+)
+from thytrader.memory.trade_reasons import (
+    TradeReasonNoteOrigin,
+    TradeReasonOrigin,
+    TradeReasonRecord,
 )
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -38,6 +47,8 @@ from thytrader.persistence.audit_events import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from thytrader.config import Settings
     from thytrader.execution.store import ExecutionStore
     from thytrader.memory.notify import NotificationSender
@@ -49,6 +60,7 @@ def memory_status(
     counts_sentiment: int,
     counts_patterns: int,
     counts_notifications: int,
+    counts_trade_reasons: int,
     settings: Settings,
     storage: str,
 ) -> MemoryStatus:
@@ -60,6 +72,7 @@ def memory_status(
             sentiment=counts_sentiment,
             patterns=counts_patterns,
             notifications=counts_notifications,
+            trade_reasons=counts_trade_reasons,
         ),
         notify_provider=provider,
         notify_webhook_configured=settings.notify_webhook_url is not None,
@@ -81,6 +94,7 @@ async def load_memory_status(
         counts_sentiment=counts.sentiment,
         counts_patterns=counts.patterns,
         counts_notifications=counts.notifications,
+        counts_trade_reasons=counts.trade_reasons,
         settings=settings,
         storage=storage,
     )
@@ -237,6 +251,8 @@ async def build_monitor(
     status = await load_memory_status(store, settings, storage=storage)
     journals = await store.list_journals(limit=10)
     notifications = await store.list_notifications(limit=10)
+    raw_reasons = await store.list_trade_reasons(limit=10)
+    reasons = await compose_trade_reasons(raw_reasons, execution)
     deployments, deployment_error = await _load_deployments(execution)
     findings = _monitor_findings(
         status=status,
@@ -249,6 +265,7 @@ async def build_monitor(
         deployments=deployments,
         recent_journals=journals,
         recent_notifications=notifications,
+        recent_trade_reasons=reasons,
         findings=findings,
     )
 
@@ -346,7 +363,7 @@ async def _audit(
     await audit.append(event)
 
 
-def storage_label(store: ExperientialMemoryStore) -> str:
+def storage_label(store: ExperientialMemoryStore) -> Literal["available", "unavailable"]:
     """Describe whether writes can persist."""
     if isinstance(store, DisabledExperientialMemoryStore):
         return "unavailable"
@@ -365,3 +382,59 @@ def kind_or_none(value: str | None) -> JournalKind | None:
     if value is None:
         return None
     return JournalKind(value)
+
+
+def trade_reason_origin_or_none(value: str | None) -> TradeReasonOrigin | None:
+    """Parse an optional why-trade origin filter."""
+    if value is None:
+        return None
+    return TradeReasonOrigin(value)
+
+
+async def load_trade_reasons(
+    store: ExperientialMemoryStore,
+    execution: ExecutionStore,
+    *,
+    origin: TradeReasonOrigin | None = None,
+    deployment_id: UUID | None = None,
+    intent_id: UUID | None = None,
+    limit: int = 50,
+) -> tuple[TradeReasonRecord, ...]:
+    """List composed why-trade records for UI and operator reports."""
+    rows = await store.list_trade_reasons(
+        origin=origin,
+        deployment_id=deployment_id,
+        intent_id=intent_id,
+        limit=limit,
+    )
+    return await compose_trade_reasons(rows, execution)
+
+
+async def load_trade_reason(
+    store: ExperientialMemoryStore,
+    execution: ExecutionStore,
+    intent_id: UUID,
+) -> TradeReasonRecord | None:
+    """Return one composed why-trade record, if present."""
+    row = await store.get_trade_reason_by_intent(intent_id)
+    if row is None:
+        return None
+    composed = await compose_trade_reasons((row,), execution)
+    return composed[0]
+
+
+async def record_trade_reason_note(
+    store: ExperientialMemoryStore,
+    execution: ExecutionStore,
+    *,
+    intent_id: UUID,
+    origin: TradeReasonNoteOrigin,
+    body: str,
+    now: datetime | None = None,
+) -> TradeReasonRecord:
+    """Append a confirmation-gated note and return the composed review payload."""
+    stored = await append_attributed_note(
+        store, intent_id=intent_id, origin=origin, body=body, now=now
+    )
+    composed = await compose_trade_reasons((stored,), execution)
+    return composed[0]

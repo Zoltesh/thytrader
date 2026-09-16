@@ -99,14 +99,16 @@ classDiagram
 
 Report kinds: health, configuration, exchange, market_data, data_catalog,
 products, indicators, strategies, performance, risk, reconciliation, runtime,
-monitor, studies, support_bundle.
+monitor, studies, trade_reasons, support_bundle.
 
 ## Experiential memory hooks
 
 `thytrader-experiential-memory-v1` journals. Origin `human` or `agent` is
 required. Bounded V1 training is `thytrader-experiential-train-v1` (advisory
 only; [ADR 0049](../../decisions/0049-experiential-train-v1.md)). Per-trade
-“why it was made” records remain destination.
+“why it was made” records are `thytrader-trade-reason-v1`
+([ADR 0054](../../decisions/0054-trade-reason-journals.md)). The trainer
+consumes `JournalEntry` as stored.
 
 ```mermaid
 classDiagram
@@ -128,5 +130,16 @@ classDiagram
     fingerprint
     advisory
   }
+  class TradeReasonRecord {
+    schema_version thytrader-trade-reason-v1
+    origin human|agent|runtime
+    intent_id
+    strategy?
+    signal
+    risk
+    notes
+    reconcile
+  }
   ExperientialModel ..> JournalEntry : trains from evidenced rows
+  TradeReasonRecord ..> JournalEntry : distinct why-trade schema
 ```

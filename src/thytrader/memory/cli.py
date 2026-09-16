@@ -1,4 +1,4 @@
-"""Confirmation-gated CLI for journals, sentiment/pattern hooks, monitor, and notify."""
+"""Confirmation-gated CLI for journals, why-trade review, hooks, notify, and train."""
 
 from __future__ import annotations
 
@@ -14,15 +14,18 @@ from thytrader.memory.client import (
     add_journal,
     add_pattern,
     add_sentiment,
+    add_trade_reason_note,
     list_journals,
     list_models,
     list_notifications,
     list_patterns,
     list_sentiment,
+    list_trade_reasons,
     memory_status,
     monitor,
     notify,
     show_model,
+    show_trade_reason,
     train_model,
 )
 from thytrader.memory.models import (
@@ -35,18 +38,19 @@ from thytrader.memory.models import (
     RuntimeMode,
     SentimentLabel,
 )
+from thytrader.memory.trade_reasons import TradeReasonNoteOrigin, TradeReasonOrigin
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _CONFIRM_HELP = (
-    "Required for journal, sentiment, pattern, notify, and train mutations. "
-    "YOLO never covers this lane."
+    "Required for journal, sentiment, pattern, notify, train, and "
+    "trade-reason-note mutations. YOLO never covers this lane."
 )
 _CONFIRM_MESSAGE = (
     "Pass --confirm to write journals, sentiment, pattern observations, "
-    "notifications, or trained models."
+    "notifications, trained models, or trade-reason notes."
 )
 
 
@@ -82,12 +86,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-memory",
         description=(
-            "Journals, sentiment and pattern-learning hooks, monitor, user "
-            "notification, and fail-closed experiential training through the "
-            "loopback HTTP API. Mutations require --confirm. YOLO never skips "
-            "that gate. This is not operator, data, research, runtime, or "
-            "playbook. It does not place orders. Training consumes attributed "
-            "local journals; it does not own trade-reason review surfaces."
+            "Journals, why-trade review, sentiment and pattern-learning hooks, "
+            "monitor, user notification, and fail-closed experiential training "
+            "through the loopback HTTP API. Mutations require --confirm. YOLO "
+            "never skips that gate. This is not operator, data, research, "
+            "runtime, or playbook. It does not place orders. Training consumes "
+            "attributed local journals. Why-trade review is this lane."
         ),
         parents=[shared],
     )
@@ -207,6 +211,39 @@ def _parser() -> argparse.ArgumentParser:
         help="Deterministic ranking seed. Default 1.",
     )
     train.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    reasons = subparsers.add_parser(
+        "list-trade-reasons",
+        parents=[trailing],
+        help="List newest why-trade records.",
+    )
+    reasons.add_argument(
+        "--origin",
+        default=None,
+        choices=tuple(item.value for item in TradeReasonOrigin),
+        help="human, agent, or runtime.",
+    )
+    reasons.add_argument("--deployment-id", default=None, help="Filter by deployment UUID.")
+    reasons.add_argument("--intent-id", default=None, help="Filter by order-intent UUID.")
+    show_r = subparsers.add_parser(
+        "show-trade-reason",
+        parents=[trailing],
+        help="Show one composed why-trade record.",
+    )
+    show_r.add_argument("--intent-id", required=True, help="Order-intent UUID.")
+    add_note = subparsers.add_parser(
+        "add-trade-reason-note",
+        parents=[trailing],
+        help="Append one attributed note to a why-trade record.",
+    )
+    add_note.add_argument("--intent-id", required=True, help="Order-intent UUID.")
+    add_note.add_argument(
+        "--origin",
+        required=True,
+        choices=tuple(item.value for item in TradeReasonNoteOrigin),
+        help="human or agent. Runtime cannot journal notes.",
+    )
+    add_note.add_argument("--body", required=True, help="Attributed review note.")
+    add_note.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -241,6 +278,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
         "list-notifications",
         "list-models",
         "show-model",
+        "list-trade-reasons",
+        "show-trade-reason",
     }:
         require_matching_ops_contract(base_url)
         return _read(command, arguments, base_url)
@@ -270,6 +309,15 @@ def _read(command: str, arguments: argparse.Namespace, base_url: str) -> object:
         return list_models(base_url)
     if command == "show-model":
         return show_model(base_url, arguments.model_id)
+    if command == "list-trade-reasons":
+        return list_trade_reasons(
+            base_url,
+            origin=origin,
+            deployment_id=getattr(arguments, "deployment_id", None),
+            intent_id=getattr(arguments, "intent_id", None),
+        )
+    if command == "show-trade-reason":
+        return show_trade_reason(base_url, arguments.intent_id)
     return list_notifications(base_url, origin=origin)
 
 
@@ -303,6 +351,12 @@ def _mutate(command: str, arguments: argparse.Namespace, base_url: str) -> objec
         return train_model(
             base_url,
             {"origin": arguments.origin, "seed": arguments.seed},
+        )
+    if command == "add-trade-reason-note":
+        return add_trade_reason_note(
+            base_url,
+            arguments.intent_id,
+            {"origin": arguments.origin, "body": arguments.body},
         )
     raise AssertionError(f"unsupported memory command: {command}")
 

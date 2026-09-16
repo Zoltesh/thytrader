@@ -34,6 +34,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerUnavailableError,
 )
 from thytrader.market_data_worker.service import island_covers_watch, watch_expected_candle_count
+from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
 from thytrader.operator.models import (
@@ -78,6 +79,8 @@ from thytrader.operator.models import (
     SupportBundlePayload,
     SupportBundleReport,
     SupportedTimeframe,
+    TradeReasonsPayload,
+    TradeReasonsReport,
     UserOrderFeedPayload,
     current_ops_contract,
 )
@@ -626,6 +629,50 @@ class OperatorDiagnostics:
             redaction=STANDARD_REDACTION,
             recommended_next_action=recommend_next_action((component,)),
             payload=StudiesPayload(study_catalog="available", studies=rows),
+        )
+
+    async def trade_reasons(
+        self,
+        *,
+        intent_id: UUID | None = None,
+        deployment_id: UUID | None = None,
+    ) -> TradeReasonsReport:
+        """Return composed why-trade records without secrets or interpolated candles."""
+        now = datetime.now(UTC)
+        store = self.memory_store or DisabledExperientialMemoryStore()
+        label = storage_label(store)
+        rows = await store.list_trade_reasons(
+            deployment_id=deployment_id,
+            intent_id=intent_id,
+            limit=50,
+        )
+        composed = await compose_trade_reasons(rows, self.execution)
+        components = [
+            ComponentReport(
+                name="trade_reasons",
+                status=ReportStatus.HEALTHY if label == "available" else ReportStatus.FAILED,
+                reason_code="OK" if label == "available" else "MEMORY_STORAGE_UNAVAILABLE",
+                detail=(
+                    "Why-trade journals are available."
+                    if label == "available"
+                    else "Experiential memory has no durable store; why-trade records are empty."
+                ),
+            )
+        ]
+        warnings: list[str] = []
+        if label == "unavailable":
+            warnings.append(
+                "Experiential memory storage is unavailable; why-trade reads are empty."
+            )
+        return TradeReasonsReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=aggregate_status(components),
+            components=tuple(components),
+            redaction=STANDARD_REDACTION,
+            partial_result_warnings=tuple(warnings),
+            recommended_next_action=recommend_next_action(components),
+            payload=TradeReasonsPayload(storage=label, trade_reasons=composed),
         )
 
     async def support_bundle(self) -> SupportBundleReport:
