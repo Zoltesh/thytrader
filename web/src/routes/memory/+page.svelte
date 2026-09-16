@@ -86,9 +86,9 @@
 			<p class="eyebrow">Experiential memory</p>
 			<h1>Journals and monitor</h1>
 			<p class="lede">
-				Origin-attributed facts, lessons, why-trade records, sentiment, and pattern hooks.
-				Mutations stay on <code>thytrader-memory --confirm</code>; this page is read-only. YOLO
-				never covers that lane.
+				Origin-attributed facts, lessons, why-trade records, sentiment, and pattern hooks. Mutations
+				stay on <code>thytrader-memory --confirm</code>; this page is read-only. YOLO never covers
+				that lane.
 			</p>
 		</div>
 		<button class="refresh" type="button" onclick={loadMemory} disabled={loading}>
@@ -150,7 +150,9 @@
 	{:else if !error && journals.length === 0}
 		<section class="empty-state">
 			<h3>No journal rows yet</h3>
-			<p>Append facts and lessons with <code>uv run thytrader-memory add-journal --confirm</code>.</p>
+			<p>
+				Append facts and lessons with <code>uv run thytrader-memory add-journal --confirm</code>.
+			</p>
 		</section>
 	{:else if journals.length > 0}
 		<section class="panel">

@@ -4,7 +4,11 @@
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
 	import { fetchTradeReasons, type TradeReasonRecord } from '$lib/memory';
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
-	import { PAPER_DEFAULT_MAKER_FEE_RATE, PAPER_DEFAULT_TAKER_FEE_RATE, PAPER_FEE_ENGINE_NOTE } from '$lib/fees';
+	import {
+		PAPER_DEFAULT_MAKER_FEE_RATE,
+		PAPER_DEFAULT_TAKER_FEE_RATE,
+		PAPER_FEE_ENGINE_NOTE
+	} from '$lib/fees';
 
 	let productId = $state('BTC-USD');
 	let mode = $state<'paper' | 'live'>('paper');
@@ -104,8 +108,8 @@
 			<p class="lede">
 				Human origin over the same intent → risk → broker path as
 				<code>thytrader-runtime place-order --confirm</code>. Optional note is frozen onto the
-				why-trade record. Live still requires Coinbase credentials. Live shorts need available
-				base; they never borrow. Timeouts are reconciled, never retried.
+				why-trade record. Live still requires Coinbase credentials. Live shorts need available base;
+				they never borrow. Timeouts are reconciled, never retried.
 			</p>
 		</div>
 	</section>
@@ -189,8 +193,7 @@
 				bind:value={note}
 				data-testid="discretionary-note"
 				maxlength="4000"
-				placeholder="Optional. Frozen onto the why-trade record."
-			></textarea>
+				placeholder="Optional. Frozen onto the why-trade record."></textarea>
 		</label>
 		<button type="button" disabled={submitting} onclick={() => void submitOrder()}>
 			{submitting ? 'Submitting…' : side === 'short' ? 'Place short' : 'Place long'}

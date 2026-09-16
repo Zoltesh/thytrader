@@ -112,7 +112,9 @@ test('renders memory status and journals without mutation controls', async ({ pa
 			return;
 		}
 		if (url.pathname === '/api/v1/memory/trade-reasons') {
-			await route.fulfill({ json: { schema_version: 'thytrader-trade-reason-v1', trade_reasons: [TRADE_REASON] } });
+			await route.fulfill({
+				json: { schema_version: 'thytrader-trade-reason-v1', trade_reasons: [TRADE_REASON] }
+			});
 			return;
 		}
 		await route.fulfill({ json: { sentiment: [], patterns: [], notifications: [], journals: [] } });

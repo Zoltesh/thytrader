@@ -170,10 +170,7 @@ export async function fetchMemoryStatus(): Promise<MemoryStatus> {
 }
 
 export async function fetchMemoryMonitor(): Promise<MonitorSnapshot> {
-	return readJson<MonitorSnapshot>(
-		'/api/v1/memory/monitor',
-		'Memory monitor is unavailable.'
-	);
+	return readJson<MonitorSnapshot>('/api/v1/memory/monitor', 'Memory monitor is unavailable.');
 }
 
 export async function fetchJournals(): Promise<JournalEntry[]> {
