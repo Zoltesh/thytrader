@@ -145,6 +145,11 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Paper taker fee assumption as a decimal string. See --maker-fee-rate.",
     )
+    place.add_argument(
+        "--note",
+        default=None,
+        help="Optional attributed why-note frozen onto the trade-reason record.",
+    )
     place.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     place.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
     for action in ("pause", "resume", "stop"):
@@ -316,6 +321,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str) -> object:
         paper_starting_cash=cash,
         maker_fee_rate=maker,
         taker_fee_rate=taker,
+        note=arguments.note,
     )
 
 

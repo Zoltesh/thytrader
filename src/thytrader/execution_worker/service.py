@@ -20,6 +20,11 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.trade_reason_scope import (
+    discretionary_trade_reason_scope,
+    strategy_trade_reason_scope,
+    trade_reason_scope,
+)
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.store import load_effective_policy
@@ -40,6 +45,7 @@ if TYPE_CHECKING:
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
+    from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.risk.store import RiskPolicyStore
@@ -72,6 +78,7 @@ async def run_execution_worker(
     risk_store: RiskPolicyStore | None = None,
     user_feed_store: UserOrderFeedStateStore | None = None,
     wake_requested: asyncio.Event | None = None,
+    memory_store: ExperientialMemoryStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown."""
     if on_readiness_changed is not None:
@@ -89,6 +96,7 @@ async def run_execution_worker(
                 quote_reader=quote_reader,
                 risk_store=risk_store,
                 user_feed_store=user_feed_store,
+                memory_store=memory_store,
             )
             if wake_requested is not None:
                 wake_requested.clear()
@@ -130,6 +138,7 @@ async def _run_cycle(
     quote_reader: QuoteBalanceReader | None,
     risk_store: RiskPolicyStore | None,
     user_feed_store: UserOrderFeedStateStore | None = None,
+    memory_store: ExperientialMemoryStore | None = None,
 ) -> None:
     """Process occupied deployments once, refreshing occupancy after each for the entry gate."""
     policy = (await load_effective_policy(risk_store)).definition
@@ -161,6 +170,7 @@ async def _run_cycle(
                 risk_policy=policy,
                 portfolio=portfolio,
                 user_feed_store=user_feed_store,
+                memory_store=memory_store,
             )
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
@@ -196,6 +206,7 @@ async def _process_one(
     risk_policy: RiskPolicyDefinition,
     portfolio: tuple[DeploymentSnapshot, ...],
     user_feed_store: UserOrderFeedStateStore | None,
+    memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Load evidence and advance one deployment through newly closed bars."""
     snapshot = await store.get_deployment(deployment_id)
@@ -208,6 +219,8 @@ async def _process_one(
             live_broker=live_broker,
             quote_reader=quote_reader,
             user_feed_store=user_feed_store,
+            risk_policy=risk_policy,
+            memory_store=memory_store,
         )
         return
     strategy = await _strategy_definition(
@@ -226,6 +239,7 @@ async def _process_one(
         risk_policy=risk_policy,
         portfolio=portfolio,
         user_feed_store=user_feed_store,
+        memory_store=memory_store,
     )
 
 
@@ -241,6 +255,7 @@ async def _advance_strategy(
     risk_policy: RiskPolicyDefinition,
     portfolio: tuple[DeploymentSnapshot, ...],
     user_feed_store: UserOrderFeedStateStore | None,
+    memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Advance one published-strategy deployment through newly closed bars."""
     deployment = snapshot.deployment
@@ -293,6 +308,7 @@ async def _advance_strategy(
         candles=candles,
         due=due,
         htf_candles=htf_candles,
+        memory_store=memory_store,
     )
 
 
@@ -311,6 +327,7 @@ async def _evaluate_strategy_due_bars(
     candles: Sequence[Candle],
     due: Sequence[Candle],
     htf_candles: Sequence[Candle],
+    memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Compose extra-TF windows with the shipped closed-bar HTF evaluation path."""
     extra_candles = await _indicator_timeframe_windows_or_pause(
@@ -357,20 +374,28 @@ async def _evaluate_strategy_due_bars(
             current_product_id=product.product_id,
             current_close=candle.close,
         )
-        await process_closed_bar(
-            current,
-            strategy=strategy,
-            product=product,
-            candles=window,
-            broker=broker,
-            store=store,
-            risk_policy=risk_policy,
-            portfolio=portfolio,
-            htf_candles=htf_candles,
-            indicator_timeframe_candles=extra_candles,
-            live_base_available=live_base_available,
-            marks=marks,
-        )
+        with trade_reason_scope(
+            strategy_trade_reason_scope(
+                memory_store,
+                deployment=current.deployment,
+                strategy=strategy,
+                policy=risk_policy,
+            )
+        ):
+            await process_closed_bar(
+                current,
+                strategy=strategy,
+                product=product,
+                candles=window,
+                broker=broker,
+                store=store,
+                risk_policy=risk_policy,
+                portfolio=portfolio,
+                htf_candles=htf_candles,
+                indicator_timeframe_candles=extra_candles,
+                live_base_available=live_base_available,
+                marks=marks,
+            )
 
 
 async def _strategy_definition(
@@ -403,6 +428,8 @@ async def _process_discretionary(
     live_broker: Broker | None,
     quote_reader: QuoteBalanceReader | None,
     user_feed_store: UserOrderFeedStateStore | None,
+    risk_policy: RiskPolicyDefinition,
+    memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Reconcile and protect a discretionary book without strategy signal evaluation."""
     deployment = snapshot.deployment
@@ -461,13 +488,22 @@ async def _process_discretionary(
         if current.deployment.status is DeploymentStatus.STOPPED:
             return
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
-        await process_discretionary_bar(
-            current,
-            product=product,
-            candles=window,
-            broker=broker,
-            store=store,
-        )
+        with trade_reason_scope(
+            discretionary_trade_reason_scope(
+                memory_store,
+                policy=risk_policy,
+                timeframe=timeframe,
+                note=None,
+                note_origin=None,
+            )
+        ):
+            await process_discretionary_bar(
+                current,
+                product=product,
+                candles=window,
+                broker=broker,
+                store=store,
+            )
 
 
 async def _prepare_live(

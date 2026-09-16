@@ -33,6 +33,7 @@ class HealthOpsContract(BaseModel):
     risk_breakers: list[str]
     order_rate_limits: list[str]
     reference_price_collars: list[str]
+    trade_reason_journals: list[str]
     expected_schema_revision: str
 
 

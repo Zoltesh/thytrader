@@ -12,6 +12,7 @@ from thytrader.api.dependencies import (
     get_execution_store,
     get_live_broker,
     get_market_data_service,
+    get_memory_store,
     get_paper_broker,
     get_quote_reader,
     get_risk_policy_store,
@@ -25,6 +26,7 @@ from thytrader.execution.geometry import base_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
+from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.audit_events import (
     AuditEvent,
     AuditEventCategory,
@@ -61,6 +63,7 @@ class PlaceDiscretionaryOrderRequest(BaseModel):
     paper_starting_cash: str | None = None
     maker_fee_rate: str | None = None
     taker_fee_rate: str | None = None
+    note: str | None = Field(default=None, max_length=4000)
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -74,6 +77,7 @@ async def post_discretionary_order(
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
+    memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
 ) -> DeploymentResponse:
     """Persist a discretionary intent, submit once, and never retry an ambiguous timeout."""
     try:
@@ -93,6 +97,7 @@ async def post_discretionary_order(
             paper_starting_cash=body.paper_starting_cash,
             paper_maker_fee_rate=body.maker_fee_rate,
             paper_taker_fee_rate=body.taker_fee_rate,
+            note=body.note,
         )
         broker = _broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
         snapshot = await place_discretionary_order(
@@ -110,6 +115,7 @@ async def post_discretionary_order(
                 mode=request.mode,
                 currency=base_currency(request.product_id),
             ),
+            memory_store=memory_store,
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

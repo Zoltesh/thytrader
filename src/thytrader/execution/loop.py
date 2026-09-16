@@ -36,6 +36,7 @@ from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
 from thytrader.execution.sizing import size_entry
 from thytrader.execution.submit import submit_intent
+from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
@@ -989,7 +990,7 @@ def _entry_verdict(
     live_cash = None
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         live_cash = snapshot.deployment.cash
-    return evaluate_new_entry(
+    verdict = evaluate_new_entry(
         risk_policy,
         mode=snapshot.deployment.mode,
         proposed=ProposedEntry(
@@ -1001,6 +1002,10 @@ def _entry_verdict(
         live_quote_cash=live_cash,
         observation=observation,
     )
+    scope = current_trade_reason_scope()
+    if scope is not None:
+        scope.remember_risk(verdict)
+    return verdict
 
 
 def _portfolio_with_current(

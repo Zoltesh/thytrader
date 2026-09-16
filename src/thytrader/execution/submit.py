@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
+    ExecutionStoreError,
     Fill,
     IntentOrigin,
     IntentPurpose,
@@ -17,6 +18,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
 )
+from thytrader.memory.recording import maybe_record_submitted_intent
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -66,6 +68,7 @@ async def submit_intent(
         idempotency_key=idempotency_key,
     )
     await store.save_intent(intent)
+    await _record_why(store, intent=intent, deployment_id=deployment_id)
     order = Order(
         id=uuid7(now),
         deployment_id=deployment_id,
@@ -124,3 +127,17 @@ async def submit_intent(
         )
         await store.save_fill(fill)
     return submitted
+
+
+async def _record_why(
+    store: ExecutionStore,
+    *,
+    intent: OrderIntent,
+    deployment_id: UUID,
+) -> None:
+    """Write a why-trade row when a trade-reason scope is bound."""
+    try:
+        snapshot = await store.get_deployment(deployment_id)
+    except ExecutionStoreError:
+        return
+    await maybe_record_submitted_intent(intent=intent, snapshot=snapshot)

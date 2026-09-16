@@ -818,6 +818,81 @@ Index(
     experiential_models.c.id.desc(),
 )
 
+trade_reason_records = Table(
+    "trade_reason_records",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("intent_id", UUID(), nullable=False),
+    Column("deployment_id", UUID(), nullable=False),
+    Column("deployment_kind", String(16), nullable=False),
+    Column("mode", String(8), nullable=False),
+    Column("product_id", String(32), nullable=False),
+    Column("purpose", String(32), nullable=False),
+    Column("side", String(8), nullable=False),
+    Column("strategy_id", UUID(), nullable=True),
+    Column("strategy_fingerprint", String(71), nullable=True),
+    Column("strategy_name", String(120), nullable=True),
+    Column("strategy_version", Integer(), nullable=True),
+    Column("signal_kind", String(32), nullable=False),
+    Column("last_signal", String(32), nullable=True),
+    Column("candle_starts_at", DateTime(timezone=True), nullable=False),
+    Column("timeframe", String(8), nullable=True),
+    Column("risk_decision", String(8), nullable=False),
+    Column("risk_reason_code", String(64), nullable=False),
+    Column("risk_detail", String(500), nullable=False),
+    Column("policy_fingerprint", String(71), nullable=False),
+    Column("policy_source", String(24), nullable=False),
+    Column("notes_json", Text(), nullable=False, server_default="[]"),
+    UniqueConstraint("intent_id", name="ux_trade_reason_records_intent_id"),
+    CheckConstraint(
+        "origin IN ('human', 'agent', 'runtime')",
+        name="ck_trade_reason_origin",
+    ),
+    CheckConstraint(
+        "deployment_kind IN ('strategy', 'discretionary')",
+        name="ck_trade_reason_deployment_kind",
+    ),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_trade_reason_mode"),
+    CheckConstraint("side IN ('buy', 'sell')", name="ck_trade_reason_side"),
+    CheckConstraint(
+        "purpose IN ('entry', 'take_profit', 'stop', 'time_exit', 'bracket')",
+        name="ck_trade_reason_purpose",
+    ),
+    CheckConstraint(
+        "signal_kind IN ("
+        "'strategy_entry', 'discretionary', 'take_profit', 'stop', 'time_exit', 'bracket'"
+        ")",
+        name="ck_trade_reason_signal_kind",
+    ),
+    CheckConstraint(
+        "risk_decision IN ('allow', 'deny')",
+        name="ck_trade_reason_risk_decision",
+    ),
+    CheckConstraint(
+        "policy_source IN ('compiled_default', 'published')",
+        name="ck_trade_reason_policy_source",
+    ),
+    CheckConstraint(
+        "timeframe IS NULL OR timeframe IN "
+        "('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')",
+        name="ck_trade_reason_timeframe",
+    ),
+)
+
+Index(
+    "ix_trade_reason_created_at_desc",
+    trade_reason_records.c.created_at.desc(),
+    trade_reason_records.c.id.desc(),
+)
+
+Index(
+    "ix_trade_reason_deployment_created_at_desc",
+    trade_reason_records.c.deployment_id,
+    trade_reason_records.c.created_at.desc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "archived_strategy_versions",
@@ -844,5 +919,6 @@ __all__ = [
     "published_strategy_versions",
     "strategy_dataset_bindings",
     "strategy_drafts",
+    "trade_reason_records",
     "user_order_feed_state",
 ]

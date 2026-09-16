@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from thytrader.memory.trade_reasons import TradeReasonRecord
+
 MEMORY_SCHEMA_VERSION: Literal["thytrader-experiential-memory-v1"] = (
     "thytrader-experiential-memory-v1"
 )
@@ -255,6 +257,7 @@ class MemoryCounts(_FrozenModel):
     sentiment: int = Field(ge=0)
     patterns: int = Field(ge=0)
     notifications: int = Field(ge=0)
+    trade_reasons: int = Field(ge=0, default=0)
 
 
 class MemoryStatus(_FrozenModel):
@@ -287,13 +290,14 @@ class MonitorFinding(_FrozenModel):
 
 
 class MonitorSnapshot(_FrozenModel):
-    """Composite watch of deployments, journals, and notification delivery."""
+    """Composite watch of deployments, journals, why-trade records, and notify."""
 
     schema_version: Literal["thytrader-monitor-v1"] = MONITOR_SCHEMA_VERSION
     memory: MemoryStatus
     deployments: tuple[MonitorDeployment, ...]
     recent_journals: tuple[JournalEntry, ...]
     recent_notifications: tuple[NotificationRecord, ...]
+    recent_trade_reasons: tuple[TradeReasonRecord, ...] = ()
     findings: tuple[MonitorFinding, ...]
 
 

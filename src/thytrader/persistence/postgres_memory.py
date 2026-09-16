@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Table, desc, func, insert, select
+from sqlalchemy import Table, desc, func, insert, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.memory.models import (
@@ -25,13 +25,25 @@ from thytrader.memory.models import (
     SentimentLabel,
     SentimentSnapshot,
 )
+from thytrader.memory.recording import notes_from_json, notes_to_json
 from thytrader.memory.store import MemoryStoreError
+from thytrader.memory.trade_reasons import (
+    TRADE_REASON_SCHEMA_VERSION,
+    TradeReasonNote,
+    TradeReasonOrigin,
+    TradeReasonRecord,
+    TradeReasonRisk,
+    TradeReasonSignal,
+    TradeReasonSignalKind,
+    TradeReasonStrategy,
+)
 from thytrader.persistence.schema import (
     experiential_journal_entries,
     experiential_models,
     experiential_notifications,
     experiential_pattern_observations,
     experiential_sentiment_snapshots,
+    trade_reason_records,
 )
 
 if TYPE_CHECKING:
@@ -43,7 +55,7 @@ if TYPE_CHECKING:
 
 
 class PostgresExperientialMemoryStore:
-    """Persist journals, sentiment, patterns, and notifications."""
+    """Persist journals, sentiment, patterns, notifications, models, and why-trade rows."""
 
     def __init__(self, engine: AsyncEngine) -> None:
         """Bind the store to a managed async engine."""
@@ -214,6 +226,7 @@ class PostgresExperientialMemoryStore:
                 sentiment = await _count(connection, experiential_sentiment_snapshots)
                 patterns = await _count(connection, experiential_pattern_observations)
                 notifications = await _count(connection, experiential_notifications)
+                reasons = await _count(connection, trade_reason_records)
         except SQLAlchemyError as error:
             raise MemoryStoreError("Experiential memory storage is unavailable.") from error
         return MemoryCounts(
@@ -221,6 +234,7 @@ class PostgresExperientialMemoryStore:
             sentiment=sentiment,
             patterns=patterns,
             notifications=notifications,
+            trade_reasons=reasons,
         )
 
     async def append_model(self, model: ExperientialModel) -> ExperientialModel:
@@ -278,6 +292,76 @@ class PostgresExperientialMemoryStore:
             timestamp="recorded_at",
         )
         return tuple(_model_from_row(row) for row in rows)
+
+    async def append_trade_reason(self, record: TradeReasonRecord) -> TradeReasonRecord:
+        """Insert one why-trade row or return the existing intent-id match."""
+        existing = await self.get_trade_reason_by_intent(record.intent_id)
+        if existing is not None:
+            return existing
+        values = _trade_reason_values(record)
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(insert(trade_reason_records).values(**values))
+        except IntegrityError:
+            raced = await self.get_trade_reason_by_intent(record.intent_id)
+            if raced is not None:
+                return raced
+            raise MemoryStoreError("Experiential memory storage is unavailable.") from None
+        except SQLAlchemyError as error:
+            raise MemoryStoreError("Experiential memory storage is unavailable.") from error
+        return record
+
+    async def get_trade_reason_by_intent(self, intent_id: UUID) -> TradeReasonRecord | None:
+        """Load one why-trade row by order-intent id."""
+        statement = select(trade_reason_records).where(trade_reason_records.c.intent_id == intent_id)
+        row = await _one(self._engine, statement)
+        if row is None:
+            return None
+        return _trade_reason_from_row(row)
+
+    async def list_trade_reasons(
+        self,
+        *,
+        origin: TradeReasonOrigin | None = None,
+        deployment_id: UUID | None = None,
+        intent_id: UUID | None = None,
+        limit: int = 50,
+    ) -> tuple[TradeReasonRecord, ...]:
+        """Return newest-first why-trade rows."""
+        statement = select(trade_reason_records)
+        if origin is not None:
+            statement = statement.where(trade_reason_records.c.origin == origin.value)
+        if deployment_id is not None:
+            statement = statement.where(trade_reason_records.c.deployment_id == deployment_id)
+        if intent_id is not None:
+            statement = statement.where(trade_reason_records.c.intent_id == intent_id)
+        rows = await _list(
+            self._engine,
+            statement,
+            trade_reason_records,
+            limit,
+            timestamp="created_at",
+        )
+        return tuple(_trade_reason_from_row(row) for row in rows)
+
+    async def append_trade_reason_note(
+        self, intent_id: UUID, note: TradeReasonNote
+    ) -> TradeReasonRecord:
+        """Append one attributed note to an existing why-trade row."""
+        existing = await self.get_trade_reason_by_intent(intent_id)
+        if existing is None:
+            raise ValueError("Trade-reason record was not found.")
+        updated = existing.model_copy(update={"notes": (*existing.notes, note)})
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(
+                    update(trade_reason_records)
+                    .where(trade_reason_records.c.intent_id == intent_id)
+                    .values(notes_json=notes_to_json(updated.notes))
+                )
+        except SQLAlchemyError as error:
+            raise MemoryStoreError("Experiential memory storage is unavailable.") from error
+        return updated
 
 
 async def _insert(engine: AsyncEngine, table: Table, values: dict[str, object]) -> None:
@@ -406,3 +490,75 @@ def _notification_from_row(row: RowMapping) -> NotificationRecord:
 def _model_from_row(row: RowMapping) -> ExperientialModel:
     """Revalidate one stored experiential-model document."""
     return ExperientialModel.model_validate_json(str(row["canonical_document"]))
+
+
+def _trade_reason_values(record: TradeReasonRecord) -> dict[str, object]:
+    """Project a why-trade record onto the durable table."""
+    strategy = record.strategy
+    return {
+        "id": record.id,
+        "created_at": record.created_at,
+        "origin": record.origin.value,
+        "intent_id": record.intent_id,
+        "deployment_id": record.deployment_id,
+        "deployment_kind": record.deployment_kind,
+        "mode": record.mode,
+        "product_id": record.product_id,
+        "purpose": record.purpose,
+        "side": record.side,
+        "strategy_id": None if strategy is None else strategy.strategy_id,
+        "strategy_fingerprint": None if strategy is None else strategy.strategy_fingerprint,
+        "strategy_name": None if strategy is None else strategy.name,
+        "strategy_version": None if strategy is None else strategy.version,
+        "signal_kind": record.signal.kind.value,
+        "last_signal": record.signal.last_signal,
+        "candle_starts_at": record.signal.candle_starts_at,
+        "timeframe": record.signal.timeframe,
+        "risk_decision": record.risk.decision,
+        "risk_reason_code": record.risk.reason_code,
+        "risk_detail": record.risk.detail,
+        "policy_fingerprint": record.risk.policy_fingerprint,
+        "policy_source": record.risk.policy_source,
+        "notes_json": notes_to_json(record.notes),
+    }
+
+
+def _trade_reason_from_row(row: RowMapping) -> TradeReasonRecord:
+    """Revalidate one stored why-trade row. Ledger facts are joined on read."""
+    strategy_id = row["strategy_id"]
+    strategy = None
+    if strategy_id is not None:
+        strategy = TradeReasonStrategy(
+            strategy_id=strategy_id,
+            strategy_fingerprint=str(row["strategy_fingerprint"]),
+            name=str(row["strategy_name"]),
+            version=int(row["strategy_version"]),
+        )
+    return TradeReasonRecord(
+        schema_version=TRADE_REASON_SCHEMA_VERSION,
+        id=row["id"],
+        created_at=row["created_at"],
+        origin=TradeReasonOrigin(str(row["origin"])),
+        intent_id=row["intent_id"],
+        deployment_id=row["deployment_id"],
+        deployment_kind=str(row["deployment_kind"]),
+        mode=str(row["mode"]),
+        product_id=str(row["product_id"]),
+        purpose=str(row["purpose"]),
+        side=str(row["side"]),
+        strategy=strategy,
+        signal=TradeReasonSignal(
+            kind=TradeReasonSignalKind(str(row["signal_kind"])),
+            last_signal=row["last_signal"],
+            candle_starts_at=row["candle_starts_at"],
+            timeframe=row["timeframe"],
+        ),
+        risk=TradeReasonRisk(
+            decision=str(row["risk_decision"]),
+            reason_code=str(row["risk_reason_code"]),
+            detail=str(row["risk_detail"]),
+            policy_fingerprint=str(row["policy_fingerprint"]),
+            policy_source=str(row["policy_source"]),
+        ),
+        notes=notes_from_json(str(row["notes_json"])),
+    )

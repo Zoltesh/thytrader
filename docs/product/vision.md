@@ -165,9 +165,10 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include extra exchanges, multi-instrument strategy documents, trade-reason journals,
-workstation IA, and a Coinbase secrets UI. Do not treat those as shipped. In-app operator chat is
-shipped ([ADR 0051](../decisions/0051-in-app-operator-chat.md)). Contributor
+items include extra exchanges, multi-instrument strategy documents, workstation IA, and a Coinbase
+secrets UI. Do not treat those as shipped. In-app operator chat is
+shipped ([ADR 0051](../decisions/0051-in-app-operator-chat.md)). Trade-reason journals are shipped
+([ADR 0053](../decisions/0053-trade-reason-journals.md)). Contributor
 [contract diagrams](../architecture/contracts/README.md) are shipped. Venue strategy/paper/live/HTF clocks are shipped
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy
@@ -181,18 +182,20 @@ Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets
 Spot shorting and attached entry brackets are shipped
 ([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).
 
-## Planned direction: agents as crypto-trading experts (hooks + V1 trainer)
+## Planned direction: agents as crypto-trading experts (hooks + V1 trainer + why-trade)
 
 A major product goal is for agents to act as **crypto-trading experts that improve from durable
 evidence** spanning market-data research, reproducible backtests, paper trades, and live trades.
 Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase-14-experiential-memory.md)).
 Bounded V1 training ships as a fail-closed integer ranker over those attributed local journals
-([ADR 0049](../decisions/0049-experiential-train-v1.md)):
+([ADR 0049](../decisions/0049-experiential-train-v1.md)). Per-intent why-trade review ships as
+`thytrader-trade-reason-v1` ([ADR 0053](../decisions/0053-trade-reason-journals.md)):
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
-  `agent`) so later learning can separate authors. Per-trade **why it was made** records remain
-  destination.
-- Read-only monitor of deployments, recent journals, and notification delivery.
+  `agent`) so later learning can separate authors.
+- Per-trade **why it was made** records: published strategy version, closed-bar signal, risk
+  verdict, discretionary note, and fill/reconcile facts. Trainer consumes `JournalEntry` as stored.
+- Read-only monitor of deployments, recent journals, why-trade records, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
 - `thytrader-experiential-train-v1` trains only from local evidence; output is advisory research
   input, never a live policy or Coinbase call.

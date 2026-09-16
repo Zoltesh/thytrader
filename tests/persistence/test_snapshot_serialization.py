@@ -439,6 +439,17 @@ def test_research_study_catalog_migration_follows_risk_breaker_overlay() -> None
     assert "parameter_sweep" in content
 
 
+def test_trade_reason_journals_migration_follows_study_catalog() -> None:
+    """The thirty-second migration must add why-trade rows after the study catalog."""
+    content = Path("alembic/versions/0032_trade_reason_journals.py").read_text(encoding="utf-8")
+    assert 'revision = "0032"' in content
+    assert 'down_revision = "0031"' in content
+    assert "trade_reason_records" in content
+    assert "ux_trade_reason_records_intent_id" in content
+    assert "experiential_models" not in content
+    assert "published_research_studies" not in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

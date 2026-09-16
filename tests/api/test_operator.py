@@ -62,6 +62,7 @@ _OPERATOR_PATHS = (
     "/api/v1/operator/reconciliation",
     "/api/v1/operator/runtime",
     "/api/v1/operator/monitor",
+    "/api/v1/operator/trade-reasons",
     "/api/v1/operator/data-catalog",
     "/api/v1/operator/products",
     "/api/v1/operator/indicators",

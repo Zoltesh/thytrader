@@ -58,6 +58,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0050](0050-daily-loss-drawdown-rate-collars.md) | Daily-loss / drawdown breakers, order-rate limits, and reference-price collars on the Phase 10 registry | Accepted |
 | [0051](0051-in-app-operator-chat.md) | Loopback in-app operator chat over gated skill-lane HTTP; user-pasted LLM key distinct from Coinbase | Accepted |
 | [0052](0052-richer-sweep-axes-study-catalog.md) | Richer sweep axes and persisted research-study catalog rows | Accepted |
+| [0053](0053-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted |
 
 ## Status values
 

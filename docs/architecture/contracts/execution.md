@@ -16,7 +16,8 @@ flowchart TD
   IntentDraft --> Risk["RiskPolicyDefinition\nentries only"]
   Risk -->|DENY| Skip["Skip the bar / HTTP deny\nno persist"]
   Risk -->|ALLOW| Persist["Persist intent first"]
-  Persist --> Mode{"deployment.mode"}
+  Persist --> Why["Freeze TradeReasonRecord\nledger facts joined on read"]
+  Why --> Mode{"deployment.mode"}
   Mode -->|paper| Paper["PaperBroker\nsynthetic SL/TP\nnever venue brackets"]
   Mode -->|live| Live["CoinbaseBroker REST v3\nspot only"]
   Live --> Attach{"SL/TP known and\ntrailing disabled?"}

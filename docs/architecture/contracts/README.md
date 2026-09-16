@@ -15,7 +15,7 @@ same change that changes the contract.
 | [Backtest result](backtest-result.md) | Immutable simulation evidence | `thytrader.backtest.models.BacktestResult` |
 | [Ops contract](ops-contract.md) | CLI versus running-image identity | `thytrader.ops_contract`, `OpsContractPayload` |
 | [Order intent → risk → broker](execution.md) | Paper/live execution boundary | `OrderIntent`, `RiskPolicyDefinition`, brokers |
-| [Other durable payloads](other-payloads.md) | Dataset manifest, risk policy, operator envelope, memory hooks and V1 model | `DatasetManifest`, `RiskPolicyDefinition`, `OperatorEnvelope`, `JournalEntry`, `ExperientialModel` |
+| [Other durable payloads](other-payloads.md) | Dataset manifest, risk policy, operator envelope, memory hooks, V1 model, why-trade record | `DatasetManifest`, `RiskPolicyDefinition`, `OperatorEnvelope`, `JournalEntry`, `ExperientialModel`, `TradeReasonRecord` |
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ flowchart LR
   Intent --> Risk["RiskPolicyDefinition"]
   Risk -->|ALLOW| Broker["PaperBroker or CoinbaseBroker"]
   Broker --> Order["Order + Fill"]
-  Health["GET /health/ready"] --> Ops["ops_contract v19"]
+  Health["GET /health/ready"] --> Ops["ops_contract v20"]
 ```
 
 Do not dump these diagrams on [docs/README.md](../../README.md).

@@ -67,6 +67,8 @@ Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fra
 drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not
 pause. `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
+Optional `--note` is frozen onto the why-trade record at persist. Later review notes use
+`thytrader-memory add-trade-reason-note --confirm` (YOLO never covers that lane).
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
 available base and never borrow. When SL/TP are known and trailing is off, live uses an
 attached bracket on the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for

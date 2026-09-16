@@ -24,6 +24,7 @@ from thytrader.operator.models import (
     StrategiesReport,
     StudiesReport,
     SupportBundleReport,
+    TradeReasonsReport,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "runtime": RuntimeReport,
     "monitor": MonitorReport,
     "studies": StudiesReport,
+    "trade-reasons": TradeReasonsReport,
     "support-bundle": SupportBundleReport,
 }
 

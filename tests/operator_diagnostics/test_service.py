@@ -167,6 +167,15 @@ def test_monitor_report_is_failed_when_memory_storage_is_unavailable() -> None:
     assert report.overall_status is ReportStatus.FAILED
 
 
+def test_trade_reasons_report_failed_when_memory_storage_is_unavailable() -> None:
+    """Operator why-trade review fails closed without durable experiential memory."""
+    report = asyncio.run(_diagnostics().trade_reasons())
+    assert report.report_kind == "trade_reasons"
+    assert report.payload.storage == "unavailable"
+    assert report.payload.trade_reasons == ()
+    assert report.overall_status is ReportStatus.FAILED
+
+
 def test_health_reports_engine_missing_when_url_is_set_without_engine() -> None:
     """A configured database URL without an API engine is not treated as healthy."""
     settings = Settings(

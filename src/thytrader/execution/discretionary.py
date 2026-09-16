@@ -52,6 +52,10 @@ from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
+from thytrader.execution.trade_reason_scope import (
+    discretionary_trade_reason_scope,
+    trade_reason_scope,
+)
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
@@ -65,6 +69,7 @@ if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
+    from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.store import RiskPolicyStore
 
 _PRODUCT = re.compile(r"^[A-Z0-9]{2,20}-USD$")
@@ -91,6 +96,7 @@ class DiscretionaryOrderRequest:
     paper_starting_cash: Decimal | None
     paper_maker_fee_rate: Decimal | None
     paper_taker_fee_rate: Decimal | None
+    note: str | None = None
 
 
 def parse_discretionary_request(
@@ -110,6 +116,7 @@ def parse_discretionary_request(
     paper_starting_cash: str | None = None,
     paper_maker_fee_rate: str | None = None,
     paper_taker_fee_rate: str | None = None,
+    note: str | None = None,
 ) -> DiscretionaryOrderRequest:
     """Parse decimal strings and reject illegal combinations before risk or persist."""
     parsed_mode = _parse_mode(mode)
@@ -155,6 +162,7 @@ def parse_discretionary_request(
         paper_starting_cash=cash,
         paper_maker_fee_rate=maker,
         paper_taker_fee_rate=taker,
+        note=_optional_note(note),
     )
 
 
@@ -168,6 +176,7 @@ async def place_discretionary_order(
     risk_store: RiskPolicyStore | None = None,
     live_quote_cash: Decimal | None = None,
     live_base_available: Decimal | None = None,
+    memory_store: ExperientialMemoryStore | None = None,
 ) -> DeploymentSnapshot:
     """Persist a discretionary intent, submit once, and reconcile timeouts without retry."""
     _require_mode_prerequisites(request, live_allowed=live_allowed)
@@ -205,55 +214,64 @@ async def place_discretionary_order(
         clear_mismatch=True,
     )
     await store.save_deployment(pending)
-    order = await submit_intent(
-        store=store,
-        broker=broker,
-        deployment_id=pending.id,
-        product_id=request.product_id,
-        purpose=IntentPurpose.ENTRY,
-        side=entry_order_side(request.side),
-        kind=request.entry_kind,
-        quantity=sized.quantity,
-        price=sized.entry_price,
-        candle=mark_candle,
-        stop_trigger_price=sized.stop_price,
-        take_profit_price=sized.take_profit_price,
-        origin=request.origin,
-        idempotency_key=request.idempotency_key,
+    active = await load_effective_policy(risk_store)
+    scope = discretionary_trade_reason_scope(
+        memory_store,
+        policy=active.definition,
+        timeframe=request.timeframe,
+        note=request.note,
+        note_origin=None if request.note is None else request.origin.value,
     )
-    snapshot = await store.get_deployment(pending.id)
-    if order.status is OrderStatus.UNKNOWN:
-        snapshot = await reconcile_open_orders(
-            snapshot,
-            broker=broker,
+    with trade_reason_scope(scope):
+        order = await submit_intent(
             store=store,
+            broker=broker,
+            deployment_id=pending.id,
             product_id=request.product_id,
-            cooldown_bars=0,
+            purpose=IntentPurpose.ENTRY,
+            side=entry_order_side(request.side),
+            kind=request.entry_kind,
+            quantity=sized.quantity,
+            price=sized.entry_price,
+            candle=mark_candle,
+            stop_trigger_price=sized.stop_price,
+            take_profit_price=sized.take_profit_price,
+            origin=request.origin,
+            idempotency_key=request.idempotency_key,
         )
-        order_status = next(
-            (
-                item.status
-                for item in snapshot.orders
-                if item.client_order_id == order.client_order_id
-            ),
-            OrderStatus.UNKNOWN,
-        )
+        snapshot = await store.get_deployment(pending.id)
+        if order.status is OrderStatus.UNKNOWN:
+            snapshot = await reconcile_open_orders(
+                snapshot,
+                broker=broker,
+                store=store,
+                product_id=request.product_id,
+                cooldown_bars=0,
+            )
+            order_status = next(
+                (
+                    item.status
+                    for item in snapshot.orders
+                    if item.client_order_id == order.client_order_id
+                ),
+                OrderStatus.UNKNOWN,
+            )
+            return await _after_entry_submit(
+                snapshot,
+                order_status=order_status,
+                product=product,
+                candle=mark_candle,
+                broker=broker,
+                store=store,
+            )
         return await _after_entry_submit(
             snapshot,
-            order_status=order_status,
+            order_status=order.status,
             product=product,
             candle=mark_candle,
             broker=broker,
             store=store,
         )
-    return await _after_entry_submit(
-        snapshot,
-        order_status=order.status,
-        product=product,
-        candle=mark_candle,
-        broker=broker,
-        store=store,
-    )
 
 
 async def process_discretionary_bar(
@@ -877,6 +895,18 @@ def _optional_non_negative_decimal(value: str | None, *, field: str) -> Decimal 
     if parsed < 0:
         raise ExecutionConflictError(f"{field} must be a non-negative decimal string.")
     return parsed
+
+
+def _optional_note(value: str | None) -> str | None:
+    """Keep an optional place-order why-note, or omit blank text."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if len(stripped) > 4000:
+        raise ExecutionConflictError("note must be at most 4000 characters.")
+    return stripped
 
 
 def _optional_positive_decimal(value: str | None, *, field: str) -> Decimal | None:

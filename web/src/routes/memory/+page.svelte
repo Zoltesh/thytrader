@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { formatUtcTimestamp } from '$lib/time';
 	import {
 		fetchJournals,
@@ -8,12 +9,14 @@
 		fetchNotifications,
 		fetchPatterns,
 		fetchSentiment,
+		fetchTradeReasons,
 		type JournalEntry,
 		type MemoryStatus,
 		type MonitorFinding,
 		type NotificationRecord,
 		type PatternObservation,
-		type SentimentSnapshot
+		type SentimentSnapshot,
+		type TradeReasonRecord
 	} from '$lib/memory';
 
 	let status: MemoryStatus | null = $state(null);
@@ -21,6 +24,7 @@
 	let sentiment: SentimentSnapshot[] = $state([]);
 	let patterns: PatternObservation[] = $state([]);
 	let notifications: NotificationRecord[] = $state([]);
+	let tradeReasons: TradeReasonRecord[] = $state([]);
 	let findings: MonitorFinding[] = $state([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -29,21 +33,30 @@
 		loading = true;
 		error = null;
 		try {
-			const [nextStatus, monitor, nextJournals, nextSentiment, nextPatterns, nextNotifications] =
-				await Promise.all([
-					fetchMemoryStatus(),
-					fetchMemoryMonitor(),
-					fetchJournals(),
-					fetchSentiment(),
-					fetchPatterns(),
-					fetchNotifications()
-				]);
+			const [
+				nextStatus,
+				monitor,
+				nextJournals,
+				nextSentiment,
+				nextPatterns,
+				nextNotifications,
+				nextReasons
+			] = await Promise.all([
+				fetchMemoryStatus(),
+				fetchMemoryMonitor(),
+				fetchJournals(),
+				fetchSentiment(),
+				fetchPatterns(),
+				fetchNotifications(),
+				fetchTradeReasons()
+			]);
 			status = nextStatus;
 			findings = monitor.findings;
 			journals = nextJournals;
 			sentiment = nextSentiment;
 			patterns = nextPatterns;
 			notifications = nextNotifications;
+			tradeReasons = nextReasons;
 		} catch (caught) {
 			status = null;
 			findings = [];
@@ -51,6 +64,7 @@
 			sentiment = [];
 			patterns = [];
 			notifications = [];
+			tradeReasons = [];
 			error = caught instanceof Error ? caught.message : 'Experiential memory is unavailable.';
 		} finally {
 			loading = false;
@@ -72,8 +86,9 @@
 			<p class="eyebrow">Experiential memory</p>
 			<h1>Journals and monitor</h1>
 			<p class="lede">
-				Origin-attributed facts, lessons, sentiment, and pattern hooks. Mutations stay on
-				<code>thytrader-memory --confirm</code>; this page is read-only. YOLO never covers that lane.
+				Origin-attributed facts, lessons, why-trade records, sentiment, and pattern hooks.
+				Mutations stay on <code>thytrader-memory --confirm</code>; this page is read-only. YOLO
+				never covers that lane.
 			</p>
 		</div>
 		<button class="refresh" type="button" onclick={loadMemory} disabled={loading}>
@@ -108,8 +123,9 @@
 			<div>
 				<p class="label">Counts</p>
 				<p>
-					{status.counts.journals} journals · {status.counts.sentiment} sentiment ·
-					{status.counts.patterns} patterns · {status.counts.notifications} notify
+					{status.counts.journals} journals · {status.counts.trade_reasons} why-trade ·
+					{status.counts.sentiment} sentiment · {status.counts.patterns} patterns ·
+					{status.counts.notifications} notify
 				</p>
 			</div>
 		</section>
@@ -165,6 +181,11 @@
 			</div>
 		</section>
 	{/if}
+
+	<TradeReasonReview
+		records={tradeReasons}
+		emptyMessage="No why-trade records yet. They freeze when an order intent is persisted."
+	/>
 
 	{#if sentiment.length > 0}
 		<section class="panel">

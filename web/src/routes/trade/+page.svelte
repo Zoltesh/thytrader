@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
+	import { fetchTradeReasons, type TradeReasonRecord } from '$lib/memory';
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
 	import { PAPER_DEFAULT_MAKER_FEE_RATE, PAPER_DEFAULT_TAKER_FEE_RATE, PAPER_FEE_ENGINE_NOTE } from '$lib/fees';
 
@@ -17,10 +19,12 @@
 	let paperCash = $state('10000');
 	let paperMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
 	let paperTakerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
+	let note = $state('');
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 	let result = $state<Deployment | null>(null);
 	let books = $state<Deployment[]>([]);
+	let tradeReasons = $state<TradeReasonRecord[]>([]);
 	let hydrated = $state(false);
 
 	async function refreshBooks(): Promise<void> {
@@ -29,6 +33,16 @@
 			books = deployments.filter((item) => item.kind === 'discretionary');
 		} catch {
 			books = [];
+		}
+	}
+
+	async function refreshReasons(deploymentId?: string): Promise<void> {
+		try {
+			tradeReasons = await fetchTradeReasons(
+				deploymentId === undefined ? undefined : { deploymentId }
+			);
+		} catch {
+			tradeReasons = [];
 		}
 	}
 
@@ -43,6 +57,7 @@
 			if (entryKind === 'post_only_limit' && limitPrice === '') {
 				throw new Error('Post-only entries require a limit price.');
 			}
+			const trimmedNote = note.trim();
 			result = await placeDiscretionaryOrder({
 				mode,
 				product_id: productId,
@@ -58,9 +73,11 @@
 				limit_price: limitPrice === '' ? undefined : limitPrice,
 				paper_starting_cash: mode === 'paper' ? paperCash : undefined,
 				maker_fee_rate: mode === 'paper' ? paperMakerFee : undefined,
-				taker_fee_rate: mode === 'paper' ? paperTakerFee : undefined
+				taker_fee_rate: mode === 'paper' ? paperTakerFee : undefined,
+				note: trimmedNote === '' ? undefined : trimmedNote
 			});
 			await refreshBooks();
+			await refreshReasons(result.id);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'The order could not be placed.';
 		} finally {
@@ -71,6 +88,7 @@
 	onMount(() => {
 		hydrated = true;
 		void refreshBooks();
+		void refreshReasons();
 	});
 </script>
 
@@ -85,9 +103,9 @@
 			<h1>Place a long or short with SL/TP</h1>
 			<p class="lede">
 				Human origin over the same intent → risk → broker path as
-				<code>thytrader-runtime place-order --confirm</code>. Live still requires Coinbase
-				credentials. Live shorts need available base; they never borrow. Timeouts are
-				reconciled, never retried.
+				<code>thytrader-runtime place-order --confirm</code>. Optional note is frozen onto the
+				why-trade record. Live still requires Coinbase credentials. Live shorts need available
+				base; they never borrow. Timeouts are reconciled, never retried.
 			</p>
 		</div>
 	</section>
@@ -165,6 +183,15 @@
 			</label>
 			<p class="lede">{PAPER_FEE_ENGINE_NOTE}</p>
 		{/if}
+		<label class="note">
+			Why note
+			<textarea
+				bind:value={note}
+				data-testid="discretionary-note"
+				maxlength="4000"
+				placeholder="Optional. Frozen onto the why-trade record."
+			></textarea>
+		</label>
 		<button type="button" disabled={submitting} onclick={() => void submitOrder()}>
 			{submitting ? 'Submitting…' : side === 'short' ? 'Place short' : 'Place long'}
 		</button>
@@ -198,6 +225,11 @@
 			</ul>
 		{/if}
 	</section>
+
+	<TradeReasonReview
+		records={tradeReasons}
+		emptyMessage="Why-trade records for this ticket appear after an intent is persisted."
+	/>
 </main>
 
 <style>
@@ -237,17 +269,26 @@
 	}
 	input,
 	select,
+	textarea,
 	button {
 		font: inherit;
 		text-transform: none;
 	}
 	input,
-	select {
+	select,
+	textarea {
 		background: #11181c;
 		color: #e9edf1;
 		border: 1px solid #2a3438;
 		border-radius: 0.375rem;
 		padding: 0.5rem 0.65rem;
+	}
+	.note {
+		grid-column: 1 / -1;
+	}
+	textarea {
+		min-height: 4.5rem;
+		resize: vertical;
 	}
 	button {
 		align-self: end;
