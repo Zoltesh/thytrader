@@ -4,6 +4,22 @@ Read root `AGENTS.md` for the full contributor workflow (GitNexus, typing, tradi
 invariants, safety). The `ops/` workspace is operator-only: never instruct an
 operating agent to update documentation or code.
 
+## GitNexus
+
+Follow root `AGENTS.md` § Use GitNexus first. If GitNexus MCP tools,
+`.gitnexus/run.cjs`, or a usable index are missing, bootstrap from the
+repository root **before editing** — do not skip the graph:
+
+```bash
+bunx gitnexus@latest analyze --embeddings --pdg --index-only
+```
+
+Prefer `node .gitnexus/run.cjs analyze --embeddings --pdg --index-only` once the
+runner exists. `npx gitnexus` / `pnpm dlx gitnexus@latest` also work; npm 11
+`npx` can crash (`node.target is null`; GitNexus #1939). Details:
+[`.claude/skills/gitnexus-cli/SKILL.md`](.claude/skills/gitnexus-cli/SKILL.md).
+Operating agents in `ops/` must not bootstrap GitNexus or edit source.
+
 ## Ops skills and operator docs (completion gate)
 
 This gate applies to **contributors** changing ThyTrader. It does **not** apply in
@@ -33,7 +49,7 @@ scraping logs or inventing commands.
 
 This project is indexed by GitNexus as **thytrader** (17830 symbols, 39436 relationships, 382 execution flows).
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. If GitNexus is not available (no MCP, no `.gitnexus/run.cjs`, `Cannot find module`), **bootstrap** with `bunx gitnexus@latest analyze` (or `npx` / `pnpm dlx`; npm 11 npx crash; #1939). Do not skip the graph.
 
 ## Always Do
 

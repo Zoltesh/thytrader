@@ -41,15 +41,34 @@ Accepted decisions live in `docs/decisions/`. Do not silently contradict an acce
 
 ### 2. Use GitNexus first
 
-GitNexus is a first-class engineering tool for this repository.
+GitNexus is a first-class engineering tool for this repository. If it is not
+available in this environment — missing MCP tools, missing `.gitnexus/run.cjs`
+(`Cannot find module`), no usable index, or `gitnexus` not on PATH — **bootstrap
+it from the repository root before editing**. Do not skip impact analysis or
+`detect_changes` because the graph was absent at session start. Cloud agents,
+fresh clones, and `git clean` checkouts must install the runner the same way.
+
+Once `.gitnexus/run.cjs` exists:
+
+```bash
+node .gitnexus/run.cjs analyze --embeddings --pdg --index-only
+```
+
+If that file is missing, bootstrap (then retry the `node .gitnexus/run.cjs`
+commands). Prefer `bunx` on npm 11, where `npx gitnexus` can crash
+(`node.target is null`; [GitNexus #1939](https://github.com/abhigyanpatwari/GitNexus/issues/1939)):
+
+```bash
+bunx gitnexus@latest analyze --embeddings --pdg --index-only
+```
+
+`npx gitnexus analyze --embeddings --pdg --index-only` and
+`pnpm --allow-build=@ladybugdb/core --allow-build=gitnexus --allow-build=tree-sitter dlx gitnexus@latest analyze --embeddings --pdg --index-only`
+are equivalents. Details: [`.claude/skills/gitnexus-cli/SKILL.md`](.claude/skills/gitnexus-cli/SKILL.md).
+Do not inject this duty into `ops/` instruction files.
 
 1. Read `gitnexus://repo/thytrader/context` and check freshness.
-2. Re-index stale data with:
-
-   ```bash
-   node .gitnexus/run.cjs analyze --embeddings --pdg --index-only
-   ```
-
+2. Re-index stale data with the `analyze` command above (bootstrap first if the runner is missing).
 3. Use GitNexus query/context/process tools for traversal before broad text search.
 4. Use upstream impact analysis before nontrivial symbol/API changes.
 5. Read source files to verify implementation details; the graph does not replace source inspection.
@@ -218,7 +237,7 @@ documentation or code; `ops/` stays operator-only.
 
 This project is indexed by GitNexus as **thytrader** (17830 symbols, 39436 relationships, 382 execution flows).
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. If GitNexus is not available (no MCP, no `.gitnexus/run.cjs`, `Cannot find module`), **bootstrap** with `bunx gitnexus@latest analyze` (or `npx` / `pnpm dlx`; npm 11 npx crash; #1939). Do not skip the graph.
 
 ## Always Do
 

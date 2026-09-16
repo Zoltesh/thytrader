@@ -16,6 +16,7 @@ For any task involving code understanding, debugging, impact analysis, or refact
 3. **Follow the skill's workflow and checklist**
 
 > If step 1 warns the index is stale, run `node .gitnexus/run.cjs analyze` in the terminal first.
+> If GitNexus is missing (no MCP, no `.gitnexus/run.cjs`, `Cannot find module`), bootstrap with `bunx gitnexus@latest analyze` (or `npx` / `pnpm dlx`; npm 11 npx crash: #1939). Do not skip the graph. See `gitnexus-cli`.
 
 ## ThyTrader contributor gate
 
