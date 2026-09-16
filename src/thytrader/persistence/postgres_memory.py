@@ -32,10 +32,6 @@ from thytrader.memory.trade_reasons import (
     TradeReasonNote,
     TradeReasonOrigin,
     TradeReasonRecord,
-    TradeReasonRisk,
-    TradeReasonSignal,
-    TradeReasonSignalKind,
-    TradeReasonStrategy,
 )
 from thytrader.persistence.schema import (
     experiential_journal_entries,
@@ -313,7 +309,9 @@ class PostgresExperientialMemoryStore:
 
     async def get_trade_reason_by_intent(self, intent_id: UUID) -> TradeReasonRecord | None:
         """Load one why-trade row by order-intent id."""
-        statement = select(trade_reason_records).where(trade_reason_records.c.intent_id == intent_id)
+        statement = select(trade_reason_records).where(
+            trade_reason_records.c.intent_id == intent_id
+        )
         row = await _one(self._engine, statement)
         if row is None:
             return None
@@ -525,40 +523,41 @@ def _trade_reason_values(record: TradeReasonRecord) -> dict[str, object]:
 
 def _trade_reason_from_row(row: RowMapping) -> TradeReasonRecord:
     """Revalidate one stored why-trade row. Ledger facts are joined on read."""
-    strategy_id = row["strategy_id"]
     strategy = None
-    if strategy_id is not None:
-        strategy = TradeReasonStrategy(
-            strategy_id=strategy_id,
-            strategy_fingerprint=str(row["strategy_fingerprint"]),
-            name=str(row["strategy_name"]),
-            version=int(row["strategy_version"]),
-        )
-    return TradeReasonRecord(
-        schema_version=TRADE_REASON_SCHEMA_VERSION,
-        id=row["id"],
-        created_at=row["created_at"],
-        origin=TradeReasonOrigin(str(row["origin"])),
-        intent_id=row["intent_id"],
-        deployment_id=row["deployment_id"],
-        deployment_kind=str(row["deployment_kind"]),
-        mode=str(row["mode"]),
-        product_id=str(row["product_id"]),
-        purpose=str(row["purpose"]),
-        side=str(row["side"]),
-        strategy=strategy,
-        signal=TradeReasonSignal(
-            kind=TradeReasonSignalKind(str(row["signal_kind"])),
-            last_signal=row["last_signal"],
-            candle_starts_at=row["candle_starts_at"],
-            timeframe=row["timeframe"],
-        ),
-        risk=TradeReasonRisk(
-            decision=str(row["risk_decision"]),
-            reason_code=str(row["risk_reason_code"]),
-            detail=str(row["risk_detail"]),
-            policy_fingerprint=str(row["policy_fingerprint"]),
-            policy_source=str(row["policy_source"]),
-        ),
-        notes=notes_from_json(str(row["notes_json"])),
+    if row["strategy_id"] is not None:
+        strategy = {
+            "strategy_id": row["strategy_id"],
+            "strategy_fingerprint": str(row["strategy_fingerprint"]),
+            "name": str(row["strategy_name"]),
+            "version": int(row["strategy_version"]),
+        }
+    return TradeReasonRecord.model_validate(
+        {
+            "schema_version": TRADE_REASON_SCHEMA_VERSION,
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "origin": str(row["origin"]),
+            "intent_id": row["intent_id"],
+            "deployment_id": row["deployment_id"],
+            "deployment_kind": str(row["deployment_kind"]),
+            "mode": str(row["mode"]),
+            "product_id": str(row["product_id"]),
+            "purpose": str(row["purpose"]),
+            "side": str(row["side"]),
+            "strategy": strategy,
+            "signal": {
+                "kind": str(row["signal_kind"]),
+                "last_signal": row["last_signal"],
+                "candle_starts_at": row["candle_starts_at"],
+                "timeframe": row["timeframe"],
+            },
+            "risk": {
+                "decision": str(row["risk_decision"]),
+                "reason_code": str(row["risk_reason_code"]),
+                "detail": str(row["risk_detail"]),
+                "policy_fingerprint": str(row["policy_fingerprint"]),
+                "policy_source": str(row["policy_source"]),
+            },
+            "notes": notes_from_json(str(row["notes_json"])),
+        }
     )

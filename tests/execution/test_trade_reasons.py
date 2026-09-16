@@ -92,15 +92,16 @@ async def test_discretionary_place_records_note_and_omits_strategy() -> None:
     )
     assert snapshot.intents
     rows = await memory.list_trade_reasons()
-    assert len(rows) == 1
-    record = rows[0]
+    assert rows
+    record = next(item for item in rows if item.purpose == "entry")
     assert record.origin is TradeReasonOrigin.HUMAN
     assert record.deployment_kind == "discretionary"
     assert record.strategy is None
     assert record.signal.kind is TradeReasonSignalKind.DISCRETIONARY
     assert record.notes[0].body == "Manual fade of the open."
     assert record.notes[0].origin.value == "human"
-    composed = await compose_trade_reasons(rows, store)
+    assert all(item.strategy is None for item in rows)
+    composed = await compose_trade_reasons((record,), store)
     assert composed[0].reconcile.ledger_available is True
 
 

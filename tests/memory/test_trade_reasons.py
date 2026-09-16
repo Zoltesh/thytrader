@@ -93,4 +93,4 @@ def test_rejects_interpolated_timeframe_and_naive_datetimes() -> None:
             timeframe="3h",
         )
     with pytest.raises(ValidationError, match="timezone-aware UTC"):
-        _record(created_at=datetime(2026, 9, 16, 12, 0))
+        _record(created_at=datetime(2026, 9, 16, 12, 0))  # noqa: DTZ001

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
@@ -25,8 +23,8 @@ from thytrader.memory.trade_reasons import (
     TradeReasonNote,
     TradeReasonNoteOrigin,
     TradeReasonOrigin,
-    TradeReasonRecord,
     TradeReasonReconcile,
+    TradeReasonRecord,
     TradeReasonRisk,
     TradeReasonSignal,
     TradeReasonSignalKind,
@@ -34,6 +32,9 @@ from thytrader.memory.trade_reasons import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
     from thytrader.execution.models import DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.trade_reason_scope import TradeReasonScope
@@ -108,7 +109,7 @@ def notes_from_json(raw: str) -> tuple[TradeReasonNote, ...]:
     """Revalidate stored notes JSON."""
     parsed = json.loads(raw)
     if not isinstance(parsed, list):
-        raise ValueError("notes_json must be a JSON array")
+        raise TypeError("notes_json must be a JSON array")
     return tuple(TradeReasonNote.model_validate(item) for item in parsed)
 
 
@@ -150,7 +151,7 @@ def _record_from_submit(
             timeframe=scope.timeframe or deployment.timeframe,
         ),
         risk=_risk_from_scope(scope),
-        notes=_notes_from_scope(scope, intent.created_at),
+        notes=_notes_from_scope(scope, intent),
     )
 
 
@@ -181,15 +182,17 @@ def _risk_from_scope(scope: TradeReasonScope) -> TradeReasonRisk:
     )
 
 
-def _notes_from_scope(scope: TradeReasonScope, recorded_at: datetime) -> tuple[TradeReasonNote, ...]:
-    """Capture an optional place-order note with its origin."""
+def _notes_from_scope(scope: TradeReasonScope, intent: OrderIntent) -> tuple[TradeReasonNote, ...]:
+    """Capture an optional place-order note on the entry intent only."""
+    if intent.purpose is not IntentPurpose.ENTRY:
+        return ()
     if not scope.discretionary_note or not scope.note_origin:
         return ()
     return (
         TradeReasonNote(
             origin=TradeReasonNoteOrigin(scope.note_origin),
             body=scope.discretionary_note,
-            recorded_at=recorded_at,
+            recorded_at=intent.created_at,
         ),
     )
 
@@ -217,7 +220,7 @@ def _reconcile_from(order: Order, fills: tuple[Fill, ...]) -> TradeReasonReconci
             price=str(item.price),
             quantity=str(item.quantity),
             fee=str(item.fee),
-            filled_at=item.filled_at if item.filled_at.tzinfo is UTC else item.filled_at,
+            filled_at=item.filled_at,
         )
         for item in fills
     )

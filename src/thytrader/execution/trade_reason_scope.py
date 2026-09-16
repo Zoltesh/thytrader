@@ -6,12 +6,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from thytrader.risk.models import COMPILED_POLICY_ID, risk_policy_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from uuid import UUID
 
     from thytrader.execution.models import Deployment
     from thytrader.memory.store import ExperientialMemoryStore

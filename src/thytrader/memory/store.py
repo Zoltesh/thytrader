@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
-from uuid import UUID
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.memory.models import (
     ActorOrigin,
@@ -15,11 +14,15 @@ from thytrader.memory.models import (
     PatternObservation,
     SentimentSnapshot,
 )
-from thytrader.memory.trade_reasons import (
-    TradeReasonNote,
-    TradeReasonOrigin,
-    TradeReasonRecord,
-)
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from thytrader.memory.trade_reasons import (
+        TradeReasonNote,
+        TradeReasonOrigin,
+        TradeReasonRecord,
+    )
 
 _MemoryRow = JournalEntry | SentimentSnapshot | PatternObservation | NotificationRecord
 _MODEL_LIST_CAP = 100

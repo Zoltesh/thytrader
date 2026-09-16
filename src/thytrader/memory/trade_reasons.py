@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal, Self
 from uuid import UUID, uuid4
@@ -48,10 +48,10 @@ class _FrozenModel(BaseModel):
 
 
 def require_utc(value: datetime) -> datetime:
-    """Reject naive datetimes so why-trade records stay ordered in UTC."""
-    if value.tzinfo is not UTC:
+    """Reject naive or non-UTC datetimes so why-trade records stay ordered in UTC."""
+    if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("datetime must be timezone-aware UTC")
-    return value
+    return value.astimezone(UTC)
 
 
 class TradeReasonNote(_FrozenModel):
@@ -93,7 +93,9 @@ class TradeReasonStrategy(_FrozenModel):
             self.version is not None,
         )
         if any(present) and not all(present):
-            raise ValueError("published strategy identity must include id, fingerprint, name, version")
+            raise ValueError(
+                "published strategy identity must include id, fingerprint, name, version"
+            )
         return self
 
 
