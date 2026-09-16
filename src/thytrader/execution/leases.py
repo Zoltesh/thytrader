@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import timedelta
 import os
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
@@ -14,10 +13,16 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     Order,
+    OrderIntent,
+    Position,
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
     from thytrader.execution.store import ExecutionStore
 
 WORKER_LEASE_TTL_SECONDS = 45
@@ -32,7 +37,9 @@ class RevisionFencedStore:
     """Proxy that stamps ``expected_revision`` on every deployment write.
 
     Network I/O stays on the caller; this wrapper only sequences optimistic
-    writes after a short lease UPDATE.
+    writes after a short lease UPDATE. Explicit ``ExecutionStore`` methods keep
+    the proxy structurally typed; ``apply_fill_transaction`` stays getattr
+    because that method is not on the protocol.
     """
 
     def __init__(self, inner: ExecutionStore, deployment_id: UUID, expected_revision: int) -> None:
@@ -40,6 +47,22 @@ class RevisionFencedStore:
         self._inner = inner
         self._deployment_id = deployment_id
         self._expected_revision = expected_revision
+
+    async def create_deployment(self, deployment: Deployment) -> Deployment:
+        """Insert one new deployment row on the inner store."""
+        return await self._inner.create_deployment(deployment)
+
+    async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Load one deployment with its related records or fail."""
+        return await self._inner.get_deployment(deployment_id)
+
+    async def list_deployments(self) -> tuple[Deployment, ...]:
+        """Return every deployment, newest-updated first."""
+        return await self._inner.list_deployments()
+
+    async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
+        """Return deployments for one strategy identity, newest-updated first."""
+        return await self._inner.list_by_strategy(strategy_id)
 
     async def save_deployment(
         self, deployment: Deployment, *, expected_revision: int | None = None
@@ -58,6 +81,57 @@ class RevisionFencedStore:
         self._expected_revision = saved.revision
         return saved
 
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Acquire or renew a fenced worker lease on the inner store."""
+        return await self._inner.acquire_worker_lease(
+            deployment_id, holder=holder, now=now, ttl=ttl
+        )
+
+    async def save_intent(self, intent: OrderIntent) -> OrderIntent:
+        """Insert one order intent before venue submission."""
+        return await self._inner.save_intent(intent)
+
+    async def save_order(self, order: Order) -> Order:
+        """Insert or replace one venue-visible order snapshot."""
+        return await self._inner.save_order(order)
+
+    async def save_fill(self, fill: Fill) -> Fill:
+        """Insert one fill, ignoring exact venue-fill duplicates."""
+        return await self._inner.save_fill(fill)
+
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
+        """Replace or clear one product book for a deployment."""
+        await self._inner.save_position(
+            position, deployment_id=deployment_id, product_id=product_id
+        )
+
+    async def save_instrument_runtime(
+        self, runtime: InstrumentRuntime, *, deployment_id: UUID
+    ) -> None:
+        """Replace one product overlay row for a deployment."""
+        await self._inner.save_instrument_runtime(runtime, deployment_id=deployment_id)
+
+    async def list_open_orders(self, deployment_id: UUID) -> tuple[Order, ...]:
+        """Return open or unknown orders that the runtime must observe."""
+        return await self._inner.list_open_orders(deployment_id)
+
+    async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
+        """Return the intent recorded under one client idempotency key, if any."""
+        return await self._inner.get_intent_by_idempotency_key(idempotency_key)
+
     async def apply_fill_transaction(
         self,
         deployment_id: UUID,
@@ -68,7 +142,9 @@ class RevisionFencedStore:
         timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
         """Apply fill economics then refresh the fenced revision from the snapshot."""
-        apply = self._inner.apply_fill_transaction
+        apply = getattr(self._inner, "apply_fill_transaction", None)
+        if not callable(apply):
+            raise ExecutionStoreError("Execution storage cannot apply fill transactions.")
         applied, snapshot = await apply(
             deployment_id,
             fill=fill,
@@ -79,10 +155,6 @@ class RevisionFencedStore:
         if deployment_id == self._deployment_id:
             self._expected_revision = snapshot.deployment.revision
         return applied, snapshot
-
-    def __getattr__(self, name: str) -> object:
-        """Delegate remaining store methods to the inner repository."""
-        return getattr(self._inner, name)
 
 
 async def acquire_worker_lease(

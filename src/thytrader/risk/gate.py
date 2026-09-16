@@ -139,13 +139,7 @@ def evaluate_runtime_breakers(
     observation: EntryObservation,
 ) -> RiskVerdict:
     """Pause-worthy daily-loss and drawdown checks without rate or collar gates."""
-    occupied = tuple(
-        item
-        for item in snapshots
-        if item.deployment.mode is mode and occupies_running_slot(item.deployment)
-    )
-    existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
@@ -200,8 +194,7 @@ def _entry_breaker_verdict(
     """Apply daily-loss, drawdown, rate, and collar gates when observation is present."""
     if observation is None:
         return _allow()
-    existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
@@ -280,9 +273,7 @@ def _exposure_verdict(
         (product_exposure(item, proposed.product_id) for item in occupied),
         Decimal("0"),
     )
-    capital = _capital_base(
-        policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing_total
-    )
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
     if capital <= 0:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
@@ -397,7 +388,6 @@ def _capital_base(
     *,
     mode: DeploymentMode,
     live_quote_cash: Decimal | None,
-    existing: Decimal,
 ) -> Decimal:
     """Paper uses the policy book; live uses allocated or initial equity, never venue+cash mix."""
     if mode is DeploymentMode.PAPER:

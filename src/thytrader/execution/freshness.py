@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
-from thytrader.market_data.models import (
-    Candle,
-    CandleInterval,
-    MarketProduct,
-    parse_candle_interval,
-)
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from decimal import Decimal
+
+    from thytrader.market_data.models import Candle, MarketProduct
 
 _SIGNAL_GRACE_SECONDS = 300
 
@@ -71,9 +71,7 @@ def signal_still_valid(
     max_age = int(interval.duration.total_seconds()) * 2 + _SIGNAL_GRACE_SECONDS
     if age < 0 or age >= max_age:
         return False
-    if current_quote is not None and current_quote <= 0:
-        return False
-    return True
+    return current_quote is None or current_quote > 0
 
 
 def marketable_quote_mark(*, candle: Candle, venue_price: Decimal | None) -> Decimal:

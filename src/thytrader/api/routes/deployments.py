@@ -399,7 +399,7 @@ async def _covered_products(
         return (deployment.product_id,)
     try:
         published = await loader(fingerprint)
-    except (StrategyPublicationError, ExecutionStoreError):
+    except StrategyPublicationError, ExecutionStoreError:
         return (deployment.product_id,)
     return covered_product_ids(published.definition)
 

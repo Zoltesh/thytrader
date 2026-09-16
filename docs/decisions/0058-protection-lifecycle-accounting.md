@@ -66,9 +66,11 @@ live entries (F21). Discretionary entries accepted stale last-close marks (F22).
   columns plus `ux_deployments_active_strategy_mode`.
 - Ops contract becomes `thytrader-ops-contract-v22` with `expected_schema_revision` `0035` and
   `lifecycle_commands`.
-- Operator `DeploymentSummary` reports `lifecycle_command` and breaker latches without cash or
-  quantities. Runtime stop remains `--confirm`; live still `--i-understand-live`. Default stop is
-  managed shutdown; flatten is explicit.
+- Operator `DeploymentSummary` reports `lifecycle_command`, breaker latches, `revision`, and
+  `worker_lease_held` without cash, quantities, or lease-holder identity. Runtime stop remains
+  `--confirm`; live still `--i-understand-live`. Default stop is managed shutdown; flatten is
+  explicit. Attached-child helpers live in `execution/attached.py`; HTTP `book_protection_status`
+  stays in `execution/protection.py`.
 - Regression tests cover attached-child coverage, remainder exposure, leases/revision (including
   PostgreSQL), STOPPED residual occupancy, live capital vs cash, day-open PnL, replay age, and
   stale discretionary marks.

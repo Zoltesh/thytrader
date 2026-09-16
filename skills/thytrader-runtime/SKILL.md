@@ -28,6 +28,16 @@ Production installs enforce the application trust boundary
 from `GET /api/v1/security/session`. Live arming still requires a published risk policy per
 [ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)
 plus `--i-understand-live`; do not expect a separate live-arm token endpoint.
+Protection, leases, and live capital follow
+[ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
+(`lifecycle_command=stop_new_entries`) still maintains verified attached-child protection on
+every worker poll, including empty `due` and feed-down. Default stop is managed shutdown
+(protective brackets and residual occupancy stay in account risk). `--flatten` /
+`POST /api/v1/deployments/{id}/stop?flatten=true` marketably exits then cancels remainders.
+Live sizing uses allocated capital or venue available quote, never ledger `cash`. Workers hold
+a 45s fenced lease; writes are revision-checked. UTC day-open and high-water baselines persist
+across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
+on `thytrader-runtime show`.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live still needs understand-live.

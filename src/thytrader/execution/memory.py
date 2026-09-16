@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from thytrader.execution.fill_ledger import project_fill_economics
@@ -19,6 +19,9 @@ from thytrader.execution.models import (
     OrderStatus,
     Position,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime, timedelta
 
 
 def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:

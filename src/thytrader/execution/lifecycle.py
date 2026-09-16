@@ -30,13 +30,12 @@ def occupies_risk(snapshot: DeploymentSnapshot) -> bool:
 
 def entries_allowed(deployment: Deployment) -> bool:
     """True when new risk-increasing entries may be submitted on this book."""
-    if deployment.status is not DeploymentStatus.RUNNING:
-        return False
-    if deployment.lifecycle_command is not LifecycleCommand.NONE:
-        return False
-    if deployment.daily_loss_latched or deployment.drawdown_latched:
-        return False
-    return True
+    return (
+        deployment.status is DeploymentStatus.RUNNING
+        and deployment.lifecycle_command is LifecycleCommand.NONE
+        and not deployment.daily_loss_latched
+        and not deployment.drawdown_latched
+    )
 
 
 def can_reprice_risk_up(deployment: Deployment) -> bool:

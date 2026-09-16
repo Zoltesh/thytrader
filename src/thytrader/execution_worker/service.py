@@ -881,6 +881,51 @@ async def _strategy_definition(
     return published.definition
 
 
+async def _discretionary_execution_broker(
+    snapshot: DeploymentSnapshot,
+    *,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    store: ExecutionStore,
+) -> tuple[DeploymentSnapshot, Broker] | None:
+    """Bind the paper or live broker for due discretionary bars.
+
+    Returns None when live prepare fails or a paused mismatch still needs
+    protection without evaluating new signals.
+    """
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return snapshot, paper_broker
+    prepared = await _prepare_live(
+        snapshot,
+        store=store,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        quote_currency="USD",
+        product_id=product.product_id,
+        cooldown_bars=0,
+    )
+    if prepared is None or live_broker is None:
+        return None
+    snapshot, _fee_profile = prepared
+    paused_with_mismatch = (
+        snapshot.deployment.status is DeploymentStatus.PAUSED
+        and snapshot.deployment.mismatch_detail
+    )
+    if paused_with_mismatch:
+        await _maintain_discretionary(
+            snapshot,
+            product=product,
+            candles=candles,
+            broker=live_broker,
+            store=store,
+        )
+        return None
+    return snapshot, live_broker
+
+
 async def _process_discretionary(
     snapshot: DeploymentSnapshot,
     *,
@@ -927,19 +972,12 @@ async def _process_discretionary(
         bar_duration=interval.duration,
     )
     if due is None:
-        paused = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
-        )
-        await store.save_deployment(paused)
-        await _maintain_discretionary(
+        await _pause_gapped_discretionary(
             snapshot,
+            store=store,
             product=product,
             candles=candles,
             broker=broker,
-            store=store,
         )
         return
     if not due:
@@ -951,34 +989,18 @@ async def _process_discretionary(
             store=store,
         )
         return
-    broker: Broker = paper_broker
-    if deployment.mode is DeploymentMode.LIVE:
-        prepared = await _prepare_live(
-            snapshot,
-            store=store,
-            live_broker=live_broker,
-            quote_reader=quote_reader,
-            quote_currency="USD",
-            product_id=product.product_id,
-            cooldown_bars=0,
-        )
-        if prepared is None or live_broker is None:
-            return
-        snapshot, _fee_profile = prepared
-        broker = live_broker
-        paused_with_mismatch = (
-            snapshot.deployment.status is DeploymentStatus.PAUSED
-            and snapshot.deployment.mismatch_detail
-        )
-        if paused_with_mismatch:
-            await _maintain_discretionary(
-                snapshot,
-                product=product,
-                candles=candles,
-                broker=broker,
-                store=store,
-            )
-            return
+    bound = await _discretionary_execution_broker(
+        snapshot,
+        product=product,
+        candles=candles,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        store=store,
+    )
+    if bound is None:
+        return
+    snapshot, broker = bound
     for candle in due:
         current = await store.get_deployment(deployment.id)
         if current.deployment.status is DeploymentStatus.STOPPED:
@@ -1402,6 +1424,31 @@ def _cycle_broker(
     if deployment.mode is DeploymentMode.LIVE and live_broker is not None:
         return live_broker
     return paper_broker
+
+
+async def _pause_gapped_discretionary(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+) -> None:
+    """Pause a discretionary book on a gapped window, then keep residual protection."""
+    paused = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
+    )
+    await store.save_deployment(paused)
+    await _maintain_discretionary(
+        snapshot,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+    )
 
 
 async def _maintain_discretionary(

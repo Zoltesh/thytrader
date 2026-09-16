@@ -290,9 +290,10 @@ def _daily_pnl(
     if pnl is not None:
         return pnl
     starting = snapshot.deployment.initial_equity or snapshot.deployment.paper_starting_cash
-    if starting is None:
+    equity = ledger.equity
+    if starting is None or equity is None:
         return None
-    return ledger.equity - starting
+    return equity - starting
 
 
 def _drawdown_target(

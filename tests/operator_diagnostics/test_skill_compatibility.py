@@ -72,6 +72,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "0058-protection-lifecycle-accounting" in skill
     assert "lifecycle_command" in skill
     assert "lifecycle_commands" in schemas
+    assert "worker_lease_held" in skill
+    assert "revision" in skill
     assert "DAILY_LOSS_LIMIT" in schemas
     assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
     assert "risk_breakers" in schemas
@@ -190,6 +192,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "--flatten" in skill
     assert "managed shutdown" in skill.lower() or "managed-shutdown" in skill.lower()
     assert "0058-protection-lifecycle-accounting" in skill
+    assert "allocated capital" in skill.lower() or "venue available quote" in skill.lower()
+    assert "worker_lease_held" in skill or "fenced lease" in skill.lower()
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:

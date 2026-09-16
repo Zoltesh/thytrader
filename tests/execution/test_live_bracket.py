@@ -9,13 +9,14 @@ import pytest
 
 from thytrader.execution.broker import SubmitResult
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.loop import process_closed_bar
+from thytrader.execution.loop import maintain_open_inventory, process_closed_bar
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
     Fill,
+    LifecycleCommand,
     Order,
     OrderKind,
     OrderSide,
@@ -223,17 +224,20 @@ async def test_paused_replay_still_rests_live_bracket() -> None:
         entered_bar=_candle(1).starts_at,
         bars_held=1,
     )
-    paused = replace(snapshot.deployment, status=DeploymentStatus.PAUSED)
+    paused = replace(
+        snapshot.deployment,
+        status=DeploymentStatus.PAUSED,
+        lifecycle_command=LifecycleCommand.STOP_NEW_ENTRIES,
+    )
     await store.save_deployment(paused)
     snapshot = await store.get_deployment(snapshot.deployment.id)
-    updated = await process_closed_bar(
+    updated = await maintain_open_inventory(
         snapshot,
         strategy=strategy,
         product=_product(),
         candles=(_candle(0), _candle(1), _candle(2)),
         broker=broker,
         store=store,
-        allow_new_entries=False,
     )
     assert len(broker.placed) == 1
     assert broker.placed[0]["kind"] is OrderKind.TRIGGER_BRACKET

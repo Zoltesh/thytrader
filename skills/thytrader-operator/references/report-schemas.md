@@ -29,10 +29,12 @@ treat the deployment-level `product_id` as the only open book
 uses the same `books[]` on each deployment row. `protection_status` is classified from verified
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
 ([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)). Each row also
-reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`) and
-breaker latches (`daily_loss_latched`, `drawdown_latched`) without cash. Default HTTP stop is
-managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true` or
-`thytrader-runtime stop UUID --flatten --confirm`.
+reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`),
+breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`, and
+`worker_lease_held` without cash or lease-holder identity. Latches persist across pause.
+Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
+or `thytrader-runtime stop UUID --flatten --confirm`. Live capital fields stay on
+`thytrader-runtime show` / `GET /api/v1/deployments/{id}`.
 
 Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`.
 Hour-and-longer live still reconciles through REST. Live fill ingest pages Coinbase List Fills

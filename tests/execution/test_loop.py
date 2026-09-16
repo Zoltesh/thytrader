@@ -792,3 +792,24 @@ async def test_flatten_exits_inventory_while_managed_stop_keeps_occupancy() -> N
     )
     assert flattened.position is None
     assert any(order.kind.value == "marketable" for order in flattened.orders)
+
+
+@pytest.mark.anyio
+async def test_historical_replay_does_not_place_a_new_entry() -> None:
+    """F21: recovery may observe past due bars but must not submit historical entries."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    after = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+        allow_new_entries=False,
+    )
+    assert after.position is None
+    assert after.orders == ()
+    assert after.deployment.phase is RuntimePhase.FLAT

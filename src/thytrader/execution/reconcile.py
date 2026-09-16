@@ -207,6 +207,7 @@ async def _import_attached_children(
         if not child_id or child_id in known_venues:
             continue
         result = await broker.get_order(venue_order_id=child_id, client_order_id="")
+        child_venue = result.venue_order_id or child_id
         child = Order(
             id=uuid7(utc_now()),
             deployment_id=order.deployment_id,
@@ -221,18 +222,16 @@ async def _import_attached_children(
             status=result.status,
             created_at=utc_now(),
             updated_at=utc_now(),
-            venue_order_id=result.venue_order_id or child_id,
+            venue_order_id=child_venue,
             filled_quantity=result.filled_quantity,
             product_id=order.product_id or product_id or snapshot.deployment.product_id,
             parent_order_id=order.id,
         )
         await store.save_order(child)
-        known_venues.add(child.venue_order_id)
+        known_venues.add(child_venue)
         current = await store.get_deployment(order.deployment_id)
         order_product = child.product_id or product_id or snapshot.deployment.product_id
-        remote_fills = await broker.list_fills(
-            product_id=order_product, order_id=child.venue_order_id
-        )
+        remote_fills = await broker.list_fills(product_id=order_product, order_id=child_venue)
         known_fills = {fill.venue_fill_id for fill in current.fills}
         current = await _ingest_fills(
             current,

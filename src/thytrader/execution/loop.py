@@ -3,16 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 from decimal import Decimal
 import inspect
 from typing import TYPE_CHECKING, Literal
-from uuid import UUID
 
-from thytrader.execution.attached import (
-    attached_entry_covers as _attached_entry_covers,
-    remaining_quantity,
-)
 from thytrader.execution.attached import (
     attached_entry_covers as _attached_entry_covers,
     remaining_quantity,
@@ -72,6 +66,8 @@ from thytrader.strategies.models import atr_trailing_stop, can_pyramid_add
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from datetime import datetime
+    from uuid import UUID
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
@@ -988,7 +984,10 @@ async def _submit_repriced_entry(
     reset = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
     if not is_pyramid:
         reset = with_runtime(
-            reset, pending_stop_price=stop_price, pending_target_price=target_price
+            reset,
+            updated_at=utc_now(),
+            pending_stop_price=stop_price,
+            pending_target_price=target_price,
         )
     await store.save_deployment(reset)
     order = await submit_intent(
