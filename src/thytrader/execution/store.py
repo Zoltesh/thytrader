@@ -9,6 +9,7 @@ from thytrader.execution.models import (
     DeploymentSnapshot,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     Order,
     OrderIntent,
     Position,
@@ -54,8 +55,20 @@ class ExecutionStore(Protocol):
         """Insert one fill, ignoring exact venue-fill duplicates."""
         ...
 
-    async def save_position(self, position: Position | None, *, deployment_id: UUID) -> None:
-        """Replace or clear the single position for one deployment."""
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
+        """Replace or clear one product book for a deployment."""
+        ...
+
+    async def save_instrument_runtime(
+        self, runtime: InstrumentRuntime, *, deployment_id: UUID
+    ) -> None:
+        """Replace one product overlay row for a deployment."""
         ...
 
     async def list_open_orders(self, deployment_id: UUID) -> tuple[Order, ...]:
@@ -109,9 +122,22 @@ class DisabledExecutionStore:
         del fill
         raise ExecutionStoreError("Execution storage is unavailable.")
 
-    async def save_position(self, position: Position | None, *, deployment_id: UUID) -> None:
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
         """Refuse position writes without durable storage."""
-        del position, deployment_id
+        del position, deployment_id, product_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def save_instrument_runtime(
+        self, runtime: InstrumentRuntime, *, deployment_id: UUID
+    ) -> None:
+        """Refuse overlay writes without durable storage."""
+        del runtime, deployment_id
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def list_open_orders(self, deployment_id: UUID) -> tuple[Order, ...]:

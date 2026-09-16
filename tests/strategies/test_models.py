@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
@@ -13,9 +14,12 @@ from thytrader.strategies.models import (
     ConstantIndicatorParameters,
     StrategyDefinition,
     StrategyStatus,
+    can_pyramid_add,
     canonical_strategy_bytes,
     expanded_data_requirements,
     is_valid_htf_pair,
+    lockstep_product_ids,
+    pyramiding_enabled,
     strategy_fingerprint,
 )
 
@@ -1972,3 +1976,70 @@ def test_enabled_atr_trailing_requires_named_ltf_atr() -> None:
     }
     with pytest.raises(ValidationError, match="unknown indicator"):
         StrategyDefinition.model_validate(payload)
+
+
+def test_omitted_additional_instruments_and_pyramiding_preserve_reference_fingerprint() -> None:
+    """Compatible schema extensions must not change existing single-instrument identity."""
+    definition = StrategyDefinition.model_validate(reference_payload())
+    assert definition.additional_instruments == ()
+    assert definition.entry.pyramiding is None
+    canonical = canonical_strategy_bytes(definition)
+    assert b"additional_instruments" not in canonical
+    assert b"pyramiding" not in canonical
+    assert strategy_fingerprint(definition) == (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+
+
+def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
+    """Extra products and same-side adds must be explicit, unique, and bounded."""
+    too_many_books = reference_payload()
+    too_many_books["additional_instruments"] = [
+        {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"}
+    ]
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        StrategyDefinition.model_validate(too_many_books)
+    too_many_books["portfolio_limits"]["max_concurrent_positions"] = 2
+    multi = StrategyDefinition.model_validate(too_many_books)
+    assert lockstep_product_ids(multi) == ("BTC-USD", "ETH-USD")
+    too_many_books["additional_instruments"] = [
+        {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"},
+        {"product_id": "BTC-USD", "base_currency": "BTC", "quote_currency": "USD"},
+    ]
+    with pytest.raises(ValidationError, match="unique"):
+        StrategyDefinition.model_validate(too_many_books)
+
+    lots = reference_payload()
+    lots["entry"]["max_open_positions"] = 2
+    with pytest.raises(ValidationError, match="unless pyramiding is enabled"):
+        StrategyDefinition.model_validate(lots)
+    lots["entry"]["pyramiding"] = {"enabled": True, "require_unrealized_profit": True}
+    enabled = StrategyDefinition.model_validate(lots)
+    assert pyramiding_enabled(enabled)
+    assert can_pyramid_add(
+        strategy=enabled,
+        side="long",
+        entry_price=Decimal("10"),
+        mark=Decimal("11"),
+        add_count=1,
+    )
+    assert not can_pyramid_add(
+        strategy=enabled,
+        side="long",
+        entry_price=Decimal("10"),
+        mark=Decimal("9"),
+        add_count=1,
+    )
+    assert not can_pyramid_add(
+        strategy=enabled,
+        side="long",
+        entry_price=Decimal("10"),
+        mark=Decimal("11"),
+        add_count=2,
+    )
+    assert strategy_fingerprint(enabled) != (
+        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+    )
+    lots["entry"]["max_open_positions"] = 1
+    with pytest.raises(ValidationError, match="between 2 and 8"):
+        StrategyDefinition.model_validate(lots)

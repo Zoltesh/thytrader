@@ -28,7 +28,8 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `run_id` | UUIDv7 whose embedded Unix millisecond matches `created_at`. It identifies one immutable research request. |
 | `created_at` | Timezone-aware UTC creation instant. |
 | `strategy_fingerprint` | Exact published canonical strategy fingerprint. |
-| `dataset_fingerprint` | Exact verified immutable LTF dataset fingerprint. |
+| `dataset_fingerprint` | Exact verified immutable LTF dataset fingerprint for the **primary** instrument. |
+| `additional_instrument_datasets` | Optional extra covered-product bindings `{product_id, dataset_fingerprint, htf_dataset_fingerprint?, indicator_dataset_fingerprints?}`. Required iff the strategy declares `additional_instruments`; ordered by `product_id`; omitted from canonical JSON when empty. Each extra product needs a complete decision-clock dataset; HTF and extra-TF fingerprints are required iff the document declares those clocks. Identities must be unique and distinct from the primary LTF/HTF/extra-TF fingerprints. |
 | `htf_dataset_fingerprint` | Optional exact HTF dataset fingerprint. Required iff the strategy declares `htf_filter`; must differ from `dataset_fingerprint`; omitted from canonical JSON when null. |
 | `indicator_dataset_fingerprints` | Optional extra indicator-clock bindings `{timeframe, dataset_fingerprint}`. Required iff the strategy declares unbound extra TFs; ordered by increasing duration; each identity distinct from LTF and HTF; omitted from canonical JSON when empty. When an extra TF equals `htf_filter.timeframe`, the HTF dataset covers it. |
 | `evaluation` | Non-empty, 5-minute-aligned UTC, half-open `[starts_at, ends_at)` interval. 1h strategies still require hour-aligned windows derived from hourly warmup spacing. |
@@ -64,6 +65,9 @@ Dataset manifests describe complete candle coverage as a half-open interval
 7. when unbound extra indicator clocks are present, each `indicator_dataset_fingerprints` binding
    matches product and timeframe, is complete, and covers last-completed extra-TF bars plus extra-TF
    warmup. Extra-TF datasets do not need a next-open fill candle.
+8. when `additional_instruments` are present, each `additional_instrument_datasets` binding matches
+   that product, is complete on the decision clock, and covers the same warmup/evaluation/fill-lookahead
+   window as the primary LTF dataset. HTF and extra-TF bindings on that product follow rules 6–7.
 
 The final extra LTF candle is required because a signal evaluated at the close of the final eligible candle
 may only use the next candle's open as a modeled fill price. It is fill lookahead data, never signal

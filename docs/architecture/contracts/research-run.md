@@ -19,6 +19,7 @@ classDiagram
     htf_dataset_fingerprint sha256?
     engine_contract_version
     random_seed
+    additional_instrument_datasets omitted when empty
   }
   class EvaluationWindow {
     starts_at UTC candle boundary
@@ -52,6 +53,12 @@ classDiagram
     timeframe
     dataset_fingerprint
   }
+  class AdditionalInstrumentDataset {
+    product_id BASE-USD
+    dataset_fingerprint
+    htf_dataset_fingerprint?
+    indicator_dataset_fingerprints
+  }
   ResearchRunSpecification --> EvaluationWindow
   ResearchRunSpecification --> WarmupWindow
   ResearchRunSpecification --> CapitalAssumptions
@@ -59,6 +66,7 @@ classDiagram
   ResearchRunSpecification --> BrokerAssumptions : required for V2/V3
   ResearchRunSpecification --> BarExecutionAssumptions
   ResearchRunSpecification --> IndicatorTimeframeDataset : unbound extra TFs
+  ResearchRunSpecification --> AdditionalInstrumentDataset : extra products lex product_id
 ```
 
 ```mermaid
@@ -78,4 +86,8 @@ differ from the LTF dataset, and is omitted from canonical JSON when null.
 `indicator_dataset_fingerprints` bind unbound extra indicator clocks. Warmup
 must equal `evaluation.starts_at` minus `warmup.bars` times the LTF duration.
 The LTF dataset must cover one extra decision bar after evaluation end for
-next-open fill data.
+next-open fill data. `dataset_fingerprint` remains the primary instrument.
+`additional_instrument_datasets` binds extra covered products (omitted when
+empty, lexicographic `product_id`). Each extra product needs a complete
+decision-clock dataset; HTF and extra-TF fingerprints are required iff the
+document declares those clocks.

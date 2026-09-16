@@ -44,8 +44,9 @@ Bounded V1 training ships as a fail-closed integer ranker over those attributed 
   consumes `JournalEntry` as stored.
 
 See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--shipped),
-[bounded experiential training V1](roadmap.md#bounded-experiential-training-v1--shipped), and
-[trade-reason journals](roadmap.md#trade-reason-journals--shipped).
+[bounded experiential training V1](roadmap.md#bounded-experiential-training-v1--shipped),
+[trade-reason journals](roadmap.md#trade-reason-journals--shipped), and
+[multi-instrument documents and pyramiding](roadmap.md#multi-instrument-documents-and-intra-strategy-pyramiding--shipped).
 
 ## Initial use cases
 
@@ -78,8 +79,8 @@ Shipped command groups:
 stochastic, ADX, configurable rolling inputs, and sample stdev
 ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations).
-- `thytrader-research` — drafts, publish, backtests, composed studies, and persisted study catalog reads (`--confirm` on mutations).
-- `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading.
+- `thytrader-research` — drafts, publish, backtests, composed studies, and persisted study catalog reads (`--confirm` on mutations). Multi-instrument documents bind extra products through `additional_instrument_datasets` on submit-backtest JSON (lexicographic `product_id`; omitted when empty) ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)).
+- `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading. `set-risk-policy --allow-intra-strategy-pyramiding` is required for paper/live same-side adds when the published strategy also enables pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, why-trade review, sentiment/pattern hooks, monitor, notify, and
   fail-closed experiential training (`--confirm`; YOLO never covers this lane).
@@ -211,7 +212,7 @@ skills/
 `GET /api/v1/operator/*`. `thytrader-data/SKILL.md` documents confirmation-gated watchlist and
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
-control, discretionary `place-order`, risk-policy publication (`set-risk-policy --confirm`, including optional daily-loss / drawdown / rate / collar flags), and write-only Coinbase credential show/set/clear (`--confirm` always on set/clear; `--private-key-file`; YOLO never covers credentials). `thytrader-playbook/SKILL.md` sequences those CLIs and never
+control, discretionary `place-order`, risk-policy publication (`set-risk-policy --confirm`, including optional daily-loss / drawdown / rate / collar flags and `--allow-intra-strategy-pyramiding`), and write-only Coinbase credential show/set/clear (`--confirm` always on set/clear; `--private-key-file`; YOLO never covers credentials). `thytrader-playbook/SKILL.md` sequences those CLIs and never
 starts live. `thytrader-memory/SKILL.md` documents journals, why-trade review
 (`list-trade-reasons` / `show-trade-reason` / `add-trade-reason-note`), sentiment/pattern hooks,
 monitor, notify, and `train` / `list-models` / `show-model` with `--confirm` (YOLO never covers
@@ -248,7 +249,7 @@ The operator skill tells agents to:
 | Capability available | Supported agent authority |
 |---|---|
 | Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, persisted research-study catalog, why-trade journals, and a redacted support bundle. HTTP by default. |
-| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
+| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Coinbase credentials | `thytrader-runtime show-coinbase-credentials` / `set-coinbase-credentials --private-key-file` / `clear-coinbase-credentials`. HTTP `GET/PUT/DELETE /api/v1/credentials/coinbase`. Presence flags only; GET never echoes secrets. Set/clear always `--confirm`. YOLO never covers this. Setting credentials does not arm live trading. LLM keys stay on `/chat`. |

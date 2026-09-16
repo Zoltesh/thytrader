@@ -15,6 +15,8 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
     RuntimePhase,
+    resolved_product_id,
+    snapshot_positions,
 )
 from thytrader.risk.breakers import (
     EntryObservation,
@@ -44,6 +46,7 @@ class ProposedEntry:
     product_id: str
     strategy_id: UUID | None
     notional: Decimal
+    is_pyramid_add: bool = False
 
 
 def evaluate_new_deployment(
@@ -54,12 +57,15 @@ def evaluate_new_deployment(
     strategy_id: UUID | None,
     paper_starting_cash: Decimal | None,
     deployments: Sequence[Deployment],
+    product_ids: Sequence[str] | None = None,
 ) -> RiskVerdict:
     """Allow a new running deployment only when slots, allowlist, and paper capital permit it."""
     occupied = _occupied(deployments, mode)
-    allowlisted = _allowlist_verdict(policy, product_id)
-    if allowlisted.decision is RiskDecision.DENY:
-        return allowlisted
+    covered = tuple(product_ids) if product_ids else (product_id,)
+    for covered_product in covered:
+        allowlisted = _allowlist_verdict(policy, covered_product)
+        if allowlisted.decision is RiskDecision.DENY:
+            return allowlisted
     allocated = _allocation_membership(policy, strategy_id)
     if allocated.decision is RiskDecision.DENY:
         return allocated
@@ -154,12 +160,18 @@ def _entry_membership(
     allocated = _allocation_membership(policy, proposed.strategy_id)
     if allocated.decision is RiskDecision.DENY:
         return allocated
-    open_count = sum(1 for item in occupied if _occupies_position_slot(item))
-    if open_count >= policy.max_concurrent_open_positions:
+    if proposed.is_pyramid_add and not policy.allow_intra_strategy_pyramiding:
         return _deny(
-            RiskReasonCode.MAX_OPEN_POSITIONS,
-            "Open and pending positions already use every concurrent slot for this mode.",
+            RiskReasonCode.PYRAMIDING_NOT_ALLOWED,
+            "Intra-strategy pyramiding is disabled on the active risk policy.",
         )
+    if not proposed.is_pyramid_add:
+        open_count = sum(open_position_slot_count(item) for item in occupied)
+        if open_count >= policy.max_concurrent_open_positions:
+            return _deny(
+                RiskReasonCode.MAX_OPEN_POSITIONS,
+                "Open and pending positions already use every concurrent slot for this mode.",
+            )
     return _allow()
 
 
@@ -194,6 +206,21 @@ def _entry_breaker_verdict(
     if protected is not None:
         return protected
     return _allow()
+
+
+def open_position_slot_count(snapshot: DeploymentSnapshot) -> int:
+    """Count distinct in-market product books on one deployment."""
+    products: set[str] = set()
+    for position in snapshot_positions(snapshot):
+        products.add(resolved_product_id(position.product_id, snapshot.deployment))
+    if snapshot.instrument_runtimes:
+        for runtime in snapshot.instrument_runtimes:
+            if runtime.phase in _IN_MARKET:
+                products.add(runtime.product_id)
+        return len(products)
+    if snapshot.position is not None or snapshot.deployment.phase in _IN_MARKET:
+        products.add(snapshot.deployment.product_id)
+    return len(products)
 
 
 def _paper_deploy_capital(
@@ -237,11 +264,7 @@ def _exposure_verdict(
     """Compare proposed plus existing marked exposure to portfolio and product caps."""
     existing_total = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
     existing_product = sum(
-        (
-            _marked_exposure(item)
-            for item in occupied
-            if item.deployment.product_id == proposed.product_id
-        ),
+        (_product_exposure(item, proposed.product_id) for item in occupied),
         Decimal("0"),
     )
     capital = _capital_base(
@@ -325,20 +348,42 @@ def _occupied(deployments: Sequence[Deployment], mode: DeploymentMode) -> tuple[
     return tuple(item for item in deployments if item.mode is mode and item.status in _OCCUPIED)
 
 
-def _occupies_position_slot(snapshot: DeploymentSnapshot) -> bool:
-    """True when the deployment holds inventory or a working entry/exit."""
-    if snapshot.position is not None:
-        return True
-    return snapshot.deployment.phase in _IN_MARKET
+def _product_exposure(snapshot: DeploymentSnapshot, product_id: str) -> Decimal:
+    """Approximate quote exposure on one Coinbase USD spot product."""
+    total = Decimal("0")
+    for position in snapshot_positions(snapshot):
+        if resolved_product_id(position.product_id, snapshot.deployment) == product_id:
+            total += position.quantity * position.entry_price
+    if total > 0:
+        return total
+    return _working_entry_notional(snapshot, product_id)
 
 
 def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Approximate quote exposure from the open position or a working entry."""
-    position = snapshot.position
-    if position is not None:
-        return position.quantity * position.entry_price
+    """Approximate quote exposure from open books or working entries."""
+    books = snapshot_positions(snapshot)
+    total = sum((item.quantity * item.entry_price for item in books), Decimal("0"))
+    occupied = {
+        resolved_product_id(item.product_id, snapshot.deployment) for item in books
+    }
+    if snapshot.instrument_runtimes:
+        for runtime in snapshot.instrument_runtimes:
+            if runtime.product_id not in occupied and runtime.phase in _IN_MARKET:
+                total += _working_entry_notional(snapshot, runtime.product_id)
+        return total
+    if books:
+        return total
+    if snapshot.position is not None:
+        return snapshot.position.quantity * snapshot.position.entry_price
+    return _working_entry_notional(snapshot, snapshot.deployment.product_id)
+
+
+def _working_entry_notional(snapshot: DeploymentSnapshot, product_id: str) -> Decimal:
+    """Return remaining quote on a working non-bracket order for one product."""
     for order in snapshot.orders:
         if order.status not in _ACTIVE_ORDER or order.price is None:
+            continue
+        if resolved_product_id(order.product_id, snapshot.deployment) not in {"", product_id}:
             continue
         remaining = order.quantity - order.filled_quantity
         if remaining <= 0:

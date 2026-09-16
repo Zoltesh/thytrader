@@ -8,7 +8,7 @@ The complete V1 field-level contract — indicators, conditions, entry, sizing, 
 
 **Destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)): many indicators
 on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy to paper or live.
-**Shipped:** long or short, one instrument, `max_concurrent_positions = 1`, venue LTF clocks.
+**Shipped:** long or short, one primary instrument plus optional additional Coinbase USD spot products (at most eight total), `max_concurrent_positions` 1–8 (product books, not pyramid lots), optional intra-strategy pyramiding, venue LTF clocks ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). Extra exchanges stay out.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
 (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, stochastic, ADX, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact

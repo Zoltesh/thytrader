@@ -50,10 +50,17 @@ from thytrader.research.models import (
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
 from thytrader.research.trace import (
     EntryConditionOutcome,
+    SignalTrace,
     SignalTraceRecord,
     signal_trace_fingerprint,
 )
-from thytrader.strategies.models import StrategyDefinition, atr_trailing_stop, strategy_fingerprint
+from thytrader.strategies.models import (
+    StrategyDefinition,
+    atr_trailing_stop,
+    can_pyramid_add,
+    lockstep_product_ids,
+    strategy_fingerprint,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -91,6 +98,7 @@ class _OpenPosition:
     entered_bar_index: int
     trail_extreme: Decimal | None = None
     side: Literal["long", "short"] = "long"
+    add_count: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +112,7 @@ class _PendingMakerEntry:
     target_price: Decimal
     waited_bars: int
     side: Literal["long", "short"] = "long"
+    is_pyramid_add: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +126,7 @@ class _MakerPosition:
     take_profit_resting: bool
     trail_extreme: Decimal | None = None
     side: Literal["long", "short"] = "long"
+    add_count: int = 1
 
 
 @dataclass(slots=True)
@@ -127,6 +137,17 @@ class _MakerRuntime:
     pending: _PendingMakerEntry | None
     position: _MakerPosition | None
     cooldown_bars: int
+
+
+@dataclass(slots=True)
+class _LockstepBook:
+    """Per-product taker state for a shared-cash multi-instrument simulation."""
+
+    product_id: str
+    candle_by_start: Mapping[datetime, Candle]
+    evaluation_records: dict[datetime, SignalTraceRecord]
+    pending: _PendingEntry | None = None
+    position: _OpenPosition | None = None
 
 
 class _FillEvidence(TypedDict, total=False):
@@ -143,12 +164,22 @@ def simulate_backtest(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_instrument_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_htf_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
 ) -> BacktestResult:
     """Simulate under a private Decimal64 context that ignores ambient process settings."""
     try:
         with localcontext(_SIMULATION_CONTEXT):
             return _simulate_backtest(
-                specification, strategy, candles, htf_candles, indicator_timeframe_candles
+                specification,
+                strategy,
+                candles,
+                htf_candles,
+                indicator_timeframe_candles,
+                additional_instrument_candles,
+                additional_htf_candles,
+                additional_indicator_candles,
             )
     except (DecimalException, ValueError) as error:
         if isinstance(error, BacktestSimulationError):
@@ -164,9 +195,33 @@ def _simulate_backtest(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle],
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    additional_instrument_candles: Mapping[str, Sequence[Candle]] | None,
+    additional_htf_candles: Mapping[str, Sequence[Candle]] | None,
+    additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None,
 ) -> BacktestResult:
     """Simulate one published strategy with next-open taker fills and conservative OHLC exits."""
     specification, strategy = _validated_inputs(specification, strategy)
+    extra = additional_instrument_candles or {}
+    if strategy.additional_instruments:
+        missing = [
+            product_id
+            for product_id in lockstep_product_ids(strategy)
+            if product_id != strategy.instrument.product_id and product_id not in extra
+        ]
+        if missing:
+            raise BacktestSimulationError(
+                "Multi-instrument backtests require additional_instrument_candles for every extra product."
+            )
+        return _simulate_lockstep_backtest(
+            specification,
+            strategy,
+            candles,
+            htf_candles,
+            indicator_timeframe_candles,
+            extra,
+            additional_htf_candles or {},
+            additional_indicator_candles or {},
+        )
     if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
         return _simulate_maker_backtest(
             specification, strategy, candles, htf_candles, indicator_timeframe_candles
@@ -195,16 +250,28 @@ def _simulate_backtest(
         starts_at = specification.evaluation.starts_at + bar * offset
         candle = candle_by_start[starts_at]
         if pending is not None:
-            position, cash = _open_position(
-                pending,
-                candle,
-                strategy=strategy,
-                cash=cash,
-                entry_bar_index=offset,
-                taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
-                slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
-                fill_model=fill_model,
-            )
+            if position is not None:
+                position, cash = _scale_in_open_position(
+                    pending,
+                    candle,
+                    position=position,
+                    strategy=strategy,
+                    cash=cash,
+                    taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
+                    slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+                    fill_model=fill_model,
+                )
+            else:
+                position, cash = _open_position(
+                    pending,
+                    candle,
+                    strategy=strategy,
+                    cash=cash,
+                    entry_bar_index=offset,
+                    taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
+                    slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+                    fill_model=fill_model,
+                )
             pending = None
         if position is not None and offset < evaluation_bars:
             position = _trail_open_position(
@@ -231,6 +298,19 @@ def _simulate_backtest(
         if offset < evaluation_bars:
             record = evaluation_records[starts_at]
             if position is None and record.entry_condition is EntryConditionOutcome.MATCHED:
+                pending = _PendingEntry(signal=record)
+            elif (
+                position is not None
+                and pending is None
+                and record.entry_condition is EntryConditionOutcome.MATCHED
+                and can_pyramid_add(
+                    strategy=strategy,
+                    side=position.side,
+                    entry_price=Decimal(position.entry.price),
+                    mark=candle.close,
+                    add_count=position.add_count,
+                )
+            ):
                 pending = _PendingEntry(signal=record)
         mark_reference = candle.open if offset == evaluation_bars else candle.close
         equity_curve.append(
@@ -281,6 +361,442 @@ def _simulate_backtest(
             equity_curve,
             include_spread_cost=specification.broker is not None,
         ),
+    )
+
+
+def _simulate_lockstep_backtest(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    additional_instrument_candles: Mapping[str, Sequence[Candle]],
+    additional_htf_candles: Mapping[str, Sequence[Candle]],
+    additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]],
+) -> BacktestResult:
+    """Evaluate covered products in lex order on each shared bar with one quote book."""
+    primary = strategy.instrument.product_id
+    candles_by_product: dict[str, Sequence[Candle]] = {primary: candles, **additional_instrument_candles}
+    htf_by_product: dict[str, Sequence[Candle]] = {primary: htf_candles, **additional_htf_candles}
+    extra_by_product: dict[str, Mapping[str, Sequence[Candle]] | None] = {
+        primary: indicator_timeframe_candles,
+        **{
+            product_id: additional_indicator_candles.get(product_id)
+            for product_id in additional_instrument_candles
+        },
+    }
+    traces: dict[str, SignalTrace] = {}
+    for product_id in lockstep_product_ids(strategy):
+        product_candles = candles_by_product.get(product_id)
+        if product_candles is None:
+            raise BacktestSimulationError(
+                f"Multi-instrument backtests require candles for {product_id}."
+            )
+        try:
+            traces[product_id] = evaluate_signal_trace(
+                specification,
+                strategy,
+                product_candles,
+                htf_by_product.get(product_id, ()),
+                extra_by_product.get(product_id),
+            )
+        except SignalEvaluationError as error:
+            raise BacktestSimulationError(
+                "Backtest signal inputs could not be verified."
+            ) from error
+    if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
+        return _simulate_lockstep_maker_backtest(
+            specification,
+            strategy,
+            candles_by_product,
+            traces,
+        )
+    return _simulate_lockstep_taker_backtest(
+        specification,
+        strategy,
+        candles_by_product,
+        traces,
+    )
+
+
+def _simulate_lockstep_taker_backtest(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles_by_product: Mapping[str, Sequence[Candle]],
+    traces: Mapping[str, SignalTrace],
+) -> BacktestResult:
+    """Shared-cash V1/V2 lockstep over lexicographic product order."""
+    interval = _bar_interval(specification, strategy)
+    bar = interval.duration
+    fill_model = _fill_model(specification)
+    books = {
+        product_id: _LockstepBook(
+            product_id=product_id,
+            candle_by_start=_candle_map(specification, candles_by_product[product_id], interval),
+            evaluation_records={
+                record.candle_starts_at: record for record in traces[product_id].records
+            },
+        )
+        for product_id in lockstep_product_ids(strategy)
+    }
+    cash = Decimal(specification.capital.initial_quote_balance)
+    initial_cash = cash
+    trades: list[BacktestTrade] = []
+    equity_curve: list[EquityPoint] = []
+    evaluation_span = specification.evaluation.ends_at - specification.evaluation.starts_at
+    evaluation_bars = int(evaluation_span / bar)
+    taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+    slippage_bps = Decimal(specification.costs.fixed_slippage_bps)
+    max_books = strategy.portfolio_limits.max_concurrent_positions
+
+    for offset in range(evaluation_bars + 1):
+        starts_at = specification.evaluation.starts_at + bar * offset
+        for product_id in lockstep_product_ids(strategy):
+            book = books[product_id]
+            candle = book.candle_by_start[starts_at]
+            if book.pending is not None:
+                if book.position is not None:
+                    book.position, cash = _scale_in_open_position(
+                        book.pending,
+                        candle,
+                        position=book.position,
+                        strategy=strategy,
+                        cash=cash,
+                        taker_fee_rate=taker_fee_rate,
+                        slippage_bps=slippage_bps,
+                        fill_model=fill_model,
+                    )
+                else:
+                    book.position, cash = _open_position(
+                        book.pending,
+                        candle,
+                        strategy=strategy,
+                        cash=cash,
+                        entry_bar_index=offset,
+                        taker_fee_rate=taker_fee_rate,
+                        slippage_bps=slippage_bps,
+                        fill_model=fill_model,
+                    )
+                book.pending = None
+            if book.position is not None and offset < evaluation_bars:
+                book.position = _trail_open_position(
+                    book.position,
+                    candle,
+                    strategy=strategy,
+                    record=book.evaluation_records[starts_at],
+                    is_fill_bar=offset == book.position.entered_bar_index,
+                )
+                trade, cash = _close_if_required(
+                    book.position,
+                    candle,
+                    cash=cash,
+                    bar_index=offset,
+                    taker_fee_rate=taker_fee_rate,
+                    slippage_bps=slippage_bps,
+                    max_bars_held=strategy.exits.time_exit.max_bars_held,
+                    fill_model=fill_model,
+                    bar_duration=bar,
+                )
+                if trade is not None:
+                    trades.append(trade)
+                    book.position = None
+            if offset < evaluation_bars:
+                record = book.evaluation_records[starts_at]
+                if (
+                    book.position is None
+                    and record.entry_condition is EntryConditionOutcome.MATCHED
+                    and _lockstep_open_book_count(books) < max_books
+                ):
+                    book.pending = _PendingEntry(signal=record)
+                elif (
+                    book.position is not None
+                    and book.pending is None
+                    and record.entry_condition is EntryConditionOutcome.MATCHED
+                    and can_pyramid_add(
+                        strategy=strategy,
+                        side=book.position.side,
+                        entry_price=Decimal(book.position.entry.price),
+                        mark=candle.close,
+                        add_count=book.position.add_count,
+                    )
+                ):
+                    book.pending = _PendingEntry(signal=record)
+        equity_curve.append(
+            _lockstep_equity_point(
+                starts_at,
+                cash,
+                tuple(books[product_id].position for product_id in lockstep_product_ids(strategy)),
+                tuple(
+                    _account_mark(
+                        fill_model,
+                        books[product_id].candle_by_start[starts_at].open
+                        if offset == evaluation_bars
+                        else books[product_id].candle_by_start[starts_at].close,
+                        books[product_id].position,
+                    )
+                    for product_id in lockstep_product_ids(strategy)
+                ),
+            )
+        )
+
+    for product_id in lockstep_product_ids(strategy):
+        book = books[product_id]
+        if book.position is None:
+            continue
+        end_candle = book.candle_by_start[specification.evaluation.ends_at]
+        forced_exit, cash = _close_position(
+            book.position,
+            end_candle,
+            cash=cash,
+            bar_index=evaluation_bars,
+            raw_exit_price=end_candle.open,
+            reason="evaluation_end",
+            taker_fee_rate=taker_fee_rate,
+            slippage_bps=slippage_bps,
+            fill_model=fill_model,
+            bar_duration=bar,
+        )
+        trades.append(forced_exit)
+        book.position = None
+    if equity_curve:
+        end_marks = tuple(
+            Decimal(
+                books[product_id].candle_by_start[specification.evaluation.ends_at].open
+            )
+            for product_id in lockstep_product_ids(strategy)
+        )
+        equity_curve[-1] = _lockstep_equity_point(
+            specification.evaluation.ends_at,
+            cash,
+            tuple(books[product_id].position for product_id in lockstep_product_ids(strategy)),
+            end_marks,
+        )
+
+    return BacktestResult(
+        schema_version="1.0",
+        engine_contract_version=_backtest_contract(specification),
+        broker=specification.broker,
+        run_fingerprint=research_run_fingerprint(specification),
+        strategy_fingerprint=specification.strategy_fingerprint,
+        dataset_fingerprint=specification.dataset_fingerprint,
+        signal_trace_fingerprint=signal_trace_fingerprint(traces[strategy.instrument.product_id]),
+        trades=tuple(trades),
+        equity_curve=tuple(equity_curve),
+        summary=_summary(
+            initial_cash,
+            cash,
+            trades,
+            equity_curve,
+            include_spread_cost=specification.broker is not None,
+        ),
+    )
+
+
+def _simulate_lockstep_maker_backtest(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles_by_product: Mapping[str, Sequence[Candle]],
+    traces: Mapping[str, SignalTrace],
+) -> BacktestResult:
+    """Shared-cash V3 lockstep over lexicographic product order."""
+    interval = _bar_interval(specification, strategy)
+    bar = interval.duration
+    fill_model = _fill_model(specification)
+    candle_maps = {
+        product_id: _candle_map(specification, candles_by_product[product_id], interval)
+        for product_id in lockstep_product_ids(strategy)
+    }
+    records = {
+        product_id: {record.candle_starts_at: record for record in traces[product_id].records}
+        for product_id in lockstep_product_ids(strategy)
+    }
+    initial_cash = Decimal(specification.capital.initial_quote_balance)
+    cash = initial_cash
+    runtimes = {
+        product_id: _MakerRuntime(cash=cash, pending=None, position=None, cooldown_bars=0)
+        for product_id in lockstep_product_ids(strategy)
+    }
+    trades: list[BacktestTrade] = []
+    equity_curve: list[EquityPoint] = []
+    evaluation_span = specification.evaluation.ends_at - specification.evaluation.starts_at
+    evaluation_bars = int(evaluation_span / bar)
+    maker_fee_rate = Decimal(specification.costs.maker_fee_rate)
+    taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+    max_books = strategy.portfolio_limits.max_concurrent_positions
+
+    for offset in range(evaluation_bars + 1):
+        starts_at = specification.evaluation.starts_at + bar * offset
+        for product_id in lockstep_product_ids(strategy):
+            runtime = runtimes[product_id]
+            runtime.cash = cash
+            candle = candle_maps[product_id][starts_at]
+            if runtime.cooldown_bars > 0:
+                runtime.cooldown_bars -= 1
+            _match_maker_entry(
+                runtime,
+                candle,
+                offset=offset,
+                strategy=strategy,
+                maker_fee_rate=maker_fee_rate,
+                fill_model=fill_model,
+            )
+            trade = _match_maker_take_profit(
+                runtime,
+                candle,
+                maker_fee_rate=maker_fee_rate,
+                fill_model=fill_model,
+                bar_duration=bar,
+            )
+            if trade is None:
+                trade = _manage_maker_position(
+                    runtime,
+                    candle,
+                    offset=offset,
+                    strategy=strategy,
+                    taker_fee_rate=taker_fee_rate,
+                    fill_model=fill_model,
+                    bar_duration=bar,
+                    record=records[product_id].get(starts_at),
+                )
+            if trade is not None:
+                trades.append(trade)
+                runtime.cooldown_bars = strategy.entry.cooldown_bars
+            if offset < evaluation_bars:
+                _maybe_rest_maker_entry(
+                    runtime,
+                    records[product_id][starts_at],
+                    strategy=strategy,
+                    maker_fee_rate=maker_fee_rate,
+                    limit_price=candle.close,
+                    open_book_count=_lockstep_maker_open_count(runtimes),
+                    max_open_books=max_books,
+                )
+            cash = runtime.cash
+        equity_curve.append(
+            _lockstep_equity_point(
+                starts_at,
+                cash,
+                tuple(
+                    _maker_as_open_position(runtimes[product_id].position)
+                    for product_id in lockstep_product_ids(strategy)
+                ),
+                tuple(
+                    _account_mark(
+                        fill_model,
+                        candle_maps[product_id][starts_at].close,
+                        _maker_as_open_position(runtimes[product_id].position),
+                    )
+                    for product_id in lockstep_product_ids(strategy)
+                ),
+            )
+        )
+
+    for product_id in lockstep_product_ids(strategy):
+        runtime = runtimes[product_id]
+        if runtime.position is None:
+            continue
+        runtime.cash = cash
+        end_candle = candle_maps[product_id][specification.evaluation.ends_at]
+        forced_exit, runtime.cash = _close_maker_position(
+            runtime.position,
+            end_candle,
+            cash=runtime.cash,
+            raw_exit_price=end_candle.close,
+            reason="evaluation_end",
+            fee_rate=taker_fee_rate,
+            fill_model=fill_model,
+            bar_duration=bar,
+        )
+        trades.append(forced_exit)
+        runtime.position = None
+        cash = runtime.cash
+    if equity_curve:
+        equity_curve[-1] = _lockstep_equity_point(
+            specification.evaluation.ends_at,
+            cash,
+            tuple(
+                _maker_as_open_position(runtimes[product_id].position)
+                for product_id in lockstep_product_ids(strategy)
+            ),
+            tuple(
+                Decimal(candle_maps[product_id][specification.evaluation.ends_at].close)
+                for product_id in lockstep_product_ids(strategy)
+            ),
+        )
+
+    return BacktestResult(
+        schema_version="1.0",
+        engine_contract_version="thytrader-bar-backtest-v3",
+        broker=specification.broker,
+        run_fingerprint=research_run_fingerprint(specification),
+        strategy_fingerprint=specification.strategy_fingerprint,
+        dataset_fingerprint=specification.dataset_fingerprint,
+        signal_trace_fingerprint=signal_trace_fingerprint(traces[strategy.instrument.product_id]),
+        trades=tuple(trades),
+        equity_curve=tuple(equity_curve),
+        summary=_summary(
+            initial_cash,
+            cash,
+            trades,
+            equity_curve,
+            include_spread_cost=False,
+        ),
+    )
+
+
+def _lockstep_open_book_count(books: Mapping[str, _LockstepBook]) -> int:
+    """Count distinct product books that are open or waiting to open."""
+    return sum(
+        1
+        for book in books.values()
+        if book.position is not None or (book.pending is not None and book.position is None)
+    )
+
+
+def _lockstep_maker_open_count(runtimes: Mapping[str, _MakerRuntime]) -> int:
+    """Count distinct maker books that are open or waiting to open."""
+    return sum(
+        1
+        for runtime in runtimes.values()
+        if runtime.position is not None
+        or (runtime.pending is not None and runtime.position is None)
+    )
+
+
+def _lockstep_equity_point(
+    starts_at: datetime,
+    cash: Decimal,
+    positions: Sequence[_OpenPosition | None],
+    marks: Sequence[Decimal],
+) -> EquityPoint:
+    """Mark one shared quote book plus every open product inventory."""
+    equity = cash
+    open_books = [
+        (position, mark)
+        for position, mark in zip(positions, marks, strict=True)
+        if position is not None
+    ]
+    for position, mark in open_books:
+        quantity = Decimal(position.entry.quantity)
+        signed = -quantity if position.side == "short" else quantity
+        equity += signed * mark
+    if len(open_books) == 1:
+        position, mark = open_books[0]
+        quantity = Decimal(position.entry.quantity)
+        signed = -quantity if position.side == "short" else quantity
+        return EquityPoint(
+            candle_starts_at=starts_at,
+            cash=canonical_decimal(cash),
+            base_quantity=canonical_decimal(signed),
+            mark_price=canonical_decimal(mark),
+            equity=canonical_decimal(equity),
+        )
+    return EquityPoint(
+        candle_starts_at=starts_at,
+        cash=canonical_decimal(cash),
+        base_quantity="0",
+        mark_price=canonical_decimal(marks[0] if marks else Decimal("0")),
+        equity=canonical_decimal(equity),
     )
 
 
@@ -468,7 +984,9 @@ def _match_maker_entry(
 ) -> None:
     """Fill a resting limit when the closed bar trades through, else wait, cancel, or reprice."""
     pending = runtime.pending
-    if pending is None or runtime.position is not None:
+    if pending is None:
+        return
+    if runtime.position is not None and not pending.is_pyramid_add:
         return
     traded_through = (
         candle.high >= pending.limit_price
@@ -476,6 +994,18 @@ def _match_maker_entry(
         else candle.low <= pending.limit_price
     )
     if traded_through:
+        if runtime.position is not None:
+            scaled, runtime.cash = _scale_in_maker_position(
+                pending,
+                candle,
+                position=runtime.position,
+                cash=runtime.cash,
+                maker_fee_rate=maker_fee_rate,
+                fill_model=fill_model,
+            )
+            runtime.pending = None
+            runtime.position = scaled
+            return
         opened, runtime.cash = _open_maker_position(
             pending,
             candle,
@@ -602,19 +1132,44 @@ def _maybe_rest_maker_entry(
     strategy: StrategyDefinition,
     maker_fee_rate: Decimal,
     limit_price: Decimal,
+    open_book_count: int | None = None,
+    max_open_books: int | None = None,
 ) -> None:
     """Rest a post-only entry at the signal bar close when flat, off cooldown, and matched."""
-    if runtime.position is not None or runtime.pending is not None or runtime.cooldown_bars > 0:
+    if runtime.pending is not None or runtime.cooldown_bars > 0:
         return
     if record.entry_condition is not EntryConditionOutcome.MATCHED:
         return
-    runtime.pending = _size_maker_entry(
-        record,
+    if runtime.position is None:
+        if (
+            open_book_count is not None
+            and max_open_books is not None
+            and open_book_count >= max_open_books
+        ):
+            return
+        runtime.pending = _size_maker_entry(
+            record,
+            strategy=strategy,
+            cash=runtime.cash,
+            limit_price=limit_price,
+            maker_fee_rate=maker_fee_rate,
+        )
+        return
+    if can_pyramid_add(
         strategy=strategy,
-        cash=runtime.cash,
-        limit_price=limit_price,
-        maker_fee_rate=maker_fee_rate,
-    )
+        side=runtime.position.side,
+        entry_price=Decimal(runtime.position.entry.price),
+        mark=limit_price,
+        add_count=runtime.position.add_count,
+    ):
+        runtime.pending = _size_maker_pyramid_add(
+            record,
+            strategy=strategy,
+            cash=runtime.cash,
+            limit_price=limit_price,
+            maker_fee_rate=maker_fee_rate,
+            position=runtime.position,
+        )
 
 
 def _size_maker_entry(
@@ -663,6 +1218,45 @@ def _size_maker_entry(
     )
 
 
+def _size_maker_pyramid_add(
+    signal: SignalTraceRecord,
+    *,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    limit_price: Decimal,
+    maker_fee_rate: Decimal,
+    position: _MakerPosition,
+) -> _PendingMakerEntry | None:
+    """Size a same-side add against the existing stop without worsening target."""
+    stop_distance = (
+        limit_price - position.stop_price
+        if position.side == "long"
+        else position.stop_price - limit_price
+    )
+    if stop_distance <= 0 or limit_price <= 0 or cash <= 0:
+        return None
+    requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
+    risk_quantity = requested_risk / stop_distance
+    maximum_notional = min(
+        Decimal(strategy.sizing.max_quote_notional),
+        cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        cash / (Decimal("1") + maker_fee_rate),
+    )
+    notional = min(risk_quantity * limit_price, maximum_notional)
+    if notional < Decimal(strategy.sizing.min_quote_notional):
+        return None
+    return _PendingMakerEntry(
+        signal=signal,
+        limit_price=limit_price,
+        quantity=notional / limit_price,
+        stop_price=position.stop_price,
+        target_price=position.target_price,
+        waited_bars=0,
+        side=position.side,
+        is_pyramid_add=True,
+    )
+
+
 def _open_maker_position(
     pending: _PendingMakerEntry,
     candle: Candle,
@@ -702,6 +1296,55 @@ def _open_maker_position(
             entered_bar_index=entry_bar_index,
             take_profit_resting=False,
             side=pending.side,
+        ),
+        next_cash,
+    )
+
+
+def _scale_in_maker_position(
+    pending: _PendingMakerEntry,
+    candle: Candle,
+    *,
+    position: _MakerPosition,
+    cash: Decimal,
+    maker_fee_rate: Decimal,
+    fill_model: FillModel,
+) -> tuple[_MakerPosition | None, Decimal]:
+    """VWAP a same-side maker add onto the open book without worsening stop or target."""
+    del candle
+    short = pending.side == "short"
+    entry_quote = (
+        fill_model.sell(pending.limit_price, Decimal("0"))
+        if short
+        else fill_model.buy(pending.limit_price, Decimal("0"))
+    )
+    add_price = entry_quote.price
+    add_quantity = pending.quantity
+    notional = add_quantity * add_price
+    fee = notional * maker_fee_rate
+    if not short and notional + fee > cash:
+        return position, cash
+    quantity = Decimal(position.entry.quantity) + add_quantity
+    entry_price = (
+        Decimal(position.entry.price) * Decimal(position.entry.quantity) + add_price * add_quantity
+    ) / quantity
+    combined_notional = quantity * entry_price
+    combined_fee = Decimal(position.entry.fee) + fee
+    entry = BacktestFill(
+        candle_starts_at=position.entry.candle_starts_at,
+        price=canonical_decimal(entry_price),
+        quantity=canonical_decimal(quantity),
+        notional=canonical_decimal(combined_notional),
+        fee=canonical_decimal(combined_fee),
+        fee_rate=position.entry.fee_rate,
+        **_fill_evidence(entry_quote),
+    )
+    next_cash = cash + notional - fee if short else cash - notional - fee
+    return (
+        replace(
+            position,
+            entry=entry,
+            add_count=position.add_count + 1,
         ),
         next_cash,
     )
@@ -921,6 +1564,71 @@ def _open_position(
             entered_bar_index=entry_bar_index,
         ),
         cash - notional - fee,
+    )
+
+
+def _scale_in_open_position(
+    pending: _PendingEntry,
+    candle: Candle,
+    *,
+    position: _OpenPosition,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    taker_fee_rate: Decimal,
+    slippage_bps: Decimal,
+    fill_model: FillModel,
+) -> tuple[_OpenPosition | None, Decimal]:
+    """VWAP a next-open add onto the open book without worsening stop or target."""
+    short = position.side == "short"
+    entry_quote = (
+        fill_model.sell(candle.open, slippage_bps)
+        if short
+        else fill_model.buy(candle.open, slippage_bps)
+    )
+    add_price = entry_quote.price
+    stop_distance = (
+        add_price - position.stop_price if not short else position.stop_price - add_price
+    )
+    if stop_distance <= 0:
+        return position, cash
+    requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
+    risk_quantity = requested_risk / stop_distance
+    maximum_notional = min(
+        Decimal(strategy.sizing.max_quote_notional),
+        cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        cash / (Decimal("1") + taker_fee_rate),
+    )
+    notional = min(risk_quantity * add_price, maximum_notional)
+    if notional < Decimal(strategy.sizing.min_quote_notional):
+        return position, cash
+    add_quantity = notional / add_price
+    fee = notional * taker_fee_rate
+    if not short and notional + fee > cash:
+        return position, cash
+    quantity = Decimal(position.entry.quantity) + add_quantity
+    entry_price = (
+        Decimal(position.entry.price) * Decimal(position.entry.quantity) + add_price * add_quantity
+    ) / quantity
+    combined_notional = quantity * entry_price
+    combined_fee = Decimal(position.entry.fee) + fee
+    entry = BacktestFill(
+        candle_starts_at=position.entry.candle_starts_at,
+        price=canonical_decimal(entry_price),
+        quantity=canonical_decimal(quantity),
+        notional=canonical_decimal(combined_notional),
+        fee=canonical_decimal(combined_fee),
+        fee_rate=position.entry.fee_rate,
+        **_fill_evidence(entry_quote),
+    )
+    next_cash = cash + notional - fee if short else cash - notional - fee
+    del pending
+    return (
+        replace(
+            position,
+            entry=entry,
+            add_count=position.add_count + 1,
+        ),
+        next_cash,
     )
 
 

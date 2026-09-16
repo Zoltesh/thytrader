@@ -450,6 +450,18 @@ def test_trade_reason_journals_migration_follows_study_catalog() -> None:
     assert "published_research_studies" not in content
 
 
+def test_multi_instrument_pyramiding_migration_follows_trade_reason_journals() -> None:
+    """The thirty-third migration must key positions by product after why-trade journals."""
+    content = Path("alembic/versions/0033_multi_instrument_pyramiding.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0033"' in content
+    assert 'down_revision = "0032"' in content
+    assert "execution_instrument_state" in content
+    assert "pk_execution_positions" in content
+    assert "add_count" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

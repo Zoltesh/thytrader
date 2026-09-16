@@ -441,6 +441,25 @@ IA and Coinbase secrets UI ship as ADR 0053 beside this YAML panel.
 start allows paper skip-confirm; live skip stays 403 without a `live` tier; Settings page saves
 without a process restart.
 
+## Multi-instrument documents and intra-strategy pyramiding — ✅ Shipped
+
+One published document may cover a primary Coinbase USD spot product plus 1–7 extra USD spot
+products (at most eight total). The same indicators, entry, sizing, exits, and clocks evaluate
+independently on each product. One paper or live start still creates one deployment and one quote
+cash book. The worker evaluates covered products in lexicographic `product_id` order on each shared
+closed bar; overlay `last_evaluated_bar` is not copied onto the parent until every product finishes
+that timestamp ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)).
+`portfolio_limits.max_concurrent_positions` 1–8 caps distinct product books, not pyramid lots.
+Optional same-side adds require both `entry.pyramiding` (`require_unrealized_profit: true`) and
+risk-policy `allow_intra_strategy_pyramiding`. Averaging down is rejected. Paper/live deny
+schema-enabled pyramiding without the policy flag (`PYRAMIDING_NOT_ALLOWED`). Backtests follow the
+document only. Ops contract is `thytrader-ops-contract-v21` / Alembic `0033`. Extra exchanges stay
+out.
+
+**Exit gate met:** a two-product document locksteps on one bar; an overlay save does not stamp
+parent `last_evaluated_bar`; pyramid adds skip `MAX_OPEN_POSITIONS` and fail closed without the
+policy flag.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently
@@ -450,12 +469,12 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 |---|---|---|
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations); on-demand entries use the same registry; daily-loss / drawdown breakers, order-rate limits, and reference-price collars ([ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)) | Max order qty/notional beyond exposure fractions; consecutive-error breaker; kill-switch vs trapped-position behavior |
-| On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)) | Intra-strategy pyramiding |
+| On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Published-strategy same-side adds are [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) | On-demand scale-in remains out |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | Fail-closed catalog through [ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md) (`stochastic`/`adx` series ids, configurable rolling inputs, `stdev_sample`); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)) | Further composed research remaining destination |
-| Deploy | Concurrent single-instrument paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)) | Multi-instrument strategy documents and intra-strategy pyramiding remain destination |
+| Deploy | Concurrent paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); one document may cover multiple Coinbase USD spot products with optional intra-strategy pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)) | Extra exchanges stay out |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); YAML YOLO applies without restart ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043 / 0055). In-app operator chat is a separate destination row |
 | Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with published strategy identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
@@ -615,7 +634,7 @@ verified dataset fingerprint. Unsupported sizing/stop variants and a visual node
   observed order-book data or a live-fill prediction.
 - ✅ `thytrader-bar-backtest-v3` maker-limit bar fills. Bar-level latency, rejection, and
   partial-fill models beyond that V3 contract, and full order-book queue simulation, remain deferred.
-- ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Daily-loss / drawdown, order-rate limits, and collars are ADR 0050. Intra-strategy pyramiding and multi-instrument strategy documents remain later.
+- ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Daily-loss / drawdown, order-rate limits, and collars are ADR 0050. Multi-instrument documents and intra-strategy pyramiding are ADR 0056.
 - ✅ ATR-multiple trailing-stop state machine in backtest, paper, and live (Phase 13 / ADR 0036).
 - ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps, WFO, and stitched OOS equity shipped as ADR 0044. Richer sweep axes and persisted study catalog shipped as ADR 0052.
 - ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).

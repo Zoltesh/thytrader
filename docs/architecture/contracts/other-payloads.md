@@ -50,6 +50,7 @@ classDiagram
     max_entry_orders_per_minute
     max_cancellations_per_minute
     reference_price_collar_fraction
+    allow_intra_strategy_pyramiding omitted when false
   }
   class CapitalAllocation {
     strategy_id
@@ -65,6 +66,9 @@ classDiagram
 
 Daily-loss / drawdown breakers, order-rate limits, and reference-price collars
 are on this document ([ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md)).
+`allow_intra_strategy_pyramiding` is omitted from canonical JSON when false so
+compiled-default fingerprints stay stable
+([ADR 0056](../../decisions/0056-multi-instrument-documents-and-pyramiding.md)).
 
 ## Operator report envelope
 

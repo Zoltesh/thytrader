@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 import logging
 from typing import TYPE_CHECKING, Protocol
 
@@ -19,6 +20,7 @@ from thytrader.execution.models import (
     DeploymentStatus,
     with_runtime,
 )
+from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.trade_reason_scope import (
     discretionary_trade_reason_scope,
@@ -31,11 +33,11 @@ from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
+    lockstep_product_ids,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from decimal import Decimal
     from uuid import UUID
 
     from thytrader.exchanges.models import ExchangeBalance
@@ -289,6 +291,23 @@ async def _advance_strategy(
         )
         await store.save_deployment(paused)
         return
+    covered = lockstep_product_ids(strategy)
+    if len(covered) > 1:
+        await _advance_multi_instrument(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
+            primary_product=product,
+            primary_candles=candles,
+            due=due,
+        )
+        return
     htf_candles = await _closed_htf_window(market_data, strategy)
     if htf_candles is None:
         paused = with_runtime(
@@ -317,6 +336,175 @@ async def _advance_strategy(
         htf_candles=htf_candles,
         memory_store=memory_store,
     )
+
+
+async def _advance_multi_instrument(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: tuple[DeploymentSnapshot, ...],
+    primary_product: MarketProduct,
+    primary_candles: Sequence[Candle],
+    due: Sequence[Candle],
+) -> None:
+    """Evaluate covered products in lexicographic order on each shared closed bar."""
+    covered = lockstep_product_ids(strategy)
+    windows: dict[str, tuple[MarketProduct, tuple[Candle, ...]]] = {
+        primary_product.product_id: (primary_product, tuple(primary_candles))
+    }
+    interval = parse_candle_interval(strategy.timeframe)
+    for product_id in covered:
+        if product_id in windows:
+            continue
+        extra_product, extra_candles, extra_expected = await _closed_window_for(
+            market_data,
+            product_id=product_id,
+            timeframe=strategy.timeframe,
+            warmup_bars=strategy.data_requirements.warmup_bars,
+        )
+        extra_due = new_closed_bars(
+            extra_candles,
+            last_evaluated_bar=snapshot.deployment.last_evaluated_bar,
+            expected_last_start=extra_expected,
+            bar_duration=interval.duration,
+        )
+        if extra_due is None:
+            await _pause_coverage_gap(snapshot, store=store, product_id=product_id)
+            return
+        windows[product_id] = (extra_product, extra_candles)
+    htf_by_product: dict[str, tuple[Candle, ...]] = {}
+    extra_by_product: dict[str, dict[str, tuple[Candle, ...]]] = {}
+    for product_id in covered:
+        htf_candles = await _closed_htf_window(market_data, strategy, product_id=product_id)
+        if htf_candles is None:
+            paused = with_runtime(
+                snapshot.deployment,
+                updated_at=utc_now(),
+                status=DeploymentStatus.PAUSED,
+                mismatch_detail=(
+                    "HTF market-data window is gapped or missing the latest completed HTF bar "
+                    f"on {product_id}."
+                ),
+            )
+            await store.save_deployment(paused)
+            return
+        extra_candles = await _closed_indicator_timeframe_windows(
+            market_data, strategy, htf_candles, product_id=product_id
+        )
+        if extra_candles is None:
+            paused = with_runtime(
+                snapshot.deployment,
+                updated_at=utc_now(),
+                status=DeploymentStatus.PAUSED,
+                mismatch_detail=(
+                    "Indicator-timeframe market-data window is gapped or missing the latest "
+                    f"completed bar on {product_id}."
+                ),
+            )
+            await store.save_deployment(paused)
+            return
+        htf_by_product[product_id] = htf_candles
+        extra_by_product[product_id] = extra_candles
+    deployment = snapshot.deployment
+    broker: Broker = paper_broker
+    if deployment.mode is DeploymentMode.LIVE:
+        prepared = await _prepare_live(
+            snapshot,
+            store=store,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            quote_currency=strategy.instrument.quote_currency,
+            product_id=primary_product.product_id,
+            cooldown_bars=strategy.entry.cooldown_bars,
+        )
+        if prepared is None or live_broker is None:
+            return
+        snapshot = prepared
+        broker = live_broker
+        if (
+            snapshot.deployment.status is DeploymentStatus.PAUSED
+            and snapshot.deployment.mismatch_detail
+        ):
+            return
+    for candle in due:
+        current = await store.get_deployment(deployment.id)
+        if current.deployment.status is DeploymentStatus.STOPPED:
+            return
+        marks: dict[str, Decimal] = {}
+        product_bars: dict[str, tuple[MarketProduct, tuple[Candle, ...], Candle]] = {}
+        for product_id in covered:
+            product, candles = windows[product_id]
+            bar = next((item for item in candles if item.starts_at == candle.starts_at), None)
+            if bar is None:
+                await _pause_coverage_gap(current, store=store, product_id=product_id)
+                return
+            window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
+            product_bars[product_id] = (product, window, bar)
+            marks[product_id] = bar.close
+        peer_marks = await _portfolio_marks(
+            market_data,
+            portfolio=portfolio,
+            fallback_timeframe=strategy.timeframe,
+            current_product_id=covered[0],
+            current_close=marks[covered[0]],
+        )
+        marks.update(peer_marks)
+        for product_id in covered:
+            product, window, bar = product_bars[product_id]
+            scoped = InstrumentScopedStore(store, product_id)
+            focused = await scoped.get_deployment(deployment.id)
+            live_base_available = None
+            if focused.deployment.mode is DeploymentMode.LIVE and quote_reader is not None:
+                live_base_available = await _currency_available(
+                    quote_reader, base_currency(product.product_id)
+                )
+            await process_closed_bar(
+                focused,
+                strategy=strategy,
+                product=product,
+                candles=window,
+                broker=broker,
+                store=scoped,
+                risk_policy=risk_policy,
+                portfolio=portfolio,
+                htf_candles=htf_by_product[product_id],
+                indicator_timeframe_candles=extra_by_product[product_id],
+                live_base_available=live_base_available,
+                marks=marks,
+            )
+            latest = await store.get_deployment(deployment.id)
+            if latest.deployment.status is DeploymentStatus.STOPPED:
+                return
+        parent = await store.get_deployment(deployment.id)
+        await store.save_deployment(
+            with_runtime(
+                parent.deployment,
+                updated_at=utc_now(),
+                last_evaluated_bar=candle.starts_at,
+            )
+        )
+
+
+async def _pause_coverage_gap(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore, product_id: str
+) -> None:
+    """Pause when any covered product is missing the shared closed bar."""
+    paused = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail=(
+            "Market-data window is gapped or missing the latest closed bar "
+            f"on {product_id}."
+        ),
+    )
+    await store.save_deployment(paused)
 
 
 async def _evaluate_strategy_due_bars(
@@ -603,6 +791,8 @@ def htf_coverage_ready(
 async def _closed_htf_window(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
+    *,
+    product_id: str | None = None,
 ) -> tuple[Candle, ...] | None:
     """Fetch complete-only last-completed HTF bars, or None when gapped."""
     htf_filter = strategy.htf_filter
@@ -610,7 +800,7 @@ async def _closed_htf_window(
         return ()
     _product, candles, expected_last = await _closed_window_for(
         market_data,
-        product_id=strategy.instrument.product_id,
+        product_id=product_id or strategy.instrument.product_id,
         timeframe=htf_filter.timeframe,
         warmup_bars=htf_filter.data_requirements.warmup_bars,
     )
@@ -652,17 +842,20 @@ async def _closed_indicator_timeframe_windows(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
     htf_candles: Sequence[Candle],
+    *,
+    product_id: str | None = None,
 ) -> dict[str, tuple[Candle, ...]] | None:
     """Fetch complete-only extra-TF bars, reusing the HTF window when clocks match."""
     windows: dict[str, tuple[Candle, ...]] = {}
     htf_timeframe = strategy.htf_filter.timeframe if strategy.htf_filter is not None else None
+    covered_product = product_id or strategy.instrument.product_id
     for timeframe, indicators in extra_indicator_timeframe_groups(strategy):
         if timeframe == htf_timeframe:
             windows[timeframe] = tuple(htf_candles)
             continue
         _product, candles, expected_last = await _closed_window_for(
             market_data,
-            product_id=strategy.instrument.product_id,
+            product_id=covered_product,
             timeframe=timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(indicators),
         )
@@ -733,13 +926,19 @@ async def _portfolio_marks(
     """Last-close marks for occupied products so mode-wide daily-loss can fail closed."""
     marks: dict[str, Decimal] = {current_product_id: current_close}
     for snapshot in portfolio:
-        product_id = snapshot.deployment.product_id
-        if product_id in marks:
-            continue
         timeframe = snapshot.deployment.timeframe or fallback_timeframe
-        close = await _last_close(market_data, product_id=product_id, timeframe=timeframe)
-        if close is not None:
-            marks[product_id] = close
+        product_ids = {snapshot.deployment.product_id}
+        for runtime in snapshot.instrument_runtimes:
+            product_ids.add(runtime.product_id)
+        for position in snapshot.positions:
+            if position.product_id:
+                product_ids.add(position.product_id)
+        for product_id in product_ids:
+            if product_id in marks:
+                continue
+            close = await _last_close(market_data, product_id=product_id, timeframe=timeframe)
+            if close is not None:
+                marks[product_id] = close
     return marks
 
 

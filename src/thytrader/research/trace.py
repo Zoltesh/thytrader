@@ -168,3 +168,12 @@ def canonical_signal_trace_bytes(trace: SignalTrace) -> bytes:
 def signal_trace_fingerprint(trace: SignalTrace) -> str:
     """Return the SHA-256 identity of a complete canonical signal trace."""
     return f"sha256:{sha256(canonical_signal_trace_bytes(trace)).hexdigest()}"
+
+
+def combined_signal_trace_fingerprint(traces: dict[str, SignalTrace]) -> str:
+    """Hash lex-ordered per-product trace identities for multi-instrument results."""
+    payload = {
+        product_id: signal_trace_fingerprint(traces[product_id]) for product_id in sorted(traces)
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{sha256(canonical.encode()).hexdigest()}"

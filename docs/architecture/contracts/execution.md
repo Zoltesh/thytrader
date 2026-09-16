@@ -81,6 +81,7 @@ classDiagram
     max_entry_orders_per_minute
     max_cancellations_per_minute
     reference_price_collar_fraction
+    allow_intra_strategy_pyramiding
   }
   class RiskVerdict {
     decision allow|deny
@@ -89,7 +90,7 @@ classDiagram
   Deployment --> OrderIntent
   OrderIntent --> Order
   Order --> Fill
-  Deployment --> Position : at most one
+  Deployment --> Position : one book per product
   RiskPolicyDefinition --> RiskVerdict
 ```
 

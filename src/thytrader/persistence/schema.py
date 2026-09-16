@@ -543,6 +543,7 @@ order_intents = Table(
     Column("status", String(16), nullable=False),
     Column("origin", String(8), nullable=False, server_default="runtime"),
     Column("idempotency_key", String(128), nullable=True),
+    Column("product_id", String(32), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
     UniqueConstraint("client_order_id", name="ux_order_intents_client_order_id"),
@@ -575,6 +576,7 @@ execution_orders = Table(
     Column("filled_quantity", String(64), nullable=False),
     Column("status", String(16), nullable=False),
     Column("reject_reason", Text(), nullable=True),
+    Column("product_id", String(32), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
@@ -613,6 +615,7 @@ execution_positions = Table(
     "execution_positions",
     metadata,
     Column("deployment_id", UUID(), primary_key=True),
+    Column("product_id", String(32), primary_key=True),
     Column("quantity", String(64), nullable=False),
     Column("entry_price", String(64), nullable=False),
     Column("stop_price", String(64), nullable=False),
@@ -620,9 +623,34 @@ execution_positions = Table(
     Column("entered_bar", DateTime(timezone=True), nullable=False),
     Column("trail_extreme", String(64), nullable=True),
     Column("side", String(8), nullable=False, server_default="long"),
+    Column("add_count", Integer(), nullable=False, server_default="1"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
     CheckConstraint("side IN ('long', 'short')", name="ck_execution_positions_side"),
+    CheckConstraint(
+        "add_count >= 1 AND add_count <= 8",
+        name="ck_execution_positions_add_count",
+    ),
+)
+
+execution_instrument_state = Table(
+    "execution_instrument_state",
+    metadata,
+    Column("deployment_id", UUID(), primary_key=True),
+    Column("product_id", String(32), primary_key=True),
+    Column("phase", String(32), nullable=False),
+    Column("last_evaluated_bar", DateTime(timezone=True), nullable=True),
+    Column("last_signal", String(32), nullable=True),
+    Column("pending_entry_bars", Integer(), nullable=False, server_default="0"),
+    Column("bars_held", Integer(), nullable=False, server_default="0"),
+    Column("cooldown_bars_remaining", Integer(), nullable=False, server_default="0"),
+    Column("pending_stop_price", String(64), nullable=True),
+    Column("pending_target_price", String(64), nullable=True),
+    ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    CheckConstraint(
+        "phase IN ('flat', 'pending_entry', 'open', 'pending_exit')",
+        name="ck_execution_instrument_state_phase",
+    ),
 )
 
 published_risk_policies = Table(
@@ -899,6 +927,7 @@ __all__ = [
     "audit_events",
     "deployments",
     "execution_fills",
+    "execution_instrument_state",
     "execution_orders",
     "execution_positions",
     "experiential_journal_entries",

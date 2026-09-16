@@ -676,18 +676,39 @@ def is_valid_htf_pair(decision_timeframe: str, htf_timeframe: str) -> bool:
     return htf_seconds % decision_seconds == 0
 
 
+class IntraStrategyPyramiding(_FrozenModel):
+    """Opt-in same-side adds onto one open position. Averaging down is rejected."""
+
+    enabled: Literal[True]
+    require_unrealized_profit: Literal[True] = True
+
+
 class EntryDefinition(_FrozenModel):
-    """Define conservative long or short entry intent and cooldown limits."""
+    """Define conservative long or short entry intent, cooldown, and optional pyramiding."""
 
     side: Literal["long", "short"]
     when: ConditionGroup
     cooldown_bars: int = Field(ge=0, le=10_000)
-    max_open_positions: Literal[1]
+    max_open_positions: int = Field(ge=1, le=8)
+    pyramiding: IntraStrategyPyramiding | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def validate_condition_complexity(self) -> Self:
         """Reject condition trees whose bounded grammar could exhaust consumers."""
         _require_bounded_condition_tree(self.when)
+        return self
+
+    @model_validator(mode="after")
+    def validate_pyramiding_bounds(self) -> Self:
+        """Require max_open_positions=1 unless pyramiding is explicitly enabled."""
+        if self.pyramiding is None:
+            if self.max_open_positions != 1:
+                raise ValueError("max_open_positions must be 1 unless pyramiding is enabled")
+            return self
+        if self.max_open_positions < 2:
+            raise ValueError("enabled pyramiding requires max_open_positions between 2 and 8")
         return self
 
 
@@ -755,10 +776,10 @@ class RiskFractionSizing(_FrozenModel):
 
 
 class PortfolioLimits(_FrozenModel):
-    """Bound exposure and enforce the V1 single-position invariant."""
+    """Bound exposure and distinct product-position concurrency for one document."""
 
     max_strategy_exposure_fraction: DecimalText
-    max_concurrent_positions: Literal[1]
+    max_concurrent_positions: int = Field(ge=1, le=8)
 
     @model_validator(mode="after")
     def validate_exposure(self) -> Self:
@@ -888,6 +909,11 @@ class StrategyDefinition(_FrozenModel):
     status: StrategyStatus
     created_at: datetime
     instrument: Instrument
+    additional_instruments: tuple[Instrument, ...] = Field(
+        default=(),
+        max_length=7,
+        exclude_if=lambda value: not value,
+    )
     timeframe: DatasetTimeframe
     data_requirements: DataRequirements
     indicators: tuple[IndicatorDefinition, ...] = Field(min_length=1, max_length=20)
@@ -923,9 +949,61 @@ class StrategyDefinition(_FrozenModel):
     @model_validator(mode="after")
     def validate_semantics(self) -> Self:
         """Resolve indicator references and enforce warmup sufficiency."""
+        _validate_covered_instruments(self)
         _validate_decision_indicators(self)
         _validate_htf_filter(self)
         return self
+
+
+MAX_STRATEGY_INSTRUMENTS = 8
+
+
+def covered_instruments(definition: StrategyDefinition) -> tuple[Instrument, ...]:
+    """Return the primary instrument followed by additional instruments."""
+    return (definition.instrument, *definition.additional_instruments)
+
+
+def covered_product_ids(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Return covered Coinbase USD spot product ids in document order."""
+    return tuple(item.product_id for item in covered_instruments(definition))
+
+
+def lockstep_product_ids(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Return covered product ids in lexicographic order for shared-bar evaluation."""
+    return tuple(sorted(covered_product_ids(definition)))
+
+
+def pyramiding_enabled(definition: StrategyDefinition) -> bool:
+    """True when the document explicitly opts into same-side adds."""
+    return definition.entry.pyramiding is not None
+
+
+def can_pyramid_add(
+    *,
+    strategy: StrategyDefinition,
+    side: Literal["long", "short"],
+    entry_price: Decimal,
+    mark: Decimal,
+    add_count: int,
+) -> bool:
+    """Return whether one same-side add is legal under schema (not the runtime risk policy)."""
+    policy = strategy.entry.pyramiding
+    if policy is None or add_count < 1 or add_count >= strategy.entry.max_open_positions:
+        return False
+    if side == "long":
+        return mark > entry_price
+    return mark < entry_price
+
+
+def _validate_covered_instruments(definition: StrategyDefinition) -> None:
+    """Reject duplicate products and concurrent-position caps that exceed coverage."""
+    products = covered_product_ids(definition)
+    if len(products) != len(set(products)):
+        raise ValueError("additional_instruments must be unique and exclude instrument.product_id")
+    if len(products) > MAX_STRATEGY_INSTRUMENTS:
+        raise ValueError("a strategy document may cover at most 8 USD spot products")
+    if definition.portfolio_limits.max_concurrent_positions > len(products):
+        raise ValueError("max_concurrent_positions cannot exceed the number of covered products")
 
 
 def _validate_decision_indicators(definition: StrategyDefinition) -> None:
@@ -1157,6 +1235,11 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     payload = validated.model_dump(mode="json", by_alias=True)
     if payload.get("htf_filter") is None:
         payload.pop("htf_filter", None)
+    if not payload.get("additional_instruments"):
+        payload.pop("additional_instruments", None)
+    entry = payload.get("entry")
+    if isinstance(entry, dict) and entry.get("pyramiding") is None:
+        entry.pop("pyramiding", None)
     _omit_absent_indicator_inputs(payload.get("indicators"))
     entry = payload.get("entry")
     if isinstance(entry, dict):

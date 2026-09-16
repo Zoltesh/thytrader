@@ -478,6 +478,7 @@ class OperatorDiagnostics:
                 max_entry_orders_per_minute=policy.max_entry_orders_per_minute,
                 max_cancellations_per_minute=policy.max_cancellations_per_minute,
                 reference_price_collar_fraction=policy.reference_price_collar_fraction,
+                allow_intra_strategy_pyramiding=policy.allow_intra_strategy_pyramiding,
                 findings=findings,
             ),
         )

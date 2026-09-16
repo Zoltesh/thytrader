@@ -167,6 +167,63 @@ def test_entry_open_slot_and_exposure_caps() -> None:
     assert exposure.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
 
 
+def test_pyramid_add_denied_without_policy_flag() -> None:
+    """Paper/live same-side adds require allow_intra_strategy_pyramiding."""
+    verdict = evaluate_new_entry(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("100"),
+            is_pyramid_add=True,
+        ),
+        snapshots=(),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.PYRAMIDING_NOT_ALLOWED
+
+
+def test_pyramid_add_skips_open_position_slot_cap() -> None:
+    """Adds occupy an existing product book and must not consume a new concurrent slot."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={
+            "max_concurrent_open_positions": 1,
+            "allow_intra_strategy_pyramiding": True,
+        }
+    )
+    open_peer = DeploymentSnapshot(
+        deployment=_deployment(strategy_id=_STRATEGY_A, phase=RuntimePhase.OPEN),
+        orders=(),
+        fills=(),
+        position=None,
+    )
+    fresh = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="ETH-USD",
+            strategy_id=_STRATEGY_B,
+            notional=Decimal("100"),
+        ),
+        snapshots=(open_peer,),
+    )
+    add = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("100"),
+            is_pyramid_add=True,
+        ),
+        snapshots=(open_peer,),
+    )
+    assert fresh.reason_code is RiskReasonCode.MAX_OPEN_POSITIONS
+    assert add.decision is RiskDecision.ALLOW
+    assert add.reason_code is RiskReasonCode.ALLOWED
+
+
 def test_live_entry_uses_remaining_quote_plus_marked_exposure() -> None:
     """Live entries fail closed without quote cash and admit when remaining cash covers them."""
     proposed = ProposedEntry(

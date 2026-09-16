@@ -101,7 +101,13 @@ include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the
 declares `htf_filter`, and must omit it otherwise. Extra indicator clocks that are not already
 `htf_filter.timeframe` require `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
 ordered by increasing duration, each distinct from LTF and HTF). Ingest those extra clocks with
-`skills/thytrader-data/SKILL.md` before naming fingerprints. Research engines V1/V2/V3 evaluate
+`skills/thytrader-data/SKILL.md` before naming fingerprints. Multi-instrument published documents
+require `additional_instrument_datasets` on submit-backtest JSON: one `{product_id, dataset_fingerprint,
+htf_dataset_fingerprint?, indicator_dataset_fingerprints?}` per extra covered product, ordered by
+`product_id`, omitted when the document has no extra products. Each extra product needs a complete
+Coinbase dataset on the decision clock; HTF and extra-TF fingerprints are required iff the document
+declares those clocks. Identities must be unique and distinct from the primary LTF/HTF/extra-TF
+fingerprints. `dataset_fingerprint` remains the primary instrument. Research engines V1/V2/V3 evaluate
 last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 

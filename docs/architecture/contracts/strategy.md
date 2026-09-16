@@ -5,10 +5,12 @@ Canonical published document. Field rules:
 Model: `thytrader.strategies.models.StrategyDefinition`.
 
 Fingerprint is `sha256:` of sorted compact UTF-8 JSON over the entire published
-document. Unknown fields are rejected. One product per document.
-`max_concurrent_positions` and `max_open_positions` are `1`. `entry.side` is
-`long` or `short`. Venue clocks: `1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`,
-`6h`, `1d`.
+document. Unknown fields are rejected. `instrument` is the primary Coinbase
+USD spot product. Optional `additional_instruments` lists 1–7 extra unique USD
+spot products (at most eight total). `max_concurrent_positions` is 1–8 and must
+not exceed covered products. `max_open_positions` is 1 unless
+`entry.pyramiding` is enabled. `entry.side` is `long` or `short`. Venue clocks:
+`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`.
 
 ```mermaid
 classDiagram
@@ -21,6 +23,7 @@ classDiagram
     status draft|published|archived
     created_at UTC
     timeframe venue clock
+    additional_instruments 0..7
   }
   class Instrument {
     product_id BASE-USD
@@ -46,7 +49,12 @@ classDiagram
     side long|short
     when ConditionGroup
     cooldown_bars
-    max_open_positions 1
+    max_open_positions 1..8
+    pyramiding optional
+  }
+  class IntraStrategyPyramiding {
+    enabled true
+    require_unrealized_profit true
   }
   class RiskFractionSizing {
     kind risk_fraction
@@ -56,7 +64,7 @@ classDiagram
   }
   class PortfolioLimits {
     max_strategy_exposure_fraction
-    max_concurrent_positions 1
+    max_concurrent_positions 1..8
   }
   class ExitDefinition {
     initial_stop atr_multiple
@@ -69,11 +77,13 @@ classDiagram
     max_entry_wait_bars
     on_unfilled_entry cancel|reprice
   }
-  StrategyDefinition --> Instrument
+  StrategyDefinition --> Instrument : primary
+  StrategyDefinition --> Instrument : additional_instruments
   StrategyDefinition --> DataRequirements
   StrategyDefinition --> IndicatorDefinition : 1..20
   StrategyDefinition --> HigherTimeframeFilter : optional
   StrategyDefinition --> EntryDefinition
+  EntryDefinition --> IntraStrategyPyramiding : optional
   StrategyDefinition --> RiskFractionSizing
   StrategyDefinition --> PortfolioLimits
   StrategyDefinition --> ExitDefinition
@@ -92,6 +102,8 @@ flowchart TD
 ```
 
 `htf_filter` is omitted from canonical JSON when null. Optional per-indicator
-`timeframe` is omitted when absent. Paper and live evaluate `htf_filter` on
-last-completed complete-only HTF bars. Multi-instrument documents are not legal
-here.
+`timeframe` is omitted when absent. Empty `additional_instruments` and omitted
+`entry.pyramiding` are dropped so existing fingerprints stay stable. Paper and
+live evaluate `htf_filter` on last-completed complete-only HTF bars. Covered
+products evaluate in lexicographic `product_id` order on each shared closed bar
+([ADR 0056](../../decisions/0056-multi-instrument-documents-and-pyramiding.md)).

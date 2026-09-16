@@ -11,6 +11,7 @@ from thytrader.risk.models import (
     RiskPolicyDefinition,
     RiskPolicySource,
     RiskReasonCode,
+    canonical_risk_policy_bytes,
     compiled_default_active_policy,
     compiled_default_risk_policy,
     pauses_risk_increasing,
@@ -35,6 +36,7 @@ def test_compiled_default_is_the_conservative_multi_asset_envelope() -> None:
     assert definition.max_entry_orders_per_minute == 60
     assert definition.max_cancellations_per_minute == 60
     assert definition.reference_price_collar_fraction == "0.5"
+    assert definition.allow_intra_strategy_pyramiding is False
     active = compiled_default_active_policy()
     assert active.source is RiskPolicySource.COMPILED_DEFAULT
     assert active.policy_fingerprint == risk_policy_fingerprint(definition)
@@ -93,3 +95,14 @@ def test_only_daily_loss_and_drawdown_pause_risk_increasing() -> None:
     assert pauses_risk_increasing(RiskReasonCode.ORDER_RATE_LIMIT) is False
     assert pauses_risk_increasing(RiskReasonCode.REFERENCE_PRICE_COLLAR) is False
     assert pauses_risk_increasing(RiskReasonCode.BREAKER_MARK_MISSING) is False
+
+
+def test_omitted_pyramiding_flag_preserves_compiled_fingerprint() -> None:
+    """False allow_intra_strategy_pyramiding must stay omitted from canonical policy JSON."""
+    default = compiled_default_risk_policy()
+    explicit_false = default.model_copy(update={"allow_intra_strategy_pyramiding": False})
+    enabled = default.model_copy(update={"allow_intra_strategy_pyramiding": True})
+    assert risk_policy_fingerprint(default) == risk_policy_fingerprint(explicit_false)
+    assert risk_policy_fingerprint(enabled) != risk_policy_fingerprint(default)
+    assert b"allow_intra_strategy_pyramiding" not in canonical_risk_policy_bytes(default)
+    assert b"allow_intra_strategy_pyramiding" in canonical_risk_policy_bytes(enabled)

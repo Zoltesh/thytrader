@@ -25,6 +25,8 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
+from thytrader.research.signal_evaluator import evaluate_signal_trace
+from thytrader.research.trace import combined_signal_trace_fingerprint, signal_trace_fingerprint
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 
@@ -688,3 +690,50 @@ def test_simulation_decimal_results_ignore_ambient_decimal_precision() -> None:
         changed_context = simulate_backtest(_run(strategy), strategy, _candles())
 
     assert changed_context == baseline
+
+
+def _multi_instrument_strategy() -> StrategyDefinition:
+    """Reuse the kernel fixture with one extra Coinbase USD spot product."""
+    payload = _strategy().model_dump(mode="python")
+    payload["additional_instruments"] = [
+        {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"}
+    ]
+    payload["portfolio_limits"]["max_concurrent_positions"] = 2
+    return StrategyDefinition.model_validate(payload)
+
+
+def _quiet_candles() -> tuple[Candle, ...]:
+    """Return aligned bars that never satisfy the kernel SMA greater-than-12 entry."""
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    return tuple(
+        Candle(
+            starts_at=start + timedelta(hours=index),
+            open=Decimal("10"),
+            high=Decimal("11"),
+            low=Decimal("9"),
+            close=Decimal("10"),
+            volume=Decimal("10"),
+        )
+        for index in range(5)
+    )
+
+
+def test_lockstep_backtest_requires_extra_product_candles() -> None:
+    """Multi-instrument simulation must fail closed when extra candles are missing."""
+    strategy = _multi_instrument_strategy()
+    with pytest.raises(BacktestSimulationError, match="additional_instrument_candles"):
+        simulate_backtest(_run(strategy), strategy, _candles())
+
+
+def test_lockstep_backtest_keeps_primary_trace_and_evaluates_extras() -> None:
+    """Stored signal identity stays the primary product; extras still evaluate fail-closed."""
+    strategy = _multi_instrument_strategy()
+    run = _run(strategy)
+    extras = {"ETH-USD": _quiet_candles()}
+    result = simulate_backtest(run, strategy, _candles(), additional_instrument_candles=extras)
+    btc_trace = evaluate_signal_trace(run, strategy, _candles())
+    eth_trace = evaluate_signal_trace(run, strategy, extras["ETH-USD"])
+    assert result.summary.trade_count == 1
+    assert result.signal_trace_fingerprint == signal_trace_fingerprint(btc_trace)
+    combined = combined_signal_trace_fingerprint({"BTC-USD": btc_trace, "ETH-USD": eth_trace})
+    assert combined != result.signal_trace_fingerprint

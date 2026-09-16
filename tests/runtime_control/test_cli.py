@@ -405,6 +405,7 @@ def test_set_risk_policy_help_lists_breaker_flags(
     assert "--max-entry-orders-per-minute" in output
     assert "--max-cancellations-per-minute" in output
     assert "--reference-price-collar-fraction" in output
+    assert "--allow-intra-strategy-pyramiding" in output
 
 
 def test_place_order_help_lists_venue_clocks(

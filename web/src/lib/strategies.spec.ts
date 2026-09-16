@@ -13,6 +13,8 @@ import {
 	publishedVersionsFor,
 	researchWindowHint,
 	serializeIndicator,
+	toBuilderModel,
+	fromBuilderModel,
 	unboundIndicatorTimeframes,
 	validHtfTimeframes
 } from './strategies';
@@ -342,5 +344,118 @@ describe('indicator kind picker', () => {
 			input: 'close',
 			parameters: { period: 20 }
 		});
+	});
+});
+
+describe('builder multi-instrument pass-through', () => {
+	it('round-trips additional instruments, concurrent books, and pyramiding', () => {
+		const draft = {
+			schema_version: '1.0',
+			strategy_id: '01985cf0-7b60-7000-8000-000000000007',
+			version: 1,
+			name: 'Pass-through',
+			description: null,
+			status: 'draft' as const,
+			created_at: '2026-08-14T12:00:00Z',
+			instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
+			additional_instruments: [
+				{ product_id: 'ETH-USD', base_currency: 'ETH', quote_currency: 'USD' }
+			],
+			timeframe: '1h',
+			data_requirements: {
+				warmup_bars: 50,
+				required_fields: ['open', 'high', 'low', 'close', 'volume']
+			},
+			indicators: [{ id: 'ema_fast', kind: 'ema', input: 'close', parameters: { period: 20 } }],
+			entry: {
+				side: 'long' as const,
+				when: { all: [] },
+				cooldown_bars: 3,
+				max_open_positions: 3,
+				pyramiding: { enabled: true as const, require_unrealized_profit: true as const }
+			},
+			sizing: {
+				kind: 'risk_fraction',
+				risk_fraction: '0.005',
+				min_quote_notional: '10',
+				max_quote_notional: '100'
+			},
+			portfolio_limits: { max_strategy_exposure_fraction: '0.10', max_concurrent_positions: 2 },
+			exits: {
+				initial_stop: { kind: 'atr_multiple', atr_indicator: 'atr', multiple: '2' },
+				take_profit: { kind: 'reward_risk', multiple: '2' },
+				trailing_stop: { enabled: false as const },
+				time_exit: { max_bars_held: 96 }
+			},
+			execution: {
+				entry_preference: 'maker_only',
+				max_entry_wait_bars: 2,
+				on_unfilled_entry: 'cancel'
+			},
+			metadata: { tags: [], notes: [] }
+		};
+		const model = toBuilderModel(draft, 4);
+		expect(model.additional_instruments).toEqual([
+			{ product_id: 'ETH-USD', base_currency: 'ETH', quote_currency: 'USD' }
+		]);
+		expect(model.max_open_positions).toBe(3);
+		expect(model.pyramiding).toEqual({ enabled: true, require_unrealized_profit: true });
+		expect(model.portfolio_limits.max_concurrent_positions).toBe(2);
+		const saved = fromBuilderModel(model);
+		expect(saved.additional_instruments).toEqual(draft.additional_instruments);
+		expect((saved.entry as { max_open_positions: number }).max_open_positions).toBe(3);
+		expect((saved.entry as { pyramiding: object }).pyramiding).toEqual({
+			enabled: true,
+			require_unrealized_profit: true
+		});
+		expect(saved.portfolio_limits.max_concurrent_positions).toBe(2);
+	});
+
+	it('omits empty additional instruments and omitted pyramiding', () => {
+		const draft = {
+			schema_version: '1.0',
+			strategy_id: '01985cf0-7b60-7000-8000-000000000008',
+			version: 1,
+			name: 'Single',
+			description: null,
+			status: 'draft' as const,
+			created_at: '2026-08-14T12:00:00Z',
+			instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
+			timeframe: '1h',
+			data_requirements: {
+				warmup_bars: 50,
+				required_fields: ['open', 'high', 'low', 'close', 'volume']
+			},
+			indicators: [{ id: 'ema_fast', kind: 'ema', input: 'close', parameters: { period: 20 } }],
+			entry: {
+				side: 'long' as const,
+				when: { all: [] },
+				cooldown_bars: 3,
+				max_open_positions: 1
+			},
+			sizing: {
+				kind: 'risk_fraction',
+				risk_fraction: '0.005',
+				min_quote_notional: '10',
+				max_quote_notional: '100'
+			},
+			portfolio_limits: { max_strategy_exposure_fraction: '0.10', max_concurrent_positions: 1 },
+			exits: {
+				initial_stop: { kind: 'atr_multiple', atr_indicator: 'atr', multiple: '2' },
+				take_profit: { kind: 'reward_risk', multiple: '2' },
+				trailing_stop: { enabled: false as const },
+				time_exit: { max_bars_held: 96 }
+			},
+			execution: {
+				entry_preference: 'maker_only',
+				max_entry_wait_bars: 2,
+				on_unfilled_entry: 'cancel'
+			},
+			metadata: { tags: [], notes: [] }
+		};
+		const saved = fromBuilderModel(toBuilderModel(draft, 0));
+		expect(saved.additional_instruments).toBeUndefined();
+		expect((saved.entry as { pyramiding?: object }).pyramiding).toBeUndefined();
+		expect((saved.entry as { max_open_positions: number }).max_open_positions).toBe(1);
 	});
 });

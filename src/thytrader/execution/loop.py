@@ -30,11 +30,13 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
+    resolved_product_id,
+    snapshot_positions,
     with_runtime,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
-from thytrader.execution.sizing import size_entry
+from thytrader.execution.sizing import size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
@@ -50,7 +52,7 @@ from thytrader.risk.models import (
     compiled_default_risk_policy,
     pauses_risk_increasing,
 )
-from thytrader.strategies.models import atr_trailing_stop
+from thytrader.strategies.models import atr_trailing_stop, can_pyramid_add
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -253,6 +255,8 @@ async def _apply_entry_fill(
         entered_bar=entered_bar,
         updated_at=now,
         side=side,
+        product_id=order.product_id or deployment.product_id,
+        add_count=1,
     )
     updated = with_runtime(
         deployment,
@@ -284,7 +288,13 @@ async def _apply_scale_in_fill(
     entry_price = (
         (position.entry_price * position.quantity) + (fill.price * fill.quantity)
     ) / quantity
-    updated_position = replace(position, quantity=quantity, entry_price=entry_price, updated_at=now)
+    updated_position = replace(
+        position,
+        quantity=quantity,
+        entry_price=entry_price,
+        updated_at=now,
+        add_count=position.add_count + 1,
+    )
     updated = with_runtime(
         deployment,
         updated_at=now,
@@ -357,6 +367,18 @@ async def _manage_position(
         return await _manage_pending_entry(
             snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
         )
+    if (
+        deployment.phase is RuntimePhase.OPEN
+        and snapshot.position is not None
+        and _active_entry(snapshot) is not None
+    ):
+        snapshot = await _manage_pending_pyramid_add(
+            snapshot, strategy=strategy, candle=candle, product=product, broker=broker, store=store
+        )
+        if snapshot.deployment.status is not DeploymentStatus.RUNNING:
+            return snapshot
+        if snapshot.position is None:
+            return snapshot
     position = snapshot.position
     if deployment.phase not in _IN_MARKET or position is None:
         return snapshot
@@ -490,6 +512,7 @@ async def _ensure_live_bracket(
             existing.kind is OrderKind.TRIGGER_BRACKET
             and existing.price == position.target_price
             and existing.stop_trigger_price == position.stop_price
+            and existing.quantity == position.quantity
         )
         if matching:
             return await _mark_pending_exit(snapshot, store=store)
@@ -590,6 +613,61 @@ async def _manage_pending_entry(
     )
 
 
+async def _manage_pending_pyramid_add(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Wait, cancel, or reprice an unfilled same-side add without flattening the book."""
+    deployment = snapshot.deployment
+    waited = deployment.pending_entry_bars + 1
+    open_entry = _active_entry(snapshot)
+    if open_entry is None:
+        cleared = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=0)
+        await store.save_deployment(cleared)
+        return await store.get_deployment(deployment.id)
+    if open_entry.status is not OrderStatus.OPEN or open_entry.venue_order_id is None:
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Pyramid add is unconfirmed; reconcile before retrying.",
+        )
+    if waited < strategy.execution.max_entry_wait_bars:
+        waited_state = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=waited)
+        await store.save_deployment(waited_state)
+        return await store.get_deployment(deployment.id)
+    snapshot = await _cancel_one_order(open_entry, broker=broker, store=store)
+    remaining = _active_entry(snapshot)
+    if remaining is not None and remaining.status is not OrderStatus.CANCELED:
+        return await _pause(
+            snapshot,
+            store=store,
+            detail="Unfilled pyramid add could not be canceled before retrying.",
+        )
+    if strategy.execution.on_unfilled_entry == "reprice":
+        return await _reprice_entry(
+            snapshot,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            prior=open_entry,
+            phase=RuntimePhase.OPEN,
+        )
+    abandoned = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        phase=RuntimePhase.OPEN,
+        pending_entry_bars=0,
+    )
+    await store.save_deployment(abandoned)
+    return await store.get_deployment(snapshot.deployment.id)
+
+
 async def _flatten_pending(
     snapshot: DeploymentSnapshot, *, store: ExecutionStore, cooldown_bars: int
 ) -> DeploymentSnapshot:
@@ -614,6 +692,7 @@ async def _reprice_entry(
     broker: Broker,
     store: ExecutionStore,
     prior: Order,
+    phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
 ) -> DeploymentSnapshot:
     """Submit a replacement post-only entry at the current maker price."""
     try:
@@ -650,7 +729,7 @@ async def _reprice_entry(
             detail="Repriced entry submit is unconfirmed.",
         )
     pending = with_runtime(
-        reset, updated_at=utc_now(), phase=RuntimePhase.PENDING_ENTRY, pending_entry_bars=0
+        reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0
     )
     await store.save_deployment(pending)
     return await store.get_deployment(snapshot.deployment.id)
@@ -814,11 +893,27 @@ async def _maybe_enter(
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
 ) -> DeploymentSnapshot:
-    """Place a post-only entry when flat, off cooldown, and the entry condition matches."""
+    """Place a post-only entry when flat, or a same-side add when pyramiding allows it."""
     deployment = snapshot.deployment
-    if deployment.phase is not RuntimePhase.FLAT or deployment.cooldown_bars_remaining > 0:
-        return snapshot
     if deployment.status is not DeploymentStatus.RUNNING:
+        return snapshot
+    position = snapshot.position
+    pyramid_add = False
+    if deployment.phase is RuntimePhase.FLAT:
+        if deployment.cooldown_bars_remaining > 0:
+            return snapshot
+        if (
+            _document_open_book_count(snapshot)
+            >= strategy.portfolio_limits.max_concurrent_positions
+        ):
+            return snapshot
+    elif (
+        deployment.phase is RuntimePhase.OPEN
+        and position is not None
+        and _active_entry(snapshot) is None
+    ):
+        pyramid_add = True
+    else:
         return snapshot
     visible_htf = htf_candles
     htf_filter = strategy.htf_filter
@@ -835,8 +930,20 @@ async def _maybe_enter(
     signaled = with_runtime(deployment, updated_at=utc_now(), last_signal=outcome.value)
     await store.save_deployment(signaled)
     snapshot = await store.get_deployment(deployment.id)
+    position = snapshot.position
     if outcome is not EntryConditionOutcome.MATCHED:
         return snapshot
+    if pyramid_add:
+        if position is None:
+            return snapshot
+        if not can_pyramid_add(
+            strategy=strategy,
+            side=position.side.value,
+            entry_price=position.entry_price,
+            mark=candle.close,
+            add_count=position.add_count,
+        ):
+            return snapshot
     return await _submit_sized_entry(
         snapshot,
         strategy=strategy,
@@ -849,6 +956,7 @@ async def _maybe_enter(
         portfolio=portfolio,
         live_base_available=live_base_available,
         marks=marks,
+        is_pyramid_add=pyramid_add,
     )
 
 
@@ -865,8 +973,9 @@ async def _submit_sized_entry(
     portfolio: Sequence[DeploymentSnapshot],
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
+    is_pyramid_add: bool = False,
 ) -> DeploymentSnapshot:
-    """Size an entry and rest a post-only order when cash, ATR, and risk policy allow it."""
+    """Size an entry or same-side add and rest a post-only order when policy allows it."""
     atr = latest_atr(strategy, candles)
     if atr is None:
         return snapshot
@@ -878,15 +987,31 @@ async def _submit_sized_entry(
         )
     except BrokerError:
         return await _pause(snapshot, store=store, detail="Maker entry price is unavailable.")
-    sized = size_entry(
-        strategy=strategy,
-        cash=snapshot.deployment.cash,
-        entry_price=entry_price,
-        atr=atr,
-        product=product,
-        fee_rate=_entry_fee_rate(snapshot.deployment),
-        side=side,
-    )
+    fee_rate = _entry_fee_rate(snapshot.deployment)
+    position = snapshot.position
+    if is_pyramid_add:
+        if position is None:
+            return snapshot
+        sized = size_pyramid_add(
+            strategy=strategy,
+            cash=snapshot.deployment.cash,
+            entry_price=entry_price,
+            existing_stop=position.stop_price,
+            existing_target=position.target_price,
+            product=product,
+            fee_rate=fee_rate,
+            side=side,
+        )
+    else:
+        sized = size_entry(
+            strategy=strategy,
+            cash=snapshot.deployment.cash,
+            entry_price=entry_price,
+            atr=atr,
+            product=product,
+            fee_rate=fee_rate,
+            side=side,
+        )
     if sized is None:
         return snapshot
     if (
@@ -913,6 +1038,7 @@ async def _submit_sized_entry(
             proposed_price=sized.entry_price,
             marks=marks,
         ),
+        is_pyramid_add=is_pyramid_add,
     )
     if admitted.decision is RiskDecision.DENY:
         if pauses_risk_increasing(admitted.reason_code):
@@ -920,16 +1046,25 @@ async def _submit_sized_entry(
                 snapshot, store=store, portfolio=portfolio, verdict=admitted
             )
         return snapshot
-    pending = with_runtime(
-        snapshot.deployment,
-        updated_at=utc_now(),
-        phase=RuntimePhase.PENDING_ENTRY,
-        pending_entry_bars=0,
-        pending_stop_price=sized.stop_price,
-        pending_target_price=sized.target_price,
-    )
+    if is_pyramid_add:
+        pending = with_runtime(
+            snapshot.deployment,
+            updated_at=utc_now(),
+            phase=RuntimePhase.OPEN,
+            pending_entry_bars=0,
+        )
+        attach = False
+    else:
+        pending = with_runtime(
+            snapshot.deployment,
+            updated_at=utc_now(),
+            phase=RuntimePhase.PENDING_ENTRY,
+            pending_entry_bars=0,
+            pending_stop_price=sized.stop_price,
+            pending_target_price=sized.target_price,
+        )
+        attach = atr_trailing_stop(strategy.exits) is None
     await store.save_deployment(pending)
-    attach = atr_trailing_stop(strategy.exits) is None
     order = await submit_intent(
         store=store,
         broker=broker,
@@ -948,6 +1083,15 @@ async def _submit_sized_entry(
     if order.status is OrderStatus.UNKNOWN:
         return await _pause(snapshot, store=store, detail="Entry submit is unconfirmed.")
     if order.status is OrderStatus.REJECTED:
+        if is_pyramid_add:
+            restored = with_runtime(
+                snapshot.deployment,
+                updated_at=utc_now(),
+                phase=RuntimePhase.OPEN,
+                pending_entry_bars=0,
+            )
+            await store.save_deployment(restored)
+            return await store.get_deployment(snapshot.deployment.id)
         return await _flatten_pending(
             snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
         )
@@ -962,6 +1106,7 @@ def _entry_admitted(
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None = None,
+    is_pyramid_add: bool = False,
 ) -> bool:
     """Return whether the active risk policy allows this sized entry."""
     return (
@@ -972,6 +1117,7 @@ def _entry_admitted(
             risk_policy=risk_policy,
             portfolio=portfolio,
             observation=observation,
+            is_pyramid_add=is_pyramid_add,
         ).decision
         is RiskDecision.ALLOW
     )
@@ -985,6 +1131,7 @@ def _entry_verdict(
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None = None,
+    is_pyramid_add: bool = False,
 ) -> RiskVerdict:
     """Return the entry gate verdict for this sized order."""
     live_cash = None
@@ -997,6 +1144,7 @@ def _entry_verdict(
             product_id=product_id,
             strategy_id=snapshot.deployment.strategy_id,
             notional=notional,
+            is_pyramid_add=is_pyramid_add,
         ),
         snapshots=_portfolio_with_current(portfolio, snapshot),
         live_quote_cash=live_cash,
@@ -1006,6 +1154,29 @@ def _entry_verdict(
     if scope is not None:
         scope.remember_risk(verdict)
     return verdict
+
+
+def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:
+    """Count distinct product books and pending entries inside this document."""
+    products: set[str] = set()
+    for position in snapshot_positions(snapshot):
+        products.add(resolved_product_id(position.product_id, snapshot.deployment))
+    if snapshot.instrument_runtimes:
+        for runtime in snapshot.instrument_runtimes:
+            if runtime.phase in {
+                RuntimePhase.OPEN,
+                RuntimePhase.PENDING_ENTRY,
+                RuntimePhase.PENDING_EXIT,
+            }:
+                products.add(runtime.product_id)
+        return len(products)
+    if snapshot.position is not None or snapshot.deployment.phase in {
+        RuntimePhase.OPEN,
+        RuntimePhase.PENDING_ENTRY,
+        RuntimePhase.PENDING_EXIT,
+    }:
+        products.add(snapshot.deployment.product_id)
+    return len(products)
 
 
 def _portfolio_with_current(

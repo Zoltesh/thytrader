@@ -27,7 +27,9 @@ Paper start and paper place-order tools may pass optional `maker_fee_rate` / `ta
 together ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md)); live rejects them.
 `runtime_set_risk_policy` publishes the same `PUT /api/v1/risk-policy` document as this CLI,
 including daily-loss / drawdown / rate / collar fields
-([ADR 0050](../../docs/decisions/0050-daily-loss-drawdown-rate-collars.md)).
+([ADR 0050](../../docs/decisions/0050-daily-loss-drawdown-rate-collars.md))
+and `allow_intra_strategy_pyramiding`
+([ADR 0056](../../docs/decisions/0056-multi-instrument-documents-and-pyramiding.md)).
 Coinbase secrets use `GET/PUT/DELETE /api/v1/credentials/coinbase`
 ([ADR 0053](../../docs/decisions/0053-workstation-ia-write-only-coinbase-credentials.md)); LLM
 keys stay on `/chat` ([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)).
@@ -65,6 +67,7 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
+| Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |
 | Show Coinbase credential flags | `uv run thytrader-runtime show-coinbase-credentials` |
@@ -77,7 +80,11 @@ Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fra
 `--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
 `--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and
 drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not
-pause. `set-risk-policy` requires `--confirm` and does **not** require `--i-understand-live`.
+pause. Pass `--allow-intra-strategy-pyramiding` when paper/live same-side adds should be
+legal; the published strategy must also enable `entry.pyramiding`. Omitted (false) keeps
+compiled-default policy bytes stable. Schema-enabled pyramiding without this flag is denied
+(`PYRAMIDING_NOT_ALLOWED`). Backtests follow the strategy document only. `set-risk-policy`
+requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 Optional `--note` is frozen onto the why-trade record at persist. Later review notes use
 `thytrader-memory add-trade-reason-note --confirm` (YOLO never covers that lane).

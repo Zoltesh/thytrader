@@ -222,6 +222,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Maximum |limit-last_close|/last_close for risk-increasing priced entries.",
     )
     set_policy.add_argument(
+        "--allow-intra-strategy-pyramiding",
+        action="store_true",
+        help="Permit same-side adds when the published strategy also enables pyramiding.",
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],
@@ -596,6 +601,7 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_entry_orders_per_minute": arguments.max_entry_orders_per_minute,
         "max_cancellations_per_minute": arguments.max_cancellations_per_minute,
         "reference_price_collar_fraction": arguments.reference_price_collar_fraction,
+        "allow_intra_strategy_pyramiding": arguments.allow_intra_strategy_pyramiding,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
     }
 

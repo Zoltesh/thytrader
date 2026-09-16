@@ -19,7 +19,9 @@
   [0050](0050-daily-loss-drawdown-rate-collars.md),
   [0051](0051-in-app-operator-chat.md),
   [0052](0052-richer-sweep-axes-study-catalog.md),
-  [0054](0054-trade-reason-journals.md)
+  [0054](0054-trade-reason-journals.md),
+  [0055](0055-yaml-settings-runtime-reloadable-yolo.md),
+  [0056](0056-multi-instrument-documents-and-pyramiding.md)
 
 ## Context
 
@@ -35,7 +37,7 @@ Default-filling a missing health `ops_contract` would hide that mismatch.
 
 Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 
-- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v20`)
+- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v21`)
 - `max_historical_interval_count`
 - `backtest_engines` (v1, v2, v3)
 - `paper_timeframes` (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`)
@@ -50,7 +52,9 @@ Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 - `order_rate_limits` (`entry`, `cancel`)
 - `reference_price_collars` (`paper`, `live`)
 - `trade_reason_journals` (`paper`, `live`)
-- `expected_schema_revision` (`0032`)
+- `multi_instrument_documents` (`research`, `paper`, `live`)
+- `intra_strategy_pyramiding` (`research`, `paper`, `live`)
+- `expected_schema_revision` (`0033`)
 
 A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`

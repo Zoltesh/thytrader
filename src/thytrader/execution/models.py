@@ -118,6 +118,7 @@ class OrderIntent:
     status: OrderStatus = OrderStatus.PENDING
     origin: IntentOrigin = IntentOrigin.RUNTIME
     idempotency_key: str | None = None
+    product_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +141,7 @@ class Order:
     reject_reason: str | None = None
     stop_trigger_price: Decimal | None = None
     take_profit_price: Decimal | None = None
+    product_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +161,7 @@ class Fill:
 
 @dataclass(frozen=True, slots=True)
 class Position:
-    """The single long or short position held by one deployment, if any."""
+    """One long or short product book held by a deployment."""
 
     deployment_id: UUID
     quantity: Decimal
@@ -170,6 +172,8 @@ class Position:
     updated_at: datetime
     trail_extreme: Decimal | None = None
     side: PositionSide = PositionSide.LONG
+    product_id: str = ""
+    add_count: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,14 +206,31 @@ class Deployment:
 
 
 @dataclass(frozen=True, slots=True)
+class InstrumentRuntime:
+    """Per-product overlay of the single-book runtime machine."""
+
+    product_id: str
+    phase: RuntimePhase
+    last_evaluated_bar: datetime | None = None
+    last_signal: str | None = None
+    pending_entry_bars: int = 0
+    bars_held: int = 0
+    cooldown_bars_remaining: int = 0
+    pending_stop_price: Decimal | None = None
+    pending_target_price: Decimal | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeploymentSnapshot:
-    """One deployment plus its current position, orders, and fills."""
+    """One deployment plus positions, orders, fills, and per-product runtime overlays."""
 
     deployment: Deployment
     position: Position | None = None
     orders: tuple[Order, ...] = field(default_factory=tuple)
     fills: tuple[Fill, ...] = field(default_factory=tuple)
     intents: tuple[OrderIntent, ...] = field(default_factory=tuple)
+    positions: tuple[Position, ...] = field(default_factory=tuple)
+    instrument_runtimes: tuple[InstrumentRuntime, ...] = field(default_factory=tuple)
 
 
 def with_status(
@@ -280,3 +301,44 @@ def with_runtime(
         status=deployment.status if status is None else status,
         updated_at=updated_at,
     )
+
+
+def snapshot_positions(snapshot: DeploymentSnapshot) -> tuple[Position, ...]:
+    """Return every product book, falling back to the focused position for older snapshots."""
+    if snapshot.positions:
+        return snapshot.positions
+    if snapshot.position is not None:
+        return (snapshot.position,)
+    return ()
+
+
+def resolved_product_id(product_id: str, deployment: Deployment) -> str:
+    """Treat a blank product id as the deployment's primary Coinbase product."""
+    return product_id or deployment.product_id
+
+
+def runtime_from_deployment(deployment: Deployment, product_id: str) -> InstrumentRuntime:
+    """Project deployment-row runtime fields onto one product overlay."""
+    return InstrumentRuntime(
+        product_id=product_id,
+        phase=deployment.phase,
+        last_evaluated_bar=deployment.last_evaluated_bar,
+        last_signal=deployment.last_signal,
+        pending_entry_bars=deployment.pending_entry_bars,
+        bars_held=deployment.bars_held,
+        cooldown_bars_remaining=deployment.cooldown_bars_remaining,
+        pending_stop_price=deployment.pending_stop_price,
+        pending_target_price=deployment.pending_target_price,
+    )
+
+
+def aggregate_phase(runtimes: tuple[InstrumentRuntime, ...]) -> RuntimePhase:
+    """Collapse per-product phases for operator-visible deployment status."""
+    phases = {item.phase for item in runtimes}
+    if RuntimePhase.OPEN in phases:
+        return RuntimePhase.OPEN
+    if RuntimePhase.PENDING_EXIT in phases:
+        return RuntimePhase.PENDING_EXIT
+    if RuntimePhase.PENDING_ENTRY in phases:
+        return RuntimePhase.PENDING_ENTRY
+    return RuntimePhase.FLAT

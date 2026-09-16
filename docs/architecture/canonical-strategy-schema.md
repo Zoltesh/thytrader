@@ -7,9 +7,10 @@
 >
 > **Product destination** ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)):
 > strategy `timeframe` includes every Coinbase-listed candle granularity ThyTrader ingests
-> ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)), and deployments will cover
-> single-asset **and** multi-asset paper/live. The field rules in this document are the **shipped
-> contract**. Multi-instrument documents are not legal here. Mermaid overview:
+> ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)), and deployments cover
+> single-asset **and** multi-asset Coinbase USD spot paper/live
+> ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). Extra exchanges stay
+> out. The field rules in this document are the **shipped contract**. Mermaid overview:
 > [contract diagrams — strategy](contracts/strategy.md).
 
 This document is the implementation-facing specification referenced by
@@ -24,7 +25,8 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
 - every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
-  backtests, paper, and live; long or short, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`stdev_sample`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`stochastic`/`adx`/`identity`/`constant` indicators;
+  backtests, paper, and live; long or short, one primary instrument plus optional additional USD
+  spot products (at most eight total), with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`stdev_sample`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`stochastic`/`adx`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025, ADR 0041) for research V1/V2/V3, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
@@ -92,7 +94,9 @@ entry-condition evaluation as defined in
 ```
 
 The outline above is not canonical bytes. `htf_filter` is omitted from canonical JSON when null so
-existing single-timeframe fingerprints stay stable.
+existing single-timeframe fingerprints stay stable. Empty `additional_instruments` and omitted
+`entry.pyramiding` are also dropped so existing single-instrument, single-lot fingerprints stay
+stable ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)).
 
 ### Field rules
 
@@ -105,7 +109,8 @@ existing single-timeframe fingerprints stay stable.
 | `description` | string | Optional, ≤ 500 characters. |
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
-| `instrument` | object | Explicit product, never inherited from runtime. |
+| `instrument` | object | Explicit primary Coinbase `BASE-USD` spot product, never inherited from runtime. |
+| `additional_instruments` | array \| omitted | Optional 1–7 extra unique USD spot products, disjoint from `instrument`. Total coverage is at most eight. Omitted from canonical JSON when empty. |
 | `timeframe` | enum | One ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). This is the LTF decision clock. Paper and live use the same clock. Sub-hour live requires a connected user-order feed. |
 | `data_requirements` | object | Minimum LTF bars and OHLCV fields needed for indicator warmup. |
 | `indicators` | array | Named indicator definitions (see below). Optional per-indicator `timeframe`. |
@@ -339,7 +344,7 @@ V1 constraints:
   available base and fail closed when inventory is missing. Margin, leverage, and derivatives stay
   out of scope ([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).
 - `cooldown_bars` prevents re-entry within N bars of the last exit.
-- `max_open_positions` must be 1 in V1. Pyramiding, averaging down, and martingale are rejected.
+- `max_open_positions` is 1 unless `entry.pyramiding` is `{"enabled": true, "require_unrealized_profit": true}` with `max_open_positions` 2–8 (total fills per product). Averaging down is rejected. Paper/live also require risk-policy `allow_intra_strategy_pyramiding`. Omitted pyramiding keeps existing bytes.
 
 ## Sizing
 
@@ -376,7 +381,9 @@ Rules:
 ```
 
 These are separate from sizing to allow risk policies to override or constrain strategy intent.
-In V1, `max_concurrent_positions` must be 1.
+`max_concurrent_positions` is 1–8 and must not exceed the number of covered products. It caps
+distinct **product** books inside one document. Pyramid adds on an open book do not consume an extra
+slot.
 
 ## Exits
 
@@ -469,7 +476,7 @@ when capital protection requires it.
 - When `htf_filter` is present: HTF timeframe is a coarser integer multiple of LTF; HTF ids are unique and disjoint; HTF `when` references only HTF indicators; HTF warmup covers HTF indicators.
 - Exit `atr_indicator` references a defined ATR indicator.
 - Sizing and risk values are within allowed ranges.
-- `max_open_positions` and `max_concurrent_positions` are both 1 in V1.
+- `max_open_positions` is 1 unless pyramiding is enabled; `max_concurrent_positions` is 1–8 and must not exceed covered products.
 - Product and timeframe are supported.
 
 ### 3. Runtime validation (paper and live)
@@ -508,7 +515,7 @@ The initial end-to-end test vehicle:
 - **Max positions:** 1
 - **Cooldown:** 3 bars after exit
 - **Execution:** maker_only, cancel after 2 bars
-- **No pyramiding, no averaging down** (long or short; one position)
+- **Optional pyramiding** (same-side adds with required unrealized profit; no averaging down)
 
 ### Required research protocol before any "profitable" label
 
