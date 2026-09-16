@@ -19,17 +19,7 @@
 			</p>
 		</div>
 	</section>
-<<<<<<< HEAD
 	<YamlSettingsPanel />
-=======
-	<section class="card" aria-label="YAML settings and YOLO">
-		<h2>YAML settings and YOLO</h2>
-		<p>
-			Non-secret YAML configuration and runtime-reloadable YOLO tiers are not implemented here. This
-			slot stays visible for that sibling surface. Coinbase secrets stay in the section below.
-		</p>
-	</section>
->>>>>>> d51e184 (fix(ui): prettier, research panel binding, and unused drawer CSS)
 	<CoinbaseCredentialsPanel />
 </main>
 

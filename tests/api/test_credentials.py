@@ -12,6 +12,7 @@ from thytrader.credentials.models import INVALID_CREDENTIALS_PAYLOAD
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.settings_yaml import SettingsStore
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -115,3 +116,35 @@ def test_delete_clears_credentials_and_returns_to_unconfigured(tmp_path: Path) -
         events = client.get("/api/v1/audit-events")
         actions = [item["action"] for item in events.json()["events"]]
         assert "clear_coinbase_credentials" in actions
+
+
+def test_put_beside_yaml_store_does_not_write_secrets_to_yaml(tmp_path: Path) -> None:
+    """Coinbase secrets stay in ``.env`` when a YAML settings store is attached."""
+    env_file = tmp_path / ".env"
+    yaml_path = tmp_path / "thytrader.yaml"
+    store = SettingsStore(yaml_path, env_file=env_file)
+    app = create_app(
+        settings_store=store,
+        audit_event_store=InMemoryAuditEventStore(),
+        credentials_env_file=env_file,
+        portfolio_service=PortfolioService(DemoExchangeAccount(), demo=True),
+    )
+    with TestClient(app) as client:
+        written = client.put(
+            "/api/v1/credentials/coinbase",
+            json={
+                "api_key_name": _SYNTHETIC_KEY_NAME,
+                "private_key": _SYNTHETIC_PRIVATE_KEY,
+            },
+        )
+        assert written.status_code == 200
+        assert written.json()["configured"] is True
+        yaml_get = client.get("/api/v1/settings")
+        assert yaml_get.status_code == 200
+        assert yaml_get.json()["process"]["coinbase_credentials_configured"] is True
+        assert "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO" not in yaml_get.text
+        yaml_text = yaml_path.read_text(encoding="utf-8") if yaml_path.exists() else ""
+        assert "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO" not in yaml_text
+        assert store.current().coinbase_api_key_name is not None
+        env_text = env_file.read_text(encoding="utf-8")
+        assert "THYTRADER_COINBASE_API_KEY_NAME=" in env_text
