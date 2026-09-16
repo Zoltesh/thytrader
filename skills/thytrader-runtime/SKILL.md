@@ -58,6 +58,8 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
+| Show YAML settings | `uv run thytrader-runtime show-settings` |
+| Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |
 
 `list`, `show`, and `show-risk-policy` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
@@ -77,7 +79,7 @@ another book clock. Paper `start` and paper `place-order` accept optional `--mak
 use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. Live
 rejects those flags; live fills stay venue-recorded. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
-is enabled. Live place-order and `set-risk-policy` never skip `--confirm`. Repeat the same
+is enabled. Live place-order, `set-risk-policy`, and `set-settings` never skip `--confirm`. Repeat the same
 `--idempotency-key` instead of retrying a timeout.
 
 Underlying HTTP:
@@ -88,6 +90,7 @@ Underlying HTTP:
 - `POST /api/v1/deployments/{id}/stop`
 - `POST /api/v1/discretionary-orders`
 - `GET/PUT /api/v1/risk-policy`
+- `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))
 
 ## Confirmation
 
@@ -96,12 +99,16 @@ Underlying HTTP:
   `thytrader-playbook status` shows the matching tier (`paper` or `live`) enabled.
 - Never start live or place a live order without `--i-understand-live`. YOLO never skips that
   flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
-  and the skip audit succeeds. Live `place-order` and `set-risk-policy` never YOLO.
+  and the skip audit succeeds. Live `place-order`, `set-risk-policy`, and `set-settings` never YOLO.
 - Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
   Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `kind`, optional
   `strategy_fingerprint`). Keep those identities.
 - Watch status after a mutation with `uv run thytrader-operator runtime --deployment-id UUID`.
+
+YOLO on/off and independent tiers live in `thytrader.yaml` (loopback `/settings`, or
+`set-settings --confirm`). Leftover `THYTRADER_YOLO_TIERS=paper` is valid. YAML wins leftover env
+and applies without restart. Secrets stay out of YAML. Live still needs `--i-understand-live`.
 
 ## Forbidden
 

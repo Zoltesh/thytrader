@@ -57,6 +57,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "/api/v1/operator-chat" in skill
     assert "chat-status" in skill
     assert "0051-in-app-operator-chat" in skill
+    assert "0055-yaml-settings-runtime-reloadable-yolo" in skill
+    assert "yaml_source_of_truth" in schemas
+    assert "THYTRADER_YOLO_TIERS=paper" in skill
     assert "1h or 5m" not in skill
     assert "Never places" in skill or "cannot place" in skill.lower() or "Never" in skill
     assert "daily_loss_limit_fraction" in schemas
@@ -155,6 +158,12 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "maker_fee_rate" in skill
     assert "taker_fee_rate" in skill
     assert "0050-daily-loss-drawdown-rate-collars" in skill
+    assert "show-settings" in skill
+    assert "set-settings" in skill
+    assert "/api/v1/settings" in skill
+    assert "0055-yaml-settings-runtime-reloadable-yolo" in skill
+    assert "THYTRADER_YOLO_TIERS=paper" in skill
+    assert "thytrader.yaml" in skill
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
@@ -174,6 +183,8 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "not an extension" in skill.lower() or "does not grant live" in skill.lower()
     assert "0.001" in skill
     assert "0.002" in skill
+    assert "thytrader.yaml" in skill
+    assert "THYTRADER_YOLO_TIERS=paper" in skill
 
 
 def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:

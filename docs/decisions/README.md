@@ -59,6 +59,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0051](0051-in-app-operator-chat.md) | Loopback in-app operator chat over gated skill-lane HTTP; user-pasted LLM key distinct from Coinbase | Accepted |
 | [0052](0052-richer-sweep-axes-study-catalog.md) | Richer sweep axes and persisted research-study catalog rows | Accepted |
 | [0054](0054-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted |
+| [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
 
 ## Status values
 

@@ -97,6 +97,13 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 
 See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](references/report-schemas.md).
 
+YOLO on/off and independent tiers (`data`, `research`, `paper`, `live`) live in `thytrader.yaml`
+([ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). They apply without
+restart. Leftover `THYTRADER_YOLO_TIERS=paper` is valid; do not JSON-encode the env list.
+`GET /api/v1/operator/configuration` reports `yaml_source_of_truth`, `settings_file`, and
+`yaml_loaded`. Mutations use `thytrader-runtime show-settings` / `set-settings --confirm` or
+`GET`/`PUT /api/v1/settings`. This skill stays read-only.
+
 ## In-app operator chat
 
 Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`

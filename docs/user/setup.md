@@ -67,8 +67,8 @@ volumes. Only `docker compose down -v` destroys them and is intentionally destru
 ## Portfolio snapshots and the dashboard
 
 The portfolio worker takes a snapshot at startup and then every five minutes by default. Configure a
-value between 60 seconds and 24 hours with `THYTRADER_SNAPSHOT_INTERVAL_SECONDS` in ignored `.env`.
-The dashboard Refresh button is read-only; it never creates history points.
+value between 60 seconds and 24 hours in `thytrader.yaml` (`snapshot_interval_seconds`). The change
+applies without restart. The dashboard Refresh button is read-only; it never creates history points.
 
 The portfolio-history panel offers `24H`, `7D`, `30D`, and `All` ranges. The API performs the range
 query and bounds the response to representative observations, preserving the range endpoints without
@@ -89,10 +89,10 @@ The separately supervised market-data worker maintains complete-only verified Pa
 1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h (each is also a legal strategy, paper, live, and HTF
 clock), publishes only complete verified Parquet and manifests, and retries every five minutes by
 default. PostgreSQL records its latest attempt, verified coverage, freshness, fingerprint, and
-redacted failure state. Cadence, lookback, target, and dataset root are configurable through the
-documented `THYTRADER_MARKET_DATA_*` variables in ignored `.env`. Compose mounts that immutable
-dataset volume read-write only in the market-data worker and read-only in the API so browser dataset
-selection and backtest verification consume the exact artifacts the worker published.
+redacted failure state. Cadence, lookback, and default product live in `thytrader.yaml` and apply
+without restart. Dataset root stays env-at-boot (`THYTRADER_MARKET_DATA_DATASET_ROOT`). Compose mounts
+that immutable dataset volume read-write only in the market-data worker and read-only in the API so
+browser dataset selection and backtest verification consume the exact artifacts the worker published.
 
 Inspect ingestion evidence or restart only that failure domain:
 

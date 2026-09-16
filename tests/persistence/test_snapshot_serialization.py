@@ -503,4 +503,7 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "os.environ['THYTRADER_API_PORT']" in content
     assert "THYTRADER_API_PROXY_TARGET: http://api:${THYTRADER_API_PORT:-8200}" in content
     assert "127.0.0.1:5175:5175" in content
-    assert "THYTRADER_WORKER_READINESS_FILE" in content
+    assert "THYTRADER_SETTINGS_FILE: /var/lib/thytrader/settings/thytrader.yaml" in content
+    assert "./thytrader.yaml:/var/lib/thytrader/settings/thytrader.yaml" in content
+    assert "THYTRADER_YOLO_TIERS" not in content
+    assert "THYTRADER_SNAPSHOT_INTERVAL_SECONDS" not in content

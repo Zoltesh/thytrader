@@ -8,7 +8,6 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
-from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.audit_events import (
@@ -26,6 +25,7 @@ from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeart
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
+from thytrader.settings_yaml import SettingsStore
 from thytrader.worker.service import run_worker
 
 if TYPE_CHECKING:
@@ -33,14 +33,17 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from thytrader.config import Settings
+
 logger = logging.getLogger(__name__)
 
 
 async def run() -> None:
     """Run the worker until an operating-system shutdown signal arrives."""
-    settings = Settings()
+    store = SettingsStore.open()
+    settings = store.current()
     configure_logging(settings)
-    runtime = RuntimeState(settings=settings)
+    runtime = RuntimeState(settings=settings, settings_store=store)
     stop_requested = asyncio.Event()
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, stop_requested.set)

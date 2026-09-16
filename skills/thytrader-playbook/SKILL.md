@@ -24,9 +24,12 @@ paper through `runtime_start` with `mode=paper`. Chat must not start live. Do no
 this skill.
 
 Default remains `--confirm` on every child mutation. YOLO (operator-enabled, default off) may skip
-`--confirm` on advertised tiers `data`, `research`, `paper`, and/or `live`. This playbook still
-never starts live, never passes `--i-understand-live`, and never uses a `live` YOLO tier.
-`set-risk-policy` is not part of this playbook.
+`--confirm` on advertised tiers `data`, `research`, `paper`, and/or `live`. Tiers live in
+`thytrader.yaml` and apply without restart
+([ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Leftover
+`THYTRADER_YOLO_TIERS=paper` is valid. This playbook still never starts live, never passes
+`--i-understand-live`, and never uses a `live` YOLO tier. `set-risk-policy` is not part of this
+playbook.
 
 ## Hard stop
 

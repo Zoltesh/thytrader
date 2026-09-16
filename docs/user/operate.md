@@ -67,6 +67,14 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
+### Settings
+
+Open http://127.0.0.1:5175/settings. YAML is the source of truth for non-secret knobs: YOLO on/off,
+independent tiers (`data`, `research`, `paper`, `live`), log level, intervals, lookback, default
+ingest product, and notify provider. Changes apply without restarting API or workers. Secrets stay
+in ignored `.env`. Leftover `THYTRADER_YOLO_TIERS=paper` is valid. Live still needs
+`--i-understand-live`. Coinbase keys are not on this form.
+
 ### Operator chat
 
 Open http://127.0.0.1:5175/chat. Paste **your LLM API key** (OpenAI or OpenAI-compatible). This is
@@ -94,6 +102,8 @@ uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-research list-studies
 uv run thytrader-playbook status
 uv run thytrader-memory status
+uv run thytrader-runtime show-settings
+uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm
 ```
 
 | Lane | What it may do | Gate |
@@ -101,7 +111,7 @@ uv run thytrader-memory status
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
 | `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations |
 | `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
-| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy | `--confirm`; live also `--i-understand-live` |
+| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings | `--confirm`; live also `--i-understand-live`; `set-settings` never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 

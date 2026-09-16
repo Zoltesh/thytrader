@@ -134,11 +134,45 @@ def test_settings_reject_tiers_without_enabled_flag() -> None:
         Settings(yolo_tiers="data,research", _env_file=None)
 
 
-def test_settings_accept_comma_separated_yolo_tiers() -> None:
-    """Enabled YOLO parses unique tiers, including live, from a comma-separated string."""
-    settings = Settings(yolo_enabled=True, yolo_tiers="data, paper", _env_file=None)
+def test_settings_accept_env_leftover_scalar_paper_yolo_tiers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``THYTRADER_YOLO_TIERS=paper`` must not JSON-decode; paper YOLO is valid."""
+    monkeypatch.setenv("THYTRADER_YOLO_ENABLED", "true")
+    monkeypatch.setenv("THYTRADER_YOLO_TIERS", "paper")
+    settings = Settings(_env_file=None)
     assert settings.yolo_enabled is True
-    assert settings.yolo_tiers == (YoloTier.DATA, YoloTier.PAPER)
+    assert settings.yolo_tiers == (YoloTier.PAPER,)
+
+
+def test_settings_accept_empty_env_yolo_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compose leftover ``THYTRADER_YOLO_TIERS=`` is off, not a SettingsError."""
+    monkeypatch.setenv("THYTRADER_YOLO_ENABLED", "false")
+    monkeypatch.setenv("THYTRADER_YOLO_TIERS", "")
+    settings = Settings(_env_file=None)
+    assert settings.yolo_enabled is False
+    assert settings.yolo_tiers == ()
+
+
+def test_settings_accept_json_array_env_yolo_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """JSON ``["paper"]`` leftover still parses after NoDecode."""
+    monkeypatch.setenv("THYTRADER_YOLO_ENABLED", "true")
+    monkeypatch.setenv("THYTRADER_YOLO_TIERS", '["paper"]')
+    settings = Settings(_env_file=None)
+    assert settings.yolo_tiers == (YoloTier.PAPER,)
+
+
+def test_settings_accept_env_comma_list_including_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Leftover comma lists such as ``data,paper`` are independent tiers, not JSON."""
+    monkeypatch.setenv("THYTRADER_YOLO_ENABLED", "true")
+    monkeypatch.setenv("THYTRADER_YOLO_TIERS", "data,paper")
+    settings = Settings(_env_file=None)
+    assert settings.yolo_tiers == (
+        YoloTier.DATA,
+        YoloTier.PAPER,
+    )
 
 
 def test_settings_reject_duplicate_yolo_tiers() -> None:

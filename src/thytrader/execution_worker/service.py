@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.risk.store import RiskPolicyStore
+    from thytrader.settings_yaml import SettingsStore
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.publication import StrategyPublicationStore
 
@@ -79,6 +80,7 @@ async def run_execution_worker(
     user_feed_store: UserOrderFeedStateStore | None = None,
     wake_requested: asyncio.Event | None = None,
     memory_store: ExperientialMemoryStore | None = None,
+    settings_store: SettingsStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown."""
     if on_readiness_changed is not None:
@@ -100,8 +102,13 @@ async def run_execution_worker(
             )
             if wake_requested is not None:
                 wake_requested.clear()
+            wait_seconds = (
+                settings_store.current().execution_worker_interval_seconds
+                if settings_store is not None
+                else interval_seconds
+            )
             await _await_next_cycle(
-                stop_requested, wake_requested=wake_requested, interval_seconds=interval_seconds
+                stop_requested, wake_requested=wake_requested, interval_seconds=wait_seconds
             )
     finally:
         if on_readiness_changed is not None:
