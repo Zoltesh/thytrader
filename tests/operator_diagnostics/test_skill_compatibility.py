@@ -183,6 +183,7 @@ def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:
     assert "list-models" in skill
     assert "show-model" in skill
     assert "/api/v1/memory/models" in skill
+    assert "/api/v1/operator-chat" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
     assert "Never deploys" in skill or ("does not" in skill.lower() and "order" in skill.lower())

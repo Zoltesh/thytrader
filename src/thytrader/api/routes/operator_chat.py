@@ -41,7 +41,7 @@ async def put_operator_chat_credentials(
     """Store a pasted LLM API key server-side. Coinbase fields are rejected."""
     try:
         raw: object = await request.json()
-    except (JSONDecodeError, UnicodeDecodeError, ValueError, TypeError):
+    except JSONDecodeError, UnicodeDecodeError, ValueError, TypeError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="LLM credentials must be JSON.",

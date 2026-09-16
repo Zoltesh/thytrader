@@ -12,7 +12,7 @@
 		type LlmProvider
 	} from '$lib/operator-chat';
 
-	let transcript: ChatTranscript | null = $state(null);
+	let transcript = $state<ChatTranscript | null>(null);
 	let loading = $state(true);
 	let sending = $state(false);
 	let error = $state<string | null>(null);
@@ -120,10 +120,10 @@
 			<p class="eyebrow">In-app operator</p>
 			<h1>Operator chat</h1>
 			<p class="lede">
-				Paste <strong>your LLM API key</strong>. This is not a Coinbase form — Coinbase keys stay
-				on the separate secrets surface and never enter the browser. The chat uses the same gated
-				skill lanes as <code>ops/</code>: operator is read-only; data, research, runtime, and
-				memory mutations stay confirmation-gated. Live still needs the understand-live hard gate.
+				Paste <strong>your LLM API key</strong>. This is not a Coinbase form — Coinbase keys stay on
+				the separate secrets surface and never enter the browser. The chat uses the same gated skill
+				lanes as <code>ops/</code>: operator is read-only; data, research, runtime, and memory
+				mutations stay confirmation-gated. Live still needs the understand-live hard gate.
 			</p>
 		</div>
 		<button class="refresh" type="button" onclick={loadTranscript} disabled={loading}>
@@ -185,12 +185,7 @@
 			{/if}
 			<label>
 				LLM API key
-				<input
-					bind:value={apiKey}
-					type="password"
-					autocomplete="off"
-					data-testid="llm-api-key"
-				/>
+				<input bind:value={apiKey} type="password" autocomplete="off" data-testid="llm-api-key" />
 			</label>
 			<div class="actions">
 				<button type="submit" data-testid="save-llm-key">Save LLM key</button>
@@ -254,7 +249,10 @@
 			<button type="button" class="secondary" onclick={resetConversation}>Reset</button>
 		</div>
 		{#if visible.length === 0}
-			<p class="hint">Ask for health, gaps, a draft, paper deploy, or a journal. The model cannot skip confirmation or live arming.</p>
+			<p class="hint">
+				Ask for health, gaps, a draft, paper deploy, or a journal. The model cannot skip
+				confirmation or live arming.
+			</p>
 		{:else}
 			<ol>
 				{#each visible as row (row.id)}
@@ -278,9 +276,12 @@
 				bind:value={draft}
 				rows="3"
 				disabled={!transcript?.status.llm_configured || sending}
-				data-testid="chat-draft"
-			></textarea>
-			<button type="submit" disabled={!transcript?.status.llm_configured || sending || !draft.trim()} data-testid="send-chat">
+				data-testid="chat-draft"></textarea>
+			<button
+				type="submit"
+				disabled={!transcript?.status.llm_configured || sending || !draft.trim()}
+				data-testid="send-chat"
+			>
 				Send
 			</button>
 		</form>

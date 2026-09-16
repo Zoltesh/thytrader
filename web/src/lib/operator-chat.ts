@@ -123,11 +123,9 @@ export async function decideOperatorChatConfirmation(
 }
 
 export async function resetOperatorChat(): Promise<ChatTranscript> {
-	return readJson<ChatTranscript>(
-		'/api/v1/operator-chat/reset',
-		'Operator chat could not reset.',
-		{ method: 'POST' }
-	);
+	return readJson<ChatTranscript>('/api/v1/operator-chat/reset', 'Operator chat could not reset.', {
+		method: 'POST'
+	});
 }
 
 export function visibleChatMessages(messages: ChatMessage[]): ChatMessage[] {

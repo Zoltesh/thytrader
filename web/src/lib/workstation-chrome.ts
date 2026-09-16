@@ -10,13 +10,7 @@ export const RESEARCH_CONTEXT_LABEL = 'Research only';
 export const OPERATOR_CHAT_CONTEXT_LABEL = 'Operator chat';
 
 export type WorkstationNavHref =
-	| '/'
-	| '/trade'
-	| '/strategies'
-	| '/backtests'
-	| '/audit'
-	| '/memory'
-	| '/chat';
+	'/' | '/trade' | '/strategies' | '/backtests' | '/audit' | '/memory' | '/chat';
 
 export type WorkstationNavItem = {
 	href: WorkstationNavHref;

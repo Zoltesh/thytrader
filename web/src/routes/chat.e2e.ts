@@ -99,10 +99,7 @@ test('operator chat stores an LLM key without echoing it and confirms mutations'
 			});
 			return;
 		}
-		if (
-			url.pathname === `/api/v1/operator-chat/confirmations/${pendingId}` &&
-			method === 'POST'
-		) {
+		if (url.pathname === `/api/v1/operator-chat/confirmations/${pendingId}` && method === 'POST') {
 			const body = route.request().postDataJSON() as {
 				confirmed?: boolean;
 				i_understand_live?: boolean;
@@ -152,6 +149,8 @@ test('operator chat stores an LLM key without echoing it and confirms mutations'
 	await expect(page.getByTestId('pending-confirmations')).toBeVisible();
 	await page.getByTestId('understand-live').check();
 	await page.getByTestId('confirm-mutation').click();
-	await expect(page.getByText('Live start was submitted through the runtime HTTP contract.')).toBeVisible();
+	await expect(
+		page.getByText('Live start was submitted through the runtime HTTP contract.')
+	).toBeVisible();
 	await expect(page.getByTestId('pending-confirmations')).toHaveCount(0);
 });

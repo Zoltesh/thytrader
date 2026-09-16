@@ -23,9 +23,9 @@ no `--local` database mode. Schema: `thytrader-experiential-memory-v1`. Monitor 
 `thytrader-monitor-v1`. Trained models: `thytrader-experiential-model-v1` from engine
 `thytrader-experiential-train-v1`. Advisory: `thytrader-experiential-advisory-v1`.
 
-In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. Memory
-mutations always need in-app confirmation; YOLO never covers this lane. Do not treat chat as this
-skill.
+In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes, including
+`GET|POST /api/v1/memory/models`. Memory mutations including `train` always need in-app
+confirmation; YOLO never covers this lane. Do not treat chat as this skill.
 
 Origin is required on every write: `human` or `agent`. Journals, sentiment, and pattern rows are
 append-only hooks. They are not a substitute for audit trails or immutable backtest/fill evidence.

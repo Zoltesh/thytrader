@@ -43,6 +43,8 @@ Rules:
 - Mutations require in-app confirmation (the --confirm equivalent) unless YOLO covers that tier.
 - Live start and live place-order also require the understand-live hard gate. YOLO never skips it.
 - Memory mutations always need confirmation. YOLO never covers memory.
+- Memory train is fail-closed over attributed local journals. The result is advisory
+  research input, not a live brain, order intent, or Coinbase call.
 - Live place-order and set-risk-policy always need confirmation.
 - The playbook never starts live. Sequence paper via runtime_start mode=paper when asked.
 - Paper start and paper place-order may pass maker_fee_rate and taker_fee_rate together

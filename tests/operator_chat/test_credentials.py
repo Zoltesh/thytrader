@@ -115,6 +115,28 @@ def test_runtime_start_and_place_order_forward_paper_fee_fields() -> None:
     assert "taker_fee_rate" in place.properties
 
 
+def test_memory_train_tools_map_onto_adr_0049_http() -> None:
+    """Experiential trainer routes stay on the memory lane and stay hard-gated."""
+    listed = tool_by_name("memory_list_models")
+    assert listed is not None
+    assert listed.mutation is False
+    assert listed.path == "/api/v1/memory/models"
+    shown = tool_by_name("memory_show_model")
+    assert shown is not None
+    path, _query, body = split_request(shown, {"model_id": "11111111-1111-1111-1111-111111111111"})
+    assert path == "/api/v1/memory/models/11111111-1111-1111-1111-111111111111"
+    assert body is None
+    train = tool_by_name("memory_train")
+    assert train is not None
+    assert train.lane.value == "memory"
+    assert train.mutation is True
+    assert train.hard_gate is True
+    train_path, train_query, train_body = split_request(train, {"origin": "agent", "seed": 1})
+    assert train_path == "/api/v1/memory/models"
+    assert train_query == {}
+    assert train_body == {"origin": "agent", "seed": 1}
+
+
 def test_llm_messages_round_trip_assistant_tool_calls() -> None:
     """Provider resumes need the assistant tool_calls block, not only tool rows."""
     session = OperatorChatSessionStore()

@@ -143,6 +143,11 @@ def _opt_string(description: str) -> dict[str, object]:
     return {"type": "string", "description": description}
 
 
+def _integer(description: str) -> dict[str, object]:
+    """JSON Schema integer field for optional seeds and counts."""
+    return {"type": "integer", "description": description}
+
+
 _PRODUCT = _string("USD spot product id such as BTC-USD.")
 _TIMEFRAME = _string("Venue clock: 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, or 1d.")
 _UUID = _string("UUID.")
@@ -797,6 +802,53 @@ _TOOLS: tuple[ChatTool, ...] = (
             "severity": _opt_string("info, warning, or critical."),
         },
         required=("origin", "title", "body"),
+    ),
+    ChatTool(
+        name="memory_list_models",
+        description=(
+            "List trained experiential models. Advisory research input only, not a live brain."
+        ),
+        lane=ChatLane.MEMORY,
+        method="GET",
+        path="/api/v1/memory/models",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={},
+        required=(),
+    ),
+    ChatTool(
+        name="memory_show_model",
+        description="Show one trained experiential model. Advisory only.",
+        lane=ChatLane.MEMORY,
+        method="GET",
+        path="/api/v1/memory/models/{model_id}",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={"model_id": _UUID},
+        required=("model_id",),
+    ),
+    ChatTool(
+        name="memory_train",
+        description=(
+            "Train thytrader-experiential-train-v1 from attributed local journals. "
+            "Confirmation-hard-gated. Advisory research input only; never a live brain."
+        ),
+        lane=ChatLane.MEMORY,
+        method="POST",
+        path="/api/v1/memory/models",
+        mutation=True,
+        yolo="none",
+        hard_gate=True,
+        live_ack="never",
+        properties={
+            "origin": _string("human or agent."),
+            "seed": _integer("Optional RNG seed. Default 1."),
+        },
+        required=("origin",),
     ),
 )
 

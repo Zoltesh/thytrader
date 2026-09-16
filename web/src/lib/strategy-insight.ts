@@ -13,7 +13,7 @@ import {
 	type OperandDraft
 } from './strategies';
 
-const IDENTITY_INPUTS = new Set(IDENTITY_INPUT_OPTIONS.map((option) => option.value));
+const IDENTITY_INPUTS = new Set<string>(IDENTITY_INPUT_OPTIONS.map((option) => option.value));
 
 export const OPERATOR_LABELS: Record<string, string> = {
 	crosses_above: 'crosses above',
