@@ -463,6 +463,23 @@ parent `last_evaluated_bar`; pyramid adds skip `MAX_OPEN_POSITIONS` and fail clo
 policy flag. HTTP and operator reports name each open book instead of collapsing onto the primary
 product.
 
+## Atomic fill ledger — ✅ Shipped
+
+Fill insert and cash/position projection commit together (`economics_applied_at`). Live economics
+arrive through venue ingest. Worker lease columns are reserved
+([ADR 0057](decisions/0057-atomic-fill-ledger-and-product-isolation.md)). Extra exchanges stay out.
+
+## Protection lifecycle and live capital accounting — ✅ Shipped
+
+Verified attached-child coverage, fenced worker leases, revision-checked writes, stop vs flatten vs
+managed shutdown, live capital separate from venue quote, and durable UTC day-open / high-water
+baselines ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Default HTTP/CLI stop is
+managed shutdown; `--flatten` marketably exits. Live still needs `--i-understand-live`. Ops contract
+is `thytrader-ops-contract-v22` / Alembic `0035`. Extra exchanges stay out.
+
+**Exit gate met:** missing/canceled children are uncovered; protection runs when entries are paused;
+STOPPED residual occupancy remains in account risk; venue quote does not overwrite ledger cash.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently

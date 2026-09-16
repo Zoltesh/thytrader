@@ -69,6 +69,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
+    assert "0058-protection-lifecycle-accounting" in skill
+    assert "lifecycle_command" in skill
+    assert "lifecycle_commands" in schemas
     assert "DAILY_LOSS_LIMIT" in schemas
     assert "STRATEGY_DRAWDOWN_LIMIT" in schemas
     assert "risk_breakers" in schemas
@@ -184,6 +187,9 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "instrument_runtimes" in skill
     assert "book_totals" in skill
     assert "compatibility" in skill.lower()
+    assert "--flatten" in skill
+    assert "managed shutdown" in skill.lower() or "managed-shutdown" in skill.lower()
+    assert "0058-protection-lifecycle-accounting" in skill
 
 
 def test_playbook_skill_sequences_lanes_without_live_authority() -> None:

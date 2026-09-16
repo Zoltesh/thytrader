@@ -462,6 +462,19 @@ def test_multi_instrument_pyramiding_migration_follows_trade_reason_journals() -
     assert "add_count" in content
 
 
+def test_protection_lifecycle_accounting_migration_follows_atomic_fill_ledger() -> None:
+    """The thirty-fifth migration must add lifecycle and capital columns after 0034."""
+    content = Path("alembic/versions/0035_protection_lifecycle_accounting.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0035"' in content
+    assert 'down_revision = "0034"' in content
+    assert "lifecycle_command" in content
+    assert "ux_deployments_active_strategy_mode" in content
+    assert "utc_day_open_equity" in content
+    assert "high_water_mark_equity" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

@@ -16,6 +16,7 @@ from thytrader.execution.models import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime, timedelta
     from uuid import UUID
 
 
@@ -39,8 +40,26 @@ class ExecutionStore(Protocol):
         """Return deployments for one strategy identity, newest-updated first."""
         ...
 
-    async def save_deployment(self, deployment: Deployment) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment."""
+    async def save_deployment(
+        self, deployment: Deployment, *, expected_revision: int | None = None
+    ) -> Deployment:
+        """Replace mutable runtime fields for one existing deployment.
+
+        When ``expected_revision`` is set, reject the write if the stored
+        revision does not match so a stale RUNNING snapshot cannot overwrite
+        a pause or stop.
+        """
+        ...
+
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Acquire or renew a fenced worker lease. None means another holder is current."""
         ...
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
@@ -102,9 +121,23 @@ class DisabledExecutionStore:
         del strategy_id
         return ()
 
-    async def save_deployment(self, deployment: Deployment) -> Deployment:
+    async def save_deployment(
+        self, deployment: Deployment, *, expected_revision: int | None = None
+    ) -> Deployment:
         """Refuse runtime writes without durable storage."""
-        del deployment
+        del deployment, expected_revision
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Refuse lease acquisition without durable storage."""
+        del deployment_id, holder, now, ttl
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:

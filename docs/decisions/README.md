@@ -63,6 +63,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
 | [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted |
 | [0057](0057-atomic-fill-ledger-and-product-isolation.md) | Atomic fill ledger and product isolation | Accepted |
+| [0058](0058-protection-lifecycle-accounting.md) | Verified protection, leases, stop vs flatten, live capital, durable loss baselines | Accepted |
 | [0059](0059-coinbase-list-fills-cursor-pagination.md) | Cursor-terminated Coinbase List Fills with fail-closed parsing | Accepted |
 | [0060](0060-multi-book-deployment-api.md) | Multi-book deployment HTTP, operator books, and product-tagged orders/fills | Accepted |
 | [0061](0061-application-trust-boundary.md) | Application trust boundary: installation Bearer auth, Host/Origin, CSRF session | Accepted |

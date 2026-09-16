@@ -63,6 +63,11 @@ Machine-readable envelope: [operator-report-v1.schema.json](references/operator-
 
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
 `side`, `protection_status`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+`protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
+coverage and venue-visible exits, not inferred parent geometry
+([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). Rows also include
+`lifecycle_command` and breaker latches (`daily_loss_latched`, `drawdown_latched`). Default stop
+is managed shutdown; flatten is explicit (`--flatten` / `?flatten=true`).
 A secondary open book is never implied by the deployment primary `product_id`. For sizes, orders,
 and fills use `thytrader-runtime show` / `GET /api/v1/deployments/{id}` (`positions`,
 `instrument_runtimes`, product-tagged orders/fills, `book_totals`). The singular HTTP `position`

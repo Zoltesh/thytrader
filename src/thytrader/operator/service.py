@@ -1214,7 +1214,7 @@ class OperatorDiagnostics:
         """Map publications onto covered product ids for runtime book rows."""
         try:
             entries = await self.publications.list_published(include_archived=True)
-        except StrategyPublicationError, RuntimeError, TypeError, ValueError:
+        except (StrategyPublicationError, RuntimeError, TypeError, ValueError):
             return {}
         return {
             entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
@@ -1498,6 +1498,22 @@ def _deployment_risk_findings(deployment: Deployment) -> tuple[RiskFinding, ...]
                 detail=deployment.mismatch_detail or "Operator or runtime pause is in effect.",
             )
         )
+    if deployment.daily_loss_latched:
+        findings.append(
+            RiskFinding(
+                reason_code="DAILY_LOSS_LIMIT",
+                deployment_id=deployment.id,
+                detail="Daily-loss breaker is latched until an explicit operator reset.",
+            )
+        )
+    if deployment.drawdown_latched:
+        findings.append(
+            RiskFinding(
+                reason_code="STRATEGY_DRAWDOWN_LIMIT",
+                deployment_id=deployment.id,
+                detail="Drawdown breaker is latched until an explicit operator reset.",
+            )
+        )
     detail = deployment.mismatch_detail
     if not detail:
         return tuple(findings)
@@ -1696,6 +1712,14 @@ def _deployment_summary(
         last_signal=deployment.last_signal,
         books=_book_summaries(
             snapshot, extra_product_ids=extra_product_ids or (deployment.product_id,)
+        ),
+        lifecycle_command=deployment.lifecycle_command.value,
+        daily_loss_latched=deployment.daily_loss_latched,
+        drawdown_latched=deployment.drawdown_latched,
+        revision=deployment.revision,
+        worker_lease_held=bool(
+            deployment.worker_lease_holder is not None
+            and deployment.worker_lease_expires_at is not None
         ),
     )
 

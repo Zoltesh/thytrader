@@ -126,14 +126,16 @@ def set_deployment_status(
     action: str,
     *,
     settings: Settings | None = None,
+    flatten: bool = False,
 ) -> object:
     """Pause, resume, or stop one deployment."""
     if action not in {"pause", "resume", "stop"}:
         raise RuntimeControlError(f"unsupported runtime action: {action}")
     headers = mutation_headers(settings) if settings else None
+    suffix = "?flatten=true" if action == "stop" and flatten else ""
     return request_json(
         method="POST",
-        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}{suffix}",
         extra_headers=headers,
     )
 

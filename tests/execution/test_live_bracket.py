@@ -1,6 +1,6 @@
 """Live venue OCO brackets after fill; paper never submits trigger_bracket."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -211,6 +211,37 @@ async def test_live_open_position_rests_trigger_bracket_oco() -> None:
 
 
 @pytest.mark.anyio
+async def test_paused_replay_still_rests_live_bracket() -> None:
+    """F05/F21: protection still rests when entries are disabled and history is replayed."""
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    broker = _RecordingBroker()
+    snapshot = await _live_open(
+        store,
+        strategy,
+        last_evaluated_bar=_candle(1).starts_at,
+        entered_bar=_candle(1).starts_at,
+        bars_held=1,
+    )
+    paused = replace(snapshot.deployment, status=DeploymentStatus.PAUSED)
+    await store.save_deployment(paused)
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    updated = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=(_candle(0), _candle(1), _candle(2)),
+        broker=broker,
+        store=store,
+        allow_new_entries=False,
+    )
+    assert len(broker.placed) == 1
+    assert broker.placed[0]["kind"] is OrderKind.TRIGGER_BRACKET
+    assert updated.deployment.status is DeploymentStatus.PAUSED
+    assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
+
+
+@pytest.mark.anyio
 async def test_live_short_rests_buy_trigger_bracket() -> None:
     """Unattached live shorts rest a covering BUY OCO, never a second sell."""
     store = InMemoryExecutionStore()
@@ -327,6 +358,25 @@ async def test_attached_live_entry_skips_second_oco() -> None:
         updated_at=now,
     )
     await store.save_order(entry)
+    child = Order(
+        id=uuid7(now),
+        deployment_id=snapshot.deployment.id,
+        intent_id=entry.intent_id,
+        client_order_id="attached-entry:child",
+        side=OrderSide.SELL,
+        kind=OrderKind.TRIGGER_BRACKET,
+        quantity=Decimal("0.01"),
+        price=Decimal("120"),
+        stop_trigger_price=Decimal("90"),
+        take_profit_price=Decimal("120"),
+        status=OrderStatus.OPEN,
+        venue_order_id="attached-child",
+        created_at=now,
+        updated_at=now,
+        parent_order_id=entry.id,
+    )
+    await store.save_order(replace(entry, attached_child_venue_order_id="attached-child"))
+    await store.save_order(child)
     await store.save_fill(
         Fill(
             id=uuid7(now),
@@ -349,8 +399,11 @@ async def test_attached_live_entry_skips_second_oco() -> None:
         store=store,
     )
     assert broker.placed == []
-    assert all(order.kind is not OrderKind.TRIGGER_BRACKET for order in updated.orders)
     assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
+    assert any(
+        order.venue_order_id == "attached-child" and order.status is OrderStatus.OPEN
+        for order in updated.orders
+    )
 
 
 @pytest.mark.anyio

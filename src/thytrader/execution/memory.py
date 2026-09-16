@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta
 from uuid import UUID  # noqa: TC003
 
 from thytrader.execution.fill_ledger import project_fill_economics
@@ -91,12 +92,49 @@ class InMemoryExecutionStore:
         ]
         return tuple(sorted(matching, key=lambda item: item.updated_at, reverse=True))
 
-    async def save_deployment(self, deployment: Deployment) -> Deployment:
+    async def save_deployment(
+        self, deployment: Deployment, *, expected_revision: int | None = None
+    ) -> Deployment:
         """Replace mutable runtime fields for one existing deployment."""
-        if deployment.id not in self.deployments:
+        current = self.deployments.get(deployment.id)
+        if current is None:
             raise ExecutionStoreError("Deployment was not found.")
-        self.deployments[deployment.id] = deployment
-        return deployment
+        if expected_revision is not None and current.revision != expected_revision:
+            raise ExecutionConflictError("Deployment revision conflict.")
+        next_revision = deployment.revision + 1
+        saved = replace(deployment, revision=next_revision)
+        self.deployments[deployment.id] = saved
+        return saved
+
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Acquire or renew a fenced worker lease in process memory."""
+        current = self.deployments.get(deployment_id)
+        if current is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        expires_at = current.worker_lease_expires_at
+        holder_ok = (
+            current.worker_lease_holder is None
+            or expires_at is None
+            or expires_at <= now
+            or current.worker_lease_holder == holder
+        )
+        if not holder_ok:
+            return None
+        saved = replace(
+            current,
+            worker_lease_holder=holder,
+            worker_lease_expires_at=now + ttl,
+            revision=current.revision + 1,
+        )
+        self.deployments[deployment_id] = saved
+        return saved
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission."""
@@ -176,7 +214,8 @@ class InMemoryExecutionStore:
         )
         self.fills[stamped.id] = stamped
         self._applied_fill_keys.add(key)
-        self.deployments[projected.deployment.id] = projected.deployment
+        saved = replace(projected.deployment, revision=projected.deployment.revision + 1)
+        self.deployments[saved.id] = saved
         product_id = order.product_id or projected.deployment.product_id
         if projected.position is not None:
             self.positions[_position_key(deployment_id, product_id)] = projected.position

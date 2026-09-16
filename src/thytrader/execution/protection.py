@@ -1,18 +1,21 @@
 """Observable per-product protection status from a deployment snapshot.
 
-This classification is HTTP/operator-facing. It does not submit orders or change
-runtime state. Paper synthetic stops that are not venue-visible appear
-unprotected until a resting exit or attached bracket is on the snapshot.
+HTTP and operator reports classify cover from verified attached-child tracking
+and venue-visible resting exits. Parent stop/target geometry is never coverage.
+Paper synthetic stops that are not venue-visible appear unprotected.
 """
 
 from __future__ import annotations
 
-from datetime import UTC
 from enum import StrEnum
 
+from thytrader.execution.attached import (
+    attached_entry_covers,
+    child_order_for,
+    filled_attached_entry,
+)
 from thytrader.execution.models import (
     DeploymentSnapshot,
-    Fill,
     IntentPurpose,
     Order,
     OrderKind,
@@ -23,7 +26,6 @@ from thytrader.execution.models import (
 
 _ACTIVE_STATUSES = frozenset({OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.UNKNOWN})
 _WORKING_STATUSES = _ACTIVE_STATUSES
-_ENTRY_KINDS = frozenset({OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE})
 _PROTECTIVE_PURPOSES = frozenset(
     {
         IntentPurpose.STOP,
@@ -49,12 +51,21 @@ def book_protection_status(
     product_id: str,
     position: Position | None,
 ) -> ProtectionStatus:
-    """Classify protection for one product book from persisted orders and intents."""
+    """Classify protection for one product book from persisted orders and intents.
+
+    ``unknown`` is only for unreconciled protective orders. A missing or canceled
+    attached child is ``unprotected``, not ``unknown``.
+    """
     if position is None:
         return ProtectionStatus.FLAT
-    scoped_product = resolved_product_id(product_id or position.product_id, snapshot.deployment)
-    if _attached_entry_covers_product(snapshot, position, scoped_product):
+    if attached_entry_covers(snapshot, position):
+        entry = filled_attached_entry(snapshot, position)
+        if entry is not None:
+            child = child_order_for(snapshot, entry)
+            if child is not None and child.status is OrderStatus.UNKNOWN:
+                return ProtectionStatus.UNKNOWN
         return ProtectionStatus.COVERED
+    scoped_product = resolved_product_id(product_id or position.product_id, snapshot.deployment)
     protective = _protective_orders(snapshot, scoped_product)
     if not protective:
         return ProtectionStatus.UNPROTECTED
@@ -90,57 +101,3 @@ def _protective_orders(snapshot: DeploymentSnapshot, product_id: str) -> tuple[O
         if purpose is not None or order.kind is OrderKind.TRIGGER_BRACKET:
             matching.append(order)
     return tuple(matching)
-
-
-def _attached_entry_covers_product(
-    snapshot: DeploymentSnapshot, position: Position, product_id: str
-) -> bool:
-    """True when a filled attached entry still matches this book's stop and target."""
-    entry = _filled_attached_entry(snapshot, position, product_id)
-    if entry is None:
-        return False
-    child_id = entry.attached_child_venue_order_id
-    if not child_id:
-        return False
-    child = next(
-        (order for order in snapshot.orders if order.venue_order_id == child_id),
-        None,
-    )
-    if child is None or child.status not in {OrderStatus.OPEN, OrderStatus.PENDING}:
-        return False
-    return (
-        child.stop_trigger_price == position.stop_price
-        and child.take_profit_price == position.target_price
-        and child.quantity >= position.quantity
-    )
-
-
-def _filled_attached_entry(
-    snapshot: DeploymentSnapshot, position: Position, product_id: str
-) -> Order | None:
-    """Return the filled entry that opened this product book with bracket prices."""
-    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
-    fills_by_order: dict[object, list[Fill]] = {}
-    for fill in snapshot.fills:
-        fills_by_order.setdefault(fill.order_id, []).append(fill)
-    for order in snapshot.orders:
-        if resolved_product_id(order.product_id, snapshot.deployment) != product_id:
-            continue
-        if order.status is not OrderStatus.FILLED:
-            continue
-        if order.kind not in _ENTRY_KINDS:
-            continue
-        if order.stop_trigger_price is None or order.take_profit_price is None:
-            continue
-        if entry_ids and order.intent_id not in entry_ids:
-            continue
-        order_fills = fills_by_order.get(order.id, ())
-        if any(_fill_opened_position(item, position) for item in order_fills):
-            return order
-    return None
-
-
-def _fill_opened_position(fill: Fill, position: Position) -> bool:
-    """True when this fill is the entry that opened the current position."""
-    entered = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
-    return entered == position.entered_bar and fill.price == position.entry_price

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from thytrader.api.dependencies import (
@@ -287,10 +287,24 @@ async def stop_deployment(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    flatten: Annotated[
+        bool,
+        Query(
+            description=(
+                "When true, marketably exit inventory then cancel remainders. "
+                "Default stop is managed shutdown: keep protective brackets and residual occupancy."
+            )
+        ),
+    ] = False,
 ) -> DeploymentResponse:
-    """Stop a deployment permanently."""
+    """Stop a deployment; default is managed shutdown, not flatten."""
     return await _set_status(
-        store, audit, deployment_id, DeploymentStatus.STOPPED, publication_store
+        store,
+        audit,
+        deployment_id,
+        DeploymentStatus.STOPPED,
+        publication_store,
+        flatten=flatten,
     )
 
 
@@ -300,11 +314,16 @@ async def _set_status(
     deployment_id: UUID,
     status_value: DeploymentStatus,
     publication_store: StrategyPublicationStore,
+    *,
+    flatten: bool = False,
 ) -> DeploymentResponse:
     """Apply one status change and return the resulting snapshot."""
     try:
         snapshot = await set_deployment_status(
-            store=store, deployment_id=deployment_id, status=status_value
+            store=store,
+            deployment_id=deployment_id,
+            status=status_value,
+            flatten=flatten,
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
@@ -380,7 +399,7 @@ async def _covered_products(
         return (deployment.product_id,)
     try:
         published = await loader(fingerprint)
-    except StrategyPublicationError, ExecutionStoreError:
+    except (StrategyPublicationError, ExecutionStoreError):
         return (deployment.product_id,)
     return covered_product_ids(published.definition)
 

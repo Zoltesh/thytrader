@@ -62,7 +62,10 @@ new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, 
 keeps venue-recorded fees.
 
 Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
-`/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md).
+`/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
+**managed shutdown**: protective brackets stay and residual exposure stays in account-level risk
+until the book is flat. Pass `--flatten` only when the operator asked to marketably exit then cancel
+remainders.
 
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with

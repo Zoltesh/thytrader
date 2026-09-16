@@ -6,14 +6,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
-    DeploymentStatus,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
@@ -22,6 +19,11 @@ from thytrader.risk.breakers import (
     EntryObservation,
     evaluate_circuit_breakers,
     evaluate_rate_and_collar,
+)
+from thytrader.risk.exposure import (
+    product_exposure,
+    risk_bearing_snapshots,
+    working_entry_notional,
 )
 from thytrader.risk.models import (
     RiskDecision,
@@ -35,9 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-_OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
-_ACTIVE_ORDER = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,8 +104,9 @@ def evaluate_new_entry(
     occupied = tuple(
         item
         for item in snapshots
-        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
+        if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
+    risk_bearing = risk_bearing_snapshots(snapshots, mode)
     membership = _entry_membership(policy, proposed=proposed, occupied=occupied)
     if membership.decision is RiskDecision.DENY:
         return membership
@@ -113,7 +114,7 @@ def evaluate_new_entry(
         policy,
         mode=mode,
         proposed=proposed,
-        occupied=occupied,
+        occupied=risk_bearing,
         live_quote_cash=live_quote_cash,
     )
     if exposure.decision is RiskDecision.DENY:
@@ -122,7 +123,7 @@ def evaluate_new_entry(
         policy,
         mode=mode,
         proposed=proposed,
-        occupied=occupied,
+        occupied=risk_bearing,
         live_quote_cash=live_quote_cash,
         observation=observation,
     )
@@ -141,7 +142,7 @@ def evaluate_runtime_breakers(
     occupied = tuple(
         item
         for item in snapshots
-        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
+        if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
     existing = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
     capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, existing=existing)
@@ -150,7 +151,7 @@ def evaluate_runtime_breakers(
         mode=mode,
         proposed_product_id=snapshot.deployment.product_id,
         proposed_strategy_id=snapshot.deployment.strategy_id,
-        snapshots=occupied,
+        snapshots=risk_bearing_snapshots(snapshots, mode),
         observation=observation,
         capital=capital,
     )
@@ -276,7 +277,7 @@ def _exposure_verdict(
     """Compare proposed plus existing marked exposure to portfolio and product caps."""
     existing_total = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
     existing_product = sum(
-        (_product_exposure(item, proposed.product_id) for item in occupied),
+        (product_exposure(item, proposed.product_id) for item in occupied),
         Decimal("0"),
     )
     capital = _capital_base(
@@ -359,52 +360,27 @@ def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> D
 
 def _occupied(deployments: Sequence[Deployment], mode: DeploymentMode) -> tuple[Deployment, ...]:
     """Return running and paused deployments in one mode."""
-    return tuple(item for item in deployments if item.mode is mode and item.status in _OCCUPIED)
-
-
-def _product_exposure(snapshot: DeploymentSnapshot, product_id: str) -> Decimal:
-    """Approximate quote exposure on one Coinbase USD spot product."""
-    total = Decimal("0")
-    for position in snapshot_positions(snapshot):
-        if resolved_product_id(position.product_id, snapshot.deployment) == product_id:
-            total += position.quantity * position.entry_price
-    if total > 0:
-        return total
-    return _working_entry_notional(snapshot, product_id)
+    return tuple(item for item in deployments if item.mode is mode and occupies_running_slot(item))
 
 
 def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Approximate quote exposure from open books or working entries."""
+    """Approximate quote exposure from open books plus every working remainder."""
     books = snapshot_positions(snapshot)
     total = sum((item.quantity * item.entry_price for item in books), Decimal("0"))
-    occupied = {resolved_product_id(item.product_id, snapshot.deployment) for item in books}
     if snapshot.instrument_runtimes:
         for runtime in snapshot.instrument_runtimes:
-            if runtime.product_id not in occupied and runtime.phase in _IN_MARKET:
-                total += _working_entry_notional(snapshot, runtime.product_id)
+            if runtime.phase in _IN_MARKET:
+                total += working_entry_notional(snapshot, runtime.product_id)
         return total
     if books:
+        for position in books:
+            product_id = resolved_product_id(position.product_id, snapshot.deployment)
+            total += working_entry_notional(snapshot, product_id)
         return total
     if snapshot.position is not None:
-        return snapshot.position.quantity * snapshot.position.entry_price
-    return _working_entry_notional(snapshot, snapshot.deployment.product_id)
-
-
-def _working_entry_notional(snapshot: DeploymentSnapshot, product_id: str) -> Decimal:
-    """Return remaining quote on a working non-bracket order for one product."""
-    for order in snapshot.orders:
-        if order.status not in _ACTIVE_ORDER or order.price is None:
-            continue
-        if resolved_product_id(order.product_id, snapshot.deployment) not in {"", product_id}:
-            continue
-        remaining = order.quantity - order.filled_quantity
-        if remaining <= 0:
-            continue
-        if order.kind is OrderKind.TRIGGER_BRACKET:
-            continue
-        if order.side is OrderSide.BUY or order.side is OrderSide.SELL:
-            return remaining * order.price
-    return Decimal("0")
+        position_total = snapshot.position.quantity * snapshot.position.entry_price
+        return position_total + working_entry_notional(snapshot, snapshot.deployment.product_id)
+    return working_entry_notional(snapshot, snapshot.deployment.product_id)
 
 
 def _paper_committed(occupied: Sequence[Deployment]) -> Decimal:
@@ -423,12 +399,12 @@ def _capital_base(
     live_quote_cash: Decimal | None,
     existing: Decimal,
 ) -> Decimal:
-    """Paper uses the policy book; live uses remaining quote plus current exposure."""
+    """Paper uses the policy book; live uses allocated or initial equity, never venue+cash mix."""
     if mode is DeploymentMode.PAPER:
         return Decimal(policy.paper_capital_quote)
-    if live_quote_cash is None or live_quote_cash < 0:
+    if live_quote_cash is None or live_quote_cash <= 0:
         return Decimal("0")
-    return live_quote_cash + existing
+    return live_quote_cash
 
 
 def _allow() -> RiskVerdict:

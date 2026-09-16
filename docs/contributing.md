@@ -57,8 +57,11 @@ teach this to the `ops/` workspace. Details:
   USD spot documents and intra-strategy pyramiding),
   [ADR 0057](decisions/0057-atomic-fill-ledger-and-product-isolation.md) (atomic fill ledger and
   product isolation),
+  [ADR 0058](decisions/0058-protection-lifecycle-accounting.md) (protection lifecycle, leases, live
+  capital),
   [ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md) (cursor-terminated Coinbase
   List Fills with fail-closed parsing),
+  [ADR 0060](decisions/0060-multi-book-deployment-api.md) (multi-book deployment inventory),
   [ADR 0061](decisions/0061-application-trust-boundary.md) (application trust boundary),
   [ADR 0062](decisions/0062-research-paper-semantics-audit-stage-4.md) (v4 causal maker engine and
   research/paper semantics),

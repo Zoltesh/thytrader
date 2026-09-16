@@ -7,13 +7,15 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
+from thytrader.execution.capital import daily_pnl_from_day_open
+from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,
     IntentPurpose,
     OrderStatus,
 )
+from thytrader.risk.exposure import snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
 if TYPE_CHECKING:
@@ -48,6 +50,9 @@ def evaluate_circuit_breakers(
 ) -> RiskVerdict | None:
     """Return a deny when daily-loss or per-strategy drawdown is at the limit."""
     occupied = _occupied_mode(snapshots, mode)
+    latched = _latched_verdict(occupied)
+    if latched is not None:
+        return latched
     daily = _daily_loss_verdict(policy, occupied=occupied, observation=observation, capital=capital)
     if daily is not None:
         return daily
@@ -80,6 +85,21 @@ def breaker_pause_detail(reason_code: RiskReasonCode, detail: str) -> str:
     return f"{reason_code.value}: {detail}"
 
 
+def _latched_verdict(occupied: Sequence[DeploymentSnapshot]) -> RiskVerdict | None:
+    """Replay a previously latched daily-loss or drawdown breach until explicit reset."""
+    if any(item.deployment.daily_loss_latched for item in occupied):
+        return _deny(
+            RiskReasonCode.DAILY_LOSS_LIMIT,
+            "Daily-loss breaker is latched until an explicit operator reset.",
+        )
+    if any(item.deployment.drawdown_latched for item in occupied):
+        return _deny(
+            RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT,
+            "Drawdown breaker is latched until an explicit operator reset.",
+        )
+    return None
+
+
 def _daily_loss_verdict(
     policy: RiskPolicyDefinition,
     *,
@@ -87,7 +107,7 @@ def _daily_loss_verdict(
     observation: EntryObservation,
     capital: Decimal,
 ) -> RiskVerdict | None:
-    """Trip when UTC-day realized plus unrealized loss reaches the capital fraction."""
+    """Trip when UTC-day equity change from day-open reaches the capital fraction."""
     if capital <= 0:
         return None
     loss = _mode_daily_loss(occupied, observation)
@@ -130,9 +150,12 @@ def _drawdown_verdict(
             "Drawdown cannot be computed without a last-close mark on open inventory.",
         )
     ledger = ledger_from_snapshot(target, mark_price=mark)
-    fraction = ledger.maximum_drawdown_fraction
-    if fraction is None:
-        fraction = Decimal("0")
+    if not ledger.mark_complete or ledger.equity is None:
+        return _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            "Drawdown cannot be computed without a last-close mark on open inventory.",
+        )
+    fraction = _durable_drawdown_fraction(target, equity=ledger.equity)
     if fraction < Decimal(policy.max_strategy_drawdown_fraction):
         return None
     return _deny(
@@ -258,15 +281,18 @@ def _mode_daily_loss(
 def _daily_pnl(
     snapshot: DeploymentSnapshot, *, mark: Decimal | None, day_start: datetime
 ) -> Decimal | None:
-    """Return this book's UTC-day realized plus current unrealized PnL."""
+    """Return UTC-day equity change from day-open, not realized-today plus lifetime unrealized."""
+    del day_start
     ledger = ledger_from_snapshot(snapshot, mark_price=mark)
     if not ledger.mark_complete:
         return None
-    realized_today = realized_pnl_since(snapshot, since=day_start)
-    unrealized = ledger.unrealized_net_pnl
-    if unrealized is None:
-        unrealized = Decimal("0")
-    return realized_today + unrealized
+    pnl = daily_pnl_from_day_open(snapshot.deployment, equity=ledger.equity)
+    if pnl is not None:
+        return pnl
+    starting = snapshot.deployment.initial_equity or snapshot.deployment.paper_starting_cash
+    if starting is None:
+        return None
+    return ledger.equity - starting
 
 
 def _drawdown_target(
@@ -285,15 +311,33 @@ def _drawdown_target(
     return next((item for item in occupied if item.deployment.product_id == product_id), None)
 
 
+def _durable_drawdown_fraction(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal:
+    """Return peak-to-current drawdown using the persisted high-water mark."""
+    high_water = snapshot.deployment.high_water_mark_equity
+    if high_water is None:
+        high_water = snapshot.deployment.initial_equity or snapshot.deployment.paper_starting_cash
+    peak = equity if high_water is None else max(high_water, equity)
+    if peak <= 0:
+        return Decimal("0")
+    return (peak - equity) / peak
+
+
 def _occupied_mode(
     snapshots: Sequence[DeploymentSnapshot], mode: DeploymentMode
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Return running and paused snapshots in one paper or live mode."""
-    return tuple(
-        item
-        for item in snapshots
-        if item.deployment.status in _OCCUPIED and item.deployment.mode is mode
-    )
+    """Return risk-bearing snapshots in one paper or live mode, including STOPPED residual."""
+    occupied: list[DeploymentSnapshot] = []
+    for item in snapshots:
+        if item.deployment.mode is not mode:
+            continue
+        if item.deployment.status in _OCCUPIED:
+            occupied.append(item)
+            continue
+        if item.deployment.status is DeploymentStatus.STOPPED and snapshot_has_residual_exposure(
+            item
+        ):
+            occupied.append(item)
+    return tuple(occupied)
 
 
 def _utc_day_start(moment: datetime) -> datetime:

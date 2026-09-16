@@ -483,6 +483,21 @@ deployments = Table(
     Column("revision", Integer(), nullable=False, server_default="0"),
     Column("worker_lease_holder", String(128), nullable=True),
     Column("worker_lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("lifecycle_command", String(32), nullable=False, server_default="none"),
+    Column("allocated_capital", String(64), nullable=True),
+    Column("venue_available_quote", String(64), nullable=True),
+    Column("reserved_buying_power", String(64), nullable=True),
+    Column("inventory_cost", String(64), nullable=True),
+    Column("performance_equity", String(64), nullable=True),
+    Column("initial_equity", String(64), nullable=True),
+    Column("baseline_equity", String(64), nullable=True),
+    Column("utc_day_open_equity", String(64), nullable=True),
+    Column("utc_day_open_at", DateTime(timezone=True), nullable=True),
+    Column("high_water_mark_equity", String(64), nullable=True),
+    Column("daily_loss_latched", Boolean(), nullable=False, server_default="false"),
+    Column("drawdown_latched", Boolean(), nullable=False, server_default="false"),
+    Column("last_signal_event_at", DateTime(timezone=True), nullable=True),
+    Column("last_signal_processed_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
@@ -524,10 +539,22 @@ deployments = Table(
         ")",
         name="ck_deployments_paper_fee_rates",
     ),
+    CheckConstraint(
+        "lifecycle_command IN ('none', 'stop_new_entries', 'flatten', 'managed_shutdown')",
+        name="ck_deployments_lifecycle_command",
+    ),
 )
 
 Index("ix_deployments_strategy_updated", deployments.c.strategy_id, deployments.c.updated_at.desc())
 Index("ix_deployments_status_updated", deployments.c.status, deployments.c.updated_at.desc())
+Index(
+    "ux_deployments_active_strategy_mode",
+    deployments.c.strategy_id,
+    deployments.c.mode,
+    unique=True,
+    postgresql_where=deployments.c.strategy_id.is_not(None)
+    & deployments.c.status.in_(("running", "paused")),
+)
 
 order_intents = Table(
     "order_intents",

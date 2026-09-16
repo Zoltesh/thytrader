@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
+    ExecutionStoreError,
     Fill,
     InstrumentRuntime,
     Order,
@@ -22,6 +23,7 @@ from thytrader.execution.models import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from thytrader.execution.store import ExecutionStore
@@ -129,8 +131,10 @@ class InstrumentScopedStore:
         """Return deployments for one strategy identity, newest-updated first."""
         return await self._inner.list_by_strategy(strategy_id)
 
-    async def save_deployment(self, deployment: Deployment) -> Deployment:
-        """Persist this product's runtime overlay and shared cash/status."""
+    async def save_deployment(
+        self, deployment: Deployment, *, expected_revision: int | None = None
+    ) -> Deployment:
+        """Persist this product's runtime overlay and shared cash/status/capital."""
         current = await self._inner.get_deployment(deployment.id)
         runtime = runtime_from_deployment(deployment, self._product_id)
         await self._inner.save_instrument_runtime(runtime, deployment_id=deployment.id)
@@ -147,10 +151,43 @@ class InstrumentScopedStore:
             mismatch_detail=deployment.mismatch_detail,
             last_signal=deployment.last_signal,
             phase=aggregate_phase(tuple(runtimes)),
+            lifecycle_command=deployment.lifecycle_command,
+            allocated_capital=deployment.allocated_capital,
+            venue_available_quote=deployment.venue_available_quote,
+            reserved_buying_power=deployment.reserved_buying_power,
+            inventory_cost=deployment.inventory_cost,
+            performance_equity=deployment.performance_equity,
+            initial_equity=deployment.initial_equity,
+            baseline_equity=deployment.baseline_equity,
+            utc_day_open_equity=deployment.utc_day_open_equity,
+            utc_day_open_at=deployment.utc_day_open_at,
+            high_water_mark_equity=deployment.high_water_mark_equity,
+            daily_loss_latched=deployment.daily_loss_latched,
+            drawdown_latched=deployment.drawdown_latched,
+            last_signal_event_at=deployment.last_signal_event_at,
+            last_signal_processed_at=deployment.last_signal_processed_at,
+            worker_lease_holder=deployment.worker_lease_holder,
+            worker_lease_expires_at=deployment.worker_lease_expires_at,
+            revision=deployment.revision,
             updated_at=deployment.updated_at,
         )
-        await self._inner.save_deployment(parent)
-        return deployment
+        saved = await self._inner.save_deployment(parent, expected_revision=expected_revision)
+        return replace(deployment, revision=saved.revision)
+
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Acquire or renew a fenced worker lease on the inner store."""
+        acquire = getattr(self._inner, "acquire_worker_lease", None)
+        if acquire is None:
+            snapshot = await self._inner.get_deployment(deployment_id)
+            return snapshot.deployment
+        return await acquire(deployment_id, holder=holder, now=now, ttl=ttl)
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Stamp this product id onto one intent before insert."""
@@ -165,6 +202,28 @@ class InstrumentScopedStore:
     async def save_fill(self, fill: Fill) -> Fill:
         """Insert one fill, ignoring exact venue-fill duplicates."""
         return await self._inner.save_fill(fill)
+
+    async def apply_fill_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        fill: Fill,
+        order: Order,
+        cooldown_bars: int = 0,
+        timeframe: str | None = None,
+    ) -> tuple[bool, DeploymentSnapshot]:
+        """Apply fill economics on the inner store, then overlay this product."""
+        apply = getattr(self._inner, "apply_fill_transaction", None)
+        if apply is None:
+            raise ExecutionStoreError("Execution storage cannot apply fill transactions.")
+        applied, snapshot = await apply(
+            deployment_id,
+            fill=fill,
+            order=order,
+            cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
+        )
+        return applied, overlay_snapshot(snapshot, self._product_id)
 
     async def save_position(
         self,

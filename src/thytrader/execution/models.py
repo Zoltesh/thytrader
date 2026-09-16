@@ -91,6 +91,22 @@ class IntentPurpose(StrEnum):
     BRACKET = "bracket"
 
 
+class LifecycleCommand(StrEnum):
+    """Operator command that is distinct from the visible running/paused/stopped status.
+
+    A STOPPED book is not operationally terminal until inventory and orders are
+    settled or explicitly transferred. ``STOP_NEW_ENTRIES`` is pause. ``FLATTEN``
+    marketably exits then cancels remainders. ``MANAGED_SHUTDOWN`` (default HTTP
+    stop) cancels risk-increasing entries, keeps protective brackets, and keeps
+    residual occupancy in account-level risk until the book is flat.
+    """
+
+    NONE = "none"
+    STOP_NEW_ENTRIES = "stop_new_entries"
+    FLATTEN = "flatten"
+    MANAGED_SHUTDOWN = "managed_shutdown"
+
+
 class ExecutionStoreError(RuntimeError):
     """Signal that durable execution storage is disabled or unavailable."""
 
@@ -210,6 +226,21 @@ class Deployment:
     revision: int = 0
     worker_lease_holder: str | None = None
     worker_lease_expires_at: datetime | None = None
+    lifecycle_command: LifecycleCommand = LifecycleCommand.NONE
+    allocated_capital: Decimal | None = None
+    venue_available_quote: Decimal | None = None
+    reserved_buying_power: Decimal | None = None
+    inventory_cost: Decimal | None = None
+    performance_equity: Decimal | None = None
+    initial_equity: Decimal | None = None
+    baseline_equity: Decimal | None = None
+    utc_day_open_equity: Decimal | None = None
+    utc_day_open_at: datetime | None = None
+    high_water_mark_equity: Decimal | None = None
+    daily_loss_latched: bool = False
+    drawdown_latched: bool = False
+    last_signal_event_at: datetime | None = None
+    last_signal_processed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +295,11 @@ def with_runtime(
     pending_target_price: Decimal | None = None,
     clear_pending_levels: bool = False,
     status: DeploymentStatus | None = None,
+    lifecycle_command: LifecycleCommand | None = None,
+    daily_loss_latched: bool | None = None,
+    drawdown_latched: bool | None = None,
+    last_signal_event_at: datetime | None = None,
+    last_signal_processed_at: datetime | None = None,
 ) -> Deployment:
     """Return a copy with updated runtime fields, leaving omitted values unchanged."""
     stop_price = (
@@ -306,6 +342,25 @@ def with_runtime(
         pending_stop_price=stop_price,
         pending_target_price=target_price,
         status=deployment.status if status is None else status,
+        lifecycle_command=(
+            deployment.lifecycle_command if lifecycle_command is None else lifecycle_command
+        ),
+        daily_loss_latched=(
+            deployment.daily_loss_latched if daily_loss_latched is None else daily_loss_latched
+        ),
+        drawdown_latched=(
+            deployment.drawdown_latched if drawdown_latched is None else drawdown_latched
+        ),
+        last_signal_event_at=(
+            deployment.last_signal_event_at
+            if last_signal_event_at is None
+            else last_signal_event_at
+        ),
+        last_signal_processed_at=(
+            deployment.last_signal_processed_at
+            if last_signal_processed_at is None
+            else last_signal_processed_at
+        ),
         updated_at=updated_at,
     )
 

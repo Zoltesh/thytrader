@@ -12,12 +12,20 @@ from thytrader.execution.fill_ledger import (
     replay_unapplied_fills,
 )
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.models import DeploymentStatus, Fill, OrderStatus, with_runtime
+from thytrader.execution.models import (
+    DeploymentStatus,
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    with_runtime,
+)
 from thytrader.execution.overlay import overlay_snapshot
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import Broker
-    from thytrader.execution.models import DeploymentSnapshot, Order
+    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
 
 _WATCH = {
@@ -55,6 +63,9 @@ async def reconcile_open_orders(
         snapshot = _merge_overlay(snapshot, scoped, order_product)
         if snapshot.deployment.status is DeploymentStatus.PAUSED:
             return snapshot
+    snapshot = await _import_attached_children(
+        snapshot, broker=broker, store=store, product_id=product_id, cooldown_bars=cooldown_bars
+    )
     return await store.get_deployment(snapshot.deployment.id)
 
 
@@ -177,4 +188,58 @@ async def _ingest_fills(
             cooldown_bars=cooldown_bars,
         )
         current = result.snapshot
+    return current
+
+
+async def _import_attached_children(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str | None,
+    cooldown_bars: int,
+) -> DeploymentSnapshot:
+    """Persist and reconcile attached child venue orders that are not local yet."""
+    known_venues = {order.venue_order_id for order in snapshot.orders if order.venue_order_id}
+    current = snapshot
+    for order in tuple(snapshot.orders):
+        child_id = order.attached_child_venue_order_id
+        if not child_id or child_id in known_venues:
+            continue
+        result = await broker.get_order(venue_order_id=child_id, client_order_id="")
+        child = Order(
+            id=uuid7(utc_now()),
+            deployment_id=order.deployment_id,
+            intent_id=order.intent_id,
+            client_order_id=f"{order.client_order_id}:child"[:128],
+            side=OrderSide.SELL if order.side is OrderSide.BUY else OrderSide.BUY,
+            kind=OrderKind.TRIGGER_BRACKET,
+            quantity=order.quantity,
+            price=order.take_profit_price,
+            stop_trigger_price=order.stop_trigger_price,
+            take_profit_price=order.take_profit_price,
+            status=result.status,
+            created_at=utc_now(),
+            updated_at=utc_now(),
+            venue_order_id=result.venue_order_id or child_id,
+            filled_quantity=result.filled_quantity,
+            product_id=order.product_id or product_id or snapshot.deployment.product_id,
+            parent_order_id=order.id,
+        )
+        await store.save_order(child)
+        known_venues.add(child.venue_order_id)
+        current = await store.get_deployment(order.deployment_id)
+        order_product = child.product_id or product_id or snapshot.deployment.product_id
+        remote_fills = await broker.list_fills(
+            product_id=order_product, order_id=child.venue_order_id
+        )
+        known_fills = {fill.venue_fill_id for fill in current.fills}
+        current = await _ingest_fills(
+            current,
+            order=child,
+            remote_fills=remote_fills,
+            store=store,
+            known=known_fills,
+            cooldown_bars=cooldown_bars,
+        )
     return current

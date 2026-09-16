@@ -407,6 +407,41 @@ def test_missing_mark_on_open_inventory_fails_closed() -> None:
     assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
 
 
+def test_latched_daily_loss_survives_stop_until_reset() -> None:
+    """F13: a latched daily-loss breach stays denied even after the book is STOPPED."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"daily_loss_limit_fraction": "0.001"}
+    )
+    stopped = replace(
+        _deployment(),
+        status=DeploymentStatus.STOPPED,
+        daily_loss_latched=True,
+        phase=RuntimePhase.OPEN,
+    )
+    snapshot = DeploymentSnapshot(
+        deployment=stopped,
+        orders=(),
+        fills=(),
+        position=Position(
+            deployment_id=stopped.id,
+            quantity=Decimal("1"),
+            entry_price=Decimal("100"),
+            stop_price=Decimal("90"),
+            target_price=Decimal("120"),
+            entered_bar=_NOW,
+            updated_at=_NOW,
+        ),
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        observation=_observation(),
+    )
+    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+
+
 def test_legacy_stored_json_overlays_breaker_defaults() -> None:
     """Phase 10 documents without breaker keys must load the compiled defaults."""
     raw = (
