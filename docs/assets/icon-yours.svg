@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Your trader">
+  <rect width="160" height="160" rx="40" fill="#2a0830"/>
+  <rect x="6" y="6" width="148" height="148" rx="36" fill="none" stroke="#f0a202" stroke-width="3"/>
+  <path fill="#f5c542" d="M80 16l16 12 18-5-2 20 14 14-20 5-7 18-19-9-19 9-7-18-20-5 14-14-2-20 18 5z"/>
+  <circle cx="80" cy="38" r="8" fill="#2a0830"/>
+  <rect x="73" y="74" width="14" height="50" rx="5" fill="#5ce1b5"/>
+  <circle cx="80" cy="74" r="12" fill="#5ce1b5"/>
+  <circle cx="80" cy="74" r="5" fill="#2a0830"/>
+  <path fill="none" stroke="#ff2d95" stroke-width="6" stroke-linecap="round" d="M80 124c22 0 34-12 34-12"/>
+</svg>

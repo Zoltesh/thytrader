@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ThyTrader mark">
+  <rect width="64" height="64" rx="16" fill="#5ce1b5"/>
+  <rect x="3" y="3" width="58" height="58" rx="14" fill="none" stroke="#ff2d95" stroke-width="3"/>
+  <path fill="#07100e" d="M16 14h32v9H37v27h-10V23H16z"/>
+</svg>
