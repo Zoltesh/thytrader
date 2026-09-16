@@ -65,8 +65,9 @@ Rules:
   Eligibility binds and fingerprints both datasets. HTF coverage is last-completed bars plus HTF
   warmup; HTF datasets do not need a next-open fill candle.
 - Research engines V1, V2, and V3 share the signal stage and therefore consume `htf_filter`. Paper
-  and live reject published strategies that declare `htf_filter` rather than evaluating LTF-only or
-  inventing HTF candles. 5m live remains Phase 13.
+  and live originally rejected those publications rather than evaluating LTF-only or inventing HTF
+  candles. [ADR 0041](0041-paper-live-htf-filter-evaluation.md) later bound the same last-completed
+  HTF bars in paper and live.
 
 This extends ADR 0005. It does not supersede it, widen the indicator catalog, add positions, or treat
 `15m`/`30m`/`6h`/`1d` as LTF, paper, or live clocks.
@@ -77,9 +78,9 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
   version for research.
 - Canonical strategy and research-run identity now include the HTF definition and HTF dataset when
   present, without rewriting historical single-TF bytes.
-- Paper/live remain single-clock until a later slice binds HTF candles in the execution worker.
-- Support matrices must list research V1/V2/V3 as supporting HTF filters and paper/live as rejecting
-  them.
+- Paper and live evaluate the same last-completed HTF bars
+  ([ADR 0041](0041-paper-live-htf-filter-evaluation.md)).
+- Support matrices list research V1/V2/V3 and paper/live as evaluating last-completed HTF bars.
 - The indicator catalog later gained `highest`, `lowest`, and `stdev` ([ADR 0026](0026-phase-9-single-output-indicator-catalog.md)),
   `roc`, `williams_r`, and `cci` ([ADR 0027](0027-phase-9-roc-williams-cci.md)),
   `identity` and `constant` ([ADR 0028](0028-phase-9-identity-constant.md)), and
@@ -87,8 +88,8 @@ This extends ADR 0005. It does not supersede it, widen the indicator catalog, ad
   `bollinger` ([ADR 0032](0032-phase-9-macd-bollinger.md))
   without changing HTF alignment or adding per-indicator timeframes.
 - [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) later widened LTF and HTF tokens to every
-  ingested venue clock. Alignment, last-completed HTF bars, and paper/live rejection of `htf_filter`
-  stay as decided here.
+  ingested venue clock. Alignment and last-completed HTF bars stay as decided here.
+  [ADR 0041](0041-paper-live-htf-filter-evaluation.md) later bound those bars in paper and live.
 
 ## Alternatives considered
 

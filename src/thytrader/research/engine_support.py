@@ -46,10 +46,7 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 v1=True,
                 v2=True,
                 v3=True,
-                note=(
-                    "Research V1/V2/V3 evaluate last completed HTF bars only; "
-                    "paper and live reject htf_filter"
-                ),
+                note=("Research V1/V2/V3 and paper/live evaluate last completed HTF bars only"),
             ),
             EngineSupportRow(
                 label="Entry conditions (ALL / ANY / NOT, comparisons, crossovers)",
@@ -68,8 +65,8 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 v2=True,
                 v3=True,
                 note=(
-                    "exact Decimal arithmetic; paper/live share the LTF catalog; "
-                    "HTF kinds only inside research htf_filter; "
+                    "exact Decimal arithmetic; paper/live share the LTF catalog and "
+                    "evaluate HTF kinds inside htf_filter; "
                     "MACD/Bollinger conditions use series ids"
                 ),
             ),

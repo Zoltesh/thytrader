@@ -84,7 +84,7 @@ export function plainEnglishSummary(model: BuilderModel): string {
 export function requiredDataText(model: BuilderModel): string {
 	const decision = `${model.warmup_bars} completed ${model.timeframe} bars (OHLCV) before the first signal.`;
 	if (model.htf_filter === null) return decision;
-	return `${decision} Also ${model.htf_filter.warmup_bars} completed ${model.htf_filter.timeframe} HTF bars, using only the last completed HTF bar at each LTF close. Paper and live reject HTF-filter strategies.`;
+	return `${decision} Also ${model.htf_filter.warmup_bars} completed ${model.htf_filter.timeframe} HTF bars, using only the last completed HTF bar at each LTF close. Research, paper, and live share that alignment.`;
 }
 
 const INDICATOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
@@ -511,7 +511,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'Research V1/V2/V3 evaluate last completed HTF bars only; paper and live reject htf_filter'
+		note: 'Research V1/V2/V3 and paper/live evaluate last completed HTF bars only'
 	},
 	{
 		label: 'Entry conditions (ALL / ANY / NOT, comparisons, crossovers)',
@@ -526,7 +526,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'exact Decimal arithmetic; paper/live share the LTF catalog; HTF kinds only inside research htf_filter; MACD/Bollinger conditions use series ids'
+		note: 'exact Decimal arithmetic; paper/live share the LTF catalog and evaluate HTF kinds inside htf_filter; MACD/Bollinger conditions use series ids'
 	},
 	{
 		label: 'Per-indicator timeframes',

@@ -50,7 +50,7 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
-| Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Venue LTF/HTF tokens widened by ADR 0040. Paper/live still reject `htf_filter`. Per-indicator timeframes remain later |
+| Multi-timeframe | Research, paper, and live evaluate HTF filter + LTF entry (ADR 0025, ADR 0041). Venue LTF/HTF tokens widened by ADR 0040. Per-indicator timeframes remain later |
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |

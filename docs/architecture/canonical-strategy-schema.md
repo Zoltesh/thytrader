@@ -24,7 +24,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   resolution, and warmup validation;
 - every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
   backtests, paper, and live; long only, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
-- optional `htf_filter` (ADR 0025) for research V1/V2/V3: HTF `when` AND-ed with LTF entry using the last completed HTF bar; paper and live reject that block;
+- optional `htf_filter` (ADR 0025, ADR 0041) for research V1/V2/V3, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
   preferences;
@@ -42,8 +42,9 @@ association, not permanent consumability; every binding load re-verifies both ex
 Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
 API/UI, immutable strategy publication, completed reproducible backtest results (including
 `thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed venue bars,
-and optional ATR-multiple trailing stops. Not yet implemented: other sizing/stop/trailing variants,
-richer human summaries, or paper/live evaluation of `htf_filter`. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+and optional ATR-multiple trailing stops. Paper and live evaluate `htf_filter` on last-completed
+complete-only HTF bars. Not yet implemented: other sizing/stop/trailing variants or richer human
+summaries. Published `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
@@ -260,8 +261,10 @@ the strategy fingerprint. No condition reordering or boolean-algebra simplificat
 
 ## Higher-timeframe filter
 
-Optional `htf_filter` is the Phase 8 research slice ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
-It is not a second decision clock and not a paper/live clock.
+Optional `htf_filter` is the Phase 8 filter plus paper/live evaluation
+([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md),
+[ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)).
+It is not a second decision clock.
 
 ```json
 {
@@ -294,7 +297,7 @@ It is not a second decision clock and not a paper/live clock.
 | Combined signal | Tri-state AND of HTF `when` and LTF `entry.when` |
 | Alignment | At LTF close `T`, use the last HTF bar whose exclusive close is `≤ T`. Never a partial HTF bar. Same-close HTF bars are eligible. |
 | Research | `dataset_fingerprint` is LTF; `htf_dataset_fingerprint` is required, distinct, and bound |
-| Paper / live | Reject the published strategy. Do not ignore the filter. |
+| Paper / live | Evaluate last-completed complete-only HTF bars. Do not ignore the filter. Missing HTF coverage pauses. |
 
 `1m` cannot be HTF (nothing in the catalog is finer). `4h` LTF may use `1d` only (`6h` is not an integer multiple).
 

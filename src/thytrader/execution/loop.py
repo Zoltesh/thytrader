@@ -28,6 +28,8 @@ from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named
 from thytrader.execution.sizing import size_long_entry
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trailing import ratcheted_long_stop
+from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
+from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, compiled_default_risk_policy
@@ -56,6 +58,7 @@ async def process_closed_bar(
     store: ExecutionStore,
     risk_policy: RiskPolicyDefinition | None = None,
     portfolio: Sequence[DeploymentSnapshot] = (),
+    htf_candles: Sequence[Candle] = (),
 ) -> DeploymentSnapshot:
     """Advance one running or paused deployment by exactly one newly closed candle."""
     if snapshot.deployment.status is DeploymentStatus.STOPPED or not candles:
@@ -105,6 +108,7 @@ async def process_closed_bar(
             store=store,
             risk_policy=risk_policy or compiled_default_risk_policy(),
             portfolio=portfolio,
+            htf_candles=htf_candles,
         )
     return await _persist_runtime(
         snapshot,
@@ -703,6 +707,7 @@ async def _maybe_enter(
     store: ExecutionStore,
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
+    htf_candles: Sequence[Candle] = (),
 ) -> DeploymentSnapshot:
     """Place a post-only buy when flat, off cooldown, and the entry condition matches."""
     deployment = snapshot.deployment
@@ -710,7 +715,18 @@ async def _maybe_enter(
         return snapshot
     if deployment.status is not DeploymentStatus.RUNNING:
         return snapshot
-    outcome = evaluate_latest_entry(strategy, candles)
+    visible_htf = htf_candles
+    htf_filter = strategy.htf_filter
+    if htf_filter is not None:
+        visible_htf = htf_bars_closed_at_or_before(
+            htf_candles,
+            close_at=ltf_close(candle.starts_at, strategy.timeframe),
+            htf_timeframe=htf_filter.timeframe,
+        )
+    try:
+        outcome = evaluate_latest_entry(strategy, candles, visible_htf)
+    except SignalEvaluationError as error:
+        return await _pause(snapshot, store=store, detail=str(error))
     signaled = with_runtime(deployment, updated_at=utc_now(), last_signal=outcome.value)
     await store.save_deployment(signaled)
     snapshot = await store.get_deployment(deployment.id)

@@ -89,13 +89,13 @@ def evaluate_signal_trace(
             continue
         previous_values = indicator_rows[index - 1] if index else None
         ltf_outcome = _condition_outcome(strategy.entry.when, values, previous_values)
-        htf_outcome, htf_values = _htf_filter_outcome(
+        htf_outcome, htf_values = htf_filter_outcome(
             strategy,
             candle,
             previous_ltf_start=_previous_ltf_start(engine_candles, index),
             htf_rows=htf_rows,
         )
-        outcome = _and_outcomes(ltf_outcome, htf_outcome)
+        outcome = and_entry_outcomes(ltf_outcome, htf_outcome)
         records.append(
             SignalTraceRecord(
                 candle_starts_at=candle.starts_at,
@@ -136,7 +136,7 @@ def _canonical_optional(value: Decimal | None) -> str | None:
     return None if value is None else canonical_decimal(value)
 
 
-def _and_outcomes(
+def and_entry_outcomes(
     left: EntryConditionOutcome, right: EntryConditionOutcome
 ) -> EntryConditionOutcome:
     """AND two tri-state outcomes without turning undefined into a match."""
@@ -154,30 +154,24 @@ def _previous_ltf_start(engine_candles: Sequence[Candle], index: int) -> datetim
     return engine_candles[index - 1].starts_at
 
 
-def _htf_indicator_rows(
-    specification: ResearchRunSpecification,
+def calculate_htf_indicator_rows(
     strategy: StrategyDefinition,
     htf_candles: Sequence[Candle],
+    *,
+    evaluation_starts_at: datetime,
+    evaluation_ends_at: datetime,
 ) -> dict[datetime, Mapping[str, Decimal | None]]:
     """Calculate HTF indicators on required closed HTF bars, or an empty map."""
     htf_filter = strategy.htf_filter
     if htf_filter is None:
         if htf_candles:
             raise SignalEvaluationError("HTF candles were supplied without an HTF filter.")
-        if specification.htf_dataset_fingerprint is not None:
-            raise SignalEvaluationError(
-                "Research run HTF dataset is not declared by the published strategy."
-            )
         return {}
-    if specification.htf_dataset_fingerprint is None:
-        raise SignalEvaluationError(
-            "Research run HTF dataset fingerprint is required for an HTF-filter strategy."
-        )
     if not htf_candles:
         raise SignalEvaluationError("HTF candles are required for an HTF-filter strategy.")
     expected_starts = htf_candle_starts(
-        evaluation_starts_at=specification.evaluation.starts_at,
-        evaluation_ends_at=specification.evaluation.ends_at,
+        evaluation_starts_at=evaluation_starts_at,
+        evaluation_ends_at=evaluation_ends_at,
         htf_filter=htf_filter,
     )
     selected = _required_htf_candles(expected_starts, htf_candles)
@@ -188,6 +182,36 @@ def _htf_indicator_rows(
             "HTF indicator calculation failed under the deterministic Decimal contract."
         ) from error
     return {candle.starts_at: values for candle, values in zip(selected, rows, strict=True)}
+
+
+def _htf_indicator_rows(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    htf_candles: Sequence[Candle],
+) -> dict[datetime, Mapping[str, Decimal | None]]:
+    """Calculate HTF indicators after checking research-run HTF dataset identity."""
+    htf_filter = strategy.htf_filter
+    if htf_filter is None:
+        if specification.htf_dataset_fingerprint is not None:
+            raise SignalEvaluationError(
+                "Research run HTF dataset is not declared by the published strategy."
+            )
+        return calculate_htf_indicator_rows(
+            strategy,
+            htf_candles,
+            evaluation_starts_at=specification.evaluation.starts_at,
+            evaluation_ends_at=specification.evaluation.ends_at,
+        )
+    if specification.htf_dataset_fingerprint is None:
+        raise SignalEvaluationError(
+            "Research run HTF dataset fingerprint is required for an HTF-filter strategy."
+        )
+    return calculate_htf_indicator_rows(
+        strategy,
+        htf_candles,
+        evaluation_starts_at=specification.evaluation.starts_at,
+        evaluation_ends_at=specification.evaluation.ends_at,
+    )
 
 
 def _required_htf_candles(
@@ -209,7 +233,7 @@ def _required_htf_candles(
     return tuple(selected)
 
 
-def _htf_filter_outcome(
+def htf_filter_outcome(
     strategy: StrategyDefinition,
     candle: Candle,
     previous_ltf_start: datetime | None,

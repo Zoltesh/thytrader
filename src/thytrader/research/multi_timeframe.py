@@ -1,4 +1,4 @@
-"""Closed-candle HTF alignment for HTF-filter + LTF-entry research evaluation."""
+"""Closed-candle HTF alignment for HTF-filter + LTF-entry evaluation."""
 
 from __future__ import annotations
 
@@ -93,3 +93,17 @@ def index_candles_by_start(candles: Sequence[Candle]) -> dict[datetime, Candle]:
             raise ValueError("HTF candles contain duplicate timestamps.")
         indexed[candle.starts_at] = candle
     return indexed
+
+
+def htf_bars_closed_at_or_before(
+    htf_candles: Sequence[Candle],
+    *,
+    close_at: datetime,
+    htf_timeframe: str,
+) -> tuple[Candle, ...]:
+    """Return HTF bars whose exclusive close is at or before ``close_at``.
+
+    In-progress and later HTF bars are dropped so LTF evaluation cannot look ahead.
+    """
+    duration = parse_candle_interval(htf_timeframe).duration
+    return tuple(candle for candle in htf_candles if candle.starts_at + duration <= close_at)

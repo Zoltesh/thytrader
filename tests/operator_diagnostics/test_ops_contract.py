@@ -4,6 +4,7 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 from thytrader.ops_contract import (
     BACKTEST_ENGINES,
     EXPECTED_SCHEMA_REVISION,
+    HTF_FILTER_RUNTIMES,
     LIVE_TIMEFRAMES,
     OPS_CONTRACT_ID,
     PAPER_TIMEFRAMES,
@@ -23,7 +24,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v12"
+    assert expected["id"] == "thytrader-ops-contract-v13"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
     assert expected["expected_schema_revision"] == "0026"
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT
@@ -45,3 +46,5 @@ def test_ops_contract_matches_requires_payload() -> None:
         "1d",
     ]
     assert expected["live_timeframes"] == expected["paper_timeframes"]
+    assert expected["htf_filter_runtimes"] == list(HTF_FILTER_RUNTIMES)
+    assert expected["htf_filter_runtimes"] == ["research", "paper", "live"]

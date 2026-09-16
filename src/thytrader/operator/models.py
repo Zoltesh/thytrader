@@ -97,6 +97,7 @@ class OpsContractPayload(_FrozenModel):
     backtest_engines: tuple[str, ...]
     paper_timeframes: tuple[SupportedTimeframe, ...]
     live_timeframes: tuple[SupportedTimeframe, ...]
+    htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

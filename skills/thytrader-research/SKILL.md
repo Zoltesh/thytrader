@@ -74,7 +74,8 @@ Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed 
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
 declares `htf_filter`, and must omit it otherwise. Research engines V1/V2/V3 evaluate last-completed
-HTF bars only. Paper and live reject those fingerprints.
+HTF bars only. Paper and live evaluate the same last-completed HTF bars on live complete-only candles;
+they do not bind a frozen HTF fingerprint.
 
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
 Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
@@ -125,4 +126,4 @@ when the strategy prefers maker. Paper deploy has no fee fields; paper keeps the
 - Archiving as part of this skill (out of scope)
 - Editing application source to change strategy or backtest semantics on a running instance
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be `1h` or `5m` for backtests, paper, and live. Do not start paper or live for a published strategy that declares `htf_filter`.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be any ingested venue clock for backtests, paper, and live. Published `htf_filter` is executable in paper and live.

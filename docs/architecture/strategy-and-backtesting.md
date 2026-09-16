@@ -32,7 +32,8 @@ semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.
 [ADR 0029](../decisions/0029-phase-9-wma-momentum-mfi.md),
 [ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
 `htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
-Research V1/V2/V3 consume that signal stage. Paper and live reject HTF-filter strategies. Historical
+Research V1/V2/V3, paper, and live consume that signal stage on last-completed HTF bars
+([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Historical
 `thytrader-bar-v1` requests remain request-only. Separately, the implemented
 [`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
 turns an eligible published run into an immutable long-only, single-position trade ledger, equity
