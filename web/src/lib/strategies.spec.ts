@@ -51,16 +51,7 @@ describe('latestDatasets', () => {
 
 describe('validHtfTimeframes', () => {
 	it('allows coarser integer multiples only', () => {
-		expect(validHtfTimeframes('1m')).toEqual([
-			'5m',
-			'15m',
-			'30m',
-			'1h',
-			'2h',
-			'4h',
-			'6h',
-			'1d'
-		]);
+		expect(validHtfTimeframes('1m')).toEqual(['5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('5m')).toEqual(['15m', '30m', '1h', '2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('1h')).toEqual(['2h', '4h', '6h', '1d']);
 		expect(validHtfTimeframes('15m')).toEqual(['30m', '1h', '2h', '4h', '6h', '1d']);
@@ -284,13 +275,16 @@ describe('indicator kind picker', () => {
 			timeframe: '1h'
 		});
 		expect(
-			serializeIndicator({
-				id: 'ema_fast',
-				kind: 'ema',
-				input: 'close',
-				timeframe: '5m',
-				parameters: { period: 20 }
-			}, '5m')
+			serializeIndicator(
+				{
+					id: 'ema_fast',
+					kind: 'ema',
+					input: 'close',
+					timeframe: '5m',
+					parameters: { period: 20 }
+				},
+				'5m'
+			)
 		).toEqual({
 			id: 'ema_fast',
 			kind: 'ema',

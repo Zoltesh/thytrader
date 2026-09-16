@@ -359,7 +359,9 @@ export function validateDefinition(model: BuilderModel): string[] {
 		model.exits.trailing_stop.enabled &&
 		!atrIds.includes(model.exits.trailing_stop.atr_indicator)
 	) {
-		problems.push('The trailing stop must reference a defined ATR indicator on the decision clock.');
+		problems.push(
+			'The trailing stop must reference a defined ATR indicator on the decision clock.'
+		);
 	}
 	if (!Number.isInteger(model.warmup_bars) || model.warmup_bars < 1 || model.warmup_bars > 10_000) {
 		problems.push('Warmup must be an integer between 1 and 10,000 bars.');

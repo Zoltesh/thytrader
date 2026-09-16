@@ -1805,8 +1805,8 @@
 							This version also evaluates last-completed {extraIndicatorTimeframes(
 								viewModel.indicators,
 								viewModel.timeframe
-							).join(', ')} indicator bars. Paper and live load those complete-only candles; missing
-							coverage pauses.
+							).join(', ')} indicator bars. Paper and live load those complete-only candles; missing coverage
+							pauses.
 						</p>
 					{/if}
 					{#if publishedVersionsFor(viewEntry).length === 0}

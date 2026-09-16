@@ -764,9 +764,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 			warmup_bars: model.warmup_bars,
 			required_fields: ['open', 'high', 'low', 'close', 'volume']
 		},
-		indicators: model.indicators.map((indicator) =>
-			serializeIndicator(indicator, model.timeframe)
-		),
+		indicators: model.indicators.map((indicator) => serializeIndicator(indicator, model.timeframe)),
 		...(model.htf_filter === null
 			? {}
 			: {
@@ -776,7 +774,9 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 							warmup_bars: model.htf_filter.warmup_bars,
 							required_fields: ['open', 'high', 'low', 'close', 'volume']
 						},
-						indicators: model.htf_filter.indicators.map(serializeIndicator),
+						indicators: model.htf_filter.indicators.map((indicator) =>
+							serializeIndicator(indicator)
+						),
 						when: model.htf_filter.when
 					}
 				}),
