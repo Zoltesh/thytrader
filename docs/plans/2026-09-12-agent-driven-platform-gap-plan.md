@@ -1,6 +1,11 @@
 # Agent-driven platform gap plan (2026-09-12)
 
-**Status: accepted as roadmap Phases 7–14 (planned / not shipped unless marked complete).**
+**Status: Phases 7–14 and sequenced destination slices through ADR 0045 are shipped.**
+Remaining destination is the table in [`docs/roadmap.md`](../roadmap.md) (multi-instrument
+documents, pyramiding, wider catalog, daily-loss/drawdown, rate limits/collars, paper fee fields,
+ML, richer study catalog). Extra exchanges wait on an explicit yes.
+[ADR 0046](../decisions/0046-shipped-vs-remaining-0031-destination.md) restates that `1m`/`2h`
+clocks and on-demand **are** implemented; multi-instrument **documents** are not.
 Definitive implementer sequence: [`docs/roadmap.md`](../roadmap.md).
 
 ## Intent
@@ -17,8 +22,8 @@ Remote / SaaS exposure is **out of scope for this plan**. Additional exchanges w
 Coinbase spot path is trustworthy.
 
 Experiential memory / hindsight (operator-managed facts and lessons, journals, sentiment, notify)
-is a **later** concern, after the trading loop is trustworthy. Audit trails and immutable research
-evidence are not that memory system.
+is **Phase 14** and is shipped as origin-attributed **hooks** (no model training). Audit trails and
+immutable research evidence are not that memory system.
 
 ## Shipped baseline (narrow but real)
 
@@ -91,10 +96,12 @@ Design constraints (shipped):
 by calling the existing CLIs. It must not grant live authority by inheritance.
 YOLO only changes confirmation friction inside allowed tiers.
 
-## Build order (roadmap Phases 7–14)
+## Build order (roadmap Phases 7–14) — all shipped
 
 1. **Phase 7** — Shipped: 15m/30m/6h/1d datasets and fail-closed agent data-loop hardening.
-   These complete-only datasets are not strategy/paper/live clocks.
+   Those complete-only datasets were not strategy/paper/live clocks **in that slice**.
+   [ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md) later made every ingested
+   venue TF a strategy, paper, live, discretionary, and HTF clock.
 2. **Phase 7.1** — Fee-tier suggested defaults for research (shipped; paper had no cost fields).
 3. **Phase 8** — Shipped (research HTF filter). Paper/live HTF evaluation shipped later (ADR 0041).
 4. **Phase 9** — Five catalog slices shipped (`highest`/`lowest`/`stdev`, `roc`/`williams_r`/`cci`,
@@ -105,7 +112,8 @@ YOLO only changes confirmation friction inside allowed tiers.
 7. **Phase 12** — Shipped: agent playbook + YOLO opt-in (ADR 0034). Live `--confirm`
    skip shipped later (ADR 0043).
 8. **Phase 13** — Shipped: 5m live, ATR trailing, user-order WS, native OCO (ADR 0036).
-9. **Phase 14** — Memory / hindsight last.
+9. **Phase 14** — Shipped: journals, sentiment/pattern hooks, monitor, config-gated notify
+   (ADR 0037). No ML training.
 
 ## Non-goals (this plan)
 
@@ -115,6 +123,7 @@ YOLO only changes confirmation friction inside allowed tiers.
 - Shipping experiential memory before the core loop is trustworthy.
 - Treating a polished UI as a substitute for agent-operable APIs and skills.
 - Silently widening strategy/paper/live clocks when adding datasets (`1m`/`2h` included).
+  [ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md) is the later clock ADR.
 
 ## Related docs
 
@@ -124,5 +133,6 @@ YOLO only changes confirmation friction inside allowed tiers.
 - `docs/product/vision.md` — product end-state, agent primacy, and shipped vs destination
 - `docs/decisions/0030-agent-e2e-primary-surface.md` — agent E2E as primary surface
 - `docs/decisions/0031-coinbase-first-platform-end-state.md` — Coinbase-first platform destination
+- `docs/decisions/0046-shipped-vs-remaining-0031-destination.md` — shipped vs remaining 0031 restatement
 - `docs/architecture/market-data.md`, `strategy-and-backtesting.md`,
   `canonical-strategy-schema.md` — shipped contracts

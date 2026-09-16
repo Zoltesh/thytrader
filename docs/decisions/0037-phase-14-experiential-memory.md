@@ -66,7 +66,8 @@ require `--confirm`. YOLO never covers this lane (`hard_gate=True`). The CLI is 
   deployments plus recent memory, and request a notification without placing orders.
 - Webhook URLs stay in Settings and `configured_secrets`; reports expose `notify_webhook_configured`.
 - No model training, no venue scrape, no fill-ledger rewrite with origin.
-- Phase 13 live extras, on-demand SL/TP, and `1m`/`2h` clocks stay out of this slice.
+- Phase 13 live extras, on-demand SL/TP, and `1m`/`2h` clocks stayed out of this slice. Those later
+  shipped in ADRs 0036, 0039, 0040, 0045, and 0046. No model training in this slice.
 
 ## Alternatives considered
 

@@ -69,7 +69,7 @@ true`, and `live_authority: false`. Operator `configuration` reports the same fl
 - Skill lanes stay separate. The playbook skill is not an extension of operator, data, research, or
   runtime and does not inherit live authority.
 - Phase 11 walk-forward, Phase 13 live extras, Phase 14 journals/notify, on-demand SL/TP, and
-  `1m`/`2h` clocks stay out of this slice.
+  `1m`/`2h` clocks stayed out of this slice. Those later shipped in ADRs 0035–0040, 0043, and 0046.
 
 ## Alternatives considered
 

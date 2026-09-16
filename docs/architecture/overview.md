@@ -158,6 +158,9 @@ Expected durable boundaries include:
 
 Dependencies should point toward stable domain abstractions. Coinbase-specific response objects must not leak throughout the system.
 
+Mermaid diagrams of the shipped contracts live under
+[architecture/contracts](contracts/README.md).
+
 ## Portability and deployment
 
 ### Development

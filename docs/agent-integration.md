@@ -32,7 +32,8 @@ Phase 14 shipped origin-attributed **hooks** ([ADR 0037](decisions/0037-phase-14
 there is still no model training:
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
-  `agent`).
+  `agent`). Per-trade **why it was made** records (signal, strategy version, risk, discretionary
+  note, fill/reconcile facts) remain destination.
 - Read-only monitor of deployments, recent journals, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
 - Learning never bypasses confirmation gates, scoped authority, auditability, or risk controls, and
@@ -54,10 +55,10 @@ A user's agent should be able to answer questions such as:
 - Did restarts, disconnects, rejected orders, or reconciliation anomalies occur?
 - Which configuration values are invalid, risky, deprecated, or ineffective?
 
-After authoring and research-submission contracts are stable, a **separate** bounded research skill
-may help a user create a draft, validate/publish an immutable strategy version, submit a backtest,
-and compare results. It is not an extension of the read-only operator skill and has no paper, live,
-arming, cancellation, or kill-switch authority.
+That research skill is **shipped** as `thytrader-research` (`--confirm` on mutations). It is not an
+extension of the read-only operator skill and has no paper, live, arming, cancellation, or
+kill-switch authority. Data ingest, paper/live control (including on-demand `place-order`),
+playbook sequencing, and memory are the other shipped lane skills listed below.
 
 ## Supported interface design
 
@@ -93,7 +94,9 @@ They must not:
 - bypass the API by reading or mutating database tables;
 - treat missing telemetry as proof of health.
 
-Future mutation tools must be separate, narrowly scoped, auditable, idempotent where applicable, and confirmation-gated. A read-only skill must never silently gain mutation capabilities.
+Future mutation tools must still be separate, narrowly scoped, auditable, idempotent where
+applicable, and confirmation-gated. A read-only skill must never silently gain mutation
+capabilities. Research, data, runtime, playbook, and memory already follow that split.
 
 ### Research mutation boundary
 

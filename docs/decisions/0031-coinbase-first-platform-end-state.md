@@ -1,13 +1,19 @@
 # 0031: Coinbase-first research and trading platform end-state
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0046](0046-shipped-vs-remaining-0031-destination.md)
+  (`1m`/`2h` clocks and on-demand are implemented; multi-instrument documents are not)
 - Date: 2026-09-15
 - Relates to: [0004](0004-safe-execution-and-access.md), [0005](0005-canonical-strategy-schema.md),
   [0018](0018-5m-paper-not-live.md), [0020](0020-complete-only-15m-datasets.md),
   [0021](0021-complete-only-30m-datasets.md), [0022](0022-complete-only-6h-datasets.md),
   [0023](0023-complete-only-1d-datasets.md), [0025](0025-multi-timeframe-htf-filter.md),
   [0030](0030-agent-e2e-primary-surface.md),
-  [0040](0040-venue-strategy-paper-live-htf-clocks.md)
+  [0033](0033-phase-10-risk-policy-registry.md),
+  [0038](0038-complete-only-1m-2h-4h-datasets.md),
+  [0039](0039-on-demand-discretionary-trades.md),
+  [0040](0040-venue-strategy-paper-live-htf-clocks.md),
+  [0045](0045-spot-shorting-and-attached-entry-brackets.md),
+  [0046](0046-shipped-vs-remaining-0031-destination.md)
 
 ## Context
 
@@ -71,14 +77,21 @@ End-state capabilities (accepted, **not shipped by this ADR**):
 
 ## Consequences
 
-- Product vision, roadmap, and architecture overviews must distinguish **destination** from
-  **shipped contract**. Agents must not treat `1m`/`2h`, on-demand orders, or multi-asset deploy as
-  implemented.
-- `1m` and `2h` (and any newly listed Coinbase granularity) are destination dataset then
-  strategy/paper/live-clock work. They are **not** inserted ahead of the current Phase 9 remaining →
-  14 Builder sequence.
-- Discretionary trading is in-scope for the product, out-of-scope for silent implementation. It
-  shares the order-intent and risk boundary with strategy-driven orders.
+**Superseded in part by [ADR 0046](0046-shipped-vs-remaining-0031-destination.md):** `1m`/`2h`
+clocks (and the rest of the ingested venue set) and on-demand orders **are implemented**.
+Multi-instrument strategy **documents** are **not**. Concurrent single-instrument paper/live under
+one risk policy **is** ([ADR 0033](0033-phase-10-risk-policy-registry.md)).
+
+Original 2026-09-15 consequence (historical, when this ADR was accepted): product vision, roadmap,
+and architecture overviews must distinguish **destination** from **shipped contract**. Agents must
+not treat `1m`/`2h`, on-demand orders, or multi-asset deploy as implemented. `1m` and `2h` (and any
+newly listed Coinbase granularity) were destination dataset then strategy/paper/live-clock work,
+not inserted ahead of the then-current Phase 9 remaining → 14 Builder sequence. Discretionary
+trading was in-scope for the product and out-of-scope for silent implementation in this ADR; later
+[ADR 0039](0039-on-demand-discretionary-trades.md) and
+[ADR 0045](0045-spot-shorting-and-attached-entry-brackets.md) shipped that slice through the same
+order-intent and risk boundary as strategy-driven orders.
+
 - Additional exchanges stay explicitly deferred.
 
 ## Alternatives considered

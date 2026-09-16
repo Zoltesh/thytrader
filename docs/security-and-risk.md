@@ -58,33 +58,40 @@ It gates paper and live **entries** (not exits) with:
 Compiled default when no published row is active: eight running slots and eight open positions per
 mode, unit exposure fractions, empty allowlist/allocations, paper book `100000`. Operator `risk`
 reports `available` and omits account balances. Discretionary entries use this same registry;
-nonempty allocations deny them. Daily-loss / drawdown circuit breakers, order-rate
-limits, and reference-price collars remain destination — they are listed
-below so the full catalog is visible, not claimed as shipped.
+nonempty allocations deny them.
 
-### Pre-trade (destination catalog)
+### Shipped execution and runtime controls
 
-- maximum order quantity and notional;
-- maximum position and portfolio exposure;
+These are already product behavior (not destination remainders):
+
+- product allowlist (Phase 10; empty means no extra restriction);
+- portfolio and per-product exposure fractions of the mode capital base;
+- duplicate/idempotency protection (unique client order IDs; persist intent before submit;
+  reconcile ambiguous timeouts before retry);
+- post-only enforcement for normal maker entries and ordinary take-profit exits;
+- stale-market-data cutoff (block new risk-increasing orders on stale data or unhealthy required
+  connections);
+- exchange reconciliation on restart and after ambiguous submit.
+
+Daily-loss / drawdown circuit breakers, order-rate limits, and reference-price collars remain
+destination. The lists below keep those remainders visible; they do **not** re-list the shipped
+controls above.
+
+### Pre-trade (destination remainders)
+
+- maximum order quantity and notional beyond the shipped exposure fractions;
 - available-balance reserve;
-- product allowlist;
 - reference-price collar;
-- maximum open orders;
-- duplicate/idempotency protection;
-- minimum liquidity and maximum spread;
-- post-only enforcement for normal maker orders.
+- minimum liquidity and maximum spread.
 
-### Runtime
+### Runtime (destination remainders)
 
 - daily realized/unrealized loss limit;
 - per-strategy drawdown limit;
 - order and cancellation rate limits;
 - consecutive error/rejection circuit breaker;
-- stale-market-data cutoff;
-- API/WebSocket disconnect cutoff;
-- heartbeat and clock-skew monitoring;
-- exchange reconciliation;
-- per-strategy and global kill switches.
+- heartbeat and clock-skew monitoring beyond existing worker supervision;
+- per-strategy and global kill switches beyond pause/stop (disarming vs trapped-position behavior).
 
 ## Execution policy
 
@@ -126,4 +133,11 @@ Audit data must be useful without exposing credentials or unnecessary personal/a
 The agent surface is the **primary product** ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)).
 That does not relax confirmation, live-arming, or skill-lane rules.
 
-The first distributable operator skill is read-only. Agents may inspect health, configuration validity, risk state, data freshness, strategy performance, and redacted diagnostics through `thytrader-operator`. Live trading, configuration mutation, order cancellation, arming, or kill-switch operations require separate explicit tools and user confirmation policies. Research mutations use `thytrader-research` with `--confirm`. On-demand trades, when implemented, use the same order-intent and risk boundary as strategy-driven orders; they never call Coinbase directly from a skill.
+The first distributable operator skill is read-only. Agents may inspect health, configuration
+validity, risk state, data freshness, strategy performance, and redacted diagnostics through
+`thytrader-operator`. Live trading, configuration mutation, order cancellation, arming, or
+kill-switch operations require separate explicit tools and user confirmation policies. Research
+mutations use `thytrader-research` with `--confirm`. On-demand trades use the same order-intent
+and risk boundary as strategy-driven orders; they never call Coinbase directly from a skill
+([ADR 0039](decisions/0039-on-demand-discretionary-trades.md),
+[ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)).
