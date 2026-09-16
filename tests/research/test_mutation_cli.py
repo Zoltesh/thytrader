@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 from pathlib import Path
+from typing import Protocol
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
 from tests.http_fakes import (
+    json_urlopen_response,
     matching_ready_payload,
     orchestration_status_payload,
     stale_ready_payload,
@@ -16,11 +20,25 @@ from tests.http_fakes import (
     urlopen_ready_then,
 )
 from thytrader.agent_http import AgentHttpError
+from thytrader.memory.models import (
+    ActorOrigin,
+    ExperientialAdvisory,
+    ExperientialCorpus,
+    ExperientialModel,
+    PatternScore,
+)
 from thytrader.research.mutation_cli import main
 
 _REFERENCE_STRATEGY = (
     Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 )
+_MODEL_ID = UUID("11111111-1111-1111-1111-111111111111")
+
+
+class _HasFullUrl(Protocol):
+    """urllib Request-shaped object used by the missing-model urlopen double."""
+
+    full_url: str
 
 
 def test_research_help_mentions_confirm_and_no_trading(
@@ -185,3 +203,133 @@ def test_submit_study_without_confirm_does_not_submit() -> None:
         main(["submit-study", "--file", "study.json"])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
+
+
+def _trained_model_payload() -> dict[str, object]:
+    """Return one valid trained-model JSON document."""
+    model = ExperientialModel(
+        id=_MODEL_ID,
+        recorded_at=datetime(2026, 9, 16, 12, 0, tzinfo=UTC),
+        origin=ActorOrigin.AGENT,
+        seed=1,
+        fingerprint="sha256:" + ("a" * 64),
+        corpus=ExperientialCorpus(
+            journal_ids=(),
+            pattern_ids=("22222222-2222-2222-2222-222222222222",),
+            sentiment_ids=(),
+            evidence_ids=("backtest:bt-1",),
+            human_rows=0,
+            agent_rows=1,
+        ),
+        pattern_scores=(
+            PatternScore(
+                pattern_key="morning_gap",
+                name="Morning gap",
+                score=3,
+                support_count=1,
+                contradict_count=0,
+            ),
+        ),
+        product_scores=(),
+        advisory=ExperientialAdvisory(
+            suggested_pattern_keys=("morning_gap",),
+            caution_pattern_keys=(),
+            suggested_products=(),
+            caution_products=(),
+            notes="Advisory only. Not a live brain.",
+        ),
+    )
+    dumped = model.model_dump(mode="json")
+    return {str(key): value for key, value in dumped.items()}
+
+
+def test_create_draft_local_refuses_experiential_model_id() -> None:
+    """Gated advisory input is HTTP-only."""
+    with pytest.raises(SystemExit, match="HTTP transport") as raised:
+        main(
+            [
+                "--local",
+                "create-draft",
+                "--experiential-model-id",
+                str(_MODEL_ID),
+                "--confirm",
+            ]
+        )
+    assert raised.value.code != 0
+
+
+def test_create_draft_merges_experiential_advisory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """HTTP create-draft JSON includes the fail-closed advisory, not a live policy."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        f"GET /api/v1/memory/models/{_MODEL_ID}": _trained_model_payload(),
+        "POST /api/v1/strategies": {
+            "revision": 1,
+            "strategy": {
+                "strategy_id": "0199aaaa-aaaa-7aaa-aaaa-aaaaaaaaaaaa",
+                "version": 1,
+                "name": "EMA trend",
+            },
+        },
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "create-draft",
+                "--experiential-model-id",
+                str(_MODEL_ID),
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["experiential_model_id"] == str(_MODEL_ID)
+    assert payload["experiential_advisory"]["suggested_pattern_keys"] == ["morning_gap"]
+    assert "live brain" in payload["experiential_advisory"]["notes"].lower()
+
+
+def test_create_draft_missing_model_does_not_create() -> None:
+    """A missing trained model fails closed before POST /strategies."""
+
+    def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> object:
+        del timeout
+        requested_url = request if isinstance(request, str) else request.full_url
+        path = str(requested_url)
+        if path.endswith("/health/ready"):
+            return json_urlopen_response(matching_ready_payload())
+        if "/api/v1/memory/models/" in path:
+            return json_urlopen_response({"detail": "Model was not found."}, status=404)
+        message = f"unexpected agent HTTP request: {path}"
+        raise AssertionError(message)
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "create-draft",
+                "--experiential-model-id",
+                str(_MODEL_ID),
+                "--confirm",
+            ]
+        )
+    assert raised.value.code != 0
+    assert "failed safely" not in str(raised.value).lower()
+
+
+def test_create_draft_help_names_experiential_model(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators can discover the gated advisory flag from --help."""
+    with pytest.raises(SystemExit) as raised:
+        main(["create-draft", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    assert "--experiential-model-id" in output
+    assert "http" in output

@@ -180,23 +180,27 @@ Phase 13's 5m live, ATR trailing, user-order WebSockets, and native OCO brackets
 Spot shorting and attached entry brackets are shipped
 ([ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)).
 
-## Planned direction: agents as crypto-trading experts (hooks shipped)
+## Planned direction: agents as crypto-trading experts (hooks + V1 trainer)
 
 A major product goal is for agents to act as **crypto-trading experts that improve from durable
 evidence** spanning market-data research, reproducible backtests, paper trades, and live trades.
-Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase-14-experiential-memory.md));
-there is still no model training:
+Phase 14 shipped origin-attributed **hooks** ([ADR 0037](../decisions/0037-phase-14-experiential-memory.md)).
+Bounded V1 training ships as a fail-closed integer ranker over those attributed local journals
+([ADR 0049](../decisions/0049-experiential-train-v1.md)):
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
   `agent`) so later learning can separate authors. Per-trade **why it was made** records remain
   destination.
 - Read-only monitor of deployments, recent journals, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
+- `thytrader-experiential-train-v1` trains only from local evidence; output is advisory research
+  input, never a live policy or Coinbase call.
 - Improvement stays subordinate to existing invariants: confirmation gates, scoped authority,
   immutable evidence, auditability, and risk controls. It is never a substitute for audit trails.
   YOLO never covers memory mutations.
 
-See [roadmap Phase 14](../roadmap.md#phase-14-experiential-memory--hindsight--shipped).
+See [roadmap Phase 14](../roadmap.md#phase-14-experiential-memory--hindsight--shipped) and
+[bounded experiential training V1](../roadmap.md#bounded-experiential-training-v1--shipped).
 
 ## Explicitly deferred
 

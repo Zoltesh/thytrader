@@ -2,12 +2,14 @@
 name: thytrader-memory
 description: >-
   Record ThyTrader journals, sentiment and pattern-learning hooks, watch the
-  monitor, and request user notifications through thytrader-memory. Use when the
-  user asks to journal a fact or lesson, record sentiment, note a pattern,
-  inspect monitor findings, or notify themselves. Mutations require --confirm.
-  YOLO never covers this lane. Never deploys, paper-trades, live-trades, arms,
-  or cancels orders. Not an extension of operator, data, research, runtime, or
-  playbook skills.
+  monitor, request user notifications, and train a fail-closed experiential
+  model from attributed local journal evidence through thytrader-memory. Use
+  when the user asks to journal a fact or lesson, record sentiment, note a
+  pattern, inspect monitor findings, notify themselves, or train/list/show an
+  experiential model. Mutations require --confirm. YOLO never covers this lane.
+  Never deploys, paper-trades, live-trades, arms, or cancels orders. Not an
+  extension of operator, data, research, runtime, or playbook skills. Does not
+  own trade-reason review surfaces.
 ---
 
 # ThyTrader memory
@@ -18,11 +20,13 @@ place orders or inherit YOLO.
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is
 no `--local` database mode. Schema: `thytrader-experiential-memory-v1`. Monitor snapshot:
-`thytrader-monitor-v1`.
+`thytrader-monitor-v1`. Trained models: `thytrader-experiential-model-v1` from engine
+`thytrader-experiential-train-v1`. Advisory: `thytrader-experiential-advisory-v1`.
 
 Origin is required on every write: `human` or `agent`. Journals, sentiment, and pattern rows are
 append-only hooks. They are not a substitute for audit trails or immutable backtest/fill evidence.
-There is no model training and no venue sentiment scrape.
+`train` consumes attributed local journals as stored. It does not invent journal kinds or own
+human/agent review surfaces. There is no venue sentiment scrape.
 
 Notify default is `THYTRADER_NOTIFY_PROVIDER=none` (persist as skipped, send nothing). `log` writes
 a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`. Never print that URL.
@@ -51,10 +55,15 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Append a pattern hook | `uv run thytrader-memory add-pattern --origin human --pattern-key morning_gap --name "…" --hypothesis "…" --confirm` |
 | List notify attempts | `uv run thytrader-memory list-notifications` |
 | Request a notification | `uv run thytrader-memory notify --origin human --title "…" --body "…" --confirm` |
+| Train from attributed local evidence | `uv run thytrader-memory train --origin agent [--seed 1] --confirm` |
+| List trained models | `uv run thytrader-memory list-models` |
+| Show one trained model | `uv run thytrader-memory show-model --model-id UUID` |
 
-`status`, `monitor`, and `list-*` are read-only. Mutations require `--confirm`. YOLO never skips
-that gate. Lessons require `--lesson-outcome` other than `none`. Evidence ids are required only
-when `--evidence-kind` is not `none`.
+`status`, `monitor`, `list-*`, and `show-model` are read-only. Mutations require `--confirm`. YOLO
+never skips that gate. Lessons require `--lesson-outcome` other than `none`. Evidence ids are
+required only when `--evidence-kind` is not `none`. `train` is fail-closed: unevidenced rows are
+skipped; dangling local evidence refuses the whole train. Output is advisory, not a live policy.
+Pass a model id into research with `uv run thytrader-research create-draft --experiential-model-id UUID --confirm` (HTTP only).
 
 Underlying HTTP used by this CLI:
 
@@ -65,6 +74,8 @@ Underlying HTTP used by this CLI:
 - `GET|POST /api/v1/memory/sentiment`
 - `GET|POST /api/v1/memory/patterns`
 - `GET|POST /api/v1/memory/notifications`
+- `GET|POST /api/v1/memory/models`
+- `GET /api/v1/memory/models/{id}`
 
 Operator `monitor` (`uv run thytrader-operator monitor`) is the same watch wrapped in
 `thytrader-operator-report-v1`. Use that for diagnostics; use this skill to write.
@@ -73,8 +84,8 @@ Operator `monitor` (`uv run thytrader-operator monitor`) is the same watch wrapp
 
 - Never mutate unless the user explicitly asked **and** `--confirm` is present.
 - Do not retry with `--confirm` unless the user asked you to.
-- Do not consult YOLO for this lane. `THYTRADER_YOLO_ENABLED` never covers journals or notify.
-- Keep origin, kind, and evidence identities in any answer.
+- Do not consult YOLO for this lane. `THYTRADER_YOLO_ENABLED` never covers journals, notify, or train.
+- Keep origin, kind, evidence identities, and model fingerprints in any answer.
 
 ## Forbidden
 
@@ -82,7 +93,9 @@ Operator `monitor` (`uv run thytrader-operator monitor`) is the same watch wrapp
 - Skipping `--confirm` because YOLO is enabled
 - Printing webhook URLs, API keys, private keys, `.env` values, or database URLs
 - Interpolating candles or treating journals as fill-ledger origin
-- Training a model or scraping external sentiment
+- Treating a trained model as a live brain, order intent, or Coinbase call
+- Scraping external sentiment
+- Building a trade-reason review UI or duplicating journal schema (sibling owns those)
 - Direct PostgreSQL access
 - Editing application source to persist memory on a running instance
 - Collapsing this lane into operator, data, research, runtime, or playbook

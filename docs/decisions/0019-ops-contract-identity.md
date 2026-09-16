@@ -14,7 +14,8 @@
   [0042](0042-per-indicator-timeframes.md),
   [0043](0043-yolo-live-skip-confirm.md),
   [0045](0045-spot-shorting-and-attached-entry-brackets.md),
-  [0048](0048-paper-deploy-fee-fields.md)
+  [0048](0048-paper-deploy-fee-fields.md),
+  [0049](0049-experiential-train-v1.md)
 
 ## Context
 
@@ -30,7 +31,7 @@ Default-filling a missing health `ops_contract` would hide that mismatch.
 
 Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 
-- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v16`)
+- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v17`)
 - `max_historical_interval_count`
 - `backtest_engines` (v1, v2, v3)
 - `paper_timeframes` (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`)
@@ -40,7 +41,8 @@ Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 - `position_sides` (`long`, `short`)
 - `attached_entry_brackets` (`paper`, `live`)
 - `paper_deploy_fee_fields` (`maker_fee_rate`, `taker_fee_rate`)
-- `expected_schema_revision` (`0028`)
+- `experiential_model_engines` (`thytrader-experiential-train-v1`)
+- `expected_schema_revision` (`0029`)
 
 A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`

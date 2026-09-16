@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.memory.models import (
     ActorOrigin,
+    ExperientialModel,
     JournalEntry,
     JournalKind,
     MemoryCounts,
@@ -14,7 +15,12 @@ from thytrader.memory.models import (
     SentimentSnapshot,
 )
 
+if TYPE_CHECKING:
+    from uuid import UUID
+
 _MemoryRow = JournalEntry | SentimentSnapshot | PatternObservation | NotificationRecord
+_MODEL_LIST_CAP = 100
+_TRAINING_LIST_CAP = 10_000
 
 
 class MemoryStoreError(RuntimeError):
@@ -81,6 +87,22 @@ class ExperientialMemoryStore(Protocol):
 
     async def counts(self) -> MemoryCounts:
         """Return row counts for operator/memory status."""
+        ...
+
+    async def append_model(self, model: ExperientialModel) -> ExperientialModel:
+        """Persist one trained experiential model, or return the fingerprint match."""
+        ...
+
+    async def get_model(self, model_id: UUID) -> ExperientialModel | None:
+        """Load one trained model by id."""
+        ...
+
+    async def get_model_by_fingerprint(self, fingerprint: str) -> ExperientialModel | None:
+        """Load one trained model by content identity."""
+        ...
+
+    async def list_models(self, *, limit: int = 50) -> tuple[ExperientialModel, ...]:
+        """Return newest-first trained models."""
         ...
 
 
@@ -153,6 +175,26 @@ class DisabledExperientialMemoryStore:
         """Return zeros when storage is unconfigured."""
         return MemoryCounts(journals=0, sentiment=0, patterns=0, notifications=0)
 
+    async def append_model(self, model: ExperientialModel) -> ExperientialModel:
+        """Refuse model writes without durable storage."""
+        del model
+        raise MemoryStoreError("Experiential memory storage is unavailable.")
+
+    async def get_model(self, model_id: UUID) -> ExperientialModel | None:
+        """Return no models when storage is unconfigured."""
+        del model_id
+        return None
+
+    async def get_model_by_fingerprint(self, fingerprint: str) -> ExperientialModel | None:
+        """Return no models when storage is unconfigured."""
+        del fingerprint
+        return None
+
+    async def list_models(self, *, limit: int = 50) -> tuple[ExperientialModel, ...]:
+        """Return no models when storage is unconfigured."""
+        del limit
+        return ()
+
 
 class InMemoryExperientialMemoryStore:
     """Retain experiential rows in process memory for tests."""
@@ -163,6 +205,7 @@ class InMemoryExperientialMemoryStore:
         self.sentiment: list[SentimentSnapshot] = []
         self.patterns: list[PatternObservation] = []
         self.notifications: list[NotificationRecord] = []
+        self.models: list[ExperientialModel] = []
 
     async def append_journal(self, entry: JournalEntry) -> JournalEntry:
         """Store one journal row."""
@@ -244,11 +287,38 @@ class InMemoryExperientialMemoryStore:
             notifications=len(self.notifications),
         )
 
+    async def append_model(self, model: ExperientialModel) -> ExperientialModel:
+        """Store one trained model, returning an existing fingerprint match."""
+        existing = await self.get_model_by_fingerprint(model.fingerprint)
+        if existing is not None:
+            return existing
+        self.models.append(model)
+        return model
+
+    async def get_model(self, model_id: UUID) -> ExperientialModel | None:
+        """Load one trained model by id."""
+        return next((item for item in self.models if item.id == model_id), None)
+
+    async def get_model_by_fingerprint(self, fingerprint: str) -> ExperientialModel | None:
+        """Load one trained model by content identity."""
+        return next(
+            (item for item in self.models if item.fingerprint == fingerprint),
+            None,
+        )
+
+    async def list_models(self, *, limit: int = 50) -> tuple[ExperientialModel, ...]:
+        """Return newest-first trained models."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        bounded = min(limit, _MODEL_LIST_CAP)
+        ordered = sorted(self.models, key=lambda item: (item.recorded_at, item.id), reverse=True)
+        return tuple(ordered[:bounded])
+
 
 def _newest[T: _MemoryRow](rows: list[T], limit: int) -> tuple[T, ...]:
     """Return newest-first rows using occurred_at then id."""
     if limit < 1:
         raise ValueError("limit must be positive")
-    bounded = min(limit, 100)
+    bounded = min(limit, _TRAINING_LIST_CAP)
     ordered = sorted(rows, key=lambda item: (item.occurred_at, item.id), reverse=True)
     return tuple(ordered[:bounded])

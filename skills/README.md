@@ -61,8 +61,10 @@ Sequences existing lane CLIs: data healthy → draft/publish → backtest → op
 
 ## `thytrader-memory`
 
-Confirmation-gated journals, sentiment and pattern-learning hooks, monitor, and user notification.
-YOLO never skips `--confirm`. Does not deploy, paper-trade, live-trade, arm, or cancel orders.
+Confirmation-gated journals, sentiment and pattern-learning hooks, monitor, user notification,
+and fail-closed experiential training from attributed local journals. YOLO never skips `--confirm`.
+Does not deploy, paper-trade, live-trade, arm, or cancel orders. Does not own trade-reason review
+surfaces.
 
 - Skill: [`thytrader-memory/SKILL.md`](thytrader-memory/SKILL.md)
 - CLI: `uv run thytrader-memory … --confirm`

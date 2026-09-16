@@ -106,7 +106,8 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Create drafts, publish immutable versions, and submit backtests. "
             "Mutations require --confirm. Default transport is the loopback HTTP API. "
-            "This command has no paper or live authority."
+            "Optional --experiential-model-id on create-draft is HTTP-only advisory "
+            "input. This command has no paper or live authority."
         ),
         parents=[shared],
     )
@@ -133,6 +134,14 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Draft template: ema-trend (default), rsi-mean-reversion, "
             "macd-trend, or bollinger-mean-reversion."
+        ),
+    )
+    create.add_argument(
+        "--experiential-model-id",
+        default=None,
+        help=(
+            "Optional trained experiential-model UUID. HTTP only; merges the "
+            "advisory into create-draft JSON. Not a live policy. --local refuses."
         ),
     )
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
@@ -262,6 +271,7 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
     """Execute one research command against PostgreSQL stores."""
     settings = Settings()
     if arguments.command == "create-draft":
+        _reject_local_experiential_model(arguments)
         _require_confirm(arguments.confirm)
         return await _with_mutator(
             settings,
@@ -316,6 +326,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
             product_id=arguments.product_id,
             timeframe=arguments.timeframe,
             template=arguments.template,
+            experiential_model_id=_experiential_model_id(arguments),
         )
     if arguments.command == "save-draft":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="save-draft")
@@ -522,6 +533,25 @@ async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest)
     """Submit one composed study and return the derived document."""
     study = await mutator.submit_study(request)
     return _encode(study.model_dump(mode="json"))
+
+
+def _experiential_model_id(arguments: argparse.Namespace) -> str | None:
+    """Parse the optional trained-model UUID or return None."""
+    raw = getattr(arguments, "experiential_model_id", None)
+    if raw is None:
+        return None
+    try:
+        return str(UUID(raw))
+    except ValueError as error:
+        raise ResearchCliError("--experiential-model-id must be a UUID.") from error
+
+
+def _reject_local_experiential_model(arguments: argparse.Namespace) -> None:
+    """Refuse gated advisory input on --local PostgreSQL research."""
+    if getattr(arguments, "experiential_model_id", None):
+        raise ResearchCliError(
+            "--experiential-model-id requires HTTP transport; do not pass --local."
+        )
 
 
 def _encode(payload: object) -> str:

@@ -24,22 +24,25 @@ Safety rests on confirmation gating, scoped authority, immutable evidence, audit
 controls—not on excluding agents. No model requires an agent; no model excludes one. A capability is
 incomplete until the agent contract exists.
 
-## Planned direction: agent experts that learn from evidence (hooks shipped)
+## Planned direction: agent experts that learn from evidence (hooks + V1 trainer)
 
 A major product goal is for agents to act as **crypto-trading experts that improve from durable
 evidence** spanning market-data research, reproducible backtests, paper trades, and live trades.
-Phase 14 shipped origin-attributed **hooks** ([ADR 0037](decisions/0037-phase-14-experiential-memory.md));
-there is still no model training:
+Phase 14 shipped origin-attributed **hooks** ([ADR 0037](decisions/0037-phase-14-experiential-memory.md)).
+Bounded V1 training ships as a fail-closed integer ranker over those attributed local journals
+([ADR 0049](decisions/0049-experiential-train-v1.md)):
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
   `agent`). Per-trade **why it was made** records (signal, strategy version, risk, discretionary
   note, fill/reconcile facts) remain destination.
 - Read-only monitor of deployments, recent journals, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
-- Learning never bypasses confirmation gates, scoped authority, auditability, or risk controls, and
-  never substitutes for audit trails. YOLO never covers memory mutations.
+- `thytrader-memory train` (and `GET|POST /api/v1/memory/models`) never bypasses confirmation gates,
+  scoped authority, auditability, or risk controls, and never substitutes for audit trails. YOLO
+  never covers memory mutations. Output is advisory research input, not a live brain.
 
-See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--shipped).
+See [roadmap Phase 14](roadmap.md#phase-14-experiential-memory--hindsight--shipped) and
+[bounded experiential training V1](roadmap.md#bounded-experiential-training-v1--shipped).
 
 ## Initial use cases
 
@@ -75,7 +78,8 @@ stochastic, ADX, configurable rolling inputs, and sample stdev
 - `thytrader-research` — drafts, publish, backtests, and composed studies (`--confirm`).
 - `thytrader-runtime` — paper/live start, pause, resume, stop, and on-demand place-order (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
-- `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify (`--confirm`; YOLO never covers this lane).
+- `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify, and fail-closed
+  experiential training (`--confirm`; YOLO never covers this lane).
 
 Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
 
@@ -146,8 +150,10 @@ inherits the same Safe / YOLO confirmation rules and must not grant live authori
 
 ### Memory skill
 
-`thytrader-memory` records origin-attributed journals, sentiment/pattern hooks, and notify requests.
-`--confirm` is always required. YOLO never covers this lane. Operator `monitor` is read-only.
+`thytrader-memory` records origin-attributed journals, sentiment/pattern hooks, and notify requests,
+and trains a fail-closed advisory model from attributed local evidence. `--confirm` is always
+required. YOLO never covers this lane. Operator `monitor` is read-only. This lane does not own
+trade-reason review surfaces.
 
 ## Stable diagnostics schema
 
@@ -194,8 +200,9 @@ skills/
 queued worker ingest. `thytrader-research/SKILL.md` documents `thytrader-research` with
 `--confirm` for mutations. `thytrader-runtime/SKILL.md` documents confirmation-gated paper/live
 control, discretionary `place-order`, and risk-policy publication. `thytrader-playbook/SKILL.md` sequences those CLIs and never
-starts live. `thytrader-memory/SKILL.md` documents journals, sentiment/pattern hooks, monitor, and
-notify with `--confirm` (YOLO never covers that lane). Product of record is `skills/`;
+starts live. `thytrader-memory/SKILL.md` documents journals, sentiment/pattern hooks, monitor,
+notify, and `train` / `list-models` / `show-model` with `--confirm` (YOLO never covers that lane).
+Product of record is `skills/`;
 `.cursor/skills/` contains pointers for Cursor auto-load.
 
 Operating a running instance is a separate workspace: open [`ops/`](../ops/README.md), not the git
@@ -230,6 +237,6 @@ The operator skill tells agents to:
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission, and composed OOS / walk-forward / cross-market / sweep / WFO studies only. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
-| Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, and notify. Operator `monitor` is read-only. YOLO never covers this lane. |
+| Experiential memory | `thytrader-memory`: confirmation-gated journals, sentiment/pattern hooks, notify, and fail-closed `train`. Operator `monitor` is read-only. YOLO never covers this lane. Research `create-draft --experiential-model-id` may merge the advisory into JSON (HTTP only). |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

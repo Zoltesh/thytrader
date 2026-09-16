@@ -1,8 +1,13 @@
-"""Versioned experiential-memory records: journals, sentiment, patterns, notify."""
+"""Versioned experiential-memory records: journals, sentiment, patterns, notify.
+
+Journal row kinds and human/agent review surfaces stay on the shared
+``thytrader-experiential-memory-v1`` document. This module does not add a parallel
+trade-reason schema; training consumes attributed ``JournalEntry`` rows as stored.
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 import re
 from typing import Literal, Self
@@ -14,6 +19,12 @@ MEMORY_SCHEMA_VERSION: Literal["thytrader-experiential-memory-v1"] = (
     "thytrader-experiential-memory-v1"
 )
 MONITOR_SCHEMA_VERSION: Literal["thytrader-monitor-v1"] = "thytrader-monitor-v1"
+MODEL_SCHEMA_VERSION: Literal["thytrader-experiential-model-v1"] = "thytrader-experiential-model-v1"
+ADVISORY_SCHEMA_VERSION: Literal["thytrader-experiential-advisory-v1"] = (
+    "thytrader-experiential-advisory-v1"
+)
+TRAIN_ENGINE_ID: Literal["thytrader-experiential-train-v1"] = "thytrader-experiential-train-v1"
+_FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _PRODUCT_PATTERN = r"^[A-Z0-9]{2,20}-USD$"
 _PATTERN_KEY = r"^[a-z][a-z0-9_]{1,62}$"
 
@@ -113,10 +124,10 @@ class _FrozenModel(BaseModel):
 
 
 def require_utc(value: datetime) -> datetime:
-    """Reject naive datetimes so experiential records stay ordered in UTC."""
-    if value.tzinfo is not UTC:
+    """Reject naive and non-UTC datetimes; coerce JSON Z to the UTC singleton."""
+    if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("datetime must be timezone-aware UTC")
-    return value
+    return value.astimezone(UTC)
 
 
 class JournalEntry(_FrozenModel):
@@ -284,6 +295,85 @@ class MonitorSnapshot(_FrozenModel):
     recent_journals: tuple[JournalEntry, ...]
     recent_notifications: tuple[NotificationRecord, ...]
     findings: tuple[MonitorFinding, ...]
+
+
+class PatternScore(_FrozenModel):
+    """Integer rank for one pattern_key after deterministic training."""
+
+    pattern_key: str = Field(pattern=_PATTERN_KEY)
+    name: str = Field(min_length=1, max_length=120)
+    score: int
+    support_count: int = Field(ge=0)
+    contradict_count: int = Field(ge=0)
+
+
+class ProductScore(_FrozenModel):
+    """Integer rank for one BASE-USD product after deterministic training."""
+
+    product_id: str = Field(min_length=1, max_length=32)
+    score: int
+    success_count: int = Field(ge=0)
+    mistake_count: int = Field(ge=0)
+
+    @field_validator("product_id")
+    @classmethod
+    def require_spot_product(cls, value: str) -> str:
+        """Require Coinbase-style USD spot ids on scored products."""
+        validated = _optional_product(value)
+        if validated is None:
+            raise ValueError("product_id must be a BASE-USD spot product")
+        return validated
+
+
+class ExperientialCorpus(_FrozenModel):
+    """Sorted identities of rows that survived fail-closed evidence checks."""
+
+    journal_ids: tuple[str, ...]
+    pattern_ids: tuple[str, ...]
+    sentiment_ids: tuple[str, ...]
+    evidence_ids: tuple[str, ...]
+    human_rows: int = Field(ge=0)
+    agent_rows: int = Field(ge=0)
+
+
+class ExperientialAdvisory(_FrozenModel):
+    """Gated research hint. Never an order intent or live policy."""
+
+    schema_version: Literal["thytrader-experiential-advisory-v1"] = ADVISORY_SCHEMA_VERSION
+    suggested_pattern_keys: tuple[str, ...]
+    caution_pattern_keys: tuple[str, ...]
+    suggested_products: tuple[str, ...]
+    caution_products: tuple[str, ...]
+    notes: str = Field(min_length=1, max_length=500)
+
+
+class ExperientialModel(_FrozenModel):
+    """Immutable fingerprintable learner output from attributed local evidence."""
+
+    schema_version: Literal["thytrader-experiential-model-v1"] = MODEL_SCHEMA_VERSION
+    id: UUID = Field(default_factory=uuid4)
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    origin: ActorOrigin
+    engine_id: Literal["thytrader-experiential-train-v1"] = TRAIN_ENGINE_ID
+    seed: int = Field(ge=0, le=2_147_483_647)
+    fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    corpus: ExperientialCorpus
+    pattern_scores: tuple[PatternScore, ...]
+    product_scores: tuple[ProductScore, ...]
+    advisory: ExperientialAdvisory
+
+    @field_validator("recorded_at")
+    @classmethod
+    def require_utc_timestamps(cls, value: datetime) -> datetime:
+        """Keep model times timezone-aware UTC."""
+        return require_utc(value)
+
+
+class ExperientialTrainWrite(_FrozenModel):
+    """Operator-authored training request without server identity."""
+
+    origin: ActorOrigin
+    seed: int = Field(default=1, ge=0, le=2_147_483_647)
 
 
 class JournalWrite(_FrozenModel):

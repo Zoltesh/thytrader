@@ -102,6 +102,7 @@ class OpsContractPayload(_FrozenModel):
     position_sides: tuple[Literal["long", "short"], ...]
     attached_entry_brackets: tuple[Literal["paper", "live"], ...]
     paper_deploy_fee_fields: tuple[Literal["maker_fee_rate", "taker_fee_rate"], ...]
+    experiential_model_engines: tuple[str, ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

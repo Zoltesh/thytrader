@@ -4,6 +4,7 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 from thytrader.ops_contract import (
     BACKTEST_ENGINES,
     EXPECTED_SCHEMA_REVISION,
+    EXPERIENTIAL_MODEL_ENGINES,
     HTF_FILTER_RUNTIMES,
     INDICATOR_TIMEFRAME_RUNTIMES,
     LIVE_TIMEFRAMES,
@@ -26,9 +27,9 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v16"
+    assert expected["id"] == "thytrader-ops-contract-v17"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0028"
+    assert expected["expected_schema_revision"] == "0029"
     assert expected["paper_deploy_fee_fields"] == list(PAPER_DEPLOY_FEE_FIELDS)
     assert expected["paper_deploy_fee_fields"] == ["maker_fee_rate", "taker_fee_rate"]
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT
@@ -56,3 +57,5 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["indicator_timeframe_runtimes"] == ["research", "paper", "live"]
     assert expected["position_sides"] == ["long", "short"]
     assert expected["attached_entry_brackets"] == ["paper", "live"]
+    assert expected["experiential_model_engines"] == list(EXPERIENTIAL_MODEL_ENGINES)
+    assert expected["experiential_model_engines"] == ["thytrader-experiential-train-v1"]

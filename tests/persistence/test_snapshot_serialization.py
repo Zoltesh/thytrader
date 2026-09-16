@@ -407,6 +407,17 @@ def test_paper_deploy_fee_migration_follows_spot_shorting() -> None:
     assert "0.002" in content
 
 
+def test_experiential_models_migration_follows_paper_deploy_fees() -> None:
+    """The twenty-ninth migration must add trained experiential models only."""
+    content = Path("alembic/versions/0029_experiential_models.py").read_text(encoding="utf-8")
+    assert 'revision = "0029"' in content
+    assert 'down_revision = "0028"' in content
+    assert "experiential_models" in content
+    assert "uq_experiential_models_fingerprint" in content
+    assert "thytrader-experiential-train-v1" in content
+    assert "experiential_journal_entries" not in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

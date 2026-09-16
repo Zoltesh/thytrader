@@ -733,6 +733,35 @@ Index(
     experiential_notifications.c.id.desc(),
 )
 
+experiential_models = Table(
+    "experiential_models",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    Column("origin", String(8), nullable=False),
+    Column("engine_id", String(64), nullable=False),
+    Column("seed", Integer(), nullable=False),
+    Column("fingerprint", String(71), nullable=False),
+    Column("canonical_document", Text(), nullable=False),
+    CheckConstraint("origin IN ('human', 'agent')", name="ck_experiential_models_origin"),
+    CheckConstraint(
+        "engine_id = 'thytrader-experiential-train-v1'",
+        name="ck_experiential_models_engine_id",
+    ),
+    CheckConstraint("seed >= 0", name="ck_experiential_models_seed"),
+    CheckConstraint(
+        "fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_experiential_models_fingerprint",
+    ),
+    UniqueConstraint("fingerprint", name="uq_experiential_models_fingerprint"),
+)
+
+Index(
+    "ix_experiential_models_recorded_at_desc",
+    experiential_models.c.recorded_at.desc(),
+    experiential_models.c.id.desc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "archived_strategy_versions",
@@ -742,6 +771,7 @@ __all__ = [
     "execution_orders",
     "execution_positions",
     "experiential_journal_entries",
+    "experiential_models",
     "experiential_notifications",
     "experiential_pattern_observations",
     "experiential_sentiment_snapshots",

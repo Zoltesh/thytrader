@@ -1,1 +1,1 @@
-"""Experiential memory: journals, sentiment/pattern hooks, monitor, and notify."""
+"""Experiential memory: journals, hooks, monitor, notify, and fail-closed training."""

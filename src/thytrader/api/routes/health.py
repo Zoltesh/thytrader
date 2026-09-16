@@ -29,6 +29,7 @@ class HealthOpsContract(BaseModel):
     position_sides: list[str]
     attached_entry_brackets: list[str]
     paper_deploy_fee_fields: list[str]
+    experiential_model_engines: list[str]
     expected_schema_revision: str
 
 

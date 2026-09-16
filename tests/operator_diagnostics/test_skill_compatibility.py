@@ -62,6 +62,7 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "thytrader-research" in skill
     assert "--confirm" in skill
     assert "create-draft" in skill
+    assert "--experiential-model-id" in skill
     assert "--product-id" in skill
     assert "--timeframe" in skill
     assert "submit-backtest" in skill
@@ -164,6 +165,10 @@ def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:
     assert "add-journal" in skill
     assert "notify" in skill
     assert "/api/v1/memory" in skill
+    assert "train" in skill
+    assert "list-models" in skill
+    assert "show-model" in skill
+    assert "/api/v1/memory/models" in skill
     assert "do not edit" in skill.lower()
     assert "make run" in skill
     assert "Never deploys" in skill or ("does not" in skill.lower() and "order" in skill.lower())
