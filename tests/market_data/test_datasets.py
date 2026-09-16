@@ -84,7 +84,7 @@ def test_dataset_store_writes_complete_range_as_parquet_with_manifest(tmp_path: 
     assert manifest.content_fingerprint.startswith("sha256:")
     assert manifest.manifest_path.is_file()
     manifest_body = json.loads(manifest.manifest_path.read_text())
-    assert manifest_body["schema_version"] == 1
+    assert manifest_body["schema_version"] == 2
     assert manifest_body["content_fingerprint"] == manifest.content_fingerprint
     assert manifest_body["complete"] is True
     assert manifest.files[0].is_file()
@@ -514,6 +514,75 @@ def test_dataset_store_extends_by_prepending_overlapping_earlier_range(tmp_path:
     assert prefixed.ends_at == "2026-07-01T03:00:00Z"
     assert prefixed.expected_candle_count == 5
     assert len(store.load_candles(prefixed.content_fingerprint)) == 5
+
+
+def test_dataset_store_v2_fingerprint_normalizes_equivalent_numeric_spellings(
+    tmp_path: Path,
+) -> None:
+    """Schema v2 fingerprints treat equivalent Decimal spellings as one identity."""
+    starts_at = datetime(2026, 7, 1, 0, tzinfo=UTC)
+    spelled = Candle(
+        starts_at=starts_at,
+        open=Decimal("100.0"),
+        high=Decimal("110.00"),
+        low=Decimal("90"),
+        close=Decimal("105.0"),
+        volume=Decimal("12.50"),
+    )
+    canonical = Candle(
+        starts_at=starts_at,
+        open=Decimal("100"),
+        high=Decimal("110"),
+        low=Decimal("90"),
+        close=Decimal("105"),
+        volume=Decimal("12.5"),
+    )
+    spelled_report = analyze_range(
+        (spelled, _candle(1), _candle(2)),
+        CandleInterval.ONE_HOUR,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=3),
+        now=starts_at + timedelta(hours=4),
+    )
+    canonical_report = analyze_range(
+        (canonical, _candle(1), _candle(2)),
+        CandleInterval.ONE_HOUR,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=3),
+        now=starts_at + timedelta(hours=4),
+    )
+    store = DatasetStore(tmp_path)
+    first = store.write("coinbase", "BTC-USD", spelled_report)
+    second = store.write("coinbase", "BTC-USD", canonical_report)
+
+    assert first.content_fingerprint == second.content_fingerprint
+    assert first.manifest_path == second.manifest_path
+    frame = pl.read_parquet(first.files[0])
+    assert frame.row(0, named=True)["open"] == "100.0"
+
+
+def test_dataset_store_verifies_legacy_schema_v1_manifest(tmp_path: Path) -> None:
+    """Published v1 manifests must continue to verify without rewriting Parquet rows."""
+    manifest = DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
+    manifest_body = json.loads(manifest.manifest_path.read_text())
+    manifest_body["schema_version"] = 1
+    rows = pl.read_parquet(manifest.files[0]).to_dicts()
+    legacy_digest = dataset_module._fingerprint(
+        manifest.provider,
+        manifest.product_id,
+        manifest.timeframe,
+        _complete_report(),
+        rows,
+        schema_version=1,
+    )
+    manifest_body["content_fingerprint"] = f"sha256:{legacy_digest}"
+    legacy_manifest_path = tmp_path / "manifests" / f"{legacy_digest}.json"
+    manifest.manifest_path.unlink()
+    legacy_manifest_path.write_text(json.dumps(manifest_body, sort_keys=True) + "\n")
+
+    reloaded = DatasetStore(tmp_path).load_verified(legacy_manifest_path)
+
+    assert reloaded.content_fingerprint == manifest_body["content_fingerprint"]
 
 
 def test_dataset_store_fingerprint_includes_dataset_identity(tmp_path: Path) -> None:

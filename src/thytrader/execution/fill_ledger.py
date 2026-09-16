@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     DeploymentSnapshot,
@@ -134,7 +135,27 @@ def _project_entry(
             positions=(),
             instrument_runtimes=snapshot.instrument_runtimes,
         )
-    entered_bar = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
+    bar_timeframe = deployment.timeframe
+    if bar_timeframe is None:
+        paused = with_runtime(
+            deployment,
+            updated_at=now,
+            cash=cash,
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
+            phase=RuntimePhase.FLAT,
+            clear_pending_levels=True,
+        )
+        return DeploymentSnapshot(
+            deployment=paused,
+            position=None,
+            orders=snapshot.orders,
+            fills=_upsert_fill(snapshot.fills, fill),
+            intents=snapshot.intents,
+            positions=(),
+            instrument_runtimes=snapshot.instrument_runtimes,
+        )
+    entered_bar = entry_bar_bucket(fill.filled_at, bar_timeframe)
     position = Position(
         deployment_id=deployment.id,
         quantity=fill.quantity,

@@ -503,6 +503,8 @@ def _relative_strength_index(
     period: int,
 ) -> tuple[Decimal | None, ...]:
     """Return Wilder RSI after exactly ``period`` completed price changes."""
+    if not values:
+        return ()
     result: list[Decimal | None] = [None]
     gains: list[Decimal] = []
     losses: list[Decimal] = []

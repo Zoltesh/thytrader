@@ -47,7 +47,10 @@ async def test_extra_windows_reuse_htf_when_clocks_match(
 
     monkeypatch.setattr(execution_worker, "_closed_window_for", _forbidden_fetch)
     windows = await _closed_indicator_timeframe_windows(
-        cast("MarketDataService", object()), strategy, htf
+        cast("MarketDataService", object()),
+        strategy,
+        htf,
+        deploy_anchor=datetime(2026, 7, 10, tzinfo=UTC),
     )
     assert windows == {"1h": htf}
 
@@ -76,7 +79,10 @@ async def test_extra_windows_pause_when_latest_completed_bar_is_missing(
 
     monkeypatch.setattr(execution_worker, "_closed_window_for", _gapped_window)
     windows = await _closed_indicator_timeframe_windows(
-        cast("MarketDataService", object()), strategy, ()
+        cast("MarketDataService", object()),
+        strategy,
+        (),
+        deploy_anchor=datetime(2026, 7, 10, tzinfo=UTC),
     )
     assert windows is None
 
@@ -103,6 +109,9 @@ async def test_extra_windows_return_complete_unbound_clock(
 
     monkeypatch.setattr(execution_worker, "_closed_window_for", _complete_window)
     windows = await _closed_indicator_timeframe_windows(
-        cast("MarketDataService", object()), strategy, ()
+        cast("MarketDataService", object()),
+        strategy,
+        (),
+        deploy_anchor=datetime(2026, 7, 10, tzinfo=UTC),
     )
     assert windows == {"1h": extra}

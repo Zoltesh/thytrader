@@ -34,6 +34,10 @@ from thytrader.backtest.models import (
     BacktestTrade,
     EquityPoint,
 )
+from thytrader.backtest.research_validity import (
+    ResearchValidityLimitCode,
+    collect_backtest_validity_limits,
+)
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
@@ -223,9 +227,15 @@ def _simulate_backtest(
             additional_htf_candles or {},
             additional_indicator_candles or {},
         )
-    if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
+    contract = _backtest_contract(specification)
+    if contract in ("thytrader-bar-backtest-v3", "thytrader-bar-backtest-v4"):
         return _simulate_maker_backtest(
-            specification, strategy, candles, htf_candles, indicator_timeframe_candles
+            specification,
+            strategy,
+            candles,
+            htf_candles,
+            indicator_timeframe_candles,
+            causal=contract == "thytrader-bar-backtest-v4",
         )
     return _simulate_single_taker_backtest(
         specification, strategy, candles, htf_candles, indicator_timeframe_candles
@@ -279,27 +289,51 @@ def _simulate_single_taker_backtest(
             )
             pending = None
         if position is not None and offset < evaluation_bars:
-            position = _trail_open_position(
-                position,
-                candle,
-                strategy=strategy,
-                record=evaluation_records[starts_at],
-                is_fill_bar=offset == position.entered_bar_index,
-            )
-            trade, cash = _close_if_required(
-                position,
-                candle,
-                cash=cash,
-                bar_index=offset,
-                taker_fee_rate=taker_fee_rate,
-                slippage_bps=slippage_bps,
-                max_bars_held=strategy.exits.time_exit.max_bars_held,
-                fill_model=fill_model,
-                bar_duration=bar,
-            )
-            if trade is not None:
-                trades.append(trade)
-                position = None
+            if _backtest_contract(specification) == "thytrader-bar-backtest-v4":
+                trade, cash = _close_if_required(
+                    position,
+                    candle,
+                    cash=cash,
+                    bar_index=offset,
+                    taker_fee_rate=taker_fee_rate,
+                    slippage_bps=slippage_bps,
+                    max_bars_held=strategy.exits.time_exit.max_bars_held,
+                    fill_model=fill_model,
+                    bar_duration=bar,
+                )
+                if trade is not None:
+                    trades.append(trade)
+                    position = None
+                else:
+                    position = _trail_open_position(
+                        position,
+                        candle,
+                        strategy=strategy,
+                        record=evaluation_records[starts_at],
+                        is_fill_bar=offset == position.entered_bar_index,
+                    )
+            else:
+                position = _trail_open_position(
+                    position,
+                    candle,
+                    strategy=strategy,
+                    record=evaluation_records[starts_at],
+                    is_fill_bar=offset == position.entered_bar_index,
+                )
+                trade, cash = _close_if_required(
+                    position,
+                    candle,
+                    cash=cash,
+                    bar_index=offset,
+                    taker_fee_rate=taker_fee_rate,
+                    slippage_bps=slippage_bps,
+                    max_bars_held=strategy.exits.time_exit.max_bars_held,
+                    fill_model=fill_model,
+                    bar_duration=bar,
+                )
+                if trade is not None:
+                    trades.append(trade)
+                    position = None
         if offset < evaluation_bars:
             pending = _queue_taker_signal(
                 position=position,
@@ -357,6 +391,8 @@ def _simulate_single_taker_backtest(
             trades,
             equity_curve,
             include_spread_cost=specification.broker is not None,
+            evaluation_bars=evaluation_bars,
+            validity_limits=None,
         ),
     )
 
@@ -467,12 +503,14 @@ def _simulate_lockstep_backtest(
             raise BacktestSimulationError(
                 "Backtest signal inputs could not be verified."
             ) from error
-    if _backtest_contract(specification) == "thytrader-bar-backtest-v3":
+    contract = _backtest_contract(specification)
+    if contract in ("thytrader-bar-backtest-v3", "thytrader-bar-backtest-v4"):
         return _simulate_lockstep_maker_backtest(
             specification,
             strategy,
             candles_by_product,
             traces,
+            causal=contract == "thytrader-bar-backtest-v4",
         )
     return _simulate_lockstep_taker_backtest(
         specification,
@@ -626,6 +664,8 @@ def _simulate_lockstep_taker_backtest(
             trades,
             equity_curve,
             include_spread_cost=specification.broker is not None,
+            evaluation_bars=evaluation_bars,
+            validity_limits=None,
         ),
     )
 
@@ -635,8 +675,10 @@ def _simulate_lockstep_maker_backtest(
     strategy: StrategyDefinition,
     candles_by_product: Mapping[str, Sequence[Candle]],
     traces: Mapping[str, SignalTrace],
+    *,
+    causal: bool = False,
 ) -> BacktestResult:
-    """Shared-cash V3 lockstep over lexicographic product order."""
+    """Shared-cash V3/V4 lockstep over lexicographic product order."""
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     fill_model = _fill_model(specification)
@@ -660,9 +702,11 @@ def _simulate_lockstep_maker_backtest(
     evaluation_bars = int(evaluation_span / bar)
     maker_fee_rate = Decimal(specification.costs.maker_fee_rate)
     taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+    taker_slippage_bps = Decimal(specification.costs.fixed_slippage_bps)
     max_books = strategy.portfolio_limits.max_concurrent_positions
+    loop_bars = evaluation_bars if causal else evaluation_bars + 1
 
-    for offset in range(evaluation_bars + 1):
+    for offset in range(loop_bars):
         starts_at = specification.evaluation.starts_at + bar * offset
         for product_id in lockstep_product_ids(strategy):
             runtime = runtimes[product_id]
@@ -692,9 +736,11 @@ def _simulate_lockstep_maker_backtest(
                     offset=offset,
                     strategy=strategy,
                     taker_fee_rate=taker_fee_rate,
+                    taker_slippage_bps=taker_slippage_bps,
                     fill_model=fill_model,
                     bar_duration=bar,
                     record=records[product_id].get(starts_at),
+                    causal=causal,
                 )
             if trade is not None:
                 trades.append(trade)
@@ -729,42 +775,27 @@ def _simulate_lockstep_maker_backtest(
             )
         )
 
-    for product_id in lockstep_product_ids(strategy):
-        runtime = runtimes[product_id]
-        if runtime.position is None:
-            continue
-        runtime.cash = cash
-        end_candle = candle_maps[product_id][specification.evaluation.ends_at]
-        forced_exit, runtime.cash = _close_maker_position(
-            runtime.position,
-            end_candle,
-            cash=runtime.cash,
-            raw_exit_price=end_candle.close,
-            reason="evaluation_end",
-            fee_rate=taker_fee_rate,
-            fill_model=fill_model,
-            bar_duration=bar,
-        )
-        trades.append(forced_exit)
-        runtime.position = None
-        cash = runtime.cash
-    if equity_curve:
-        equity_curve[-1] = _lockstep_equity_point(
-            specification.evaluation.ends_at,
-            cash,
-            tuple(
-                _maker_as_open_position(runtimes[product_id].position)
-                for product_id in lockstep_product_ids(strategy)
-            ),
-            tuple(
-                Decimal(candle_maps[product_id][specification.evaluation.ends_at].close)
-                for product_id in lockstep_product_ids(strategy)
-            ),
-        )
+    cash = _liquidate_lockstep_maker_positions(
+        specification,
+        strategy,
+        runtimes=runtimes,
+        candle_maps=candle_maps,
+        cash=cash,
+        trades=trades,
+        equity_curve=equity_curve,
+        causal=causal,
+        taker_fee_rate=taker_fee_rate,
+        taker_slippage_bps=taker_slippage_bps,
+        fill_model=fill_model,
+        bar_duration=bar,
+    )
 
+    validity_limits = (
+        collect_backtest_validity_limits(strategy, specification) if causal else None
+    )
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v3",
+        engine_contract_version=_backtest_contract(specification),
         broker=specification.broker,
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
@@ -778,8 +809,66 @@ def _simulate_lockstep_maker_backtest(
             trades,
             equity_curve,
             include_spread_cost=False,
+            evaluation_bars=evaluation_bars,
+            validity_limits=validity_limits,
         ),
     )
+
+
+def _liquidate_lockstep_maker_positions(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    *,
+    runtimes: Mapping[str, _MakerRuntime],
+    candle_maps: Mapping[str, Mapping[datetime, Candle]],
+    cash: Decimal,
+    trades: list[BacktestTrade],
+    equity_curve: list[EquityPoint],
+    causal: bool,
+    taker_fee_rate: Decimal,
+    taker_slippage_bps: Decimal,
+    fill_model: FillModel,
+    bar_duration: timedelta,
+) -> Decimal:
+    """Force-close any open maker books and refresh the terminal equity observation."""
+    for product_id in lockstep_product_ids(strategy):
+        runtime = runtimes[product_id]
+        if runtime.position is None:
+            continue
+        runtime.cash = cash
+        end_candle = candle_maps[product_id][specification.evaluation.ends_at]
+        forced_exit, runtime.cash = _close_maker_position(
+            runtime.position,
+            end_candle,
+            cash=runtime.cash,
+            raw_exit_price=end_candle.open if causal else end_candle.close,
+            reason="evaluation_end",
+            fee_rate=taker_fee_rate,
+            slippage_bps=taker_slippage_bps if causal else Decimal("0"),
+            fill_model=fill_model,
+            bar_duration=bar_duration,
+        )
+        trades.append(forced_exit)
+        runtime.position = None
+        cash = runtime.cash
+    if equity_curve:
+        equity_curve[-1] = _lockstep_equity_point(
+            specification.evaluation.ends_at,
+            cash,
+            tuple(
+                _maker_as_open_position(runtimes[product_id].position)
+                for product_id in lockstep_product_ids(strategy)
+            ),
+            tuple(
+                (
+                    candle_maps[product_id][specification.evaluation.ends_at].open
+                    if causal
+                    else candle_maps[product_id][specification.evaluation.ends_at].close
+                )
+                for product_id in lockstep_product_ids(strategy)
+            ),
+        )
+    return cash
 
 
 def _lockstep_open_book_count(books: Mapping[str, _LockstepBook]) -> int:
@@ -867,6 +956,8 @@ def _backtest_contract(specification: ResearchRunSpecification) -> BacktestEngin
         return contract
     if contract == "thytrader-bar-backtest-v3":
         return contract
+    if contract == "thytrader-bar-backtest-v4":
+        return contract
     raise BacktestSimulationError("Backtest requires the backtest engine contract.")
 
 
@@ -877,7 +968,7 @@ def _fill_model(specification: ResearchRunSpecification) -> FillModel:
         return MarkFillModel()
     if specification.broker is None:
         raise BacktestSimulationError("Backtest broker assumptions are missing.")
-    if contract == "thytrader-bar-backtest-v3":
+    if contract in ("thytrader-bar-backtest-v3", "thytrader-bar-backtest-v4"):
         return MakerLimitFillModel()
     return ConstantSpreadFillModel(Decimal(specification.broker.spread_bps))
 
@@ -899,6 +990,8 @@ def _simulate_maker_backtest(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle],
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    *,
+    causal: bool = False,
 ) -> BacktestResult:
     """Simulate resting close-limit entries, unfilled expiry, and worker-ordered exits."""
     interval = _bar_interval(specification, strategy)
@@ -920,8 +1013,10 @@ def _simulate_maker_backtest(
     evaluation_bars = int(evaluation_span / bar)
     maker_fee_rate = Decimal(specification.costs.maker_fee_rate)
     taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+    taker_slippage_bps = Decimal(specification.costs.fixed_slippage_bps)
+    loop_bars = evaluation_bars if causal else evaluation_bars + 1
 
-    for offset in range(evaluation_bars + 1):
+    for offset in range(loop_bars):
         candle = candle_by_start[specification.evaluation.starts_at + bar * offset]
         if runtime.cooldown_bars > 0:
             runtime.cooldown_bars -= 1
@@ -947,9 +1042,11 @@ def _simulate_maker_backtest(
                 offset=offset,
                 strategy=strategy,
                 taker_fee_rate=taker_fee_rate,
+                taker_slippage_bps=taker_slippage_bps,
                 fill_model=fill_model,
                 bar_duration=bar,
                 record=evaluation_records.get(candle.starts_at),
+                causal=causal,
             )
         if trade is not None:
             trades.append(trade)
@@ -972,13 +1069,15 @@ def _simulate_maker_backtest(
         )
 
     if runtime.position is not None:
+        end_candle = candle_by_start[specification.evaluation.ends_at]
         forced_exit, runtime.cash = _close_maker_position(
             runtime.position,
-            candle_by_start[specification.evaluation.ends_at],
+            end_candle,
             cash=runtime.cash,
-            raw_exit_price=candle_by_start[specification.evaluation.ends_at].close,
+            raw_exit_price=end_candle.open if causal else end_candle.close,
             reason="evaluation_end",
             fee_rate=taker_fee_rate,
+            slippage_bps=taker_slippage_bps if causal else Decimal("0"),
             fill_model=fill_model,
             bar_duration=bar,
         )
@@ -991,9 +1090,12 @@ def _simulate_maker_backtest(
             Decimal(forced_exit.exit.price),
         )
 
+    validity_limits = (
+        collect_backtest_validity_limits(strategy, specification) if causal else None
+    )
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v3",
+        engine_contract_version=_backtest_contract(specification),
         broker=specification.broker,
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
@@ -1007,6 +1109,8 @@ def _simulate_maker_backtest(
             trades,
             equity_curve,
             include_spread_cost=False,
+            evaluation_bars=evaluation_bars,
+            validity_limits=validity_limits,
         ),
     )
 
@@ -1099,6 +1203,24 @@ def _match_maker_take_profit(
     return trade
 
 
+def _maker_stop_hit(position: _MakerPosition, candle: Candle) -> bool:
+    """Return whether one bar trades through the position's current stop."""
+    return (
+        candle.high >= position.stop_price
+        if position.side == "short"
+        else candle.low <= position.stop_price
+    )
+
+
+def _maker_stop_exit_price(position: _MakerPosition, candle: Candle) -> Decimal:
+    """Return the conservative executable stop price for one maker-path exit."""
+    return (
+        max(candle.open, position.stop_price)
+        if position.side == "short"
+        else min(candle.open, position.stop_price)
+    )
+
+
 def _manage_maker_position(
     runtime: _MakerRuntime,
     candle: Candle,
@@ -1106,14 +1228,31 @@ def _manage_maker_position(
     offset: int,
     strategy: StrategyDefinition,
     taker_fee_rate: Decimal,
+    taker_slippage_bps: Decimal,
     fill_model: FillModel,
     bar_duration: timedelta,
     record: SignalTraceRecord | None,
+    causal: bool = False,
 ) -> BacktestTrade | None:
     """Stop on the fill bar, time-exit at close, then rest take-profit for later bars."""
     position = runtime.position
     if position is None:
         return None
+    bars_held = offset - position.entered_bar_index
+    if causal and _maker_stop_hit(position, candle):
+        trade, runtime.cash = _close_maker_position(
+            position,
+            candle,
+            cash=runtime.cash,
+            raw_exit_price=_maker_stop_exit_price(position, candle),
+            reason="stop_loss",
+            fee_rate=taker_fee_rate,
+            slippage_bps=taker_slippage_bps,
+            fill_model=fill_model,
+            bar_duration=bar_duration,
+        )
+        runtime.position = None
+        return trade
     runtime.position = _trail_maker_position(
         position,
         candle,
@@ -1122,25 +1261,15 @@ def _manage_maker_position(
         is_fill_bar=offset == position.entered_bar_index,
     )
     position = runtime.position
-    bars_held = offset - position.entered_bar_index
-    stop_hit = (
-        candle.high >= position.stop_price
-        if position.side == "short"
-        else candle.low <= position.stop_price
-    )
-    if stop_hit:
-        raw_exit = (
-            max(candle.open, position.stop_price)
-            if position.side == "short"
-            else min(candle.open, position.stop_price)
-        )
+    if not causal and _maker_stop_hit(position, candle):
         trade, runtime.cash = _close_maker_position(
             position,
             candle,
             cash=runtime.cash,
-            raw_exit_price=raw_exit,
+            raw_exit_price=_maker_stop_exit_price(position, candle),
             reason="stop_loss",
             fee_rate=taker_fee_rate,
+            slippage_bps=Decimal("0"),
             fill_model=fill_model,
             bar_duration=bar_duration,
         )
@@ -1154,6 +1283,7 @@ def _manage_maker_position(
             raw_exit_price=candle.close,
             reason="time_exit",
             fee_rate=taker_fee_rate,
+            slippage_bps=taker_slippage_bps if causal else Decimal("0"),
             fill_model=fill_model,
             bar_duration=bar_duration,
         )
@@ -1396,6 +1526,7 @@ def _close_maker_position(
     raw_exit_price: Decimal,
     reason: Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"],
     fee_rate: Decimal,
+    slippage_bps: Decimal = Decimal("0"),
     fill_model: FillModel,
     bar_duration: timedelta,
 ) -> tuple[BacktestTrade, Decimal]:
@@ -1415,7 +1546,7 @@ def _close_maker_position(
         raw_exit_price=raw_exit_price,
         reason=reason,
         taker_fee_rate=fee_rate,
-        slippage_bps=Decimal("0"),
+        slippage_bps=slippage_bps,
         fill_model=fill_model,
         bar_duration=bar_duration,
     )
@@ -1928,6 +2059,8 @@ def _summary(
     equity_curve: Sequence[EquityPoint],
     *,
     include_spread_cost: bool,
+    evaluation_bars: int,
+    validity_limits: tuple[ResearchValidityLimitCode, ...] | None = None,
 ) -> BacktestSummary:
     """Calculate only exact deterministic ledger and equity statistics in the V1 result."""
     peak = initial_cash
@@ -1946,7 +2079,6 @@ def _summary(
     gross_loss = -sum(losses, start=Decimal("0"))
     trade_count = len(trades)
     exposure_bars = sum(max(1, trade.holding_bars) for trade in trades)
-    evaluation_bars = len(equity_curve) - 1
     total_spread_cost = (
         sum(
             (
@@ -1981,6 +2113,7 @@ def _summary(
         total_spread_cost=(
             canonical_decimal(total_spread_cost) if total_spread_cost is not None else None
         ),
+        validity_limits=validity_limits,
     )
 
 

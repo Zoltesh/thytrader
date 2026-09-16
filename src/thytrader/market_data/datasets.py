@@ -29,6 +29,7 @@ from thytrader.market_data.quality import (
     analyze_range,
     validate_candle_values,
 )
+from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
 type _FileIdentity = tuple[Path, int, int, int, str]
 
 
-_DATASET_SCHEMA_VERSION = 1
+_DATASET_SCHEMA_VERSION = 2
+_SUPPORTED_DATASET_SCHEMA_VERSIONS = frozenset({1, 2})
+_FINGERPRINT_OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _FINGERPRINT = re.compile(r"^sha256:([0-9a-f]{64})$")
 
@@ -99,7 +102,14 @@ class DatasetStore:
 
         timeframe = interval_from_range(report).value
         rows = _candle_rows(report)
-        digest = _fingerprint(provider, product_id, timeframe, report, rows)
+        digest = _fingerprint(
+            provider,
+            product_id,
+            timeframe,
+            report,
+            _fingerprint_rows(report),
+            schema_version=_DATASET_SCHEMA_VERSION,
+        )
         manifest_path = self._root / "manifests" / f"{digest}.json"
         if manifest_path.exists():
             return self.load_verified(manifest_path)
@@ -198,13 +208,11 @@ class DatasetStore:
         self, payload: object, manifest_path: Path
     ) -> _DatasetCatalogCandidate:
         """Build a ranking candidate without inspecting its cumulative file list."""
-        if (
-            not isinstance(payload, dict)
-            or payload.get("schema_version") != _DATASET_SCHEMA_VERSION
-        ):
+        if not isinstance(payload, dict):
             message = "Dataset verification failed because the manifest schema is unsupported."
             raise DatasetStoreError(message)
         manifest_payload = cast("dict[str, object]", payload)
+        _require_supported_schema_version(manifest_payload.get("schema_version"))
         required_text = (
             "provider",
             "product_id",
@@ -337,7 +345,14 @@ class DatasetStore:
             raise DatasetStoreError(message)
 
         rows = _candle_rows(combined)
-        digest = _fingerprint(prior.provider, prior.product_id, prior.timeframe, combined, rows)
+        digest = _fingerprint(
+            prior.provider,
+            prior.product_id,
+            prior.timeframe,
+            combined,
+            _fingerprint_rows(combined),
+            schema_version=_DATASET_SCHEMA_VERSION,
+        )
         manifest_path = self._root / "manifests" / f"{digest}.json"
         if manifest_path.exists():
             return self.load_verified(manifest_path)
@@ -418,7 +433,14 @@ class DatasetStore:
                 "Dataset verification failed because manifest facts do not match candle coverage."
             )
             raise DatasetStoreError(message)
-        expected = _fingerprint_from_manifest(manifest, rows)
+        schema_version = _require_supported_schema_version(
+            cast("dict[str, object]", payload).get("schema_version")
+        )
+        expected = _fingerprint_from_manifest(
+            manifest,
+            _rows_for_fingerprint(rows, schema_version),
+            schema_version=schema_version,
+        )
         if manifest.content_fingerprint != f"sha256:{expected}":
             message = "Dataset verification failed because its content fingerprint does not match."
             raise DatasetStoreError(message)
@@ -505,13 +527,11 @@ class DatasetStore:
 
     def _manifest_from_payload(self, payload: object, manifest_path: Path) -> DatasetManifest:
         """Validate untrusted manifest JSON before using any referenced dataset file."""
-        if (
-            not isinstance(payload, dict)
-            or payload.get("schema_version") != _DATASET_SCHEMA_VERSION
-        ):
+        if not isinstance(payload, dict):
             message = "Dataset verification failed because the manifest schema is unsupported."
             raise DatasetStoreError(message)
         manifest_payload = cast("dict[str, object]", payload)
+        _require_supported_schema_version(manifest_payload.get("schema_version"))
         required_text = (
             "provider",
             "product_id",
@@ -757,7 +777,11 @@ def _report_facts_match(
 
 
 def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
-    """Serialize exact candles into canonical rows suitable for hashing and Parquet storage."""
+    """Serialize exact candles into Parquet rows using each ``Decimal``'s source spelling.
+
+    Immutable dataset identity for schema v2 uses ``_fingerprint_rows`` instead, which
+    normalizes OHLCV through ``canonical_decimal`` while Parquet keeps these literals.
+    """
     return tuple(
         {
             "starts_at": _utc_text(candle.starts_at),
@@ -769,6 +793,48 @@ def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
         }
         for candle in report.quality.candles
     )
+
+
+def _fingerprint_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
+    """Serialize OHLCV with canonical decimals for schema-v2 content fingerprints."""
+    return tuple(
+        {
+            "starts_at": _utc_text(candle.starts_at),
+            "open": canonical_decimal(candle.open),
+            "high": canonical_decimal(candle.high),
+            "low": canonical_decimal(candle.low),
+            "close": canonical_decimal(candle.close),
+            "volume": canonical_decimal(candle.volume),
+        }
+        for candle in report.quality.candles
+    )
+
+
+def _rows_for_fingerprint(
+    rows: Sequence[dict[str, str]],
+    schema_version: int,
+) -> tuple[dict[str, str], ...]:
+    """Normalize persisted Parquet rows to the schema-specific fingerprint spelling."""
+    if schema_version == 1:
+        return tuple(rows)
+    return tuple(
+        {
+            **row,
+            **{
+                field: canonical_decimal(Decimal(row[field]))
+                for field in _FINGERPRINT_OHLCV_FIELDS
+            },
+        }
+        for row in rows
+    )
+
+
+def _require_supported_schema_version(value: object) -> int:
+    """Reject manifests whose schema version is outside the supported immutable set."""
+    if not isinstance(value, int) or value not in _SUPPORTED_DATASET_SCHEMA_VERSIONS:
+        message = "Dataset verification failed because the manifest schema is unsupported."
+        raise DatasetStoreError(message)
+    return value
 
 
 def _parquet_rows(path: Path) -> tuple[dict[str, str], ...]:
@@ -839,10 +905,12 @@ def _fingerprint(
     timeframe: str,
     report: CandleRangeReport,
     rows: Sequence[dict[str, str]],
+    *,
+    schema_version: int,
 ) -> str:
     """Hash complete identity and canonical candle content for immutable dataset identity."""
     identity = {
-        "schema_version": _DATASET_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "provider": provider,
         "product_id": product_id,
         "timeframe": timeframe,
@@ -858,10 +926,15 @@ def _fingerprint(
     return sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _fingerprint_from_manifest(manifest: DatasetManifest, rows: Sequence[dict[str, str]]) -> str:
+def _fingerprint_from_manifest(
+    manifest: DatasetManifest,
+    rows: Sequence[dict[str, str]],
+    *,
+    schema_version: int,
+) -> str:
     """Reconstruct the immutable fingerprint using persisted manifest facts and Parquet content."""
     identity = {
-        "schema_version": _DATASET_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "provider": manifest.provider,
         "product_id": manifest.product_id,
         "timeframe": manifest.timeframe,

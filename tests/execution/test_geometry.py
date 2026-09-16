@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from thytrader.execution.geometry import (
     bracket_is_valid,
+    entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_hit,
@@ -57,3 +58,12 @@ def test_paper_stop_uses_low_for_longs_and_high_for_shorts() -> None:
     assert not paper_stop_hit(side=PositionSide.LONG, candle=candle, stop_price=Decimal("80"))
     assert paper_stop_hit(side=PositionSide.SHORT, candle=candle, stop_price=Decimal("110"))
     assert not paper_stop_hit(side=PositionSide.SHORT, candle=candle, stop_price=Decimal("120"))
+
+
+def test_entry_bar_bucket_aligns_to_interval_starts() -> None:
+    """Fill event times map to the containing bar start on each supported clock."""
+    fill_time = datetime(2026, 1, 1, 10, 37, tzinfo=UTC)
+    assert entry_bar_bucket(fill_time, "1h") == datetime(2026, 1, 1, 10, tzinfo=UTC)
+    assert entry_bar_bucket(fill_time, "5m") == datetime(2026, 1, 1, 10, 35, tzinfo=UTC)
+    bar_start = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    assert entry_bar_bucket(bar_start, "1h") == bar_start

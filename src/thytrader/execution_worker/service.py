@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.discretionary import process_discretionary_bar
-from thytrader.execution.geometry import base_currency
+from thytrader.execution.geometry import base_currency, entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import (
     cancel_resting_orders,
@@ -32,6 +32,7 @@ from thytrader.execution.trade_reason_scope import (
 )
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.research.models import warmup_starts_at
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
+    from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.broker import Broker
     from thytrader.execution.models import Deployment, DeploymentSnapshot
@@ -67,6 +69,14 @@ class QuoteBalanceReader(Protocol):
 
     async def list_balances(self) -> tuple[ExchangeBalance, ...]:
         """Return non-empty exchange balances."""
+        ...
+
+
+class LiveFeeProfileReader(Protocol):
+    """Fetch the venue maker/taker tier used to size live entries."""
+
+    async def get_fee_profile(self) -> FeeProfile:
+        """Return the latest Coinbase fee profile."""
         ...
 
 
@@ -276,7 +286,9 @@ async def _advance_strategy(
         snapshot, timeframe=strategy.timeframe, store=store, user_feed_store=user_feed_store
     ):
         return
-    product, candles, expected_last = await _closed_window(market_data, strategy)
+    product, candles, expected_last = await _closed_window(
+        market_data, strategy, deploy_anchor=deployment.created_at
+    )
     if not candles:
         return
     interval = parse_candle_interval(strategy.timeframe)
@@ -326,7 +338,9 @@ async def _advance_strategy(
             memory_store=memory_store,
         )
         return
-    htf_candles = await _closed_htf_window(market_data, strategy)
+    htf_candles = await _closed_htf_window(
+        market_data, strategy, deploy_anchor=deployment.created_at
+    )
     if htf_candles is None:
         paused = with_runtime(
             deployment,
@@ -385,18 +399,20 @@ async def _advance_multi_instrument(
     )
     if windows is None:
         return
+    deployment = snapshot.deployment
     overlays = await _load_lockstep_filter_windows(
         snapshot,
         strategy=strategy,
         store=store,
         market_data=market_data,
         covered=covered,
+        deploy_anchor=deployment.created_at,
     )
     if overlays is None:
         return
     htf_by_product, extra_by_product = overlays
-    deployment = snapshot.deployment
     broker: Broker = paper_broker
+    fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:
         prepared = await _prepare_live(
             snapshot,
@@ -409,7 +425,7 @@ async def _advance_multi_instrument(
         )
         if prepared is None or live_broker is None:
             return
-        snapshot = prepared
+        snapshot, fee_profile = prepared
         broker = live_broker
     if not due:
         await _maintain_multi_between_bars(
@@ -439,6 +455,7 @@ async def _advance_multi_instrument(
             risk_policy=risk_policy,
             portfolio=portfolio,
             memory_store=memory_store,
+            fee_profile=fee_profile,
         )
         if stopped:
             return
@@ -467,6 +484,7 @@ async def _load_lockstep_product_windows(
             product_id=product_id,
             timeframe=strategy.timeframe,
             warmup_bars=strategy.data_requirements.warmup_bars,
+            deploy_anchor=snapshot.deployment.created_at,
         )
         extra_due = new_closed_bars(
             extra_candles,
@@ -488,12 +506,15 @@ async def _load_lockstep_filter_windows(
     store: ExecutionStore,
     market_data: MarketDataService,
     covered: tuple[str, ...],
+    deploy_anchor: datetime,
 ) -> tuple[dict[str, tuple[Candle, ...]], dict[str, dict[str, tuple[Candle, ...]]]] | None:
     """Load last-completed HTF and extra-TF windows, or pause on a gap."""
     htf_by_product: dict[str, tuple[Candle, ...]] = {}
     extra_by_product: dict[str, dict[str, tuple[Candle, ...]]] = {}
     for product_id in covered:
-        htf_candles = await _closed_htf_window(market_data, strategy, product_id=product_id)
+        htf_candles = await _closed_htf_window(
+            market_data, strategy, product_id=product_id, deploy_anchor=deploy_anchor
+        )
         if htf_candles is None:
             paused = with_runtime(
                 snapshot.deployment,
@@ -507,7 +528,11 @@ async def _load_lockstep_filter_windows(
             await store.save_deployment(paused)
             return None
         extra_candles = await _closed_indicator_timeframe_windows(
-            market_data, strategy, htf_candles, product_id=product_id
+            market_data,
+            strategy,
+            htf_candles,
+            product_id=product_id,
+            deploy_anchor=deploy_anchor,
         )
         if extra_candles is None:
             paused = with_runtime(
@@ -542,6 +567,7 @@ async def _evaluate_lockstep_bar(
     risk_policy: RiskPolicyDefinition,
     portfolio: tuple[DeploymentSnapshot, ...],
     memory_store: ExperientialMemoryStore | None,
+    fee_profile: FeeProfile | None = None,
 ) -> bool:
     """Evaluate every covered product on one shared closed bar. True if the loop should stop."""
     current = await store.get_deployment(deployment_id)
@@ -596,6 +622,7 @@ async def _evaluate_lockstep_bar(
                 indicator_timeframe_candles=extra_by_product[product_id],
                 live_base_available=live_base_available,
                 marks=marks,
+                fee_profile=fee_profile,
             )
         latest = await store.get_deployment(deployment_id)
         if latest.deployment.status is DeploymentStatus.STOPPED:
@@ -644,13 +671,19 @@ async def _evaluate_strategy_due_bars(
     memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Compose extra-TF windows with the shipped closed-bar HTF evaluation path."""
+    deployment = snapshot.deployment
     extra_candles = await _indicator_timeframe_windows_or_pause(
-        snapshot, strategy=strategy, store=store, market_data=market_data, htf_candles=htf_candles
+        snapshot,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        htf_candles=htf_candles,
+        deploy_anchor=deployment.created_at,
     )
     if extra_candles is None:
         return
-    deployment = snapshot.deployment
     broker: Broker = paper_broker
+    fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:
         prepared = await _prepare_live(
             snapshot,
@@ -663,7 +696,7 @@ async def _evaluate_strategy_due_bars(
         )
         if prepared is None or live_broker is None:
             return
-        snapshot = prepared
+        snapshot, fee_profile = prepared
         broker = live_broker
     for candle in due:
         current = await store.get_deployment(deployment.id)
@@ -703,6 +736,7 @@ async def _evaluate_strategy_due_bars(
                 indicator_timeframe_candles=extra_candles,
                 live_base_available=live_base_available,
                 marks=marks,
+                fee_profile=fee_profile,
             )
 
 
@@ -751,6 +785,7 @@ async def _process_discretionary(
         product_id=deployment.product_id,
         timeframe=timeframe,
         warmup_bars=3,
+        deploy_anchor=deployment.created_at,
     )
     if not candles:
         return
@@ -783,7 +818,7 @@ async def _process_discretionary(
         )
         if prepared is None or live_broker is None:
             return
-        snapshot = prepared
+        snapshot, _fee_profile = prepared
         broker = live_broker
         paused_with_mismatch = (
             snapshot.deployment.status is DeploymentStatus.PAUSED
@@ -905,8 +940,8 @@ async def _prepare_live(
     quote_currency: str,
     product_id: str,
     cooldown_bars: int,
-) -> DeploymentSnapshot | None:
-    """Pause without a live broker, else reconcile fills then refresh quote cash."""
+) -> tuple[DeploymentSnapshot, FeeProfile | None] | None:
+    """Pause without a live broker, else reconcile fills and refresh quote cash and fees."""
     deployment = snapshot.deployment
     if live_broker is None:
         paused = with_runtime(
@@ -925,7 +960,7 @@ async def _prepare_live(
         cooldown_bars=cooldown_bars,
     )
     if snapshot.deployment.status is DeploymentStatus.PAUSED:
-        return snapshot
+        return snapshot, None
     if quote_reader is not None:
         cash = await _currency_available(quote_reader, quote_currency)
         if cash is not None:
@@ -934,7 +969,24 @@ async def _prepare_live(
                 with_runtime(current.deployment, updated_at=utc_now(), cash=cash)
             )
             snapshot = await store.get_deployment(deployment.id)
-    return snapshot
+    fee_profile = await _live_fee_profile(quote_reader)
+    return snapshot, fee_profile
+
+
+async def _live_fee_profile(
+    quote_reader: QuoteBalanceReader | None,
+) -> FeeProfile | None:
+    """Return the venue maker tier when the quote reader exposes fee evidence."""
+    if quote_reader is None:
+        return None
+    get_profile = getattr(quote_reader, "get_fee_profile", None)
+    if get_profile is None:
+        return None
+    try:
+        return await get_profile()
+    except (RuntimeError, ValueError, TypeError, OSError):
+        _logger.exception("live_fee_profile_fetch_failed")
+        return None
 
 
 def new_closed_bars(
@@ -988,6 +1040,8 @@ async def _closed_htf_window(
     strategy: StrategyDefinition,
     *,
     product_id: str | None = None,
+    deploy_anchor: datetime,
+    as_of_closed_start: datetime | None = None,
 ) -> tuple[Candle, ...] | None:
     """Fetch complete-only last-completed HTF bars, or None when gapped."""
     htf_filter = strategy.htf_filter
@@ -998,6 +1052,8 @@ async def _closed_htf_window(
         product_id=product_id or strategy.instrument.product_id,
         timeframe=htf_filter.timeframe,
         warmup_bars=htf_filter.data_requirements.warmup_bars,
+        deploy_anchor=deploy_anchor,
+        as_of_closed_start=as_of_closed_start,
     )
     interval = parse_candle_interval(htf_filter.timeframe)
     if not htf_coverage_ready(
@@ -1016,9 +1072,17 @@ async def _indicator_timeframe_windows_or_pause(
     store: ExecutionStore,
     market_data: MarketDataService,
     htf_candles: Sequence[Candle],
+    deploy_anchor: datetime,
+    as_of_closed_start: datetime | None = None,
 ) -> dict[str, tuple[Candle, ...]] | None:
     """Return extra-TF windows, or pause when that complete-only coverage is missing."""
-    extra_candles = await _closed_indicator_timeframe_windows(market_data, strategy, htf_candles)
+    extra_candles = await _closed_indicator_timeframe_windows(
+        market_data,
+        strategy,
+        htf_candles,
+        deploy_anchor=deploy_anchor,
+        as_of_closed_start=as_of_closed_start,
+    )
     if extra_candles is not None:
         return extra_candles
     paused = with_runtime(
@@ -1039,6 +1103,8 @@ async def _closed_indicator_timeframe_windows(
     htf_candles: Sequence[Candle],
     *,
     product_id: str | None = None,
+    deploy_anchor: datetime,
+    as_of_closed_start: datetime | None = None,
 ) -> dict[str, tuple[Candle, ...]] | None:
     """Fetch complete-only extra-TF bars, reusing the HTF window when clocks match."""
     windows: dict[str, tuple[Candle, ...]] = {}
@@ -1053,6 +1119,8 @@ async def _closed_indicator_timeframe_windows(
             product_id=covered_product,
             timeframe=timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            deploy_anchor=deploy_anchor,
+            as_of_closed_start=as_of_closed_start,
         )
         interval = parse_candle_interval(timeframe)
         if not htf_coverage_ready(
@@ -1068,13 +1136,18 @@ async def _closed_indicator_timeframe_windows(
 async def _closed_window(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+    as_of_closed_start: datetime | None = None,
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-    """Fetch warmup plus the latest fully closed bar on the strategy interval."""
+    """Fetch deploy-anchored warmup through the latest fully closed bar."""
     return await _closed_window_for(
         market_data,
         product_id=strategy.instrument.product_id,
         timeframe=strategy.timeframe,
         warmup_bars=strategy.data_requirements.warmup_bars,
+        deploy_anchor=deploy_anchor,
+        as_of_closed_start=as_of_closed_start,
     )
 
 
@@ -1084,13 +1157,20 @@ async def _closed_window_for(
     product_id: str,
     timeframe: str,
     warmup_bars: int,
+    deploy_anchor: datetime,
+    as_of_closed_start: datetime | None = None,
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-    """Fetch warmup plus the latest fully closed bar on one interval."""
+    """Fetch deploy-anchored warmup through one closed bar on an interval."""
     now = datetime.now(UTC)
     interval = parse_candle_interval(timeframe)
     last_closed_end = interval.align_closed_end(now)
-    last_closed_start = last_closed_end - interval.duration
-    starts_at = last_closed_start - interval.duration * warmup_bars
+    last_closed_start = (
+        as_of_closed_start
+        if as_of_closed_start is not None
+        else last_closed_end - interval.duration
+    )
+    deploy_anchor_bar = entry_bar_bucket(deploy_anchor, timeframe)
+    starts_at = warmup_starts_at(deploy_anchor_bar, warmup_bars, timeframe)
     preview = await market_data.get_preview(product_id, interval)
     report = await market_data.get_range(product_id, interval, starts_at, last_closed_end, now)
     candles = tuple(

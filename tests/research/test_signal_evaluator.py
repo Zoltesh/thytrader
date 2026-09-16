@@ -168,6 +168,20 @@ def test_ema_uses_sma_seed_then_exact_recursive_smoothing() -> None:
     assert [row["ema"] for row in rows] == [None, None, Decimal("2"), Decimal("3")]
 
 
+def test_rsi_empty_values_returns_empty_tuple() -> None:
+    """RSI on zero closes must not emit a placeholder None row."""
+    indicator = IndicatorDefinition(
+        id="rsi",
+        kind=IndicatorKind.RSI,
+        input="close",
+        parameters=IndicatorParameters(period=2),
+    )
+
+    rows = calculate_indicator_rows((indicator,), ())
+
+    assert rows == ()
+
+
 def test_rsi_uses_wilder_seed_and_requires_period_price_changes() -> None:
     """RSI starts after period deltas and applies Wilder gain/loss smoothing."""
     indicator = IndicatorDefinition(
