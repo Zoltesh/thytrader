@@ -137,6 +137,7 @@ async def process_closed_bar(
         broker=broker,
         store=store,
         cooldown_bars=strategy.entry.cooldown_bars,
+        timeframe=deployment.timeframe or strategy.timeframe,
     )
     snapshot = await _manage_position(
         snapshot,
@@ -199,6 +200,7 @@ async def _match_resting_orders(
     broker: Broker,
     store: ExecutionStore,
     cooldown_bars: int,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Apply paper or local fills for resting limits against the closed candle."""
     for order in snapshot.orders:
@@ -215,7 +217,12 @@ async def _match_resting_orders(
         )
         await store.save_order(filled)
         result = await ingest_fill(
-            snapshot, fill=fill, order=filled, store=store, cooldown_bars=cooldown_bars
+            snapshot,
+            fill=fill,
+            order=filled,
+            store=store,
+            cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
         )
         snapshot = result.snapshot
     return await store.get_deployment(snapshot.deployment.id)
@@ -228,10 +235,16 @@ async def apply_fill(
     order: Order,
     store: ExecutionStore,
     cooldown_bars: int = 0,
+    timeframe: str | None = None,
 ) -> DeploymentSnapshot:
     """Update cash and position from one fill and persist the result."""
     result = await ingest_fill(
-        snapshot, fill=fill, order=order, store=store, cooldown_bars=cooldown_bars
+        snapshot,
+        fill=fill,
+        order=order,
+        store=store,
+        cooldown_bars=cooldown_bars,
+        timeframe=timeframe or snapshot.deployment.timeframe,
     )
     return result.snapshot
 

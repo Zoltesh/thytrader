@@ -876,7 +876,7 @@ async def _maintain_between_bars(
         )
         if prepared is None or live_broker is None:
             return
-        snapshot = prepared
+        snapshot, _fee_profile = prepared
         broker = live_broker
     await maintain_open_inventory(
         snapshot,
@@ -913,7 +913,7 @@ async def _maintain_multi_between_bars(
         )
         if prepared is None or live_broker is None:
             return
-        snapshot = prepared
+        snapshot, _fee_profile = prepared
         broker = live_broker
     for product_id in covered:
         product, candles = windows[product_id]
