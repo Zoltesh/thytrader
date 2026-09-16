@@ -5,15 +5,21 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from coinbase.rest import RESTClient
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from thytrader import __version__
 from thytrader.api.routes.agent_orchestration import router as agent_orchestration_router
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
+from thytrader.api.routes.credentials import (
+    router as credentials_router,
+    suppress_credentials_validation_echo,
+)
 from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
@@ -70,6 +76,7 @@ from thytrader.memory.store import (
     DisabledExperientialMemoryStore,
     ExperientialMemoryStore,
 )
+from thytrader.observability.logging import configure_logging
 from thytrader.operator_chat.credentials import OperatorChatCredentialStore
 from thytrader.operator_chat.service import OperatorChatService
 from thytrader.operator_chat.session import OperatorChatSessionStore
@@ -160,6 +167,7 @@ def create_app(
     operator_chat_sessions: OperatorChatSessionStore | None = None,
     operator_chat_llm: LlmClient | None = None,
     settings_store: SettingsStore | None = None,
+    credentials_env_file: Path | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -316,7 +324,16 @@ def create_app(
             await _dispose_if_present(engine)
 
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, suppress_credentials_validation_echo)
     app.state.runtime = runtime
+    app.state.credentials_env_file = credentials_env_file or Path(".env")
+    app.state.coinbase_clients_locked = (
+        portfolio_service is not None
+        or market_data_service is not None
+        or live_broker is not None
+        or quote_reader is not None
+    )
+    app.state.apply_coinbase_settings = apply_coinbase_settings
     app.state.portfolio_service = portfolio_service or _build_portfolio_service(resolved_settings)
     app.state.market_data_service = market_data_service or _build_market_data_service(
         resolved_settings
@@ -328,6 +345,7 @@ def create_app(
         llm=operator_chat_llm,
     )
     app.include_router(health_router)
+    app.include_router(credentials_router)
     app.include_router(audit_events_router)
     app.include_router(agent_orchestration_router)
     app.include_router(operator_router)
@@ -505,3 +523,24 @@ def _build_market_data_service(settings: Settings) -> MarketDataService:
         timeout=10,
     )
     return MarketDataService(CoinbaseMarketData(client))
+
+
+def apply_coinbase_settings(app: FastAPI, settings: Settings) -> None:
+    """Hot-reload process settings and Coinbase-backed API clients.
+
+    Does not restart workers. Reconfigures logging so newly stored secret values
+    redact. Injected test doubles stay in place when ``coinbase_clients_locked``.
+    """
+    runtime = app.state.runtime
+    if not isinstance(runtime, RuntimeState):
+        message = "ThyTrader runtime state is unavailable."
+        raise TypeError(message)
+    runtime.replace_process_settings(settings)
+    if getattr(app.state, "coinbase_clients_locked", False):
+        return
+    app.state.portfolio_service = _build_portfolio_service(settings)
+    app.state.market_data_service = _build_market_data_service(settings)
+    live_broker, quote_reader = _build_live_execution(settings)
+    app.state.live_broker = live_broker
+    app.state.quote_reader = quote_reader
+    configure_logging(settings)

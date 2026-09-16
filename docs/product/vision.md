@@ -165,10 +165,13 @@ Guarded live execution remains after paper restart, stale-data, duplicate-event,
 acceptance tests pass.
 
 That slice is **shipped**. Later work follows the [roadmap](../roadmap.md). Destination remaining
-items include extra exchanges, multi-instrument strategy documents, workstation IA, and a Coinbase
-secrets UI. Do not treat those as shipped. In-app operator chat is
-shipped ([ADR 0051](../decisions/0051-in-app-operator-chat.md)). Trade-reason journals are shipped
-([ADR 0054](../decisions/0054-trade-reason-journals.md)). Contributor
+items include extra exchanges and multi-instrument strategy documents. Do not treat those as
+shipped. In-app operator chat is shipped
+([ADR 0051](../decisions/0051-in-app-operator-chat.md)). Richer sweep axes and the persisted
+study catalog are shipped ([ADR 0052](../decisions/0052-richer-sweep-axes-study-catalog.md)).
+Workstation IA and the write-only Coinbase secrets UI are shipped
+([ADR 0053](../decisions/0053-workstation-ia-write-only-coinbase-credentials.md)). Trade-reason
+journals are shipped ([ADR 0054](../decisions/0054-trade-reason-journals.md)). Contributor
 [contract diagrams](../architecture/contracts/README.md) are shipped. Venue strategy/paper/live/HTF clocks are shipped
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Per-indicator timeframes
 are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Phase 10's risk-policy

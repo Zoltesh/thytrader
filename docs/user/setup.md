@@ -38,9 +38,12 @@ internal proxy target.
 ## Credentials (names only)
 
 Leave Coinbase variables empty for deterministic demo balances. Configure both
-`THYTRADER_COINBASE_API_KEY_NAME` and `THYTRADER_COINBASE_API_PRIVATE_KEY` in ignored `.env` for
-live balances. ThyTrader accepts View + Trade keys and keys with additional permissions. The
-portfolio screen is read-only; it never submits an order.
+`THYTRADER_COINBASE_API_KEY_NAME` and `THYTRADER_COINBASE_API_PRIVATE_KEY` in ignored `.env`, or
+set/rotate/clear them from loopback Settings (`http://127.0.0.1:5175/settings`) or
+`thytrader-runtime set-coinbase-credentials --private-key-file … --confirm`. GET never echoes
+secrets. Workers still interpolate host `.env` at start and need a restart. Setting credentials
+does not arm live trading. ThyTrader accepts View + Trade keys and keys with additional
+permissions. The portfolio screen is read-only; it never submits an order.
 
 Never commit `.env`. `.env.example` lists names and placeholders only. Startup must not print
 secrets. See [Safety](safety.md).

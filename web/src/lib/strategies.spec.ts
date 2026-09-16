@@ -10,6 +10,7 @@ import {
 	paperLiveStatusLabel,
 	paperLiveStatusTitle,
 	parseIndicatorOperandKey,
+	publishedVersionsFor,
 	researchWindowHint,
 	serializeIndicator,
 	unboundIndicatorTimeframes,
@@ -156,8 +157,29 @@ describe('paper/live library column copy', () => {
 		const paperLive = { paper: 'running', live: 'unavailable' };
 		expect(paperLiveStatusLabel(paperLive)).toBe('running / unavailable');
 		expect(paperLiveStatusTitle(paperLive)).toBe(
-			'Paper: running. Live: unavailable. Opens Deploy.'
+			'Paper: running. Live: unavailable. Opens the Deploy page.'
 		);
+	});
+
+	it('falls back to the latest fingerprint when published_versions is empty', () => {
+		expect(
+			publishedVersionsFor({
+				strategy_id: 's',
+				name: 'n',
+				product_id: 'BTC-USD',
+				timeframe: '1h',
+				latest_version: 2,
+				status: 'published',
+				latest_fingerprint: 'sha256:abc',
+				published_versions: [],
+				archived: false,
+				summary: '',
+				backtest: null,
+				paper_live: { paper: 'unavailable', live: 'unavailable' },
+				created_at: '2026-01-01T00:00:00Z',
+				updated_at: '2026-01-01T00:00:00Z'
+			})
+		).toEqual([{ version: 2, strategy_fingerprint: 'sha256:abc' }]);
 	});
 });
 

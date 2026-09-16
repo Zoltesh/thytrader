@@ -76,6 +76,9 @@ contracts below:
   registry before persisting a new intent.
 - `GET` / `PUT /api/v1/risk-policy` reads or publishes the effective `thytrader-risk-policy-v1`
   document. `PUT` requires durable PostgreSQL storage.
+- `GET` / `PUT` / `DELETE /api/v1/credentials/coinbase` is write-only Coinbase Advanced Trade
+  presence ([ADR 0053](../decisions/0053-workstation-ia-write-only-coinbase-credentials.md)). GET
+  never returns secrets. Setting credentials does not arm live trading.
 - `GET /api/v1/operator/*` is the versioned read-only agent/operator diagnostics contract; the matching
   CLI is `thytrader-operator`. Research mutations for agents use `thytrader-research` with `--confirm`.
   In-app operator chat is `/api/v1/operator-chat` plus `/chat`

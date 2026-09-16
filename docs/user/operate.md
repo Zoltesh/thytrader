@@ -20,7 +20,7 @@ identity with its market and timeframe, latest version, draft/published/archived
 backtest bound to any of its immutable versions, and its paper/live column: newest deployment
 status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
 `unavailable` means no runtime of that mode (not that the execution worker is missing). Clicking a
-paper/live cell opens the inspector on Deploy.
+paper/live cell opens `/deploy` for that strategy.
 
 From the library you can create the conservative reference draft, clone a published strategy into a
 fresh draft identity (Clone stays ungated), import a complete strategy definition JSON as a new
@@ -31,15 +31,17 @@ Saves carry an opaque revision and reject stale browser tabs rather than overwri
 The builder at `/strategies/{strategy_id}` opens any durable draft for full-schema editing with a
 nested ALL/ANY/NOT rule tree and an inspector showing a plain-English summary, validation errors,
 required warmup, unsaved state, and an explicit V1/V2 engine-support matrix. Every library row
-opens the same read-only Insight panel; published strategies also expose a Research tab.
+opens the same read-only Insight panel; Research and Deploy are links to their own pages.
 
-Research explicitly selects an immutable strategy version, verified dataset, evaluation period,
-initial capital, maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress
-assumption. When Coinbase credentials are present, maker/taker fields prefill from fee-tier
-suggested defaults and stay editable; demo or missing credentials leave those fields blank rather
-than inventing a tier. It lists every stored result for each exact published version and compares
-the latest result across versions; dataset and per-version result failures remain visible without
-hiding strategy evidence.
+### Research
+
+Open http://127.0.0.1:5175/research (or `/research?strategy=` from the library). Research explicitly
+selects an immutable strategy version, verified dataset, evaluation period, initial capital,
+maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. When
+Coinbase credentials are present, maker/taker fields prefill from fee-tier suggested defaults and
+stay editable; demo or missing credentials leave those fields blank rather than inventing a tier.
+It lists every stored result for each exact published version and compares the latest result across
+versions; dataset and per-version result failures remain visible without hiding strategy evidence.
 
 **Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
 consumes that mutable draft and records canonical strategy evidence; it does **not** start paper or
@@ -50,16 +52,17 @@ artifacts.
 
 ### Paper and live
 
-The execution worker evaluates published paper and live deployments against closed venue candles
-about every 30 seconds. Paper simulates maker fills; live places Coinbase Advanced Trade spot
-orders when credentials exist. Sub-hour live pauses unless the authenticated user-order feed is
-connected. Paper deploy and new paper tickets accept optional maker/taker **assumptions** (UI
-Deploy/Trade, or `thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates
-stay `0.001` / `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects
-those fields and keeps venue-recorded fees.
+Open http://127.0.0.1:5175/deploy (or `/deploy?strategy=` from the library). The execution worker
+evaluates published paper and live deployments against closed venue candles about every 30 seconds.
+Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when credentials
+exist. Sub-hour live pauses unless the authenticated user-order feed is connected. Paper deploy and
+new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, or
+`thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates stay `0.001` /
+`0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
+keeps venue-recorded fees.
 
-Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — in the
-UI Deploy tab or through `thytrader-runtime` with the gates in [Safety](safety.md).
+Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
+`/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md).
 
 On-demand trades and published strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
@@ -67,13 +70,11 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
-### Settings
+### Journals
 
-Open http://127.0.0.1:5175/settings. YAML is the source of truth for non-secret knobs: YOLO on/off,
-independent tiers (`data`, `research`, `paper`, `live`), log level, intervals, lookback, default
-ingest product, and notify provider. Changes apply without restarting API or workers. Secrets stay
-in ignored `.env`. Leftover `THYTRADER_YOLO_TIERS=paper` is valid. Live still needs
-`--i-understand-live`. Coinbase keys are not on this form.
+Open http://127.0.0.1:5175/journals for origin-attributed facts, lessons, and notes already stored
+by experiential memory. Why-trade review is on [Memory](http://127.0.0.1:5175/memory) and
+[Trade](http://127.0.0.1:5175/trade). Append still uses `thytrader-memory add-journal --confirm`.
 
 ### Operator chat
 
@@ -87,6 +88,16 @@ and live place-order also need the understand-live checkbox. Paper start and pap
 may include maker and taker fee assumptions; live Coinbase fees stay venue-recorded.
 `uv run thytrader-operator chat-status` reports whether a key is configured; it never prints the
 secret.
+
+### Settings
+
+Open http://127.0.0.1:5175/settings. YAML is the source of truth for non-secret knobs: YOLO on/off,
+independent tiers (`data`, `research`, `paper`, `live`), log level, intervals, lookback, default
+ingest product, and notify provider. Changes apply without restarting API or workers. Secrets stay
+in ignored `.env`. Leftover `THYTRADER_YOLO_TIERS=paper` is valid. Live still needs
+`--i-understand-live`. The Coinbase section beside that panel sets, rotates, or clears Advanced
+Trade API secrets. Keys stay server-side. The form wipes before the request; GET never echoes them.
+LLM keys stay on Chat.
 
 ## With an agent (or the CLIs yourself)
 
@@ -111,7 +122,7 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
 | `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations |
 | `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
-| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings | `--confirm`; live also `--i-understand-live`; `set-settings` never YOLO |
+| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials | `--confirm`; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 
@@ -133,4 +144,4 @@ uv run thytrader-research-evaluate <run_fingerprint> --pretty
 The command prints a deterministic completed-candle entry-condition trace and its SHA-256
 fingerprint. It does not publish a run, create an order intent, apply cooldown, simulate entries or
 exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
-separate Deploy-tab runtime, not this CLI.
+separate `/deploy` runtime, not this CLI.

@@ -1,4 +1,8 @@
-"""HTTP helpers for confirmation-gated paper and live runtime control."""
+"""HTTP helpers for confirmation-gated paper and live runtime control.
+
+Includes write-only Coinbase credential show/set/clear. Those helpers never
+log request bodies.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ from thytrader.agent_http import request_json
 _DEPLOYMENTS_PREFIX = "/api/v1/deployments"
 _RISK_POLICY_PREFIX = "/api/v1/risk-policy"
 _SETTINGS_PREFIX = "/api/v1/settings"
+_CREDENTIALS_PREFIX = "/api/v1/credentials/coinbase"
 
 
 class RuntimeControlError(RuntimeError):
@@ -127,3 +132,27 @@ def show_yaml_settings(base_url: str) -> object:
 def set_yaml_settings(base_url: str, payload: dict[str, object]) -> object:
     """Persist YAML non-secrets. YOLO and intervals apply without restart."""
     return request_json(method="PUT", url=f"{base_url}{_SETTINGS_PREFIX}", payload=payload)
+
+
+def show_coinbase_credentials(base_url: str) -> object:
+    """Return write-only Coinbase credential presence flags."""
+    return request_json(method="GET", url=f"{base_url}{_CREDENTIALS_PREFIX}")
+
+
+def set_coinbase_credentials(
+    base_url: str,
+    *,
+    api_key_name: str,
+    private_key: str,
+) -> object:
+    """Set or rotate Coinbase secrets through the write-only HTTP contract."""
+    return request_json(
+        method="PUT",
+        url=f"{base_url}{_CREDENTIALS_PREFIX}",
+        payload={"api_key_name": api_key_name, "private_key": private_key},
+    )
+
+
+def clear_coinbase_credentials(base_url: str) -> object:
+    """Clear Coinbase secrets through the write-only HTTP contract."""
+    return request_json(method="DELETE", url=f"{base_url}{_CREDENTIALS_PREFIX}")

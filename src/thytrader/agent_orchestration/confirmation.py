@@ -28,8 +28,9 @@ def require_mutation_confirmation(
     """Refuse a mutation unless `--confirm` is present or YOLO covers the tier.
 
     ``hard_gate`` is for risk-policy writes, live place-order, ``--local``
-    research, and memory. Those paths never consult YOLO. Live
-    start/pause/resume/stop use ``YoloTier.LIVE`` instead of ``hard_gate``.
+    research, memory, ``set-settings``, and Coinbase credential set/clear.
+    Those paths never consult YOLO. Live start/pause/resume/stop use
+    ``YoloTier.LIVE`` instead of ``hard_gate``.
     """
     if confirmed:
         return

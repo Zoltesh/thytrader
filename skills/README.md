@@ -15,9 +15,9 @@ YOLO is an operator-enabled opt-in (default off) that may skip `--confirm` on `d
 `paper` / `live` after an audit. YOLO on/off and tiers live in `thytrader.yaml` and apply without
 restart ([ADR 0055](../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Leftover
 `THYTRADER_YOLO_TIERS=paper` is valid. Live YOLO never skips `--i-understand-live`. Live place-order,
-`set-risk-policy`, `--local` research, `set-settings`, and memory stay confirmation-hard-gated. The playbook
-sequences existing CLIs and never starts live. Memory mutations always require `--confirm`; YOLO
-never covers that lane.
+`set-risk-policy`, `--local` research, `set-settings`, Coinbase credential set/clear, and memory stay
+confirmation-hard-gated. The playbook sequences existing CLIs and never starts live. Memory
+mutations always require `--confirm`; YOLO never covers that lane.
 
 ## `thytrader-operator`
 
@@ -46,11 +46,16 @@ No paper, live, arming, or cancellation authority.
 
 ## `thytrader-runtime`
 
-Confirmation-gated paper and live deployment control, plus risk-policy publication. Live start also requires `--i-understand-live`. YOLO `live` may skip `--confirm` on start/pause/resume/stop. Live place-order and publishing a risk policy still require `--confirm`. Not an extension of operator or research.
+Confirmation-gated paper and live deployment control, risk-policy publication, YAML non-secret
+settings (including YOLO), and write-only Coinbase credential show/set/clear. Live start also
+requires `--i-understand-live`. YOLO `live` may skip `--confirm` on start/pause/resume/stop. Live
+place-order, publishing a risk policy, `set-settings`, and Coinbase credential set/clear still
+require `--confirm`. YOLO never covers credentials. Setting credentials does not arm live trading.
+Not an extension of operator or research.
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
-- HTTP: `/api/v1/deployments`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`
+- HTTP: `/api/v1/deployments`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`
 
 ## `thytrader-playbook`
 

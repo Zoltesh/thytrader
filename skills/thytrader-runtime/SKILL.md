@@ -1,19 +1,23 @@
 ---
 name: thytrader-runtime
 description: >-
-  Start, pause, resume, or stop ThyTrader paper and live deployments, and publish
-  the risk-policy registry, through the confirmation-gated thytrader-runtime CLI.
-  Use when the user explicitly asks to deploy, pause, resume, stop, place an
-  on-demand order, or set the risk policy. Requires --confirm on every mutation
-  unless YOLO covers that tier. Live start and live place-order also require
-  --i-understand-live. YOLO live may skip --confirm on start/pause/resume/stop
-  only. Publishing a risk policy does not arm live trading. Never diagnose
-  through this skill and never submit Coinbase orders directly.
+  Start, pause, resume, or stop ThyTrader paper and live deployments, publish
+  the risk-policy registry, and show/set/clear write-only Coinbase credentials,
+  through the confirmation-gated thytrader-runtime CLI. Use when the user
+  explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
+  the risk policy, or manage Coinbase API secrets. Requires --confirm on every
+  mutation unless YOLO covers that tier. Live start and live place-order also
+  require --i-understand-live. YOLO live may skip --confirm on start/pause/resume/stop
+  only. Credential set/clear always need --confirm; YOLO never covers them.
+  Publishing a risk policy or setting credentials does not arm live trading.
+  Never diagnose through this skill and never submit Coinbase orders directly.
 ---
 
 # ThyTrader runtime
 
-Confirmation-gated paper and live **control**, including the risk-policy registry. This skill is not an extension of `thytrader-operator` or `thytrader-research`.
+Confirmation-gated paper and live **control**, including the risk-policy registry and write-only
+Coinbase Advanced Trade credentials. This skill is not an extension of `thytrader-operator` or
+`thytrader-research`.
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is no `--local` database mode.
 
@@ -24,6 +28,9 @@ together ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md)); liv
 `runtime_set_risk_policy` publishes the same `PUT /api/v1/risk-policy` document as this CLI,
 including daily-loss / drawdown / rate / collar fields
 ([ADR 0050](../../docs/decisions/0050-daily-loss-drawdown-rate-collars.md)).
+Coinbase secrets use `GET/PUT/DELETE /api/v1/credentials/coinbase`
+([ADR 0053](../../docs/decisions/0053-workstation-ia-write-only-coinbase-credentials.md)); LLM
+keys stay on `/chat` ([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)).
 Do not treat chat as this skill.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
@@ -60,8 +67,11 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |
+| Show Coinbase credential flags | `uv run thytrader-runtime show-coinbase-credentials` |
+| Set Coinbase credentials | `uv run thytrader-runtime set-coinbase-credentials --api-key-name organizations/…/apiKeys/… --private-key-file ./coinbase.pem --confirm` |
+| Clear Coinbase credentials | `uv run thytrader-runtime clear-coinbase-credentials --confirm` |
 
-`list`, `show`, and `show-risk-policy` are read-only and do not use `--confirm`. Optional
+`list`, `show`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
 Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
 `--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
@@ -79,7 +89,9 @@ another book clock. Paper `start` and paper `place-order` accept optional `--mak
 use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. Live
 rejects those flags; live fills stay venue-recorded. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
-is enabled. Live place-order, `set-risk-policy`, and `set-settings` never skip `--confirm`. Repeat the same
+is enabled. Live place-order, `set-risk-policy`, `set-settings`, and Coinbase credential set/clear
+never skip `--confirm`. YOLO never covers credentials. Pass `--private-key-file`; never a CLI
+secret or pasted PEM. Setting credentials does not arm live trading. Repeat the same
 `--idempotency-key` instead of retrying a timeout.
 
 Underlying HTTP:
@@ -91,6 +103,7 @@ Underlying HTTP:
 - `POST /api/v1/discretionary-orders`
 - `GET/PUT /api/v1/risk-policy`
 - `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))
+- `GET/PUT/DELETE /api/v1/credentials/coinbase`
 
 ## Confirmation
 
@@ -99,7 +112,8 @@ Underlying HTTP:
   `thytrader-playbook status` shows the matching tier (`paper` or `live`) enabled.
 - Never start live or place a live order without `--i-understand-live`. YOLO never skips that
   flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
-  and the skip audit succeeds. Live `place-order`, `set-risk-policy`, and `set-settings` never YOLO.
+  and the skip audit succeeds. Live `place-order`, `set-risk-policy`, `set-settings`, and Coinbase
+  credential set/clear never YOLO.
 - Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
   Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `kind`, optional
@@ -118,5 +132,7 @@ and applies without restart. Secrets stay out of YAML. Live still needs `--i-und
 - Direct PostgreSQL access
 - Cancelling individual Coinbase orders
 - Publishing a risk policy without `--confirm`, or treating that mutation as live arming
+- Setting or clearing Coinbase credentials without `--confirm`, printing the PEM, or treating
+  a credentials write as live arming
 - Treating a timeout as proof the start/pause/stop/place-order failed; `show` the deployment and reconcile before retrying
 - Editing application source to arm, pause, or change execution on a running instance

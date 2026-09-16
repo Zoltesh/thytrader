@@ -213,12 +213,12 @@ test('research window hint names the strategy timeframe instead of UTC hours', a
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByText(/\(UTC, 5m bars\)/)).toBeVisible();
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 });
 
-test('paper/live status opens the Deploy tab', async ({ page }) => {
+test('paper/live status opens the Deploy page', async ({ page }) => {
 	const runningEntry = {
 		...publishedEntry,
 		paper_live: { paper: 'running', live: 'paused' }
@@ -237,11 +237,12 @@ test('paper/live status opens the Deploy tab', async ({ page }) => {
 		route.fulfill({ json: { deployments: [] } })
 	);
 	await page.goto('/strategies');
-	const status = page.getByRole('button', { name: 'running / paused' });
+	const status = page.getByRole('link', { name: 'running / paused' });
 	await expect(status).toHaveAttribute('title', /Paper: running\. Live: paused/);
-	await status.click();
-	await expect(page.getByRole('dialog', { name: 'Strategy inspector' })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Deploy', exact: true })).toBeVisible();
+	await expect(status).toHaveAttribute('href', `/deploy?strategy=${strategyId}`);
+	await status.click({ force: true });
+	await expect(page).toHaveURL(/\/deploy\?strategy=/);
+	await expect(page.getByRole('heading', { level: 1, name: 'Deploy' })).toBeVisible();
 });
 
 test('links the latest backtest result to the backtests detail view', async ({ page }) => {
@@ -367,6 +368,8 @@ test('shows a hover action bar with status-appropriate actions and edge-safe pos
 	const toolbar = page.getByRole('toolbar', { name: 'Row actions' });
 	await expect(toolbar).toBeVisible();
 	await expect(toolbar.getByRole('button', { name: 'View' })).toBeVisible();
+	await expect(toolbar.getByRole('link', { name: 'Research' })).toBeVisible();
+	await expect(toolbar.getByRole('link', { name: 'Deploy' })).toBeVisible();
 	await expect(toolbar.getByRole('button', { name: 'Clone' })).toBeVisible();
 	await expect(toolbar.getByRole('button', { name: 'Archive' })).toBeVisible();
 	await expect(toolbar.getByRole('link', { name: 'Edit' })).toHaveCount(0);
@@ -734,7 +737,10 @@ test('research tab launches a backtest with engine and spread and lists version 
 
 	// Insight tab shows version results loaded per fingerprint.
 	await expect(page.getByText('Results by version')).not.toBeVisible();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await expect(
+		page.getByRole('dialog', { name: 'Strategy inspector' }).getByRole('link', { name: 'Research' })
+	).toBeVisible();
+	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByText('Launch backtest')).toBeVisible();
 	await expect(page.getByLabel('Study')).toBeVisible();
 	await expect(page.getByRole('option', { name: 'OOS holdout' })).toBeAttached();
@@ -757,7 +763,7 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(page.getByRole('link', { name: '12.00%', exact: true })).toHaveCount(2);
 	await expect(page.getByRole('table', { name: 'Latest result comparison' })).toBeVisible();
 	await expect(page.getByLabel('Strategy version')).toHaveValue(secondFingerprint);
-	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
 	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 
@@ -829,7 +835,7 @@ test('research tab loads every result page for an exact strategy version', async
 		.getByRole('toolbar', { name: 'Row actions' })
 		.getByRole('button', { name: 'View' })
 		.click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 
 	await expect(page.getByRole('link', { name: '21.00%', exact: true })).toBeVisible();
 	expect(requestedOffsets).toEqual([0, 20]);
@@ -860,7 +866,7 @@ test('research tab preserves inspector evidence when the dataset catalog fails',
 		.getByRole('button', { name: 'View' })
 		.click();
 	await expect(page.getByText('Plain-English summary')).toBeVisible();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 
 	await expect(page.getByRole('alert')).toContainText('Verified datasets are unavailable.');
 	await expect(page.getByRole('button', { name: 'Run backtest' })).toBeDisabled();
@@ -891,7 +897,7 @@ test('research maker/taker prefills from fee-tier suggestion and keeps custom ov
 		.getByRole('toolbar', { name: 'Row actions' })
 		.getByRole('button', { name: 'View' })
 		.click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByTestId('research-fee-source')).toContainText(
 		'Suggested from Coinbase fee tier'
 	);
@@ -930,7 +936,7 @@ test('research fees stay blank when the Coinbase fee tier cannot be suggested', 
 		.getByRole('toolbar', { name: 'Row actions' })
 		.getByRole('button', { name: 'View' })
 		.click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByTestId('research-fee-source')).toHaveText(
 		'Coinbase fee-tier suggestion unavailable. Enter modeled rates.'
 	);
@@ -976,11 +982,10 @@ test('research does not overwrite in-progress fee edits when the suggestion refr
 		.getByRole('toolbar', { name: 'Row actions' })
 		.getByRole('button', { name: 'View' })
 		.click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.goto(`/research?strategy=${strategyId}`);
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	generation = 1;
-	await page.getByRole('tab', { name: 'Insight' }).click();
-	await page.getByRole('tab', { name: 'Research' }).click();
+	await page.getByRole('button', { name: 'Reload fee-tier' }).click();
 	await expect(page.getByTestId('research-fee-source')).toContainText('stale');
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	await page.getByRole('button', { name: 'Refresh suggestion' }).click();
@@ -1054,8 +1059,8 @@ test('research tab loads the latest dataset catalog when it opens', async ({ pag
 	await expect(page.getByText('Plain-English summary')).toBeVisible();
 	expect(datasetRequests).toBe(0);
 
-	await page.getByRole('tab', { name: 'Research' }).click();
-	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await page.goto(`/research?strategy=${strategyId}`);
+	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
 	await page.waitForTimeout(250);
 	expect(datasetRequests).toBe(1);
 });
@@ -1193,7 +1198,7 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await page.goto(`/deploy?strategy=${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Deploy' })).toBeVisible();
 	await page.getByRole('button', { name: 'Start deployment' }).click();
 	expect(createdBody).toEqual({
@@ -1237,14 +1242,11 @@ test('deploy tab shows accurate timeframe copy and allows live 5m', async ({ pag
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await page.goto(`/deploy?strategy=${strategyId}`);
 
-	const deployCopy = page.getByRole('heading', { name: 'Deploy', exact: true }).locator('..');
-	await expect(deployCopy).toContainText('Paper:');
-	await expect(deployCopy).toContainText('any ingested');
-	await expect(deployCopy).toContainText('venue clock');
-	await expect(deployCopy).toContainText('Live:');
-	await expect(deployCopy).toContainText('Sub-hour live');
+	await expect(page.getByText(/Paper:.*any ingested venue clock/s)).toBeVisible();
+	await expect(page.getByText(/Live:.*the same clocks/s)).toBeVisible();
+	await expect(page.getByText(/Sub-hour live requires a connected user-order feed/)).toBeVisible();
 
 	await page.getByLabel('Mode').selectOption('paper');
 	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();
@@ -1273,7 +1275,7 @@ test('live start button is visually distinct and confirms with fingerprint and t
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await page.goto(`/deploy?strategy=${strategyId}`);
 
 	await page.getByLabel('Mode').selectOption('paper');
 	const paperButton = page.getByRole('button', { name: 'Start deployment' });
@@ -1348,7 +1350,7 @@ test('resuming a paused live deployment requires explicit confirmation', async (
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await page.goto(`/deploy?strategy=${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'live · paused · flat' })).toBeVisible();
 
 	page.on('dialog', async (dialog) => {
@@ -1419,7 +1421,7 @@ test('deploy tab prefills paper fees from the Coinbase fee-tier suggestion', asy
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.locator('table tbody tr').first().click();
-	await page.getByRole('tab', { name: 'Deploy' }).click();
+	await page.goto(`/deploy?strategy=${strategyId}`);
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0040');
 	await page.getByRole('button', { name: 'Start deployment' }).click();
