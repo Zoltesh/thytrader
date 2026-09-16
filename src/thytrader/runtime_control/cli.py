@@ -173,6 +173,15 @@ def _parser() -> argparse.ArgumentParser:
         )
         command.add_argument("deployment_id", help="Deployment UUID.")
         command.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+        if action == "stop":
+            command.add_argument(
+                "--flatten",
+                action="store_true",
+                help=(
+                    "Marketably exit inventory then cancel remainders. "
+                    "Default stop is managed shutdown that keeps protective brackets."
+                ),
+            )
     subparsers.add_parser(
         "show-risk-policy",
         parents=[trailing],
@@ -459,6 +468,7 @@ def _set_status(arguments: argparse.Namespace, base_url: str, settings: Settings
         arguments.deployment_id,
         command,
         settings=settings,
+        flatten=bool(getattr(arguments, "flatten", False)),
     )
 
 

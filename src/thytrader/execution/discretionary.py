@@ -7,6 +7,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 import re
 from typing import TYPE_CHECKING
 
+from thytrader.execution.freshness import entry_prerequisites, marketable_quote_mark
 from thytrader.execution.geometry import (
     bracket_error_detail,
     bracket_is_valid,
@@ -184,7 +185,10 @@ async def place_discretionary_order(
     if existing is not None:
         return await store.get_deployment(existing.deployment_id)
     product, mark_candle = await _mark_context(market_data, request)
-    sized = _size_entry(request, product=product, mark=mark_candle.close)
+    mark = marketable_quote_mark(candle=mark_candle, venue_price=None)
+    if request.entry_kind is OrderKind.POST_ONLY_LIMIT:
+        mark = mark_candle.close
+    sized = _size_entry(request, product=product, mark=mark)
     if (
         request.side is PositionSide.SHORT
         and request.mode is DeploymentMode.LIVE
@@ -339,7 +343,16 @@ async def _mark_context(
     candles = preview.quality.candles
     if not candles:
         raise ExecutionConflictError("A closed mark candle is required before placing an order.")
-    return preview.product, candles[-1]
+    mark_candle = candles[-1]
+    verdict = entry_prerequisites(
+        product=preview.product,
+        candle=mark_candle,
+        now=utc_now(),
+        timeframe=request.timeframe,
+    )
+    if verdict.decision is RiskDecision.DENY:
+        raise ExecutionConflictError(verdict.detail)
+    return preview.product, mark_candle
 
 
 def _size_entry(
@@ -461,6 +474,8 @@ def _new_discretionary_book(
         )
     except ValueError as error:
         raise ExecutionConflictError(str(error)) from error
+    cash = _initial_cash(request, live_quote_cash=live_quote_cash)
+    initial = cash if cash > 0 else live_quote_cash
     return Deployment(
         id=uuid7(now),
         strategy_fingerprint=None,
@@ -471,12 +486,18 @@ def _new_discretionary_book(
         paper_starting_cash=request.paper_starting_cash,
         paper_maker_fee_rate=maker_fee_rate,
         paper_taker_fee_rate=taker_fee_rate,
-        cash=_initial_cash(request, live_quote_cash=live_quote_cash),
+        cash=cash,
         phase=RuntimePhase.FLAT,
         created_at=now,
         updated_at=now,
         kind=DeploymentKind.DISCRETIONARY,
         timeframe=request.timeframe,
+        venue_available_quote=live_quote_cash,
+        initial_equity=initial,
+        baseline_equity=initial,
+        high_water_mark_equity=initial,
+        utc_day_open_equity=initial,
+        utc_day_open_at=now if initial is not None else None,
     )
 
 

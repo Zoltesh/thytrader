@@ -14,7 +14,9 @@ identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
 spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
 breakers / order-rate limits / reference-price collars, the persisted
 research-study catalog, trade-reason journals, multi-instrument documents, or
-intra-strategy pyramiding change.
+intra-strategy pyramiding, attached-child protection, worker leases, live
+capital vs venue cash, durable daily-loss/drawdown baselines, or lifecycle
+stop/flatten/managed-shutdown commands change.
 """
 
 from __future__ import annotations
@@ -26,8 +28,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v21"
-EXPECTED_SCHEMA_REVISION = "0033"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v22"
+EXPECTED_SCHEMA_REVISION = "0035"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -47,6 +49,7 @@ REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
 TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
 MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
 INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
+LIFECYCLE_COMMANDS: tuple[str, ...] = ("none", "stop_new_entries", "flatten", "managed_shutdown")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -70,6 +73,7 @@ def expected_ops_contract() -> dict[str, object]:
         "trade_reason_journals": list(TRADE_REASON_JOURNALS),
         "multi_instrument_documents": list(MULTI_INSTRUMENT_DOCUMENTS),
         "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
+        "lifecycle_commands": list(LIFECYCLE_COMMANDS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

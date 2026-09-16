@@ -153,11 +153,13 @@ def ledger_from_snapshot(
 ) -> DeploymentLedger:
     """Fold one deployment snapshot plus an optional last-close mark into ledger statistics."""
     deployment = snapshot.deployment
-    starting = (
-        deployment.paper_starting_cash
-        if deployment.paper_starting_cash is not None
-        else Decimal("0")
-    )
+    starting = deployment.initial_equity
+    if starting is None:
+        starting = (
+            deployment.paper_starting_cash
+            if deployment.paper_starting_cash is not None
+            else Decimal("0")
+        )
     position = snapshot.position
     quantity = Decimal("0")
     entry_price = None

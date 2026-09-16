@@ -113,6 +113,9 @@ class OpsContractPayload(_FrozenModel):
     trade_reason_journals: tuple[Literal["paper", "live"], ...]
     multi_instrument_documents: tuple[Literal["research", "paper", "live"], ...]
     intra_strategy_pyramiding: tuple[Literal["research", "paper", "live"], ...]
+    lifecycle_commands: tuple[
+        Literal["none", "stop_new_entries", "flatten", "managed_shutdown"], ...
+    ]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -263,6 +266,11 @@ class DeploymentSummary(_FrozenModel):
     mismatch_present: bool
     last_signal: str | None
     books: tuple[DeploymentBookSummary, ...] = ()
+    lifecycle_command: str = "none"
+    daily_loss_latched: bool = False
+    drawdown_latched: bool = False
+    revision: int = 0
+    worker_lease_held: bool = False
 
 
 class UserOrderFeedPayload(_FrozenModel):

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.ledger import resolve_paper_fee_schedule
+from thytrader.execution.lifecycle import command_for_status, occupies_running_slot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -57,7 +58,7 @@ async def create_deployment(
     definition = published.definition
     _require_executable_definition(mode, definition)
     existing = await store.list_deployments()
-    _require_unique_running(existing, strategy_id=definition.strategy_id, mode=mode)
+    _require_unique_active(existing, strategy_id=definition.strategy_id, mode=mode)
     await _require_risk_admission(
         risk_store,
         mode=mode,
@@ -69,6 +70,8 @@ async def create_deployment(
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
         cash = Decimal("0")
+    allocated = await _opening_allocation(risk_store, strategy_id=definition.strategy_id)
+    initial = paper_starting_cash if mode is DeploymentMode.PAPER else None
     deployment = Deployment(
         id=uuid7(now),
         strategy_fingerprint=published.strategy_fingerprint,
@@ -83,6 +86,12 @@ async def create_deployment(
         phase=RuntimePhase.FLAT,
         created_at=now,
         updated_at=now,
+        allocated_capital=allocated,
+        initial_equity=initial,
+        baseline_equity=initial,
+        high_water_mark_equity=initial,
+        utc_day_open_equity=initial,
+        utc_day_open_at=now if initial is not None else None,
     )
     return await store.create_deployment(deployment)
 
@@ -92,18 +101,29 @@ async def set_deployment_status(
     store: ExecutionStore,
     deployment_id: UUID,
     status: DeploymentStatus,
+    flatten: bool = False,
 ) -> DeploymentSnapshot:
-    """Pause, resume, or stop one existing deployment."""
+    """Pause, resume, or stop one existing deployment.
+
+    HTTP stop defaults to managed shutdown: protective brackets stay, residual
+    exposure remains in account-level risk. Pass ``flatten=True`` to marketably
+    exit and then cancel remainders.
+    """
     snapshot = await store.get_deployment(deployment_id)
     current = snapshot.deployment.status
     if current is DeploymentStatus.STOPPED and status is not DeploymentStatus.STOPPED:
         raise ExecutionConflictError("A stopped deployment cannot be resumed.")
     if status is DeploymentStatus.RUNNING and current is DeploymentStatus.RUNNING:
         return snapshot
+    command = command_for_status(status, flatten=flatten)
     updated = with_runtime(
-        snapshot.deployment, updated_at=utc_now(), status=status, clear_mismatch=True
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=status,
+        lifecycle_command=command,
+        clear_mismatch=True,
     )
-    await store.save_deployment(updated)
+    await store.save_deployment(updated, expected_revision=snapshot.deployment.revision)
     return await store.get_deployment(deployment_id)
 
 
@@ -141,21 +161,19 @@ def _require_executable_definition(mode: DeploymentMode, definition: StrategyDef
     _require_execution_timeframe(mode, definition.timeframe)
 
 
-def _require_unique_running(
+def _require_unique_active(
     existing: tuple[Deployment, ...],
     *,
     strategy_id: UUID,
     mode: DeploymentMode,
 ) -> None:
-    """Keep one running deployment per strategy identity and mode."""
+    """Keep one running or paused deployment per strategy identity and mode."""
     if any(
-        item.strategy_id == strategy_id
-        and item.mode is mode
-        and item.status is DeploymentStatus.RUNNING
+        item.strategy_id == strategy_id and item.mode is mode and occupies_running_slot(item)
         for item in existing
     ):
         raise ExecutionConflictError(
-            "A running deployment already exists for this strategy and mode."
+            "A running or paused deployment already exists for this strategy and mode."
         )
 
 
@@ -181,6 +199,22 @@ async def _require_risk_admission(
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)
+
+
+async def _opening_allocation(
+    risk_store: RiskPolicyStore | None, *, strategy_id: UUID
+) -> Decimal | None:
+    """Return the reserved quote for this strategy, if the published policy lists one."""
+    if risk_store is None:
+        return None
+    active = await load_effective_policy(risk_store)
+    match = next(
+        (item for item in active.definition.allocations if item.strategy_id == strategy_id),
+        None,
+    )
+    if match is None:
+        return None
+    return Decimal(match.allocated_quote)
 
 
 async def _load_published(

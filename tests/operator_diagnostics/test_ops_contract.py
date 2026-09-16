@@ -8,6 +8,7 @@ from thytrader.ops_contract import (
     HTF_FILTER_RUNTIMES,
     INDICATOR_TIMEFRAME_RUNTIMES,
     INTRA_STRATEGY_PYRAMIDING,
+    LIFECYCLE_COMMANDS,
     LIVE_TIMEFRAMES,
     MULTI_INSTRUMENT_DOCUMENTS,
     OPS_CONTRACT_ID,
@@ -30,9 +31,16 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v21"
+    assert expected["id"] == "thytrader-ops-contract-v22"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0033"
+    assert expected["expected_schema_revision"] == "0035"
+    assert expected["lifecycle_commands"] == list(LIFECYCLE_COMMANDS)
+    assert expected["lifecycle_commands"] == [
+        "none",
+        "stop_new_entries",
+        "flatten",
+        "managed_shutdown",
+    ]
     assert expected["paper_deploy_fee_fields"] == list(PAPER_DEPLOY_FEE_FIELDS)
     assert expected["paper_deploy_fee_fields"] == ["maker_fee_rate", "taker_fee_rate"]
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT

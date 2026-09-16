@@ -293,3 +293,135 @@ def test_attached_child_bracket_covers_when_prices_and_qty_match() -> None:
         book_protection_status(snapshot, product_id="ETH-USD", position=position)
         is ProtectionStatus.COVERED
     )
+
+
+def test_named_attached_child_missing_from_snapshot_is_unprotected() -> None:
+    """A parent that names a child which is not persisted is unprotected, not unknown."""
+    deployment = _deployment()
+    position = _position(deployment_id=deployment.id)
+    now = _at()
+    entry_intent = OrderIntent(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        client_order_id="entry",
+        purpose=IntentPurpose.ENTRY,
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        created_at=now,
+        candle_starts_at=now,
+        product_id="ETH-USD",
+    )
+    entry = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=entry_intent.id,
+        client_order_id="entry",
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        status=OrderStatus.FILLED,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("3000"),
+        filled_quantity=Decimal("0.5"),
+        stop_trigger_price=Decimal("3200"),
+        take_profit_price=Decimal("2700"),
+        product_id="ETH-USD",
+        attached_child_venue_order_id="child-missing",
+    )
+    fill = Fill(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        order_id=entry.id,
+        venue_fill_id="f1",
+        price=Decimal("3000"),
+        quantity=Decimal("0.5"),
+        fee=Decimal("0"),
+        filled_at=now,
+    )
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        positions=(position,),
+        orders=(entry,),
+        fills=(fill,),
+        intents=(entry_intent,),
+    )
+    assert (
+        book_protection_status(snapshot, product_id="ETH-USD", position=position)
+        is ProtectionStatus.UNPROTECTED
+    )
+
+
+def test_unknown_attached_child_is_unknown_not_covered() -> None:
+    """An unreconciled attached child is unknown cover, not a working exit."""
+    deployment = _deployment()
+    position = _position(deployment_id=deployment.id)
+    now = _at()
+    entry_intent = OrderIntent(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        client_order_id="entry",
+        purpose=IntentPurpose.ENTRY,
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        created_at=now,
+        candle_starts_at=now,
+        product_id="ETH-USD",
+    )
+    entry = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=entry_intent.id,
+        client_order_id="entry",
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        status=OrderStatus.FILLED,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("3000"),
+        filled_quantity=Decimal("0.5"),
+        stop_trigger_price=Decimal("3200"),
+        take_profit_price=Decimal("2700"),
+        product_id="ETH-USD",
+        attached_child_venue_order_id="child-1",
+    )
+    child = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="child",
+        venue_order_id="child-1",
+        side=OrderSide.BUY,
+        kind=OrderKind.TRIGGER_BRACKET,
+        quantity=Decimal("0.5"),
+        status=OrderStatus.UNKNOWN,
+        created_at=now,
+        updated_at=now,
+        stop_trigger_price=Decimal("3200"),
+        take_profit_price=Decimal("2700"),
+        product_id="ETH-USD",
+    )
+    fill = Fill(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        order_id=entry.id,
+        venue_fill_id="f1",
+        price=Decimal("3000"),
+        quantity=Decimal("0.5"),
+        fee=Decimal("0"),
+        filled_at=now,
+    )
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        positions=(position,),
+        orders=(entry, child),
+        fills=(fill,),
+        intents=(entry_intent,),
+    )
+    assert (
+        book_protection_status(snapshot, product_id="ETH-USD", position=position)
+        is ProtectionStatus.UNKNOWN
+    )

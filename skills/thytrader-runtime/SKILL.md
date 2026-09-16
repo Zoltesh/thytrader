@@ -28,6 +28,16 @@ Production installs enforce the application trust boundary
 from `GET /api/v1/security/session`. Live arming still requires a published risk policy per
 [ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)
 plus `--i-understand-live`; do not expect a separate live-arm token endpoint.
+Protection, leases, and live capital follow
+[ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
+(`lifecycle_command=stop_new_entries`) still maintains verified attached-child protection on
+every worker poll, including empty `due` and feed-down. Default stop is managed shutdown
+(protective brackets and residual occupancy stay in account risk). `--flatten` /
+`POST /api/v1/deployments/{id}/stop?flatten=true` marketably exits then cancels remainders.
+Live sizing uses allocated capital or venue available quote, never ledger `cash`. Workers hold
+a 45s fenced lease; writes are revision-checked. UTC day-open and high-water baselines persist
+across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
+on `thytrader-runtime show`.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live still needs understand-live.
@@ -68,7 +78,8 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Start live | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode live --confirm --i-understand-live` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
-| Stop | `uv run thytrader-runtime stop UUID --confirm` |
+| Stop (managed shutdown) | `uv run thytrader-runtime stop UUID --confirm` |
+| Stop and flatten | `uv run thytrader-runtime stop UUID --flatten --confirm` ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)) |
 | Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side long --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
@@ -138,7 +149,7 @@ Underlying HTTP:
 - `GET/POST /api/v1/deployments`
 - `POST /api/v1/deployments/{id}/pause`
 - `POST /api/v1/deployments/{id}/resume`
-- `POST /api/v1/deployments/{id}/stop`
+- `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)
 - `POST /api/v1/discretionary-orders`
 - `GET/PUT /api/v1/risk-policy`
 - `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))

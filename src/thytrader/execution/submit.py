@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
+    ExecutionConflictError,
     ExecutionStoreError,
     Fill,
     IntentOrigin,
@@ -70,7 +71,13 @@ async def submit_intent(
         idempotency_key=idempotency_key,
         product_id=product_id,
     )
-    await store.save_intent(intent)
+    try:
+        await store.save_intent(intent)
+    except ExecutionConflictError:
+        existing = await _existing_order_for_key(store, idempotency_key)
+        if existing is not None:
+            return existing
+        raise
     await _record_why(store, intent=intent, deployment_id=deployment_id)
     order = Order(
         id=uuid7(now),
@@ -120,6 +127,26 @@ async def submit_intent(
         updated_at=utc_now(),
     )
     await store.save_order(submitted)
+    if result.attached_child_venue_order_id:
+        child = Order(
+            id=uuid7(utc_now()),
+            deployment_id=deployment_id,
+            intent_id=intent.id,
+            client_order_id=f"{client_order_id}:child"[:128],
+            side=OrderSide.SELL if side is OrderSide.BUY else OrderSide.BUY,
+            kind=OrderKind.TRIGGER_BRACKET,
+            quantity=quantity,
+            price=take_profit_price,
+            stop_trigger_price=stop_trigger_price,
+            take_profit_price=take_profit_price,
+            status=OrderStatus.OPEN,
+            created_at=now,
+            updated_at=utc_now(),
+            venue_order_id=result.attached_child_venue_order_id,
+            product_id=product_id,
+            parent_order_id=submitted.id,
+        )
+        await store.save_order(child)
     if (
         isinstance(broker, PaperBroker)
         and result.status is OrderStatus.FILLED
@@ -137,6 +164,22 @@ async def submit_intent(
         )
         await store.save_fill(fill)
     return submitted
+
+
+async def _existing_order_for_key(
+    store: ExecutionStore, idempotency_key: str | None
+) -> Order | None:
+    """Return the venue order already recorded for a stable intent identity."""
+    if not idempotency_key:
+        return None
+    existing = await store.get_intent_by_idempotency_key(idempotency_key)
+    if existing is None:
+        return None
+    snapshot = await store.get_deployment(existing.deployment_id)
+    for order in snapshot.orders:
+        if order.intent_id == existing.id:
+            return order
+    return None
 
 
 async def _record_why(

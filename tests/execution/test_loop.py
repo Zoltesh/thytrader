@@ -7,13 +7,19 @@ from decimal import Decimal
 import pytest
 
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.loop import _entry_admitted, process_closed_bar
+from thytrader.execution.loop import (
+    _entry_admitted,
+    flatten_stopped_residual,
+    maintain_open_inventory,
+    process_closed_bar,
+)
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    LifecycleCommand,
     OrderSide,
     OrderStatus,
     RuntimePhase,
@@ -670,3 +676,146 @@ async def test_paper_trailing_records_extreme_on_fill_bar_without_raising_stop()
     assert baseline.position is not None
     assert filled.position.trail_extreme == window[-1].high
     assert filled.position.stop_price == baseline.position.stop_price
+
+
+@pytest.mark.anyio
+async def test_paused_book_does_not_place_a_new_entry() -> None:
+    """F05: pause still maintains protection but must not rest a new maker entry."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    paused = replace(
+        snapshot.deployment,
+        status=DeploymentStatus.PAUSED,
+        lifecycle_command=LifecycleCommand.STOP_NEW_ENTRIES,
+    )
+    await store.save_deployment(paused)
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    after = await maintain_open_inventory(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert after.deployment.phase is RuntimePhase.FLAT
+    assert after.position is None
+    assert after.orders == ()
+
+
+@pytest.mark.anyio
+async def test_paused_unfilled_entry_does_not_reprice() -> None:
+    """F10: a paused book must not replace a working remainder."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy(on_unfilled_entry="reprice")
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    paused = replace(
+        pending.deployment,
+        status=DeploymentStatus.PAUSED,
+        lifecycle_command=LifecycleCommand.STOP_NEW_ENTRIES,
+    )
+    await store.save_deployment(paused)
+    pending = await store.get_deployment(pending.deployment.id)
+    last = warmup[-1]
+    wait_bars: list[Candle] = []
+    current = pending
+    original_id = pending.orders[0].id
+    for offset in (1, 2, 3):
+        bar = Candle(
+            starts_at=last.starts_at + timedelta(hours=offset),
+            open=last.close + Decimal("10"),
+            high=last.close + Decimal("12"),
+            low=last.close + Decimal("9"),
+            close=last.close + Decimal("10"),
+            volume=Decimal("10"),
+        )
+        wait_bars.append(bar)
+        current = await process_closed_bar(
+            current,
+            strategy=strategy,
+            product=_product(),
+            candles=warmup + tuple(wait_bars),
+            broker=PaperBroker(),
+            store=store,
+        )
+    replacement_ids = {
+        order.id
+        for order in current.orders
+        if order.status is OrderStatus.OPEN and order.id != original_id
+    }
+    open_entries = [order for order in current.orders if order.status is OrderStatus.OPEN]
+    assert replacement_ids == set()
+    assert len(open_entries) == 1
+    assert open_entries[0].id == original_id
+    assert current.deployment.status is DeploymentStatus.PAUSED
+
+
+@pytest.mark.anyio
+async def test_flatten_exits_inventory_while_managed_stop_keeps_occupancy() -> None:
+    """F09: flatten marketably exits; managed shutdown leaves residual occupancy."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    stopped = replace(
+        filled.deployment,
+        status=DeploymentStatus.STOPPED,
+        lifecycle_command=LifecycleCommand.MANAGED_SHUTDOWN,
+        phase=RuntimePhase.OPEN,
+    )
+    await store.save_deployment(stopped)
+    stopped_snap = await store.get_deployment(filled.deployment.id)
+    maintained = await maintain_open_inventory(
+        stopped_snap,
+        strategy=strategy,
+        product=_product(),
+        candles=window,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert maintained.position is not None
+    flatten_target = replace(maintained.deployment, lifecycle_command=LifecycleCommand.FLATTEN)
+    await store.save_deployment(flatten_target)
+    flatten_snap = await store.get_deployment(maintained.deployment.id)
+    flattened = await flatten_stopped_residual(
+        flatten_snap,
+        strategy=strategy,
+        product=_product(),
+        candles=window,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert flattened.position is None
+    assert any(order.kind.value == "marketable" for order in flattened.orders)
+
+
+@pytest.mark.anyio
+async def test_historical_replay_does_not_place_a_new_entry() -> None:
+    """F21: recovery may observe past due bars but must not submit historical entries."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    after = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+        allow_new_entries=False,
+    )
+    assert after.position is None
+    assert after.orders == ()
+    assert after.deployment.phase is RuntimePhase.FLAT

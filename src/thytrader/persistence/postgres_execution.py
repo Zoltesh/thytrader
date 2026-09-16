@@ -7,9 +7,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.execution.fill_ledger import project_fill_economics
 from thytrader.execution.models import (
@@ -24,6 +24,7 @@ from thytrader.execution.models import (
     InstrumentRuntime,
     IntentOrigin,
     IntentPurpose,
+    LifecycleCommand,
     Order,
     OrderIntent,
     OrderKind,
@@ -43,6 +44,8 @@ from thytrader.persistence.schema import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime, timedelta
+
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -50,6 +53,13 @@ if TYPE_CHECKING:
 def _decimal(value: str | None) -> Decimal | None:
     """Parse one stored decimal string, preserving absence."""
     return None if value is None else Decimal(value)
+
+
+def _lifecycle_command(value: object) -> LifecycleCommand:
+    """Parse a stored lifecycle command, defaulting to none for pre-0035 rows."""
+    if value is None or value == "":
+        return LifecycleCommand.NONE
+    return LifecycleCommand(str(value))
 
 
 def _text(value: Decimal | None) -> str | None:
@@ -70,6 +80,12 @@ class PostgresExecutionStore:
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
+        except IntegrityError as error:
+            if "ux_deployments_active_strategy_mode" in str(error).lower():
+                raise ExecutionConflictError(
+                    "A running or paused deployment already exists for this strategy and mode."
+                ) from error
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return deployment
@@ -141,6 +157,43 @@ class PostgresExecutionStore:
                 raise ExecutionConflictError("Deployment revision conflict.")
             raise ExecutionStoreError("Deployment was not found.")
         return replace(deployment, revision=next_revision)
+
+    async def acquire_worker_lease(
+        self,
+        deployment_id: UUID,
+        *,
+        holder: str,
+        now: datetime,
+        ttl: timedelta,
+    ) -> Deployment | None:
+        """Acquire or renew a fenced worker lease in a short UPDATE."""
+        expires_at = now + ttl
+        statement = (
+            deployments.update()
+            .where(deployments.c.id == deployment_id)
+            .where(
+                or_(
+                    deployments.c.worker_lease_holder.is_(None),
+                    deployments.c.worker_lease_expires_at.is_(None),
+                    deployments.c.worker_lease_expires_at <= now,
+                    deployments.c.worker_lease_holder == holder,
+                )
+            )
+            .values(
+                worker_lease_holder=holder,
+                worker_lease_expires_at=expires_at,
+                revision=deployments.c.revision + 1,
+            )
+            .returning(deployments)
+        )
+        try:
+            async with self._engine.begin() as connection:
+                row = (await connection.execute(statement)).mappings().one_or_none()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        if row is None:
+            return None
+        return _deployment_from_row(row)
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission."""
@@ -474,6 +527,21 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "revision": deployment.revision,
         "worker_lease_holder": deployment.worker_lease_holder,
         "worker_lease_expires_at": deployment.worker_lease_expires_at,
+        "lifecycle_command": deployment.lifecycle_command.value,
+        "allocated_capital": _text(deployment.allocated_capital),
+        "venue_available_quote": _text(deployment.venue_available_quote),
+        "reserved_buying_power": _text(deployment.reserved_buying_power),
+        "inventory_cost": _text(deployment.inventory_cost),
+        "performance_equity": _text(deployment.performance_equity),
+        "initial_equity": _text(deployment.initial_equity),
+        "baseline_equity": _text(deployment.baseline_equity),
+        "utc_day_open_equity": _text(deployment.utc_day_open_equity),
+        "utc_day_open_at": deployment.utc_day_open_at,
+        "high_water_mark_equity": _text(deployment.high_water_mark_equity),
+        "daily_loss_latched": deployment.daily_loss_latched,
+        "drawdown_latched": deployment.drawdown_latched,
+        "last_signal_event_at": deployment.last_signal_event_at,
+        "last_signal_processed_at": deployment.last_signal_processed_at,
         "created_at": deployment.created_at,
         "updated_at": deployment.updated_at,
     }
@@ -532,6 +600,21 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         revision=int(row["revision"]) if row.get("revision") is not None else 0,
         worker_lease_holder=row.get("worker_lease_holder"),
         worker_lease_expires_at=row.get("worker_lease_expires_at"),
+        lifecycle_command=_lifecycle_command(row.get("lifecycle_command")),
+        allocated_capital=_decimal(row.get("allocated_capital")),
+        venue_available_quote=_decimal(row.get("venue_available_quote")),
+        reserved_buying_power=_decimal(row.get("reserved_buying_power")),
+        inventory_cost=_decimal(row.get("inventory_cost")),
+        performance_equity=_decimal(row.get("performance_equity")),
+        initial_equity=_decimal(row.get("initial_equity")),
+        baseline_equity=_decimal(row.get("baseline_equity")),
+        utc_day_open_equity=_decimal(row.get("utc_day_open_equity")),
+        utc_day_open_at=row.get("utc_day_open_at"),
+        high_water_mark_equity=_decimal(row.get("high_water_mark_equity")),
+        daily_loss_latched=bool(row.get("daily_loss_latched", False)),
+        drawdown_latched=bool(row.get("drawdown_latched", False)),
+        last_signal_event_at=row.get("last_signal_event_at"),
+        last_signal_processed_at=row.get("last_signal_processed_at"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
