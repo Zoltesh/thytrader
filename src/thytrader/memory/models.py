@@ -19,9 +19,7 @@ MEMORY_SCHEMA_VERSION: Literal["thytrader-experiential-memory-v1"] = (
     "thytrader-experiential-memory-v1"
 )
 MONITOR_SCHEMA_VERSION: Literal["thytrader-monitor-v1"] = "thytrader-monitor-v1"
-MODEL_SCHEMA_VERSION: Literal["thytrader-experiential-model-v1"] = (
-    "thytrader-experiential-model-v1"
-)
+MODEL_SCHEMA_VERSION: Literal["thytrader-experiential-model-v1"] = "thytrader-experiential-model-v1"
 ADVISORY_SCHEMA_VERSION: Literal["thytrader-experiential-advisory-v1"] = (
     "thytrader-experiential-advisory-v1"
 )

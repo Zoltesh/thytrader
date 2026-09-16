@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
@@ -17,6 +17,9 @@ from thytrader.memory.evidence import (
 )
 from thytrader.memory.models import EvidenceKind
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_static_resolver_allowlists_pairs() -> None:

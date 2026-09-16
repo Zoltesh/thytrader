@@ -87,7 +87,7 @@ async def _backtest_exists(store: BacktestResultReader, evidence_id: str) -> boo
         raise ExperientialEvidenceError(
             "backtest evidence storage is unavailable; training is fail-closed"
         ) from error
-    except (BacktestResultNotFoundError, ValueError):
+    except BacktestResultNotFoundError, ValueError:
         return False
     return True
 
@@ -109,7 +109,7 @@ def _dataset_exists(store: DatasetStore, evidence_id: str) -> bool:
     """Load one complete-only dataset fingerprint without interpolating candles."""
     try:
         store.load_manifest(evidence_id)
-    except (DatasetStoreError, OSError, ValueError):
+    except DatasetStoreError, OSError, ValueError:
         return False
     return True
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+from typing import Protocol
 from unittest.mock import patch
 from uuid import UUID
 
@@ -32,6 +33,12 @@ _REFERENCE_STRATEGY = (
     Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 )
 _MODEL_ID = UUID("11111111-1111-1111-1111-111111111111")
+
+
+class _HasFullUrl(Protocol):
+    """urllib Request-shaped object used by the missing-model urlopen double."""
+
+    full_url: str
 
 
 def test_research_help_mentions_confirm_and_no_trading(
@@ -288,7 +295,8 @@ def test_create_draft_merges_experiential_advisory(
 
 def test_create_draft_missing_model_does_not_create() -> None:
     """A missing trained model fails closed before POST /strategies."""
-    def fake_urlopen(request: object, timeout: object = None) -> object:
+
+    def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> object:
         del timeout
         requested_url = request if isinstance(request, str) else request.full_url
         path = str(requested_url)
@@ -325,4 +333,3 @@ def test_create_draft_help_names_experiential_model(
     output = capsys.readouterr().out.lower()
     assert "--experiential-model-id" in output
     assert "http" in output
-

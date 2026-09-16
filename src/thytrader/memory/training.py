@@ -353,18 +353,18 @@ def _advisory(
     product_scores: tuple[ProductScore, ...],
 ) -> ExperientialAdvisory:
     """Split positive and negative ranks into a bounded research hint."""
-    suggested_patterns = tuple(
-        item.pattern_key for item in pattern_scores if item.score > 0
-    )[:_ADVISORY_CAP]
-    caution_patterns = tuple(
-        item.pattern_key for item in pattern_scores if item.score < 0
-    )[:_ADVISORY_CAP]
-    suggested_products = tuple(
-        item.product_id for item in product_scores if item.score > 0
-    )[:_ADVISORY_CAP]
-    caution_products = tuple(
-        item.product_id for item in product_scores if item.score < 0
-    )[:_ADVISORY_CAP]
+    suggested_patterns = tuple(item.pattern_key for item in pattern_scores if item.score > 0)[
+        :_ADVISORY_CAP
+    ]
+    caution_patterns = tuple(item.pattern_key for item in pattern_scores if item.score < 0)[
+        :_ADVISORY_CAP
+    ]
+    suggested_products = tuple(item.product_id for item in product_scores if item.score > 0)[
+        :_ADVISORY_CAP
+    ]
+    caution_products = tuple(item.product_id for item in product_scores if item.score < 0)[
+        :_ADVISORY_CAP
+    ]
     return ExperientialAdvisory(
         schema_version=ADVISORY_SCHEMA_VERSION,
         suggested_pattern_keys=suggested_patterns,
