@@ -463,7 +463,7 @@ class IndicatorCatalogEntry(_FrozenModel):
 
     kind: str
     inputs: tuple[str, ...]
-    parameter_kind: Literal["period", "none", "value", "macd", "bollinger"] = "period"
+    parameter_kind: Literal["period", "none", "value", "macd", "bollinger", "stochastic"] = "period"
     period_min: int | None = None
     period_max: int | None = None
     outputs: tuple[str, ...] = ()

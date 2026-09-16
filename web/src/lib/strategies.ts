@@ -120,6 +120,7 @@ export type IndicatorKindValue =
 	| 'highest'
 	| 'lowest'
 	| 'stdev'
+	| 'stdev_sample'
 	| 'roc'
 	| 'williams_r'
 	| 'cci'
@@ -128,6 +129,8 @@ export type IndicatorKindValue =
 	| 'mfi'
 	| 'macd'
 	| 'bollinger'
+	| 'stochastic'
+	| 'adx'
 	| 'identity'
 	| 'constant';
 
@@ -137,9 +140,10 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'rsi', label: 'RSI' },
 	{ kind: 'atr', label: 'ATR' },
 	{ kind: 'volume_sma', label: 'Volume SMA' },
-	{ kind: 'highest', label: 'Highest high' },
-	{ kind: 'lowest', label: 'Lowest low' },
+	{ kind: 'highest', label: 'Highest' },
+	{ kind: 'lowest', label: 'Lowest' },
 	{ kind: 'stdev', label: 'Stdev' },
+	{ kind: 'stdev_sample', label: 'Sample stdev' },
 	{ kind: 'roc', label: 'ROC' },
 	{ kind: 'williams_r', label: 'Williams %R' },
 	{ kind: 'cci', label: 'CCI' },
@@ -148,6 +152,8 @@ export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label:
 	{ kind: 'mfi', label: 'MFI' },
 	{ kind: 'macd', label: 'MACD' },
 	{ kind: 'bollinger', label: 'Bollinger' },
+	{ kind: 'stochastic', label: 'Stochastic' },
+	{ kind: 'adx', label: 'ADX' },
 	{ kind: 'identity', label: 'OHLCV' },
 	{ kind: 'constant', label: 'Constant' }
 ];
@@ -156,7 +162,9 @@ export const INDICATOR_OUTPUT_SERIES: Readonly<
 	Partial<Record<IndicatorKindValue, readonly string[]>>
 > = {
 	macd: ['macd', 'signal', 'histogram'],
-	bollinger: ['middle', 'upper', 'lower']
+	bollinger: ['middle', 'upper', 'lower'],
+	stochastic: ['k', 'd'],
+	adx: ['adx', 'plus_di', 'minus_di']
 };
 
 export const IDENTITY_INPUT_OPTIONS: readonly { value: IdentityInput; label: string }[] = [
@@ -183,6 +191,8 @@ export type IndicatorDraft = {
 		slow_period?: number;
 		signal_period?: number;
 		stdev_multiplier?: string;
+		k_period?: number;
+		d_period?: number;
 	};
 };
 
@@ -280,15 +290,48 @@ const TIMEFRAME_SECONDS: Record<ExecutionTimeframe, number> = {
 	'1d': 86_400
 };
 
+const CONFIGURABLE_ROLLING_KINDS: ReadonlySet<IndicatorKindValue> = new Set([
+	'ema',
+	'sma',
+	'wma',
+	'highest',
+	'lowest',
+	'stdev',
+	'stdev_sample',
+	'roc',
+	'momentum'
+]);
+
+function defaultRollingInput(kind: IndicatorKindValue): IdentityInput {
+	if (kind === 'highest') return 'high';
+	if (kind === 'lowest') return 'low';
+	return 'close';
+}
+
 function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
-	if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
+	if (
+		kind === 'atr' ||
+		kind === 'williams_r' ||
+		kind === 'cci' ||
+		kind === 'stochastic' ||
+		kind === 'adx'
+	) {
 		return ['high', 'low', 'close'];
 	}
 	if (kind === 'mfi') return ['high', 'low', 'close', 'volume'];
 	if (kind === 'volume_sma') return 'volume';
-	if (kind === 'highest') return 'high';
-	if (kind === 'lowest') return 'low';
+	if (CONFIGURABLE_ROLLING_KINDS.has(kind)) return defaultRollingInput(kind);
 	return 'close';
+}
+
+function selectedRollingInput(indicator: IndicatorDraft): IdentityInput {
+	return typeof indicator.input === 'string' && IDENTITY_INPUTS.includes(indicator.input)
+		? indicator.input
+		: defaultRollingInput(indicator.kind);
+}
+
+export function isConfigurableRollingKind(kind: IndicatorKindValue): boolean {
+	return CONFIGURABLE_ROLLING_KINDS.has(kind);
 }
 
 function indicatorPeriodMax(kind: IndicatorKindValue): number {
@@ -296,7 +339,8 @@ function indicatorPeriodMax(kind: IndicatorKindValue): number {
 		kind === 'atr' ||
 		kind === 'williams_r' ||
 		kind === 'cci' ||
-		kind === 'mfi'
+		kind === 'mfi' ||
+		kind === 'adx'
 		? 100
 		: 500;
 }
@@ -395,6 +439,25 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 		};
 		return;
 	}
+	if (indicator.kind === 'stochastic') {
+		indicator.input = ['high', 'low', 'close'];
+		indicator.parameters = {
+			k_period: clampPeriod(indicator.parameters.k_period, 100, 14),
+			d_period: clampPeriod(indicator.parameters.d_period, 500, 3)
+		};
+		return;
+	}
+	if (isConfigurableRollingKind(indicator.kind)) {
+		indicator.input = selectedRollingInput(indicator);
+		const previousPeriod = indicator.parameters.period;
+		const maximum = indicatorPeriodMax(indicator.kind);
+		const period =
+			typeof previousPeriod === 'number' && Number.isInteger(previousPeriod) && previousPeriod >= 2
+				? Math.min(previousPeriod, maximum)
+				: 50;
+		indicator.parameters = { period };
+		return;
+	}
 	indicator.input = lockedIndicatorInput(indicator.kind);
 	const previousPeriod = indicator.parameters.period;
 	const maximum = indicatorPeriodMax(indicator.kind);
@@ -458,6 +521,27 @@ export function serializeIndicator(
 				period: indicator.parameters.period ?? 20,
 				stdev_multiplier: indicator.parameters.stdev_multiplier ?? '2'
 			},
+			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
+		};
+	}
+	if (indicator.kind === 'stochastic') {
+		return {
+			id: indicator.id,
+			kind: 'stochastic',
+			input: ['high', 'low', 'close'],
+			parameters: {
+				k_period: indicator.parameters.k_period ?? 14,
+				d_period: indicator.parameters.d_period ?? 3
+			},
+			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
+		};
+	}
+	if (isConfigurableRollingKind(indicator.kind)) {
+		return {
+			id: indicator.id,
+			kind: indicator.kind,
+			input: selectedRollingInput(indicator),
+			parameters: { period: indicator.parameters.period ?? 2 },
 			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
 		};
 	}

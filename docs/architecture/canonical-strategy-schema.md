@@ -24,7 +24,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   decimals normalized to plain canonical text, bounded values, unique indicator IDs, reference
   resolution, and warmup validation;
 - every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
-  backtests, paper, and live; long or short, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`identity`/`constant` indicators;
+  backtests, paper, and live; long or short, one position, with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`stdev_sample`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`stochastic`/`adx`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025, ADR 0041) for research V1/V2/V3, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
@@ -150,52 +150,53 @@ the decision clock.
 
 | Kind | Input | Required parameters | Output | Minimum warmup |
 |------|-------|---------------------|--------|----------------|
-| `ema` | `close` | `period` (2–500) | single value per bar | `period` |
-| `sma` | `close` | `period` (2–500) | single value per bar | `period` |
+| `ema` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period` |
+| `sma` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period` |
 | `rsi` | `close` | `period` (2–100) | 0–100 per bar | `period + 1` |
 | `atr` | `high, low, close` | `period` (2–100) | single value per bar | `period` |
 | `volume_sma` | `volume` | `period` (2–500) | single value per bar | `period` |
-| `highest` | `high` | `period` (2–500) | single value per bar | `period` |
-| `lowest` | `low` | `period` (2–500) | single value per bar | `period` |
-| `stdev` | `close` | `period` (2–500) | single value per bar | `period` |
-| `roc` | `close` | `period` (2–500) | single value per bar | `period + 1` |
+| `highest` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period` |
+| `lowest` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period` |
+| `stdev` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | population stdev per bar | `period` |
+| `stdev_sample` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | sample stdev per bar | `period` |
+| `roc` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period + 1` |
 | `williams_r` | `high, low, close` | `period` (2–100) | single value per bar | `period` |
 | `cci` | `high, low, close` | `period` (2–100) | single value per bar | `period` |
-| `wma` | `close` | `period` (2–500) | single value per bar | `period` |
-| `momentum` | `close` | `period` (2–500) | single value per bar | `period + 1` |
+| `wma` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period` |
+| `momentum` | one of `open`, `high`, `low`, `close`, `volume` | `period` (2–500) | single value per bar | `period + 1` |
 | `mfi` | `high, low, close, volume` | `period` (2–100) | 0–100 per bar | `period + 1` |
 | `macd` | `close` | `fast_period`, `slow_period`, `signal_period` (each 2–500; fast < slow) | series `macd`, `signal`, `histogram` | `slow_period + signal_period - 1` |
 | `bollinger` | `close` | `period` (2–500), `stdev_multiplier` (plain decimal `> 0` and `≤ 10`) | series `middle`, `upper`, `lower` | `period` |
+| `stochastic` | `high, low, close` | `k_period` (2–100), `d_period` (2–500) | series `k`, `d` | `k_period + d_period - 1` |
+| `adx` | `high, low, close` | `period` (2–100) | series `adx`, `plus_di`, `minus_di` | `2 * period - 1` |
 | `identity` | one of `open`, `high`, `low`, `close`, `volume` | `{}` | that candle field | `1` |
 | `constant` | omitted | `value` (plain decimal) | that level on every bar | `1` |
 
 Rules:
 
 - IDs must be unique within a strategy. Indicator ids cannot contain `.`.
-- Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. Each shipped kind
-  locks that field: EMA/SMA/RSI/`stdev`/`roc`/`wma`/`momentum`/`macd`/`bollinger` use `close`;
-  `highest` uses `high`; `lowest` uses `low`; `volume_sma` uses `volume`. ATR, `williams_r`, and
-  `cci` use the canonical ordered array `["high", "low", "close"]`. `mfi` uses
+- Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. Configurable
+  rolling kinds (`ema`, `sma`, `wma`, `highest`, `lowest`, `stdev`, `stdev_sample`, `roc`,
+  `momentum`) accept any one of those fields. RSI stays locked to `close`; `volume_sma` to
+  `volume`; `macd` and `bollinger` to `close`. ATR, `williams_r`, `cci`, `stochastic`, and `adx`
+  use the canonical ordered array `["high", "low", "close"]`. `mfi` uses
   `["high", "low", "close", "volume"]`. `identity` selects exactly one of those single-source fields.
   `constant` omits `input` and declares `parameters.value`.
 - Parameters are decimal strings for monetary fields, constant levels, and Bollinger
   `stdev_multiplier`; integers for periods. MACD declares `fast_period`, `slow_period`, and
-  `signal_period`. Identity parameters are the empty object.
-- Multi-series kinds (`macd`, `bollinger`) emit named outputs. Conditions must set operand
-  `series` to one of that kind's declared names. Single-output operands **must omit** `series`.
-  Canonical JSON omits `series` when absent so already-published single-output fingerprints stay
-  stable ([ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)).
+  `signal_period`. Stochastic declares `k_period` and `d_period`. Identity parameters are the empty object.
+- Multi-series kinds (`macd`, `bollinger`, `stochastic`, `adx`) emit named outputs. Conditions must
+  set operand `series` to one of that kind's declared names. Single-output operands **must omit**
+  `series`. Canonical JSON omits `series` when absent so already-published single-output fingerprints
+  stay stable ([ADR 0032](../decisions/0032-phase-9-macd-bollinger.md),
+  [ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)).
 - An indicator with insufficient warmup data produces no value (not zero, not an error); conditions
   referencing an undefined value evaluate to no-signal.
 
 No broad TA-library passthrough is allowed. Every supported indicator has a defined specification,
-warmup requirement, and invalid-data behavior. Stochastic, ADX, configurable rolling inputs, and sample
-stdev remain out of this catalog
-([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md),
-[ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md),
-[ADR 0028](../decisions/0028-phase-9-identity-constant.md),
-[ADR 0029](../decisions/0029-phase-9-wma-momentum-mfi.md),
-[ADR 0032](../decisions/0032-phase-9-macd-bollinger.md)).
+warmup requirement, and invalid-data behavior. Further catalog kinds remain out until they have
+their own contract
+([ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)).
 Per-indicator timeframes are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
 ## Conditions

@@ -57,9 +57,9 @@ def engine_support_matrix() -> EngineSupportMatrix:
             ),
             EngineSupportRow(
                 label=(
-                    "Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, "
-                    "Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, "
-                    "OHLCV identity, constant"
+                    "Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, "
+                    "sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, "
+                    "Bollinger, stochastic, ADX, OHLCV identity, constant"
                 ),
                 v1=True,
                 v2=True,
@@ -67,7 +67,8 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 note=(
                     "exact Decimal arithmetic; paper/live share the LTF catalog and "
                     "evaluate HTF kinds inside htf_filter; "
-                    "MACD/Bollinger conditions use series ids"
+                    "MACD/Bollinger/stochastic/ADX conditions use series ids; "
+                    "rolling EMA/SMA/WMA/highest/lowest/stdev/sample-stdev/ROC/momentum accept one OHLCV field"
                 ),
             ),
             EngineSupportRow(

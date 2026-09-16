@@ -15,6 +15,7 @@
 		INDICATOR_KIND_OPTIONS,
 		IDENTITY_INPUT_OPTIONS,
 		applyIndicatorKindDefaults,
+		isConfigurableRollingKind,
 		defaultIndicatorOperand,
 		indicatorOperandKey,
 		parseIndicatorOperandKey,
@@ -450,16 +451,18 @@
 						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 						<div class="hint">
 							OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
-							crosses 40). ATR / Williams %R / CCI use high/low/close. MFI uses
-							high/low/close/volume. Highest uses high. Lowest uses low. Stdev, ROC, WMA, momentum,
-							MACD, and Bollinger use close. MACD declares fast/slow/signal periods (fast &lt;
-							slow). Bollinger adds a population-stdev multiplier. Conditions reference
-							MACD/Bollinger outputs as series ids (macd/signal/histogram or middle/upper/lower).
-							RSI, ATR, Williams %R, CCI, and MFI periods cap at 100. Momentum and MFI need period +
-							1 bars. MACD needs slow + signal − 1 bars. Rolling inputs stay locked per kind.
-							Optional per-indicator timeframes may use a coarser integer-multiple venue clock;
-							omitting the field keeps the decision clock. Constant omits timeframe. Stop ATR stays
-							on the decision clock. Extra-TF values overlay LTF entry before the HTF filter AND.
+							crosses 40). ATR / Williams %R / CCI / stochastic / ADX use high/low/close. MFI uses
+							high/low/close/volume. EMA, SMA, WMA, highest, lowest, stdev, sample stdev, ROC, and
+							momentum select one OHLCV field. RSI, volume SMA, MACD, and Bollinger stay locked.
+							MACD declares fast/slow/signal periods (fast &lt; slow). Stochastic declares %K and %D
+							periods. Bollinger adds a population-stdev multiplier. Conditions reference
+							MACD/Bollinger/stochastic/ADX outputs as series ids. RSI, ATR, Williams %R, CCI, MFI,
+							and ADX periods cap at 100; stochastic %K caps at 100. Momentum and MFI need period +
+							1 bars. MACD needs slow + signal − 1 bars. Stochastic needs k + d − 1 bars. ADX needs
+							2×period − 1 bars. Optional per-indicator timeframes may use a coarser integer-multiple
+							venue clock; omitting the field keeps the decision clock. Constant omits timeframe.
+							Stop ATR stays on the decision clock. Extra-TF values overlay LTF entry before the HTF
+							filter AND.
 						</div>
 					</section>
 				{:else if activeSection === 'entry'}
@@ -735,7 +738,7 @@
 			</select></label
 		>
 	{/if}
-	{#if indicator.kind === 'identity'}
+	{#if indicator.kind === 'identity' || isConfigurableRollingKind(indicator.kind)}
 		<label
 			>Source
 			<select bind:value={indicator.input} onchange={markDirty}>
@@ -744,7 +747,8 @@
 				{/each}
 			</select></label
 		>
-	{:else if indicator.kind === 'constant'}
+	{/if}
+	{#if indicator.kind === 'constant'}
 		<label>Value<input bind:value={indicator.parameters.value} oninput={markDirty} /></label>
 	{:else if indicator.kind === 'macd'}
 		<label
@@ -786,7 +790,24 @@
 				oninput={markDirty}
 			/></label
 		>
-	{:else}
+	{:else if indicator.kind === 'stochastic'}
+		<label
+			>%K period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.k_period}
+				oninput={markDirty}
+			/></label
+		>
+		<label
+			>%D period<input
+				type="number"
+				min="2"
+				bind:value={indicator.parameters.d_period}
+				oninput={markDirty}
+			/></label
+		>
+	{:else if indicator.kind !== 'identity'}
 		<label
 			>Period<input
 				type="number"

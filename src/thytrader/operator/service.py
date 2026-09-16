@@ -1653,18 +1653,21 @@ def _catalog_provider(settings: Settings) -> str:
     return "coinbase"
 
 
+_CONFIGURABLE_ROLLING_INPUTS: tuple[str, ...] = ("open", "high", "low", "close", "volume")
+
+
 def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
     """Describe implemented indicator kinds and their canonical bounds."""
     return (
         IndicatorCatalogEntry(
             kind=IndicatorKind.EMA.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.SMA.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
@@ -1688,25 +1691,31 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.HIGHEST.value,
-            inputs=("high",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.LOWEST.value,
-            inputs=("low",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.STDEV.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
+            period_min=2,
+            period_max=500,
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.STDEV_SAMPLE.value,
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.ROC.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
@@ -1724,13 +1733,13 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.WMA.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.MOMENTUM.value,
-            inputs=("close",),
+            inputs=_CONFIGURABLE_ROLLING_INPUTS,
             period_min=2,
             period_max=500,
         ),
@@ -1755,6 +1764,21 @@ def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
             period_min=2,
             period_max=500,
             outputs=("middle", "upper", "lower"),
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.STOCHASTIC.value,
+            inputs=("high", "low", "close"),
+            parameter_kind="stochastic",
+            period_min=2,
+            period_max=500,
+            outputs=("k", "d"),
+        ),
+        IndicatorCatalogEntry(
+            kind=IndicatorKind.ADX.value,
+            inputs=("high", "low", "close"),
+            period_min=2,
+            period_max=100,
+            outputs=("adx", "plus_di", "minus_di"),
         ),
         IndicatorCatalogEntry(
             kind=IndicatorKind.IDENTITY.value,

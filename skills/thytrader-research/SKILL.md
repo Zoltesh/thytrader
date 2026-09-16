@@ -88,18 +88,20 @@ last-completed extra-TF and HTF bars only. Paper and live evaluate the same last
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
-Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest` (high), `lowest` (low), `stdev`
-(close, population), `roc` (close, lookback `period` bars ago), `williams_r` (high/low/close), `cci`
-(high/low/close, typical-price SMA and population MAD), `wma` (close, oldest weight 1 / newest
-`period`), `momentum` (close, lookback `period` bars ago), `mfi` (high/low/close/volume), `macd`
-(close; `fast_period`/`slow_period`/`signal_period`, fast < slow; series `macd`/`signal`/`histogram`),
-`bollinger` (close; `period` plus `stdev_multiplier`; series `middle`/`upper`/`lower`), `identity`
-(one of open/high/low/close/volume, empty parameters), `constant` (`parameters.value`, no input).
-Single-output operands omit `series`. Multi-series operands must name one declared series. Do not
-invent stochastic, ADX, or other unlisted kinds. Optional per-indicator `timeframe` on LTF-list
-indicators must be a coarser integer-multiple venue clock; omit it to keep the decision clock.
-`constant` and HTF-filter indicators omit `timeframe`. `crosses_above` /
-`crosses_below` need two indicator operands. Compare an indicator to a
+Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest`, `lowest`, `stdev` (population),
+`stdev_sample` (sample / `N-1`), `roc`, `williams_r` (high/low/close), `cci` (high/low/close), `wma`,
+`momentum`, `mfi` (high/low/close/volume), `macd` (close; `fast_period`/`slow_period`/`signal_period`,
+fast < slow; series `macd`/`signal`/`histogram`), `bollinger` (close; `period` plus
+`stdev_multiplier`; series `middle`/`upper`/`lower`), `stochastic` (high/low/close; `k_period` 2–100
+and `d_period` 2–500; series `k`/`d`), `adx` (high/low/close; `period` 2–100; series
+`adx`/`plus_di`/`minus_di`; warmup `2 * period - 1`), `identity` (one of open/high/low/close/volume,
+empty parameters), `constant` (`parameters.value`, no input). Rolling `ema`/`sma`/`wma`/`highest`/
+`lowest`/`stdev`/`stdev_sample`/`roc`/`momentum` accept one of open/high/low/close/volume. RSI,
+volume SMA, MACD, and Bollinger stay locked. Single-output operands omit `series`. Multi-series
+operands must name one declared series. Do not invent unlisted kinds or pass through a TA library.
+Optional per-indicator `timeframe` on LTF-list indicators must be a coarser integer-multiple venue
+clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
+`crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
 id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic
 validation message; do not treat a generic “failed safely” string as success. HTTP 422 that still
