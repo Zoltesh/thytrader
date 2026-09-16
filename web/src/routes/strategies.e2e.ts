@@ -763,7 +763,7 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(page.getByRole('link', { name: '12.00%', exact: true })).toHaveCount(2);
 	await expect(page.getByRole('table', { name: 'Latest result comparison' })).toBeVisible();
 	await expect(page.getByLabel('Strategy version')).toHaveValue(secondFingerprint);
-	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
 	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 
@@ -1060,7 +1060,7 @@ test('research tab loads the latest dataset catalog when it opens', async ({ pag
 	expect(datasetRequests).toBe(0);
 
 	await page.goto(`/research?strategy=${strategyId}`);
-	await expect(page.getByLabel('Verified dataset')).toHaveValue(datasetFingerprint);
+	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
 	await page.waitForTimeout(250);
 	expect(datasetRequests).toBe(1);
 });
@@ -1244,12 +1244,9 @@ test('deploy tab shows accurate timeframe copy and allows live 5m', async ({ pag
 	await page.locator('table tbody tr').first().click();
 	await page.goto(`/deploy?strategy=${strategyId}`);
 
-	const deployCopy = page.getByRole('heading', { name: 'Deploy', exact: true }).locator('..');
-	await expect(deployCopy).toContainText('Paper:');
-	await expect(deployCopy).toContainText('any ingested');
-	await expect(deployCopy).toContainText('venue clock');
-	await expect(deployCopy).toContainText('Live:');
-	await expect(deployCopy).toContainText('Sub-hour live');
+	await expect(page.getByText(/Paper:.*any ingested venue clock/s)).toBeVisible();
+	await expect(page.getByText(/Live:.*the same clocks/s)).toBeVisible();
+	await expect(page.getByText(/Sub-hour live requires a connected user-order feed/)).toBeVisible();
 
 	await page.getByLabel('Mode').selectOption('paper');
 	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();

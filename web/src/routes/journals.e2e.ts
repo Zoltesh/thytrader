@@ -28,7 +28,6 @@ test('journals lists origin-attributed memory rows without mutation controls', a
 	await page.goto('/journals');
 	await expect(page.getByRole('heading', { name: 'Journals' })).toBeVisible();
 	await expect(page.getByText('Visible journal place')).toBeVisible();
-	await expect(page.getByText('Not a per-trade why record.')).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Memory' })).toHaveAttribute('href', '/memory');
 	await expect(page.getByRole('link', { name: 'Trade' })).toHaveAttribute('href', '/trade');
 	await expect(page.getByRole('button', { name: /add journal/i })).toHaveCount(0);

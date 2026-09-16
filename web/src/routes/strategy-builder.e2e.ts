@@ -130,8 +130,8 @@ test('flags engine settings the current backtester does not model', async ({ pag
 	await expect(cooldown).toContainText('not modeled by V1, V2, or V3');
 	await expect(cooldown.getByText('Unsupported')).toHaveCount(3);
 	const makerEntry = engineMatrix.getByRole('row', { name: /Maker-only/ });
-	await expect(makerEntry.getByText('Unsupported')).toHaveCount(2);
-	await expect(makerEntry.getByText('Supported')).toHaveCount(1);
+	await expect(makerEntry.getByText('Unsupported', { exact: true })).toHaveCount(2);
+	await expect(makerEntry.getByText('Supported', { exact: true })).toHaveCount(1);
 });
 
 test('saves edited builder state through the durable draft boundary', async ({ page }) => {
@@ -181,11 +181,12 @@ test('required data and market hint follow the draft timeframe', async ({ page }
 	).toBeVisible();
 	await expect(page.getByText('completed 1h bars')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Market and data' }).click();
-	await expect(
-		page.getByText(/Research, paper, and live use any ingested venue clock/)
-	).toBeVisible();
-	await expect(page.getByText(/this draft uses\s+5m candles/)).toBeVisible();
-	await expect(page.getByText(/Sub-hour live requires a connected user-order feed/)).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Market and data' })).toBeVisible();
+	await expect(page.getByRole('main')).toContainText('any ingested venue clock');
+	await expect(page.getByRole('main')).toContainText('this draft uses 5m candles');
+	await expect(page.getByRole('main')).toContainText(
+		'Sub-hour live requires a connected user-order feed'
+	);
 });
 
 test('shows a literal editor when the left operand is a literal value', async ({ page }) => {

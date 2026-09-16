@@ -108,7 +108,7 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76000000');
 	await expect(page.getByRole('row', { name: /Ethereum ETH/ })).toContainText('$7,342.17');
 	await expect(page.getByText('View', { exact: true })).toBeVisible();
-	await expect(page.getByText('Trade', { exact: true })).toBeVisible();
+	await expect(page.getByRole('main').getByText('Trade', { exact: true })).toBeVisible();
 	await expect(page.getByText('Transfer', { exact: true })).toBeVisible();
 });
 

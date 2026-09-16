@@ -60,18 +60,20 @@
 	function showBar(event: MouseEvent, entry: StrategyLibraryEntry): void {
 		cancelHide();
 		hoveredId = entry.strategy_id;
-		positionBarForRow((event.currentTarget as HTMLElement).getBoundingClientRect());
+		positionBarForRow(event.currentTarget as HTMLElement);
 	}
 
-	// One stable spot per row: vertically centered, right-aligned. The bar never
-	// follows the mouse, so it stays a fixed target while the row is hovered.
-	function positionBarForRow(rowRect: DOMRect): void {
+	// Vertically centered on the row, immediately left of the paper/live cell so
+	// that cell stays clickable. The bar never follows the mouse.
+	function positionBarForRow(row: HTMLElement): void {
+		const rowRect = row.getBoundingClientRect();
+		const lastCell = row.querySelector('td:last-child');
+		const lastLeft =
+			lastCell instanceof HTMLElement ? lastCell.getBoundingClientRect().left : rowRect.right;
 		const margin = 10;
 		const height = barHeight || 46;
 		const width = barWidth || 240;
-		// clientWidth excludes the scrollbar, unlike innerWidth.
-		const visibleWidth = document.documentElement.clientWidth;
-		const x = visibleWidth - margin - width;
+		const x = Math.max(margin, lastLeft - margin - width);
 		const y = Math.min(
 			Math.max(rowRect.top + rowRect.height / 2 - height / 2, margin),
 			document.documentElement.clientHeight - height - margin
@@ -97,7 +99,7 @@
 	$effect(() => {
 		if (hoveredId === null || barWidth === 0 || barHeight === 0) return;
 		const row = document.querySelector(`tbody tr[data-strategy-id="${hoveredId}"]`);
-		if (row instanceof HTMLElement) positionBarForRow(row.getBoundingClientRect());
+		if (row instanceof HTMLElement) positionBarForRow(row);
 	});
 
 	async function loadVersionHistory(entry: StrategyLibraryEntry, requestId: number): Promise<void> {
