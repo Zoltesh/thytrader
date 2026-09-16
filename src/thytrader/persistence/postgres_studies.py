@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.market_data.models import DatasetTimeframe
+from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - cast target
 from thytrader.persistence.schema import published_research_studies
 from thytrader.research.catalog import (
     StudyCatalogIntegrityError,

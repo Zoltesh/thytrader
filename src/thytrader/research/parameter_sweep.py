@@ -626,7 +626,7 @@ def _assign_literals(
         assigned += 1
     for key in ("all", "any"):
         children = current.get(key)
-        if isinstance(children, list):
+        if isinstance(children, (list, tuple)):
             for child in children:
                 assigned += _assign_literals(
                     child,
