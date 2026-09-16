@@ -5,9 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import secrets
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
+from thytrader.market_data.models import (
+    EXECUTION_TIMEFRAMES,
+    as_dataset_timeframe,
+    parse_candle_interval,
+)
 from thytrader.strategies.models import Instrument, StrategyDefinition, StrategyStatus
 from thytrader.strategies.templates import build_template_draft, parse_template_id
 
@@ -116,13 +121,12 @@ def create_reference_draft(
     """Construct one server-identified draft from a fail-closed research template."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)
     created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
-    if timeframe == "5m":
-        clock: Literal["1h", "5m"] = "5m"
-    elif timeframe == "1h":
-        clock = "1h"
-    else:
-        message = "Reference drafts support only 1h and 5m timeframes."
-        raise ValueError(message)
+    try:
+        clock = as_dataset_timeframe(parse_candle_interval(timeframe))
+    except ValueError as error:
+        allowed = ", ".join(EXECUTION_TIMEFRAMES)
+        message = f"Reference drafts support only ingested venue timeframes: {allowed}."
+        raise ValueError(message) from error
     template_id = parse_template_id(template)
     instrument = _instrument_for_product(product_id)
     return build_template_draft(

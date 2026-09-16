@@ -5,7 +5,8 @@
 - Relates to: [0004](0004-safe-execution-and-access.md), [0013](0013-http-first-agent-clients.md),
   [0019](0019-ops-contract-identity.md), [0030](0030-agent-e2e-primary-surface.md),
   [0031](0031-coinbase-first-platform-end-state.md), [0033](0033-phase-10-risk-policy-registry.md),
-  [0036](0036-phase-13-live-extras.md), [0038](0038-complete-only-1m-2h-4h-datasets.md)
+  [0036](0036-phase-13-live-extras.md), [0038](0038-complete-only-1m-2h-4h-datasets.md),
+  [0040](0040-venue-strategy-paper-live-htf-clocks.md)
 
 ## Context
 
@@ -80,7 +81,9 @@ when the venue id is still missing. It never retries create-order for that clien
 Alembic `0025` (after dataset `0024`) adds `deployments.kind` / `timeframe`, nullable strategy
 identity for discretionary rows, and `order_intents.origin` / `idempotency_key`. Ops contract
 becomes `thytrader-ops-contract-v11` with `expected_schema_revision` `0025`. Strategy, paper, and
-live clocks stay `1h` or `5m`.
+live clocks stay `1h` or `5m` in this ADR.
+[ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks; this slice does
+not change intent persistence, risk, OCO, or reconcile-before-retry.
 
 ## Consequences
 

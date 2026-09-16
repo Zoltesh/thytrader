@@ -36,6 +36,7 @@ from thytrader.strategies.models import (
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from thytrader.market_data.models import DatasetTimeframe
     from thytrader.strategies.models import Instrument
 
 _OHLCV: tuple[
@@ -102,7 +103,7 @@ def build_template_draft(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Return one validated draft for the selected template."""
     if template_id is StrategyTemplateId.EMA_TREND:
@@ -118,7 +119,7 @@ def _ema_trend(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Historical conservative EMA crossover reference."""
     return _draft(
@@ -172,7 +173,7 @@ def _rsi_mean_reversion(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Long when RSI is oversold. Warmup covers RSI lookback plus ATR."""
     return _draft(
@@ -209,7 +210,7 @@ def _macd_trend(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Long when MACD line crosses above its signal. Warmup is slow+signal-1."""
     return _draft(
@@ -246,7 +247,7 @@ def _bollinger_mean_reversion(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Long when close is at or below the lower Bollinger band."""
     return _draft(
@@ -300,7 +301,7 @@ def _draft(
     strategy_id: UUID,
     created_at: datetime,
     instrument: Instrument,
-    timeframe: Literal["1h", "5m"],
+    timeframe: DatasetTimeframe,
     name: str,
     description: str,
     warmup_bars: int,

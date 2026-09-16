@@ -32,7 +32,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "support_bundle",
 )
 
-SupportedTimeframe = Literal["1h", "5m"]
+SupportedTimeframe = DatasetTimeframe
 
 
 class ReportStatus(StrEnum):

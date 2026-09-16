@@ -71,7 +71,7 @@ The current preview supports:
 |---|---|
 | Provider | Coinbase Advanced Trade |
 | Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
-| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets; research and **paper** remain `1h` and `5m`; live remains `1h` or `5m`. Strategy/paper/live clocks for `1m`/`2h`/`4h` remain destination ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md), [ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)). |
+| Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and research HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live still reject `htf_filter`. Missing bars are never interpolated. |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
@@ -220,13 +220,12 @@ withdrawal, leverage, derivatives, or optimization authority.
 The diagnostics create a tested boundary to expand rather than a side path to maintain.
 
 1. **Additional timeframes** — 5m research datasets and 15m/30m/6h/1d/1m/2h/4h complete-only
-   datasets are implemented. Phase 7 data-loop hardening is also implemented. Extra catalog TFs are
-   not LTF, paper, or live clocks. Phase 8 research may bind `15m`/`30m`/`6h`/`1d` as `htf_filter`
-   datasets ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)). `1m`/`2h`/`4h` remain
-   illegal as LTF, HTF, paper, or live clocks until a later ADR
-   ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)).
+   datasets are implemented. Phase 7 data-loop hardening is also implemented. [ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)
+   later made every ingested venue TF a legal LTF, paper, live, discretionary, and HTF token.
+   Paper and live still reject `htf_filter`.
 2. **Additional ingestion targets** — an explicit watchlist plus confirmation-gated `thytrader-data` ingest cover extra USD spot products and every shipped dataset timeframe without weakening complete-only publication.
-3. **5m live** — paper and live may evaluate closed 5m bars. Live 5m pauses unless the
-   authenticated user-order feed is connected ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
+3. **Sub-hour live** — paper and live may evaluate closed venue bars. Sub-hour live pauses unless the
+   authenticated user-order feed is connected ([ADR 0036](../decisions/0036-phase-13-live-extras.md),
+   [ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)).
 
 Only a validated, immutable dataset with a fingerprint may become a Phase 3 backtest input.

@@ -120,7 +120,7 @@ export async function placeDiscretionaryOrder(input: {
 	idempotency_key: string;
 	origin: 'human' | 'agent';
 	entry_kind?: 'post_only_limit' | 'marketable';
-	timeframe?: '1h' | '5m';
+	timeframe?: string;
 	quantity?: string;
 	quote_notional?: string;
 	limit_price?: string;

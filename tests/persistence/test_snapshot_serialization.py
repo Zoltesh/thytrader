@@ -371,6 +371,18 @@ def test_on_demand_discretionary_migration_follows_datasets() -> None:
     assert "discretionary" in content
 
 
+def test_venue_execution_clocks_migration_follows_discretionary() -> None:
+    """The twenty-sixth migration must widen deployment clocks after discretionary 0025."""
+    content = Path("alembic/versions/0026_venue_execution_clocks.py").read_text(encoding="utf-8")
+    assert 'revision = "0026"' in content
+    assert 'down_revision = "0025"' in content
+    assert "1m" in content
+    assert "2h" in content
+    assert "4h" in content
+    assert "ck_deployments_timeframe" in content
+    assert "ck_deployments_kind_identity" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

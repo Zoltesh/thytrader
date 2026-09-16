@@ -251,16 +251,32 @@ export type Dataset = {
 	content_fingerprint: string;
 };
 
-const TIMEFRAME_SECONDS: Record<string, number> = {
+/** Duration-ascending legal strategy, paper, live, discretionary, and HTF tokens. */
+export const EXECUTION_TIMEFRAMES = [
+	'1m',
+	'5m',
+	'15m',
+	'30m',
+	'1h',
+	'2h',
+	'4h',
+	'6h',
+	'1d'
+] as const;
+
+export type ExecutionTimeframe = (typeof EXECUTION_TIMEFRAMES)[number];
+
+const TIMEFRAME_SECONDS: Record<ExecutionTimeframe, number> = {
+	'1m': 60,
 	'5m': 300,
 	'15m': 900,
 	'30m': 1_800,
 	'1h': 3_600,
+	'2h': 7_200,
+	'4h': 14_400,
 	'6h': 21_600,
 	'1d': 86_400
 };
-
-const HTF_TIMEFRAMES = ['15m', '30m', '1h', '6h', '1d'] as const;
 
 function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
 	if (kind === 'atr' || kind === 'williams_r' || kind === 'cci') {
@@ -440,10 +456,9 @@ export function serializeIndicator(indicator: IndicatorDraft): IndicatorDraft {
  * Return HTF clocks that are strictly coarser integer multiples of the LTF decision clock.
  */
 export function validHtfTimeframes(decisionTimeframe: string): string[] {
-	if (decisionTimeframe !== '1h' && decisionTimeframe !== '5m') return [];
-	const decisionSeconds = TIMEFRAME_SECONDS[decisionTimeframe];
+	const decisionSeconds = TIMEFRAME_SECONDS[decisionTimeframe as ExecutionTimeframe];
 	if (decisionSeconds === undefined) return [];
-	return HTF_TIMEFRAMES.filter((timeframe) => {
+	return EXECUTION_TIMEFRAMES.filter((timeframe) => {
 		const seconds = TIMEFRAME_SECONDS[timeframe];
 		return seconds > decisionSeconds && seconds % decisionSeconds === 0;
 	});
@@ -517,9 +532,10 @@ export function formatUtcInputValue(instant: Date): string {
 export function datasetEvaluationWindow(
 	dataset: Dataset,
 	warmupBars: number,
-	timeframe: '1h' | '5m' = '1h'
+	timeframe: string = '1h'
 ): { min: string; max: string } {
-	const barMs = timeframe === '5m' ? 5 * 60_000 : 3_600_000;
+	const seconds = TIMEFRAME_SECONDS[timeframe as ExecutionTimeframe] ?? 3_600;
+	const barMs = seconds * 1_000;
 	return {
 		min: formatUtcInputValue(new Date(new Date(dataset.starts_at).getTime() + warmupBars * barMs)),
 		max: formatUtcInputValue(new Date(new Date(dataset.ends_at).getTime() - barMs))

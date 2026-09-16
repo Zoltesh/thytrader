@@ -38,7 +38,7 @@ from thytrader.execution.models import (
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
-from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
@@ -675,10 +675,18 @@ def _parse_origin(value: str) -> IntentOrigin:
 
 
 def _parse_timeframe(value: str) -> str:
-    """Allow only shipped execution clocks."""
-    interval = parse_candle_interval(value)
+    """Allow only ingested venue execution clocks."""
+    allowed = ", ".join(EXECUTION_TIMEFRAMES)
+    try:
+        interval = parse_candle_interval(value)
+    except ValueError as error:
+        raise ExecutionConflictError(
+            f"Discretionary orders require an ingested venue timeframe: {allowed}."
+        ) from error
     if not interval.execution_supported:
-        raise ExecutionConflictError("Discretionary orders require a 1h or 5m timeframe.")
+        raise ExecutionConflictError(
+            f"Discretionary orders require an ingested venue timeframe: {allowed}."
+        )
     return interval.value
 
 

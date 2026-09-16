@@ -5,7 +5,8 @@
 - Relates to: [0014](0014-watchlist-and-5m-research.md), [0016](0016-longer-complete-5m-datasets.md),
   [0019](0019-ops-contract-identity.md), [0020](0020-complete-only-15m-datasets.md),
   [0021](0021-complete-only-30m-datasets.md), [0022](0022-complete-only-6h-datasets.md),
-  [0023](0023-complete-only-1d-datasets.md), [0031](0031-coinbase-first-platform-end-state.md)
+  [0023](0023-complete-only-1d-datasets.md), [0031](0031-coinbase-first-platform-end-state.md),
+  [0040](0040-venue-strategy-paper-live-htf-clocks.md)
 
 ## Context
 
@@ -50,9 +51,10 @@ to interpolate.
 
 - Operators can watch, ingest, inspect, and catalog 1m, 2h, and 4h coverage the same way as 5m.
 - These fingerprints appear in the verified dataset catalog; they are not LTF, paper, live, or HTF
-  clocks.
+  clocks in this ADR.
 - Strategy/paper/live clocks for these granularities remain a later ADR, the same way 0020–0023
   added datasets without silently making those TFs legal execution clocks.
+  [ADR 0040](0040-venue-strategy-paper-live-htf-clocks.md) later shipped those clocks.
 
 ## Alternatives considered
 

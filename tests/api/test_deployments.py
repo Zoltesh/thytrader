@@ -296,6 +296,67 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
     assert live_with_keys.json()["mode"] == "live"
 
 
+def test_one_minute_strategy_can_start_paper_and_live() -> None:
+    """Paper and live may evaluate closed 1m bars; live still needs credentials."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "1m"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        paper = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+        live = client.post(
+            "/api/v1/deployments",
+            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+        )
+
+    with _client(publication, execution, live_credentials=True) as client:
+        live_with_keys = client.post(
+            "/api/v1/deployments",
+            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+        )
+
+    assert paper.status_code == 201
+    assert paper.json()["mode"] == "paper"
+    assert live.status_code == 409
+    assert live_with_keys.status_code == 201
+    assert live_with_keys.json()["mode"] == "live"
+
+
+def test_fifteen_minute_strategy_can_start_paper() -> None:
+    """15m is a legal paper clock, not HTF-only."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "15m"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        paper = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+
+    assert paper.status_code == 201
+    assert paper.json()["mode"] == "paper"
+
+
 def test_unknown_fingerprint_is_not_found() -> None:
     """Deploying an unpublished fingerprint fails closed."""
     with _client(InMemoryPublicationStore(), InMemoryExecutionStore()) as client:

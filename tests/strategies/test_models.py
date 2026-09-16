@@ -239,31 +239,16 @@ def test_reference_strategy_has_stable_canonical_fingerprint() -> None:
     )
 
 
-def test_strategy_accepts_five_minute_research_timeframe() -> None:
-    """Research strategies may bind 5m datasets; extra catalog TFs remain unsupported clocks."""
+def test_strategy_accepts_ingested_venue_research_timeframes() -> None:
+    """Research strategies may bind every complete-only venue clock."""
     payload = reference_payload()
     payload["timeframe"] = "5m"
     definition = StrategyDefinition.model_validate(payload)
     assert definition.timeframe == "5m"
-    payload["timeframe"] = "15m"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "30m"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "6h"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "1d"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "1m"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "2h"
-    with pytest.raises(ValidationError):
-        StrategyDefinition.model_validate(payload)
-    payload["timeframe"] = "4h"
+    for timeframe in ("1m", "15m", "30m", "2h", "4h", "6h", "1d"):
+        payload["timeframe"] = timeframe
+        assert StrategyDefinition.model_validate(payload).timeframe == timeframe
+    payload["timeframe"] = "3h"
     with pytest.raises(ValidationError):
         StrategyDefinition.model_validate(payload)
 
@@ -1533,9 +1518,15 @@ def test_htf_filter_is_fail_closed_and_fingerprinted() -> None:
     """HTF clocks must be coarser integer multiples with isolated indicator identity."""
     assert is_valid_htf_pair("5m", "1h")
     assert is_valid_htf_pair("1h", "6h")
+    assert is_valid_htf_pair("1m", "5m")
+    assert is_valid_htf_pair("1h", "2h")
+    assert is_valid_htf_pair("5m", "2h")
+    assert is_valid_htf_pair("4h", "1d")
+    assert not is_valid_htf_pair("4h", "6h")
     assert not is_valid_htf_pair("1h", "1h")
     assert not is_valid_htf_pair("1h", "15m")
     assert not is_valid_htf_pair("5m", "5m")
+    assert not is_valid_htf_pair("1m", "1m")
 
     valid = reference_payload()
     valid["htf_filter"] = _htf_filter_block()

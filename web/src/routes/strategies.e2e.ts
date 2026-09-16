@@ -1227,9 +1227,10 @@ test('deploy tab shows accurate timeframe copy and allows live 5m', async ({
 
 	const deployCopy = page.getByRole('heading', { name: 'Deploy', exact: true }).locator('..');
 	await expect(deployCopy).toContainText('Paper:');
-	await expect(deployCopy).toContainText('1h or 5m');
+	await expect(deployCopy).toContainText('any ingested');
+	await expect(deployCopy).toContainText('venue clock');
 	await expect(deployCopy).toContainText('Live:');
-	await expect(deployCopy).toContainText('1h or 5m');
+	await expect(deployCopy).toContainText('Sub-hour live');
 
 	await page.getByLabel('Mode').selectOption('paper');
 	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();

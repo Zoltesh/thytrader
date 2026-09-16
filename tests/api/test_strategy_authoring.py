@@ -187,6 +187,39 @@ def test_strategy_creation_accepts_product_and_five_minute_timeframe() -> None:
     assert payload["name"] == "ETH 5m EMA trend"
 
 
+def test_strategy_creation_accepts_one_minute_timeframe() -> None:
+    """Agents can create the reference draft on the 1m venue clock."""
+    draft_store = InMemoryStrategyDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryStrategyPublicationStore(draft_store),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies?product_id=BTC-USD&timeframe=1m")
+
+    assert response.status_code == 201, response.text
+    payload = response.json()["strategy"]
+    assert payload["timeframe"] == "1m"
+    assert payload["name"] == "BTC 1m EMA trend"
+
+
+def test_strategy_creation_rejects_unknown_timeframe() -> None:
+    """A non-venue timeframe is not a legal draft clock."""
+    draft_store = InMemoryStrategyDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryStrategyPublicationStore(draft_store),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies?timeframe=3h")
+
+    assert response.status_code == 422
+
+
 def test_strategy_publication_turns_the_matching_draft_into_immutable_evidence() -> None:
     """A publication delegates the matching draft to the immutable store."""
     draft_store = InMemoryStrategyDraftStore()

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	archiveConfirmMessage,
 	latestDatasets,
+	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
 	operandChoices,
 	PAPER_LIVE_STATUS_LEGEND,
@@ -49,9 +50,42 @@ describe('latestDatasets', () => {
 
 describe('validHtfTimeframes', () => {
 	it('allows coarser integer multiples only', () => {
-		expect(validHtfTimeframes('5m')).toEqual(['15m', '30m', '1h', '6h', '1d']);
-		expect(validHtfTimeframes('1h')).toEqual(['6h', '1d']);
-		expect(validHtfTimeframes('15m')).toEqual([]);
+		expect(validHtfTimeframes('1m')).toEqual([
+			'5m',
+			'15m',
+			'30m',
+			'1h',
+			'2h',
+			'4h',
+			'6h',
+			'1d'
+		]);
+		expect(validHtfTimeframes('5m')).toEqual(['15m', '30m', '1h', '2h', '4h', '6h', '1d']);
+		expect(validHtfTimeframes('1h')).toEqual(['2h', '4h', '6h', '1d']);
+		expect(validHtfTimeframes('15m')).toEqual(['30m', '1h', '2h', '4h', '6h', '1d']);
+		expect(validHtfTimeframes('4h')).toEqual(['1d']);
+		expect(validHtfTimeframes('3h')).toEqual([]);
+	});
+});
+
+describe('datasetEvaluationWindow', () => {
+	const dataset = {
+		product_id: 'BTC-USD',
+		timeframe: '1m',
+		starts_at: '2026-07-10T00:00:00Z',
+		ends_at: '2026-07-10T01:00:00Z',
+		content_fingerprint: 'sha256:1m'
+	};
+
+	it('spaces the usable window by the strategy bar duration', () => {
+		expect(datasetEvaluationWindow(dataset, 2, '1m')).toEqual({
+			min: '2026-07-10T00:02',
+			max: '2026-07-10T00:59'
+		});
+		expect(datasetEvaluationWindow(dataset, 1, '15m')).toEqual({
+			min: '2026-07-10T00:15',
+			max: '2026-07-10T00:45'
+		});
 	});
 });
 

@@ -69,9 +69,9 @@ def _require_utc(value: datetime, *, label: str) -> datetime:
 
 
 def _require_utc_candle_boundary(value: datetime, *, label: str) -> datetime:
-    """Require a timezone-aware UTC instant aligned to a 1h or 5m candle start."""
+    """Require a timezone-aware UTC instant aligned to a whole minute (1m finest clock)."""
     normalized = _require_utc(value, label=label)
-    if normalized.second or normalized.microsecond or normalized.minute % 5:
+    if normalized.second or normalized.microsecond:
         raise ValueError(f"{label} must be an aligned UTC candle boundary")
     return normalized
 
@@ -90,7 +90,7 @@ class EvaluationWindow(_FrozenModel):
     @field_validator("starts_at", "ends_at")
     @classmethod
     def require_hour_boundary(cls, value: datetime, info: object) -> datetime:
-        """Require every evaluation boundary to align to a 1h or 5m candle start."""
+        """Require every evaluation boundary to align to a UTC candle start."""
         field_name = getattr(info, "field_name", "evaluation timestamp")
         return _require_utc_candle_boundary(value, label=str(field_name))
 
@@ -101,8 +101,8 @@ class EvaluationWindow(_FrozenModel):
 
     @model_validator(mode="after")
     def require_nonempty_interval(self) -> Self:
-        """Require at least one completed 5m candle in the evaluation interval."""
-        if self.ends_at - self.starts_at < CandleInterval.FIVE_MINUTES.duration:
+        """Require at least one completed 1m candle in the evaluation interval."""
+        if self.ends_at - self.starts_at < CandleInterval.ONE_MINUTE.duration:
             raise ValueError("evaluation interval must contain at least one candle")
         return self
 
@@ -116,7 +116,7 @@ class WarmupWindow(_FrozenModel):
     @field_validator("starts_at")
     @classmethod
     def require_hour_boundary(cls, value: datetime) -> datetime:
-        """Require the warmup boundary to align to a 1h or 5m candle start."""
+        """Require the warmup boundary to align to a UTC candle start."""
         return _require_utc_candle_boundary(value, label="warmup starts_at")
 
     @field_serializer("starts_at", when_used="json")
@@ -255,7 +255,7 @@ class ResearchRunSpecification(_FrozenModel):
 
     @model_validator(mode="after")
     def require_derived_warmup_range(self) -> Self:
-        """Require warmup to end at evaluation start with 1h or 5m bar spacing."""
+        """Require warmup to end at evaluation start with ingested-venue bar spacing."""
         try:
             specification_bar_interval(self)
         except OverflowError as error:
@@ -326,13 +326,23 @@ def _require_v2_broker_exclusivity(specification: ResearchRunSpecification) -> N
 
 
 def specification_bar_interval(specification: ResearchRunSpecification) -> CandleInterval:
-    """Infer 1h or 5m from warmup spacing. Does not invent unsupported intervals."""
+    """Infer an ingested venue clock from warmup spacing. Does not invent unsupported intervals."""
     span = specification.evaluation.starts_at - specification.warmup.starts_at
     for interval in CandleInterval:
         if not interval.execution_supported:
             continue
-        if span == interval.duration * specification.warmup.bars:
-            return interval
+        if span != interval.duration * specification.warmup.bars:
+            continue
+        for stamp in (
+            specification.warmup.starts_at,
+            specification.evaluation.starts_at,
+            specification.evaluation.ends_at,
+        ):
+            if interval.align_closed_end(stamp) != stamp:
+                raise ValueError(
+                    "warmup and evaluation bounds must align to the inferred candle interval"
+                )
+        return interval
     raise ValueError(
         "warmup starts_at must equal evaluation starts_at minus the declared warmup bars"
     )
@@ -342,7 +352,7 @@ def warmup_starts_at(evaluation_starts_at: datetime, bars: int, timeframe: str) 
     """Derive the warmup window start from one strategy timeframe."""
     interval = parse_candle_interval(timeframe)
     if not interval.execution_supported:
-        raise ValueError("warmup windows require a 1h or 5m strategy timeframe.")
+        raise ValueError("warmup windows require an ingested venue strategy timeframe.")
     return evaluation_starts_at - interval.duration * bars
 
 

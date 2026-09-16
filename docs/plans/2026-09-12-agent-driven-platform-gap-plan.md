@@ -28,12 +28,13 @@ evidence are not that memory system.
   (sequences those CLIs; never live).
 - Market data: complete-only Parquet for **1h**, **5m**, **15m**, **30m**, **6h**, **1d**, **1m**,
   **2h**, and **4h**; `inspect-gaps` /
-  `fill-gaps`; no interpolation. Strategy / paper / live clocks stay `1h` or `5m`.
+  `fill-gaps`; no interpolation. Strategy / paper / live clocks are every ingested venue TF
+  ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)).
 - Indicators: EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
   identity OHLCV, constant, WMA, momentum, MFI, MACD, and Bollinger (Phase 9 catalog slices).
   Per-indicator timeframes are not shipped.
 - Strategy: one instrument, long-only, max concurrent positions = 1.
-- Execution: paper and live on 1h or 5m; single-position backtests.
+- Execution: paper and live on every ingested venue clock; single-position backtests.
 - Fee **tier visibility** and research **suggested defaults** shipped
   ([fee-tier plan](2026-09-13-fee-tier-research-defaults.md)). Paper deploy has no maker/taker
   fields; paper keeps the documented `0.001` / `0.002` schedule.
@@ -45,11 +46,11 @@ See `docs/roadmap.md` Phases 0–6 for the completed vertical slice.
 | Area | Gap |
 |---|---|
 | Agent E2E ease | Six skills: operator, data, research, runtime, playbook, plus `thytrader-memory`. Default remains `--confirm`. YOLO is shipped default-off (ADR 0034) for data/research/paper; live and memory stay hard-gated. |
-| Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Destination remaining venue TFs `1m`/`2h`/`4h` now have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)); they are still not strategy/paper/live clocks. |
+| Data coverage | Phase 7 shipped 15m/30m/6h/1d datasets plus watch-completeness. Remaining venue TFs `1m`/`2h`/`4h` have complete-only datasets ([ADR 0038](../decisions/0038-complete-only-1m-2h-4h-datasets.md)) and are strategy/paper/live/HTF clocks ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). |
 | On-demand trades | ✅ Long-only discretionary orders with required SL/TP via order intent + risk ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)). Shorting and attached entry brackets remain later. |
 | Fee UX | Research prefills suggested maker/taker; paper deploy still has no cost fields |
 | Indicators | Fail-closed catalog; Phase 9 slices added highest/lowest/stdev, roc/williams_r/cci, identity/constant, wma/momentum/mfi, and macd/bollinger series ids. No TA passthrough, no per-indicator TF |
-| Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Paper/live still reject `htf_filter`. Per-indicator timeframes and `15m`/`30m`/`6h`/`1d` as LTF clocks remain later |
+| Multi-timeframe | Research HTF filter + LTF entry shipped (ADR 0025). Venue LTF/HTF tokens widened by ADR 0040. Paper/live still reject `htf_filter`. Per-indicator timeframes remain later |
 | Portfolio | Phase 10 shipped: typed registry, capital allocation, concurrent single-instrument paper/live. Intra-strategy pyramiding, multi-instrument strategy documents, and destination circuit breakers remain later. |
 | Research rigor | Phase 11 shipped: OOS holdout, walk-forward validation, cross-market studies, richer templates, V1/V2/V3 matrix. Parameter sweeps / WFO remain out of scope. |
 | Live extras | ✅ Phase 13: 5m live, ATR trailing, user-order WS, native OCO. Daily-loss kill remains destination |

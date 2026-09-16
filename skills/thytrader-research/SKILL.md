@@ -69,7 +69,7 @@ need 2–8 published single-instrument strategies on distinct products. See
 
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (`1h` or `5m`) for another USD spot product. Paper and live may start that published 1h or 5m fingerprint.
+`--timeframe` (any ingested venue clock) for another USD spot product. Paper and live may start that published fingerprint.
 Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
 `create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
 include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy

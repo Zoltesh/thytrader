@@ -17,11 +17,10 @@ authority.
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`).
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
-Supported research, paper, and live **decision** timeframes: `1h` and `5m`. Dataset ingest also
-supports `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` under the same complete-only contract.
-`15m`/`30m`/`6h`/`1d` may be bound as research `htf_filter` datasets (ADR 0025). Do not treat
-`15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h` as a strategy, paper, or live clock. `1m`/`2h`/`4h`
-are also not HTF clocks.
+Supported research, paper, and live **decision** timeframes: every ingested venue clock (`1m`,
+`5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). Dataset ingest uses the same complete-only
+contract. Any coarser integer-multiple venue clock may be bound as a research `htf_filter`
+dataset (ADR 0025, ADR 0040). Paper and live still reject those strategies.
 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
@@ -96,9 +95,9 @@ Gap `cause` values:
 3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate.
 4. `fill-gaps --confirm` to retry complete-only publication, including prefix backfill.
 5. `uv run thytrader-operator indicators` before designing a study.
-6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper and live may be 1h or 5m
-   via `skills/thytrader-runtime/SKILL.md`. `15m`/`30m`/`6h`/`1d` coverage can back an HTF filter in
-   research; it is not a paper or live clock.
+6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper and live may use any ingested
+   venue clock via `skills/thytrader-runtime/SKILL.md`. Coarser integer-multiple coverage can back an
+   HTF filter in research; paper and live still reject those fingerprints.
 
 ## Forbidden
 

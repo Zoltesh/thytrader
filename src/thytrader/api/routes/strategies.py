@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +21,7 @@ from thytrader.api.dependencies import (
 from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
 from thytrader.execution.models import DeploymentMode, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - FastAPI Query annotation.
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
@@ -281,7 +282,7 @@ async def create_strategy_draft(
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
-    timeframe: Annotated[Literal["1h", "5m"], Query()] = "1h",
+    timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
     template: Annotated[str, Query()] = "ema-trend",
 ) -> StrategyCreatedResponse:
     """Create and durably save a research template draft without trading authority."""
