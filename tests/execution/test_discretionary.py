@@ -286,6 +286,10 @@ async def test_intent_persists_before_submit_with_unique_client_id() -> None:
         live_allowed=False,
     )
     assert snapshot.deployment.kind is DeploymentKind.DISCRETIONARY
+    assert snapshot.deployment.cash == Decimal("10000")
+    assert snapshot.deployment.initial_equity == Decimal("10000")
+    assert snapshot.deployment.utc_day_open_equity == Decimal("10000")
+    assert snapshot.deployment.utc_day_open_at == snapshot.deployment.created_at
     assert snapshot.intents
     intent = snapshot.intents[0]
     assert intent.origin is IntentOrigin.AGENT
