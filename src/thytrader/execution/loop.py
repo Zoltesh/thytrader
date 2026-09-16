@@ -49,6 +49,7 @@ from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
@@ -803,6 +804,8 @@ async def _manage_working_entry(
         waited_state = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=waited)
         await store.save_deployment(waited_state)
         return await store.get_deployment(deployment.id)
+    if strategy.execution.on_unfilled_entry == "reprice" and not can_reprice_risk_up(deployment):
+        return snapshot
     snapshot = await _cancel_one_order(open_entry, broker=broker, store=store)
     remaining = _active_entry(snapshot)
     if remaining is not None and remaining.status is not OrderStatus.CANCELED:
@@ -1255,17 +1258,18 @@ async def _maybe_enter(
     position = snapshot.position
     if outcome is not EntryConditionOutcome.MATCHED:
         return snapshot
+    evaluated_at = candle.starts_at + parse_candle_interval(strategy.timeframe).duration
     if not signal_still_valid(
         candle=candle,
         timeframe=strategy.timeframe,
-        now=now,
+        now=evaluated_at,
         current_quote=candle.close,
     ):
         return snapshot
     fresh = entry_prerequisites(
         product=product,
         candle=candle,
-        now=now,
+        now=evaluated_at,
         timeframe=strategy.timeframe,
         venue_balance_known=(
             live_sizing_cash(snapshot.deployment) is not None

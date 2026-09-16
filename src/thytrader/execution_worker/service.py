@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Protocol
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.discretionary import process_discretionary_bar
+from thytrader.execution.freshness import signal_still_valid
 from thytrader.execution.geometry import base_currency, entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
@@ -84,6 +85,16 @@ class LiveFeeProfileReader(Protocol):
     async def get_fee_profile(self) -> FeeProfile:
         """Return the latest Coinbase fee profile."""
         ...
+
+
+def _latest_due_bar_may_enter(candle: Candle, *, timeframe: str, is_latest: bool) -> bool:
+    """True when this recovered close is the newest due bar and still within max age."""
+    return is_latest and signal_still_valid(
+        candle=candle,
+        timeframe=timeframe,
+        now=utc_now(),
+        current_quote=candle.close,
+    )
 
 
 async def run_execution_worker(
@@ -560,7 +571,11 @@ async def _advance_multi_instrument(
             portfolio=portfolio,
             memory_store=memory_store,
             fee_profile=fee_profile,
-            allow_new_entries=index == len(due) - 1,
+            allow_new_entries=_latest_due_bar_may_enter(
+                candle,
+                timeframe=strategy.timeframe,
+                is_latest=index == len(due) - 1,
+            ),
         )
         if stopped:
             return
@@ -856,7 +871,11 @@ async def _evaluate_strategy_due_bars(
                 live_base_available=live_base_available,
                 marks=marks,
                 fee_profile=fee_profile,
-                allow_new_entries=index == last_index,
+                allow_new_entries=_latest_due_bar_may_enter(
+                    candle,
+                    timeframe=strategy.timeframe,
+                    is_latest=index == last_index,
+                ),
             )
 
 

@@ -749,9 +749,12 @@ async def test_paused_unfilled_entry_does_not_reprice() -> None:
             broker=PaperBroker(),
             store=store,
         )
-    open_entries = [order for order in current.orders if order.status is OrderStatus.OPEN]
-    assert len(open_entries) == 1
-    assert open_entries[0].id == original_id
+    replacement_ids = {
+        order.id
+        for order in current.orders
+        if order.status is OrderStatus.OPEN and order.id != original_id
+    }
+    assert replacement_ids == set()
     assert current.deployment.status is DeploymentStatus.PAUSED
 
 

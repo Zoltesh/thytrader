@@ -225,8 +225,9 @@ def test_historical_signals_expire_and_latest_bar_may_enter() -> None:
     )
     assert due is not None
     assert [item.starts_at for item in due] == [item.starts_at for item in candles[1:]]
-    old = signal_still_valid(candle=candles[1], timeframe="1h", now=_NOW)
-    latest = signal_still_valid(candle=candles[-1], timeframe="1h", now=_NOW)
+    now = datetime(2026, 1, 1, 3, 10, tzinfo=UTC)
+    old = signal_still_valid(candle=candles[1], timeframe="1h", now=now)
+    latest = signal_still_valid(candle=candles[-1], timeframe="1h", now=now)
     assert old is False
     assert latest is True
 
