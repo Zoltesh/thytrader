@@ -59,7 +59,10 @@ exist. Sub-hour live pauses unless the authenticated user-order feed is connecte
 new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, or
 `thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates stay `0.001` /
 `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
-keeps venue-recorded fees.
+keeps venue-recorded fees. Live never treats a create-order acknowledgement as a fill: cash,
+inventory, and commissions update only from Coinbase fill records, applied exactly once even after
+a crash or a retried reconcile
+([ADR 0057](../decisions/0057-atomic-fill-ledger-and-add-intent-identity.md)).
 
 Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
 `/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md).

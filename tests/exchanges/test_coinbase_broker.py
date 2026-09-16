@@ -205,6 +205,67 @@ async def test_create_order_reads_success_response_order_id() -> None:
     assert result.venue_order_id == "venue-1"
 
 
+class _FailingGetTransport:
+    """Return a queued create-order POST, then raise on every subsequent GET."""
+
+    def __init__(self, *, post_body: dict[str, Any], get_error: Exception) -> None:
+        """Bind the successful POST body and the exception the follow-up GET raises."""
+        self._post_body = post_body
+        self._get_error = get_error
+        self.get_calls = 0
+        self.post_calls = 0
+
+    def get(self, path: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
+        """Raise the configured error every time, modeling a persistently failing GET."""
+        del path, params
+        self.get_calls += 1
+        raise self._get_error
+
+    def post(self, path: str, data: Mapping[str, object] | None = None) -> dict[str, Any]:
+        """Return the configured successful create-order acknowledgement."""
+        del path, data
+        self.post_calls += 1
+        return self._post_body
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "get_error",
+    [
+        TimeoutError("Coinbase GET timed out"),
+        OSError("Connection reset by peer"),
+        ValueError("Malformed Coinbase GET response body"),
+    ],
+    ids=["timeout", "connection_error", "malformed_response"],
+)
+async def test_place_order_preserves_venue_id_when_followup_get_fails(get_error: Exception) -> None:
+    """F36: a failed follow-up GET after a successful POST keeps the known venue id.
+
+    The POST already accepted this order at the venue; a routine observation
+    failure (timeout, connection error, or a malformed response the transport
+    cannot parse) must not discard that acknowledgement or raise past the
+    caller. The result must be ``UNKNOWN`` (never ``OPEN`` or ``FILLED``, since
+    the GET never confirmed either), carrying the exact venue id from the POST.
+    """
+    transport = _FailingGetTransport(
+        post_body={"success": True, "order": {"order_id": "venue-42", "status": "PENDING"}},
+        get_error=get_error,
+    )
+    broker = CoinbaseRestBroker(transport)
+    result = await broker.place_order(
+        client_order_id="client-42",
+        product_id="BTC-USD",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+    )
+    assert result.status is OrderStatus.UNKNOWN
+    assert result.venue_order_id == "venue-42"
+    assert transport.post_calls == 1
+    assert transport.get_calls == 1
+
+
 @pytest.mark.anyio
 async def test_get_order_resolves_client_order_id_when_venue_id_is_missing() -> None:
     """Ambiguous submits are looked up from historical spot orders by client id."""

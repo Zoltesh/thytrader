@@ -75,7 +75,19 @@ class CoinbaseRestBroker:
                 venue_order_id=venue_id or client_order_id,
                 reject_reason=reason[:500],
             )
-        return await self.get_order(venue_order_id=venue_id, client_order_id=client_order_id)
+        try:
+            return await self.get_order(venue_order_id=venue_id, client_order_id=client_order_id)
+        except BrokerError:
+            # The POST already accepted this order at the venue (F36): a failed
+            # follow-up GET is a routine observation failure, not proof the order
+            # never existed. Keep the known venue id as UNKNOWN (not OPEN or
+            # FILLED) so the caller persists it and reconciliation resolves the
+            # real state later without minting a second create request.
+            return SubmitResult(
+                status=OrderStatus.UNKNOWN,
+                venue_order_id=venue_id,
+                reject_reason="order_observation_failed",
+            )
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """POST batch cancel, then GET the resulting order."""

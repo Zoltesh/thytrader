@@ -199,6 +199,112 @@ class _LiveFillBroker:
         return mark
 
 
+@dataclass
+class _TimeoutThenObservedBroker:
+    """Model an ambiguous POST acknowledgement, then a scripted reconcile observation.
+
+    ``place_order`` returns ``UNKNOWN`` with a known venue id (the post-F36 shape:
+    the POST was accepted, only the follow-up observation is ambiguous). Reconcile
+    then calls ``get_order`` and ``list_fills`` exactly once each per submission,
+    returning the scripted status, filled quantity, and remote fills.
+    """
+
+    get_status: OrderStatus
+    filled_quantity: Decimal
+    fills: tuple[Fill, ...] = ()
+    place_calls: int = 0
+    get_calls: int = 0
+    list_fills_calls: int = 0
+
+    async def place_order(
+        self,
+        *,
+        client_order_id: str,
+        product_id: str,
+        side: OrderSide,
+        kind: OrderKind,
+        quantity: Decimal,
+        price: Decimal | None,
+        stop_trigger_price: Decimal | None = None,
+        take_profit_price: Decimal | None = None,
+    ) -> SubmitResult:
+        """Accept the order at the venue but report the follow-up observation as ambiguous."""
+        del product_id, side, kind, quantity, price, stop_trigger_price, take_profit_price
+        self.place_calls += 1
+        return SubmitResult(
+            status=OrderStatus.UNKNOWN,
+            venue_order_id=f"venue-{client_order_id}",
+            reject_reason="order_observation_failed",
+        )
+
+    async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
+        """Unused: these tests never cancel."""
+        del venue_order_id, client_order_id
+        raise AssertionError("cancel_order should not run")
+
+    async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
+        """Return the scripted reconcile observation for the known venue id."""
+        del client_order_id
+        self.get_calls += 1
+        return SubmitResult(
+            status=self.get_status,
+            venue_order_id=venue_order_id,
+            filled_quantity=self.filled_quantity,
+        )
+
+    async def list_fills(self, *, product_id: str, order_id: str | None = None) -> tuple[Fill, ...]:
+        """Return the scripted remote fills."""
+        del product_id, order_id
+        self.list_fills_calls += 1
+        return self.fills
+
+    def match_open_order(self, order: Order, candle: Candle) -> Fill | None:
+        """Live does not match candles."""
+        del order, candle
+        return None
+
+    def maker_limit_price(
+        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
+    ) -> Decimal:
+        """Unused."""
+        del product_id, side
+        return mark
+
+
+def _live_entry_request(idempotency_key: str) -> DiscretionaryOrderRequest:
+    """Build one valid live long request sized to exactly 0.01 BTC."""
+    return parse_discretionary_request(
+        mode="live",
+        product_id="BTC-USD",
+        entry_kind="marketable",
+        stop_price="50000",
+        take_profit_price="200000",
+        origin="agent",
+        idempotency_key=idempotency_key,
+        timeframe="5m",
+        quantity="0.01",
+    )
+
+
+def _remote_fill(venue_fill_id: str, *, quantity: Decimal, price: Decimal, fee: Decimal) -> Fill:
+    """Build one remote fill row as ``broker.list_fills`` would report it.
+
+    ``order_id``/``deployment_id`` are placeholders: reconcile rebuilds the local
+    fill against the exact local order, using only price/quantity/fee/filled_at
+    from this remote row.
+    """
+    return Fill(
+        id=uuid4(),
+        deployment_id=uuid4(),
+        order_id=uuid4(),
+        venue_fill_id=venue_fill_id,
+        price=price,
+        quantity=quantity,
+        fee=fee,
+        filled_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
 def test_parse_rejects_illegal_combinations() -> None:
     """Quantity xor notional, maker limit, and human/agent origin are required."""
     with pytest.raises(ExecutionConflictError, match="exactly one"):
@@ -595,3 +701,192 @@ async def test_reused_paper_book_rejects_different_fee_rates() -> None:
             ),
             live_allowed=False,
         )
+
+
+@pytest.mark.anyio
+async def test_timeout_then_found_open_does_not_apply_a_fill_or_repost() -> None:
+    """F03: timeout -> found OPEN pauses without inventing a fill or re-submitting."""
+    store = InMemoryExecutionStore()
+    broker = _TimeoutThenObservedBroker(get_status=OrderStatus.OPEN, filled_quantity=Decimal("0"))
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=MarketDataService(DemoMarketData()),
+        request=_live_entry_request("f03-open"),
+        live_allowed=True,
+        live_quote_cash=Decimal("10000"),
+    )
+    assert broker.place_calls == 1
+    assert broker.get_calls == 1
+    # Reconcile always looks for fills once an order is watched, but an OPEN order
+    # with none reported must apply nothing and must not repost.
+    assert broker.list_fills_calls == 1
+    assert snapshot.position is None
+    assert snapshot.deployment.cash == Decimal("10000")
+    assert not snapshot.fills
+
+
+@pytest.mark.anyio
+async def test_timeout_then_partial_fill_applies_exactly_once() -> None:
+    """F03: timeout -> partially filled applies only the reconciled partial quantity."""
+    store = InMemoryExecutionStore()
+    partial_fill = _remote_fill(
+        "partial-1", quantity=Decimal("0.004"), price=Decimal("100000"), fee=Decimal("0.4")
+    )
+    broker = _TimeoutThenObservedBroker(
+        get_status=OrderStatus.OPEN,
+        filled_quantity=Decimal("0.004"),
+        fills=(partial_fill,),
+    )
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=MarketDataService(DemoMarketData()),
+        request=_live_entry_request("f03-partial"),
+        live_allowed=True,
+        live_quote_cash=Decimal("10000"),
+    )
+    assert broker.get_calls == 1
+    assert broker.list_fills_calls == 1
+    assert snapshot.position is not None
+    assert snapshot.position.quantity == Decimal("0.004")
+    expected_cash = Decimal("10000") - (Decimal("100000") * Decimal("0.004")) - Decimal("0.4")
+    assert snapshot.deployment.cash == expected_cash
+    assert len(snapshot.fills) == 1
+
+
+@pytest.mark.anyio
+async def test_timeout_then_filled_applies_the_fill_exactly_once() -> None:
+    """F03: timeout -> FILLED must not double-apply, reproducing the audit's exact numbers.
+
+    The pre-fix code reconciled the remote fill (applying it once), then
+    unconditionally searched the book for "any FILLED order" and re-applied
+    whatever fill it found: one 0.01-unit fill at 100,000 with a 1-unit fee
+    produced a 0.02-unit position and cash 7,998 instead of 8,999. The fix scopes
+    post-submit processing to the exact order and applies through the idempotent
+    ledger, so a second look at the same order is a verified no-op.
+    """
+    store = InMemoryExecutionStore()
+    fill = _remote_fill(
+        "fill-1", quantity=Decimal("0.01"), price=Decimal("100000"), fee=Decimal("1")
+    )
+    broker = _TimeoutThenObservedBroker(
+        get_status=OrderStatus.FILLED,
+        filled_quantity=Decimal("0.01"),
+        fills=(fill,),
+    )
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=MarketDataService(DemoMarketData()),
+        request=_live_entry_request("f03-filled"),
+        live_allowed=True,
+        live_quote_cash=Decimal("10000"),
+    )
+    assert broker.place_calls == 1
+    assert broker.get_calls == 1
+    assert broker.list_fills_calls == 1
+    assert snapshot.position is not None
+    assert snapshot.position.quantity == Decimal("0.01")
+    assert snapshot.deployment.cash == Decimal("8999")
+    assert len(snapshot.fills) == 1
+
+
+@pytest.mark.anyio
+async def test_timeout_then_filled_repeated_retry_does_not_reobserve_or_reapply() -> None:
+    """F03: a repeated call after the submission already resolved does not re-reconcile.
+
+    The idempotency key alone (not a second reconcile pass) must short-circuit a
+    retried API call once the intent's outcome is durable.
+    """
+    store = InMemoryExecutionStore()
+    fill = _remote_fill(
+        "fill-retry-1", quantity=Decimal("0.01"), price=Decimal("100000"), fee=Decimal("1")
+    )
+    broker = _TimeoutThenObservedBroker(
+        get_status=OrderStatus.FILLED,
+        filled_quantity=Decimal("0.01"),
+        fills=(fill,),
+    )
+    market_data = MarketDataService(DemoMarketData())
+    request = _live_entry_request("f03-retry")
+    first = await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=market_data,
+        request=request,
+        live_allowed=True,
+        live_quote_cash=Decimal("10000"),
+    )
+    assert broker.place_calls == 1
+    assert broker.get_calls == 1
+    second = await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=market_data,
+        request=request,
+        live_allowed=True,
+        live_quote_cash=Decimal("10000"),
+    )
+    assert broker.place_calls == 1
+    assert broker.get_calls == 1
+    assert broker.list_fills_calls == 1
+    assert second.deployment.id == first.deployment.id
+    assert second.deployment.cash == first.deployment.cash
+    assert second.position is not None
+    assert second.position.quantity == first.position.quantity if first.position else True
+
+
+@pytest.mark.anyio
+async def test_new_entry_after_an_older_filled_order_applies_only_its_own_fill() -> None:
+    """F03: post-submit fill application scopes to the exact new order, not any FILLED one.
+
+    The pre-fix code searched ``current.orders`` for "any FILLED order" instead of
+    the order this submission produced. A stale, already-fully-applied FILLED
+    order from an earlier entry+exit cycle in the same discretionary book must
+    never be picked instead of (or in addition to) the new order's own fill.
+    """
+    store = InMemoryExecutionStore()
+    market_data = MarketDataService(DemoMarketData())
+    opened = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=market_data,
+        request=_request(idempotency_key="older-1"),
+        live_allowed=False,
+    )
+    assert opened.position is not None
+    start = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    crash = Candle(
+        starts_at=start,
+        open=opened.position.entry_price,
+        high=opened.position.entry_price,
+        low=opened.position.stop_price - Decimal("1"),
+        close=opened.position.stop_price - Decimal("1"),
+        volume=Decimal("10"),
+    )
+    closed = await process_discretionary_bar(
+        opened,
+        product=_product(),
+        candles=(crash,),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert closed.position is None
+    old_fill_ids = {item.id for item in closed.fills}
+    assert len(old_fill_ids) >= 2
+
+    reopened = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=market_data,
+        request=_request(idempotency_key="older-2"),
+        live_allowed=False,
+    )
+    assert reopened.position is not None
+    assert reopened.position.quantity == Decimal("0.01")
+    new_fills = [item for item in reopened.fills if item.id not in old_fill_ids]
+    assert len(new_fills) == 1
+    assert reopened.position.entry_price == new_fills[0].price
+    # Every previously-applied fill is still present and untouched: no re-application.
+    assert old_fill_ids.issubset({item.id for item in reopened.fills})

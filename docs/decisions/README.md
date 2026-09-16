@@ -62,6 +62,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0054](0054-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted |
 | [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
 | [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted |
+| [0057](0057-atomic-fill-ledger-and-add-intent-identity.md) | Atomic idempotent fill application and add-intent pyramiding identity | Accepted |
 
 ## Status values
 

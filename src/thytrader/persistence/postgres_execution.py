@@ -6,10 +6,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     Deployment,
     DeploymentKind,
@@ -18,6 +19,8 @@ from thytrader.execution.models import (
     DeploymentStatus,
     ExecutionStoreError,
     Fill,
+    FillApplication,
+    FillApplicationResult,
     InstrumentRuntime,
     IntentOrigin,
     IntentPurpose,
@@ -29,6 +32,7 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
+    resolved_product_id,
 )
 from thytrader.persistence.schema import (
     deployments,
@@ -40,6 +44,7 @@ from thytrader.persistence.schema import (
 )
 
 if TYPE_CHECKING:
+    from sqlalchemy.dialects.postgresql import Insert as PostgresInsert
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -163,17 +168,7 @@ class PostgresExecutionStore:
         statement = insert(execution_orders).values(values)
         statement = statement.on_conflict_do_update(
             index_elements=[execution_orders.c.client_order_id],
-            set_={
-                "venue_order_id": statement.excluded.venue_order_id,
-                "status": statement.excluded.status,
-                "filled_quantity": statement.excluded.filled_quantity,
-                "reject_reason": statement.excluded.reject_reason,
-                "updated_at": statement.excluded.updated_at,
-                "price": statement.excluded.price,
-                "stop_trigger_price": statement.excluded.stop_trigger_price,
-                "take_profit_price": statement.excluded.take_profit_price,
-                "quantity": statement.excluded.quantity,
-            },
+            set_=_order_conflict_set(statement),
         )
         try:
             async with self._engine.begin() as connection:
@@ -183,19 +178,15 @@ class PostgresExecutionStore:
         return order
 
     async def save_fill(self, fill: Fill) -> Fill:
-        """Insert one fill, ignoring exact venue-fill duplicates."""
+        """Insert one fill, ignoring exact venue-fill duplicates.
+
+        This path leaves ``applied_at`` unset. Callers that must apply the fill's
+        cash/position/order effect use :meth:`apply_fill_effect` instead, which
+        completes an unapplied row recorded here atomically with that effect.
+        """
         statement = (
             insert(execution_fills)
-            .values(
-                id=fill.id,
-                deployment_id=fill.deployment_id,
-                order_id=fill.order_id,
-                venue_fill_id=fill.venue_fill_id,
-                price=format(fill.price, "f"),
-                quantity=format(fill.quantity, "f"),
-                fee=format(fill.fee, "f"),
-                filled_at=fill.filled_at,
-            )
+            .values(**_fill_values(fill), applied_at=None)
             .on_conflict_do_nothing(constraint="ux_execution_fills_venue")
         )
         try:
@@ -204,6 +195,67 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return fill
+
+    async def apply_fill_effect(self, application: FillApplication) -> FillApplicationResult:
+        """Insert, apply, and mark one fill applied in a single database transaction.
+
+        Dedupes on ``(deployment_id, venue_fill_id)`` and locks the conflicting row
+        via ``INSERT ... ON CONFLICT ... RETURNING`` so a concurrent duplicate call
+        blocks until this transaction commits or rolls back. When the row already
+        carries a non-null ``applied_at`` (a prior call already ran this fill's
+        economic effect to completion), this call rolls back and returns
+        ``applied=False`` without touching the order, position, or deployment rows.
+        """
+        fill = application.fill
+        insert_fill = (
+            insert(execution_fills)
+            .values(**_fill_values(fill), applied_at=None)
+            .on_conflict_do_update(
+                constraint="ux_execution_fills_venue",
+                set_={"id": execution_fills.c.id},
+            )
+            .returning(execution_fills.c.applied_at)
+        )
+        key_product = resolved_product_id(application.order.product_id, application.deployment)
+        try:
+            async with self._engine.begin() as connection:
+                existing_applied_at = (await connection.execute(insert_fill)).scalar_one()
+                if existing_applied_at is not None:
+                    return FillApplicationResult(applied=False)
+                order_statement = insert(execution_orders).values(_order_values(application.order))
+                order_statement = order_statement.on_conflict_do_update(
+                    index_elements=[execution_orders.c.client_order_id],
+                    set_=_order_conflict_set(order_statement),
+                )
+                await connection.execute(order_statement)
+                await connection.execute(
+                    delete(execution_positions).where(
+                        execution_positions.c.deployment_id == application.deployment.id,
+                        execution_positions.c.product_id == key_product,
+                    )
+                )
+                if not application.clear_position and application.position is not None:
+                    await connection.execute(
+                        insert(execution_positions).values(
+                            _position_values(application.position, fallback_product_id=key_product)
+                        )
+                    )
+                await connection.execute(
+                    deployments.update()
+                    .where(deployments.c.id == application.deployment.id)
+                    .values(_deployment_values(application.deployment))
+                )
+                await connection.execute(
+                    update(execution_fills)
+                    .where(
+                        execution_fills.c.deployment_id == fill.deployment_id,
+                        execution_fills.c.venue_fill_id == fill.venue_fill_id,
+                    )
+                    .values(applied_at=utc_now())
+                )
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        return FillApplicationResult(applied=True)
 
     async def save_position(
         self,
@@ -230,20 +282,9 @@ class PostgresExecutionStore:
                     )
                 )
                 if position is not None:
-                    stamped_product = position.product_id or key_product
                     await connection.execute(
                         insert(execution_positions).values(
-                            deployment_id=position.deployment_id,
-                            product_id=stamped_product,
-                            quantity=format(position.quantity, "f"),
-                            entry_price=format(position.entry_price, "f"),
-                            stop_price=format(position.stop_price, "f"),
-                            target_price=format(position.target_price, "f"),
-                            entered_bar=position.entered_bar,
-                            trail_extreme=_text(position.trail_extreme),
-                            side=position.side.value,
-                            add_count=position.add_count,
-                            updated_at=position.updated_at,
+                            _position_values(position, fallback_product_id=key_product)
                         )
                     )
         except SQLAlchemyError as error:
@@ -342,6 +383,53 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "pending_target_price": _text(deployment.pending_target_price),
         "created_at": deployment.created_at,
         "updated_at": deployment.updated_at,
+    }
+
+
+def _order_conflict_set(statement: PostgresInsert) -> dict[str, object]:
+    """Return the upsert column set shared by ``save_order`` and ``apply_fill_effect``."""
+    return {
+        "venue_order_id": statement.excluded.venue_order_id,
+        "status": statement.excluded.status,
+        "filled_quantity": statement.excluded.filled_quantity,
+        "reject_reason": statement.excluded.reject_reason,
+        "updated_at": statement.excluded.updated_at,
+        "price": statement.excluded.price,
+        "stop_trigger_price": statement.excluded.stop_trigger_price,
+        "take_profit_price": statement.excluded.take_profit_price,
+        "quantity": statement.excluded.quantity,
+    }
+
+
+def _fill_values(fill: Fill) -> dict[str, object]:
+    """Map one fill into insertable column values, excluding ``applied_at``."""
+    return {
+        "id": fill.id,
+        "deployment_id": fill.deployment_id,
+        "order_id": fill.order_id,
+        "venue_fill_id": fill.venue_fill_id,
+        "price": format(fill.price, "f"),
+        "quantity": format(fill.quantity, "f"),
+        "fee": format(fill.fee, "f"),
+        "filled_at": fill.filled_at,
+    }
+
+
+def _position_values(position: Position, *, fallback_product_id: str) -> dict[str, object]:
+    """Map one position into insertable column values."""
+    return {
+        "deployment_id": position.deployment_id,
+        "product_id": position.product_id or fallback_product_id,
+        "quantity": format(position.quantity, "f"),
+        "entry_price": format(position.entry_price, "f"),
+        "stop_price": format(position.stop_price, "f"),
+        "target_price": format(position.target_price, "f"),
+        "entered_bar": position.entered_bar,
+        "trail_extreme": _text(position.trail_extreme),
+        "side": position.side.value,
+        "add_count": position.add_count,
+        "last_fill_intent_id": position.last_fill_intent_id,
+        "updated_at": position.updated_at,
     }
 
 
@@ -453,6 +541,7 @@ def _fill_from_row(row: RowMapping) -> Fill:
         quantity=Decimal(row["quantity"]),
         fee=Decimal(row["fee"]),
         filled_at=row["filled_at"],
+        applied_at=row["applied_at"],
     )
 
 
@@ -469,6 +558,9 @@ def _position_from_row(row: RowMapping) -> Position:
         side=PositionSide(row["side"]) if row["side"] is not None else PositionSide.LONG,
         product_id=row["product_id"] if row["product_id"] is not None else "",
         add_count=int(row["add_count"]) if row["add_count"] is not None else 1,
+        last_fill_intent_id=(
+            None if row["last_fill_intent_id"] is None else UUID(str(row["last_fill_intent_id"]))
+        ),
         updated_at=row["updated_at"],
     )
 

@@ -9,6 +9,8 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
     Fill,
+    FillApplication,
+    FillApplicationResult,
     InstrumentRuntime,
     Order,
     OrderIntent,
@@ -165,6 +167,46 @@ class InstrumentScopedStore:
     async def save_fill(self, fill: Fill) -> Fill:
         """Insert one fill, ignoring exact venue-fill duplicates."""
         return await self._inner.save_fill(fill)
+
+    async def apply_fill_effect(self, application: FillApplication) -> FillApplicationResult:
+        """Merge this product's runtime onto the shared row, then apply atomically.
+
+        Money, inventory, and order progress stay atomic through the inner store's
+        transaction. The per-product overlay row is a second, best-effort write
+        afterward: it only carries bookkeeping fields (phase, wait counters) that
+        the next closed-bar cycle recomputes from durable position/order state
+        regardless, so a crash between the two writes self-heals on the next cycle.
+        """
+        current = await self._inner.get_deployment(application.deployment.id)
+        runtime = runtime_from_deployment(application.deployment, self._product_id)
+        runtimes = [
+            runtime if item.product_id == self._product_id else item
+            for item in current.instrument_runtimes
+        ]
+        if not any(item.product_id == self._product_id for item in current.instrument_runtimes):
+            runtimes.append(runtime)
+        merged_deployment = replace(
+            current.deployment,
+            cash=application.deployment.cash,
+            status=application.deployment.status,
+            mismatch_detail=application.deployment.mismatch_detail,
+            last_signal=application.deployment.last_signal,
+            phase=aggregate_phase(tuple(runtimes)),
+            updated_at=application.deployment.updated_at,
+        )
+        position = application.position
+        if position is not None and not position.product_id:
+            position = replace(position, product_id=self._product_id)
+        order = application.order
+        if not order.product_id:
+            order = replace(order, product_id=self._product_id)
+        merged = replace(application, deployment=merged_deployment, position=position, order=order)
+        result = await self._inner.apply_fill_effect(merged)
+        if result.applied:
+            await self._inner.save_instrument_runtime(
+                runtime, deployment_id=application.deployment.id
+            )
+        return result
 
     async def save_position(
         self,

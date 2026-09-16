@@ -462,6 +462,18 @@ def test_multi_instrument_pyramiding_migration_follows_trade_reason_journals() -
     assert "add_count" in content
 
 
+def test_fill_applied_ledger_migration_follows_multi_instrument_pyramiding() -> None:
+    """The thirty-fourth migration must add applied_at and last_fill_intent_id after 0033."""
+    content = Path(
+        "alembic/versions/0034_fill_applied_ledger_and_add_intent_identity.py"
+    ).read_text(encoding="utf-8")
+    assert 'revision = "0034"' in content
+    assert 'down_revision = "0033"' in content
+    assert "applied_at" in content
+    assert "last_fill_intent_id" in content
+    assert "fk_execution_positions_last_fill_intent_id" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

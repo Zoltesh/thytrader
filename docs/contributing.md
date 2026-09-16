@@ -43,9 +43,11 @@ teach `ops/` instruction files to edit documentation or source.
   write-only Coinbase credentials),
   [ADR 0054](decisions/0054-trade-reason-journals.md) (why-trade journals),
   [ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md) (YAML settings and runtime-reloadable YOLO),
-  and
   [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) (multi-instrument Coinbase
-  USD spot documents and intra-strategy pyramiding)
+  USD spot documents and intra-strategy pyramiding),
+  and
+  [ADR 0057](decisions/0057-atomic-fill-ledger-and-add-intent-identity.md) (atomic fill-application
+  ledger and add-intent pyramiding identity)
 - [Delivery roadmap](roadmap.md)
 - [Ops field report: 5m data → research → paper (2026-09-11)](plans/2026-09-11-ops-5m-research-paper-field-report.md) —
   **historical** running-instance evidence; stale Compose, 14-day clip, v3 422, and 5m paper 409 are

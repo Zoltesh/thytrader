@@ -460,6 +460,19 @@ out.
 parent `last_evaluated_bar`; pyramid adds skip `MAX_OPEN_POSITIONS` and fail closed without the
 policy flag.
 
+## Atomic fill-application ledger — ✅ Shipped
+
+Fill evidence and economic state commit together. Live acknowledgements are order progress only;
+canonical fills and fees come from Coinbase's fill ledger. `Position.add_count` counts distinct
+filled add *intents*, not execution fragments. A successful POST keeps its venue id even when the
+follow-up GET fails
+([ADR 0057](decisions/0057-atomic-fill-ledger-and-add-intent-identity.md)). Ops contract is
+`thytrader-ops-contract-v22` / Alembic `0034`. Extra exchanges stay out.
+
+**Exit gate met:** crash/restart plus a replayed fill leaves cash, quantity, and fees unchanged
+against PostgreSQL; twenty fragments of one order consume one pyramiding slot; a failed follow-up
+GET retains the POST venue id.
+
 ## Destination capabilities (accepted; not current Builder order)
 
 These are product destination, not the next Thy Builder slice. Do not implement them by silently

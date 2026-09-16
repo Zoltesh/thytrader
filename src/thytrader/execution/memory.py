@@ -5,17 +5,21 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
+    FillApplication,
+    FillApplicationResult,
     InstrumentRuntime,
     Order,
     OrderIntent,
     OrderStatus,
     Position,
+    resolved_product_id,
 )
 
 if TYPE_CHECKING:
@@ -39,6 +43,10 @@ class InMemoryExecutionStore:
         self.positions: dict[tuple[UUID, str], Position] = {}
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
+        # Separate from ``_fill_keys`` (F01): a fill recorded via ``save_fill`` (the
+        # paper immediate-fill path) is evidence only, not yet an applied economic
+        # effect. Mirrors Postgres's ``execution_fills.applied_at IS NULL``.
+        self._applied_fill_keys: set[tuple[UUID, str]] = set()
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
@@ -131,6 +139,41 @@ class InMemoryExecutionStore:
         self._fill_keys.add(key)
         self.fills[fill.id] = fill
         return fill
+
+    async def apply_fill_effect(self, application: FillApplication) -> FillApplicationResult:
+        """Insert, apply, and mark one fill applied; idempotent on a repeated venue fill id.
+
+        In-process memory has no partial-commit window, so recording and applying
+        happen together here exactly as the durable stores must. A fill already
+        recorded as evidence only (via ``save_fill``, e.g. the paper immediate-fill
+        path) is not yet applied: this call still applies it the first time.
+        """
+        fill = application.fill
+        key = (fill.deployment_id, fill.venue_fill_id)
+        if key in self._applied_fill_keys:
+            return FillApplicationResult(applied=False)
+        self._applied_fill_keys.add(key)
+        self._fill_keys.add(key)
+        stamped = replace(fill, applied_at=utc_now())
+        stale_ids = [
+            existing_id
+            for existing_id, existing in self.fills.items()
+            if existing.deployment_id == fill.deployment_id
+            and existing.venue_fill_id == fill.venue_fill_id
+            and existing_id != stamped.id
+        ]
+        for stale_id in stale_ids:
+            self.fills.pop(stale_id, None)
+        self.fills[stamped.id] = stamped
+        await self.save_order(application.order)
+        key_product = resolved_product_id(application.order.product_id, application.deployment)
+        await self.save_position(
+            None if application.clear_position else application.position,
+            deployment_id=application.deployment.id,
+            product_id=key_product,
+        )
+        self.deployments[application.deployment.id] = application.deployment
+        return FillApplicationResult(applied=True)
 
     async def save_position(
         self,

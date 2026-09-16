@@ -9,6 +9,8 @@ from thytrader.execution.models import (
     DeploymentSnapshot,
     ExecutionStoreError,
     Fill,
+    FillApplication,
+    FillApplicationResult,
     InstrumentRuntime,
     Order,
     OrderIntent,
@@ -53,6 +55,16 @@ class ExecutionStore(Protocol):
 
     async def save_fill(self, fill: Fill) -> Fill:
         """Insert one fill, ignoring exact venue-fill duplicates."""
+        ...
+
+    async def apply_fill_effect(self, application: FillApplication) -> FillApplicationResult:
+        """Insert one fill, apply its cash/position/order effect, and mark it applied.
+
+        Implementations must perform the insert, apply, and applied-marker update as
+        one atomic unit so a crash between steps cannot leave the fill recorded
+        without its economic effect (or vice versa). A fill already marked applied
+        (idempotent replay) must return ``applied=False`` without any side effect.
+        """
         ...
 
     async def save_position(
@@ -120,6 +132,11 @@ class DisabledExecutionStore:
     async def save_fill(self, fill: Fill) -> Fill:
         """Refuse fill writes without durable storage."""
         del fill
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def apply_fill_effect(self, application: FillApplication) -> FillApplicationResult:
+        """Refuse atomic fill application without durable storage."""
+        del application
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def save_position(

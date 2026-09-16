@@ -83,7 +83,11 @@ drawdown trips pause risk-increasing orders (exits continue). Rate and collar de
 pause. Pass `--allow-intra-strategy-pyramiding` when paper/live same-side adds should be
 legal; the published strategy must also enable `entry.pyramiding`. Omitted (false) keeps
 compiled-default policy bytes stable. Schema-enabled pyramiding without this flag is denied
-(`PYRAMIDING_NOT_ALLOWED`). Backtests follow the strategy document only. `set-risk-policy`
+(`PYRAMIDING_NOT_ALLOWED`). A pyramiding slot is one filled add order **intent**, never one
+execution fragment: an order that fills across many partial fills still consumes exactly one
+slot (health `ops_contract.pyramid_add_count_semantics`, always `intent`;
+[ADR 0057](../../docs/decisions/0057-atomic-fill-ledger-and-add-intent-identity.md)).
+Backtests follow the strategy document only. `set-risk-policy`
 requires `--confirm` and does **not** require `--i-understand-live`.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 Optional `--note` is frozen onto the why-trade record at persist. Later review notes use

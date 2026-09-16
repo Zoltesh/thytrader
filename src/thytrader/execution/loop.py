@@ -8,6 +8,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.broker import BrokerError
+from thytrader.execution.fill_ledger import (
+    apply_fill,
+    apply_or_import_fill,
+    apply_unapplied_fills,
+)
 from thytrader.execution.geometry import (
     entry_order_side,
     exit_order_side,
@@ -90,11 +95,19 @@ async def process_closed_bar(
         return snapshot
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
     candle = candles[-1]
+    snapshot = await apply_unapplied_fills(
+        snapshot, store=store, cooldown_bars=strategy.entry.cooldown_bars
+    )
     deployment = snapshot.deployment
     if deployment.last_evaluated_bar == candle.starts_at:
         if deployment.phase in _IN_MARKET:
             return await _ensure_exit_protection(
-                snapshot, candle=candle, product=product, broker=broker, store=store
+                snapshot,
+                candle=candle,
+                product=product,
+                broker=broker,
+                store=store,
+                cooldown_bars=strategy.entry.cooldown_bars,
             )
         return snapshot
     if deployment.cooldown_bars_remaining > 0:
@@ -173,182 +186,28 @@ async def _match_resting_orders(
     store: ExecutionStore,
     cooldown_bars: int,
 ) -> DeploymentSnapshot:
-    """Apply paper or local fills for resting limits against the closed candle."""
+    """Apply paper or local fills for resting limits against the closed candle.
+
+    ``apply_fill`` persists the fill, order progress, position, and cash in one
+    atomic, idempotent transaction (see ``fill_ledger``); this loop no longer saves
+    the fill or order separately beforehand.
+    """
     for order in snapshot.orders:
         if order.status is not OrderStatus.OPEN:
             continue
         fill = broker.match_open_order(order, candle)
         if fill is None:
             continue
-        await store.save_fill(fill)
         filled = replace(
             order,
             status=OrderStatus.FILLED,
             filled_quantity=order.quantity,
             updated_at=utc_now(),
         )
-        await store.save_order(filled)
         snapshot = await apply_fill(
             snapshot, fill=fill, order=filled, store=store, cooldown_bars=cooldown_bars
         )
     return await store.get_deployment(snapshot.deployment.id)
-
-
-async def apply_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    cooldown_bars: int = 0,
-) -> DeploymentSnapshot:
-    """Update cash and position from one fill and persist the result."""
-    position = snapshot.position
-    if position is None:
-        return await _apply_entry_fill(snapshot, fill=fill, order=order, store=store)
-    scaling_in = (position.side is PositionSide.LONG and order.side is OrderSide.BUY) or (
-        position.side is PositionSide.SHORT and order.side is OrderSide.SELL
-    )
-    if scaling_in:
-        return await _apply_scale_in_fill(
-            snapshot, fill=fill, order=order, store=store, position=position
-        )
-    return await _apply_exit_fill(
-        snapshot, fill=fill, order=order, store=store, cooldown_bars=cooldown_bars
-    )
-
-
-async def _apply_entry_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-) -> DeploymentSnapshot:
-    """Open a long from a buy fill or a short from a sell fill."""
-    deployment = snapshot.deployment
-    now = utc_now()
-    side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    stop = deployment.pending_stop_price
-    target = deployment.pending_target_price
-    if stop is None or target is None:
-        paused = with_runtime(
-            deployment,
-            updated_at=now,
-            cash=cash,
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Entry fill is missing stored stop/target prices.",
-            phase=RuntimePhase.FLAT,
-            clear_pending_levels=True,
-        )
-        await store.save_deployment(paused)
-        await store.save_position(None, deployment_id=deployment.id)
-        return await store.get_deployment(deployment.id)
-    entered_bar = fill.filled_at.astimezone(UTC).replace(second=0, microsecond=0)
-    position = Position(
-        deployment_id=deployment.id,
-        quantity=fill.quantity,
-        entry_price=fill.price,
-        stop_price=stop,
-        target_price=target,
-        entered_bar=entered_bar,
-        updated_at=now,
-        side=side,
-        product_id=order.product_id or deployment.product_id,
-        add_count=1,
-    )
-    updated = with_runtime(
-        deployment,
-        updated_at=now,
-        cash=cash,
-        phase=RuntimePhase.OPEN,
-        bars_held=0,
-        pending_entry_bars=0,
-        clear_pending_levels=True,
-    )
-    await store.save_position(position, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-async def _apply_scale_in_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    position: Position,
-) -> DeploymentSnapshot:
-    """Add to an existing position on the same side."""
-    deployment = snapshot.deployment
-    now = utc_now()
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    quantity = position.quantity + fill.quantity
-    entry_price = (
-        (position.entry_price * position.quantity) + (fill.price * fill.quantity)
-    ) / quantity
-    updated_position = replace(
-        position,
-        quantity=quantity,
-        entry_price=entry_price,
-        updated_at=now,
-        add_count=position.add_count + 1,
-    )
-    updated = with_runtime(
-        deployment,
-        updated_at=now,
-        cash=cash,
-        phase=RuntimePhase.OPEN if deployment.phase is RuntimePhase.FLAT else deployment.phase,
-    )
-    await store.save_position(updated_position, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-async def _apply_exit_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    cooldown_bars: int,
-) -> DeploymentSnapshot:
-    """Reduce or flatten the open position after a covering fill."""
-    deployment = snapshot.deployment
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    position = snapshot.position
-    if position is not None and fill.quantity < position.quantity:
-        remaining = replace(
-            position,
-            quantity=position.quantity - fill.quantity,
-            updated_at=utc_now(),
-        )
-        updated = with_runtime(deployment, updated_at=utc_now(), cash=cash)
-        await store.save_position(remaining, deployment_id=deployment.id)
-        await store.save_deployment(updated)
-        return await store.get_deployment(deployment.id)
-    updated = with_runtime(
-        deployment,
-        updated_at=utc_now(),
-        cash=cash,
-        phase=RuntimePhase.FLAT,
-        bars_held=0,
-        pending_entry_bars=0,
-        cooldown_bars_remaining=max(cooldown_bars, 0),
-        clear_pending_levels=True,
-    )
-    await store.save_position(None, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-def _cash_after_fill(cash: Decimal, *, fill: Fill, order_side: OrderSide) -> Decimal:
-    """Apply quote cash for a spot buy (debit) or sell (credit)."""
-    notional = fill.price * fill.quantity
-    if order_side is OrderSide.BUY:
-        return cash - notional - fill.fee
-    return cash + notional - fill.fee
 
 
 async def _manage_position(
@@ -487,7 +346,12 @@ async def _protect_open_position(
             price=price,
         )
     return await _ensure_take_profit(
-        snapshot, candle=candle, product=product, broker=broker, store=store
+        snapshot,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        cooldown_bars=strategy.entry.cooldown_bars,
     )
 
 
@@ -606,7 +470,13 @@ async def _manage_pending_entry(
         )
     if strategy.execution.on_unfilled_entry == "reprice":
         return await _reprice_entry(
-            snapshot, candle=candle, product=product, broker=broker, store=store, prior=open_entry
+            snapshot,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            prior=open_entry,
+            cooldown_bars=strategy.entry.cooldown_bars,
         )
     return await _flatten_pending(
         snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
@@ -657,6 +527,7 @@ async def _manage_pending_pyramid_add(
             store=store,
             prior=open_entry,
             phase=RuntimePhase.OPEN,
+            cooldown_bars=strategy.entry.cooldown_bars,
         )
     abandoned = with_runtime(
         snapshot.deployment,
@@ -693,6 +564,7 @@ async def _reprice_entry(
     store: ExecutionStore,
     prior: Order,
     phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
+    cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """Submit a replacement post-only entry at the current maker price."""
     try:
@@ -727,6 +599,18 @@ async def _reprice_entry(
             await store.get_deployment(snapshot.deployment.id),
             store=store,
             detail="Repriced entry submit is unconfirmed.",
+        )
+    if order.status is OrderStatus.FILLED:
+        # A repriced post-only entry can rest and fill before the venue GET
+        # returns (F02): apply the paper simulation locally or import live's
+        # real fill and fee.
+        return await apply_or_import_fill(
+            await store.get_deployment(snapshot.deployment.id),
+            order=order,
+            store=store,
+            broker=broker,
+            product_id=product.product_id,
+            cooldown_bars=cooldown_bars,
         )
     pending = with_runtime(reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0)
     await store.save_deployment(pending)
@@ -774,6 +658,8 @@ async def _marketable_exit(
         return await _apply_immediate_exit_fill(
             snapshot,
             order=order,
+            broker=broker,
+            product_id=product.product_id,
             store=store,
             cooldown_bars=strategy.entry.cooldown_bars,
         )
@@ -788,25 +674,23 @@ async def _apply_immediate_exit_fill(
     snapshot: DeploymentSnapshot,
     *,
     order: Order,
+    broker: Broker,
+    product_id: str,
     store: ExecutionStore,
     cooldown_bars: int,
 ) -> DeploymentSnapshot:
-    """Apply a marketable cover fill that the broker reported as already complete."""
-    fill = next(
-        (
-            item
-            for item in (await store.get_deployment(snapshot.deployment.id)).fills
-            if item.order_id == order.id
-        ),
-        None,
-    )
-    if fill is None:
-        return snapshot
-    return await apply_fill(
+    """Apply this exact exit order's fill: the paper simulation, or live's real fills (F02).
+
+    ``apply_or_import_fill`` applies the locally recorded paper fill, or imports
+    and applies the venue's real fills and fees for live orders instead of
+    trusting the marketable order's aggregate acknowledged quantity as evidence.
+    """
+    return await apply_or_import_fill(
         await store.get_deployment(snapshot.deployment.id),
-        fill=fill,
         order=order,
         store=store,
+        broker=broker,
+        product_id=product_id,
         cooldown_bars=cooldown_bars,
     )
 
@@ -818,6 +702,7 @@ async def _ensure_exit_protection(
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """Rest paper take-profit or a live venue bracket when already evaluated."""
     if snapshot.deployment.mode is DeploymentMode.LIVE:
@@ -825,7 +710,12 @@ async def _ensure_exit_protection(
             snapshot, candle=candle, product=product, broker=broker, store=store
         )
     return await _ensure_take_profit(
-        snapshot, candle=candle, product=product, broker=broker, store=store
+        snapshot,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        cooldown_bars=cooldown_bars,
     )
 
 
@@ -836,6 +726,7 @@ async def _ensure_take_profit(
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """Rest a post-only take-profit when the position has none."""
     position = snapshot.position
@@ -866,6 +757,17 @@ async def _ensure_take_profit(
         )
         await store.save_deployment(pending)
         return await store.get_deployment(snapshot.deployment.id)
+    if order.status is OrderStatus.FILLED:
+        # A resting post-only take-profit can fill before the venue GET returns
+        # (F02): apply the paper simulation locally or import live's real fill.
+        return await apply_or_import_fill(
+            await store.get_deployment(snapshot.deployment.id),
+            order=order,
+            store=store,
+            broker=broker,
+            product_id=product.product_id,
+            cooldown_bars=cooldown_bars,
+        )
     if order.status in {OrderStatus.UNKNOWN, OrderStatus.PENDING}:
         return await _pause(
             await store.get_deployment(snapshot.deployment.id),
@@ -1120,6 +1022,28 @@ async def _submit_sized_entry(
         take_profit_price=sized.target_price if attach else None,
     )
     snapshot = await store.get_deployment(snapshot.deployment.id)
+    return await _after_entry_order_submit(
+        snapshot,
+        order=order,
+        strategy=strategy,
+        product=product,
+        broker=broker,
+        store=store,
+        is_pyramid_add=is_pyramid_add,
+    )
+
+
+async def _after_entry_order_submit(
+    snapshot: DeploymentSnapshot,
+    *,
+    order: Order,
+    strategy: StrategyDefinition,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+    is_pyramid_add: bool,
+) -> DeploymentSnapshot:
+    """Pause on ambiguity, restore or flatten a rejected entry, or apply an immediate fill."""
     if order.status is OrderStatus.UNKNOWN:
         return await _pause(snapshot, store=store, detail="Entry submit is unconfirmed.")
     if order.status is OrderStatus.REJECTED:
@@ -1134,6 +1058,17 @@ async def _submit_sized_entry(
             return await store.get_deployment(snapshot.deployment.id)
         return await _flatten_pending(
             snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
+        )
+    if order.status is OrderStatus.FILLED:
+        # A post-only entry can rest and fill before the venue GET returns (F02):
+        # apply the paper simulation locally or import live's real fill and fee.
+        return await apply_or_import_fill(
+            snapshot,
+            order=order,
+            store=store,
+            broker=broker,
+            product_id=product.product_id,
+            cooldown_bars=strategy.entry.cooldown_bars,
         )
     return snapshot
 

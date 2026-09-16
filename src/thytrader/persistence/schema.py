@@ -606,6 +606,7 @@ execution_fills = Table(
     Column("quantity", String(64), nullable=False),
     Column("fee", String(64), nullable=False),
     Column("filled_at", DateTime(timezone=True), nullable=False),
+    Column("applied_at", DateTime(timezone=True), nullable=True),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
     ForeignKeyConstraint(["order_id"], ["execution_orders.id"], ondelete="RESTRICT"),
     UniqueConstraint("deployment_id", "venue_fill_id", name="ux_execution_fills_venue"),
@@ -624,8 +625,10 @@ execution_positions = Table(
     Column("trail_extreme", String(64), nullable=True),
     Column("side", String(8), nullable=False, server_default="long"),
     Column("add_count", Integer(), nullable=False, server_default="1"),
+    Column("last_fill_intent_id", UUID(), nullable=True),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
+    ForeignKeyConstraint(["last_fill_intent_id"], ["order_intents.id"], ondelete="RESTRICT"),
     CheckConstraint("side IN ('long', 'short')", name="ck_execution_positions_side"),
     CheckConstraint(
         "add_count >= 1 AND add_count <= 8",

@@ -13,8 +13,9 @@ experiential-memory persistence, experiential-model engines, discretionary-order
 identity, paper/live HTF-filter evaluation, per-indicator timeframe evaluation,
 spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
 breakers / order-rate limits / reference-price collars, the persisted
-research-study catalog, trade-reason journals, multi-instrument documents, or
-intra-strategy pyramiding change.
+research-study catalog, trade-reason journals, multi-instrument documents,
+intra-strategy pyramiding, the atomic fill-application ledger, or pyramiding
+add-count semantics change.
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v21"
-EXPECTED_SCHEMA_REVISION = "0033"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v22"
+EXPECTED_SCHEMA_REVISION = "0034"
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -47,6 +48,10 @@ REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
 TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
 MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
 INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
+PYRAMID_ADD_COUNT_SEMANTICS = "intent"
+"""``Position.add_count`` counts distinct filled entry/add order intents, never raw
+execution fragments: one order that fills across many partial fragments consumes
+exactly one pyramiding slot (F28)."""
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -70,6 +75,7 @@ def expected_ops_contract() -> dict[str, object]:
         "trade_reason_journals": list(TRADE_REASON_JOURNALS),
         "multi_instrument_documents": list(MULTI_INSTRUMENT_DOCUMENTS),
         "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
+        "pyramid_add_count_semantics": PYRAMID_ADD_COUNT_SEMANTICS,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

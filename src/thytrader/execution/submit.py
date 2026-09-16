@@ -18,6 +18,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
 )
+from thytrader.execution.paper import PaperBroker
 from thytrader.memory.recording import maybe_record_submitted_intent
 
 if TYPE_CHECKING:
@@ -116,7 +117,15 @@ async def submit_intent(
         updated_at=utc_now(),
     )
     await store.save_order(submitted)
-    if result.status is OrderStatus.FILLED and result.fill_price is not None:
+    if (
+        result.status is OrderStatus.FILLED
+        and result.fill_price is not None
+        and isinstance(broker, PaperBroker)
+    ):
+        # Only the paper simulator's immediate fill is trustworthy evidence of an
+        # applied economic event (F02): live acknowledgements never populate real
+        # fees here, so live fills are always imported from the venue's fill
+        # ledger through the idempotent fill-ledger transaction instead.
         fill = Fill(
             id=uuid7(utc_now()),
             deployment_id=deployment_id,

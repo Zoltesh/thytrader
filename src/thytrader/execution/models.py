@@ -146,7 +146,14 @@ class Order:
 
 @dataclass(frozen=True, slots=True)
 class Fill:
-    """One exact fill against a known order."""
+    """One exact fill against a known order.
+
+    ``applied_at`` is set only after the fill's cash/inventory/order effect has
+    been committed in the same transaction as the fill row (see
+    ``ExecutionStore.apply_fill_effect``). Presence of a fill row is evidence,
+    not proof the economic effect landed; reconciliation must not treat
+    unapplied rows as coverage.
+    """
 
     id: UUID
     deployment_id: UUID
@@ -157,6 +164,7 @@ class Fill:
     fee: Decimal
     filled_at: datetime
     venue_order_id: str | None = None
+    applied_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +182,7 @@ class Position:
     side: PositionSide = PositionSide.LONG
     product_id: str = ""
     add_count: int = 1
+    last_fill_intent_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +240,35 @@ class DeploymentSnapshot:
     intents: tuple[OrderIntent, ...] = field(default_factory=tuple)
     positions: tuple[Position, ...] = field(default_factory=tuple)
     instrument_runtimes: tuple[InstrumentRuntime, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class FillApplication:
+    """Order, deployment, and position state to persist atomically with one fill.
+
+    ``clear_position`` distinguishes "no book remains open" from "unchanged"; when
+    true the store deletes this fill's product position row instead of leaving a
+    stale one in place. ``position`` is ignored when ``clear_position`` is true.
+    """
+
+    fill: Fill
+    order: Order
+    deployment: Deployment
+    position: Position | None
+    clear_position: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FillApplicationResult:
+    """Outcome of one atomic, idempotent fill-application attempt.
+
+    ``applied`` is false when this exact venue fill was already applied by an
+    earlier call (crash-safe restart, retried reconciliation, or a duplicate
+    submit-completion path). Callers must not repeat any economic side effect in
+    that case and should only refresh their snapshot from durable storage.
+    """
+
+    applied: bool
 
 
 def with_status(

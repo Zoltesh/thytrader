@@ -6,8 +6,8 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.fill_ledger import apply_fill, apply_unapplied_fills
 from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.loop import apply_fill
 from thytrader.execution.models import DeploymentStatus, Fill, OrderStatus, with_runtime
 
 if TYPE_CHECKING:
@@ -27,7 +27,8 @@ async def reconcile_open_orders(
     cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """GET each watched order and ingest fills that are missing locally."""
-    known = {fill.venue_fill_id for fill in snapshot.fills}
+    snapshot = await apply_unapplied_fills(snapshot, store=store, cooldown_bars=cooldown_bars)
+    known = {fill.venue_fill_id for fill in snapshot.fills if fill.applied_at is not None}
     for order in tuple(snapshot.orders):
         snapshot = await _reconcile_one_order(
             snapshot,
@@ -106,7 +107,11 @@ def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:
     if order.status is not OrderStatus.FILLED:
         return True
     local = sum(
-        (fill.quantity for fill in snapshot.fills if fill.order_id == order.id),
+        (
+            fill.quantity
+            for fill in snapshot.fills
+            if fill.order_id == order.id and fill.applied_at is not None
+        ),
         start=Decimal("0"),
     )
     covered = order.filled_quantity if order.filled_quantity > 0 else order.quantity
@@ -122,7 +127,12 @@ async def _ingest_fills(
     known: set[str],
     cooldown_bars: int,
 ) -> DeploymentSnapshot:
-    """Persist unseen venue fills and update local cash/position."""
+    """Record and apply unseen venue fills atomically (F01): no separate save-then-apply step.
+
+    ``apply_fill`` inserts each fill and applies its cash/position/order effect in
+    one transaction, so a crash between "fill known" and "fill applied" cannot
+    happen here, and a fill already applied by an earlier call is a safe no-op.
+    """
     current = snapshot
     for remote in remote_fills:
         if remote.venue_fill_id in known:
@@ -137,10 +147,9 @@ async def _ingest_fills(
             fee=remote.fee,
             filled_at=remote.filled_at,
         )
-        await store.save_fill(local)
         known.add(local.venue_fill_id)
         current = await apply_fill(
-            await store.get_deployment(order.deployment_id),
+            current,
             fill=local,
             order=order,
             store=store,

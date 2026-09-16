@@ -113,6 +113,7 @@ class OpsContractPayload(_FrozenModel):
     trade_reason_journals: tuple[Literal["paper", "live"], ...]
     multi_instrument_documents: tuple[Literal["research", "paper", "live"], ...]
     intra_strategy_pyramiding: tuple[Literal["research", "paper", "live"], ...]
+    pyramid_add_count_semantics: Literal["intent"]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

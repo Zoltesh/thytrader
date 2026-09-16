@@ -7,6 +7,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 import re
 from typing import TYPE_CHECKING
 
+from thytrader.execution.fill_ledger import apply_or_import_fill
 from thytrader.execution.geometry import (
     bracket_error_detail,
     bracket_is_valid,
@@ -30,7 +31,6 @@ from thytrader.execution.loop import (
     _pause,
     _pause_mode_running,
     _persist_runtime,
-    apply_fill,
 )
 from thytrader.execution.models import (
     Deployment,
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.broker import Broker
+    from thytrader.execution.models import Order
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
@@ -248,25 +249,13 @@ async def place_discretionary_order(
                 product_id=request.product_id,
                 cooldown_bars=0,
             )
-            order_status = next(
-                (
-                    item.status
-                    for item in snapshot.orders
-                    if item.client_order_id == order.client_order_id
-                ),
-                OrderStatus.UNKNOWN,
-            )
-            return await _after_entry_submit(
-                snapshot,
-                order_status=order_status,
-                product=product,
-                candle=mark_candle,
-                broker=broker,
-                store=store,
+            order = next(
+                (item for item in snapshot.orders if item.client_order_id == order.client_order_id),
+                order,
             )
         return await _after_entry_submit(
             snapshot,
-            order_status=order.status,
+            order=order,
             product=product,
             candle=mark_candle,
             broker=broker,
@@ -646,40 +635,40 @@ async def _occupied_snapshots(
 async def _after_entry_submit(
     snapshot: DeploymentSnapshot,
     *,
-    order_status: OrderStatus,
+    order: Order,
     product: MarketProduct,
     candle: Candle,
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Apply an immediate fill, pause on ambiguity, or leave a resting maker."""
-    if order_status is OrderStatus.UNKNOWN:
+    """Apply this exact order's fill, pause on ambiguity, or leave a resting maker.
+
+    Scoping to ``order`` (never "any FILLED order in the book") and applying
+    through the idempotent fill ledger fixes F03: a timeout that triggers
+    reconciliation before this call already applied the remote fill, so this
+    call's ``apply_or_import_fill`` is a verified no-op, not a second cash debit.
+    """
+    if order.status is OrderStatus.UNKNOWN:
         return await _pause(
             snapshot,
             store=store,
             detail="Entry submit is unconfirmed; reconcile before retrying.",
         )
-    if order_status is OrderStatus.REJECTED:
+    if order.status is OrderStatus.REJECTED:
         return await _flatten_pending(snapshot, store=store, cooldown_bars=0)
-    current = await store.get_deployment(snapshot.deployment.id)
-    if order_status is OrderStatus.FILLED:
-        filled = next(
-            (order for order in current.orders if order.status is OrderStatus.FILLED),
-            None,
+    if order.status is OrderStatus.FILLED:
+        current = await apply_or_import_fill(
+            snapshot,
+            order=order,
+            store=store,
+            broker=broker,
+            product_id=product.product_id,
+            cooldown_bars=0,
         )
-        fill = next(
-            (item for item in current.fills if filled is not None and item.order_id == filled.id),
-            None,
-        )
-        if filled is None or fill is None:
-            return await _pause(
-                current, store=store, detail="Filled entry has no local fill to apply."
-            )
-        current = await apply_fill(current, fill=fill, order=filled, store=store, cooldown_bars=0)
         return await _ensure_exit_protection(
             current, candle=candle, product=product, broker=broker, store=store
         )
-    return current
+    return await store.get_deployment(snapshot.deployment.id)
 
 
 async def _protect_discretionary(
@@ -777,11 +766,14 @@ async def _marketable_discretionary_exit(
         origin=IntentOrigin.RUNTIME,
     )
     if order.status is OrderStatus.FILLED:
-        current = await store.get_deployment(snapshot.deployment.id)
-        fill = next((item for item in current.fills if item.order_id == order.id), None)
-        if fill is None:
-            return current
-        return await apply_fill(current, fill=fill, order=order, store=store, cooldown_bars=0)
+        return await apply_or_import_fill(
+            await store.get_deployment(snapshot.deployment.id),
+            order=order,
+            store=store,
+            broker=broker,
+            product_id=product.product_id,
+            cooldown_bars=0,
+        )
     return await _pause(
         await store.get_deployment(snapshot.deployment.id),
         store=store,

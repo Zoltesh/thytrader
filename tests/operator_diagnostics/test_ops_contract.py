@@ -13,6 +13,7 @@ from thytrader.ops_contract import (
     OPS_CONTRACT_ID,
     PAPER_DEPLOY_FEE_FIELDS,
     PAPER_TIMEFRAMES,
+    PYRAMID_ADD_COUNT_SEMANTICS,
     TRADE_REASON_JOURNALS,
     expected_ops_contract,
     ops_contract_matches,
@@ -30,9 +31,9 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v21"
+    assert expected["id"] == "thytrader-ops-contract-v22"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0033"
+    assert expected["expected_schema_revision"] == "0034"
     assert expected["paper_deploy_fee_fields"] == list(PAPER_DEPLOY_FEE_FIELDS)
     assert expected["paper_deploy_fee_fields"] == ["maker_fee_rate", "taker_fee_rate"]
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT
@@ -71,3 +72,5 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["multi_instrument_documents"] == ["research", "paper", "live"]
     assert expected["intra_strategy_pyramiding"] == list(INTRA_STRATEGY_PYRAMIDING)
     assert expected["intra_strategy_pyramiding"] == ["research", "paper", "live"]
+    assert expected["pyramid_add_count_semantics"] == PYRAMID_ADD_COUNT_SEMANTICS
+    assert expected["pyramid_add_count_semantics"] == "intent"
