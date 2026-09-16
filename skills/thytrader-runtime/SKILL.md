@@ -117,7 +117,10 @@ attached bracket on the entry; paper still uses synthetic exits. `--timeframe` d
 another book clock. Paper `start` and paper `place-order` accept optional `--maker-fee-rate` and
 `--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted paper rates
 use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. Live
-rejects those flags; live fills stay venue-recorded. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
+rejects those flags; live fills stay venue-recorded through cursor-terminated List Fills
+([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md)). Incomplete or
+unparseable Coinbase fill pages fail closed (`BrokerError`); do not treat them as a complete
+empty remainder. YOLO may skip `--confirm` for paper start/pause/resume/stop/place-order
 when the `paper` tier is enabled, and for live start/pause/resume/stop when the `live` tier
 is enabled. Live place-order, `set-risk-policy`, `set-settings`, and Coinbase credential set/clear
 never skip `--confirm`. YOLO never covers credentials. Pass `--private-key-file`; never a CLI

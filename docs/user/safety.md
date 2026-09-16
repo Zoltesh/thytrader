@@ -50,6 +50,8 @@ permission to trade. Research is not permission to deploy. See [Operate](operate
   risk checks.
 - Persist intent before submission. A network timeout is ambiguous — reconcile before retrying.
 - Resume after restart only after reconciling balances, open orders, fills, and local state.
+  Live Coinbase fill pages that are truncated, quote-mislabeled, or unparseable must fail closed
+  rather than look complete ([ADR 0059](../decisions/0059-coinbase-list-fills-cursor-pagination.md)).
 - Block new risk-increasing orders on stale data or unhealthy required connections.
 - Missing candles are never interpolated.
 

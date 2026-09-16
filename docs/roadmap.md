@@ -669,7 +669,9 @@ closed 1h or 5m candle once, records intents/fills/position, and obeys pause and
 
 - Deploying `live` is the arming action; credentials required.
 - Idempotent maker entries and ordinary take-profit orders via REST v3 JSON.
-- Paginated fills as the fill ledger; GET-order after submit.
+- Paginated fills as the fill ledger; GET-order after submit. List Fills continues on the
+  documented `cursor` (not `has_next`), converts `size_in_quote`, and quarantines incomplete
+  rows ([ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md)).
 - Marketable stop and time-exit sells.
 - Phase 13 later shipped native OCO brackets, user-order WebSockets, and ATR trailing.
   Remaining deferred: operator runbook drills.

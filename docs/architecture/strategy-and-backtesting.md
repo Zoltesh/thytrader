@@ -16,7 +16,9 @@ canonical content immutably, and durably associates that strategy fingerprint wi
 verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
 guarded drafts, publication, and archive markers. Paper and live execution consume the same published
 version through `thytrader-execution-worker`: maker post-only entries, marketable stop/time-exits, and
-fill-based live reconcile against Advanced Trade REST v3 JSON.
+fill-based live reconcile against Advanced Trade REST v3 JSON, paging List Fills by documented
+cursor until exhausted and quarantining unparseable fill evidence
+([ADR 0059](../decisions/0059-coinbase-list-fills-cursor-pagination.md)).
 
 The first Phase 3 prerequisite is also implemented: an internal immutable
 [research-run specification](research-run-specification.md) binds the exact published strategy and
