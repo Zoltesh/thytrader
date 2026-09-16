@@ -12,7 +12,11 @@ from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.geometry import base_currency
 from thytrader.execution.ids import utc_now
-from thytrader.execution.loop import cancel_resting_orders, process_closed_bar
+from thytrader.execution.loop import (
+    cancel_resting_orders,
+    maintain_open_inventory,
+    process_closed_bar,
+)
 from thytrader.execution.models import (
     DeploymentKind,
     DeploymentMode,
@@ -291,6 +295,19 @@ async def _advance_strategy(
         )
         await store.save_deployment(paused)
         return
+    if not due:
+        await _maintain_between_bars(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            product=product,
+            candles=candles,
+        )
+        return
     covered = lockstep_product_ids(strategy)
     if len(covered) > 1:
         await _advance_multi_instrument(
@@ -306,6 +323,7 @@ async def _advance_strategy(
             primary_product=product,
             primary_candles=candles,
             due=due,
+            memory_store=memory_store,
         )
         return
     htf_candles = await _closed_htf_window(market_data, strategy)
@@ -352,6 +370,7 @@ async def _advance_multi_instrument(
     primary_product: MarketProduct,
     primary_candles: Sequence[Candle],
     due: Sequence[Candle],
+    memory_store: ExperientialMemoryStore | None,
 ) -> None:
     """Evaluate covered products in lexicographic order on each shared closed bar."""
     covered = lockstep_product_ids(strategy)
@@ -392,11 +411,18 @@ async def _advance_multi_instrument(
             return
         snapshot = prepared
         broker = live_broker
-        if (
-            snapshot.deployment.status is DeploymentStatus.PAUSED
-            and snapshot.deployment.mismatch_detail
-        ):
-            return
+    if not due:
+        await _maintain_multi_between_bars(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            covered=covered,
+            windows=windows,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+        )
+        return
     for candle in due:
         stopped = await _evaluate_lockstep_bar(
             candle,
@@ -412,6 +438,7 @@ async def _advance_multi_instrument(
             quote_reader=quote_reader,
             risk_policy=risk_policy,
             portfolio=portfolio,
+            memory_store=memory_store,
         )
         if stopped:
             return
@@ -514,6 +541,7 @@ async def _evaluate_lockstep_bar(
     quote_reader: QuoteBalanceReader | None,
     risk_policy: RiskPolicyDefinition,
     portfolio: tuple[DeploymentSnapshot, ...],
+    memory_store: ExperientialMemoryStore | None,
 ) -> bool:
     """Evaluate every covered product on one shared closed bar. True if the loop should stop."""
     current = await store.get_deployment(deployment_id)
@@ -547,20 +575,28 @@ async def _evaluate_lockstep_bar(
             live_base_available = await _currency_available(
                 quote_reader, base_currency(product.product_id)
             )
-        await process_closed_bar(
-            focused,
-            strategy=strategy,
-            product=product,
-            candles=window,
-            broker=broker,
-            store=scoped,
-            risk_policy=risk_policy,
-            portfolio=portfolio,
-            htf_candles=htf_by_product[product_id],
-            indicator_timeframe_candles=extra_by_product[product_id],
-            live_base_available=live_base_available,
-            marks=marks,
-        )
+        with trade_reason_scope(
+            strategy_trade_reason_scope(
+                memory_store,
+                deployment=focused.deployment,
+                strategy=strategy,
+                policy=risk_policy,
+            )
+        ):
+            await process_closed_bar(
+                focused,
+                strategy=strategy,
+                product=product,
+                candles=window,
+                broker=broker,
+                store=scoped,
+                risk_policy=risk_policy,
+                portfolio=portfolio,
+                htf_candles=htf_by_product[product_id],
+                indicator_timeframe_candles=extra_by_product[product_id],
+                live_base_available=live_base_available,
+                marks=marks,
+            )
         latest = await store.get_deployment(deployment_id)
         if latest.deployment.status is DeploymentStatus.STOPPED:
             return True
@@ -629,12 +665,6 @@ async def _evaluate_strategy_due_bars(
             return
         snapshot = prepared
         broker = live_broker
-        paused_with_mismatch = (
-            snapshot.deployment.status is DeploymentStatus.PAUSED
-            and snapshot.deployment.mismatch_detail
-        )
-        if paused_with_mismatch:
-            return
     for candle in due:
         current = await store.get_deployment(deployment.id)
         if current.deployment.status is DeploymentStatus.STOPPED:
@@ -782,6 +812,88 @@ async def _process_discretionary(
                 broker=broker,
                 store=store,
             )
+
+
+async def _maintain_between_bars(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+) -> None:
+    """Reconcile and ensure protection when no newly closed bar is due."""
+    del market_data
+    broker: Broker = paper_broker
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        prepared = await _prepare_live(
+            snapshot,
+            store=store,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            quote_currency=strategy.instrument.quote_currency,
+            product_id=product.product_id,
+            cooldown_bars=strategy.entry.cooldown_bars,
+        )
+        if prepared is None or live_broker is None:
+            return
+        snapshot = prepared
+        broker = live_broker
+    await maintain_open_inventory(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+    )
+
+
+async def _maintain_multi_between_bars(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    covered: tuple[str, ...],
+    windows: dict[str, tuple[MarketProduct, tuple[Candle, ...]]],
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+) -> None:
+    """Reconcile and ensure protection for every covered product between bars."""
+    broker: Broker = paper_broker
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        prepared = await _prepare_live(
+            snapshot,
+            store=store,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            quote_currency=strategy.instrument.quote_currency,
+            product_id=snapshot.deployment.product_id,
+            cooldown_bars=strategy.entry.cooldown_bars,
+        )
+        if prepared is None or live_broker is None:
+            return
+        snapshot = prepared
+        broker = live_broker
+    for product_id in covered:
+        product, candles = windows[product_id]
+        if not candles:
+            continue
+        scoped = InstrumentScopedStore(store, product_id)
+        focused = await scoped.get_deployment(snapshot.deployment.id)
+        await maintain_open_inventory(
+            focused,
+            strategy=strategy,
+            product=product,
+            candles=candles,
+            broker=broker,
+            store=scoped,
+        )
 
 
 async def _prepare_live(

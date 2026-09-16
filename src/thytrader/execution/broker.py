@@ -31,6 +31,7 @@ class SubmitResult:
     reject_reason: str | None = None
     fill_price: Decimal | None = None
     fill_fee: Decimal = Decimal("0")
+    attached_child_venue_order_id: str | None = None
 
 
 class Broker(Protocol):

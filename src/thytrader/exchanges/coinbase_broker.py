@@ -76,7 +76,31 @@ class CoinbaseRestBroker:
                 venue_order_id=venue_id or client_order_id,
                 reject_reason=reason[:500],
             )
-        return await self.get_order(venue_order_id=venue_id, client_order_id=client_order_id)
+        attached_child_id = None
+        if order_payload is not None:
+            attached_child_id = _text(order_payload.get("attached_order_id"))
+        try:
+            observed = await self.get_order(
+                venue_order_id=venue_id,
+                client_order_id=client_order_id,
+            )
+        except BrokerError:
+            return SubmitResult(
+                status=OrderStatus.UNKNOWN,
+                venue_order_id=venue_id,
+                reject_reason="observation_pending",
+            )
+        if attached_child_id is not None:
+            return SubmitResult(
+                status=observed.status,
+                venue_order_id=observed.venue_order_id,
+                filled_quantity=observed.filled_quantity,
+                reject_reason=observed.reject_reason,
+                fill_price=observed.fill_price,
+                fill_fee=observed.fill_fee,
+                attached_child_venue_order_id=attached_child_id,
+            )
+        return observed
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """POST batch cancel, then GET the resulting order."""

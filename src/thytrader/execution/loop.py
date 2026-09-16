@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.broker import BrokerError
+from thytrader.execution.fill_ledger import ingest_fill, prior_fills_for_order
 from thytrader.execution.geometry import (
     entry_order_side,
     exit_order_side,
@@ -66,6 +67,28 @@ if TYPE_CHECKING:
 
 _ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+
+
+async def maintain_open_inventory(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Reconcile resting orders and ensure protection between closed bars."""
+    if not candles:
+        return snapshot
+    return await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        candles=candles,
+        broker=bind_paper_broker_fees(broker, snapshot.deployment),
+        store=store,
+    )
 
 
 async def process_closed_bar(
@@ -180,7 +203,6 @@ async def _match_resting_orders(
         fill = broker.match_open_order(order, candle)
         if fill is None:
             continue
-        await store.save_fill(fill)
         filled = replace(
             order,
             status=OrderStatus.FILLED,
@@ -188,9 +210,10 @@ async def _match_resting_orders(
             updated_at=utc_now(),
         )
         await store.save_order(filled)
-        snapshot = await apply_fill(
+        result = await ingest_fill(
             snapshot, fill=fill, order=filled, store=store, cooldown_bars=cooldown_bars
         )
+        snapshot = result.snapshot
     return await store.get_deployment(snapshot.deployment.id)
 
 
@@ -203,19 +226,10 @@ async def apply_fill(
     cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
     """Update cash and position from one fill and persist the result."""
-    position = snapshot.position
-    if position is None:
-        return await _apply_entry_fill(snapshot, fill=fill, order=order, store=store)
-    scaling_in = (position.side is PositionSide.LONG and order.side is OrderSide.BUY) or (
-        position.side is PositionSide.SHORT and order.side is OrderSide.SELL
-    )
-    if scaling_in:
-        return await _apply_scale_in_fill(
-            snapshot, fill=fill, order=order, store=store, position=position
-        )
-    return await _apply_exit_fill(
+    result = await ingest_fill(
         snapshot, fill=fill, order=order, store=store, cooldown_bars=cooldown_bars
     )
+    return result.snapshot
 
 
 async def _apply_entry_fill(
@@ -288,12 +302,14 @@ async def _apply_scale_in_fill(
     entry_price = (
         (position.entry_price * position.quantity) + (fill.price * fill.quantity)
     ) / quantity
+    prior = prior_fills_for_order(snapshot, order.id)
+    add_count = position.add_count + 1 if prior == 0 and order.pyramid_add else position.add_count
     updated_position = replace(
         position,
         quantity=quantity,
         entry_price=entry_price,
         updated_at=now,
-        add_count=position.add_count + 1,
+        add_count=add_count,
     )
     updated = with_runtime(
         deployment,
@@ -1118,6 +1134,7 @@ async def _submit_sized_entry(
         candle=candle,
         stop_trigger_price=sized.stop_price if attach else None,
         take_profit_price=sized.target_price if attach else None,
+        pyramid_add=is_pyramid_add,
     )
     snapshot = await store.get_deployment(snapshot.deployment.id)
     if order.status is OrderStatus.UNKNOWN:
@@ -1459,9 +1476,27 @@ def _filled_attached_entry(snapshot: DeploymentSnapshot, position: Position) -> 
 
 
 def _attached_entry_covers(snapshot: DeploymentSnapshot, position: Position) -> bool:
-    """True when a filled attached entry still matches the working stop and target."""
+    """True when a verified attached child still matches the working stop and target."""
     entry = _filled_attached_entry(snapshot, position)
     if entry is None:
+        return False
+    if entry.attached_child_venue_order_id:
+        child = next(
+            (
+                order
+                for order in snapshot.orders
+                if order.venue_order_id == entry.attached_child_venue_order_id
+            ),
+            None,
+        )
+        if child is None:
+            return False
+        if child.status in _ACTIVE:
+            return (
+                child.stop_trigger_price == position.stop_price
+                and child.take_profit_price == position.target_price
+                and child.quantity >= position.quantity
+            )
         return False
     return (
         entry.stop_trigger_price == position.stop_price

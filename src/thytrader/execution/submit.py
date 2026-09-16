@@ -18,6 +18,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
 )
+from thytrader.execution.paper import PaperBroker
 from thytrader.memory.recording import maybe_record_submitted_intent
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ async def submit_intent(
     take_profit_price: Decimal | None = None,
     origin: IntentOrigin = IntentOrigin.RUNTIME,
     idempotency_key: str | None = None,
+    pyramid_add: bool = False,
 ) -> Order:
     """Record intent, submit, then persist the venue snapshot and any immediate fill."""
     now = utc_now()
@@ -85,6 +87,7 @@ async def submit_intent(
         created_at=now,
         updated_at=now,
         product_id=product_id,
+        pyramid_add=pyramid_add,
     )
     await store.save_order(order)
     try:
@@ -113,10 +116,15 @@ async def submit_intent(
         status=result.status,
         filled_quantity=result.filled_quantity,
         reject_reason=result.reject_reason,
+        attached_child_venue_order_id=result.attached_child_venue_order_id,
         updated_at=utc_now(),
     )
     await store.save_order(submitted)
-    if result.status is OrderStatus.FILLED and result.fill_price is not None:
+    if (
+        isinstance(broker, PaperBroker)
+        and result.status is OrderStatus.FILLED
+        and result.fill_price is not None
+    ):
         fill = Fill(
             id=uuid7(utc_now()),
             deployment_id=deployment_id,
