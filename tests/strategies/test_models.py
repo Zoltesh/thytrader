@@ -1999,7 +1999,7 @@ def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
     ]
     with pytest.raises(ValidationError, match="cannot exceed"):
         StrategyDefinition.model_validate(too_many_books)
-    too_many_books["portfolio_limits"]["max_concurrent_positions"] = 2
+    _object_mapping(too_many_books["portfolio_limits"])["max_concurrent_positions"] = 2
     multi = StrategyDefinition.model_validate(too_many_books)
     assert lockstep_product_ids(multi) == ("BTC-USD", "ETH-USD")
     too_many_books["additional_instruments"] = [
@@ -2010,10 +2010,13 @@ def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
         StrategyDefinition.model_validate(too_many_books)
 
     lots = reference_payload()
-    lots["entry"]["max_open_positions"] = 2
+    _object_mapping(lots["entry"])["max_open_positions"] = 2
     with pytest.raises(ValidationError, match="unless pyramiding is enabled"):
         StrategyDefinition.model_validate(lots)
-    lots["entry"]["pyramiding"] = {"enabled": True, "require_unrealized_profit": True}
+    _object_mapping(lots["entry"])["pyramiding"] = {
+        "enabled": True,
+        "require_unrealized_profit": True,
+    }
     enabled = StrategyDefinition.model_validate(lots)
     assert pyramiding_enabled(enabled)
     assert can_pyramid_add(
@@ -2040,6 +2043,6 @@ def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
     assert strategy_fingerprint(enabled) != (
         "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
     )
-    lots["entry"]["max_open_positions"] = 1
+    _object_mapping(lots["entry"])["max_open_positions"] = 1
     with pytest.raises(ValidationError, match="between 2 and 8"):
         StrategyDefinition.model_validate(lots)

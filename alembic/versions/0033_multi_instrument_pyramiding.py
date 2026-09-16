@@ -80,7 +80,11 @@ def upgrade() -> None:
         sa.Column("pending_stop_price", sa.String(length=64), nullable=True),
         sa.Column("pending_target_price", sa.String(length=64), nullable=True),
         sa.ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
-        sa.PrimaryKeyConstraint("deployment_id", "product_id", name="pk_execution_instrument_state"),
+        sa.PrimaryKeyConstraint(
+            "deployment_id",
+            "product_id",
+            name="pk_execution_instrument_state",
+        ),
         sa.CheckConstraint(
             "phase IN ('flat', 'pending_entry', 'open', 'pending_exit')",
             name="ck_execution_instrument_state_phase",

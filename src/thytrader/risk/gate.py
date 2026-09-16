@@ -363,9 +363,7 @@ def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
     """Approximate quote exposure from open books or working entries."""
     books = snapshot_positions(snapshot)
     total = sum((item.quantity * item.entry_price for item in books), Decimal("0"))
-    occupied = {
-        resolved_product_id(item.product_id, snapshot.deployment) for item in books
-    }
+    occupied = {resolved_product_id(item.product_id, snapshot.deployment) for item in books}
     if snapshot.instrument_runtimes:
         for runtime in snapshot.instrument_runtimes:
             if runtime.product_id not in occupied and runtime.phase in _IN_MARKET:

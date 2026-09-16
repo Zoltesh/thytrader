@@ -340,7 +340,9 @@ class ResearchRunSpecification(_FrozenModel):
         product_ids = [item.product_id for item in self.additional_instrument_datasets]
         if len(product_ids) != len(set(product_ids)):
             raise ValueError("additional_instrument_datasets product_id values must be unique")
-        ordered = tuple(sorted(self.additional_instrument_datasets, key=lambda item: item.product_id))
+        ordered = tuple(
+            sorted(self.additional_instrument_datasets, key=lambda item: item.product_id)
+        )
         if ordered != self.additional_instrument_datasets:
             raise ValueError("additional_instrument_datasets must be ordered by product_id")
         reserved = {self.dataset_fingerprint}

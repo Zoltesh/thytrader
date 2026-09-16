@@ -46,10 +46,12 @@ from thytrader.strategies.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
 
@@ -146,47 +148,7 @@ class PostgresBacktestSubmitter:
             raise BacktestSubmissionError("Backtest submission is unavailable.") from error
         try:
             now = _utc_millisecond(datetime.now(UTC))
-            await self._strategy_store.bind_dataset(
-                request.strategy_fingerprint,
-                request.dataset_fingerprint,
-                dataset_store=self._dataset_store,
-                bound_at=now,
-            )
-            if request.htf_dataset_fingerprint is not None:
-                await self._strategy_store.bind_dataset(
-                    request.strategy_fingerprint,
-                    request.htf_dataset_fingerprint,
-                    dataset_store=self._dataset_store,
-                    bound_at=now,
-                )
-            for binding in request.indicator_dataset_fingerprints:
-                await self._strategy_store.bind_dataset(
-                    request.strategy_fingerprint,
-                    binding.dataset_fingerprint,
-                    dataset_store=self._dataset_store,
-                    bound_at=now,
-                )
-            for extra in request.additional_instrument_datasets:
-                await self._strategy_store.bind_dataset(
-                    request.strategy_fingerprint,
-                    extra.dataset_fingerprint,
-                    dataset_store=self._dataset_store,
-                    bound_at=now,
-                )
-                if extra.htf_dataset_fingerprint is not None:
-                    await self._strategy_store.bind_dataset(
-                        request.strategy_fingerprint,
-                        extra.htf_dataset_fingerprint,
-                        dataset_store=self._dataset_store,
-                        bound_at=now,
-                    )
-                for clock in extra.indicator_dataset_fingerprints:
-                    await self._strategy_store.bind_dataset(
-                        request.strategy_fingerprint,
-                        clock.dataset_fingerprint,
-                        dataset_store=self._dataset_store,
-                        bound_at=now,
-                    )
+            await self._bind_submission_datasets(request, now)
             execution_fingerprint = _execution_fingerprint(request)
             published_run = await self._run_store.load_by_execution_fingerprint(
                 execution_fingerprint,
@@ -211,6 +173,52 @@ class PostgresBacktestSubmitter:
             run_fingerprint=published_run.run_fingerprint,
             result_fingerprint=backtest_result_fingerprint(result),
         )
+
+    async def _bind_submission_datasets(
+        self, request: BacktestSubmissionRequest, bound_at: datetime
+    ) -> None:
+        """Bind primary, HTF, extra-TF, and additional-instrument datasets to the strategy."""
+        await self._strategy_store.bind_dataset(
+            request.strategy_fingerprint,
+            request.dataset_fingerprint,
+            dataset_store=self._dataset_store,
+            bound_at=bound_at,
+        )
+        if request.htf_dataset_fingerprint is not None:
+            await self._strategy_store.bind_dataset(
+                request.strategy_fingerprint,
+                request.htf_dataset_fingerprint,
+                dataset_store=self._dataset_store,
+                bound_at=bound_at,
+            )
+        for binding in request.indicator_dataset_fingerprints:
+            await self._strategy_store.bind_dataset(
+                request.strategy_fingerprint,
+                binding.dataset_fingerprint,
+                dataset_store=self._dataset_store,
+                bound_at=bound_at,
+            )
+        for extra in request.additional_instrument_datasets:
+            await self._strategy_store.bind_dataset(
+                request.strategy_fingerprint,
+                extra.dataset_fingerprint,
+                dataset_store=self._dataset_store,
+                bound_at=bound_at,
+            )
+            if extra.htf_dataset_fingerprint is not None:
+                await self._strategy_store.bind_dataset(
+                    request.strategy_fingerprint,
+                    extra.htf_dataset_fingerprint,
+                    dataset_store=self._dataset_store,
+                    bound_at=bound_at,
+                )
+            for clock in extra.indicator_dataset_fingerprints:
+                await self._strategy_store.bind_dataset(
+                    request.strategy_fingerprint,
+                    clock.dataset_fingerprint,
+                    dataset_store=self._dataset_store,
+                    bound_at=bound_at,
+                )
 
     async def _publish_run(
         self,
@@ -677,7 +685,6 @@ def _require_additional_instrument_window(
         raise BacktestSubmissionRejectedError(
             "additional_instrument_datasets must match extra covered products in product_id order."
         )
-    htf_filter = definition.htf_filter
     required_clocks = unbound_indicator_timeframes(definition)
     groups = dict(extra_indicator_timeframe_groups(definition))
     evaluation_start, evaluation_end = _filled_window(request)
@@ -689,96 +696,153 @@ def _require_additional_instrument_window(
     )
     required_fill_end = evaluation_end + interval.duration
     for binding in request.additional_instrument_datasets:
+        _require_additional_ltf_window(
+            binding,
+            definition=definition,
+            dataset_store=dataset_store,
+            warmup_start=warmup_start,
+            required_fill_end=required_fill_end,
+        )
+        _require_additional_htf_window(
+            binding,
+            definition=definition,
+            dataset_store=dataset_store,
+            evaluation_start=evaluation_start,
+            evaluation_end=evaluation_end,
+        )
+        _require_additional_extra_tf_window(
+            binding,
+            dataset_store=dataset_store,
+            evaluation_start=evaluation_start,
+            evaluation_end=evaluation_end,
+            required_clocks=required_clocks,
+            groups=groups,
+        )
+
+
+def _require_additional_ltf_window(
+    binding: AdditionalInstrumentDataset,
+    *,
+    definition: StrategyDefinition,
+    dataset_store: DatasetStore,
+    warmup_start: datetime,
+    required_fill_end: datetime,
+) -> None:
+    """Confirm one extra product's decision-clock dataset covers the evaluation window."""
+    try:
+        manifest = dataset_store.load_manifest(binding.dataset_fingerprint)
+    except DatasetStoreError as error:
+        raise BacktestSubmissionRejectedError(
+            "The selected additional-instrument dataset was not found or is not a "
+            "verified complete artifact."
+        ) from error
+    if (
+        manifest.product_id != binding.product_id
+        or manifest.timeframe != definition.timeframe
+        or not manifest.complete
+    ):
+        raise BacktestSubmissionRejectedError(
+            "Additional-instrument dataset must be a complete artifact for that product "
+            "and decision clock."
+        )
+    starts_at = _manifest_instant(manifest.starts_at)
+    ends_at = _manifest_instant(manifest.ends_at)
+    if starts_at > warmup_start or ends_at < required_fill_end:
+        raise BacktestSubmissionRejectedError(
+            "Requested evaluation window is not fully covered by an additional-instrument dataset."
+        )
+
+
+def _require_additional_htf_window(
+    binding: AdditionalInstrumentDataset,
+    *,
+    definition: StrategyDefinition,
+    dataset_store: DatasetStore,
+    evaluation_start: datetime,
+    evaluation_end: datetime,
+) -> None:
+    """Confirm one extra product's HTF dataset when the strategy declares a filter."""
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return
+    if binding.htf_dataset_fingerprint is None:
+        raise BacktestSubmissionRejectedError(
+            "additional_instrument_datasets require htf_dataset_fingerprint when the "
+            "strategy declares htf_filter."
+        )
+    try:
+        htf_manifest = dataset_store.load_manifest(binding.htf_dataset_fingerprint)
+    except DatasetStoreError as error:
+        raise BacktestSubmissionRejectedError(
+            "The selected additional-instrument HTF dataset was not found or is not a "
+            "verified complete artifact."
+        ) from error
+    if (
+        htf_manifest.product_id != binding.product_id
+        or htf_manifest.timeframe != htf_filter.timeframe
+        or not htf_manifest.complete
+    ):
+        raise BacktestSubmissionRejectedError(
+            "Additional-instrument HTF dataset must match that product and HTF clock."
+        )
+    required_start, required_end = htf_required_coverage(
+        evaluation_starts_at=evaluation_start,
+        evaluation_ends_at=evaluation_end,
+        htf_filter=htf_filter,
+    )
+    htf_starts_at = _manifest_instant(htf_manifest.starts_at)
+    htf_ends_at = _manifest_instant(htf_manifest.ends_at)
+    if htf_starts_at > required_start or htf_ends_at < required_end:
+        raise BacktestSubmissionRejectedError(
+            "Requested evaluation window is not fully covered by an additional-instrument "
+            "HTF dataset."
+        )
+
+
+def _require_additional_extra_tf_window(
+    binding: AdditionalInstrumentDataset,
+    *,
+    dataset_store: DatasetStore,
+    evaluation_start: datetime,
+    evaluation_end: datetime,
+    required_clocks: tuple[str, ...],
+    groups: Mapping[str, tuple[IndicatorDefinition, ...]],
+) -> None:
+    """Confirm extra-TF datasets for one extra product match the published clocks."""
+    clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
+    if clocks != required_clocks:
+        raise BacktestSubmissionRejectedError(
+            "additional-instrument extra-TF fingerprints must match the strategy clocks."
+        )
+    for clock in binding.indicator_dataset_fingerprints:
         try:
-            manifest = dataset_store.load_manifest(binding.dataset_fingerprint)
+            clock_manifest = dataset_store.load_manifest(clock.dataset_fingerprint)
         except DatasetStoreError as error:
             raise BacktestSubmissionRejectedError(
-                "The selected additional-instrument dataset was not found or is not a "
-                "verified complete artifact."
+                "The selected additional-instrument extra-TF dataset was not found or is "
+                "not a verified complete artifact."
             ) from error
         if (
-            manifest.product_id != binding.product_id
-            or manifest.timeframe != definition.timeframe
-            or not manifest.complete
+            clock_manifest.product_id != binding.product_id
+            or clock_manifest.timeframe != clock.timeframe
+            or not clock_manifest.complete
         ):
             raise BacktestSubmissionRejectedError(
-                "Additional-instrument dataset must be a complete artifact for that product "
-                "and decision clock."
+                "Additional-instrument extra-TF dataset must match that product and clock."
             )
-        starts_at = _manifest_instant(manifest.starts_at)
-        ends_at = _manifest_instant(manifest.ends_at)
-        if starts_at > warmup_start or ends_at < required_fill_end:
+        required_start, required_end = closed_bar_required_coverage(
+            evaluation_starts_at=evaluation_start,
+            evaluation_ends_at=evaluation_end,
+            timeframe=clock.timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
+        )
+        clock_start = _manifest_instant(clock_manifest.starts_at)
+        clock_end = _manifest_instant(clock_manifest.ends_at)
+        if clock_start > required_start or clock_end < required_end:
             raise BacktestSubmissionRejectedError(
                 "Requested evaluation window is not fully covered by an additional-instrument "
-                "dataset."
+                "extra-TF dataset."
             )
-        if htf_filter is not None:
-            if binding.htf_dataset_fingerprint is None:
-                raise BacktestSubmissionRejectedError(
-                    "additional_instrument_datasets require htf_dataset_fingerprint when the "
-                    "strategy declares htf_filter."
-                )
-            try:
-                htf_manifest = dataset_store.load_manifest(binding.htf_dataset_fingerprint)
-            except DatasetStoreError as error:
-                raise BacktestSubmissionRejectedError(
-                    "The selected additional-instrument HTF dataset was not found or is not a "
-                    "verified complete artifact."
-                ) from error
-            if (
-                htf_manifest.product_id != binding.product_id
-                or htf_manifest.timeframe != htf_filter.timeframe
-                or not htf_manifest.complete
-            ):
-                raise BacktestSubmissionRejectedError(
-                    "Additional-instrument HTF dataset must match that product and HTF clock."
-                )
-            required_start, required_end = htf_required_coverage(
-                evaluation_starts_at=evaluation_start,
-                evaluation_ends_at=evaluation_end,
-                htf_filter=htf_filter,
-            )
-            htf_starts_at = _manifest_instant(htf_manifest.starts_at)
-            htf_ends_at = _manifest_instant(htf_manifest.ends_at)
-            if htf_starts_at > required_start or htf_ends_at < required_end:
-                raise BacktestSubmissionRejectedError(
-                    "Requested evaluation window is not fully covered by an additional-instrument "
-                    "HTF dataset."
-                )
-        clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
-        if clocks != required_clocks:
-            raise BacktestSubmissionRejectedError(
-                "additional-instrument extra-TF fingerprints must match the strategy clocks."
-            )
-        for clock in binding.indicator_dataset_fingerprints:
-            try:
-                clock_manifest = dataset_store.load_manifest(clock.dataset_fingerprint)
-            except DatasetStoreError as error:
-                raise BacktestSubmissionRejectedError(
-                    "The selected additional-instrument extra-TF dataset was not found or is "
-                    "not a verified complete artifact."
-                ) from error
-            if (
-                clock_manifest.product_id != binding.product_id
-                or clock_manifest.timeframe != clock.timeframe
-                or not clock_manifest.complete
-            ):
-                raise BacktestSubmissionRejectedError(
-                    "Additional-instrument extra-TF dataset must match that product and clock."
-                )
-            required_start, required_end = closed_bar_required_coverage(
-                evaluation_starts_at=evaluation_start,
-                evaluation_ends_at=evaluation_end,
-                timeframe=clock.timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
-            )
-            clock_start = _manifest_instant(clock_manifest.starts_at)
-            clock_end = _manifest_instant(clock_manifest.ends_at)
-            if clock_start > required_start or clock_end < required_end:
-                raise BacktestSubmissionRejectedError(
-                    "Requested evaluation window is not fully covered by an additional-instrument "
-                    "extra-TF dataset."
-                )
 
 
 def _utc_millisecond(value: datetime) -> datetime:

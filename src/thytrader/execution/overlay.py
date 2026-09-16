@@ -166,14 +166,23 @@ class InstrumentScopedStore:
         """Insert one fill, ignoring exact venue-fill duplicates."""
         return await self._inner.save_fill(fill)
 
-    async def save_position(self, position: Position | None, *, deployment_id: UUID) -> None:
-        """Replace or clear this product's book only."""
+    async def save_position(
+        self,
+        position: Position | None,
+        *,
+        deployment_id: UUID,
+        product_id: str | None = None,
+    ) -> None:
+        """Replace or clear this product's book only.
+
+        The overlay ignores ``product_id`` and always writes this wrapper's
+        Coinbase USD spot product.
+        """
+        del product_id
         stamped = None
         if position is not None:
             stamped = (
-                position
-                if position.product_id
-                else replace(position, product_id=self._product_id)
+                position if position.product_id else replace(position, product_id=self._product_id)
             )
         await self._inner.save_position(
             stamped, deployment_id=deployment_id, product_id=self._product_id

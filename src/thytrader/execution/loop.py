@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.geometry import (
@@ -36,7 +36,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
-from thytrader.execution.sizing import size_entry, size_pyramid_add
+from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
@@ -728,9 +728,7 @@ async def _reprice_entry(
             store=store,
             detail="Repriced entry submit is unconfirmed.",
         )
-    pending = with_runtime(
-        reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0
-    )
+    pending = with_runtime(reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0)
     await store.save_deployment(pending)
     return await store.get_deployment(snapshot.deployment.id)
 
@@ -877,6 +875,31 @@ async def _ensure_take_profit(
     return await store.get_deployment(snapshot.deployment.id)
 
 
+def _entry_attempt_mode(
+    snapshot: DeploymentSnapshot, strategy: StrategyDefinition
+) -> Literal["new", "pyramid"] | None:
+    """Return whether this bar may open a book, add to one, or should skip."""
+    deployment = snapshot.deployment
+    if deployment.status is not DeploymentStatus.RUNNING:
+        return None
+    if deployment.phase is RuntimePhase.FLAT:
+        if deployment.cooldown_bars_remaining > 0:
+            return None
+        if (
+            _document_open_book_count(snapshot)
+            >= strategy.portfolio_limits.max_concurrent_positions
+        ):
+            return None
+        return "new"
+    if (
+        deployment.phase is RuntimePhase.OPEN
+        and snapshot.position is not None
+        and _active_entry(snapshot) is None
+    ):
+        return "pyramid"
+    return None
+
+
 async def _maybe_enter(
     snapshot: DeploymentSnapshot,
     *,
@@ -894,27 +917,11 @@ async def _maybe_enter(
     marks: Mapping[str, Decimal] | None = None,
 ) -> DeploymentSnapshot:
     """Place a post-only entry when flat, or a same-side add when pyramiding allows it."""
+    mode = _entry_attempt_mode(snapshot, strategy)
+    if mode is None:
+        return snapshot
+    pyramid_add = mode == "pyramid"
     deployment = snapshot.deployment
-    if deployment.status is not DeploymentStatus.RUNNING:
-        return snapshot
-    position = snapshot.position
-    pyramid_add = False
-    if deployment.phase is RuntimePhase.FLAT:
-        if deployment.cooldown_bars_remaining > 0:
-            return snapshot
-        if (
-            _document_open_book_count(snapshot)
-            >= strategy.portfolio_limits.max_concurrent_positions
-        ):
-            return snapshot
-    elif (
-        deployment.phase is RuntimePhase.OPEN
-        and position is not None
-        and _active_entry(snapshot) is None
-    ):
-        pyramid_add = True
-    else:
-        return snapshot
     visible_htf = htf_candles
     htf_filter = strategy.htf_filter
     if htf_filter is not None:
@@ -960,6 +967,70 @@ async def _maybe_enter(
     )
 
 
+def _size_entry_or_add(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    product: MarketProduct,
+    entry_price: Decimal,
+    atr: Decimal,
+    side: PositionSide,
+    is_pyramid_add: bool,
+) -> SizedEntry | None:
+    """Size a new book or a same-side add against remaining quote cash."""
+    fee_rate = _entry_fee_rate(snapshot.deployment)
+    if not is_pyramid_add:
+        return size_entry(
+            strategy=strategy,
+            cash=snapshot.deployment.cash,
+            entry_price=entry_price,
+            atr=atr,
+            product=product,
+            fee_rate=fee_rate,
+            side=side,
+        )
+    position = snapshot.position
+    if position is None:
+        return None
+    return size_pyramid_add(
+        strategy=strategy,
+        cash=snapshot.deployment.cash,
+        entry_price=entry_price,
+        existing_stop=position.stop_price,
+        existing_target=position.target_price,
+        product=product,
+        fee_rate=fee_rate,
+        side=side,
+    )
+
+
+def _runtime_for_admitted_entry(
+    deployment: Deployment,
+    *,
+    sized: SizedEntry,
+    strategy: StrategyDefinition,
+    is_pyramid_add: bool,
+) -> tuple[Deployment, bool]:
+    """Stamp pending-entry or keep OPEN, and decide whether live brackets attach."""
+    if is_pyramid_add:
+        pending = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            phase=RuntimePhase.OPEN,
+            pending_entry_bars=0,
+        )
+        return pending, False
+    pending = with_runtime(
+        deployment,
+        updated_at=utc_now(),
+        phase=RuntimePhase.PENDING_ENTRY,
+        pending_entry_bars=0,
+        pending_stop_price=sized.stop_price,
+        pending_target_price=sized.target_price,
+    )
+    return pending, atr_trailing_stop(strategy.exits) is None
+
+
 async def _submit_sized_entry(
     snapshot: DeploymentSnapshot,
     *,
@@ -987,31 +1058,15 @@ async def _submit_sized_entry(
         )
     except BrokerError:
         return await _pause(snapshot, store=store, detail="Maker entry price is unavailable.")
-    fee_rate = _entry_fee_rate(snapshot.deployment)
-    position = snapshot.position
-    if is_pyramid_add:
-        if position is None:
-            return snapshot
-        sized = size_pyramid_add(
-            strategy=strategy,
-            cash=snapshot.deployment.cash,
-            entry_price=entry_price,
-            existing_stop=position.stop_price,
-            existing_target=position.target_price,
-            product=product,
-            fee_rate=fee_rate,
-            side=side,
-        )
-    else:
-        sized = size_entry(
-            strategy=strategy,
-            cash=snapshot.deployment.cash,
-            entry_price=entry_price,
-            atr=atr,
-            product=product,
-            fee_rate=fee_rate,
-            side=side,
-        )
+    sized = _size_entry_or_add(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        entry_price=entry_price,
+        atr=atr,
+        side=side,
+        is_pyramid_add=is_pyramid_add,
+    )
     if sized is None:
         return snapshot
     if (
@@ -1046,24 +1101,9 @@ async def _submit_sized_entry(
                 snapshot, store=store, portfolio=portfolio, verdict=admitted
             )
         return snapshot
-    if is_pyramid_add:
-        pending = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            phase=RuntimePhase.OPEN,
-            pending_entry_bars=0,
-        )
-        attach = False
-    else:
-        pending = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            phase=RuntimePhase.PENDING_ENTRY,
-            pending_entry_bars=0,
-            pending_stop_price=sized.stop_price,
-            pending_target_price=sized.target_price,
-        )
-        attach = atr_trailing_stop(strategy.exits) is None
+    pending, attach = _runtime_for_admitted_entry(
+        snapshot.deployment, sized=sized, strategy=strategy, is_pyramid_add=is_pyramid_add
+    )
     await store.save_deployment(pending)
     order = await submit_intent(
         store=store,

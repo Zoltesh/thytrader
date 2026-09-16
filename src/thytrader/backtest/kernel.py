@@ -210,7 +210,8 @@ def _simulate_backtest(
         ]
         if missing:
             raise BacktestSimulationError(
-                "Multi-instrument backtests require additional_instrument_candles for every extra product."
+                "Multi-instrument backtests require additional_instrument_candles "
+                "for every extra product."
             )
         return _simulate_lockstep_backtest(
             specification,
@@ -226,6 +227,19 @@ def _simulate_backtest(
         return _simulate_maker_backtest(
             specification, strategy, candles, htf_candles, indicator_timeframe_candles
         )
+    return _simulate_single_taker_backtest(
+        specification, strategy, candles, htf_candles, indicator_timeframe_candles
+    )
+
+
+def _simulate_single_taker_backtest(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+) -> BacktestResult:
+    """Simulate one product with next-open taker fills and conservative OHLC exits."""
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     fill_model = _fill_model(specification)
@@ -245,33 +259,24 @@ def _simulate_backtest(
     evaluation_records = {record.candle_starts_at: record for record in trace.records}
     evaluation_span = specification.evaluation.ends_at - specification.evaluation.starts_at
     evaluation_bars = int(evaluation_span / bar)
+    taker_fee_rate = Decimal(specification.costs.taker_fee_rate)
+    slippage_bps = Decimal(specification.costs.fixed_slippage_bps)
 
     for offset in range(evaluation_bars + 1):
         starts_at = specification.evaluation.starts_at + bar * offset
         candle = candle_by_start[starts_at]
         if pending is not None:
-            if position is not None:
-                position, cash = _scale_in_open_position(
-                    pending,
-                    candle,
-                    position=position,
-                    strategy=strategy,
-                    cash=cash,
-                    taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
-                    slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
-                    fill_model=fill_model,
-                )
-            else:
-                position, cash = _open_position(
-                    pending,
-                    candle,
-                    strategy=strategy,
-                    cash=cash,
-                    entry_bar_index=offset,
-                    taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
-                    slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
-                    fill_model=fill_model,
-                )
+            position, cash = _fill_taker_pending(
+                pending,
+                candle,
+                position=position,
+                strategy=strategy,
+                cash=cash,
+                entry_bar_index=offset,
+                taker_fee_rate=taker_fee_rate,
+                slippage_bps=slippage_bps,
+                fill_model=fill_model,
+            )
             pending = None
         if position is not None and offset < evaluation_bars:
             position = _trail_open_position(
@@ -286,8 +291,8 @@ def _simulate_backtest(
                 candle,
                 cash=cash,
                 bar_index=offset,
-                taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
-                slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+                taker_fee_rate=taker_fee_rate,
+                slippage_bps=slippage_bps,
                 max_bars_held=strategy.exits.time_exit.max_bars_held,
                 fill_model=fill_model,
                 bar_duration=bar,
@@ -296,22 +301,14 @@ def _simulate_backtest(
                 trades.append(trade)
                 position = None
         if offset < evaluation_bars:
-            record = evaluation_records[starts_at]
-            if position is None and record.entry_condition is EntryConditionOutcome.MATCHED:
-                pending = _PendingEntry(signal=record)
-            elif (
-                position is not None
-                and pending is None
-                and record.entry_condition is EntryConditionOutcome.MATCHED
-                and can_pyramid_add(
-                    strategy=strategy,
-                    side=position.side,
-                    entry_price=Decimal(position.entry.price),
-                    mark=candle.close,
-                    add_count=position.add_count,
-                )
-            ):
-                pending = _PendingEntry(signal=record)
+            pending = _queue_taker_signal(
+                position=position,
+                pending=pending,
+                record=evaluation_records[starts_at],
+                strategy=strategy,
+                mark=candle.close,
+                allow_new_book=True,
+            )
         mark_reference = candle.open if offset == evaluation_bars else candle.close
         equity_curve.append(
             _equity_point(
@@ -330,8 +327,8 @@ def _simulate_backtest(
             bar_index=evaluation_bars,
             raw_exit_price=candle_by_start[specification.evaluation.ends_at].open,
             reason="evaluation_end",
-            taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
-            slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
+            taker_fee_rate=taker_fee_rate,
+            slippage_bps=slippage_bps,
             fill_model=fill_model,
             bar_duration=bar,
         )
@@ -364,6 +361,69 @@ def _simulate_backtest(
     )
 
 
+def _fill_taker_pending(
+    pending: _PendingEntry,
+    candle: Candle,
+    *,
+    position: _OpenPosition | None,
+    strategy: StrategyDefinition,
+    cash: Decimal,
+    entry_bar_index: int,
+    taker_fee_rate: Decimal,
+    slippage_bps: Decimal,
+    fill_model: FillModel,
+) -> tuple[_OpenPosition | None, Decimal]:
+    """Open or scale in at the pending signal's next-open fill."""
+    if position is not None:
+        return _scale_in_open_position(
+            pending,
+            candle,
+            position=position,
+            strategy=strategy,
+            cash=cash,
+            taker_fee_rate=taker_fee_rate,
+            slippage_bps=slippage_bps,
+            fill_model=fill_model,
+        )
+    return _open_position(
+        pending,
+        candle,
+        strategy=strategy,
+        cash=cash,
+        entry_bar_index=entry_bar_index,
+        taker_fee_rate=taker_fee_rate,
+        slippage_bps=slippage_bps,
+        fill_model=fill_model,
+    )
+
+
+def _queue_taker_signal(
+    *,
+    position: _OpenPosition | None,
+    pending: _PendingEntry | None,
+    record: SignalTraceRecord,
+    strategy: StrategyDefinition,
+    mark: Decimal,
+    allow_new_book: bool,
+) -> _PendingEntry | None:
+    """Queue a next-open entry or same-side add when the close-time signal matches."""
+    if record.entry_condition is not EntryConditionOutcome.MATCHED:
+        return pending
+    if position is None:
+        if allow_new_book:
+            return _PendingEntry(signal=record)
+        return pending
+    if pending is None and can_pyramid_add(
+        strategy=strategy,
+        side=position.side,
+        entry_price=Decimal(position.entry.price),
+        mark=mark,
+        add_count=position.add_count,
+    ):
+        return _PendingEntry(signal=record)
+    return pending
+
+
 def _simulate_lockstep_backtest(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
@@ -376,7 +436,10 @@ def _simulate_lockstep_backtest(
 ) -> BacktestResult:
     """Evaluate covered products in lex order on each shared bar with one quote book."""
     primary = strategy.instrument.product_id
-    candles_by_product: dict[str, Sequence[Candle]] = {primary: candles, **additional_instrument_candles}
+    candles_by_product: dict[str, Sequence[Candle]] = {
+        primary: candles,
+        **additional_instrument_candles,
+    }
     htf_by_product: dict[str, Sequence[Candle]] = {primary: htf_candles, **additional_htf_candles}
     extra_by_product: dict[str, Mapping[str, Sequence[Candle]] | None] = {
         primary: indicator_timeframe_candles,
@@ -455,28 +518,17 @@ def _simulate_lockstep_taker_backtest(
             book = books[product_id]
             candle = book.candle_by_start[starts_at]
             if book.pending is not None:
-                if book.position is not None:
-                    book.position, cash = _scale_in_open_position(
-                        book.pending,
-                        candle,
-                        position=book.position,
-                        strategy=strategy,
-                        cash=cash,
-                        taker_fee_rate=taker_fee_rate,
-                        slippage_bps=slippage_bps,
-                        fill_model=fill_model,
-                    )
-                else:
-                    book.position, cash = _open_position(
-                        book.pending,
-                        candle,
-                        strategy=strategy,
-                        cash=cash,
-                        entry_bar_index=offset,
-                        taker_fee_rate=taker_fee_rate,
-                        slippage_bps=slippage_bps,
-                        fill_model=fill_model,
-                    )
+                book.position, cash = _fill_taker_pending(
+                    book.pending,
+                    candle,
+                    position=book.position,
+                    strategy=strategy,
+                    cash=cash,
+                    entry_bar_index=offset,
+                    taker_fee_rate=taker_fee_rate,
+                    slippage_bps=slippage_bps,
+                    fill_model=fill_model,
+                )
                 book.pending = None
             if book.position is not None and offset < evaluation_bars:
                 book.position = _trail_open_position(
@@ -501,26 +553,14 @@ def _simulate_lockstep_taker_backtest(
                     trades.append(trade)
                     book.position = None
             if offset < evaluation_bars:
-                record = book.evaluation_records[starts_at]
-                if (
-                    book.position is None
-                    and record.entry_condition is EntryConditionOutcome.MATCHED
-                    and _lockstep_open_book_count(books) < max_books
-                ):
-                    book.pending = _PendingEntry(signal=record)
-                elif (
-                    book.position is not None
-                    and book.pending is None
-                    and record.entry_condition is EntryConditionOutcome.MATCHED
-                    and can_pyramid_add(
-                        strategy=strategy,
-                        side=book.position.side,
-                        entry_price=Decimal(book.position.entry.price),
-                        mark=candle.close,
-                        add_count=book.position.add_count,
-                    )
-                ):
-                    book.pending = _PendingEntry(signal=record)
+                book.pending = _queue_taker_signal(
+                    position=book.position,
+                    pending=book.pending,
+                    record=book.evaluation_records[starts_at],
+                    strategy=strategy,
+                    mark=candle.close,
+                    allow_new_book=_lockstep_open_book_count(books) < max_books,
+                )
         equity_curve.append(
             _lockstep_equity_point(
                 starts_at,
@@ -560,9 +600,7 @@ def _simulate_lockstep_taker_backtest(
         book.position = None
     if equity_curve:
         end_marks = tuple(
-            Decimal(
-                books[product_id].candle_by_start[specification.evaluation.ends_at].open
-            )
+            Decimal(books[product_id].candle_by_start[specification.evaluation.ends_at].open)
             for product_id in lockstep_product_ids(strategy)
         )
         equity_curve[-1] = _lockstep_equity_point(

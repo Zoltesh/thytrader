@@ -165,8 +165,10 @@ def size_pyramid_add(
     """
     if entry_price <= 0 or cash <= 0:
         return None
-    stop_distance = (entry_price - existing_stop) if side is PositionSide.LONG else (
-        existing_stop - entry_price
+    stop_distance = (
+        (entry_price - existing_stop)
+        if side is PositionSide.LONG
+        else (existing_stop - entry_price)
     )
     if stop_distance <= 0:
         return None

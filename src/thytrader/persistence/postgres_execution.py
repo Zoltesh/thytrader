@@ -551,11 +551,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
         focused = positions[0]
     else:
         focused = next(
-            (
-                item
-                for item in positions
-                if item.product_id in {"", deployment.product_id}
-            ),
+            (item for item in positions if item.product_id in {"", deployment.product_id}),
             None,
         )
     return DeploymentSnapshot(

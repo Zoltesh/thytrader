@@ -77,9 +77,7 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     additional_htf = _additional_htf_candles(dataset_store, specification)
     additional_indicator = _additional_indicator_candles(dataset_store, specification)
     definition = published_strategy.definition
-    trace = evaluate_signal_trace(
-        specification, definition, candles, htf_candles, extra_candles
-    )
+    trace = evaluate_signal_trace(specification, definition, candles, htf_candles, extra_candles)
     for product_id in lockstep_product_ids(definition):
         if product_id == definition.instrument.product_id:
             continue
@@ -155,7 +153,7 @@ def _additional_indicator_candles(
     """Load extra covered-product extra-TF datasets when fingerprinted."""
     loaded: dict[str, dict[str, tuple[Candle, ...]]] = {}
     for item in specification.additional_instrument_datasets:
-        clocks = {
+        clocks: dict[str, tuple[Candle, ...]] = {
             clock.timeframe: dataset_store.load_candles(clock.dataset_fingerprint)
             for clock in item.indicator_dataset_fingerprints
         }
