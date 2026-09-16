@@ -65,7 +65,8 @@ class DemoMarketData:
         """Return deterministic completed candles for one supported demo product."""
         product = _product(product_id, interval)
         try:
-            latest_start = now.replace(minute=0, second=0, microsecond=0) - interval.duration
+            latest_end = interval.align_closed_end(now)
+            latest_start = latest_end - interval.duration
             first_start = latest_start - interval.duration * 23
         except OverflowError as error:
             raise ValueError(

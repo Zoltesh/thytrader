@@ -474,6 +474,8 @@ def _new_discretionary_book(
         )
     except ValueError as error:
         raise ExecutionConflictError(str(error)) from error
+    cash = _initial_cash(request, live_quote_cash=live_quote_cash)
+    initial = cash if cash > 0 else live_quote_cash
     return Deployment(
         id=uuid7(now),
         strategy_fingerprint=None,
@@ -484,12 +486,18 @@ def _new_discretionary_book(
         paper_starting_cash=request.paper_starting_cash,
         paper_maker_fee_rate=maker_fee_rate,
         paper_taker_fee_rate=taker_fee_rate,
-        cash=_initial_cash(request, live_quote_cash=live_quote_cash),
+        cash=cash,
         phase=RuntimePhase.FLAT,
         created_at=now,
         updated_at=now,
         kind=DeploymentKind.DISCRETIONARY,
         timeframe=request.timeframe,
+        venue_available_quote=live_quote_cash,
+        initial_equity=initial,
+        baseline_equity=initial,
+        high_water_mark_equity=initial,
+        utc_day_open_equity=initial,
+        utc_day_open_at=now if initial is not None else None,
     )
 
 

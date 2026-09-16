@@ -36,6 +36,7 @@ class HealthOpsContract(BaseModel):
     trade_reason_journals: list[str]
     multi_instrument_documents: list[str]
     intra_strategy_pyramiding: list[str]
+    lifecycle_commands: list[str]
     expected_schema_revision: str
 
 
