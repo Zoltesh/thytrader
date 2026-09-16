@@ -754,7 +754,10 @@ async def test_paused_unfilled_entry_does_not_reprice() -> None:
         for order in current.orders
         if order.status is OrderStatus.OPEN and order.id != original_id
     }
+    open_entries = [order for order in current.orders if order.status is OrderStatus.OPEN]
     assert replacement_ids == set()
+    assert len(open_entries) == 1
+    assert open_entries[0].id == original_id
     assert current.deployment.status is DeploymentStatus.PAUSED
 
 
