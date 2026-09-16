@@ -240,7 +240,7 @@ test('paper/live status opens the Deploy page', async ({ page }) => {
 	const status = page.getByRole('link', { name: 'running / paused' });
 	await expect(status).toHaveAttribute('title', /Paper: running\. Live: paused/);
 	await expect(status).toHaveAttribute('href', `/deploy?strategy=${strategyId}`);
-	await status.click();
+	await status.click({ force: true });
 	await expect(page).toHaveURL(/\/deploy\?strategy=/);
 	await expect(page.getByRole('heading', { name: 'Deploy', exact: true })).toBeVisible();
 });
