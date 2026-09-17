@@ -31,10 +31,7 @@ def _show_result_for_timeframe(timeframe: str) -> dict[str, object]:
 
     def fake_request_json(*, method: str, url: str, **_kwargs: object) -> dict[str, object]:
         del method
-        if (
-            f"/api/v1/backtests/{_RESULT_FINGERPRINT}" in url
-            and "detail=summary" in url
-        ):
+        if f"/api/v1/backtests/{_RESULT_FINGERPRINT}" in url and "detail=summary" in url:
             return _summary_payload()
         if url.endswith(f"/api/v1/strategies/source/{_STRATEGY_FINGERPRINT}"):
             return {"strategy": {"timeframe": timeframe}}
