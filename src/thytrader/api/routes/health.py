@@ -37,6 +37,7 @@ class HealthOpsContract(BaseModel):
     multi_instrument_documents: list[str]
     intra_strategy_pyramiding: list[str]
     lifecycle_commands: list[str]
+    deployment_capital_fields: list[str]
     expected_schema_revision: str
 
 

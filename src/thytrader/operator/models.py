@@ -116,6 +116,7 @@ class OpsContractPayload(_FrozenModel):
     lifecycle_commands: tuple[
         Literal["none", "stop_new_entries", "flatten", "managed_shutdown"], ...
     ]
+    deployment_capital_fields: tuple[str, ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

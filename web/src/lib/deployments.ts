@@ -32,6 +32,18 @@ export type DeploymentBookTotals = {
 	fill_count: number;
 };
 
+export type DeploymentCapital = {
+	allocated_capital?: string | null;
+	venue_available_quote?: string | null;
+	reserved_buying_power?: string | null;
+	inventory_cost?: string | null;
+	performance_equity?: string | null;
+	initial_equity?: string | null;
+	baseline_equity?: string | null;
+	high_water_mark_equity?: string | null;
+	utc_day_open_equity?: string | null;
+};
+
 export type DeploymentOrder = {
 	id: string;
 	client_order_id: string;
@@ -89,6 +101,7 @@ export type Deployment = {
 	positions?: DeploymentPosition[];
 	instrument_runtimes?: DeploymentInstrumentRuntime[];
 	book_totals?: DeploymentBookTotals;
+	capital?: DeploymentCapital;
 	orders: DeploymentOrder[];
 	fills: DeploymentFill[];
 };
@@ -157,6 +170,31 @@ export function canonicalBooks(deployment: Deployment): DeploymentInstrumentRunt
 			cooldown_bars_remaining: 0
 		}
 	];
+}
+
+export function capitalSummary(deployment: Deployment): string | null {
+	const capital = deployment.capital;
+	if (!capital) {
+		return null;
+	}
+	const parts: string[] = [];
+	if (capital.allocated_capital) {
+		parts.push(`allocated ${capital.allocated_capital}`);
+	}
+	if (deployment.mode === 'live') {
+		if (capital.venue_available_quote) {
+			parts.push(`venue ${capital.venue_available_quote}`);
+		} else {
+			parts.push('venue unknown');
+		}
+	}
+	if (capital.performance_equity) {
+		parts.push(`equity ${capital.performance_equity}`);
+	}
+	if (capital.inventory_cost) {
+		parts.push(`inventory ${capital.inventory_cost}`);
+	}
+	return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 export function bookTotalsReconcile(deployment: Deployment): boolean {

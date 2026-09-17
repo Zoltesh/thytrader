@@ -102,6 +102,25 @@ class DeploymentBookTotalsResponse(BaseModel):
     fill_count: int = 0
 
 
+class DeploymentCapitalResponse(BaseModel):
+    """Capital accounting separate from ledger ``cash``.
+
+    Ledger ``cash`` on the parent body is fill accounting. Live sizing and breaker
+    fractions use allocated capital or venue available quote. Unknown venue quote is
+    ``null`` so callers disable entries instead of reusing a stale balance.
+    """
+
+    allocated_capital: str | None = None
+    venue_available_quote: str | None = None
+    reserved_buying_power: str | None = None
+    inventory_cost: str | None = None
+    performance_equity: str | None = None
+    initial_equity: str | None = None
+    baseline_equity: str | None = None
+    high_water_mark_equity: str | None = None
+    utc_day_open_equity: str | None = None
+
+
 class OrderResponse(BaseModel):
     """One persisted venue-visible order, tagged with its Coinbase product."""
 
@@ -172,6 +191,7 @@ class DeploymentResponse(BaseModel):
     positions: tuple[PositionResponse, ...] = ()
     instrument_runtimes: tuple[InstrumentRuntimeResponse, ...] = ()
     book_totals: DeploymentBookTotalsResponse = Field(default_factory=DeploymentBookTotalsResponse)
+    capital: DeploymentCapitalResponse = Field(default_factory=DeploymentCapitalResponse)
     orders: tuple[OrderResponse, ...] = ()
     fills: tuple[FillResponse, ...] = ()
 
@@ -404,6 +424,28 @@ async def _covered_products(
     return covered_product_ids(published.definition)
 
 
+def _optional_decimal_string(value: Decimal | None) -> str | None:
+    """Format one optional Decimal for JSON without inventing zero placeholders."""
+    if value is None:
+        return None
+    return format(value, "f")
+
+
+def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
+    """Serialize live/paper capital accounting separate from ledger cash."""
+    return DeploymentCapitalResponse(
+        allocated_capital=_optional_decimal_string(deployment.allocated_capital),
+        venue_available_quote=_optional_decimal_string(deployment.venue_available_quote),
+        reserved_buying_power=_optional_decimal_string(deployment.reserved_buying_power),
+        inventory_cost=_optional_decimal_string(deployment.inventory_cost),
+        performance_equity=_optional_decimal_string(deployment.performance_equity),
+        initial_equity=_optional_decimal_string(deployment.initial_equity),
+        baseline_equity=_optional_decimal_string(deployment.baseline_equity),
+        high_water_mark_equity=_optional_decimal_string(deployment.high_water_mark_equity),
+        utc_day_open_equity=_optional_decimal_string(deployment.utc_day_open_equity),
+    )
+
+
 def _deployment_response(deployment: Deployment) -> DeploymentResponse:
     """Serialize one deployment without related collections."""
     return DeploymentResponse(
@@ -443,6 +485,7 @@ def _deployment_response(deployment: Deployment) -> DeploymentResponse:
         bars_held=deployment.bars_held,
         created_at=deployment.created_at.isoformat(),
         updated_at=deployment.updated_at.isoformat(),
+        capital=_capital_response(deployment),
     )
 
 

@@ -186,6 +186,7 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "--allow-intra-strategy-pyramiding" in skill
     assert "PYRAMIDING_NOT_ALLOWED" in skill
     assert "0060-multi-book-deployment-api" in skill
+    assert "0065-deployment-capital-accounting-http" in skill or '"capital"' in skill
     assert "instrument_runtimes" in skill
     assert "book_totals" in skill
     assert "compatibility" in skill.lower()

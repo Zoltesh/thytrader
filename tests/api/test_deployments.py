@@ -15,6 +15,9 @@ from thytrader.config import Environment, Settings
 from thytrader.execution.ids import uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentStatus,
     Fill,
     Order,
     OrderKind,
@@ -22,6 +25,7 @@ from thytrader.execution.models import (
     OrderStatus,
     Position,
     PositionSide,
+    RuntimePhase,
 )
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.risk.models import compiled_default_risk_policy
@@ -873,3 +877,57 @@ def test_two_open_books_keep_distinct_sides_and_reconcile_totals() -> None:
     assert body["book_totals"]["fill_count"] == len(body["fills"])
     working = sum(1 for item in body["orders"] if item["status"] in {"pending", "open", "unknown"})
     assert body["book_totals"]["working_orders"] == working
+
+
+def test_deployment_response_includes_capital_accounting_block() -> None:
+    """Capital fields are exposed separately from ledger cash for agent and UI review."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    deployment_id = uuid4()
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    created = asyncio.run(
+        execution.create_deployment(
+            Deployment(
+                id=deployment_id,
+                strategy_fingerprint=fingerprint,
+                strategy_id=definition.strategy_id,
+                product_id="BTC-USD",
+                mode=DeploymentMode.LIVE,
+                status=DeploymentStatus.RUNNING,
+                cash=Decimal("0"),
+                phase=RuntimePhase.FLAT,
+                created_at=now,
+                updated_at=now,
+                allocated_capital=Decimal("25000"),
+                venue_available_quote=Decimal("50000"),
+                reserved_buying_power=Decimal("1200"),
+                inventory_cost=Decimal("800"),
+                performance_equity=Decimal("24800"),
+                initial_equity=Decimal("25000"),
+                baseline_equity=Decimal("25000"),
+                high_water_mark_equity=Decimal("25200"),
+                utc_day_open_equity=Decimal("24900"),
+            )
+        )
+    )
+    assert created.id == deployment_id
+
+    with _client(publication, execution) as client:
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["cash"] == "0"
+    capital = body["capital"]
+    assert capital["allocated_capital"] == "25000"
+    assert capital["venue_available_quote"] == "50000"
+    assert capital["reserved_buying_power"] == "1200"
+    assert capital["inventory_cost"] == "800"
+    assert capital["performance_equity"] == "24800"
+    assert capital["initial_equity"] == "25000"
+    assert capital["utc_day_open_equity"] == "24900"
