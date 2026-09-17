@@ -17,14 +17,9 @@ from pydantic import BaseModel, ConfigDict
 
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
-    get_research_job_store,
     get_backtest_result_store,
     get_backtest_submitter,
-)
-from thytrader.research.jobs import (
-    ResearchJobAcceptedResponse,
-    ResearchJobRecord,
-    ResearchJobStore,
+    get_research_job_store,
 )
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -51,6 +46,11 @@ from thytrader.persistence.backtest_results import (
     BacktestResultReader,
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
+)
+from thytrader.research.jobs import (
+    ResearchJobAcceptedResponse,
+    ResearchJobRecord,
+    ResearchJobStore,
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 
@@ -151,6 +151,14 @@ async def _published_costs_projection(
         return None
     specification = await store.load_source_specification(result)
     return CostAssumptions.model_validate(specification.costs.model_dump(mode="python"))
+
+
+def _raise_client_disconnected() -> None:
+    """Stop building a large backtest payload after the client disconnects."""
+    raise HTTPException(
+        status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
+        detail={"code": "backtest_invalid", "message": "Client disconnected."},
+    )
 
 
 def _fingerprint_or_none(value: str | None) -> str | None:
@@ -384,16 +392,10 @@ async def get_backtest(
         )
     try:
         if await http_request.is_disconnected():
-            raise HTTPException(
-                status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
-                detail={"code": "backtest_invalid", "message": "Client disconnected."},
-            )
+            _raise_client_disconnected()
         result = await store.load(result_fingerprint)
         if await http_request.is_disconnected():
-            raise HTTPException(
-                status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
-                detail={"code": "backtest_invalid", "message": "Client disconnected."},
-            )
+            _raise_client_disconnected()
         verified_result_fingerprint = backtest_result_fingerprint(result)
         costs = await _published_costs_projection(store, result)
     except BacktestResultNotFoundError:

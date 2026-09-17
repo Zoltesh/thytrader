@@ -8,13 +8,11 @@ from datetime import UTC, datetime, timedelta
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.research.jobs import (
     InMemoryResearchJobStore,
-    ResearchJobKind,
     ResearchJobStatus,
     run_backtest_job,
 )
 from thytrader.research.studies import (
     ResearchStudyPlan,
-    ResearchStudyRequest,
     StudyKind,
     plan_fingerprint,
     summarize_research_study_plan,
@@ -142,10 +140,8 @@ def test_in_memory_job_store_expires_stale_jobs() -> None:
 
     async def _scenario() -> None:
         record = await store.create_backtest(_backtest_request())
-        stale = record.model_copy(
-            update={"expires_at": datetime.now(UTC) - timedelta(hours=1)}
-        )
-        store._records[record.job_id] = stale  # noqa: SLF001
+        stale = record.model_copy(update={"expires_at": datetime.now(UTC) - timedelta(hours=1)})
+        store._records[record.job_id] = stale
         expired = await store.expire_stale()
         polled = await store.get(record.job_id)
         assert expired == 1

@@ -1,12 +1,11 @@
 """Typed FastAPI dependencies."""
 
 # FastAPI resolves these dependency annotations at runtime.
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from fastapi import Request  # noqa: TC002
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobStore
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
@@ -34,6 +33,9 @@ from thytrader.strategies.authoring import (
     StrategyDraftStore,
 )
 from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationStore
+
+if TYPE_CHECKING:
+    from thytrader.research.jobs import ResearchJobStore
 
 
 def get_runtime_state(request: Request) -> RuntimeState:

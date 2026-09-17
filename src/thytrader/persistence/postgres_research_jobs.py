@@ -19,11 +19,10 @@ from thytrader.research.jobs import (
     ResearchJobRecord,
     ResearchJobStatus,
 )
+from thytrader.research.studies import ResearchStudyRequest
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
-
-    from thytrader.research.studies import ResearchStudyRequest
 
 
 class ResearchJobUnavailableError(RuntimeError):
@@ -236,16 +235,12 @@ class PostgresResearchJobStore:
 
     async def load_study_request(self, job_id: UUID) -> ResearchStudyRequest:
         """Load the queued study payload for one job."""
-        from thytrader.research.studies import ResearchStudyRequest
-
         payload = await self._payload(job_id)
         return ResearchStudyRequest.model_validate_json(payload)
 
     async def is_cancel_requested(self, job_id: UUID) -> bool:
         """Return whether cancellation was requested for one job."""
-        statement = select(research_jobs.c.cancel_requested).where(
-            research_jobs.c.job_id == job_id
-        )
+        statement = select(research_jobs.c.cancel_requested).where(research_jobs.c.job_id == job_id)
         try:
             async with self._engine.connect() as connection:
                 row = (await connection.execute(statement)).one_or_none()
@@ -295,26 +290,17 @@ class PostgresResearchJobStore:
         cancel_requested: bool | None = None,
     ) -> ResearchJobRecord:
         """Update one job row."""
-        values: dict[str, object] = {
-            "status": status.value,
-            "updated_at": datetime.now(UTC),
-        }
-        if error_message is not None:
-            values["error_message"] = error_message[:256]
-        if run_fingerprint is not None:
-            values["run_fingerprint"] = run_fingerprint
-        if result_fingerprint is not None:
-            values["result_fingerprint"] = result_fingerprint
-        if study_fingerprint is not None:
-            values["study_fingerprint"] = study_fingerprint
-        if plan_fingerprint is not None:
-            values["plan_fingerprint"] = plan_fingerprint
-        if progress_current is not None:
-            values["progress_current"] = progress_current
-        if progress_total is not None:
-            values["progress_total"] = progress_total
-        if cancel_requested is not None:
-            values["cancel_requested"] = cancel_requested
+        values = _replacement_values(
+            status=status,
+            error_message=error_message,
+            run_fingerprint=run_fingerprint,
+            result_fingerprint=result_fingerprint,
+            study_fingerprint=study_fingerprint,
+            plan_fingerprint=plan_fingerprint,
+            progress_current=progress_current,
+            progress_total=progress_total,
+            cancel_requested=cancel_requested,
+        )
         statement = update(research_jobs).where(research_jobs.c.job_id == job_id).values(**values)
         try:
             async with self._engine.begin() as connection:
@@ -325,6 +311,42 @@ class PostgresResearchJobStore:
         if record is None:
             raise ResearchJobUnavailableError("Research jobs are unavailable.")
         return record
+
+
+def _replacement_values(
+    *,
+    status: ResearchJobStatus,
+    error_message: str | None,
+    run_fingerprint: str | None,
+    result_fingerprint: str | None,
+    study_fingerprint: str | None,
+    plan_fingerprint: str | None,
+    progress_current: int | None,
+    progress_total: int | None,
+    cancel_requested: bool | None,
+) -> dict[str, object]:
+    """Build column updates for one research-job row."""
+    values: dict[str, object] = {
+        "status": status.value,
+        "updated_at": datetime.now(UTC),
+    }
+    if error_message is not None:
+        values["error_message"] = error_message[:256]
+    if run_fingerprint is not None:
+        values["run_fingerprint"] = run_fingerprint
+    if result_fingerprint is not None:
+        values["result_fingerprint"] = result_fingerprint
+    if study_fingerprint is not None:
+        values["study_fingerprint"] = study_fingerprint
+    if plan_fingerprint is not None:
+        values["plan_fingerprint"] = plan_fingerprint
+    if progress_current is not None:
+        values["progress_current"] = progress_current
+    if progress_total is not None:
+        values["progress_total"] = progress_total
+    if cancel_requested is not None:
+        values["cancel_requested"] = cancel_requested
+    return values
 
 
 def _record_from_row(row: object) -> ResearchJobRecord:

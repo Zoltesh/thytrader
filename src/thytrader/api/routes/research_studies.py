@@ -7,10 +7,12 @@ results or grant paper/live trading authority.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Literal
-from uuid import UUID
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+
+if TYPE_CHECKING:
+    from uuid import UUID
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
@@ -20,7 +22,6 @@ from thytrader.api.dependencies import (
     get_research_study_catalog,
     get_strategy_publication_store,
 )
-from thytrader.research.jobs import ResearchJobAcceptedResponse, ResearchJobRecord, ResearchJobStore
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
@@ -35,6 +36,7 @@ from thytrader.research.catalog import (
     StudyCatalogUnavailableError,
 )
 from thytrader.research.engine_support import EngineSupportMatrix, engine_support_matrix
+from thytrader.research.jobs import ResearchJobAcceptedResponse, ResearchJobRecord, ResearchJobStore
 from thytrader.research.studies import (
     ResearchStudy,
     ResearchStudyError,

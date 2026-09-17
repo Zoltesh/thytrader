@@ -39,8 +39,6 @@ from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.security import router as security_router
 from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
-from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
-from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobRunner
 from thytrader.backtest.submission import (
     BacktestSubmitter,
     DisabledBacktestSubmitter,
@@ -111,6 +109,7 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
+from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -124,6 +123,8 @@ from thytrader.persistence.worker_heartbeats import (
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
+from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobRunner
+from thytrader.research.studies import ResearchStudyService
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
@@ -299,9 +300,7 @@ def create_app(
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
         _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
         job_store = (
-            PostgresResearchJobStore(engine)
-            if engine is not None
-            else InMemoryResearchJobStore()
+            PostgresResearchJobStore(engine) if engine is not None else InMemoryResearchJobStore()
         )
         _app.state.research_job_store = job_store
         _app.state.backtest_job_store = job_store
@@ -329,8 +328,6 @@ def create_app(
         )
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
-
-        from thytrader.research.studies import ResearchStudyService
 
         study_service = ResearchStudyService(
             publications=_app.state.strategy_publication_store,

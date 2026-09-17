@@ -435,18 +435,8 @@ def _dispatch_http_draft(base_url: str, arguments: argparse.Namespace) -> str | 
     return None
 
 
-def _dispatch_http(arguments: argparse.Namespace) -> str:
-    """Execute one research command against the loopback HTTP API."""
-    settings = Settings()
-    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
-    draft_output = _dispatch_http_draft(base_url, arguments)
-    if draft_output is not None:
-        return draft_output
-    if arguments.command == "publish":
-        _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
-        strategy_id = UUID(arguments.strategy_id)
-        require_matching_ops_contract(base_url)
-        return research_http.publish(base_url, strategy_id)
+def _dispatch_http_jobs(base_url: str, arguments: argparse.Namespace) -> str | None:
+    """Handle backtest and research job commands over HTTP."""
     if arguments.command == "submit-backtest":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-backtest")
         request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
@@ -466,6 +456,24 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
         _require_http_confirm(arguments.confirm, base_url=base_url, command="cancel-research-job")
         require_matching_ops_contract(base_url)
         return research_http.cancel_research_job(base_url, arguments.job_id)
+    return None
+
+
+def _dispatch_http(arguments: argparse.Namespace) -> str:
+    """Execute one research command against the loopback HTTP API."""
+    settings = Settings()
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    draft_output = _dispatch_http_draft(base_url, arguments)
+    if draft_output is not None:
+        return draft_output
+    if arguments.command == "publish":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
+        strategy_id = UUID(arguments.strategy_id)
+        require_matching_ops_contract(base_url)
+        return research_http.publish(base_url, strategy_id)
+    job_output = _dispatch_http_jobs(base_url, arguments)
+    if job_output is not None:
+        return job_output
     if arguments.command == "list-results":
         require_matching_ops_contract(base_url)
         return research_http.list_results(

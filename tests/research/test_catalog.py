@@ -37,9 +37,7 @@ def test_in_memory_catalog_finds_equivalent_plan_fingerprint() -> None:
     catalog = InMemoryResearchStudyCatalog()
     fingerprint = "sha256:" + "1" * 64
     plan_fp = "sha256:" + "c" * 64
-    summary = _summary(fingerprint=fingerprint).model_copy(
-        update={"plan_fingerprint": plan_fp}
-    )
+    summary = _summary(fingerprint=fingerprint).model_copy(update={"plan_fingerprint": plan_fp})
 
     async def _scenario() -> str | None:
         await catalog.persist(summary, f'{{"study_fingerprint":"{fingerprint}"}}')

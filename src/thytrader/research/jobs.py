@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
-import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+import json
+import logging
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID, uuid4
 
@@ -20,9 +19,10 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     BacktestSubmitter,
 )
+from thytrader.research.studies import ResearchStudyError, ResearchStudyRequest, plan_fingerprint
 
 if TYPE_CHECKING:
-    from thytrader.research.studies import ResearchStudy, ResearchStudyRequest, ResearchStudyService
+    from thytrader.research.studies import ResearchStudyService
 
 _logger = logging.getLogger(__name__)
 
@@ -362,8 +362,6 @@ class InMemoryResearchJobStore:
 
     async def load_study_request(self, job_id: UUID) -> ResearchStudyRequest:
         """Load the queued study payload for one job."""
-        from thytrader.research.studies import ResearchStudyRequest
-
         payload = await self._payload(job_id)
         return ResearchStudyRequest.model_validate_json(payload)
 
@@ -460,8 +458,6 @@ async def run_study_job(
     request: ResearchStudyRequest,
 ) -> None:
     """Execute one queued composed study and update job status."""
-    from thytrader.research.studies import ResearchStudyError, plan_fingerprint
-
     try:
         if await store.is_cancel_requested(job_id):
             await store.mark_cancelled(job_id)

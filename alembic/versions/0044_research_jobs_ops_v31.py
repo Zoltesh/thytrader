@@ -1,7 +1,7 @@
 """Durable research jobs and study plan dedupe.
 
 Revision ID: 0044
-Revises: 0041
+Revises: 0043
 Create Date: 2026-09-17
 """
 

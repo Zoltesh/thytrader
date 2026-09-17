@@ -8,7 +8,6 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, Self
 
 from pydantic import (
@@ -52,6 +51,8 @@ from thytrader.research.parameter_sweep import (
 from thytrader.strategies.publication import StrategyPublicationError
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
@@ -367,9 +368,7 @@ def request_fingerprint(request: ResearchStudyRequest) -> str:
 
 def plan_fingerprint(plan: ResearchStudyPlan) -> str:
     """Return the SHA-256 identity of the effective child window schedule."""
-    windows = [
-        window.model_dump(mode="json", exclude_none=True) for window in plan.windows
-    ]
+    windows = [window.model_dump(mode="json", exclude_none=True) for window in plan.windows]
     payload = {
         "kind": plan.kind.value,
         "timeframe": plan.timeframe,
@@ -608,7 +607,7 @@ class ResearchStudyService:
         try:
             for index, window in enumerate(plan.windows, start=1):
                 if cancel_check is not None and await cancel_check():
-                    raise ResearchStudyError("Research job was cancelled.")
+                    _raise_cancelled_study()
                 if on_progress is not None:
                     await on_progress(index - 1, total)
                 submission = window_submission_request(request, window)
@@ -711,6 +710,11 @@ def _strategy_fingerprints(request: ResearchStudyRequest) -> tuple[str, ...]:
     fingerprints = [request.strategy_fingerprint]
     fingerprints.extend(request.candidate_strategy_fingerprints)
     return tuple(dict.fromkeys(fingerprints))
+
+
+def _raise_cancelled_study() -> None:
+    """Abort study submission when a durable job cancellation was requested."""
+    raise ResearchStudyError("Research job was cancelled.")
 
 
 def _require_single_market(request: ResearchStudyRequest) -> None:
