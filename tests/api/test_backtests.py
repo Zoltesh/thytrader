@@ -15,6 +15,7 @@ from thytrader.api.app import create_app
 from thytrader.backtest.benchmark import calculate_buy_and_hold_benchmark
 from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import BacktestBenchmark, BacktestResult, backtest_result_fingerprint
+from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.config import Settings
 from thytrader.market_data.models import Candle
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkUnavailableError
@@ -651,10 +652,9 @@ def test_backtests_detail_rejects_malformed_fingerprint() -> None:
 class _ImmediateSubmitter:
     """Return fixed fingerprints for async backtest job tests."""
 
-    async def submit(self, request: object) -> object:
+    async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
         """Ignore the request and return one completed submission."""
         del request
-        from thytrader.backtest.submission import BacktestSubmissionResult
 
         return BacktestSubmissionResult(
             run_fingerprint="sha256:" + "c" * 64,

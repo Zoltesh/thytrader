@@ -21,7 +21,9 @@ from thytrader.research.models import (
 from thytrader.research.publication import (
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
+    evaluation_end_fits_dataset,
     evaluation_window_suggestion,
+    latest_allowed_evaluation_end,
     verify_research_run_eligibility,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -242,8 +244,6 @@ def test_evaluation_window_suggestion_includes_iso_range() -> None:
 
 def test_evaluation_end_fits_dataset_accepts_latest_allowed_boundary() -> None:
     """The stated maximum evaluation_end is inclusive on half-open semantics."""
-    from thytrader.research.publication import evaluation_end_fits_dataset, latest_allowed_evaluation_end
-
     dataset_starts_at = datetime(2026, 1, 1, tzinfo=UTC)
     dataset_ends_at = datetime(2026, 1, 10, tzinfo=UTC)
     latest = latest_allowed_evaluation_end(dataset_ends_at=dataset_ends_at, timeframe="1h")
