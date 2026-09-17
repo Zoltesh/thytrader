@@ -14,17 +14,15 @@ _RUN_FINGERPRINT = "sha256:" + "u" * 64
 _DATASET_FINGERPRINT = "sha256:" + "d" * 64
 
 
-def _detail_payload() -> dict[str, object]:
-    """Return one compact backtest-detail body."""
+def _summary_payload() -> dict[str, object]:
+    """Return one bounded backtest summary body from detail=summary."""
     return {
         "result_fingerprint": _RESULT_FINGERPRINT,
-        "result": {
-            "strategy_fingerprint": _STRATEGY_FINGERPRINT,
-            "run_fingerprint": _RUN_FINGERPRINT,
-            "dataset_fingerprint": _DATASET_FINGERPRINT,
-            "engine_contract_version": "thytrader-bar-backtest-v4",
-            "summary": {"trade_count": 13},
-        },
+        "strategy_fingerprint": _STRATEGY_FINGERPRINT,
+        "run_fingerprint": _RUN_FINGERPRINT,
+        "dataset_fingerprint": _DATASET_FINGERPRINT,
+        "engine_contract_version": "thytrader-bar-backtest-v4",
+        "summary": {"trade_count": 13},
     }
 
 
@@ -33,8 +31,11 @@ def _show_result_for_timeframe(timeframe: str) -> dict[str, object]:
 
     def fake_request_json(*, method: str, url: str, **_kwargs: object) -> dict[str, object]:
         del method
-        if url.endswith(f"/api/v1/backtests/{_RESULT_FINGERPRINT}"):
-            return _detail_payload()
+        if (
+            f"/api/v1/backtests/{_RESULT_FINGERPRINT}" in url
+            and "detail=summary" in url
+        ):
+            return _summary_payload()
         if url.endswith(f"/api/v1/strategies/source/{_STRATEGY_FINGERPRINT}"):
             return {"strategy": {"timeframe": timeframe}}
         message = f"unexpected research HTTP request: {url}"
