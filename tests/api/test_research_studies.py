@@ -234,7 +234,13 @@ def test_submit_study_composes_child_backtests() -> None:
         assert rows[0]["kind"] == "oos_holdout"
         shown = client.get(f"/api/v1/research/studies/{body['study_fingerprint']}")
         assert shown.status_code == 200, shown.text
-        assert shown.json()["study_fingerprint"] == body["study_fingerprint"]
+        summary = shown.json()
+        assert summary["study_fingerprint"] == body["study_fingerprint"]
+        assert "windows" not in summary
+        assert summary["window_count"] == len(body["windows"])
+        full = client.get(f"/api/v1/research/studies/{body['study_fingerprint']}?detail=full")
+        assert full.status_code == 200, full.text
+        assert len(full.json()["windows"]) == len(body["windows"])
         missing = client.get("/api/v1/research/studies/" + "sha256:" + ("f" * 64))
         assert missing.status_code == 404
 

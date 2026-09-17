@@ -46,6 +46,7 @@ from thytrader.research.parameter_sweep import (
     select_candidate_fingerprint,
     stitch_oos_equity,
     unavailable_stitched_equity,
+    validate_parameter_axes_candidate_budget,
 )
 from thytrader.strategies.publication import StrategyPublicationError
 
@@ -148,6 +149,10 @@ class ResearchStudyRequest(_FrozenStudyModel):
     parameter_axes: tuple[ParameterAxis, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
+        description=(
+            "1-4 axes with 2-8 values each. Cartesian product must be at most 8 candidates "
+            "(not 8 per axis)."
+        ),
     )
     selection_metric: SelectionMetric = Field(
         default=SelectionMetric.TOTAL_RETURN_FRACTION,
@@ -282,6 +287,45 @@ class ResearchStudy(_FrozenStudyModel):
     stitched_oos_equity: StitchedOosEquity | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
+    )
+
+
+class ResearchStudySummary(_FrozenStudyModel):
+    """Agent-safe study projection without child windows or stitch point series."""
+
+    schema_version: Literal["thytrader-research-study-v1"] = STUDY_CONTRACT_VERSION
+    study_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    kind: StudyKind
+    engine_contract_version: BacktestEngineContract
+    aggregate: StudyAggregate
+    warnings: tuple[str, ...] = ()
+    selection_metric: SelectionMetric | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    stitched_oos_equity: StitchedOosEquity | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    window_count: int = Field(ge=1)
+
+
+def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
+    """Project one persisted study into a bounded summary document."""
+    stitched = study.stitched_oos_equity
+    if stitched is not None and stitched.points:
+        stitched = stitched.model_copy(update={"points": ()})
+    return ResearchStudySummary(
+        study_fingerprint=study.study_fingerprint,
+        request_fingerprint=study.request_fingerprint,
+        kind=study.kind,
+        engine_contract_version=study.engine_contract_version,
+        aggregate=study.aggregate,
+        warnings=study.warnings,
+        selection_metric=study.selection_metric,
+        stitched_oos_equity=stitched,
+        window_count=len(study.windows),
     )
 
 
@@ -666,8 +710,7 @@ def _require_candidate_source(request: ResearchStudyRequest) -> None:
             if len(fingerprint) != 71 or not fingerprint.startswith("sha256:"):
                 raise ValueError("candidate_strategy_fingerprints must be sha256 fingerprints")
         return
-    if len(request.parameter_axes) > 4:
-        raise ValueError("parameter_axes accepts at most 4 axes")
+    validate_parameter_axes_candidate_budget(request.parameter_axes)
 
 
 def _require_cross_market(request: ResearchStudyRequest) -> None:

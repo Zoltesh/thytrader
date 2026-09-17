@@ -21,7 +21,9 @@ from thytrader.research.models import (
 from thytrader.research.publication import (
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
+    evaluation_end_fits_dataset,
     evaluation_window_suggestion,
+    latest_allowed_evaluation_end,
     verify_research_run_eligibility,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -181,7 +183,7 @@ def test_eligibility_rejects_insufficient_warmup_or_next_open_coverage() -> None
 
     with pytest.raises(ResearchRunPublicationError, match="warmup coverage"):
         verify_research_run_eligibility(run, published, late_start)
-    with pytest.raises(ResearchRunPublicationError, match="next-candle-open"):
+    with pytest.raises(ResearchRunPublicationError, match="evaluation window does not fit"):
         verify_research_run_eligibility(run, published, missing_next_open)
 
 
@@ -199,7 +201,7 @@ def test_eligibility_rejects_unrepresentable_next_open_boundary() -> None:
         ends_at="9999-12-31T23:00:00Z",
     )
 
-    with pytest.raises(ResearchRunPublicationError, match="next-candle-open"):
+    with pytest.raises(ResearchRunPublicationError, match="too short"):
         verify_research_run_eligibility(extreme_run, published, extreme_manifest)
 
 
@@ -236,8 +238,23 @@ def test_evaluation_window_suggestion_includes_iso_range() -> None:
         timeframe="1h",
     )
     assert "Suggested range:" in text
-    assert "2026-01-01T02:00:00+00:00" in text
-    assert "2026-01-09T23:00:00+00:00" in text
+    assert "2026-01-01T02:00:00Z" in text
+    assert "2026-01-09T23:00:00Z" in text
+
+
+def test_evaluation_end_fits_dataset_accepts_latest_allowed_boundary() -> None:
+    """The stated maximum evaluation_end is inclusive on half-open semantics."""
+    dataset_starts_at = datetime(2026, 1, 1, tzinfo=UTC)
+    dataset_ends_at = datetime(2026, 1, 10, tzinfo=UTC)
+    latest = latest_allowed_evaluation_end(dataset_ends_at=dataset_ends_at, timeframe="1h")
+    assert evaluation_end_fits_dataset(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=datetime(2026, 1, 1, 2, tzinfo=UTC),
+        evaluation_end=latest,
+        warmup_bars=2,
+        timeframe="1h",
+    )
 
 
 def test_dataset_evaluation_bounds_reject_a_too_short_range() -> None:

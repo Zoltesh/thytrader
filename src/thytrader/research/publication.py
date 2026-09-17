@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.research.models import warmup_starts_at
 from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
 from thytrader.strategies.models import (
     StrategyStatus,
@@ -73,16 +74,21 @@ def verify_research_run_eligibility(
         raise ResearchRunPublicationError(
             "Research run dataset does not provide the required warmup coverage."
         )
-    interval = parse_candle_interval(definition.timeframe)
-    try:
-        required_fill_end = specification.evaluation.ends_at + interval.duration
-    except OverflowError as error:
+    if not evaluation_end_fits_dataset(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=specification.evaluation.starts_at,
+        evaluation_end=specification.evaluation.ends_at,
+        warmup_bars=definition.data_requirements.warmup_bars,
+        timeframe=definition.timeframe,
+    ):
         raise ResearchRunPublicationError(
-            "Research run evaluation window cannot represent required next-candle-open coverage."
-        ) from error
-    if dataset_ends_at < required_fill_end:
-        raise ResearchRunPublicationError(
-            "Research run dataset lacks next-candle-open coverage for the final evaluation candle."
+            evaluation_window_suggestion(
+                dataset_starts_at=dataset_starts_at,
+                dataset_ends_at=dataset_ends_at,
+                warmup_bars=definition.data_requirements.warmup_bars,
+                timeframe=definition.timeframe,
+            )
         )
     _require_htf_dataset(specification, definition, htf_manifest)
     _require_indicator_timeframe_datasets(specification, definition, indicator_manifests or {})
@@ -388,6 +394,42 @@ def _require_additional_extra_tf_coverage(
             )
 
 
+def latest_allowed_evaluation_end(
+    *,
+    dataset_ends_at: datetime,
+    timeframe: str,
+) -> datetime:
+    """Return the latest half-open ``evaluation_end`` one complete dataset supports.
+
+    ``dataset_ends_at`` is the last complete candle open. The final next-open fill
+    occurs on that candle, so ``evaluation_end`` may equal this bound inclusively.
+    """
+    interval = parse_candle_interval(timeframe)
+    return dataset_ends_at - interval.duration
+
+
+def evaluation_end_fits_dataset(
+    *,
+    dataset_starts_at: datetime,
+    dataset_ends_at: datetime,
+    evaluation_start: datetime,
+    evaluation_end: datetime,
+    warmup_bars: int,
+    timeframe: str,
+) -> bool:
+    """Return whether one half-open evaluation window fits verified dataset coverage."""
+    interval = parse_candle_interval(timeframe)
+    latest = latest_allowed_evaluation_end(dataset_ends_at=dataset_ends_at, timeframe=timeframe)
+    if evaluation_end > latest:
+        return False
+    warmup_start = warmup_starts_at(evaluation_start, warmup_bars, timeframe)
+    if dataset_starts_at > warmup_start:
+        return False
+    required_fill_end = evaluation_end + interval.duration
+    coverage_end_exclusive = dataset_ends_at + interval.duration
+    return required_fill_end <= coverage_end_exclusive
+
+
 def dataset_evaluation_bounds(
     *,
     dataset_starts_at: datetime,
@@ -395,14 +437,17 @@ def dataset_evaluation_bounds(
     warmup_bars: int,
     timeframe: str,
 ) -> tuple[datetime, datetime]:
-    """Return the inclusive evaluation window one complete dataset can support.
+    """Return the half-open evaluation window one complete dataset can support.
 
-    Warmup bars must sit before the window and one extra bar after it is required
-    for the final next-open fill.
+    Warmup bars must sit before the window and one extra bar after ``evaluation_end``
+    is required for the final next-open fill.
     """
     interval = parse_candle_interval(timeframe)
     evaluation_start = dataset_starts_at + interval.duration * warmup_bars
-    evaluation_end = dataset_ends_at - interval.duration
+    evaluation_end = latest_allowed_evaluation_end(
+        dataset_ends_at=dataset_ends_at,
+        timeframe=timeframe,
+    )
     if evaluation_start >= evaluation_end:
         raise ResearchRunPublicationError(
             "The selected dataset is too short for this strategy's warmup and next-open fill. "
@@ -428,12 +473,21 @@ def evaluation_window_suggestion(
         )
     except ResearchRunPublicationError as error:
         return str(error)
+    latest = _canonical_utc_text(end)
+    dataset_end = _canonical_utc_text(dataset_ends_at)
+    suggested_start = _canonical_utc_text(start)
     return (
         "The evaluation window does not fit the selected dataset. "
-        f"evaluation_end must be at or before {end.isoformat()} "
-        f"(dataset end minus one {timeframe} bar). "
-        f"Suggested range: {start.isoformat()} to {end.isoformat()}."
+        f"evaluation_end uses a half-open interval [evaluation_start, evaluation_end); "
+        f"the latest allowed evaluation_end is {latest} "
+        f"(last complete candle open {dataset_end} minus one {timeframe} bar). "
+        f"Suggested range: {suggested_start} to {latest}."
     )
+
+
+def _canonical_utc_text(value: datetime) -> str:
+    """Serialize one UTC instant with the canonical Z suffix."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _parse_canonical_utc(value: str) -> datetime:

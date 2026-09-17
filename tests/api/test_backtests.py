@@ -15,6 +15,7 @@ from thytrader.api.app import create_app
 from thytrader.backtest.benchmark import calculate_buy_and_hold_benchmark
 from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import BacktestBenchmark, BacktestResult, backtest_result_fingerprint
+from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.config import Settings
 from thytrader.market_data.models import Candle
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkUnavailableError
@@ -646,6 +647,49 @@ def test_backtests_detail_rejects_malformed_fingerprint() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "backtest_invalid"
+
+
+class _ImmediateSubmitter:
+    """Return fixed fingerprints for async backtest job tests."""
+
+    async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
+        """Ignore the request and return one completed submission."""
+        del request
+
+        return BacktestSubmissionResult(
+            run_fingerprint="sha256:" + "c" * 64,
+            result_fingerprint="sha256:" + "d" * 64,
+        )
+
+
+def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None:
+    """Long runs can queue with HTTP 202 and poll job status."""
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_submitter=_ImmediateSubmitter(),
+    )
+    payload = {
+        "strategy_fingerprint": "sha256:" + "a" * 64,
+        "dataset_fingerprint": "sha256:" + "b" * 64,
+        "evaluation_start": "2026-08-01T00:00:00Z",
+        "evaluation_end": "2026-08-02T00:00:00Z",
+        "initial_quote_balance": "10000",
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "10",
+        "engine_contract_version": "thytrader-bar-backtest-v1",
+    }
+
+    with TestClient(app) as client:
+        accepted = client.post("/api/v1/backtests?async=true", json=payload)
+        assert accepted.status_code == 202, accepted.text
+        job_id = accepted.json()["job_id"]
+        polled = client.get(f"/api/v1/backtests/jobs/{job_id}")
+        assert polled.status_code == 200, polled.text
+        body = polled.json()
+        assert body["status"] in {"queued", "running", "completed"}
+        if body["status"] == "completed":
+            assert body["result_fingerprint"] == "sha256:" + "d" * 64
 
 
 def test_backtests_failure_is_redacted() -> None:

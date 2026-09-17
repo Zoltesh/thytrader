@@ -7,7 +7,7 @@ results or grant paper/live trading authority.
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -38,8 +38,10 @@ from thytrader.research.studies import (
     ResearchStudyPlan,
     ResearchStudyRequest,
     ResearchStudyService,
+    ResearchStudySummary,
     StudyKind,
     StudyPlanningError,
+    summarize_research_study,
 )
 from thytrader.strategies.publication import (
     StrategyPublicationError,
@@ -176,12 +178,16 @@ async def list_research_studies(
     return StudyCatalogListResponse(studies=rows)
 
 
-@router.get("/studies/{study_fingerprint}", response_model=ResearchStudy)
+@router.get(
+    "/studies/{study_fingerprint}",
+    response_model=ResearchStudySummary | ResearchStudy,
+)
 async def get_research_study(
     study_fingerprint: str,
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
-) -> ResearchStudy:
-    """Return one persisted study document."""
+    detail: Annotated[Literal["summary", "full"], Query()] = "summary",
+) -> ResearchStudySummary | ResearchStudy:
+    """Return one persisted study summary (default) or the full document."""
     try:
         canonical = await catalog.load(study_fingerprint)
         study = ResearchStudy.model_validate_json(canonical)
@@ -205,4 +211,6 @@ async def get_research_study(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Research study catalog is unavailable.",
         )
-    return study
+    if detail == "full":
+        return study
+    return summarize_research_study(study)

@@ -28,8 +28,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v26"
-EXPECTED_SCHEMA_REVISION = "0039"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v27"
+EXPECTED_SCHEMA_REVISION = "0040"
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "venue_available_quote",
@@ -47,6 +47,7 @@ BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v3",
     "thytrader-bar-backtest-v4",
 )
+ASYNC_BACKTEST_JOBS: tuple[str, ...] = ("queued", "running", "completed", "failed")
 EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
@@ -89,6 +90,7 @@ def expected_ops_contract() -> dict[str, object]:
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),
         "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
         "breaker_latch_reset": list(BREAKER_LATCH_RESET),
+        "async_backtest_job_statuses": list(ASYNC_BACKTEST_JOBS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

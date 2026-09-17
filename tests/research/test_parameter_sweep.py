@@ -9,6 +9,7 @@ import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.research.parameter_sweep import (
+    MAX_CANDIDATES,
     ParameterAxis,
     SelectionMetric,
     StitchSourceWindow,
@@ -18,6 +19,7 @@ from thytrader.research.parameter_sweep import (
     expand_parameter_grid,
     select_candidate_fingerprint,
     stitch_oos_equity,
+    validate_parameter_axes_candidate_budget,
 )
 from thytrader.strategies.models import (
     AllCondition,
@@ -86,6 +88,16 @@ def _result(equity: tuple[tuple[datetime, str], ...], summary: BacktestSummary) 
         equity_curve=points,
         summary=summary,
     )
+
+
+def test_validate_parameter_axes_candidate_budget_rejects_oversized_cartesian_product() -> None:
+    """Per-axis limits do not imply an eight-candidate total cap."""
+    axes = (
+        ParameterAxis(indicator_id="ema_fast", parameter="period", values=("12", "20", "26")),
+        ParameterAxis(indicator_id="ema_slow", parameter="period", values=("50", "80", "100")),
+    )
+    with pytest.raises(ValueError, match=f"at most {MAX_CANDIDATES}"):
+        validate_parameter_axes_candidate_budget(axes)
 
 
 def test_expand_parameter_grid_is_cartesian_in_axis_order() -> None:

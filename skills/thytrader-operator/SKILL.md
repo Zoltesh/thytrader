@@ -107,10 +107,11 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v26` and Alembic
-   `0039` on a current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v27` and Alembic
+   `0040` on a current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
    [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
-   [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
+   [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
+   [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md)).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).

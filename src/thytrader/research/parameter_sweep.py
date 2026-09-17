@@ -123,7 +123,14 @@ class ParameterAxis(BaseModel):
     )
     indicator_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     parameter: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
-    values: tuple[str, ...] = Field(min_length=2, max_length=_MAX_VALUES_PER_AXIS)
+    values: tuple[str, ...] = Field(
+        min_length=2,
+        max_length=_MAX_VALUES_PER_AXIS,
+        description=(
+            "2-8 unique values on this axis. Combined with other axes, the Cartesian product "
+            f"must be at most {MAX_CANDIDATES} candidates."
+        ),
+    )
     condition_operator: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("values")
@@ -229,8 +236,16 @@ class StitchSourceWindow:
     result: BacktestResult
 
 
-def expand_parameter_grid(axes: tuple[ParameterAxis, ...]) -> tuple[tuple[AxisCell, ...], ...]:
-    """Return Cartesian cells in axis declaration order."""
+def parameter_axes_candidate_count(axes: tuple[ParameterAxis, ...]) -> int:
+    """Return the Cartesian product size for one parameter grid."""
+    count = 1
+    for axis in axes:
+        count *= len(axis.values)
+    return count
+
+
+def validate_parameter_axes_candidate_budget(axes: tuple[ParameterAxis, ...]) -> None:
+    """Reject grids whose Cartesian product exceeds the global candidate cap."""
     if not axes:
         raise ValueError("parameter_axes is required")
     if len(axes) > _MAX_AXES:
@@ -241,11 +256,18 @@ def expand_parameter_grid(axes: tuple[ParameterAxis, ...]) -> tuple[tuple[AxisCe
     ]
     if len(keys) != len(set(keys)):
         raise ValueError("parameter_axes must use distinct target, locator, and parameter tuples")
-    size = 1
-    for axis in axes:
-        size *= len(axis.values)
-        if size > MAX_CANDIDATES:
-            raise ValueError("parameter_axes Cartesian product must be at most 8 candidates")
+    count = parameter_axes_candidate_count(axes)
+    if count > MAX_CANDIDATES:
+        raise ValueError(
+            f"parameter_axes Cartesian product yields {count} candidates; "
+            f"at most {MAX_CANDIDATES} are allowed "
+            "(≤8 values per axis does not imply ≤8 total candidates)"
+        )
+
+
+def expand_parameter_grid(axes: tuple[ParameterAxis, ...]) -> tuple[tuple[AxisCell, ...], ...]:
+    """Return Cartesian cells in axis declaration order."""
+    validate_parameter_axes_candidate_budget(axes)
     return tuple(
         tuple(_cell_for_axis(axes[index], value) for index, value in enumerate(combo))
         for combo in product(*(axis.values for axis in axes))
