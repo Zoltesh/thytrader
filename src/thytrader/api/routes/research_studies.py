@@ -7,12 +7,10 @@ results or grant paper/live trading authority.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
+from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-
-if TYPE_CHECKING:
-    from uuid import UUID
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
