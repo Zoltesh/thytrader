@@ -32,7 +32,12 @@ from thytrader.execution.models import (
     visible_instrument_runtimes,
 )
 from thytrader.execution.protection import book_protection_status, working_order_count
-from thytrader.execution.service import create_deployment, parse_decimal, set_deployment_status
+from thytrader.execution.service import (
+    create_deployment,
+    parse_decimal,
+    reset_breaker_latches,
+    set_deployment_status,
+)
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -178,6 +183,11 @@ class DeploymentResponse(BaseModel):
     mismatch_detail: str | None
     pending_entry_bars: int
     bars_held: int
+    lifecycle_command: str
+    daily_loss_latched: bool
+    drawdown_latched: bool
+    revision: int
+    worker_lease_held: bool
     created_at: str
     updated_at: str
     position: PositionResponse | None = Field(
@@ -326,6 +336,34 @@ async def stop_deployment(
         publication_store,
         flatten=flatten,
     )
+
+
+@router.post("/{deployment_id}/reset-breaker-latches", response_model=DeploymentResponse)
+async def post_reset_breaker_latches(
+    deployment_id: UUID,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> DeploymentResponse:
+    """Clear latched daily-loss and drawdown breakers after explicit operator reset."""
+    try:
+        snapshot = await reset_breaker_latches(store=store, deployment_id=deployment_id)
+    except ExecutionConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
+    except ExecutionStoreError as error:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in str(error).lower()
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise HTTPException(status_code=code, detail=str(error)) from None
+    await _append_runtime_audit(
+        audit,
+        action="reset_breaker_latches",
+        deployment=snapshot.deployment,
+    )
+    extra = await _covered_products(publication_store, snapshot.deployment)
+    return _snapshot_response(snapshot, extra_product_ids=extra)
 
 
 async def _set_status(
@@ -483,10 +521,20 @@ def _deployment_response(deployment: Deployment) -> DeploymentResponse:
         mismatch_detail=deployment.mismatch_detail,
         pending_entry_bars=deployment.pending_entry_bars,
         bars_held=deployment.bars_held,
+        lifecycle_command=deployment.lifecycle_command.value,
+        daily_loss_latched=deployment.daily_loss_latched,
+        drawdown_latched=deployment.drawdown_latched,
+        revision=deployment.revision,
+        worker_lease_held=_worker_lease_held(deployment),
         created_at=deployment.created_at.isoformat(),
         updated_at=deployment.updated_at.isoformat(),
         capital=_capital_response(deployment),
     )
+
+
+def _worker_lease_held(deployment: Deployment) -> bool:
+    """True when a worker lease is active without exposing holder identity."""
+    return bool(deployment.worker_lease_holder and deployment.worker_lease_expires_at)
 
 
 def _snapshot_response(

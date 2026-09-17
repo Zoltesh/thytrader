@@ -27,6 +27,7 @@ from thytrader.runtime_control.client import (
     clear_coinbase_credentials,
     list_deployments,
     place_discretionary_order,
+    reset_breaker_latches,
     set_coinbase_credentials,
     set_deployment_status,
     set_risk_policy,
@@ -182,6 +183,13 @@ def _parser() -> argparse.ArgumentParser:
                     "Default stop is managed shutdown that keeps protective brackets."
                 ),
             )
+    reset_latches = subparsers.add_parser(
+        "reset-breaker-latches",
+        parents=[trailing],
+        help="Clear latched daily-loss and drawdown breakers after explicit operator reset.",
+    )
+    reset_latches.add_argument("deployment_id", help="Deployment UUID.")
+    reset_latches.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     subparsers.add_parser(
         "show-risk-policy",
         parents=[trailing],
@@ -449,9 +457,22 @@ def _place_order(arguments: argparse.Namespace, base_url: str, settings: Setting
     )
 
 
-def _set_status(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
-    """Pause, resume, or stop one deployment; YOLO follows paper vs live tiers."""
+def _runtime_mutation(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
+    """Pause, resume, stop, or reset breaker latches on one deployment."""
     command = arguments.command
+    if command == "reset-breaker-latches":
+        _require_confirm(
+            arguments.confirm,
+            base_url=base_url,
+            command=command,
+            hard_gate=True,
+        )
+        require_matching_ops_contract(base_url)
+        return reset_breaker_latches(
+            base_url,
+            arguments.deployment_id,
+            settings=settings,
+        )
     require_paper_runtime_confirmation(
         confirmed=arguments.confirm,
         missing_message=_RUNTIME_CONFIRM_MESSAGE,
@@ -494,8 +515,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) 
         return _start(arguments, base_url, settings)
     if command == "place-order":
         return _place_order(arguments, base_url, settings)
-    if command in {"pause", "resume", "stop"}:
-        return _set_status(arguments, base_url, settings)
+    if command in {"pause", "resume", "stop", "reset-breaker-latches"}:
+        return _runtime_mutation(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
         return show_risk_policy(base_url)

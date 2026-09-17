@@ -69,6 +69,25 @@ def test_create_draft_uses_query_string() -> None:
     assert body is None
 
 
+def test_operator_read_tools_include_studies_and_trade_reasons() -> None:
+    """Operator chat exposes studies and trade-reason review routes."""
+    assert tool_by_name("operator_studies") is not None
+    assert tool_by_name("operator_trade_reasons") is not None
+
+
+def test_runtime_stop_forwards_flatten_query() -> None:
+    """Flatten stop uses the HTTP query flag, not a JSON body."""
+    tool = tool_by_name("runtime_stop")
+    assert tool is not None
+    path, query, body = split_request(
+        tool,
+        {"deployment_id": "00000000-0000-0000-0000-000000000001", "flatten": True},
+    )
+    assert path == "/api/v1/deployments/00000000-0000-0000-0000-000000000001/stop"
+    assert query == {"flatten": "true"}
+    assert body is None
+
+
 def test_catalog_keeps_lanes_separated() -> None:
     """Runtime mutations are not on the operator lane."""
     by_lane = {tool.name: tool.lane.value for tool in chat_tools()}

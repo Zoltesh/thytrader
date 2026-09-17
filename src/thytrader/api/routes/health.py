@@ -38,6 +38,7 @@ class HealthOpsContract(BaseModel):
     intra_strategy_pyramiding: list[str]
     lifecycle_commands: list[str]
     deployment_capital_fields: list[str]
+    breaker_latch_reset: list[str]
     expected_schema_revision: str
 
 

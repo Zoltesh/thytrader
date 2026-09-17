@@ -20,7 +20,7 @@ from thytrader.execution.models import (
 )
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.gate import evaluate_new_deployment
-from thytrader.risk.models import RiskDecision
+from thytrader.risk.models import RiskDecision, RiskReasonCode
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.publication import (
@@ -124,6 +124,35 @@ async def set_deployment_status(
         clear_mismatch=True,
     )
     await store.save_deployment(updated, expected_revision=snapshot.deployment.revision)
+    return await store.get_deployment(deployment_id)
+
+
+async def reset_breaker_latches(
+    *,
+    store: ExecutionStore,
+    deployment_id: UUID,
+) -> DeploymentSnapshot:
+    """Clear latched daily-loss and drawdown breakers after explicit operator reset."""
+    snapshot = await store.get_deployment(deployment_id)
+    deployment = snapshot.deployment
+    if not deployment.daily_loss_latched and not deployment.drawdown_latched:
+        raise ExecutionConflictError("No breaker latches are set on this deployment.")
+    mismatch = deployment.mismatch_detail
+    clear_breaker_mismatch = False
+    if mismatch is not None:
+        breaker_prefixes = (
+            f"{RiskReasonCode.DAILY_LOSS_LIMIT.value}:",
+            f"{RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT.value}:",
+        )
+        clear_breaker_mismatch = mismatch.startswith(breaker_prefixes)
+    updated = with_runtime(
+        deployment,
+        updated_at=utc_now(),
+        daily_loss_latched=False,
+        drawdown_latched=False,
+        clear_mismatch=clear_breaker_mismatch,
+    )
+    await store.save_deployment(updated, expected_revision=deployment.revision)
     return await store.get_deployment(deployment_id)
 
 

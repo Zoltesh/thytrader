@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0038`):
+Current checkout (Alembic `0039`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v25` |
-| `expected_schema_revision` | `0038` |
+| `id` | `thytrader-ops-contract-v26` |
+| `expected_schema_revision` | `0039` |
 | `max_historical_interval_count` | `129600` |
 | `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3`, `v4` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
@@ -31,11 +31,12 @@ Current checkout (Alembic `0038`):
 | `intra_strategy_pyramiding` | `research`, `paper`, `live` |
 | `lifecycle_commands` | `none`, `stop_new_entries`, `flatten`, `managed_shutdown` |
 | `deployment_capital_fields` | `allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, `utc_day_open_equity` |
+| `breaker_latch_reset` | `paper`, `live` |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v25
+    id thytrader-ops-contract-v26
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -54,7 +55,8 @@ classDiagram
     intra_strategy_pyramiding
     lifecycle_commands
     deployment_capital_fields
-    expected_schema_revision 0038
+    breaker_latch_reset
+    expected_schema_revision 0039
   }
   class HealthPayload {
     api_probed
@@ -69,9 +71,8 @@ classDiagram
     generated_at UTC
     overall_status healthy|degraded|failed
   }
-  HealthPayload --> OpsContractPayload
-  OperatorEnvelope <|-- HealthReport
-  HealthReport --> HealthPayload
+  HealthPayload --> OpsContractPayload : ops_contract
+  OperatorEnvelope --> HealthPayload : health
 ```
 
 ```mermaid
@@ -85,18 +86,9 @@ flowchart TD
 Bump `OPS_CONTRACT_ID` when paper/live clocks, engines, the interval cap, the
 expected Alembic revision, risk-policy registry, live extras, memory
 persistence, experiential-model engines, discretionary identity, HTF evaluation,
-per-indicator clocks, spot shorting, attached entry brackets, paper deploy fee
-fields, risk circuit breakers / order-rate limits / reference-price collars, the
-persisted research-study catalog, trade-reason journals, multi-instrument
-documents, intra-strategy pyramiding, attached-child protection, worker leases,
-live capital vs venue cash, deployment HTTP `capital` field names, durable
-daily-loss/drawdown baselines, or lifecycle stop/flatten/managed-shutdown
-commands change
-([ADR 0019](../../decisions/0019-ops-contract-identity.md),
-[ADR 0048](../../decisions/0048-paper-deploy-fee-fields.md),
-[ADR 0049](../../decisions/0049-experiential-train-v1.md),
-[ADR 0050](../../decisions/0050-daily-loss-drawdown-rate-collars.md),
-[ADR 0052](../../decisions/0052-richer-sweep-axes-study-catalog.md),
-[ADR 0054](../../decisions/0054-trade-reason-journals.md),
-[ADR 0056](../../decisions/0056-multi-instrument-documents-and-pyramiding.md),
-[ADR 0058](../../decisions/0058-protection-lifecycle-accounting.md)).
+indicator-timeframe evaluation, spot shorting, attached entry brackets, paper
+deploy fee fields, risk breakers, order-rate limits, reference-price collars,
+trade-reason journals, multi-instrument documents, intra-strategy pyramiding,
+attached-child protection, worker leases, live capital vs venue cash, deployment
+HTTP `capital` field names, durable daily-loss/drawdown baselines, lifecycle
+stop/flatten/managed-shutdown commands, or explicit breaker latch reset change.
