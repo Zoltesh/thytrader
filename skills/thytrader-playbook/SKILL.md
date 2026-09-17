@@ -90,3 +90,30 @@ Underlying HTTP used by this CLI:
 - Direct PostgreSQL access
 - Editing application source to sequence or skip confirmation on a running instance
 - Collapsing operator / data / research / runtime into one unrestricted trading agent
+
+## Portfolio + research (manual sequence)
+
+`thytrader-playbook run` sequences **one decision clock** through data → draft/publish → backtest →
+optional paper. It does **not** call account portfolio HTTP or deployment `show` first. When the
+operator asks for portfolio visibility **and** research on the same pass, run this manual sequence
+(see [`docs/agent/portfolio-research-ops-playbook.md`](../../docs/agent/portfolio-research-ops-playbook.md)):
+
+1. `uv run thytrader-operator health` then `configuration` (YOLO/YAML; no restart for tier changes).
+2. Optional account snapshot: `GET /api/v1/portfolio` and `GET /api/v1/portfolio/history?range=7d`.
+3. If deployments exist: `uv run thytrader-operator runtime` (`books[]`), then
+   `uv run thytrader-runtime show UUID` when quantities or capital are needed.
+4. `uv run thytrader-operator data-catalog` — require `watch_complete` for the research clock (and
+   every HTF / per-indicator extra clock referenced by the strategy).
+5. Gap-fill through `thytrader-data` with `--confirm` when `watch_complete` is false.
+6. Draft: `create-draft` for templates, or `save-draft --file draft.json` for HTF / multi-instrument /
+   per-indicator TF fields `create-draft` does not emit.
+7. `publish --confirm` → build `request.json` with fingerprints copied from `data-catalog` (primary
+   `dataset_fingerprint`, optional `htf_filter`, `indicator_dataset_fingerprints`,
+   `additional_instrument_datasets`) → `submit-backtest --file request.json --confirm` preferring
+   **`thytrader-bar-backtest-v4`**.
+8. Read results with `uv run thytrader-operator performance --result-fingerprint sha256:…`.
+
+Composed studies (OOS, walk-forward, cross-market, sweep, WFO) stay in
+[`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md); this playbook does
+not sequence them. Optional paper after backtest still uses `run --paper-cash … --confirm` or
+`thytrader-runtime start --mode paper … --confirm` — never live.

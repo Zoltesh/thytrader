@@ -26,6 +26,8 @@ Read-only diagnostics: health, redacted configuration, exchange permissions, mar
 - Skill: [`thytrader-operator/SKILL.md`](thytrader-operator/SKILL.md)
 - CLI: `uv run thytrader-operator` (HTTP by default; `--local` is explicit)
 - HTTP: `GET /api/v1/operator/...`
+- Account balances: `GET /api/v1/portfolio` (no operator CLI subcommand). Deployment inventory:
+  `thytrader-runtime show`. See [`docs/agent/portfolio-research-ops-playbook.md`](../docs/agent/portfolio-research-ops-playbook.md).
 
 ## `thytrader-data`
 
@@ -60,7 +62,9 @@ Not an extension of operator or research.
 ## `thytrader-playbook`
 
 Sequences existing lane CLIs: data healthy → draft/publish → backtest → optional paper. Forwards
-`--confirm`. Never starts live. Not an extension of the other skills.
+`--confirm`. Never starts live. For portfolio visibility before research, use the manual sequence in
+[`docs/agent/portfolio-research-ops-playbook.md`](../docs/agent/portfolio-research-ops-playbook.md).
+Not an extension of the other skills.
 
 - Skill: [`thytrader-playbook/SKILL.md`](thytrader-playbook/SKILL.md)
 - CLI: `uv run thytrader-playbook`
