@@ -77,6 +77,21 @@ For sizes, orders, and fills use `thytrader-runtime show` (`positions`, `instrum
 product-tagged orders/fills, `book_totals`). The singular HTTP `position` field is
 compatibility-only.
 
+## Portfolio vs deployment inventory
+
+Three read-only surfaces answer different questions. Do not conflate them.
+
+| Question | Surface | Access |
+| --- | --- | --- |
+| Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
+| Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}` |
+| Diagnostic phase/side/protection without sizes | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
+
+`health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
+`risk` and `monitor` omit balances (`balances_omitted: true`). For a numbered portfolio → research
+recipe using these surfaces, see
+[`docs/agent/portfolio-research-ops-playbook.md`](../../docs/agent/portfolio-research-ops-playbook.md).
+
 ## Exit codes
 
 - `0` overall `healthy` (schema-check success is also `0`)

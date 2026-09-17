@@ -18,6 +18,7 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 - [Setup](user/setup.md) — `make run`, loopback ports, Compose, native processes
 - [Safety](user/safety.md) — secrets, loopback, confirmation, live arming
 - [Operate](user/operate.md) — browser workspace, operator chat, and agent how-to
+- [Agent portfolio + research playbook](agent/portfolio-research-ops-playbook.md) — numbered ops recipe for authorized agents
 
 Skills of record: [`skills/README.md`](../skills/README.md). Open [`ops/`](../ops/README.md) when
 you are operating a **running** instance (not changing source).

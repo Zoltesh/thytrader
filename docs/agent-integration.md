@@ -162,6 +162,15 @@ Shipped constraints:
 
 See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-plan.md).
 
+### Portfolio visibility then research
+
+Account balances and portfolio history are **`GET /api/v1/portfolio`** and
+**`GET /api/v1/portfolio/history`** (loopback; no `thytrader-operator` CLI subcommand today).
+Deployment inventory (quantities, orders, fills, capital) is **`thytrader-runtime show`** /
+**`GET /api/v1/deployments/{id}`**. Operator `strategies` / `runtime` expose redacted `books[]`
+only. Numbered recipe:
+[`docs/agent/portfolio-research-ops-playbook.md`](agent/portfolio-research-ops-playbook.md).
+
 ### Orchestration skill
 
 `thytrader-playbook` sequences data → research → optional paper by calling existing CLIs. It
@@ -255,7 +264,7 @@ The operator skill tells agents to:
 
 | Capability available | Supported agent authority |
 |---|---|
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, portfolio/history freshness, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch, persisted research-study catalog, why-trade journals, and a redacted support bundle. HTTP by default. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Live fills ingest through cursor-terminated List Fills and quarantine incomplete rows ([ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md)). Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |

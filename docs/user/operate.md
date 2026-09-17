@@ -146,6 +146,10 @@ never interpolated.
 Command details live in the canonical skills under [`skills/`](../../skills/README.md). Do not
 scrape logs, query PostgreSQL, or print `.env`.
 
+For a numbered **portfolio visibility → data health → research** path (account balances, deployment
+inventory, fingerprint copy, v4 backtests), see
+[`docs/agent/portfolio-research-ops-playbook.md`](../agent/portfolio-research-ops-playbook.md).
+
 ### Read-only signal evaluation
 
 An existing published research run that explicitly selects `thytrader-bar-signal-v1` can be replayed
