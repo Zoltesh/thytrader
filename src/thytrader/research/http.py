@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from thytrader.agent_http import AgentHttpError, request_json, request_mutation_json
+from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.research.mutation import ResearchMutationError
 
@@ -323,7 +324,7 @@ def _experiential_advisory_fields(base_url: str, model_id: str) -> dict[str, obj
 
 
 def _strategy_timeframe(base_url: str, strategy_fingerprint: str) -> str:
-    """Read the published strategy timeframe without inventing unsupported intervals."""
+    """Copy the published strategy clock when it is a legal execution timeframe."""
     source = _as_object(
         request_json(
             method="GET",
@@ -333,8 +334,8 @@ def _strategy_timeframe(base_url: str, strategy_fingerprint: str) -> str:
     )
     strategy = _as_object(source.get("strategy"), "published strategy")
     timeframe = strategy.get("timeframe")
-    if timeframe == "5m":
-        return "5m"
+    if isinstance(timeframe, str):
+        return published_execution_timeframe(timeframe)
     return "1h"
 
 

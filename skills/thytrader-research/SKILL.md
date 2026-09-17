@@ -154,7 +154,10 @@ with `make run`. A matching `/health/ready` ops contract must advertise v4 befor
 `submit-backtest` requests ([ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
-dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
+common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,
+unbound indicator-timeframe datasets, and additional-instrument datasets). LTF warmup still sits
+before the start and one LTF bar after the end is reserved for next-open fill. Extra clocks use
+last-completed coverage only (no extra-clock next-open fill). If that intersection is empty, or
 supplied dates do not fit, the API returns 422 with a suggested ISO range. `evaluation_end` uses a
 half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `evaluation_end` named
 in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
@@ -162,6 +165,9 @@ long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtes
 poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
 `…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
 reproducing a published v3 fingerprint.
+
+`show-result` copies the published strategy decision clock (`1m` through `1d`, including `2h` and
+`4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
 ## Maker/taker rates
 

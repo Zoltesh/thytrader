@@ -25,7 +25,7 @@ from thytrader.backtest.submission import (
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
-from thytrader.market_data.models import EXECUTION_TIMEFRAMES
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES, published_execution_timeframe
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.persistence.database import create_engine, dispose
@@ -580,8 +580,7 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     timeframe = "1h"
     try:
         published = await mutator.publications.load(result.strategy_fingerprint)
-        if published.definition.timeframe in EXECUTION_TIMEFRAMES:
-            timeframe = published.definition.timeframe
+        timeframe = published_execution_timeframe(published.definition.timeframe)
     except StrategyPublicationError:
         timeframe = "1h"
     return _encode(

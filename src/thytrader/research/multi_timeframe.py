@@ -25,6 +25,58 @@ def last_completed_bar_start(close_at: datetime, interval: CandleInterval) -> da
     return exclusive_end - interval.duration
 
 
+def interval_open_ceil(instant: datetime, timeframe: str) -> datetime:
+    """Return ``instant`` when it is a bar open, otherwise the next open."""
+    interval = parse_candle_interval(timeframe)
+    exclusive_end = interval.align_closed_end(instant)
+    if exclusive_end == instant:
+        return instant
+    return exclusive_end + interval.duration
+
+
+def interval_open_floor_before(limit: datetime, timeframe: str) -> datetime:
+    """Return the latest bar open strictly earlier than ``limit``."""
+    interval = parse_candle_interval(timeframe)
+    exclusive_end = interval.align_closed_end(limit)
+    if exclusive_end == limit:
+        return limit - interval.duration
+    return exclusive_end
+
+
+def earliest_evaluation_start_for_closed_bar(
+    *,
+    dataset_starts_at: datetime,
+    timeframe: str,
+    warmup_bars: int,
+    decision_timeframe: str,
+) -> datetime:
+    """Return the earliest decision-clock ``evaluation_start`` one closed-bar dataset covers.
+
+    Last-completed mapping plus ``warmup_bars`` requires the first evaluation instant to sit
+    at least ``warmup_bars`` extra-clock bars after the dataset's first complete open.
+    """
+    clock = parse_candle_interval(timeframe)
+    raw_start = dataset_starts_at + clock.duration * warmup_bars
+    return interval_open_ceil(raw_start, decision_timeframe)
+
+
+def latest_evaluation_end_for_closed_bar(
+    *,
+    dataset_ends_at: datetime,
+    timeframe: str,
+    decision_timeframe: str,
+) -> datetime:
+    """Return the latest decision-clock ``evaluation_end`` one closed-bar dataset covers.
+
+    ``dataset_ends_at`` is the last complete extra-clock open. The last mapped extra-clock bar
+    must close at or before that open, so ``evaluation_end`` must stay strictly before the
+    next extra-clock open and on the decision clock.
+    """
+    clock = parse_candle_interval(timeframe)
+    first_invalid = dataset_ends_at + clock.duration
+    return interval_open_floor_before(first_invalid, decision_timeframe)
+
+
 def closed_bar_required_coverage(
     *,
     evaluation_starts_at: datetime,
