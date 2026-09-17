@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.agent_http import request_json
-from thytrader.security.client import mutation_headers
+from thytrader.agent_http import request_json, request_mutation_json
 
 if TYPE_CHECKING:
     from thytrader.config import Settings
@@ -55,12 +54,11 @@ def start_deployment(
         payload["maker_fee_rate"] = maker_fee_rate
     if taker_fee_rate is not None:
         payload["taker_fee_rate"] = taker_fee_rate
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}",
         payload=payload,
-        extra_headers=headers,
+        settings=settings,
     )
 
 
@@ -111,12 +109,11 @@ def place_discretionary_order(
         payload["taker_fee_rate"] = taker_fee_rate
     if note is not None:
         payload["note"] = note
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}/api/v1/discretionary-orders",
         payload=payload,
-        extra_headers=headers,
+        settings=settings,
     )
 
 
@@ -131,12 +128,11 @@ def set_deployment_status(
     """Pause, resume, or stop one deployment."""
     if action not in {"pause", "resume", "stop"}:
         raise RuntimeControlError(f"unsupported runtime action: {action}")
-    headers = mutation_headers(settings) if settings else None
     suffix = "?flatten=true" if action == "stop" and flatten else ""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}{suffix}",
-        extra_headers=headers,
+        settings=settings,
     )
 
 
@@ -152,12 +148,11 @@ def set_risk_policy(
     settings: Settings | None = None,
 ) -> object:
     """Publish one new immutable risk-policy version."""
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="PUT",
         url=f"{base_url}{_RISK_POLICY_PREFIX}",
         payload=payload,
-        extra_headers=headers,
+        settings=settings,
     )
 
 
@@ -173,12 +168,11 @@ def set_yaml_settings(
     settings: Settings | None = None,
 ) -> object:
     """Persist YAML non-secrets. YOLO and intervals apply without restart."""
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="PUT",
         url=f"{base_url}{_SETTINGS_PREFIX}",
         payload=payload,
-        extra_headers=headers,
+        settings=settings,
     )
 
 
@@ -195,20 +189,18 @@ def set_coinbase_credentials(
     settings: Settings | None = None,
 ) -> object:
     """Set or rotate Coinbase secrets through the write-only HTTP contract."""
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="PUT",
         url=f"{base_url}{_CREDENTIALS_PREFIX}",
         payload={"api_key_name": api_key_name, "private_key": private_key},
-        extra_headers=headers,
+        settings=settings,
     )
 
 
 def clear_coinbase_credentials(base_url: str, *, settings: Settings | None = None) -> object:
     """Clear Coinbase secrets through the write-only HTTP contract."""
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="DELETE",
         url=f"{base_url}{_CREDENTIALS_PREFIX}",
-        extra_headers=headers,
+        settings=settings,
     )

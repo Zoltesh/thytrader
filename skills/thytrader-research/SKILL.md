@@ -15,6 +15,12 @@ Bounded research mutations only. This skill is not an extension of `thytrader-op
 
 Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to the database if the API is down.
 
+Production installs enforce the application trust boundary
+([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
+`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
+`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
+The CLI sends that header automatically; `--local` bypasses HTTP and therefore the boundary.
+
 Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`,
 `POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`) remain valid. The agent-facing mutation
 path is `uv run thytrader-research` with `--confirm`.

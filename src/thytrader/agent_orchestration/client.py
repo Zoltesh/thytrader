@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from thytrader.agent_http import request_json
+from thytrader.agent_http import request_json, request_mutation_json
 from thytrader.agent_orchestration.models import (
     AgentOrchestrationStatus,
     SkippedConfirmationRequest,
@@ -27,7 +27,7 @@ def record_skipped_confirmation(
 ) -> SkippedConfirmationResponse:
     """Persist one skipped-confirmation audit event before the mutation proceeds."""
     body = SkippedConfirmationRequest(tier=tier, command=command)
-    payload = request_json(
+    payload = request_mutation_json(
         method="POST",
         url=f"{base_url}{ORCHESTRATION_API_PREFIX}/skipped-confirmations",
         payload=body.model_dump(mode="json"),

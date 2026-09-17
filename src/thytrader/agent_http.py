@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from thytrader.config import Settings
 from thytrader.ops_contract import STALE_IMAGE_REBUILD, ops_contract_matches
-
-if TYPE_CHECKING:
-    from thytrader.config import Settings
+from thytrader.security.client import mutation_headers
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _MAX_ERROR_CHARS = 500
@@ -72,6 +70,25 @@ def require_matching_ops_contract(base_url: str) -> None:
     mapping = {key: value for key, value in raw_contract.items() if isinstance(key, str)}
     if len(mapping) != len(raw_contract) or not ops_contract_matches(mapping):
         raise AgentHttpError(_STALE_OPS_CONTRACT)
+
+
+def request_mutation_json(
+    *,
+    method: str,
+    url: str,
+    payload: object | None = None,
+    timeout: float = 30.0,
+    settings: Settings | None = None,
+) -> object:
+    """Mutate JSON with installation auth when the trust boundary is enabled."""
+    resolved = settings if settings is not None else Settings()
+    return request_json(
+        method=method,
+        url=url,
+        payload=payload,
+        timeout=timeout,
+        extra_headers=mutation_headers(resolved),
+    )
 
 
 def request_json(

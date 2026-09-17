@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from thytrader.agent_http import request_json
+from thytrader.agent_http import request_json, request_mutation_json
 from thytrader.data_control.models import DataControlError
 
 DATA_API_PREFIX = "/api/v1/data"
@@ -27,7 +27,7 @@ def add_watch(
     enabled: bool,
 ) -> object:
     """Upsert one watch target through the loopback API."""
-    return request_json(
+    return request_mutation_json(
         method="PUT",
         url=f"{base_url}{DATA_API_PREFIX}/watchlist",
         payload={
@@ -46,7 +46,7 @@ def ingest(
     timeframe: str,
 ) -> object:
     """Queue ingest and poll until the market-data worker finishes or times out."""
-    request_json(
+    request_mutation_json(
         method="POST",
         url=f"{base_url}{DATA_API_PREFIX}/ingest",
         payload={"product_id": product_id, "timeframe": timeframe},

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from thytrader.agent_http import request_json
+from thytrader.agent_http import request_json, request_mutation_json
 
 MEMORY_API_PREFIX = "/api/v1/memory"
 
@@ -34,7 +34,7 @@ def list_journals(
 
 def add_journal(base_url: str, payload: dict[str, object]) -> object:
     """Append one journal row."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/journals",
         payload=payload,
@@ -51,7 +51,7 @@ def list_sentiment(base_url: str, *, origin: str | None = None) -> object:
 
 def add_sentiment(base_url: str, payload: dict[str, object]) -> object:
     """Append one sentiment snapshot."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/sentiment",
         payload=payload,
@@ -77,7 +77,7 @@ def list_patterns(
 
 def add_pattern(base_url: str, payload: dict[str, object]) -> object:
     """Append one pattern observation."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/patterns",
         payload=payload,
@@ -94,7 +94,7 @@ def list_notifications(base_url: str, *, origin: str | None = None) -> object:
 
 def notify(base_url: str, payload: dict[str, object]) -> object:
     """Request one user notification through the configured provider."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/notifications",
         payload=payload,
@@ -113,7 +113,7 @@ def show_model(base_url: str, model_id: str) -> object:
 
 def train_model(base_url: str, payload: dict[str, object]) -> object:
     """Train one fail-closed model from attributed local journal evidence."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/models",
         payload=payload,
@@ -149,7 +149,7 @@ def show_trade_reason(base_url: str, intent_id: str) -> object:
 
 def add_trade_reason_note(base_url: str, intent_id: str, payload: dict[str, object]) -> object:
     """Append one attributed note to a why-trade record."""
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{MEMORY_API_PREFIX}/trade-reasons/{intent_id}/notes",
         payload=payload,
