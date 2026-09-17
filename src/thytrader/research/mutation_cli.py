@@ -159,8 +159,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Replace one draft from a JSON file.",
     )
     save.add_argument("--file", required=True, help="Path to a StrategyDefinition JSON document.")
-    save.add_argument("--revision", required=True, type=int, help="Expected durable revision.")
+    save.add_argument(
+        "--revision",
+        required=True,
+        type=int,
+        help=(
+            "Expected durable revision for an existing draft. New create-draft and "
+            "import-draft identities start at revision 1."
+        ),
+    )
     save.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    import_draft = subparsers.add_parser(
+        "import-draft",
+        parents=[trailing],
+        help="Create a new draft identity from a full StrategyDefinition JSON file.",
+    )
+    import_draft.add_argument(
+        "--file",
+        required=True,
+        help="Path to a StrategyDefinition JSON document with a new UUIDv7 strategy_id.",
+    )
+    import_draft.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     publish = subparsers.add_parser(
         "publish",
         parents=[trailing],
@@ -333,6 +352,10 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
             settings,
             lambda mutator: _save_draft(mutator, definition, arguments.revision),
         )
+    if arguments.command == "import-draft":
+        _require_confirm(arguments.confirm)
+        definition = StrategyDefinition.model_validate(_load_json(arguments.file))
+        return await _with_mutator(settings, lambda mutator: _import_draft(mutator, definition))
     if arguments.command == "publish":
         _require_confirm(arguments.confirm)
         strategy_id = UUID(arguments.strategy_id)
@@ -368,10 +391,8 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
     return await _dispatch_local_study(settings, arguments)
 
 
-def _dispatch_http(arguments: argparse.Namespace) -> str:
-    """Execute one research command against the loopback HTTP API."""
-    settings = Settings()
-    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+def _dispatch_http_draft(base_url: str, arguments: argparse.Namespace) -> str | None:
+    """Handle draft create/save/import mutations over HTTP."""
     if arguments.command == "create-draft":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="create-draft")
         require_matching_ops_contract(base_url)
@@ -387,6 +408,21 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
         return research_http.save_draft(base_url, definition, arguments.revision)
+    if arguments.command == "import-draft":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="import-draft")
+        definition = StrategyDefinition.model_validate(_load_json(arguments.file))
+        require_matching_ops_contract(base_url)
+        return research_http.import_draft(base_url, definition)
+    return None
+
+
+def _dispatch_http(arguments: argparse.Namespace) -> str:
+    """Execute one research command against the loopback HTTP API."""
+    settings = Settings()
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    draft_output = _dispatch_http_draft(base_url, arguments)
+    if draft_output is not None:
+        return draft_output
     if arguments.command == "publish":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
         strategy_id = UUID(arguments.strategy_id)
@@ -471,6 +507,19 @@ async def _save_draft(
             "strategy_id": str(draft.definition.strategy_id),
             "revision": draft.revision,
             "version": draft.definition.version,
+        }
+    )
+
+
+async def _import_draft(mutator: ResearchMutator, definition: StrategyDefinition) -> str:
+    """Import one custom strategy document as a new draft identity."""
+    draft = await mutator.import_draft(definition)
+    return _encode(
+        {
+            "strategy_id": str(draft.definition.strategy_id),
+            "revision": draft.revision,
+            "version": draft.definition.version,
+            "name": draft.definition.name,
         }
     )
 

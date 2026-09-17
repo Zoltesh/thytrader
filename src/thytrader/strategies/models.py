@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 import re
 from typing import Annotated, Literal, Self, TypeAlias
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import (
     AfterValidator,
@@ -56,8 +56,29 @@ def _decimal_text(value: str) -> str:
 
 
 _DECIMAL_TEXT_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+_UUID7_TEXT_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 DecimalText = Annotated[str, Field(strict=True), AfterValidator(_decimal_text)]
+
+
+def _require_uuid7(value: UUID) -> UUID:
+    """Reject identifiers that are not time-sortable UUID version 7."""
+    if value.version != 7:
+        raise ValueError("must be UUIDv7")
+    return value
+
+
+Uuid7 = Annotated[
+    UUID,
+    AfterValidator(_require_uuid7),
+    Field(
+        description="Time-sortable UUID version 7 strategy identity.",
+        json_schema_extra={"format": "uuid7", "pattern": _UUID7_TEXT_PATTERN.pattern},
+    ),
+]
 
 
 class _FrozenModel(BaseModel):
@@ -902,7 +923,7 @@ class StrategyDefinition(_FrozenModel):
     """Implemented immutable subset of ThyTrader's proposed canonical V1 contract."""
 
     schema_version: Literal["1.0"]
-    strategy_id: UUID
+    strategy_id: Uuid7
     version: int = Field(ge=1)
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, min_length=1, max_length=500)
@@ -924,14 +945,6 @@ class StrategyDefinition(_FrozenModel):
     exits: ExitDefinition
     execution: ExecutionPreferences
     metadata: StrategyMetadata
-
-    @field_validator("strategy_id")
-    @classmethod
-    def require_uuid7(cls, value: UUID) -> UUID:
-        """Use time-sortable UUIDv7 identifiers for strategy identity."""
-        if value.version != 7:
-            raise ValueError("strategy_id must be UUIDv7")
-        return value
 
     @field_validator("created_at")
     @classmethod

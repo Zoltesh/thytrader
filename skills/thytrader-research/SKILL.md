@@ -21,7 +21,8 @@ Production installs enforce the application trust boundary
 `$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
 The CLI sends that header automatically; `--local` bypasses HTTP and therefore the boundary.
 
-Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`,
+Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/import`,
+`POST /api/v1/strategies/{id}/publish`,
 `POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`) remain valid. The agent-facing mutation
 path is `uv run thytrader-research` with `--confirm`.
 
@@ -66,6 +67,7 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | List draft templates | `uv run thytrader-research list-templates` |
 | Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
+| Import a new custom draft from JSON | `uv run thytrader-research import-draft --file definition.json --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
 | Queue a long backtest (HTTP 202) | `uv run thytrader-research submit-backtest --file request.json --async --confirm` |
@@ -142,7 +144,10 @@ Optional per-indicator `timeframe` on LTF-list indicators must be a coarser inte
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
-id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic
+id. Copy a candle field with `identity`. Custom documents need a new UUIDv7 `strategy_id` and
+`status: draft`; use `import-draft --file … --confirm` to create a new identity. Use
+`save-draft --file … --revision N --confirm` only to replace an existing draft (first save after
+create/import uses `--revision 1`; each accepted save bumps revision). `save-draft` prints the first Pydantic
 validation message; do not treat a generic “failed safely” string as success. HTTP 422 that lists
 backtest engines through v1/v2 only, or through v3 without v4, is a stale Compose image — rebuild
 with `make run`. A matching `/health/ready` ops contract must advertise v4 before v4
@@ -174,7 +179,7 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 
 ## Confirmation
 
-- Never run `create-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- Never run `create-draft`, `import-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
 - `--local` research always requires `--confirm` (YOLO is HTTP-only).
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
 - Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`, `study_fingerprint`). Keep those identities.

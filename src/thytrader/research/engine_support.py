@@ -133,9 +133,12 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 label="Entry cooldown (cooldown_bars)",
                 v1=False,
                 v2=False,
-                v3=False,
-                v4=False,
-                note="not modeled by bar backtesters",
+                v3=True,
+                v4=True,
+                note=(
+                    "V3/V4 maker path blocks re-entry for cooldown_bars after exit or "
+                    "unfilled cancel; V1/V2 do not model cooldown"
+                ),
             ),
             EngineSupportRow(
                 label="Maker-only / marketable entry preference",
@@ -186,9 +189,12 @@ def engine_support_matrix() -> EngineSupportMatrix:
                 label="Trailing stop",
                 v1=False,
                 v2=False,
-                v3=False,
-                v4=False,
-                note="the published strategy profile permits disabled only",
+                v3=True,
+                v4=True,
+                note=(
+                    "enabled ATR-multiple trailing shares the paper/live ratchet on V3/V4; "
+                    "V4 applies causal same-bar ordering per ADR 0062; disabled is a no-op"
+                ),
             ),
             EngineSupportRow(
                 label="Walk-forward / OOS / cross-market studies",
