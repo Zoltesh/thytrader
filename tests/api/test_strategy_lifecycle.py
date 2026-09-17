@@ -215,7 +215,7 @@ def test_strategy_creation_persists_a_draft_that_the_browser_can_recover() -> No
     assert entry["paper_live"] == {"paper": "unavailable", "live": "unavailable"}
     assert (
         entry["summary"]
-        == "BTC-USD · 1h · EMA(20) crosses above EMA(50) · RSI ≥ 50 · 0.5% risk · $10-$100"
+        == "BTC-USD · 1h · EMA(20) crosses above EMA(50) AND RSI(14) ≥ 50 · 0.5% risk · $10-$100"
     )
 
 

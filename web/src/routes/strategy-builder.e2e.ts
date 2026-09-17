@@ -72,7 +72,7 @@ const libraryEntry = {
 	status: 'draft',
 	latest_fingerprint: null,
 	archived: false,
-	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) · RSI ≥ 50 · 0.5% risk · $10-$100',
+	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) AND RSI(14) ≥ 50 · 0.5% risk · $10-$100',
 	backtest: null,
 	paper_live: { paper: 'unavailable', live: 'unavailable' },
 	created_at: draft.created_at,
@@ -126,12 +126,13 @@ test('flags engine settings the current backtester does not model', async ({ pag
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V3' })).toBeVisible();
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V4' })).toBeVisible();
 	const cooldown = engineMatrix.getByRole('row', { name: /Entry cooldown/ });
-	await expect(cooldown).toContainText('not modeled by V1, V2, or V3');
-	await expect(cooldown.getByText('Unsupported')).toHaveCount(3);
+	await expect(cooldown).toContainText('V3/V4 maker path blocks re-entry');
+	await expect(cooldown.getByText('Unsupported')).toHaveCount(2);
 	const makerEntry = engineMatrix.getByRole('row', { name: /Maker-only/ });
 	await expect(makerEntry.getByText('Unsupported', { exact: true })).toHaveCount(2);
-	await expect(makerEntry.getByText('Supported', { exact: true })).toHaveCount(1);
+	await expect(makerEntry.getByText('Supported', { exact: true })).toHaveCount(2);
 });
 
 test('saves edited builder state through the durable draft boundary', async ({ page }) => {
