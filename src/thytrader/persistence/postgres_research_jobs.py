@@ -22,6 +22,7 @@ from thytrader.research.jobs import (
 from thytrader.research.studies import ResearchStudyRequest
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
@@ -349,21 +350,20 @@ def _replacement_values(
     return values
 
 
-def _record_from_row(row: object) -> ResearchJobRecord:
+def _record_from_row(row: RowMapping) -> ResearchJobRecord:
     """Map one database row into a typed job record."""
-    mapping = cast("dict[str, object]", dict(row))
     return ResearchJobRecord(
-        job_id=cast("UUID", mapping["job_id"]),
-        kind=ResearchJobKind(cast("str", mapping["kind"])),
-        status=ResearchJobStatus(cast("str", mapping["status"])),
-        created_at=cast("datetime", mapping["created_at"]),
-        updated_at=cast("datetime", mapping["updated_at"]),
-        expires_at=cast("datetime", mapping["expires_at"]),
-        progress_current=cast("int", mapping["progress_current"]),
-        progress_total=cast("int", mapping["progress_total"]),
-        error_message=cast("str | None", mapping.get("error_message")),
-        run_fingerprint=cast("str | None", mapping.get("run_fingerprint")),
-        result_fingerprint=cast("str | None", mapping.get("result_fingerprint")),
-        study_fingerprint=cast("str | None", mapping.get("study_fingerprint")),
-        plan_fingerprint=cast("str | None", mapping.get("plan_fingerprint")),
+        job_id=cast("UUID", row["job_id"]),
+        kind=ResearchJobKind(cast("str", row["kind"])),
+        status=ResearchJobStatus(cast("str", row["status"])),
+        created_at=cast("datetime", row["created_at"]),
+        updated_at=cast("datetime", row["updated_at"]),
+        expires_at=cast("datetime", row["expires_at"]),
+        progress_current=cast("int", row["progress_current"]),
+        progress_total=cast("int", row["progress_total"]),
+        error_message=cast("str | None", row.get("error_message")),
+        run_fingerprint=cast("str | None", row.get("run_fingerprint")),
+        result_fingerprint=cast("str | None", row.get("result_fingerprint")),
+        study_fingerprint=cast("str | None", row.get("study_fingerprint")),
+        plan_fingerprint=cast("str | None", row.get("plan_fingerprint")),
     )
