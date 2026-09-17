@@ -84,6 +84,28 @@ def save_draft(base_url: str, definition: StrategyDefinition, revision: int) -> 
     )
 
 
+def import_draft(base_url: str, definition: StrategyDefinition) -> str:
+    """POST one new custom strategy document through the strategies import API."""
+    body = _as_object(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/strategies/import",
+            payload={"strategy": definition.model_dump(mode="json")},
+        ),
+        "import-draft response",
+    )
+    strategy = _as_object(body.get("strategy"), "imported strategy")
+    return _encode(
+        {
+            "strategy_id": _as_str(strategy.get("strategy_id"), "strategy_id"),
+            "revision": body.get("revision"),
+            "version": strategy.get("version"),
+            "name": strategy.get("name"),
+            "summary": body.get("summary"),
+        }
+    )
+
+
 def publish(base_url: str, strategy_id: UUID) -> str:
     """Load the matching draft over HTTP and publish it immutably."""
     listing = _as_object(

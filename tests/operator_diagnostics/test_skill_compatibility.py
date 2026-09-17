@@ -89,6 +89,7 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "thytrader-research" in skill
     assert "--confirm" in skill
     assert "create-draft" in skill
+    assert "import-draft" in skill
     assert "--experiential-model-id" in skill
     assert "--product-id" in skill
     assert "--timeframe" in skill

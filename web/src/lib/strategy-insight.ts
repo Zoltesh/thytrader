@@ -589,23 +589,26 @@ export type EngineSupportRow = {
 	v1: boolean;
 	v2: boolean;
 	v3: boolean;
+	v4: boolean;
 	note: string;
 };
 
-// Bar-backtest engines are parallel contracts. V3 does not retire V1/V2.
+// Bar-backtest engines are parallel contracts. Later engines do not retire earlier fingerprints.
 export const ENGINE_SUPPORT: EngineSupportRow[] = [
 	{
 		label: 'HTF filter (optional closed-bar AND with LTF entry)',
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'Research V1/V2/V3 and paper/live evaluate last completed HTF bars only'
+		v4: true,
+		note: 'Research engines and paper/live evaluate last completed HTF bars only'
 	},
 	{
 		label: 'Entry conditions (ALL / ANY / NOT, comparisons, crossovers)',
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'evaluated on completed candles, no lookahead'
 	},
 	{
@@ -614,6 +617,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'exact Decimal arithmetic; paper/live share the LTF catalog and evaluate HTF kinds inside htf_filter; MACD/Bollinger/stochastic/ADX conditions use series ids; rolling EMA/SMA/WMA/highest/lowest/stdev/sample-stdev/ROC/momentum accept one OHLCV field'
 	},
 	{
@@ -621,6 +625,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'optional LTF-list timeframe uses last-completed extra-TF bars; paper/live compose with HTF; no interpolation'
 	},
 	{
@@ -628,6 +633,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'bounded by exposure fraction'
 	},
 	{
@@ -635,6 +641,7 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'stop-loss priority inside the bar'
 	},
 	{
@@ -642,55 +649,63 @@ export const ENGINE_SUPPORT: EngineSupportRow[] = [
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'V1/V2 check after the stop; V3 rests take-profit after the fill bar'
+		v4: true,
+		note: 'V1/V2 check after the stop; V3/V4 rest take-profit after the fill bar'
 	},
 	{
 		label: 'Time exit (max bars held)',
 		v1: true,
 		v2: true,
 		v3: true,
-		note: 'V1/V2 exit at the open; V3 exits at the completed close'
+		v4: true,
+		note: 'V1/V2 exit at the open; V3 exits at close; V4 uses causal terminal rules'
 	},
 	{
 		label: 'Constant spread stress assumption',
 		v1: false,
 		v2: true,
 		v3: false,
-		note: 'V2 models an explicit total bid-ask spread; V1 and V3 do not'
+		v4: false,
+		note: 'V2 models an explicit total bid-ask spread; V1 and V3/V4 maker paths do not'
 	},
 	{
 		label: 'Entry cooldown (cooldown_bars)',
 		v1: false,
 		v2: false,
-		v3: false,
-		note: 'not modeled by V1, V2, or V3 bar backtesters'
+		v3: true,
+		v4: true,
+		note: 'V3/V4 maker path blocks re-entry for cooldown_bars after exit or unfilled cancel'
 	},
 	{
 		label: 'Maker-only / marketable entry preference',
 		v1: false,
 		v2: false,
 		v3: true,
-		note: 'V1/V2 fill at next open; V3 rests a post-only close limit'
+		v4: true,
+		note: 'V1/V2 fill at next open; V3/V4 rest a post-only close limit'
 	},
 	{
 		label: 'Entry wait and unfilled policy',
 		v1: false,
 		v2: false,
 		v3: true,
-		note: 'V3 honors max_entry_wait_bars and on_unfilled_entry cancel/reprice'
+		v4: true,
+		note: 'V3/V4 honor max_entry_wait_bars and on_unfilled_entry cancel/reprice'
 	},
 	{
 		label: 'Trailing stop',
 		v1: false,
 		v2: false,
-		v3: false,
-		note: 'the published strategy profile permits disabled only'
+		v3: true,
+		v4: true,
+		note: 'enabled ATR-multiple trailing shares the paper/live ratchet on V3/V4; disabled is a no-op'
 	},
 	{
 		label: 'Walk-forward / OOS / cross-market studies',
 		v1: true,
 		v2: true,
 		v3: true,
+		v4: true,
 		note: 'Phase 11 and ADR 0044 compose existing engines for validation, sweeps, WFO, and stitched OOS equity'
 	}
 ];

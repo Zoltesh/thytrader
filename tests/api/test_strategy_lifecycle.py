@@ -976,3 +976,61 @@ def test_draft_store_integrity_exception_failures_are_redacted(
 
     assert response.status_code == 503
     assert response.json() == {"detail": detail}
+
+
+def test_strategy_summary_uses_macd_entry_rule_not_ema_fallback() -> None:
+    """MACD template library rows must not fall back to generic EMA/RSI summary text."""
+    draft_store = InMemoryDraftStore()
+    definition = create_reference_draft(template="macd-trend")
+    draft_store.drafts[(str(definition.strategy_id), definition.version)] = StrategyDraft(
+        definition=definition,
+        revision=1,
+    )
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryPublicationStore(draft_store),
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/v1/strategies")
+
+    assert response.status_code == 200
+    summary = response.json()["strategies"][0]["summary"]
+    assert "MACD line crosses above MACD signal" in summary
+    assert "EMA rules" not in summary
+    assert "No RSI filter" not in summary
+
+
+def test_strategy_import_creates_revision_one_draft() -> None:
+    """Custom imports persist a new editable identity at revision 1."""
+    draft_store = InMemoryDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryPublicationStore(draft_store),
+    )
+    custom = create_reference_draft(template="bollinger-mean-reversion")
+    payload = custom.model_copy(update={"status": StrategyStatus.DRAFT}).model_dump(mode="json")
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies/import", json={"strategy": payload})
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["revision"] == 1
+    assert "lower Bollinger band" in body["summary"]
+    assert draft_store.drafts[(str(custom.strategy_id), custom.version)].revision == 1
+
+
+def test_openapi_strategy_id_uses_uuid7_format() -> None:
+    """Strategy import documents require UUIDv7 in the published OpenAPI contract."""
+    app = create_app(Settings(_env_file=None))
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+    for schema_name in ("StrategyDefinition-Input", "StrategyDefinition-Output"):
+        strategy_id = schema["components"]["schemas"][schema_name]["properties"]["strategy_id"]
+        assert strategy_id["format"] == "uuid7"
+        assert "pattern" in strategy_id
+    import_props = schema["components"]["schemas"]["StrategyImportRequest"]["properties"]
+    import_request = import_props["strategy"]
+    assert import_request["$ref"].endswith("StrategyDefinition-Input")

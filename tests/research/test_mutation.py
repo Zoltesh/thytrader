@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.research.mutation import ResearchMutator
-from thytrader.strategies.authoring import StrategyDraft
+from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
 
@@ -124,6 +124,25 @@ def test_create_reference_draft_records_research_audit() -> None:
     assert drafts.create_calls == 1
     assert events[0].category is AuditEventCategory.RESEARCH
     assert events[0].action == "create_draft"
+
+
+def test_import_draft_records_research_audit() -> None:
+    """Importing a custom draft must append a research audit event."""
+    drafts = _DraftStore()
+    audit = InMemoryAuditEventStore()
+    mutator = ResearchMutator(
+        drafts=drafts,
+        publications=_PublicationStore(drafts),
+        submitter=_UnusedSubmitter(),
+        results=DisabledBacktestResultStore(),
+        audit=audit,
+    )
+    definition = create_reference_draft()
+    imported = asyncio.run(mutator.import_draft(definition))
+    events = asyncio.run(audit.list_recent(limit=5))
+    assert imported.revision == 1
+    assert drafts.create_calls == 1
+    assert any(event.action == "import_draft" for event in events)
 
 
 def test_publish_consumes_draft_and_returns_fingerprint() -> None:

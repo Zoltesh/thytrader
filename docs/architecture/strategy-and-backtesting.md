@@ -73,16 +73,15 @@ sizing, Portfolio limits, and Execution preferences. Entry conditions are edited
 ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
 state, and an explicit engine-support matrix. That matrix distinguishes settings the current
-`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3`
-engines actually consume. V1 and V2 consume entry conditions, optional HTF filter, the shipped
-indicator catalog (EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI,
-WMA, momentum, MFI, MACD, Bollinger, identity OHLCV, constant), risk-fraction sizing with notional
-bounds, ATR initial stop, reward/risk take profit, and time exit. V2 alone consumes an explicit
-constant-spread stress assumption. V3 consumes the same HTF signal stage plus maker-only close-limit
-entries, `max_entry_wait_bars`, `on_unfilled_entry`, same-bar stops, and resting take-profit, matching
-the paper worker. V1 and V2 fill every simulated entry at the next bar open unconditionally; V3
-does not. Entry cooldown remains unsupported on every bar engine. Optional ATR trailing uses the
-same ratchet as paper/live; disabled trailing is a no-op. Walk-forward /
+`thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engines actually consume. V1 and V2
+consume entry conditions, optional HTF filter, the shipped indicator catalog (EMA, SMA, RSI, ATR,
+volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger,
+identity OHLCV, constant), risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
+take profit, and time exit. V2 alone consumes an explicit constant-spread stress assumption. V3 and
+V4 consume the same HTF signal stage plus maker-only close-limit entries, `max_entry_wait_bars`,
+`on_unfilled_entry`, same-bar stops, resting take-profit, entry cooldown, and enabled ATR trailing,
+matching the paper worker and causal V4 terminal rules. V1 and V2 fill every simulated entry at the
+next bar open unconditionally; V3/V4 do not. Disabled trailing is a no-op on every engine. Walk-forward /
 OOS / cross-market studies compose these engines ([research studies](research-studies.md)).
 Validation kinds freeze one fingerprint; parameter sweeps and WFO select among published or
 derived fingerprints without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).

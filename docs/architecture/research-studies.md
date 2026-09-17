@@ -114,7 +114,7 @@ This is not a fourth backtest engine and does not claim live fill quality.
 
 ## HTTP
 
-- `GET /api/v1/research/engine-support` — V1/V2/V3 matrix.
+- `GET /api/v1/research/engine-support` — V1/V2/V3/V4 matrix.
 - `GET /api/v1/research/templates` — draft template ids.
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
 - `POST /api/v1/research/studies` — plan plus idempotent child submissions and catalog persist.

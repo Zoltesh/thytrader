@@ -25,6 +25,11 @@ def test_engine_support_matrix_has_v4_and_study_rows() -> None:
     htf = by_label["HTF filter (optional closed-bar AND with LTF entry)"]
     assert htf.v1 is True and htf.v2 is True and htf.v3 is True
     assert "paper/live" in htf.note
+    cooldown = by_label["Entry cooldown (cooldown_bars)"]
+    assert cooldown.v1 is False and cooldown.v2 is False
+    assert cooldown.v3 is True and cooldown.v4 is True
+    trailing = by_label["Trailing stop"]
+    assert trailing.v3 is True and trailing.v4 is True
     extra = by_label["Per-indicator timeframes"]
     assert extra.v1 is True and extra.v2 is True and extra.v3 is True
     assert "last-completed" in extra.note

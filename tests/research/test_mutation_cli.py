@@ -84,6 +84,34 @@ def test_create_draft_without_confirm_does_not_write() -> None:
     request.assert_not_called()
 
 
+def test_save_draft_help_documents_revision_one_for_new_identities(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """save-draft help must explain that new identities start at revision 1."""
+    with pytest.raises(SystemExit) as raised:
+        main(["save-draft", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    assert "revision 1" in output
+
+
+def test_import_draft_without_confirm_does_not_write() -> None:
+    """Omitting --confirm must exit before import-draft HTTP."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.research.http.import_draft") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["import-draft", "--file", str(_REFERENCE_STRATEGY)])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
 def test_save_draft_prints_crossover_validation_error(tmp_path: Path) -> None:
     """Invalid crossover operands must surface the semantic validator message."""
     payload = json.loads(_REFERENCE_STRATEGY.read_text())
