@@ -16,8 +16,9 @@ breakers / order-rate limits / reference-price collars, the persisted
 research-study catalog, trade-reason journals, multi-instrument documents, or
 intra-strategy pyramiding, attached-child protection, worker leases, live
 capital vs venue cash, deployment HTTP `capital` field names, durable
-daily-loss/drawdown baselines, lifecycle stop/flatten/managed-shutdown commands, or
-supported spot quote currencies change.
+daily-loss/drawdown baselines, lifecycle stop/flatten/managed-shutdown commands,
+supported spot quote currencies, or catalog-health capabilities (bounded gap
+inspection, ingest self-complete, heartbeat during ingest) change.
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v29"
-EXPECTED_SCHEMA_REVISION = "0042"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v30"
+EXPECTED_SCHEMA_REVISION = "0043"
 SPOT_QUOTE_CURRENCIES_FIELD: tuple[str, ...] = SPOT_QUOTE_CURRENCIES
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
@@ -51,6 +52,11 @@ BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v4",
 )
 ASYNC_BACKTEST_JOBS: tuple[str, ...] = ("queued", "running", "completed", "failed")
+CATALOG_HEALTH: tuple[str, ...] = (
+    "bounded_gap_inspection",
+    "ingest_self_complete",
+    "heartbeat_during_ingest",
+)
 EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
@@ -95,6 +101,7 @@ def expected_ops_contract() -> dict[str, object]:
         "breaker_latch_reset": list(BREAKER_LATCH_RESET),
         "async_backtest_job_statuses": list(ASYNC_BACKTEST_JOBS),
         "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
+        "catalog_health": list(CATALOG_HEALTH),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

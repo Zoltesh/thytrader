@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import time
 from typing import TYPE_CHECKING
 
 from thytrader.data_control.models import (
@@ -35,6 +36,15 @@ from thytrader.persistence.audit_events import (
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
+)
+
+INSPECT_GAPS_TIME_BUDGET_SECONDS = 8.0
+INSPECT_GAPS_MAX_BARS = 20_000
+INSPECT_GAPS_MAX_PROBE_DAYS = 8
+INSPECT_GAPS_MAX_LOCAL_CANDLES = 20_000
+_INSPECT_TRUNCATED_WARNING = (
+    "Gap inspection hit the server-side time or row budget; "
+    "gap_summary covers scanned bars only and is not the full watch window."
 )
 
 if TYPE_CHECKING:
@@ -192,30 +202,55 @@ async def inspect_gaps(
     product_id: str,
     timeframe: str,
     now: datetime,
+    time_budget_seconds: float = INSPECT_GAPS_TIME_BUDGET_SECONDS,
+    max_bars: int = INSPECT_GAPS_MAX_BARS,
+    max_probe_days: int = INSPECT_GAPS_MAX_PROBE_DAYS,
+    max_local_candles: int = INSPECT_GAPS_MAX_LOCAL_CANDLES,
 ) -> GapInspection:
-    """Probe the exchange and classify missing bars without writing Parquet."""
+    """Probe the exchange and classify missing bars without writing Parquet.
+
+    Server-side time and row budgets bound compute. When a budget is exhausted the
+    response is fail-closed: ``truncated`` is true and ``gap_summary`` covers only
+    scanned bars. Missing bars are never interpolated.
+    """
     interval = require_interval(timeframe)
     provider = ingestion_provider(settings)
     lookback_hours = await _lookback_hours(watchlist, settings, provider, product_id, interval)
     ends_at = interval.align_closed_end(now)
     starts_at = bounded_lookback_start(ends_at, lookback_hours, interval)
-    local_starts = _local_starts(dataset_store, provider, product_id, interval)
+    deadline = time.monotonic() + max(0.05, time_budget_seconds)
+    local_starts, local_truncated = _local_starts(
+        dataset_store, provider, product_id, interval, max_candles=max_local_candles
+    )
     try:
         state = await state_store.get(provider, product_id, interval)
     except MarketDataWorkerUnavailableError:
         state = None
-    exchange_starts, probe_warning = await _probe_starts_chunked(
-        service, product_id, interval, starts_at, ends_at
+    exchange_starts, probed_through, probe_warning, probe_truncated = await _probe_starts_chunked(
+        service,
+        product_id,
+        interval,
+        starts_at,
+        ends_at,
+        deadline=deadline,
+        max_days=max_probe_days,
     )
-    gaps, gap_summary = _classify_watch_gaps(
+    gaps, gap_summary, classify_truncated, scanned_bar_count = _classify_watch_gaps(
         interval=interval,
         starts_at=starts_at,
         ends_at=ends_at,
         local_starts=local_starts,
         exchange_starts=exchange_starts,
+        probed_through=probed_through,
         state=state,
         max_listed=200,
+        max_bars=max_bars,
+        deadline=deadline,
     )
+    truncated = local_truncated or probe_truncated or classify_truncated
+    warning = probe_warning
+    if truncated:
+        warning = _INSPECT_TRUNCATED_WARNING
     island_complete = False if state is None else state.complete
     watch_complete = island_covers_watch(
         covered_starts_at=None if state is None else state.covered_starts_at,
@@ -232,10 +267,12 @@ async def inspect_gaps(
         ends_at=ends_at,
         gaps=gaps,
         gap_summary=gap_summary,
-        warning=probe_warning,
+        warning=warning,
         lookback_hours=lookback_hours,
         complete=island_complete,
         watch_complete=watch_complete,
+        truncated=truncated,
+        scanned_bar_count=scanned_bar_count,
     )
 
 
@@ -271,8 +308,10 @@ def _local_starts(
     provider: str,
     product_id: str,
     interval: CandleInterval,
-) -> set[datetime]:
-    """Return bar starts from every verified island for this target, not only the latest suffix."""
+    *,
+    max_candles: int,
+) -> tuple[set[datetime], bool]:
+    """Return bar starts from verified islands, stopping at the row budget."""
     identity = (provider, product_id, interval.value)
     starts: set[datetime] = set()
     for manifest in dataset_store.list_verified():
@@ -282,8 +321,11 @@ def _local_starts(
             candles = dataset_store.load_candles(manifest.content_fingerprint)
         except Exception:  # noqa: BLE001, S112 - corrupt islands are skipped, not interpolated.
             continue
-        starts.update(candle.starts_at for candle in candles)
-    return starts
+        for candle in candles:
+            if len(starts) >= max_candles:
+                return starts, True
+            starts.add(candle.starts_at)
+    return starts, False
 
 
 async def _probe_starts_chunked(
@@ -292,14 +334,23 @@ async def _probe_starts_chunked(
     interval: CandleInterval,
     starts_at: datetime,
     ends_at: datetime,
-) -> tuple[set[datetime] | None, str | None]:
-    """Probe exchange coverage in UTC-day chunks so 1m watches stay bounded."""
+    *,
+    deadline: float,
+    max_days: int,
+) -> tuple[set[datetime] | None, datetime | None, str | None, bool]:
+    """Probe exchange coverage in UTC-day chunks until the time or day budget."""
     exchange_starts: set[datetime] = set()
     cursor = starts_at.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     if cursor < starts_at:
         cursor = starts_at
     warnings: list[str] = []
+    probed_through = starts_at
+    days = 0
+    truncated = False
     while cursor < ends_at:
+        if days >= max_days or time.monotonic() >= deadline:
+            truncated = True
+            break
         day_end = min(
             cursor + timedelta(days=1),
             ends_at,
@@ -314,13 +365,24 @@ async def _probe_starts_chunked(
                 "remaining gaps in that chunk are not marked exchange-empty."
             )
             cursor = day_end
+            probed_through = day_end
+            days += 1
             continue
         exchange_starts.update(candle.starts_at for candle in report.quality.candles)
         cursor = day_end
+        probed_through = day_end
+        days += 1
+    if truncated:
+        return (
+            exchange_starts or None,
+            probed_through,
+            warnings[0] if warnings else None,
+            True,
+        )
     if not exchange_starts and warnings:
-        return None, warnings[0]
+        return None, probed_through, warnings[0], False
     warning = warnings[0] if warnings else None
-    return exchange_starts, warning
+    return exchange_starts, probed_through, warning, False
 
 
 def _classify_watch_gaps(
@@ -330,18 +392,27 @@ def _classify_watch_gaps(
     ends_at: datetime,
     local_starts: set[datetime],
     exchange_starts: set[datetime] | None,
+    probed_through: datetime | None,
     state: MarketDataWorkerState | None,
     max_listed: int,
-) -> tuple[tuple[GapObservation, ...], dict[str, int]]:
-    """Classify missing bars with bounded listing and summary counts."""
+    max_bars: int,
+    deadline: float,
+) -> tuple[tuple[GapObservation, ...], dict[str, int], bool, int]:
+    """Classify missing bars with bounded listing, summary counts, and scan budgets."""
     summary = {cause.value: 0 for cause in GapCause}
     listed: list[GapObservation] = []
     cursor = starts_at
+    scanned = 0
+    truncated = False
     while cursor < ends_at:
+        if scanned >= max_bars or time.monotonic() >= deadline:
+            truncated = True
+            break
+        scanned += 1
         if cursor in local_starts:
             cursor += interval.duration
             continue
-        present_on_exchange = None if exchange_starts is None else cursor in exchange_starts
+        present_on_exchange = _exchange_presence(cursor, exchange_starts, probed_through)
         cause = classify_gap(
             present_locally=False,
             present_on_exchange=present_on_exchange,
@@ -353,7 +424,20 @@ def _classify_watch_gaps(
             if len(listed) < max_listed:
                 listed.append(GapObservation(starts_at=cursor, cause=cause))
         cursor += interval.duration
-    return tuple(listed), summary
+    return tuple(listed), summary, truncated, scanned
+
+
+def _exchange_presence(
+    cursor: datetime,
+    exchange_starts: set[datetime] | None,
+    probed_through: datetime | None,
+) -> bool | None:
+    """True/false only inside the probed span; unprobed bars stay unknown."""
+    if exchange_starts is None:
+        return None
+    if probed_through is not None and cursor >= probed_through:
+        return None
+    return cursor in exchange_starts
 
 
 def _observation_for(

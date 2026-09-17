@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
+import time
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
@@ -35,7 +36,7 @@ def _client(tmp_path: Path) -> TestClient:
 
 
 async def _run_worker_cycle(app: FastAPI) -> None:
-    """Let the dedicated worker consume one queued ingest request."""
+    """Let the worker walk UTC-day chunks until the queued ingest request clears."""
     stop = asyncio.Event()
     task = asyncio.create_task(
         run_market_data_worker(
@@ -50,9 +51,16 @@ async def _run_worker_cycle(app: FastAPI) -> None:
             watchlist=app.state.market_data_watchlist_store,
         )
     )
-    await asyncio.sleep(0.3)
-    stop.set()
-    await task
+    deadline = time.monotonic() + 40.0
+    try:
+        while time.monotonic() < deadline:
+            targets = await app.state.market_data_watchlist_store.list_all()
+            if targets and all(target.ingest_requested_at is None for target in targets):
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        stop.set()
+        await task
 
 
 def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
@@ -132,6 +140,8 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
             "incomplete_local",
         }
         assert gaps["interpolated"] is False
+        assert "truncated" in gaps
+        assert "scanned_bar_count" in gaps
         assert datetime.fromisoformat(gaps["gaps"][0]["starts_at"]) < covered_start
         assert list(longer).index("watch_complete") < list(longer).index("complete")
         assert list(gaps).index("watch_complete") < list(gaps).index("complete")

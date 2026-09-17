@@ -33,7 +33,6 @@ from thytrader.market_data.freshness import (
 )
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.watchlist import (
-    INGEST_REQUEST_POLL_SECONDS,
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
     MarketDataWatchTarget,
@@ -884,14 +883,7 @@ class OperatorDiagnostics:
         if name == "portfolio_worker":
             return 2 * self.settings.snapshot_interval_seconds + slack
         if name == "market_data_worker":
-            return (
-                2
-                * min(
-                    self.settings.market_data_worker_interval_seconds,
-                    INGEST_REQUEST_POLL_SECONDS,
-                )
-                + slack
-            )
+            return 2 * self.settings.market_data_worker_interval_seconds + slack
         return 2 * self.settings.execution_worker_interval_seconds + slack
 
     async def _runtime_timeframe(self, deployment: Deployment) -> SupportedTimeframe:

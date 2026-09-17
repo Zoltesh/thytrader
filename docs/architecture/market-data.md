@@ -35,13 +35,17 @@ spans the configured half-open watch window. Catalog, ingest status, gap inspect
 data-catalog payloads put `watch_complete` on the decision surface before `complete`.
 `GET /api/v1/market-data/datasets` and `/datasets/latest` list fingerprint-addressed island
 publications; they are not a watch-completeness surface.
-`inspect-gaps` classifies missing bars across the full watch window as `not_fetched`,
+`inspect-gaps` classifies missing bars as `not_fetched`,
 `exchange_unavailable`, or `incomplete_local`; it never interpolates, and a clean short island does
-not produce `gap_count: 0` for an incomplete watch.
+not produce `gap_count: 0` for an incomplete watch. Server-side time, probe, and row budgets can
+stop the scan: the payload then sets `truncated` and a partial `gap_summary`
+([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
-endpoints remain diagnostics, not strategy inputs. The worker clears `ingest_requested_at` after
-`ingest_once` returns, so CLI polling waits for the walk, not only for queue acceptance.
+endpoints remain diagnostics, not strategy inputs. The worker keeps `ingest_requested_at` until
+`watch_complete` or a durable failure, walking a small UTC-day budget per target per cycle and
+touching its heartbeat between cells and chunks so one ingest queue can finish lookback without
+extra `fill-gaps` calls.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.

@@ -120,6 +120,7 @@ class OpsContractPayload(_FrozenModel):
     breaker_latch_reset: tuple[Literal["paper", "live"], ...]
     async_backtest_job_statuses: tuple[Literal["queued", "running", "completed", "failed"], ...]
     spot_quote_currencies: tuple[Literal["USD", "USDC"], ...]
+    catalog_health: tuple[str, ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

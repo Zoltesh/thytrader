@@ -231,6 +231,8 @@ async def get_gaps(
         "gap_summary": inspection.gap_summary,
         "gaps": [gap_payload(item) for item in listed],
         "omitted_gap_count": max(0, sum(inspection.gap_summary.values()) - len(listed)),
+        "truncated": inspection.truncated,
+        "scanned_bar_count": inspection.scanned_bar_count,
         "interpolated": False,
     }
     if inspection.warning:

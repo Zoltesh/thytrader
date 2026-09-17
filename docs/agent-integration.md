@@ -99,7 +99,7 @@ In-app operator chat is a loopback UI (`/chat`) and `/api/v1/operator-chat` over
 is not Coinbase. `thytrader-operator chat-status` is HTTP-only and never prints the key. Chat is
 not a seventh skill lane.
 
-Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
+Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `inspect-gaps` may return `truncated=true` with a partial `gap_summary` when a server-side budget stops the scan ([ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only.
 
 Every HTTP command preflights `/health/ready` and fails closed on a missing or unequal ops contract. Matching package version `0.1.0` is not current-image evidence.
 
