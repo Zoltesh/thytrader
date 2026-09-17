@@ -77,7 +77,7 @@ make run
 ```bash
 make status   # service health
 make logs     # follow API, workers, and web
-make stop     # stop (keeps database + market-data volumes)
+make down     # tear down Compose (keeps database + market-data volumes; make stop is a synonym)
 ```
 
 Deep setup, credentials (names only), native processes: **[docs/user/setup.md](docs/user/setup.md)**

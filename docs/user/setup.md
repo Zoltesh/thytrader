@@ -53,7 +53,8 @@ secrets. See [Safety](safety.md).
 ```bash
 make status   # service health
 make logs     # follow API, workers, and web logs
-make stop     # stop the stack (preserves database and market-data volumes)
+make down     # tear down Compose services (preserves database and market-data volumes)
+make stop     # synonym for make down
 ```
 
 Inspect or stop without Make:
@@ -64,8 +65,8 @@ docker compose logs -f api worker market-data-worker execution-worker web
 docker compose down
 ```
 
-A normal `docker compose down` (and `make stop`) preserves PostgreSQL and immutable market-data
-volumes. Only `docker compose down -v` destroys them and is intentionally destructive.
+A normal `docker compose down` (and `make down` / `make stop`) preserves PostgreSQL and immutable
+market-data volumes. Only `docker compose down -v` destroys them and is intentionally destructive.
 
 ## Portfolio snapshots and the dashboard
 
