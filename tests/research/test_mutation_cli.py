@@ -255,11 +255,20 @@ def test_list_templates_local_does_not_require_a_database(
 
 
 def test_submit_study_without_confirm_does_not_submit() -> None:
-    """Omitting --confirm must exit before any study mutation."""
-    with pytest.raises(SystemExit) as raised:
+    """Omitting --confirm must exit after the YOLO probe, before submit-study HTTP."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.research.http.submit_study") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
         main(["submit-study", "--file", "study.json"])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
 
 
 def _trained_model_payload() -> dict[str, object]:

@@ -51,6 +51,8 @@ from thytrader.research.parameter_sweep import (
 from thytrader.strategies.publication import StrategyPublicationError
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
@@ -229,8 +231,22 @@ class ResearchStudyPlan(_FrozenStudyModel):
     schema_version: Literal["thytrader-research-study-v1"] = STUDY_CONTRACT_VERSION
     kind: StudyKind
     request_fingerprint: str
+    plan_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     timeframe: DatasetTimeframe
     windows: tuple[PlannedStudyWindow, ...] = Field(min_length=1)
+    warnings: tuple[str, ...] = ()
+
+
+class ResearchStudyPlanSummary(_FrozenStudyModel):
+    """Agent-safe plan projection without every child window."""
+
+    schema_version: Literal["thytrader-research-study-v1"] = STUDY_CONTRACT_VERSION
+    kind: StudyKind
+    request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    plan_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    timeframe: DatasetTimeframe
+    window_count: int = Field(ge=1)
+    fold_count: int = Field(ge=1)
     warnings: tuple[str, ...] = ()
 
 
@@ -329,9 +345,35 @@ def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
     )
 
 
+def summarize_research_study_plan(plan: ResearchStudyPlan) -> ResearchStudyPlanSummary:
+    """Project one planned study into a bounded summary without child windows."""
+    fold_count = len({window.fold_index for window in plan.windows})
+    return ResearchStudyPlanSummary(
+        kind=plan.kind,
+        request_fingerprint=plan.request_fingerprint,
+        plan_fingerprint=plan.plan_fingerprint,
+        timeframe=plan.timeframe,
+        window_count=len(plan.windows),
+        fold_count=fold_count,
+        warnings=plan.warnings,
+    )
+
+
 def request_fingerprint(request: ResearchStudyRequest) -> str:
     """Return the SHA-256 identity of the canonical study request."""
     payload = request.model_dump(mode="json", exclude_none=True)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"{_FINGERPRINT_PREFIX}{sha256(canonical.encode()).hexdigest()}"
+
+
+def plan_fingerprint(plan: ResearchStudyPlan) -> str:
+    """Return the SHA-256 identity of the effective child window schedule."""
+    windows = [window.model_dump(mode="json", exclude_none=True) for window in plan.windows]
+    payload = {
+        "kind": plan.kind.value,
+        "timeframe": plan.timeframe,
+        "windows": windows,
+    }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"{_FINGERPRINT_PREFIX}{sha256(canonical.encode()).hexdigest()}"
 
@@ -362,6 +404,7 @@ def study_catalog_summary(study: ResearchStudy, plan: ResearchStudyPlan) -> Stud
     return StudyCatalogSummary(
         study_fingerprint=study.study_fingerprint,
         request_fingerprint=study.request_fingerprint,
+        plan_fingerprint=plan.plan_fingerprint,
         kind=study.kind.value,
         engine_contract_version=study.engine_contract_version,
         published_at=datetime.now(UTC),
@@ -394,13 +437,15 @@ def plan_study(
         raise StudyPlanningError("The evaluation window cannot form any study child windows.")
     if len(windows) > _MAX_STUDY_WINDOWS:
         raise StudyPlanningError("A research study may emit at most 128 child windows.")
-    return ResearchStudyPlan(
+    plan = ResearchStudyPlan(
         kind=request.kind,
         request_fingerprint=request_fingerprint(request),
+        plan_fingerprint=_FINGERPRINT_PREFIX + ("0" * 64),
         timeframe=timeframe,
         windows=tuple(windows),
         warnings=tuple(warnings),
     )
+    return plan.model_copy(update={"plan_fingerprint": plan_fingerprint(plan)})
 
 
 def window_submission_request(
@@ -478,11 +523,29 @@ class ResearchStudyService:
 
     async def submit(self, request: ResearchStudyRequest) -> ResearchStudy:
         """Submit or reuse each child backtest and assemble the derived study."""
+        return await self.submit_with_progress(request)
+
+    async def submit_with_progress(
+        self,
+        request: ResearchStudyRequest,
+        *,
+        on_progress: Callable[[int, int], Awaitable[object]] | None = None,
+        cancel_check: Callable[[], Awaitable[bool]] | None = None,
+    ) -> ResearchStudy:
+        """Submit or reuse each child backtest and assemble the derived study."""
         published = await self._publish_derived_candidates(
             request, await self._load_publications(request)
         )
         plan = plan_study(request, publications=published)
-        children, loaded_results = await self._submit_windows(request, plan)
+        existing = await self._load_existing_plan(plan.plan_fingerprint)
+        if existing is not None:
+            return existing
+        children, loaded_results = await self._submit_windows(
+            request,
+            plan,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
         windows = _annotate_selections(request, children)
         stitched = _derived_stitched_equity(request, windows, loaded_results)
         selected_only = request.kind is StudyKind.WALK_FORWARD_OPTIMIZATION
@@ -505,6 +568,18 @@ class ResearchStudyService:
         await self._persist_catalog(study, plan)
         return study
 
+    async def _load_existing_plan(self, plan_fingerprint_value: str) -> ResearchStudy | None:
+        """Return a persisted study when the effective plan already exists."""
+        if self.catalog is None:
+            return None
+        try:
+            canonical = await self.catalog.find_by_plan_fingerprint(plan_fingerprint_value)
+        except StudyCatalogUnavailableError as error:
+            raise ResearchStudyError("Research study catalog is unavailable.") from error
+        if canonical is None:
+            return None
+        return ResearchStudy.model_validate_json(canonical)
+
     async def _persist_catalog(self, study: ResearchStudy, plan: ResearchStudyPlan) -> None:
         """Store the assembled study when a catalog is configured."""
         if self.catalog is None:
@@ -521,12 +596,20 @@ class ResearchStudyService:
         self,
         request: ResearchStudyRequest,
         plan: ResearchStudyPlan,
+        *,
+        on_progress: Callable[[int, int], Awaitable[object]] | None = None,
+        cancel_check: Callable[[], Awaitable[bool]] | None = None,
     ) -> tuple[tuple[StudyWindowResult, ...], dict[str, BacktestResult]]:
         """Submit every planned child and keep result documents for stitching."""
         children: list[StudyWindowResult] = []
         loaded_results: dict[str, BacktestResult] = {}
+        total = len(plan.windows)
         try:
-            for window in plan.windows:
+            for index, window in enumerate(plan.windows, start=1):
+                if cancel_check is not None and await cancel_check():
+                    _raise_cancelled_study()
+                if on_progress is not None:
+                    await on_progress(index - 1, total)
                 submission = window_submission_request(request, window)
                 identities = await self.submitter.submit(submission)
                 result = await self.results.load(identities.result_fingerprint)
@@ -545,9 +628,13 @@ class ResearchStudyService:
                         summary=result.summary,
                     )
                 )
+            if on_progress is not None:
+                await on_progress(total, total)
         except StudyPlanningError:
             raise
         except BacktestSubmissionRejectedError:
+            raise
+        except ResearchStudyError:
             raise
         except Exception as error:
             raise ResearchStudyError("Research study submission is unavailable.") from error
@@ -623,6 +710,11 @@ def _strategy_fingerprints(request: ResearchStudyRequest) -> tuple[str, ...]:
     fingerprints = [request.strategy_fingerprint]
     fingerprints.extend(request.candidate_strategy_fingerprints)
     return tuple(dict.fromkeys(fingerprints))
+
+
+def _raise_cancelled_study() -> None:
+    """Abort study submission when a durable job cancellation was requested."""
+    raise ResearchStudyError("Research job was cancelled.")
 
 
 def _require_single_market(request: ResearchStudyRequest) -> None:

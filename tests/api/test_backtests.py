@@ -365,7 +365,7 @@ def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
 
     with TestClient(app) as client:
         list_response = client.get("/api/v1/backtests")
-        detail_response = client.get(f"/api/v1/backtests/{fingerprint}")
+        detail_response = client.get(f"/api/v1/backtests/{fingerprint}?detail=full")
 
     assert list_response.status_code == 200
     entry = list_response.json()["entries"][0]
@@ -392,7 +392,7 @@ def test_backtests_detail_projects_published_cost_assumptions() -> None:
     )
 
     with TestClient(app) as client:
-        response = client.get(f"/api/v1/backtests/{fingerprint}")
+        response = client.get(f"/api/v1/backtests/{fingerprint}?detail=full")
 
     assert response.status_code == 200
     payload = response.json()
@@ -611,10 +611,17 @@ def test_backtests_detail_returns_full_reverified_result() -> None:
     )
 
     with TestClient(app) as client:
-        response = client.get(f"/api/v1/backtests/{fingerprint}")
+        summary_response = client.get(f"/api/v1/backtests/{fingerprint}")
+        full_response = client.get(f"/api/v1/backtests/{fingerprint}?detail=full")
 
-    assert response.status_code == 200
-    payload = response.json()
+    assert summary_response.status_code == 200
+    summary_payload = summary_response.json()
+    assert summary_payload["result_fingerprint"] == fingerprint
+    assert "result" not in summary_payload
+    assert summary_payload["summary"]["trade_count"] == result.summary.trade_count
+
+    assert full_response.status_code == 200
+    payload = full_response.json()
     assert payload["result_fingerprint"] == fingerprint
     assert payload["result"]["summary"]["trade_count"] == result.summary.trade_count
     assert len(payload["result"]["trades"]) == len(result.trades)

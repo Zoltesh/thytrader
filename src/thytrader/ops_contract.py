@@ -31,8 +31,8 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v30"
-EXPECTED_SCHEMA_REVISION = "0043"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v31"
+EXPECTED_SCHEMA_REVISION = "0044"
 SPOT_QUOTE_CURRENCIES_FIELD: tuple[str, ...] = SPOT_QUOTE_CURRENCIES
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
@@ -51,7 +51,16 @@ BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v3",
     "thytrader-bar-backtest-v4",
 )
-ASYNC_BACKTEST_JOBS: tuple[str, ...] = ("queued", "running", "completed", "failed")
+RESEARCH_JOB_STATUSES: tuple[str, ...] = (
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "expired",
+)
+MAX_CONCURRENT_RESEARCH_JOBS = 2
+RESEARCH_JOB_EXPIRY_HOURS = 24
 CATALOG_HEALTH: tuple[str, ...] = (
     "bounded_gap_inspection",
     "ingest_self_complete",
@@ -99,7 +108,10 @@ def expected_ops_contract() -> dict[str, object]:
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),
         "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
         "breaker_latch_reset": list(BREAKER_LATCH_RESET),
-        "async_backtest_job_statuses": list(ASYNC_BACKTEST_JOBS),
+        "async_backtest_job_statuses": list(RESEARCH_JOB_STATUSES),
+        "research_job_statuses": list(RESEARCH_JOB_STATUSES),
+        "max_concurrent_research_jobs": MAX_CONCURRENT_RESEARCH_JOBS,
+        "research_job_expiry_hours": RESEARCH_JOB_EXPIRY_HOURS,
         "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
         "catalog_health": list(CATALOG_HEALTH),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,

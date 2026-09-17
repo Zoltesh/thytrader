@@ -74,6 +74,9 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
 | Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
+| Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` |
+| Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
+| Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
@@ -93,11 +96,15 @@ to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_per
 total candidates (≤8 values per axis does not imply ≤8 total).
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
-`plan-study` derives axis candidates in memory. `submit-study --confirm` publishes missing derived
-documents, then submits ordinary backtests, then persists a catalog row. `list-studies` is
-newest-first summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same
-bounded summary (`window_count`, aggregates, stitch metadata without `points`). Pass
-`?detail=full` for child `windows`. `show-study` uses the default summary. Operator
+`plan-study` derives axis candidates in memory and returns a compact plan summary by default
+(`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
+child windows are required. `submit-study --confirm` publishes missing derived documents, then
+submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
+`plan_fingerprint` even when request bounds differ. Long WFO batches should use
+`submit-study --async --confirm` and poll `show-research-job`. `list-studies` is newest-first
+summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
+(`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
+`windows`. `show-study` uses the default summary. Operator
 `thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
 a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not

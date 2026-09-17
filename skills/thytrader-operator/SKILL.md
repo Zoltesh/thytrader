@@ -110,11 +110,17 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v30`,
-   Alembic `0043`, `spot_quote_currencies` `USD`/`USDC`, and `catalog_health` on a current image
-   ([ADR 0071](../../docs/decisions/0071-usdc-spot-quote-markets.md),
-   [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
-   Mismatch means rebuild with `make run`.
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v31`,
+   Alembic revision `0044`, `spot_quote_currencies` `USD`/`USDC`, and `catalog_health` on a
+   current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+   [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
+   [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
+   [ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md),
+   [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md),
+   [ADR 0071](../../docs/decisions/0071-usdc-spot-quote-markets.md),
+   [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md),
+   [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md)). Mismatch means rebuild with
+   `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import logging
@@ -37,7 +39,6 @@ from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.security import router as security_router
 from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
-from thytrader.backtest.jobs import InMemoryBacktestJobStore
 from thytrader.backtest.submission import (
     BacktestSubmitter,
     DisabledBacktestSubmitter,
@@ -108,6 +109,7 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
+from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
@@ -121,6 +123,8 @@ from thytrader.persistence.worker_heartbeats import (
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
+from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobRunner
+from thytrader.research.studies import ResearchStudyService
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
@@ -295,7 +299,11 @@ def create_app(
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
         _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
-        _app.state.backtest_job_store = InMemoryBacktestJobStore()
+        job_store = (
+            PostgresResearchJobStore(engine) if engine is not None else InMemoryResearchJobStore()
+        )
+        _app.state.research_job_store = job_store
+        _app.state.backtest_job_store = job_store
         _app.state.strategy_draft_store = draft_store or DisabledStrategyDraftStore()
         _app.state.strategy_publication_store = (
             publication_store or DisabledStrategyPublicationStore()
@@ -321,11 +329,29 @@ def create_app(
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 
+        study_service = ResearchStudyService(
+            publications=_app.state.strategy_publication_store,
+            submitter=_app.state.backtest_submitter,
+            results=_app.state.backtest_result_store,
+            catalog=_app.state.research_study_catalog,
+        )
+        stop_jobs = asyncio.Event()
+        runner = ResearchJobRunner(
+            store=job_store,
+            submitter=_app.state.backtest_submitter,
+            study_service=study_service,
+        )
+        job_task = await runner.start(stop_jobs)
+
         runtime.ready = True
         try:
             yield
         finally:
             runtime.ready = False
+            stop_jobs.set()
+            job_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await job_task
             await _dispose_if_present(engine)
 
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
