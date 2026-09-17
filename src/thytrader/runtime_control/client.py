@@ -143,11 +143,10 @@ def reset_breaker_latches(
     settings: Settings | None = None,
 ) -> object:
     """Clear latched daily-loss and drawdown breakers on one deployment."""
-    headers = mutation_headers(settings) if settings else None
-    return request_json(
+    return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/reset-breaker-latches",
-        extra_headers=headers,
+        settings=settings,
     )
 
 
