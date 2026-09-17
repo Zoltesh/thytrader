@@ -592,6 +592,17 @@ def _utc_day_chunks(
     return tuple(chunks)
 
 
+def _chunk_already_published(
+    newest: DatasetManifest | None, chunk_start: datetime, chunk_end: datetime
+) -> bool:
+    """True when this UTC-day window is already inside the published island."""
+    if newest is None:
+        return False
+    island_start = datetime.fromisoformat(newest.starts_at.replace("Z", "+00:00"))
+    island_end = datetime.fromisoformat(newest.ends_at.replace("Z", "+00:00"))
+    return chunk_start >= island_start and chunk_end <= island_end
+
+
 async def _ingest_planned_range(
     *,
     service: HistoricalRangeService,
@@ -681,6 +692,8 @@ async def _ingest_chunked_backfill(
         await _touch_market_data_heartbeat(heartbeat_store, now_factory)
         if max_chunks is not None and chunks_done >= max_chunks:
             break
+        if _chunk_already_published(newest, chunk_start, chunk_end):
+            continue
         progress = await _ingest_one_chunk(
             service=service,
             dataset_store=dataset_store,
@@ -808,8 +821,7 @@ async def _ingest_prefix_backfill(
         return
     island_fingerprint: str | None = newest.content_fingerprint
     chunks = tuple(reversed(_utc_day_chunks(lookback_start, covered_starts_at)))
-    chunks_done = 0
-    for chunk_start, chunk_end in chunks:
+    for chunks_done, (chunk_start, chunk_end) in enumerate(chunks):
         await _touch_market_data_heartbeat(heartbeat_store, now_factory)
         if max_chunks is not None and chunks_done >= max_chunks:
             break
@@ -832,7 +844,6 @@ async def _ingest_prefix_backfill(
             island_fingerprint=island_fingerprint,
             newest=newest,
         )
-        chunks_done += 1
         newest = progress.newest
         island_fingerprint = progress.island_fingerprint
         if progress.status == "incomplete":

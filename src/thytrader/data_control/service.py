@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
+import time
 from typing import TYPE_CHECKING
 
 from thytrader.data_control.models import (

@@ -30,7 +30,6 @@ from thytrader.market_data_worker.service import (
     watch_expected_candle_count,
 )
 from thytrader.persistence.worker_heartbeats import (
-    DisabledWorkerHeartbeatStore,
     InMemoryWorkerHeartbeatStore,
     WorkerName,
 )
