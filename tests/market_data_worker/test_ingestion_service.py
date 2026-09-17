@@ -29,6 +29,11 @@ from thytrader.market_data_worker.service import (
     run_market_data_worker,
     watch_expected_candle_count,
 )
+from thytrader.persistence.worker_heartbeats import (
+    DisabledWorkerHeartbeatStore,
+    InMemoryWorkerHeartbeatStore,
+    WorkerName,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1876,5 +1881,105 @@ def test_incremental_after_chunked_backfill_keeps_one_bar_overlap(tmp_path: Path
             first_end + timedelta(hours=2),
         )
         assert state.covered_ends_at == first_end + timedelta(hours=2)
+
+    asyncio.run(exercise())
+
+
+class _CountingHeartbeatStore(InMemoryWorkerHeartbeatStore):
+    """Count touches so tests can prove ingest refreshes liveness mid-walk."""
+
+    def __init__(self) -> None:
+        """Start with a zero touch counter."""
+        super().__init__()
+        self.touches = 0
+
+    async def touch(self, worker_name: WorkerName, at: datetime) -> None:
+        """Record one heartbeat and increment the counter."""
+        self.touches += 1
+        await super().touch(worker_name, at)
+
+
+def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> None:
+    """A per-cycle UTC-day cap must leave remaining lookback for the next ingest_once."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 8, 3, 0, 5, tzinfo=UTC)
+        closed_end = datetime(2026, 8, 3, tzinfo=UTC)
+        service = _CompleteWindowService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+        dataset_store = DatasetStore(tmp_path)
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=48,
+            now=now,
+            max_chunks=1,
+        )
+        first = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert first is not None
+        assert first.complete is True
+        assert first.covered_starts_at == datetime(2026, 8, 1, tzinfo=UTC)
+        assert first.covered_ends_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert (
+            island_covers_watch(
+                covered_starts_at=first.covered_starts_at,
+                covered_ends_at=first.covered_ends_at,
+                island_complete=True,
+                lookback_hours=48,
+                interval=CandleInterval.ONE_HOUR,
+                closed_end=closed_end,
+            )
+            is False
+        )
+        later = now + timedelta(seconds=1)
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=48,
+            now=later,
+            skip_reconcile=True,
+        )
+        second = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
+        assert second is not None
+        assert second.covered_ends_at == closed_end
+        assert (
+            island_covers_watch(
+                covered_starts_at=second.covered_starts_at,
+                covered_ends_at=second.covered_ends_at,
+                island_complete=True,
+                lookback_hours=48,
+                interval=CandleInterval.ONE_HOUR,
+                closed_end=closed_end,
+            )
+            is True
+        )
+
+    asyncio.run(exercise())
+
+
+def test_ingest_once_touches_heartbeat_between_chunks(tmp_path: Path) -> None:
+    """Long backfills must refresh market-data worker liveness during the walk."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 8, 3, 0, 5, tzinfo=UTC)
+        heartbeats = _CountingHeartbeatStore()
+        await ingest_once(
+            service=_CompleteWindowService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            provider="coinbase",
+            product_id="BTC-USD",
+            lookback_hours=48,
+            now=now,
+            heartbeat_store=heartbeats,
+            max_chunks=2,
+        )
+        assert heartbeats.touches >= 3
 
     asyncio.run(exercise())

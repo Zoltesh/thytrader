@@ -34,6 +34,8 @@ from thytrader.market_data.worker_state import (
 
 _logger = logging.getLogger(__name__)
 
+INGEST_CHUNKS_PER_TARGET_CYCLE = 2
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -99,11 +101,25 @@ async def ingest_once(
     jitter_factory: Callable[[], float] = random.random,
     verify_current_dataset: bool = True,
     skip_reconcile: bool = False,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
+    now_factory: Callable[[], datetime] | None = None,
+    max_chunks: int | None = None,
 ) -> None:
     """Retrieve, verify, and publish complete coverage, chunking initial backfill by UTC day."""
     ends_at = timeframe.align_closed_end(now)
     prior = await _load_validated_state(state_store, provider, product_id, timeframe)
-    if not skip_reconcile and await _reconcile_current_coverage(
+    watch_complete = island_covers_watch(
+        covered_starts_at=None if prior is None else prior.covered_starts_at,
+        covered_ends_at=None if prior is None else prior.covered_ends_at,
+        island_complete=bool(prior is not None and prior.complete),
+        lookback_hours=lookback_hours,
+        interval=timeframe,
+        closed_end=ends_at,
+        product_id=product_id,
+        now=now,
+    )
+    should_reconcile = not skip_reconcile and watch_complete
+    if should_reconcile and await _reconcile_current_coverage(
         service=service,
         dataset_store=dataset_store,
         state_store=state_store,
@@ -138,6 +154,7 @@ async def ingest_once(
     )
     if not await state_store.record_attempt(attempt):
         return
+    await _touch_market_data_heartbeat(heartbeat_store, now_factory)
     retry_at = _next_retry_at(
         attempt.attempted_at,
         retry_base_seconds,
@@ -161,6 +178,9 @@ async def ingest_once(
                 ends_at=ends_at,
                 retry_at=retry_at,
                 extend_fingerprint=extend_fingerprint,
+                heartbeat_store=heartbeat_store,
+                now_factory=now_factory,
+                max_chunks=max_chunks,
             )
         else:
             await _ingest_planned_range(
@@ -200,6 +220,9 @@ async def ingest_once(
             closed_end=ends_at,
             extend_fingerprint=prior.content_fingerprint,
             retry_at=retry_at,
+            heartbeat_store=heartbeat_store,
+            now_factory=now_factory,
+            max_chunks=max_chunks,
         )
         return
     await _ingest_chunked_backfill(
@@ -213,6 +236,9 @@ async def ingest_once(
         starts_at=starts_at,
         ends_at=ends_at,
         retry_at=retry_at,
+        heartbeat_store=heartbeat_store,
+        now_factory=now_factory,
+        max_chunks=max_chunks,
     )
 
 
@@ -266,6 +292,8 @@ async def run_market_data_worker(
                 verified_targets=verified_targets,
                 stop_requested=stop_requested,
                 watchlist=watchlist,
+                heartbeat_store=heartbeat_store,
+                now_factory=now_factory,
             )
             if stop_requested.is_set() or wait_seconds is None:
                 continue
@@ -387,6 +415,17 @@ def island_covers_watch(
         ):
             return True
     return False
+
+
+async def _touch_market_data_heartbeat(
+    heartbeat_store: WorkerHeartbeatStore | None,
+    now_factory: Callable[[], datetime] | None,
+) -> None:
+    """Record liveness with wall-clock time so a long cell cannot stale health."""
+    if heartbeat_store is None:
+        return
+    instant = now_factory() if now_factory is not None else datetime.now(UTC)
+    await heartbeat_store.touch("market_data_worker", instant.astimezone(UTC))
 
 
 async def _reconcile_current_coverage(
@@ -624,6 +663,9 @@ async def _ingest_chunked_backfill(
     ends_at: datetime,
     retry_at: datetime,
     extend_fingerprint: str | None = None,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
+    now_factory: Callable[[], datetime] | None = None,
+    max_chunks: int | None = None,
 ) -> None:
     """Publish complete UTC-day chunks oldest-first; keep the newest contiguous island."""
     newest: DatasetManifest | None = None
@@ -634,7 +676,11 @@ async def _ingest_chunked_backfill(
         except Exception:  # noqa: BLE001
             newest = None
             island_fingerprint = None
+    chunks_done = 0
     for chunk_start, chunk_end in _utc_day_chunks(starts_at, ends_at):
+        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
+        if max_chunks is not None and chunks_done >= max_chunks:
+            break
         progress = await _ingest_one_chunk(
             service=service,
             dataset_store=dataset_store,
@@ -647,6 +693,7 @@ async def _ingest_chunked_backfill(
             island_fingerprint=island_fingerprint,
             newest=newest,
         )
+        chunks_done += 1
         newest = progress.newest
         island_fingerprint = progress.island_fingerprint
         if progress.status == "incomplete":
@@ -743,6 +790,9 @@ async def _ingest_prefix_backfill(
     closed_end: datetime,
     extend_fingerprint: str,
     retry_at: datetime,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
+    now_factory: Callable[[], datetime] | None = None,
+    max_chunks: int | None = None,
 ) -> None:
     """Prepend complete UTC-day chunks onto an existing island; stop at the first hole."""
     try:
@@ -758,7 +808,11 @@ async def _ingest_prefix_backfill(
         return
     island_fingerprint: str | None = newest.content_fingerprint
     chunks = tuple(reversed(_utc_day_chunks(lookback_start, covered_starts_at)))
+    chunks_done = 0
     for chunk_start, chunk_end in chunks:
+        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
+        if max_chunks is not None and chunks_done >= max_chunks:
+            break
         fetch_end = _safe_shift(
             chunk_end,
             timeframe.duration,
@@ -778,6 +832,7 @@ async def _ingest_prefix_backfill(
             island_fingerprint=island_fingerprint,
             newest=newest,
         )
+        chunks_done += 1
         newest = progress.newest
         island_fingerprint = progress.island_fingerprint
         if progress.status == "incomplete":
@@ -943,31 +998,30 @@ async def _ingest_due_targets(
     verified_targets: set[tuple[str, CandleInterval]],
     stop_requested: asyncio.Event,
     watchlist: MarketDataWatchlistStore | None = None,
+    heartbeat_store: WorkerHeartbeatStore | None = None,
+    now_factory: Callable[[], datetime] | None = None,
 ) -> int | None:
     """Ingest due targets. None means the caller should immediately re-check stop."""
     for target in targets:
         if stop_requested.is_set():
             break
+        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
         prior = await _load_validated_state(
             state_store, target.provider, target.product_id, target.timeframe
         )
         requested = target.ingest_requested_at is not None
         closed_end = target.timeframe.align_closed_end(cycle_now)
-        skip_reconcile = (
-            requested
-            and prior is not None
-            and prior.complete
-            and not island_covers_watch(
-                covered_starts_at=prior.covered_starts_at,
-                covered_ends_at=prior.covered_ends_at,
-                island_complete=prior.complete,
-                lookback_hours=target.lookback_hours,
-                interval=target.timeframe,
-                closed_end=closed_end,
-                product_id=target.product_id,
-                now=cycle_now,
-            )
+        covers = island_covers_watch(
+            covered_starts_at=None if prior is None else prior.covered_starts_at,
+            covered_ends_at=None if prior is None else prior.covered_ends_at,
+            island_complete=bool(prior is not None and prior.complete),
+            lookback_hours=target.lookback_hours,
+            interval=target.timeframe,
+            closed_end=closed_end,
+            product_id=target.product_id,
+            now=cycle_now,
         )
+        skip_reconcile = prior is not None and prior.complete and not covers
         if _in_backoff(prior, cycle_now) and not requested:
             continue
         key = (target.product_id, target.timeframe)
@@ -984,6 +1038,9 @@ async def _ingest_due_targets(
                 retry_base_seconds=interval_seconds,
                 verify_current_dataset=key not in verified_targets,
                 skip_reconcile=skip_reconcile,
+                heartbeat_store=heartbeat_store,
+                now_factory=now_factory,
+                max_chunks=INGEST_CHUNKS_PER_TARGET_CYCLE,
             )
         finally:
             if requested and watchlist is not None:

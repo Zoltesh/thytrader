@@ -147,7 +147,9 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 
 Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Missing candles are
-never interpolated.
+never interpolated. One ingest queue keeps walking until `watch_complete` or a durable failure.
+`inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
+stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 
 Command details live in the canonical skills under [`skills/`](../../skills/README.md). Do not
 scrape logs, query PostgreSQL, or print `.env`.

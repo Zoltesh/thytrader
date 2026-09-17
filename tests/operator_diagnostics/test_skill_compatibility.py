@@ -69,9 +69,11 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v29" in skill
-    assert "0042" in skill
+    assert "thytrader-ops-contract-v30" in skill
+    assert "0043" in skill
     assert "spot_quote_currencies" in skill or "USDC" in skill
+    assert "spot_quote_currencies" in schemas
+    assert "catalog_health" in schemas
     assert "0058-protection-lifecycle-accounting" in skill
     assert "lifecycle_command" in skill
     assert "lifecycle_commands" in schemas
@@ -128,6 +130,8 @@ def test_data_skill_requires_confirm_and_forbids_interpolation() -> None:
     assert "watch-add" in skill
     assert "--disabled" in skill
     assert "inspect-gaps" in skill
+    assert "truncated" in skill
+    assert "0072" in skill
     assert "Never interpolates" in skill or "never interpolated" in skill.lower()
     assert "Never deploys" in skill or "cannot deploy" in skill.lower()
     assert "202" in skill

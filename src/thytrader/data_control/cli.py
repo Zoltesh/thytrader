@@ -77,7 +77,7 @@ def _parser() -> argparse.ArgumentParser:
     gaps = subparsers.add_parser(
         "inspect-gaps",
         parents=[trailing],
-        help="Classify missing bars without writing.",
+        help="Classify missing bars without writing. May return truncated with a partial gap_summary.",
     )
     _target_args(gaps)
     fill = subparsers.add_parser(

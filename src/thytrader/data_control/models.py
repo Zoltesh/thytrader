@@ -81,6 +81,8 @@ class GapInspection:
     lookback_hours: int
     complete: bool
     watch_complete: bool
+    truncated: bool = False
+    scanned_bar_count: int = 0
 
 
 def require_interval(value: str) -> CandleInterval:

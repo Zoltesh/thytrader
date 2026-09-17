@@ -27,6 +27,7 @@ def test_data_help_describes_confirm_and_boundaries(
     assert "--confirm" in output
     assert "watch-add" in output
     assert "inspect-gaps" in output
+    assert "truncated" in output
     assert "not the operator" in output.lower() or "does not place orders" in output.lower()
 
 

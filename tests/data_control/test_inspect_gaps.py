@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.config import Settings
 from thytrader.data_control.models import GapCause
-from thytrader.data_control.service import inspect_gaps
+from thytrader.data_control.service import INSPECT_GAPS_MAX_BARS, inspect_gaps
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
@@ -427,5 +427,77 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
         assert all(
             gap.cause is GapCause.NOT_FETCHED for gap in inspection.gaps if gap.starts_at == hole
         )
+
+    asyncio.run(exercise())
+
+
+def test_inspect_gaps_truncates_when_bar_budget_is_exhausted(tmp_path: Path) -> None:
+    """Server-side row budgets return a partial gap_summary instead of walking the watch."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="DOGE-USD",
+                timeframe=CandleInterval.ONE_MINUTE,
+                lookback_hours=2160,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        inspection = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="DOGE-USD",
+            timeframe="1m",
+            now=now,
+            max_bars=50,
+            max_probe_days=1,
+            time_budget_seconds=2.0,
+        )
+        assert inspection.truncated is True
+        assert inspection.scanned_bar_count == 50
+        assert sum(inspection.gap_summary.values()) <= 50
+        assert inspection.warning is not None
+        assert "budget" in inspection.warning
+
+    asyncio.run(exercise())
+
+
+def test_inspect_gaps_one_minute_watch_truncates_under_default_budgets(tmp_path: Path) -> None:
+    """Production 1m 2160h budgets must fail closed instead of classifying 129,600 bars."""
+
+    async def exercise() -> None:
+        now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+        watchlist = InMemoryMarketDataWatchlistStore()
+        await watchlist.upsert(
+            MarketDataWatchTarget(
+                provider="demo",
+                product_id="DOGE-USD",
+                timeframe=CandleInterval.ONE_MINUTE,
+                lookback_hours=2160,
+                enabled=True,
+                updated_at=now,
+            )
+        )
+        inspection = await inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=watchlist,
+            settings=Settings(_env_file=None),
+            product_id="DOGE-USD",
+            timeframe="1m",
+            now=now,
+        )
+        assert inspection.truncated is True
+        assert inspection.scanned_bar_count == INSPECT_GAPS_MAX_BARS
+        assert sum(inspection.gap_summary.values()) <= INSPECT_GAPS_MAX_BARS
+        assert inspection.watch_complete is False
 
     asyncio.run(exercise())
