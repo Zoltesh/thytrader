@@ -122,22 +122,41 @@ def publish(base_url: str, strategy_id: UUID) -> str:
     )
 
 
-def submit_backtest(base_url: str, request: BacktestSubmissionRequest) -> str:
+def submit_backtest(
+    base_url: str,
+    request: BacktestSubmissionRequest,
+    *,
+    async_submission: bool = False,
+) -> str:
     """POST one idempotent research run through the backtests API."""
+    url = f"{base_url}/api/v1/backtests"
+    if async_submission:
+        url = f"{url}?async=true"
     body = _as_object(
         request_mutation_json(
             method="POST",
-            url=f"{base_url}/api/v1/backtests",
+            url=url,
             payload=request.model_dump(mode="json"),
         ),
         "submit-backtest response",
     )
+    if async_submission:
+        return _encode({"job_id": body.get("job_id"), "status": body.get("status")})
     return _encode(
         {
             "run_fingerprint": body.get("run_fingerprint"),
             "result_fingerprint": body.get("result_fingerprint"),
         }
     )
+
+
+def show_backtest_job(base_url: str, job_id: str) -> str:
+    """GET one async backtest job status."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/backtests/jobs/{job_id}"),
+        "backtest job",
+    )
+    return _encode(body)
 
 
 def list_templates(base_url: str) -> str:
@@ -194,7 +213,7 @@ def list_studies(base_url: str, kind: str | None, limit: int) -> str:
 
 
 def show_study(base_url: str, study_fingerprint: str) -> str:
-    """Show one persisted study summary without child equity points."""
+    """Show one persisted study summary (default HTTP projection)."""
     body = _as_object(
         request_json(
             method="GET",
@@ -202,10 +221,6 @@ def show_study(base_url: str, study_fingerprint: str) -> str:
         ),
         "study detail",
     )
-    body.pop("windows", None)
-    stitch = body.get("stitched_oos_equity")
-    if isinstance(stitch, dict):
-        stitch.pop("points", None)
     return _encode(body)
 
 

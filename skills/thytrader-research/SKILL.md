@@ -68,6 +68,8 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
+| Queue a long backtest (HTTP 202) | `uv run thytrader-research submit-backtest --file request.json --async --confirm` |
+| Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
 | Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
@@ -85,12 +87,15 @@ to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_per
 `stdev_multiplier` / `value`. Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
 `max_quote_notional`), `exits` (`initial_stop_multiple`, `take_profit_multiple`,
 `trailing_stop_multiple`, `max_bars_held`), `execution` (`max_entry_wait_bars`), or
-`entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8.
+`entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8
+total candidates (≤8 values per axis does not imply ≤8 total).
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
 `plan-study` derives axis candidates in memory. `submit-study --confirm` publishes missing derived
 documents, then submits ordinary backtests, then persists a catalog row. `list-studies` is
-newest-first summaries. `show-study` omits child windows and stitched equity points. Operator
+newest-first summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same
+bounded summary (`window_count`, aggregates, stitch metadata without `points`). Pass
+`?detail=full` for child `windows`. `show-study` uses the default summary. Operator
 `thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
 a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
@@ -145,8 +150,11 @@ with `make run`. A matching `/health/ready` ops contract must advertise v4 befor
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
-supplied dates do not fit, the API returns 422 with a suggested ISO range. Do not invent a window
-that the catalog cannot cover. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
+supplied dates do not fit, the API returns 422 with a suggested ISO range. `evaluation_end` uses a
+half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `evaluation_end` named
+in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
+long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtests?async=true`) and
+poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
 `…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
 reproducing a published v3 fingerprint.
 

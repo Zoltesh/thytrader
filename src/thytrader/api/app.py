@@ -37,6 +37,7 @@ from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.security import router as security_router
 from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
+from thytrader.backtest.jobs import InMemoryBacktestJobStore
 from thytrader.backtest.submission import (
     BacktestSubmitter,
     DisabledBacktestSubmitter,
@@ -294,6 +295,7 @@ def create_app(
         _app.state.backtest_result_store = backtest_store or DisabledBacktestResultStore()
         _app.state.backtest_benchmark_reader = benchmark_reader or DisabledBacktestBenchmarkReader()
         _app.state.backtest_submitter = submitter or DisabledBacktestSubmitter()
+        _app.state.backtest_job_store = InMemoryBacktestJobStore()
         _app.state.strategy_draft_store = draft_store or DisabledStrategyDraftStore()
         _app.state.strategy_publication_store = (
             publication_store or DisabledStrategyPublicationStore()

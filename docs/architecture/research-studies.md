@@ -59,8 +59,8 @@ parameters depend on the target:
 | `execution` | none | `max_entry_wait_bars` |
 | `entry_literal` / `htf_literal` | `indicator_id`, optional `condition_operator` | `literal` |
 
-Values are 2–8 unique strings. Cartesian product size is at most 8. Product id and decision
-timeframe are not sweepable. Axes substitute the named field; they do not rewrite operators or
+Values are 2–8 unique strings per axis. The **Cartesian product** across axes is at most 8 total
+candidates (not 8 per axis). Product id and decision timeframe are not sweepable. Axes substitute the named field; they do not rewrite operators or
 invent trailing stops. Derived definitions copy the base document, raise `warmup_bars` when new
 periods require it, and take a deterministic UUIDv7 `strategy_id`. Indicator-only cells keep the
 ADR 0044 fingerprint 3-tuple.
@@ -80,8 +80,10 @@ from canonical JSON so Phase 11 / ADR 0044 request fingerprints stay stable.
 `thytrader-ops-contract-v19`). PostgreSQL is durable. The API without a database keeps a
 process-local catalog. Operator `--local` without PostgreSQL reports `STUDY_CATALOG_UNAVAILABLE`
 rather than an empty healthy list. `list-studies` returns newest-first summaries without child
-equity. `show-study` omits child windows and stitched equity points. `thytrader-operator studies`
-is the same catalog without trading authority.
+equity. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
+(`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
+`windows`. `show-study` uses the default summary. `thytrader-operator studies` is the same catalog
+without trading authority.
 
 ## Aggregate honesty
 
@@ -117,7 +119,10 @@ This is not a fourth backtest engine and does not claim live fill quality.
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
 - `POST /api/v1/research/studies` — plan plus idempotent child submissions and catalog persist.
 - `GET /api/v1/research/studies` — newest-first catalog rows (`kind`, `limit`).
-- `GET /api/v1/research/studies/{study_fingerprint}` — one persisted study document.
+- `GET /api/v1/research/studies/{study_fingerprint}` — bounded study summary (`detail=summary`
+  default). `?detail=full` returns child windows and stitched points.
+- `POST /api/v1/backtests?async=true` — queue one long backtest (HTTP 202 + `job_id`).
+- `GET /api/v1/backtests/jobs/{job_id}` — async backtest job status and fingerprints when complete.
 - `GET /api/v1/operator/studies` — operator catalog report without child equity.
 
 Study requests forward `htf_dataset_fingerprint` and `indicator_dataset_fingerprints` onto each

@@ -118,6 +118,9 @@ class OpsContractPayload(_FrozenModel):
     ]
     deployment_capital_fields: tuple[str, ...]
     breaker_latch_reset: tuple[Literal["paper", "live"], ...]
+    async_backtest_job_statuses: tuple[
+        Literal["queued", "running", "completed", "failed"], ...
+    ]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

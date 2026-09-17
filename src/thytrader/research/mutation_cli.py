@@ -179,6 +179,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Path to a BacktestSubmissionRequest JSON document.",
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    submit.add_argument(
+        "--async",
+        action="store_true",
+        help="Queue the backtest (HTTP 202) and return a job id for polling.",
+    )
+    show_job = subparsers.add_parser(
+        "show-backtest-job",
+        parents=[trailing],
+        help="Poll one async backtest job status.",
+    )
+    show_job.add_argument("--job-id", required=True)
     listing = subparsers.add_parser(
         "list-results",
         parents=[trailing],
@@ -385,7 +396,14 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
         _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-backtest")
         request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
-        return research_http.submit_backtest(base_url, request)
+        return research_http.submit_backtest(
+            base_url,
+            request,
+            async_submission=bool(getattr(arguments, "async", False)),
+        )
+    if arguments.command == "show-backtest-job":
+        require_matching_ops_contract(base_url)
+        return research_http.show_backtest_job(base_url, arguments.job_id)
     if arguments.command == "list-results":
         require_matching_ops_contract(base_url)
         return research_http.list_results(

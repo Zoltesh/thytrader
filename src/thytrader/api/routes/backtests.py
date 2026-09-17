@@ -10,14 +10,22 @@ from __future__ import annotations
 import logging
 import re
 from typing import Annotated, Literal, Protocol, runtime_checkable
+from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
+    get_backtest_job_store,
     get_backtest_result_store,
     get_backtest_submitter,
+)
+from thytrader.backtest.jobs import (
+    BacktestJobAcceptedResponse,
+    BacktestJobRecord,
+    InMemoryBacktestJobStore,
+    run_backtest_job,
 )
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -145,12 +153,38 @@ def _fingerprint_or_none(value: str | None) -> str | None:
     return value
 
 
-@router.post("", response_model=BacktestSubmissionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=None,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_201_CREATED: {"model": BacktestSubmissionResponse},
+        status.HTTP_202_ACCEPTED: {"model": BacktestJobAcceptedResponse},
+    },
+)
 async def submit_backtest(
     request: BacktestSubmissionRequest,
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
-) -> BacktestSubmissionResponse:
+    job_store: Annotated[InMemoryBacktestJobStore, Depends(get_backtest_job_store)],
+    background_tasks: BackgroundTasks,
+    async_submission: Annotated[bool, Query(alias="async")] = False,
+) -> BacktestSubmissionResponse | Response:
     """Submit one immutable historical simulation without paper or live authority."""
+    if async_submission:
+        record = await job_store.create()
+        background_tasks.add_task(
+            run_backtest_job,
+            job_store,
+            submitter,
+            record.job_id,
+            request,
+        )
+        body = BacktestJobAcceptedResponse(job_id=record.job_id, status=record.status)
+        return Response(
+            content=body.model_dump_json(),
+            status_code=status.HTTP_202_ACCEPTED,
+            media_type="application/json",
+        )
     try:
         result = await submitter.submit(request)
     except BacktestSubmissionRejectedError as rejected:
@@ -171,6 +205,21 @@ async def submit_backtest(
         run_fingerprint=result.run_fingerprint,
         result_fingerprint=result.result_fingerprint,
     )
+
+
+@router.get("/jobs/{job_id}", response_model=BacktestJobRecord)
+async def get_backtest_job(
+    job_id: UUID,
+    job_store: Annotated[InMemoryBacktestJobStore, Depends(get_backtest_job_store)],
+) -> BacktestJobRecord:
+    """Return async backtest job status and fingerprints when complete."""
+    record = await job_store.get(job_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "backtest_job_not_found", "message": "Backtest job was not found."},
+        )
+    return record
 
 
 @router.get(

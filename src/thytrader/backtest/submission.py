@@ -36,6 +36,7 @@ from thytrader.research.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
+    evaluation_end_fits_dataset,
     evaluation_window_suggestion,
 )
 from thytrader.strategies.models import (
@@ -327,15 +328,14 @@ def _with_evaluation_window(
         EvaluationWindow(starts_at=request.evaluation_start, ends_at=request.evaluation_end)
     except ValueError as error:
         raise BacktestSubmissionRejectedError(str(error)) from error
-    required_fill_end = (
-        request.evaluation_end + parse_candle_interval(strategy.definition.timeframe).duration
-    )
-    warmup_start = warmup_starts_at(
-        request.evaluation_start,
-        strategy.definition.data_requirements.warmup_bars,
-        strategy.definition.timeframe,
-    )
-    if dataset_starts_at > warmup_start or dataset_ends_at < required_fill_end:
+    if not evaluation_end_fits_dataset(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=request.evaluation_start,
+        evaluation_end=request.evaluation_end,
+        warmup_bars=strategy.definition.data_requirements.warmup_bars,
+        timeframe=strategy.definition.timeframe,
+    ):
         raise BacktestSubmissionRejectedError(
             evaluation_window_suggestion(
                 dataset_starts_at=dataset_starts_at,

@@ -8,12 +8,13 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0039`):
+Current checkout (Alembic `0040`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v26` |
-| `expected_schema_revision` | `0039` |
+| `id` | `thytrader-ops-contract-v27` |
+| `expected_schema_revision` | `0040` |
+| `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed` |
 | `max_historical_interval_count` | `129600` |
 | `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3`, `v4` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
@@ -36,7 +37,7 @@ Current checkout (Alembic `0039`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v26
+    id thytrader-ops-contract-v27
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -56,7 +57,8 @@ classDiagram
     lifecycle_commands
     deployment_capital_fields
     breaker_latch_reset
-    expected_schema_revision 0039
+    async_backtest_job_statuses
+    expected_schema_revision 0040
   }
   class HealthPayload {
     api_probed
@@ -70,25 +72,6 @@ classDiagram
     application_version
     generated_at UTC
     overall_status healthy|degraded|failed
+    payload
   }
-  HealthPayload --> OpsContractPayload : ops_contract
-  OperatorEnvelope --> HealthPayload : health
 ```
-
-```mermaid
-flowchart TD
-  CLI["thytrader-operator / data / research / runtime / playbook / memory"] --> Ready["GET /health/ready"]
-  Ready --> Compare{"payload equals\ncompiled expected_ops_contract?"}
-  Compare -->|yes| Proceed["run the command"]
-  Compare -->|missing or unequal| Stop["fail closed\nmake run"]
-```
-
-Bump `OPS_CONTRACT_ID` when paper/live clocks, engines, the interval cap, the
-expected Alembic revision, risk-policy registry, live extras, memory
-persistence, experiential-model engines, discretionary identity, HTF evaluation,
-indicator-timeframe evaluation, spot shorting, attached entry brackets, paper
-deploy fee fields, risk breakers, order-rate limits, reference-price collars,
-trade-reason journals, multi-instrument documents, intra-strategy pyramiding,
-attached-child protection, worker leases, live capital vs venue cash, deployment
-HTTP `capital` field names, durable daily-loss/drawdown baselines, lifecycle
-stop/flatten/managed-shutdown commands, or explicit breaker latch reset change.
