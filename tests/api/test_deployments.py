@@ -319,6 +319,36 @@ def test_deployment_response_includes_lifecycle_and_capital_fields() -> None:
     assert capital["venue_available_quote"] is None
 
 
+def test_deployment_list_includes_lifecycle_observability_fields() -> None:
+    """List deployments returns the same runtime observability fields as show."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+        listed = client.get("/api/v1/deployments")
+
+    body = listed.json()["deployments"][0]
+    assert body["lifecycle_command"] == "none"
+    assert body["daily_loss_latched"] is False
+    assert body["drawdown_latched"] is False
+    assert body["revision"] == 0
+    assert body["worker_lease_held"] is False
+    assert "capital" in body
+
+
 def test_reset_breaker_latches_clears_latched_breakers() -> None:
     """Explicit operator reset clears latched breakers and breaker mismatch detail."""
     publication = InMemoryPublicationStore()

@@ -168,9 +168,13 @@ See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-
 
 Account balances and portfolio history are **`GET /api/v1/portfolio`** and
 **`GET /api/v1/portfolio/history`** (loopback; no `thytrader-operator` CLI subcommand today).
-Deployment inventory (quantities, orders, fills, capital) is **`thytrader-runtime show`** /
-**`GET /api/v1/deployments/{id}`**. Operator `strategies` / `runtime` expose redacted `books[]`
-only. Numbered recipe:
+Deployment inventory (quantities, orders, fills, capital, lifecycle/latch state) is
+**`thytrader-runtime show`** / **`GET /api/v1/deployments/{id}`**. Live sizing uses the nested
+`capital` block; lifecycle fields (`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`,
+`revision`, `worker_lease_held`) are top-level on the same payload
+([ADR 0064](decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+[ADR 0065](decisions/0065-deployment-capital-accounting-http.md)). Operator `strategies` /
+`runtime` expose redacted `books[]` only. Numbered recipe:
 [`docs/agent/portfolio-research-ops-playbook.md`](agent/portfolio-research-ops-playbook.md).
 
 ### Orchestration skill

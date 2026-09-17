@@ -9,7 +9,8 @@
 
 Ops-log issue **11 (runtime observability mismatch)** from the 17 Sep portfolio-research agent
 run: skills and `thytrader-runtime show` promised ADR 0058 lifecycle, lease, and latch fields
-that `GET /api/v1/deployments/{id}` did not return. Capital visibility was fixed separately in
+that `GET /api/v1/deployments/{id}` did not return, forcing agents to fall back to operator
+`runtime` for latch state while capital visibility was fixed separately in
 [ADR 0065](0065-deployment-capital-accounting-http.md).
 
 ADR 0058 shipped lifecycle commands, live capital columns, and durable daily-loss/drawdown

@@ -475,10 +475,11 @@ Verified attached-child coverage, fenced worker leases, revision-checked writes,
 managed shutdown, live capital separate from venue quote, and durable UTC day-open / high-water
 baselines ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Default HTTP/CLI stop is
 managed shutdown; `--flatten` marketably exits. Live still needs `--i-understand-live`. Ops contract
-is `thytrader-ops-contract-v24` / Alembic `0037` with deployment `capital` HTTP fields
-([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)) and explicit breaker latch reset
-([ADR 0064](decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)). Extra exchanges
-stay out.
+is `thytrader-ops-contract-v26` / Alembic `0039` with deployment `capital` HTTP fields
+([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)), research v4 engines
+([ADR 0066](decisions/0066-research-ops-contract-v4.md)), and explicit breaker latch reset
+([ADR 0064](decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md); fan-out label
+ops v23). Extra exchanges stay out.
 
 **Exit gate met:** missing/canceled children are uncovered; protection runs when entries are paused;
 STOPPED residual occupancy remains in account risk; venue quote does not overwrite ledger cash.
