@@ -30,6 +30,7 @@ Current checkout (Alembic `0038`):
 | `multi_instrument_documents` | `research`, `paper`, `live` |
 | `intra_strategy_pyramiding` | `research`, `paper`, `live` |
 | `lifecycle_commands` | `none`, `stop_new_entries`, `flatten`, `managed_shutdown` |
+| `deployment_capital_fields` | `allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, `utc_day_open_equity` |
 
 ```mermaid
 classDiagram
@@ -52,6 +53,7 @@ classDiagram
     multi_instrument_documents
     intra_strategy_pyramiding
     lifecycle_commands
+    deployment_capital_fields
     expected_schema_revision 0038
   }
   class HealthPayload {
@@ -87,8 +89,9 @@ per-indicator clocks, spot shorting, attached entry brackets, paper deploy fee
 fields, risk circuit breakers / order-rate limits / reference-price collars, the
 persisted research-study catalog, trade-reason journals, multi-instrument
 documents, intra-strategy pyramiding, attached-child protection, worker leases,
-live capital vs venue cash, durable daily-loss/drawdown baselines, or lifecycle
-stop/flatten/managed-shutdown commands change
+live capital vs venue cash, deployment HTTP `capital` field names, durable
+daily-loss/drawdown baselines, or lifecycle stop/flatten/managed-shutdown
+commands change
 ([ADR 0019](../../decisions/0019-ops-contract-identity.md),
 [ADR 0048](../../decisions/0048-paper-deploy-fee-fields.md),
 [ADR 0049](../../decisions/0049-experiential-train-v1.md),
