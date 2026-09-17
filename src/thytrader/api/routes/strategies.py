@@ -22,6 +22,7 @@ from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic 
 from thytrader.execution.models import DeploymentMode, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - FastAPI Query annotation.
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
@@ -47,7 +48,6 @@ from thytrader.strategies.models import (
     StrategyStatus,
     strategy_fingerprint,
 )
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyCatalogEntry,

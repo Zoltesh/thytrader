@@ -32,6 +32,7 @@ from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
@@ -65,7 +66,6 @@ from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
 from thytrader.strategies.publication import StrategyPublicationCatalog  # noqa: TC001
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 router = APIRouter(prefix="/api/v1/operator", tags=["operator"])
 

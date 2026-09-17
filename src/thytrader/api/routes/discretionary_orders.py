@@ -23,9 +23,12 @@ from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001 - FastA
 from thytrader.execution.broker import Broker  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.geometry import base_currency
-from thytrader.market_data.products import quote_currency as spot_quote_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.products import (
+    SPOT_PRODUCT_ID_PATTERN,
+    quote_currency as spot_quote_currency,
+)
 from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.audit_events import (
@@ -36,7 +39,6 @@ from thytrader.persistence.audit_events import (
 )
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from decimal import Decimal

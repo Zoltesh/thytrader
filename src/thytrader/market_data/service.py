@@ -58,8 +58,7 @@ class MarketDataService:
                 (
                     product
                     for product in products
-                    if product.quote_currency in SPOT_QUOTE_CURRENCIES
-                    and product.trading_enabled
+                    if product.quote_currency in SPOT_QUOTE_CURRENCIES and product.trading_enabled
                 ),
                 key=lambda product: product.product_id,
             )

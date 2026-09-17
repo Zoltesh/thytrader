@@ -20,9 +20,9 @@ import yaml
 
 from thytrader.agent_orchestration.models import YoloTier  # noqa: TC001 - Pydantic field type.
 from thytrader.config import Settings, parse_yolo_tiers_value
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.memory.models import NotifyProvider
 from thytrader.memory.notify import notification_sender_from_settings
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from thytrader.memory.models import NotificationRecord

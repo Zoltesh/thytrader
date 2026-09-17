@@ -10,7 +10,7 @@ import json
 import re
 import secrets
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from thytrader.config import Settings
@@ -131,7 +131,7 @@ def _broker_from_arguments(arguments: argparse.Namespace) -> BrokerAssumptions |
 def backtest_execution_fingerprint(
     arguments: argparse.Namespace,
     *,
-    quote_currency: str,
+    quote_currency: Literal["USD", "USDC"],
 ) -> str:
     """Hash the execution semantics that make repeated CLI publication idempotent."""
     capital = CapitalAssumptions(

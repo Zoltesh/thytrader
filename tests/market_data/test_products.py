@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from thytrader.market_data.products import (
-    SPOT_PRODUCT_ID_PATTERN,
     base_currency,
     is_spot_product_id,
     normalize_spot_product_id,

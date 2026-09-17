@@ -24,7 +24,12 @@ def parse_spot_product_id(product_id: str) -> tuple[str, SpotQuoteCurrency]:
     """Parse base and quote currencies from one spot product id."""
     normalized = normalize_spot_product_id(product_id)
     base, quote = normalized.rsplit("-", 1)
-    return base, quote  # type: ignore[return-value]
+    if quote == "USD":
+        return base, "USD"
+    if quote == "USDC":
+        return base, "USDC"
+    message = "product_id must be a BASE-USD or BASE-USDC spot identifier."
+    raise ValueError(message)
 
 
 def base_currency(product_id: str) -> str:

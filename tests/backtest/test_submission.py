@@ -307,7 +307,11 @@ class _LoadedStrategyStore:
             htf_filter = None
             indicators = ()
             additional_instruments = ()
-            instrument = type("Instrument", (), {"product_id": "BTC-USD", "quote_currency": "USD"})()
+            instrument = type(
+                "Instrument",
+                (),
+                {"product_id": "BTC-USD", "quote_currency": "USD"},
+            )()
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:

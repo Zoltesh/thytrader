@@ -23,6 +23,7 @@ from thytrader.market_data.freshness import (
     evaluate_freshness,
 )
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
@@ -35,7 +36,6 @@ from thytrader.market_data.worker_state import (
 )
 from thytrader.market_data_worker.service import island_covers_watch
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
 _logger = logging.getLogger(__name__)
