@@ -1754,11 +1754,7 @@ def _deployment_summary(
             and deployment.worker_lease_expires_at is not None
         ),
         ledger_mark_complete=None if ledger is None else ledger.mark_complete,
-        open_book_count=(
-            None
-            if summary_row is None
-            else summary_row.book_totals.open_books
-        ),
+        open_book_count=(None if summary_row is None else summary_row.book_totals.open_books),
     )
 
 
@@ -1781,9 +1777,7 @@ def _performance_books(ledger: DeploymentLedger) -> tuple[PerformanceBookPayload
         PerformanceBookPayload(
             product_id=book.product_id,
             trade_count=book.trade_count,
-            total_net_pnl=(
-                None if book.total_net_pnl is None else format(book.total_net_pnl, "f")
-            ),
+            total_net_pnl=(None if book.total_net_pnl is None else format(book.total_net_pnl, "f")),
             mark_complete=book.mark_complete,
         )
         for book in ledger.books

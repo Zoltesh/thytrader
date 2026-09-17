@@ -129,22 +129,14 @@ class InMemoryExecutionStore:
         """Return one descending page of fills for one deployment."""
         if limit < 1:
             raise ExecutionStoreError("Fill page limit must be positive.")
-        fills = [
-            fill
-            for fill in self.fills.values()
-            if fill.deployment_id == deployment_id
-        ]
+        fills = [fill for fill in self.fills.values() if fill.deployment_id == deployment_id]
         fills.sort(key=lambda item: (item.filled_at, str(item.id)), reverse=True)
         if cursor is not None:
             try:
                 filled_at, row_id = decode_cursor(cursor)
             except ValueError as error:
                 raise ExecutionStoreError("Invalid pagination cursor.") from error
-            fills = [
-                fill
-                for fill in fills
-                if (fill.filled_at, fill.id) < (filled_at, row_id)
-            ]
+            fills = [fill for fill in fills if (fill.filled_at, fill.id) < (filled_at, row_id)]
         page = tuple(fills[:limit])
         deployment = self.deployments.get(deployment_id)
         if deployment is None:
@@ -169,11 +161,7 @@ class InMemoryExecutionStore:
         """Return one descending page of orders for one deployment."""
         if limit < 1:
             raise ExecutionStoreError("Order page limit must be positive.")
-        orders = [
-            order
-            for order in self.orders.values()
-            if order.deployment_id == deployment_id
-        ]
+        orders = [order for order in self.orders.values() if order.deployment_id == deployment_id]
         orders.sort(key=lambda item: (item.created_at, str(item.id)), reverse=True)
         if cursor is not None:
             try:
@@ -181,9 +169,7 @@ class InMemoryExecutionStore:
             except ValueError as error:
                 raise ExecutionStoreError("Invalid pagination cursor.") from error
             orders = [
-                order
-                for order in orders
-                if (order.created_at, order.id) < (created_at, row_id)
+                order for order in orders if (order.created_at, order.id) < (created_at, row_id)
             ]
         page = tuple(orders[:limit])
         next_cursor = None
