@@ -18,6 +18,7 @@ from thytrader.market_data.models import (
     as_dataset_timeframe,
     parse_candle_interval,
 )
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
@@ -141,7 +142,7 @@ async def get_market_data_products(
 ) -> ProductCatalogResponse:
     """Return enabled USD spot products available for the read-only selector."""
     try:
-        products = await service.list_enabled_usd_spot_products()
+        products = await service.list_enabled_spot_products()
     except Exception:  # noqa: BLE001 - provider failures are intentionally redacted at the API boundary.
         raise _unavailable() from None
     return ProductCatalogResponse(
@@ -184,7 +185,7 @@ def get_latest_verified_datasets(
 )
 async def get_market_data_preview(
     service: Annotated[MarketDataService, Depends(get_market_data_service)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
 ) -> MarketDataPreviewResponse:
     """Return validated selected-USD-product hourly facts without upstream exceptions."""
     try:
@@ -201,7 +202,7 @@ async def get_market_data_preview(
 )
 async def get_market_data_range(
     service: Annotated[MarketDataService, Depends(get_market_data_service)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
 ) -> MarketDataRangeResponse:
     """Return a selected product's recent seven-day hourly completeness report."""
     try:

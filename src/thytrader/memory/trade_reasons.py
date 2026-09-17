@@ -9,9 +9,10 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+
 TRADE_REASON_SCHEMA_VERSION: Literal["thytrader-trade-reason-v1"] = "thytrader-trade-reason-v1"
 _FINGERPRINT = r"^sha256:[0-9a-f]{64}$"
-_PRODUCT = r"^[A-Z0-9]{2,20}-USD$"
 _TIMEFRAME = ("1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "1d")
 
 
@@ -173,7 +174,7 @@ class TradeReasonRecord(_FrozenModel):
     deployment_id: UUID
     deployment_kind: Literal["strategy", "discretionary"]
     mode: Literal["paper", "live"]
-    product_id: str = Field(pattern=_PRODUCT)
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     purpose: Literal["entry", "take_profit", "stop", "time_exit", "bracket"]
     side: Literal["buy", "sell"]
     strategy: TradeReasonStrategy | None = None

@@ -25,7 +25,7 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 
 Query parameters:
 
-- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-USD$`, optional `timeframe` (`1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h`, default `1h`)
+- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-(?:USD|USDC)$`, optional `timeframe` (`1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h`, default `1h`)
 - `performance`: optional `result_fingerprint` (`sha256:` + 64 lowercase hex) or `deployment_id` (UUID)
 - `runtime`: optional `deployment_id` (UUID)
 - `trade-reasons`: optional `intent_id` (UUID) and/or `deployment_id` (UUID)

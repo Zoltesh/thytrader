@@ -9,6 +9,8 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+
 
 class MarketFeedUnavailableError(RuntimeError):
     """Signal that durable market-feed state is unavailable."""
@@ -34,7 +36,7 @@ class _FrozenModel(BaseModel):
 class MarketFeedSnapshot(_FrozenModel):
     """Latest public ticker lifecycle facts for one USD spot product."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     state: MarketFeedState
     last_message_at: datetime | None = None
     last_ticker_at: datetime | None = None

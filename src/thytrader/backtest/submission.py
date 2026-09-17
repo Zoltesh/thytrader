@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
+    from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
     from thytrader.strategies.publication import PublishedStrategy
 
@@ -140,7 +141,9 @@ class PostgresBacktestSubmitter:
             _validate_submission_assumptions(request)
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
             request = _with_evaluation_window(request, strategy, self._dataset_store)
-            _validate_submission_assumptions(request)
+            _validate_submission_assumptions(
+                request, quote_currency=strategy.definition.instrument.quote_currency
+            )
             _require_htf_request(request, strategy.definition)
             _require_indicator_dataset_request(request, strategy.definition)
             _require_additional_instrument_request(request, strategy.definition)
@@ -151,7 +154,9 @@ class PostgresBacktestSubmitter:
         try:
             now = _utc_millisecond(datetime.now(UTC))
             await self._bind_submission_datasets(request, now)
-            execution_fingerprint = _execution_fingerprint(request)
+            execution_fingerprint = _execution_fingerprint(
+                request, strategy.definition.instrument.quote_currency
+            )
             published_run = await self._run_store.load_by_execution_fingerprint(
                 execution_fingerprint,
                 dataset_store=self._dataset_store,
@@ -253,7 +258,7 @@ class PostgresBacktestSubmitter:
                 ),
             ),
             capital=CapitalAssumptions(
-                quote_currency="USD",
+                quote_currency=strategy.definition.instrument.quote_currency,
                 initial_quote_balance=request.initial_quote_balance,
             ),
             costs=CostAssumptions(
@@ -358,7 +363,11 @@ def _manifest_instant(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None:
+def _validate_submission_assumptions(
+    request: BacktestSubmissionRequest,
+    *,
+    quote_currency: SpotQuoteCurrency = "USD",
+) -> None:
     """Revalidate every untrusted simulation assumption before source or persistence I/O."""
     _require_valid_broker_inputs(request)
     if request.evaluation_start is None and request.evaluation_end is None:
@@ -368,7 +377,7 @@ def _validate_submission_assumptions(request: BacktestSubmissionRequest) -> None
     else:
         EvaluationWindow(starts_at=request.evaluation_start, ends_at=request.evaluation_end)
     CapitalAssumptions(
-        quote_currency="USD",
+        quote_currency=quote_currency,
         initial_quote_balance=request.initial_quote_balance,
     )
     CostAssumptions(
@@ -433,11 +442,14 @@ def _require_valid_broker_inputs(request: BacktestSubmissionRequest) -> None:
         raise ValueError("spread_bps requires the thytrader-bar-backtest-v2 contract")
 
 
-def _execution_fingerprint(request: BacktestSubmissionRequest) -> str:
+def _execution_fingerprint(
+    request: BacktestSubmissionRequest,
+    quote_currency: SpotQuoteCurrency,
+) -> str:
     """Hash normalized simulation semantics so equivalent submissions are idempotent."""
     evaluation_start, evaluation_end = _filled_window(request)
     capital = CapitalAssumptions(
-        quote_currency="USD",
+        quote_currency=quote_currency,
         initial_quote_balance=request.initial_quote_balance,
     )
     costs = CostAssumptions(

@@ -119,6 +119,7 @@ class OpsContractPayload(_FrozenModel):
     deployment_capital_fields: tuple[str, ...]
     breaker_latch_reset: tuple[Literal["paper", "live"], ...]
     async_backtest_job_statuses: tuple[Literal["queued", "running", "completed", "failed"], ...]
+    spot_quote_currencies: tuple[Literal["USD", "USDC"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -314,7 +315,7 @@ class PerformancePayload(_FrozenModel):
 
     mode: Literal["backtest", "paper", "live"]
     timeframe: SupportedTimeframe
-    currency: Literal["USD"] = "USD"
+    currency: Literal["USD", "USDC"] = "USD"
     strategy_fingerprint: str | None
     dataset_fingerprint: str | None
     engine_contract_version: str | None

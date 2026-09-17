@@ -121,7 +121,7 @@
 	>
 		<label>
 			Product
-			<input bind:value={productId} required pattern={'[A-Z0-9]{2,20}-USD'} />
+			<input bind:value={productId} required pattern={'[A-Z0-9]{2,20}-(?:USD|USDC)'} />
 		</label>
 		<label>
 			Mode

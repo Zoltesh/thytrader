@@ -109,8 +109,8 @@ stable ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.m
 | `description` | string | Optional, ≤ 500 characters. |
 | `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
 | `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
-| `instrument` | object | Explicit primary Coinbase `BASE-USD` spot product, never inherited from runtime. |
-| `additional_instruments` | array \| omitted | Optional 1–7 extra unique USD spot products, disjoint from `instrument`. Total coverage is at most eight. Omitted from canonical JSON when empty. |
+| `instrument` | object | Explicit primary Coinbase `BASE-USD` or `BASE-USDC` spot product, never inherited from runtime. |
+| `additional_instruments` | array \| omitted | Optional 1–7 extra unique spot products with the same quote currency as `instrument`, disjoint from `instrument`. Total coverage is at most eight. Omitted from canonical JSON when empty. |
 | `timeframe` | enum | One ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). This is the LTF decision clock. Paper and live use the same clock. Sub-hour live requires a connected user-order feed. |
 | `data_requirements` | object | Minimum LTF bars and OHLCV fields needed for indicator warmup. |
 | `indicators` | array | Named indicator definitions (see below). Optional per-indicator `timeframe`. |

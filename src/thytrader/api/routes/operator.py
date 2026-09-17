@@ -32,6 +32,7 @@ from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
@@ -140,7 +141,7 @@ async def get_operator_exchange(
 @router.get("/market-data", response_model=MarketDataReport)
 async def get_operator_market_data(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
-    product_id: Annotated[str | None, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = None,
+    product_id: Annotated[str | None, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = None,
     timeframe: Annotated[str, Query(pattern=DATASET_TIMEFRAME_PATTERN)] = "1h",
 ) -> MarketDataReport:
     """Return freshness and gap evidence for one USD spot product and timeframe."""

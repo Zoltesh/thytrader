@@ -74,7 +74,7 @@ async def add_watch_target(
 ) -> MarketDataWatchTarget:
     """Validate a USD spot product and upsert one watchlist row."""
     interval = require_interval(timeframe)
-    await _require_usd_spot_product(market_data, product_id)
+    await _require_spot_product(market_data, product_id)
     provider = ingestion_provider(settings)
     target = MarketDataWatchTarget(
         provider=provider,
@@ -239,14 +239,14 @@ async def inspect_gaps(
     )
 
 
-async def _require_usd_spot_product(market_data: MarketDataService, product_id: str) -> None:
-    """Reject products that are not enabled USD spot in the current catalog."""
+async def _require_spot_product(market_data: MarketDataService, product_id: str) -> None:
+    """Reject products that are not enabled USD or USDC spot in the current catalog."""
     try:
-        products = await market_data.list_enabled_usd_spot_products()
+        products = await market_data.list_enabled_spot_products()
     except Exception as error:
-        raise DataControlError("The USD spot product catalog could not be loaded.") from error
+        raise DataControlError("The spot product catalog could not be loaded.") from error
     if not any(product.product_id == product_id for product in products):
-        raise DataControlError(f"{product_id} is not an enabled USD spot product.")
+        raise DataControlError(f"{product_id} is not an enabled USD or USDC spot product.")
 
 
 async def _lookback_hours(

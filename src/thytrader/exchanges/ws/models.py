@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+
 
 class WebSocketConnectionState(StrEnum):
     """Lifecycle state of the WebSocket market feed."""
@@ -26,7 +28,7 @@ class _FrozenModel(BaseModel):
 class TickerMessage(_FrozenModel):
     """Normalized real-time market ticker tick for a spot product."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     price: Decimal = Field(gt=Decimal("0"))
     volume_24_h: Decimal = Field(ge=Decimal("0"))
     low_24_h: Decimal = Field(ge=Decimal("0"))

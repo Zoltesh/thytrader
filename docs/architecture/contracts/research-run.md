@@ -30,7 +30,7 @@ classDiagram
     starts_at derived
   }
   class CapitalAssumptions {
-    quote_currency USD
+    quote_currency USD|USDC
     initial_quote_balance
   }
   class CostAssumptions {
@@ -54,7 +54,7 @@ classDiagram
     dataset_fingerprint
   }
   class AdditionalInstrumentDataset {
-    product_id BASE-USD
+    product_id BASE-USD|BASE-USDC
     dataset_fingerprint
     htf_dataset_fingerprint?
     indicator_dataset_fingerprints

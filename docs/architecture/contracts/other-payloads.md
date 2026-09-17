@@ -37,8 +37,8 @@ classDiagram
     schema_version thytrader-risk-policy-v1
     policy_id UUID
     version int
-    quote_currency USD
-    product_allowlist 0..32 BASE-USD
+    quote_currency USD|USDC
+    product_allowlist 0..32 BASE-USD|BASE-USDC
     max_concurrent_running_deployments 1..32
     max_concurrent_open_positions 1..32
     max_portfolio_exposure_fraction

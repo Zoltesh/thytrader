@@ -127,9 +127,9 @@ def test_execution_fingerprint_distinguishes_engine_and_spread() -> None:
         spread_bps="12",
     )
 
-    assert _execution_fingerprint(v1) == _execution_fingerprint(v1_again)
-    assert _execution_fingerprint(v1) != _execution_fingerprint(v2_spread8)
-    assert _execution_fingerprint(v2_spread8) != _execution_fingerprint(v2_spread12)
+    assert _execution_fingerprint(v1, "USD") == _execution_fingerprint(v1_again, "USD")
+    assert _execution_fingerprint(v1, "USD") != _execution_fingerprint(v2_spread8, "USD")
+    assert _execution_fingerprint(v2_spread8, "USD") != _execution_fingerprint(v2_spread12, "USD")
 
 
 def test_v3_submission_rejects_spread_and_builds_resting_limit_broker() -> None:
@@ -154,7 +154,7 @@ def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
         engine_contract_version="thytrader-bar-backtest-v2",
         spread_bps="8",
     )
-    fingerprint = _execution_fingerprint(request)
+    fingerprint = _execution_fingerprint(request, "USD")
 
     assert fingerprint.startswith("sha256:")
     assert request.evaluation_end is not None
@@ -196,8 +196,8 @@ def test_execution_fingerprint_includes_htf_dataset_only_when_present() -> None:
     """HTF dataset identity is execution-significant and omitted from single-TF hashes."""
     baseline = _request()
     with_htf = _request(htf_dataset_fingerprint="sha256:" + "c" * 64)
-    assert _execution_fingerprint(baseline) == _execution_fingerprint(_request())
-    assert _execution_fingerprint(baseline) != _execution_fingerprint(with_htf)
+    assert _execution_fingerprint(baseline, "USD") == _execution_fingerprint(_request(), "USD")
+    assert _execution_fingerprint(baseline, "USD") != _execution_fingerprint(with_htf, "USD")
 
 
 def test_execution_fingerprint_includes_indicator_datasets() -> None:
@@ -208,8 +208,8 @@ def test_execution_fingerprint_includes_indicator_datasets() -> None:
             IndicatorTimeframeDataset(timeframe="1h", dataset_fingerprint="sha256:" + "c" * 64),
         )
     )
-    assert _execution_fingerprint(baseline) == _execution_fingerprint(_request())
-    assert _execution_fingerprint(baseline) != _execution_fingerprint(extra)
+    assert _execution_fingerprint(baseline, "USD") == _execution_fingerprint(_request(), "USD")
+    assert _execution_fingerprint(baseline, "USD") != _execution_fingerprint(extra, "USD")
 
 
 @pytest.mark.anyio
@@ -307,7 +307,11 @@ class _LoadedStrategyStore:
             htf_filter = None
             indicators = ()
             additional_instruments = ()
-            instrument = type("Instrument", (), {"product_id": "BTC-USD"})()
+            instrument = type(
+                "Instrument",
+                (),
+                {"product_id": "BTC-USD", "quote_currency": "USD"},
+            )()
             data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
 
         class _Strategy:

@@ -111,7 +111,7 @@ sample; large 1m watches stay bounded.
 
 ## Workflow
 
-1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
+1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC spot ids.
    Judge `watch_complete`, not only `complete`.
 2. `watch-add` then `ingest` for a new product and any ingested venue clock (`1m`, `5m`, `15m`,
    `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Wait for the CLI poll; do not treat 202 as published
