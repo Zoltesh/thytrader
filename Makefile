@@ -1,12 +1,14 @@
 .DEFAULT_GOAL := help
 
-.PHONY: run stop logs status help
+.PHONY: run down stop logs status help
 
 run: ## Configure and start the full local stack: .env, Postgres, migrations, API, workers, web
 	uv run python scripts/setup_local_stack.py
 
-stop: ## Stop the stack (preserves database and market-data volumes)
+down: ## Tear down Compose services (preserves database, market-data volumes, and .env)
 	docker compose down
+
+stop: down ## Synonym for make down (preserves database and market-data volumes)
 
 logs: ## Follow API, worker, market-data worker, execution worker, and web logs
 	docker compose logs -f api worker market-data-worker execution-worker web
