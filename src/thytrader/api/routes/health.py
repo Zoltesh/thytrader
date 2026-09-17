@@ -45,6 +45,9 @@ class HealthOpsContract(BaseModel):
     research_job_expiry_hours: int
     spot_quote_currencies: list[str]
     catalog_health: list[str]
+    bounded_deployment_reads: list[str]
+    deployment_ledger_pagination: list[str]
+    multi_book_ledger: list[str]
     expected_schema_revision: str
 
 

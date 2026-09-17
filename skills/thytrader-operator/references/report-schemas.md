@@ -16,7 +16,7 @@ Every JSON report includes:
 
 `reason_code` matches `^[A-Z][A-Z0-9_]{0,63}$`.
 
-Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus a last-close mark for open inventory. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
+Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
 reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
@@ -30,8 +30,9 @@ uses the same `books[]` on each deployment row. `protection_status` is classifie
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
 ([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)). Each row also
 reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`),
-breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`, and
-`worker_lease_held` without cash or lease-holder identity. Latches persist across pause.
+breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
+`worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and
+`open_book_count` without cash or quantities. Latches persist across pause.
 Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
 or `thytrader-runtime stop UUID --flatten --confirm`. Latched breakers clear only through
 `thytrader-runtime reset-breaker-latches UUID --confirm` /

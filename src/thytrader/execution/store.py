@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
+    DeploymentSummarySnapshot,
     ExecutionStoreError,
     Fill,
     InstrumentRuntime,
     Order,
     OrderIntent,
+    PaginatedFills,
+    PaginatedOrders,
     Position,
 )
 
@@ -32,8 +35,26 @@ class ExecutionStore(Protocol):
         """Load one deployment with its related records or fail."""
         ...
 
-    async def list_deployments(self) -> tuple[Deployment, ...]:
-        """Return every deployment, newest-updated first."""
+    async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
+        """Load positions and overlays without historical orders or fills."""
+        ...
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
+        """Return deployments newest-updated first, optionally paginated."""
+        ...
+
+    async def list_fills(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedFills:
+        """Return one descending page of fills for one deployment."""
+        ...
+
+    async def list_orders(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedOrders:
+        """Return one descending page of orders for one deployment."""
         ...
 
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
@@ -112,9 +133,31 @@ class DisabledExecutionStore:
         del deployment_id
         raise ExecutionStoreError("Execution storage is unavailable.")
 
-    async def list_deployments(self) -> tuple[Deployment, ...]:
+    async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
+        """Refuse deployment summary reads without durable storage."""
+        del deployment_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
         """Return no deployments when storage is unconfigured."""
+        del limit, offset
         return ()
+
+    async def list_fills(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedFills:
+        """Refuse fill pagination without durable storage."""
+        del deployment_id, limit, cursor
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def list_orders(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedOrders:
+        """Refuse order pagination without durable storage."""
+        del deployment_id, limit, cursor
+        raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return no deployments when storage is unconfigured."""

@@ -17,8 +17,9 @@ research-study catalog, trade-reason journals, multi-instrument documents, or
 intra-strategy pyramiding, attached-child protection, worker leases, live
 capital vs venue cash, deployment HTTP `capital` field names, durable
 daily-loss/drawdown baselines, lifecycle stop/flatten/managed-shutdown commands,
-supported spot quote currencies, or catalog-health capabilities (bounded gap
-inspection, ingest self-complete, heartbeat during ingest) change.
+supported spot quote currencies, catalog-health capabilities (bounded gap
+inspection, ingest self-complete, heartbeat during ingest), bounded deployment
+reads, deployment ledger pagination, or multi-book ledger aggregation change.
 """
 
 from __future__ import annotations
@@ -31,8 +32,11 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v31"
-EXPECTED_SCHEMA_REVISION = "0044"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v32"
+EXPECTED_SCHEMA_REVISION = "0045"
+BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
+DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
+MULTI_BOOK_LEDGER: tuple[str, ...] = ("paper", "live")
 SPOT_QUOTE_CURRENCIES_FIELD: tuple[str, ...] = SPOT_QUOTE_CURRENCIES
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
@@ -114,6 +118,9 @@ def expected_ops_contract() -> dict[str, object]:
         "research_job_expiry_hours": RESEARCH_JOB_EXPIRY_HOURS,
         "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
         "catalog_health": list(CATALOG_HEALTH),
+        "bounded_deployment_reads": list(BOUNDED_DEPLOYMENT_READS),
+        "deployment_ledger_pagination": list(DEPLOYMENT_LEDGER_PAGINATION),
+        "multi_book_ledger": list(MULTI_BOOK_LEDGER),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

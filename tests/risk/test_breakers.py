@@ -143,10 +143,10 @@ def _round_trip_loss_snapshot() -> DeploymentSnapshot:
     )
 
 
-def _proposed() -> ProposedEntry:
-    """Sized BTC paper entry."""
+def _proposed(*, product_id: str = "BTC-USD") -> ProposedEntry:
+    """Sized paper entry on one product."""
     return ProposedEntry(
-        product_id="BTC-USD",
+        product_id=product_id,
         strategy_id=_STRATEGY,
         notional=Decimal("100"),
     )
@@ -402,6 +402,52 @@ def test_missing_mark_on_open_inventory_fails_closed() -> None:
             proposed_price=Decimal("100"),
             reference_price=Decimal("100"),
             marks={},
+        ),
+    )
+    assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
+
+
+def test_two_open_books_require_marks_for_both_products() -> None:
+    """Multi-book daily-loss math fails closed when only one product has a mark."""
+    deployment = _deployment(phase=RuntimePhase.OPEN)
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        orders=(),
+        fills=(),
+        positions=(
+            Position(
+                deployment_id=deployment.id,
+                product_id="BTC-USD",
+                quantity=Decimal("1"),
+                entry_price=Decimal("100"),
+                stop_price=Decimal("90"),
+                target_price=Decimal("120"),
+                entered_bar=_NOW,
+                updated_at=_NOW,
+            ),
+            Position(
+                deployment_id=deployment.id,
+                product_id="ETH-USD",
+                quantity=Decimal("1"),
+                entry_price=Decimal("50"),
+                stop_price=Decimal("40"),
+                target_price=Decimal("70"),
+                entered_bar=_NOW,
+                updated_at=_NOW,
+            ),
+        ),
+    )
+    policy = compiled_default_risk_policy().model_copy(update={"daily_loss_limit_fraction": "0.01"})
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(product_id="ETH-USD"),
+        snapshots=(snapshot,),
+        observation=EntryObservation(
+            as_of=_NOW,
+            proposed_price=Decimal("50"),
+            reference_price=Decimal("50"),
+            marks={"BTC-USD": Decimal("100")},
         ),
     )
     assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING

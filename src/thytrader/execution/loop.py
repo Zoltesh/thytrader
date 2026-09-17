@@ -186,7 +186,13 @@ async def process_closed_bar(
             snapshot = await _ensure_exit_protection(
                 snapshot, candle=candle, product=product, broker=broker, store=store
             )
-        return await _persist_performance(snapshot, store=store, mark_price=candle.close)
+        return await _persist_performance(
+            snapshot,
+            store=store,
+            mark_price=candle.close,
+            marks=marks,
+            product_id=product.product_id,
+        )
     if deployment.cooldown_bars_remaining > 0 and not stopped:
         cooled = with_runtime(
             deployment,
@@ -248,7 +254,13 @@ async def process_closed_bar(
             marks=marks,
             fee_profile=fee_profile,
         )
-    snapshot = await _persist_performance(snapshot, store=store, mark_price=candle.close)
+    snapshot = await _persist_performance(
+        snapshot,
+        store=store,
+        mark_price=candle.close,
+        marks=marks,
+        product_id=product.product_id,
+    )
     return await _persist_runtime(
         snapshot,
         store=store,
@@ -1741,9 +1753,13 @@ async def _persist_performance(
     *,
     store: ExecutionStore,
     mark_price: Decimal,
+    marks: Mapping[str, Decimal] | None = None,
+    product_id: str,
 ) -> DeploymentSnapshot:
     """Stamp inventory cost, equity, HWM, and UTC day-open without changing phase."""
-    marked = refresh_performance(snapshot, mark_price=mark_price, now=utc_now())
+    combined: dict[str, Decimal] = dict(marks) if marks is not None else {}
+    combined[product_id] = mark_price
+    marked = refresh_performance(snapshot, marks=combined, now=utc_now())
     if marked == snapshot.deployment:
         return snapshot
     await store.save_deployment(marked)

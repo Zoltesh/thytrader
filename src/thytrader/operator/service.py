@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal  # noqa: TC003 - runtime marks map uses Decimal at runtime
 from typing import TYPE_CHECKING, Literal
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -17,6 +18,7 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    DeploymentSummarySnapshot,
     ExecutionStoreError,
     OrderStatus,
     RuntimePhase,
@@ -67,6 +69,7 @@ from thytrader.operator.models import (
     MarketDataPayload,
     MarketDataReport,
     MonitorReport,
+    PerformanceBookPayload,
     PerformancePayload,
     PerformanceReport,
     ProductsPayload,
@@ -135,7 +138,6 @@ def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
 
 
 if TYPE_CHECKING:
-    from decimal import Decimal
     from pathlib import Path
     from uuid import UUID
 
@@ -1192,22 +1194,23 @@ class OperatorDiagnostics:
         extra = await self._covered_products_by_fingerprint()
         summaries: list[DeploymentSummary] = []
         for item in deployments:
-            snapshot = await self._snapshot_or_none(item.id)
+            summary_row = await self._summary_or_none(item.id)
             extra_ids = extra.get(item.strategy_fingerprint or "", (item.product_id,))
             summaries.append(
                 _deployment_summary(
                     item,
-                    snapshot=snapshot,
+                    snapshot=_summary_as_snapshot(summary_row) if summary_row else None,
+                    summary_row=summary_row,
                     extra_product_ids=extra_ids,
                     timeframe=await self._runtime_timeframe(item),
                 )
             )
         return tuple(summaries)
 
-    async def _snapshot_or_none(self, deployment_id: UUID) -> DeploymentSnapshot | None:
-        """Load one snapshot or omit books when execution storage fails."""
+    async def _summary_or_none(self, deployment_id: UUID) -> DeploymentSummarySnapshot | None:
+        """Load one bounded summary or omit books when execution storage fails."""
         try:
-            return await self.execution.get_deployment(deployment_id)
+            return await self.execution.get_deployment_summary(deployment_id)
         except ExecutionStoreError:
             return None
 
@@ -1296,8 +1299,8 @@ class OperatorDiagnostics:
             return _empty_performance(now, (component,))
         deployment = snapshot.deployment
         timeframe = await self._runtime_timeframe(deployment)
-        mark = await self._last_close_mark(deployment.product_id, timeframe)
-        ledger = ledger_from_snapshot(snapshot, mark_price=mark)
+        marks = await self._deployment_marks(snapshot, timeframe)
+        ledger = ledger_from_snapshot(snapshot, marks=marks)
         component, warnings = _deployment_ledger_component(deployment, ledger)
         payload = PerformancePayload(
             mode="live" if deployment.mode is DeploymentMode.LIVE else "paper",
@@ -1314,6 +1317,11 @@ class OperatorDiagnostics:
             maximum_drawdown_fraction=ledger.maximum_drawdown_fraction_text(),
             total_spread_cost=None,
             evaluation_bars=None,
+            mark_complete=ledger.mark_complete,
+            marked_exposure=(
+                None if ledger.marked_exposure is None else format(ledger.marked_exposure, "f")
+            ),
+            books=_performance_books(ledger),
         )
         return PerformanceReport(
             application_version=__version__,
@@ -1342,6 +1350,24 @@ class OperatorDiagnostics:
         if not candles:
             return None
         return candles[-1].close
+
+    async def _deployment_marks(
+        self,
+        snapshot: DeploymentSnapshot,
+        timeframe: SupportedTimeframe,
+    ) -> dict[str, Decimal]:
+        """Return last-close marks for every open product book on one deployment."""
+        marks: dict[str, Decimal] = {}
+        products = {
+            resolved_product_id(position.product_id, snapshot.deployment)
+            for position in snapshot_positions(snapshot)
+        }
+        products.add(snapshot.deployment.product_id)
+        for product_id in sorted(products):
+            mark = await self._last_close_mark(product_id, timeframe)
+            if mark is not None:
+                marks[product_id] = mark
+        return marks
 
     async def _risk_findings(self) -> tuple[tuple[RiskFinding, ...], list[ComponentReport]]:
         """Collect pause, breaker, and mismatch observations from deployments."""
@@ -1695,10 +1721,14 @@ def _deployment_summary(
     deployment: Deployment,
     *,
     snapshot: DeploymentSnapshot | None = None,
+    summary_row: DeploymentSummarySnapshot | None = None,
     extra_product_ids: tuple[str, ...] = (),
     timeframe: SupportedTimeframe | None = None,
 ) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
+    ledger = None
+    if snapshot is not None:
+        ledger = ledger_from_snapshot(snapshot)
     return DeploymentSummary(
         deployment_id=deployment.id,
         kind=deployment.kind.value,
@@ -1723,6 +1753,34 @@ def _deployment_summary(
             deployment.worker_lease_holder is not None
             and deployment.worker_lease_expires_at is not None
         ),
+        ledger_mark_complete=None if ledger is None else ledger.mark_complete,
+        open_book_count=(None if summary_row is None else summary_row.book_totals.open_books),
+    )
+
+
+def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapshot:
+    """Project one bounded summary row into a snapshot for book helpers."""
+    return DeploymentSnapshot(
+        deployment=summary.deployment,
+        position=summary.position,
+        positions=summary.positions,
+        instrument_runtimes=summary.instrument_runtimes,
+        orders=summary.open_orders,
+    )
+
+
+def _performance_books(ledger: DeploymentLedger) -> tuple[PerformanceBookPayload, ...]:
+    """Render per-product ledger slices for operator performance evidence."""
+    if not ledger.books:
+        return ()
+    return tuple(
+        PerformanceBookPayload(
+            product_id=book.product_id,
+            trade_count=book.trade_count,
+            total_net_pnl=(None if book.total_net_pnl is None else format(book.total_net_pnl, "f")),
+            mark_complete=book.mark_complete,
+        )
+        for book in ledger.books
     )
 
 
