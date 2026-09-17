@@ -19,13 +19,18 @@ drafts/backtests, memory writes, and YOLO skip audits even when `thytrader-runti
 1. Add `request_mutation_json()` to `thytrader.agent_http` as the shared loopback mutation helper.
    It loads `Settings()` when callers omit an explicit settings object and attaches
    `mutation_headers()` on every non-read request.
-2. Route all mutation-lane HTTP clients through that helper:
+2. Resolve installation tokens for CLI mutations whenever one exists in
+   `THYTRADER_INSTALLATION_TOKEN` or `$THYTRADER_CREDENTIALS_DIR/.installation-token`,
+   **not** when local `trust_boundary_enabled` is true. Host agents run `development` while
+   Compose APIs run `production`; gating on the CLI copy of `trust_boundary_enabled` left Bearer
+   auth off even though the API required it.
+3. Route all mutation-lane HTTP clients through that helper:
    - `data_control.client` watchlist and ingest writes
    - `research.http` draft, publish, backtest, and study writes
    - `memory.client` journal, hook, notify, train, and trade-reason note writes
    - `agent_orchestration.client` skipped-confirmation audits
    - `runtime_control.client` (refactored to the same helper; behavior unchanged)
-3. Document in lane skills that every mutation CLI sends installation auth the same way as runtime.
+4. Document in lane skills that every mutation CLI sends installation auth the same way as runtime.
    Browser CSRF remains browser-only; CLIs never send CSRF.
 
 ## Consequences

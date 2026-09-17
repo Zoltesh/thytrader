@@ -15,9 +15,13 @@ if TYPE_CHECKING:
 
 
 def resolve_installation_token_for_client(settings: Settings) -> str | None:
-    """Return the installation token for agent HTTP calls when trust boundary is enabled."""
-    if not settings.trust_boundary_enabled:
-        return None
+    """Return the installation token for agent HTTP mutation calls when one is configured.
+
+    Agent CLIs often run with ``environment=development`` while the loopback API runs
+    ``production`` under Compose. Local ``trust_boundary_enabled`` therefore stays false
+    even when the API enforces installation auth. Send the Bearer token whenever it can
+    be resolved from env or the credentials directory; omit it only when absent.
+    """
     configured = settings.installation_token or read_installation_token_from_env()
     if configured is not None:
         return configured.get_secret_value()
