@@ -73,6 +73,11 @@ The final extra LTF candle is required because a signal evaluated at the close o
 may only use the next candle's open as a modeled fill price. It is fill lookahead data, never signal
 lookahead data.
 
+`POST /api/v1/backtests` and `submit-backtest` may omit both evaluation bounds. The server then
+selects the half-open LTF window that also satisfies last-completed HTF and extra-TF coverage
+(the common covered intersection), instead of the LTF-only usable window. Callers that supply
+explicit dates still fail closed when any bound dataset cannot cover that window.
+
 ## Publication and loading
 
 PostgreSQL table `published_research_run_specs` stores the canonical document and denormalized identity

@@ -125,22 +125,27 @@ trading authority.
 - `POST /api/v1/backtests` requires an immutable strategy fingerprint, verified dataset fingerprint,
   optional `htf_dataset_fingerprint` when the strategy declares `htf_filter`,
   `indicator_dataset_fingerprints` when unbound extra indicator clocks exist,
-  exact UTC evaluation period, capital, maker/taker fees, fixed slippage, and an explicit V1, V2, or
-  V3 engine contract. V1 and V3 reject a spread field; V2 requires a bounded constant `spread_bps`
-  value. V3 publishes the post-only resting-limit broker block. Equivalent browser and CLI assumptions
-  reuse the same immutable run, except the research-run CLI still publishes only V1/V2 until a later
-  increment adds the V3 flag. The Research form may prefill maker/taker from `GET /api/v1/fees`
-  `suggested_*` fields (pinned Coinbase schedule, labeled as a suggestion). Custom rates win. Those
-  values become the published CostAssumptions; they are not observed Coinbase fills. Demo or missing
-  credentials omit suggestions so the operator must enter modeled rates.
+  an evaluation period (or both dates omitted), capital, maker/taker fees, fixed slippage, and an
+  explicit V1, V2, V3, or V4 engine contract. When both `evaluation_start` and `evaluation_end` are
+  omitted, the server fills the common covered intersection of the LTF dataset and every bound extra
+  clock (HTF, unbound indicator timeframes, additional instruments). LTF warmup and next-open fill
+  still bound that window; extra clocks use last-completed coverage only. Explicit dates that the
+  bound datasets cannot cover remain a `422 backtest_window_rejected` caller error. V1 and V3 reject
+  a spread field; V2 requires a bounded constant `spread_bps` value. V3 publishes the post-only
+  resting-limit broker block. Equivalent browser and CLI assumptions reuse the same immutable run,
+  except the research-run CLI still publishes only V1/V2 until a later increment adds the V3 flag.
+  The Research form may prefill maker/taker from `GET /api/v1/fees` `suggested_*` fields (pinned
+  Coinbase schedule, labeled as a suggestion). Custom rates win. Those values become the published
+  CostAssumptions; they are not observed Coinbase fills. Demo or missing credentials omit
+  suggestions so the operator must enter modeled rates.
 
 The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. A submission whose evaluation window cannot fit the selected dataset (missing warmup coverage before the window, or missing next-candle-open coverage after it) is a caller error, not an outage: `POST /api/v1/backtests` answers `422 backtest_window_rejected` with a plain-language explanation, and only genuine infrastructure failures keep the redacted `503`. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
 
 The strategies page collapses cumulative dataset revisions to the latest verified revision per
 product and timeframe, bounds the evaluation inputs from the selected LTF dataset and the strategy
-warmup, requires a second HTF dataset fingerprint when `htf_filter` is present, requires extra
-indicator-clock datasets for unbound per-indicator timeframes, and shows the usable
-window inline.
+warmup (and, when extra clocks are bound, their common covered intersection), requires a second HTF
+dataset fingerprint when `htf_filter` is present, requires extra indicator-clock datasets for
+unbound per-indicator timeframes, and shows the usable window inline.
 
 ## Explicitly not in this slice
 

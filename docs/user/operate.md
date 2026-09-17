@@ -37,11 +37,14 @@ opens the same read-only Insight panel; Research and Deploy are links to their o
 
 Open http://127.0.0.1:5175/research (or `/research?strategy=` from the library). Research explicitly
 selects an immutable strategy version, verified dataset, evaluation period, initial capital,
-maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. When
-Coinbase credentials are present, maker/taker fields prefill from fee-tier suggested defaults and
-stay editable; demo or missing credentials leave those fields blank rather than inventing a tier.
-It lists every stored result for each exact published version and compares the latest result across
-versions; dataset and per-version result failures remain visible without hiding strategy evidence.
+maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. Omitting
+both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
+rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
+from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
+blank rather than inventing a tier. It lists every stored result for each exact published version
+and compares the latest result across versions; dataset and per-version result failures remain
+visible without hiding strategy evidence. Result summaries report the published strategy clock,
+including `2h` and `4h`, not a hardcoded `1h`.
 
 **Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
 consumes that mutable draft and records canonical strategy evidence; it does **not** start paper or
