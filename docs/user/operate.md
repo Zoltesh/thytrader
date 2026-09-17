@@ -137,7 +137,7 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | Lane | What it may do | Gate |
 |---|---|---|
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
-| `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations |
+| `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations; writes send installation Bearer when a token is resolvable |
 | `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
 | `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials | `--confirm`; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
