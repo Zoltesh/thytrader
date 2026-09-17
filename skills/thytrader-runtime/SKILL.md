@@ -101,7 +101,10 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
-([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), ADR 0058 lifecycle fields
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the published strategy
+`timeframe` (copied from the immutable strategy when the stored deployment row is null;
+[ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)),
+ADR 0058 lifecycle fields
 (`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`, `revision`, `worker_lease_held`;
 [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)), and a
 `capital` block with `allocated_capital`, `venue_available_quote`, `reserved_buying_power`,

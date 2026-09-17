@@ -77,6 +77,7 @@ async def create_deployment(
         strategy_fingerprint=published.strategy_fingerprint,
         strategy_id=definition.strategy_id,
         product_id=definition.instrument.product_id,
+        timeframe=definition.timeframe,
         mode=mode,
         status=DeploymentStatus.RUNNING,
         paper_starting_cash=paper_starting_cash,
@@ -258,6 +259,22 @@ async def _load_published(
         return await loader(strategy_fingerprint)
     except StrategyPublicationError as error:
         raise ExecutionStoreError(str(error) or "Published strategy was not found.") from error
+
+
+async def resolved_deployment_timeframe(
+    deployment: Deployment,
+    publication_store: StrategyPublicationStore,
+) -> str | None:
+    """Return the stored book clock or the published strategy clock for observability."""
+    if deployment.timeframe is not None:
+        return deployment.timeframe
+    if deployment.strategy_fingerprint is None:
+        return None
+    try:
+        published = await _load_published(publication_store, deployment.strategy_fingerprint)
+    except ExecutionStoreError:
+        return None
+    return published.definition.timeframe
 
 
 def _require_execution_timeframe(mode: DeploymentMode, timeframe: str) -> None:

@@ -36,6 +36,7 @@ from thytrader.execution.service import (
     create_deployment,
     parse_decimal,
     reset_breaker_latches,
+    resolved_deployment_timeframe,
     set_deployment_status,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
@@ -250,7 +251,11 @@ async def post_deployment(
     )
     snapshot = await store.get_deployment(deployment.id)
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return _snapshot_response(snapshot, extra_product_ids=extra)
+    return await _snapshot_response(
+        snapshot,
+        publication_store,
+        extra_product_ids=extra,
+    )
 
 
 @router.get("", response_model=DeploymentListResponse)
@@ -269,7 +274,13 @@ async def list_deployments(
     bodies: list[DeploymentResponse] = []
     for item in snapshots:
         extra = await _covered_products(publication_store, item.deployment)
-        bodies.append(_snapshot_response(item, extra_product_ids=extra))
+        bodies.append(
+            await _snapshot_response(
+                item,
+                publication_store,
+                extra_product_ids=extra,
+            )
+        )
     return DeploymentListResponse(deployments=tuple(bodies))
 
 
@@ -282,7 +293,11 @@ async def get_deployment(
     """Return one deployment with every product book, orders, and fills."""
     snapshot = await _require_snapshot(store, deployment_id)
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return _snapshot_response(snapshot, extra_product_ids=extra)
+    return await _snapshot_response(
+        snapshot,
+        publication_store,
+        extra_product_ids=extra,
+    )
 
 
 @router.post("/{deployment_id}/pause", response_model=DeploymentResponse)
@@ -363,7 +378,11 @@ async def post_reset_breaker_latches(
         deployment=snapshot.deployment,
     )
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return _snapshot_response(snapshot, extra_product_ids=extra)
+    return await _snapshot_response(
+        snapshot,
+        publication_store,
+        extra_product_ids=extra,
+    )
 
 
 async def _set_status(
@@ -398,7 +417,11 @@ async def _set_status(
         deployment=snapshot.deployment,
     )
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return _snapshot_response(snapshot, extra_product_ids=extra)
+    return await _snapshot_response(
+        snapshot,
+        publication_store,
+        extra_product_ids=extra,
+    )
 
 
 def _status_action(status_value: DeploymentStatus) -> str:
@@ -484,14 +507,18 @@ def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
     )
 
 
-def _deployment_response(deployment: Deployment) -> DeploymentResponse:
+def _deployment_response(
+    deployment: Deployment,
+    *,
+    timeframe: str | None,
+) -> DeploymentResponse:
     """Serialize one deployment without related collections."""
     return DeploymentResponse(
         id=deployment.id,
         strategy_fingerprint=deployment.strategy_fingerprint,
         strategy_id=deployment.strategy_id,
         kind=deployment.kind.value,
-        timeframe=deployment.timeframe,
+        timeframe=timeframe,
         product_id=deployment.product_id,
         mode=deployment.mode.value,
         status=deployment.status.value,
@@ -537,13 +564,18 @@ def _worker_lease_held(deployment: Deployment) -> bool:
     return bool(deployment.worker_lease_holder and deployment.worker_lease_expires_at)
 
 
-def _snapshot_response(
+async def _snapshot_response(
     snapshot: DeploymentSnapshot,
+    publication_store: StrategyPublicationStore | None = None,
     *,
     extra_product_ids: tuple[str, ...] = (),
 ) -> DeploymentResponse:
     """Serialize one deployment together with every product book, orders, and fills."""
-    response = _deployment_response(snapshot.deployment)
+    if publication_store is None:
+        timeframe = snapshot.deployment.timeframe
+    else:
+        timeframe = await resolved_deployment_timeframe(snapshot.deployment, publication_store)
+    response = _deployment_response(snapshot.deployment, timeframe=timeframe)
     positions = _position_collection(snapshot)
     order_products = _order_product_ids(snapshot)
     return response.model_copy(

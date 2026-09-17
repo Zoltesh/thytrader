@@ -349,6 +349,63 @@ def test_deployment_list_includes_lifecycle_observability_fields() -> None:
     assert "capital" in body
 
 
+def test_deployment_list_resolves_timeframe_from_published_strategy() -> None:
+    """Legacy rows with null deployment.timeframe copy the published strategy clock."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "2h"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    asyncio.run(
+        execution.create_deployment(
+            Deployment(
+                id=uuid4(),
+                strategy_fingerprint=fingerprint,
+                strategy_id=definition.strategy_id,
+                product_id=definition.instrument.product_id,
+                mode=DeploymentMode.PAPER,
+                status=DeploymentStatus.RUNNING,
+                cash=Decimal("100"),
+                phase=RuntimePhase.FLAT,
+                created_at=now,
+                updated_at=now,
+                paper_starting_cash=Decimal("100"),
+            )
+        )
+    )
+
+    with _client(publication, execution) as client:
+        listed = client.get("/api/v1/deployments")
+
+    assert listed.json()["deployments"][0]["timeframe"] == "2h"
+
+
+def test_create_deployment_persists_strategy_timeframe() -> None:
+    """New deployments store the published strategy clock for runtime list/show."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "2h"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+
+    assert created.json()["timeframe"] == "2h"
+
+
 def test_reset_breaker_latches_clears_latched_breakers() -> None:
     """Explicit operator reset clears latched breakers and breaker mismatch detail."""
     publication = InMemoryPublicationStore()

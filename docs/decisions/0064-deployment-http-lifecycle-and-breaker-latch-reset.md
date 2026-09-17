@@ -8,9 +8,12 @@
 ## Context
 
 Ops-log issue **11 (runtime observability mismatch)** from the 17 Sep portfolio-research agent
-run: skills and `thytrader-runtime show` promised ADR 0058 lifecycle, lease, and latch fields
-that `GET /api/v1/deployments/{id}` did not return, forcing agents to fall back to operator
-`runtime` for latch state while capital visibility was fixed separately in
+run: the verified UNI paper deployment (`01a0ad72-11b2-7102-b300-4780a96aaf0d`) reported
+`timeframe=null` on `thytrader-runtime list` even though the immutable strategy source is `2h`.
+`create_deployment` omitted the published strategy clock on the deployment row, and HTTP
+serialization echoed the null instead of copying the strategy clock like operator runtime
+already did. Related gaps also omitted ADR 0058 lifecycle/latch fields and explicit breaker
+latch reset; capital visibility was fixed separately in
 [ADR 0065](0065-deployment-capital-accounting-http.md).
 
 ADR 0058 shipped lifecycle commands, live capital columns, and durable daily-loss/drawdown
@@ -31,8 +34,10 @@ but no HTTP route or `thytrader-runtime` subcommand existed. In-app operator cha
 
 1. **Deployment HTTP parity (ADR 0058 F12).** `DeploymentResponse` includes
    `lifecycle_command`, `daily_loss_latched`, `drawdown_latched`, `revision`, and
-   `worker_lease_held` on list/show and after pause/resume/stop. Live capital stays in the
-   nested `capital` block ([ADR 0065](0065-deployment-capital-accounting-http.md)).
+   `worker_lease_held` on list/show and after pause/resume/stop. `timeframe` copies the
+   published strategy clock when the stored deployment row is null. New deployments persist
+   `definition.timeframe` at create. Live capital stays in the nested `capital` block
+   ([ADR 0065](0065-deployment-capital-accounting-http.md)).
 2. **Explicit breaker latch reset.** `POST /api/v1/deployments/{id}/reset-breaker-latches`
    and `thytrader-runtime reset-breaker-latches UUID --confirm` clear latched breakers on one
    deployment. The mutation always requires `--confirm`; YOLO never skips it. HTTP 409 when no
