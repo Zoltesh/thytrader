@@ -98,10 +98,7 @@
 		return canonicalPositions(deployment).find((item) => item.product_id === book.product_id);
 	}
 
-	function protectionForBook(
-		deployment: Deployment,
-		book: DeploymentInstrumentRuntime
-	): string {
+	function protectionForBook(deployment: Deployment, book: DeploymentInstrumentRuntime): string {
 		if (book.phase === 'flat') {
 			return 'flat';
 		}
