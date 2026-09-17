@@ -28,8 +28,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v24"
-EXPECTED_SCHEMA_REVISION = "0037"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v25"
+EXPECTED_SCHEMA_REVISION = "0038"
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "venue_available_quote",
@@ -45,6 +45,7 @@ BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
     "thytrader-bar-backtest-v3",
+    "thytrader-bar-backtest-v4",
 )
 EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES

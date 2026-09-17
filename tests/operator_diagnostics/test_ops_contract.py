@@ -31,9 +31,9 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v24"
+    assert expected["id"] == "thytrader-ops-contract-v25"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0037"
+    assert expected["expected_schema_revision"] == "0038"
     assert expected["deployment_capital_fields"] == [
         "allocated_capital",
         "venue_available_quote",
@@ -57,6 +57,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["max_historical_interval_count"] == MAX_HISTORICAL_INTERVAL_COUNT
     assert MAX_HISTORICAL_INTERVAL_COUNT == 129_600
     assert expected["backtest_engines"] == list(BACKTEST_ENGINES)
+    assert BACKTEST_ENGINES[-1] == "thytrader-bar-backtest-v4"
     assert expected["paper_timeframes"] == list(PAPER_TIMEFRAMES)
     assert expected["live_timeframes"] == list(LIVE_TIMEFRAMES)
     assert expected["paper_timeframes"] == list(EXECUTION_TIMEFRAMES)

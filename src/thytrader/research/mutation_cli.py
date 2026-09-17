@@ -77,12 +77,14 @@ def _validation_error_message(error: ValidationError) -> str:
 def _agent_http_error_message(message: str) -> str:
     """Hint a rebuild when a stale API rejects the current backtest engine."""
     lowered = message.lower()
-    lists_old_engines = (
-        "thytrader-bar-backtest-v1" in lowered
-        and "thytrader-bar-backtest-v2" in lowered
-        and "thytrader-bar-backtest-v3" not in lowered
+    lists_v1_v2 = "thytrader-bar-backtest-v1" in lowered and "thytrader-bar-backtest-v2" in lowered
+    missing_v3 = lists_v1_v2 and "thytrader-bar-backtest-v3" not in lowered
+    missing_v4 = (
+        lists_v1_v2
+        and "thytrader-bar-backtest-v3" in lowered
+        and "thytrader-bar-backtest-v4" not in lowered
     )
-    if "422" in message and lists_old_engines:
+    if "422" in message and (missing_v3 or missing_v4):
         return f"{message} {STALE_IMAGE_REBUILD}"
     return message
 

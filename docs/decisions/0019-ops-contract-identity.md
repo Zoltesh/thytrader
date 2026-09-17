@@ -37,9 +37,9 @@ Default-filling a missing health `ops_contract` would hide that mismatch.
 
 Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 
-- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v22`)
+- `id` (`OPS_CONTRACT_ID`, currently `thytrader-ops-contract-v25`)
 - `max_historical_interval_count`
-- `backtest_engines` (v1, v2, v3)
+- `backtest_engines` (v1, v2, v3, v4)
 - `paper_timeframes` (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`)
 - `live_timeframes` (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`)
 - `htf_filter_runtimes` (`research`, `paper`, `live`)
@@ -55,7 +55,7 @@ Health reports and `/health/live` / `/health/ready` advertise an ops contract:
 - `multi_instrument_documents` (`research`, `paper`, `live`)
 - `intra_strategy_pyramiding` (`research`, `paper`, `live`)
 - `lifecycle_commands` (`none`, `stop_new_entries`, `flatten`, `managed_shutdown`)
-- `expected_schema_revision` (`0035`)
+- `expected_schema_revision` (`0038`)
 
 A missing payload is a mismatch. Every HTTP command in `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, and `thytrader-runtime` preflights `/health/ready`

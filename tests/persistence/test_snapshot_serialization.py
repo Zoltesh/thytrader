@@ -475,6 +475,15 @@ def test_protection_lifecycle_accounting_migration_follows_atomic_fill_ledger() 
     assert "high_water_mark_equity" in content
 
 
+def test_research_ops_contract_v25_migration_follows_portfolio_slice() -> None:
+    """The thirty-eighth migration must mark ops-contract v25 after 0037."""
+    content = Path("alembic/versions/0038_research_ops_contract_v25.py").read_text(encoding="utf-8")
+    assert 'revision = "0038"' in content
+    assert 'down_revision = "0037"' in content
+    assert "ADR 0066" in content
+    assert "thytrader-bar-backtest-v4" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")
