@@ -307,7 +307,7 @@ class OperatorDiagnostics:
                 payload=ProductsPayload(provider="unknown", products=()),
             )
         try:
-            listed = await self.market_data.list_enabled_usd_spot_products()
+            listed = await self.market_data.list_enabled_spot_products()
         except Exception:  # noqa: BLE001 - catalog failures stay redacted.
             component = ComponentReport(
                 name="products",

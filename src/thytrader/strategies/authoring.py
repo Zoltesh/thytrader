@@ -13,6 +13,7 @@ from thytrader.market_data.models import (
     as_dataset_timeframe,
     parse_candle_interval,
 )
+from thytrader.market_data.products import parse_spot_product_id
 from thytrader.strategies.models import Instrument, StrategyDefinition, StrategyStatus
 from thytrader.strategies.templates import build_template_draft, parse_template_id
 
@@ -139,16 +140,10 @@ def create_reference_draft(
 
 
 def _instrument_for_product(product_id: str) -> Instrument:
-    """Build a USD spot instrument from a product id such as ETH-USD."""
-    normalized = product_id.strip().upper()
-    if "-" not in normalized:
-        message = "product_id must be a USD spot identifier such as ETH-USD."
-        raise ValueError(message)
-    base, quote = normalized.split("-", 1)
-    if quote != "USD":
-        message = "product_id must be a USD spot identifier such as ETH-USD."
-        raise ValueError(message)
-    return Instrument(product_id=normalized, base_currency=base, quote_currency="USD")
+    """Build a USD or USDC spot instrument from a product id such as ETH-USDC."""
+    base, quote = parse_spot_product_id(product_id)
+    normalized = f"{base}-{quote}"
+    return Instrument(product_id=normalized, base_currency=base, quote_currency=quote)
 
 
 def _uuid7(created_at: datetime) -> UUID:

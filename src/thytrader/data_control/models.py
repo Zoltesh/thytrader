@@ -14,6 +14,7 @@ from thytrader.market_data.models import (
     CandleInterval,
     parse_candle_interval,
 )
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -40,7 +41,7 @@ class _FrozenModel(BaseModel):
 class WatchTargetRequest(_FrozenModel):
     """Add or replace one ingestion watch target."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
     lookback_hours: int = Field(default=168, ge=1)
     enabled: bool = True
@@ -56,7 +57,7 @@ class WatchTargetRequest(_FrozenModel):
 class IngestRequest(_FrozenModel):
     """Run one complete-only ingest for a watched or named target."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
 
 

@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 
 MEMORY_SCHEMA_VERSION: Literal["thytrader-experiential-memory-v1"] = (
@@ -27,7 +28,6 @@ ADVISORY_SCHEMA_VERSION: Literal["thytrader-experiential-advisory-v1"] = (
 )
 TRAIN_ENGINE_ID: Literal["thytrader-experiential-train-v1"] = "thytrader-experiential-train-v1"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
-_PRODUCT_PATTERN = r"^[A-Z0-9]{2,20}-USD$"
 _PATTERN_KEY = r"^[a-z][a-z0-9_]{1,62}$"
 
 
@@ -428,11 +428,11 @@ class NotificationWrite(_FrozenModel):
 
 
 def _optional_product(value: str | None) -> str | None:
-    """Validate an optional BASE-USD product id."""
+    """Validate an optional BASE-USD or BASE-USDC product id."""
     if value is None:
         return None
-    if not re.fullmatch(_PRODUCT_PATTERN, value):
-        raise ValueError("product_id must be a BASE-USD spot product")
+    if not re.fullmatch(SPOT_PRODUCT_ID_PATTERN, value):
+        raise ValueError("product_id must be a BASE-USD or BASE-USDC spot product")
     return value
 
 

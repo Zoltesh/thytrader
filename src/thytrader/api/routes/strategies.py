@@ -47,6 +47,7 @@ from thytrader.strategies.models import (
     StrategyStatus,
     strategy_fingerprint,
 )
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.strategies.publication import (
     PublishedStrategy,
     StrategyCatalogEntry,
@@ -281,7 +282,7 @@ async def create_strategy_draft(
         StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
     template: Annotated[str, Query()] = "ema-trend",
 ) -> StrategyCreatedResponse:

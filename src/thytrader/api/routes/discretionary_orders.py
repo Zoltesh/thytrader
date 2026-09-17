@@ -23,6 +23,7 @@ from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001 - FastA
 from thytrader.execution.broker import Broker  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.geometry import base_currency
+from thytrader.market_data.products import quote_currency as spot_quote_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
@@ -35,6 +36,7 @@ from thytrader.persistence.audit_events import (
 )
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -49,7 +51,7 @@ class PlaceDiscretionaryOrderRequest(BaseModel):
     """Place one on-demand long or short entry with required stop and take-profit."""
 
     mode: DeploymentMode
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     stop_price: str
     take_profit_price: str
     origin: str = Field(pattern=r"^(human|agent)$")
@@ -108,7 +110,7 @@ async def post_discretionary_order(
             live_allowed=runtime.settings.coinbase_api_key_name is not None,
             risk_store=risk_store,
             live_quote_cash=await _currency_available(
-                quote_reader, mode=request.mode, currency="USD"
+                quote_reader, mode=request.mode, currency=spot_quote_currency(request.product_id)
             ),
             live_base_available=await _currency_available(
                 quote_reader,

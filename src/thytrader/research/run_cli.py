@@ -128,10 +128,14 @@ def _broker_from_arguments(arguments: argparse.Namespace) -> BrokerAssumptions |
     )
 
 
-def backtest_execution_fingerprint(arguments: argparse.Namespace) -> str:
+def backtest_execution_fingerprint(
+    arguments: argparse.Namespace,
+    *,
+    quote_currency: str,
+) -> str:
     """Hash the execution semantics that make repeated CLI publication idempotent."""
     capital = CapitalAssumptions(
-        quote_currency="USD", initial_quote_balance=arguments.initial_quote_balance
+        quote_currency=quote_currency, initial_quote_balance=arguments.initial_quote_balance
     )
     costs = CostAssumptions(
         maker_fee_rate=arguments.maker_fee_rate,
@@ -240,7 +244,9 @@ async def _publish(arguments: argparse.Namespace) -> str:
         )
         dataset_store = DatasetStore(settings.market_data_dataset_root)
         run_store = PostgresResearchRunStore(engine)
-        execution_fingerprint = backtest_execution_fingerprint(arguments)
+        execution_fingerprint = backtest_execution_fingerprint(
+            arguments, quote_currency=strategy.definition.instrument.quote_currency
+        )
         broker = _broker_from_arguments(arguments)
         existing = await run_store.load_by_execution_fingerprint(
             execution_fingerprint, dataset_store=dataset_store
@@ -269,7 +275,8 @@ async def _publish(arguments: argparse.Namespace) -> str:
                 ),
             ),
             capital=CapitalAssumptions(
-                quote_currency="USD", initial_quote_balance=arguments.initial_quote_balance
+                quote_currency=strategy.definition.instrument.quote_currency,
+                initial_quote_balance=arguments.initial_quote_balance,
             ),
             costs=CostAssumptions(
                 maker_fee_rate=arguments.maker_fee_rate,

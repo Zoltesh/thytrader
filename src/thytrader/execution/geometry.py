@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.models import OrderSide, PositionSide
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.products import base_currency as spot_base_currency
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -70,8 +71,8 @@ def paper_stop_fill_price(*, side: PositionSide, candle: Candle, stop_price: Dec
 
 
 def base_currency(product_id: str) -> str:
-    """Return the BASE from a BASE-USD product id."""
-    return product_id.split("-", 1)[0]
+    """Return the base currency from one BASE-USD or BASE-USDC product id."""
+    return spot_base_currency(product_id)
 
 
 def entry_bar_bucket(fill_time: datetime, timeframe: str) -> datetime:

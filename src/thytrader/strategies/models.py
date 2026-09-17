@@ -26,6 +26,7 @@ from thytrader.market_data.models import (
     DatasetTimeframe,
     parse_candle_interval,
 )
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
 
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_CONDITION_DEPTH = 4
@@ -75,11 +76,11 @@ class StrategyStatus(StrEnum):
 
 
 class Instrument(_FrozenModel):
-    """One conservative Coinbase USD spot instrument."""
+    """One conservative Coinbase USD or USDC spot instrument."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     base_currency: str = Field(pattern=r"^[A-Z0-9]{2,20}$")
-    quote_currency: Literal["USD"]
+    quote_currency: SpotQuoteCurrency
 
     @model_validator(mode="after")
     def validate_product_components(self) -> Self:
@@ -1001,7 +1002,13 @@ def _validate_covered_instruments(definition: StrategyDefinition) -> None:
     if len(products) != len(set(products)):
         raise ValueError("additional_instruments must be unique and exclude instrument.product_id")
     if len(products) > MAX_STRATEGY_INSTRUMENTS:
-        raise ValueError("a strategy document may cover at most 8 USD spot products")
+        raise ValueError("a strategy document may cover at most 8 spot products")
+    quotes = {
+        instrument.quote_currency
+        for instrument in (definition.instrument, *definition.additional_instruments)
+    }
+    if len(quotes) != 1:
+        raise ValueError("all covered instruments must share one quote currency")
     if definition.portfolio_limits.max_concurrent_positions > len(products):
         raise ValueError("max_concurrent_positions cannot exceed the number of covered products")
 

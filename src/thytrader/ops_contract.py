@@ -16,7 +16,8 @@ breakers / order-rate limits / reference-price collars, the persisted
 research-study catalog, trade-reason journals, multi-instrument documents, or
 intra-strategy pyramiding, attached-child protection, worker leases, live
 capital vs venue cash, deployment HTTP `capital` field names, durable
-daily-loss/drawdown baselines, or lifecycle stop/flatten/managed-shutdown commands change.
+daily-loss/drawdown baselines, lifecycle stop/flatten/managed-shutdown commands, or
+supported spot quote currencies change.
 """
 
 from __future__ import annotations
@@ -24,12 +25,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
+from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v28"
-EXPECTED_SCHEMA_REVISION = "0041"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v29"
+EXPECTED_SCHEMA_REVISION = "0042"
+SPOT_QUOTE_CURRENCIES_FIELD: tuple[str, ...] = SPOT_QUOTE_CURRENCIES
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "venue_available_quote",
@@ -91,6 +94,7 @@ def expected_ops_contract() -> dict[str, object]:
         "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
         "breaker_latch_reset": list(BREAKER_LATCH_RESET),
         "async_backtest_job_statuses": list(ASYNC_BACKTEST_JOBS),
+        "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

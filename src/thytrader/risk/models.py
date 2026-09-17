@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
 from thytrader.strategies.models import (
     DecimalText,  # noqa: TC001 - Pydantic fields resolve this alias.
 )
@@ -19,7 +20,6 @@ from thytrader.strategies.models import (
 RISK_POLICY_SCHEMA_VERSION: Literal["thytrader-risk-policy-v1"] = "thytrader-risk-policy-v1"
 COMPILED_POLICY_ID = UUID("01978a3e-5f2c-7d10-b3a4-0000000000aa")
 _FINGERPRINT_PREFIX = "sha256:"
-_PRODUCT_PATTERN = r"^[A-Z0-9]{2,20}-USD$"
 # These compiled fractions are a wide multi-asset *research* envelope, not an audited
 # "safe" live number: no universal loss/drawdown percentage is a fact independent of
 # the operator's capital, product, and tested strategy (see ADR 0063 and F25/C-4 in
@@ -113,7 +113,7 @@ class RiskPolicyDefinition(_FrozenModel):
     schema_version: Literal["thytrader-risk-policy-v1"] = RISK_POLICY_SCHEMA_VERSION
     policy_id: UUID
     version: int = Field(ge=1)
-    quote_currency: Literal["USD"] = "USD"
+    quote_currency: SpotQuoteCurrency = "USD"
     product_allowlist: tuple[str, ...] = Field(default=(), max_length=32)
     max_concurrent_running_deployments: int = Field(ge=1, le=32)
     max_concurrent_open_positions: int = Field(ge=1, le=32)
@@ -170,12 +170,14 @@ class RiskPolicyDefinition(_FrozenModel):
 
     @field_validator("product_allowlist")
     @classmethod
-    def require_usd_spot_products(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """Require Coinbase-style USD spot product ids."""
-        pattern = re.compile(_PRODUCT_PATTERN)
+    def require_spot_products(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Require Coinbase-style USD or USDC spot product ids."""
+        pattern = re.compile(SPOT_PRODUCT_ID_PATTERN)
         for product_id in value:
             if not pattern.fullmatch(product_id):
-                raise ValueError("product_allowlist entries must be BASE-USD spot products")
+                raise ValueError(
+                    "product_allowlist entries must be BASE-USD or BASE-USDC spot products"
+                )
         return value
 
     @field_validator(

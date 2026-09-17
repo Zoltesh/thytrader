@@ -35,6 +35,7 @@ from thytrader.market_data.worker_state import (
 )
 from thytrader.market_data_worker.service import island_covers_watch
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
 _logger = logging.getLogger(__name__)
@@ -139,7 +140,7 @@ class MarketFeedResponse(BaseModel):
 async def get_market_data_freshness(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> FreshnessResponse:
     """Return explicit market data freshness evaluated against newest verified candle."""
@@ -170,7 +171,7 @@ async def get_market_data_freshness(
 @router.get("/feed", response_model=MarketFeedResponse)
 async def get_market_feed_state(
     store: Annotated[MarketFeedStateStore, Depends(get_market_feed_state_store)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
 ) -> MarketFeedResponse:
     """Return the latest public ticker lifecycle snapshot."""
     try:
@@ -216,7 +217,7 @@ async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> IngestionStateResponse:
     """Return durable ingestion evidence without initiating or mutating worker activity."""

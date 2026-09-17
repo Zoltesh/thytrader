@@ -20,7 +20,7 @@
 	let error = $state<string | null>(null);
 	let saved = $state(false);
 
-	const productPattern = '^[A-Z0-9]{2,20}-USD$';
+	const productPattern = '^[A-Z0-9]{2,20}-(?:USD|USDC)$';
 	const notifyProviders: NotifyProvider[] = ['none', 'log', 'webhook'];
 
 	async function loadSettings(): Promise<void> {

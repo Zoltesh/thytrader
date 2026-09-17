@@ -22,6 +22,7 @@ from thytrader.agent_orchestration.models import YoloTier  # noqa: TC001 - Pydan
 from thytrader.config import Settings, parse_yolo_tiers_value
 from thytrader.memory.models import NotifyProvider
 from thytrader.memory.notify import notification_sender_from_settings
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from thytrader.memory.models import NotificationRecord
@@ -225,7 +226,7 @@ class YamlSettingsWrite(BaseModel):
     snapshot_interval_seconds: int = Field(default=300, ge=60, le=86_400)
     market_data_worker_interval_seconds: int = Field(default=300, ge=60, le=86_400)
     market_data_worker_lookback_hours: int = Field(default=168, ge=1, le=2_160)
-    market_data_worker_product_id: str = Field(default="BTC-USD", pattern=r"^[A-Z0-9]{2,20}-USD$")
+    market_data_worker_product_id: str = Field(default="BTC-USD", pattern=SPOT_PRODUCT_ID_PATTERN)
     execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)
     notify_provider: NotifyProvider = NotifyProvider.NONE
 

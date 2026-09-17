@@ -105,7 +105,7 @@ need 2–8 published single-instrument strategies on distinct products. See
 
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (any ingested venue clock) for another USD spot product. Paper and live may start that published fingerprint.
+`--timeframe` (any ingested venue clock) for another USD or USDC spot product. Paper and live may start that published fingerprint.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
 create-draft JSON. It does not change published strategy semantics, place orders, or arm live

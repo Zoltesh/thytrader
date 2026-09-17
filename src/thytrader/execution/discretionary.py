@@ -58,6 +58,7 @@ from thytrader.execution.trade_reason_scope import (
     trade_reason_scope,
 )
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
@@ -73,7 +74,7 @@ if TYPE_CHECKING:
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.store import RiskPolicyStore
 
-_PRODUCT = re.compile(r"^[A-Z0-9]{2,20}-USD$")
+_PRODUCT = re.compile(SPOT_PRODUCT_ID_PATTERN)
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 
@@ -129,7 +130,7 @@ def parse_discretionary_request(
     except ValueError as error:
         raise ExecutionConflictError(str(error)) from error
     if not _PRODUCT.match(product_id):
-        raise ExecutionConflictError("product_id must be a BASE-USD spot id.")
+        raise ExecutionConflictError("product_id must be a BASE-USD or BASE-USDC spot id.")
     if not idempotency_key or len(idempotency_key) > 128:
         raise ExecutionConflictError("idempotency_key must be 1-128 characters.")
     qty = _optional_positive_decimal(quantity, field="quantity")

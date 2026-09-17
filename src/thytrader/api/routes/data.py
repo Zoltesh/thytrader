@@ -39,6 +39,7 @@ from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 router = APIRouter(prefix="/api/v1/data", tags=["data"])
 _MAX_LISTED_GAPS = 200
@@ -124,7 +125,7 @@ async def get_ingest(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")],
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Return pending ingest request state and latest worker coverage."""
@@ -200,7 +201,7 @@ async def get_gaps(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")],
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Classify missing bars. Does not interpolate or write Parquet."""

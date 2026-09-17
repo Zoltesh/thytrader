@@ -65,6 +65,7 @@ from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
 from thytrader.strategies.publication import StrategyPublicationCatalog  # noqa: TC001
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 router = APIRouter(prefix="/api/v1/operator", tags=["operator"])
 
@@ -140,7 +141,7 @@ async def get_operator_exchange(
 @router.get("/market-data", response_model=MarketDataReport)
 async def get_operator_market_data(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
-    product_id: Annotated[str | None, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = None,
+    product_id: Annotated[str | None, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = None,
     timeframe: Annotated[str, Query(pattern=DATASET_TIMEFRAME_PATTERN)] = "1h",
 ) -> MarketDataReport:
     """Return freshness and gap evidence for one USD spot product and timeframe."""
