@@ -2151,9 +2151,15 @@ def _coverage_row(
             lookback_hours=lookback_hours,
             interval=interval,
             closed_end=closed_end,
+            product_id=product_id,
+            now=now,
         )
         if lookback_hours is not None
         else None
+    )
+    island_sparsity = _coverage_sparsity(complete, gap_count, missing)
+    watch_sparsity = (
+        _watch_sparsity(watch_complete, island_sparsity) if lookback_hours is not None else None
     )
     return DatasetCoverageRow(
         provider=provider,
@@ -2162,6 +2168,8 @@ def _coverage_row(
         watched=watched is not None and watched.enabled,
         lookback_hours=lookback_hours,
         worker_status=state.status.value if state is not None else None,
+        failure_code=state.failure_code if state is not None else None,
+        failure_message=state.failure_message if state is not None else None,
         watch_complete=watch_complete,
         complete=complete,
         freshness_status=freshness.status.value,
@@ -2172,12 +2180,8 @@ def _coverage_row(
         gap_count=gap_count,
         missing_intervals=missing,
         content_fingerprint=_coverage_fingerprint(state, manifest),
-        sparsity=_coverage_sparsity(
-            complete,
-            gap_count,
-            missing,
-            watch_complete=watch_complete,
-        ),
+        sparsity=island_sparsity,
+        watch_sparsity=watch_sparsity,
         watch_expected_candle_count=watch_expected,
     )
 
@@ -2186,21 +2190,25 @@ def _coverage_sparsity(
     complete: bool | None,
     gap_count: int | None,
     missing: int | None,
-    *,
-    watch_complete: bool | None = None,
 ) -> Literal["none", "unknown", "gapped"]:
-    """Classify watch-window holes without interpolating prices.
-
-    Island completeness with zero island gaps is not ``none`` when the
-    configured watch still has missing bars (``watch_complete`` is false).
-    """
-    if watch_complete is False:
-        return "gapped"
+    """Classify island holes without interpolating prices."""
     if complete and not gap_count and not missing:
         return "none"
     if gap_count or missing or complete is False:
         return "gapped"
     return "unknown"
+
+
+def _watch_sparsity(
+    watch_complete: bool | None,
+    island_sparsity: Literal["none", "unknown", "gapped"],
+) -> Literal["none", "unknown", "gapped"]:
+    """Classify configured-watch holes separately from island completeness."""
+    if watch_complete is True:
+        return "none"
+    if watch_complete is False:
+        return "gapped"
+    return island_sparsity
 
 
 def _coverage_complete(state: MarketDataWorkerState | None, manifest: object | None) -> bool | None:

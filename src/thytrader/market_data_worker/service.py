@@ -10,6 +10,7 @@ import logging
 import random
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import (
     MAX_HISTORICAL_INTERVAL_COUNT,
     CandleInterval,
@@ -97,11 +98,12 @@ async def ingest_once(
     retry_base_seconds: int = 300,
     jitter_factory: Callable[[], float] = random.random,
     verify_current_dataset: bool = True,
+    skip_reconcile: bool = False,
 ) -> None:
     """Retrieve, verify, and publish complete coverage, chunking initial backfill by UTC day."""
     ends_at = timeframe.align_closed_end(now)
     prior = await _load_validated_state(state_store, provider, product_id, timeframe)
-    if await _reconcile_current_coverage(
+    if not skip_reconcile and await _reconcile_current_coverage(
         service=service,
         dataset_store=dataset_store,
         state_store=state_store,
@@ -146,19 +148,34 @@ async def ingest_once(
         extend_fingerprint = (
             prior.content_fingerprint if prior is not None and prior.complete else None
         )
-        await _ingest_planned_range(
-            service=service,
-            dataset_store=dataset_store,
-            state_store=state_store,
-            provider=provider,
-            product_id=product_id,
-            timeframe=timeframe,
-            attempt=attempt,
-            starts_at=starts_at,
-            ends_at=ends_at,
-            extend_fingerprint=extend_fingerprint,
-            retry_at=retry_at,
-        )
+        if ends_at - starts_at > timedelta(days=1):
+            await _ingest_chunked_backfill(
+                service=service,
+                dataset_store=dataset_store,
+                state_store=state_store,
+                provider=provider,
+                product_id=product_id,
+                timeframe=timeframe,
+                attempt=attempt,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                retry_at=retry_at,
+                extend_fingerprint=extend_fingerprint,
+            )
+        else:
+            await _ingest_planned_range(
+                service=service,
+                dataset_store=dataset_store,
+                state_store=state_store,
+                provider=provider,
+                product_id=product_id,
+                timeframe=timeframe,
+                attempt=attempt,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                extend_fingerprint=extend_fingerprint,
+                retry_at=retry_at,
+            )
         return
     if maintenance_kind is MarketDataMaintenanceKind.PREFIX_BACKFILL:
         if prior is None or prior.content_fingerprint is None or prior.covered_starts_at is None:
@@ -341,12 +358,35 @@ def island_covers_watch(
     lookback_hours: int,
     interval: CandleInterval,
     closed_end: datetime,
+    product_id: str = "",
+    now: datetime | None = None,
 ) -> bool:
-    """True when the latest complete island spans the full watch lookback."""
+    """True when the latest complete island spans the full watch lookback.
+
+    When candle freshness is still ``fresh`` and coverage is only one closed bar
+    behind ``closed_end``, treat the watch as complete so large grids do not flip
+    on every boundary while the single worker is elsewhere.
+    """
     if not island_complete or covered_starts_at is None or covered_ends_at is None:
         return False
     lookback_start = bounded_lookback_start(closed_end, lookback_hours, interval)
-    return covered_starts_at <= lookback_start and covered_ends_at >= closed_end
+    if covered_starts_at > lookback_start:
+        return False
+    if covered_ends_at >= closed_end:
+        return True
+    if now is not None and product_id:
+        freshness = evaluate_freshness(
+            product_id=product_id,
+            newest_candle_at=covered_ends_at,
+            now=now,
+            interval=interval,
+        )
+        if (
+            freshness.status is FreshnessStatus.FRESH
+            and covered_ends_at + interval.duration >= closed_end
+        ):
+            return True
+    return False
 
 
 async def _reconcile_current_coverage(
@@ -583,10 +623,17 @@ async def _ingest_chunked_backfill(
     starts_at: datetime,
     ends_at: datetime,
     retry_at: datetime,
+    extend_fingerprint: str | None = None,
 ) -> None:
     """Publish complete UTC-day chunks oldest-first; keep the newest contiguous island."""
     newest: DatasetManifest | None = None
-    island_fingerprint: str | None = None
+    island_fingerprint: str | None = extend_fingerprint
+    if island_fingerprint is not None:
+        try:
+            newest = dataset_store.load_manifest(island_fingerprint)
+        except Exception:  # noqa: BLE001
+            newest = None
+            island_fingerprint = None
     for chunk_start, chunk_end in _utc_day_chunks(starts_at, ends_at):
         progress = await _ingest_one_chunk(
             service=service,
@@ -602,6 +649,9 @@ async def _ingest_chunked_backfill(
         )
         newest = progress.newest
         island_fingerprint = progress.island_fingerprint
+        if progress.status == "incomplete":
+            island_fingerprint = progress.island_fingerprint
+            continue
         if progress.status in {"provider_unavailable", "persist_failed"}:
             if newest is not None:
                 await _record_island_success(state_store, attempt, newest)
@@ -902,6 +952,22 @@ async def _ingest_due_targets(
             state_store, target.provider, target.product_id, target.timeframe
         )
         requested = target.ingest_requested_at is not None
+        closed_end = target.timeframe.align_closed_end(cycle_now)
+        skip_reconcile = (
+            requested
+            and prior is not None
+            and prior.complete
+            and not island_covers_watch(
+                covered_starts_at=prior.covered_starts_at,
+                covered_ends_at=prior.covered_ends_at,
+                island_complete=prior.complete,
+                lookback_hours=target.lookback_hours,
+                interval=target.timeframe,
+                closed_end=closed_end,
+                product_id=target.product_id,
+                now=cycle_now,
+            )
+        )
         if _in_backoff(prior, cycle_now) and not requested:
             continue
         key = (target.product_id, target.timeframe)
@@ -917,12 +983,27 @@ async def _ingest_due_targets(
                 timeframe=target.timeframe,
                 retry_base_seconds=interval_seconds,
                 verify_current_dataset=key not in verified_targets,
+                skip_reconcile=skip_reconcile,
             )
         finally:
             if requested and watchlist is not None:
-                await watchlist.clear_ingest_request(
-                    target.provider, target.product_id, target.timeframe
+                state_after = await _load_validated_state(
+                    state_store, target.provider, target.product_id, target.timeframe
                 )
+                watch_done = state_after is not None and island_covers_watch(
+                    covered_starts_at=state_after.covered_starts_at,
+                    covered_ends_at=state_after.covered_ends_at,
+                    island_complete=state_after.complete,
+                    lookback_hours=target.lookback_hours,
+                    interval=target.timeframe,
+                    closed_end=closed_end,
+                    product_id=target.product_id,
+                    now=cycle_now,
+                )
+                if watch_done:
+                    await watchlist.clear_ingest_request(
+                        target.provider, target.product_id, target.timeframe
+                    )
         verified_targets.add(key)
     return await _next_wait_seconds(state_store, targets, cycle_now, interval_seconds)
 

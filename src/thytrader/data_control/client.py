@@ -100,8 +100,25 @@ def fill_gaps(
     product_id: str,
     timeframe: str,
 ) -> object:
-    """Re-queue complete-only ingest for the same target as fill-gaps."""
-    return ingest(base_url, product_id=product_id, timeframe=timeframe)
+    """Queue continuation ingest that skips the current-island reconcile short-circuit."""
+    request_json(
+        method="POST",
+        url=f"{base_url}{DATA_API_PREFIX}/fill-gaps",
+        payload={"product_id": product_id, "timeframe": timeframe},
+        timeout=_DATA_HTTP_TIMEOUT_SECONDS,
+    )
+    deadline = time.monotonic() + _INGEST_POLL_TIMEOUT_SECONDS
+    while True:
+        payload = ingest_status(base_url, product_id=product_id, timeframe=timeframe)
+        if not _ingest_pending(payload):
+            return payload
+        if time.monotonic() >= deadline:
+            raise DataControlError(
+                "Timed out waiting for the market-data worker to finish fill-gaps. "
+                "Confirm thytrader-market-data-worker is running."
+            )
+        remaining = deadline - time.monotonic()
+        time.sleep(min(_INGEST_POLL_SECONDS, max(0.0, remaining)))
 
 
 def _ingest_pending(payload: object) -> bool:

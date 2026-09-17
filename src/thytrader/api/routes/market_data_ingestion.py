@@ -300,6 +300,8 @@ def _to_response(
         lookback_hours=lookback_hours,
         interval=state.timeframe,
         closed_end=expected_boundary,
+        product_id=state.product_id,
+        now=now,
     )
     coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
         "unavailable"

@@ -23,6 +23,7 @@ from thytrader.data_control.models import (
 )
 from thytrader.data_control.service import (
     add_watch_target,
+    fill_gaps_target,
     gap_payload,
     ingest_status,
     ingest_target,
@@ -154,6 +155,44 @@ async def get_ingest(
     }
 
 
+@router.post("/fill-gaps", status_code=status.HTTP_202_ACCEPTED)
+async def post_fill_gaps(
+    body: IngestRequest,
+    state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+) -> dict[str, object]:
+    """Queue continuation ingest for a partial watch without treating the island as current."""
+    try:
+        target, state = await fill_gaps_target(
+            watchlist=watchlist,
+            state_store=state_store,
+            audit=audit,
+            settings=runtime.settings,
+            product_id=body.product_id,
+            timeframe=body.timeframe,
+            now=datetime.now(UTC),
+        )
+    except DataControlError as error:
+        raise _http_error(error) from None
+    return {
+        "accepted": True,
+        "continuation": True,
+        "product_id": body.product_id,
+        "timeframe": body.timeframe,
+        "ingest_requested_at": (
+            target.ingest_requested_at.isoformat() if target.ingest_requested_at else None
+        ),
+        "state": worker_state_payload(
+            state,
+            lookback_hours=target.lookback_hours,
+            interval=require_interval(body.timeframe),
+            now=datetime.now(UTC),
+        ),
+    }
+
+
 @router.get("/gaps")
 async def get_gaps(
     market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
@@ -187,9 +226,10 @@ async def get_gaps(
         "lookback_hours": inspection.lookback_hours,
         "watch_complete": inspection.watch_complete,
         "complete": inspection.complete,
-        "gap_count": len(inspection.gaps),
+        "gap_count": sum(inspection.gap_summary.values()),
+        "gap_summary": inspection.gap_summary,
         "gaps": [gap_payload(item) for item in listed],
-        "omitted_gap_count": max(0, len(inspection.gaps) - len(listed)),
+        "omitted_gap_count": max(0, sum(inspection.gap_summary.values()) - len(listed)),
         "interpolated": False,
     }
     if inspection.warning:

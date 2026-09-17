@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
+from thytrader.market_data.lookback import validate_watch_lookback_hours
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 
 
@@ -34,8 +35,10 @@ class MarketDataWatchTarget:
         """Reject empty identities and out-of-range lookbacks."""
         if not self.provider.strip() or not self.product_id.strip():
             raise MarketDataWatchlistError("Watch targets require a provider and product id.")
-        if self.lookback_hours < 1 or self.lookback_hours > 2_160:
-            raise MarketDataWatchlistError("Watch lookback_hours must be between 1 and 2160.")
+        try:
+            validate_watch_lookback_hours(self.timeframe, self.lookback_hours)
+        except ValueError as error:
+            raise MarketDataWatchlistError(str(error)) from error
         if self.updated_at.tzinfo is None or self.updated_at.utcoffset() != UTC.utcoffset(
             self.updated_at
         ):

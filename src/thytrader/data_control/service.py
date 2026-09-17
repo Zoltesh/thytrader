@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.data_control.models import (
     DataControlError,
+    GapCause,
     GapInspection,
     GapObservation,
     classify_gap,
     require_interval,
 )
-from thytrader.market_data.quality import missing_interval_starts
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistError,
     MarketDataWatchlistStore,
@@ -99,6 +99,29 @@ async def add_watch_target(
     return stored
 
 
+async def fill_gaps_target(
+    *,
+    watchlist: MarketDataWatchlistStore,
+    state_store: MarketDataWorkerStateStore,
+    audit: AuditEventStore,
+    settings: Settings,
+    product_id: str,
+    timeframe: str,
+    now: datetime,
+) -> tuple[MarketDataWatchTarget, MarketDataWorkerState | None]:
+    """Queue prefix or chunked continuation ingest without treating a short island as current."""
+    return await ingest_target(
+        watchlist=watchlist,
+        state_store=state_store,
+        audit=audit,
+        settings=settings,
+        product_id=product_id,
+        timeframe=timeframe,
+        now=now,
+        audit_action="fill_gaps_requested",
+    )
+
+
 async def ingest_target(
     *,
     watchlist: MarketDataWatchlistStore,
@@ -108,6 +131,7 @@ async def ingest_target(
     product_id: str,
     timeframe: str,
     now: datetime,
+    audit_action: str = "ingest_requested",
 ) -> tuple[MarketDataWatchTarget, MarketDataWorkerState | None]:
     """Queue complete-only ingest for the market-data worker. Does not write Parquet."""
     interval = require_interval(timeframe)
@@ -128,7 +152,7 @@ async def ingest_target(
         raise DataControlError("Market-data worker state is unavailable.") from error
     await _audit(
         audit,
-        action="ingest_requested",
+        action=audit_action,
         product_id=product_id,
         detail=f"timeframe={interval.value} lookback_hours={lookback_hours}",
         provider=provider,
@@ -180,20 +204,18 @@ async def inspect_gaps(
         state = await state_store.get(provider, product_id, interval)
     except MarketDataWorkerUnavailableError:
         state = None
-    exchange_starts, probe_warning = await _probe_starts(
+    exchange_starts, probe_warning = await _probe_starts_chunked(
         service, product_id, interval, starts_at, ends_at
     )
-    expected = missing_interval_starts((), interval, starts_at, ends_at)
-    observations = tuple(
-        _observation_for(
-            start=start,
-            local_starts=local_starts,
-            exchange_starts=exchange_starts,
-            state=state,
-        )
-        for start in expected
+    gaps, gap_summary = _classify_watch_gaps(
+        interval=interval,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        local_starts=local_starts,
+        exchange_starts=exchange_starts,
+        state=state,
+        max_listed=200,
     )
-    gaps = tuple(item for item in observations if item is not None)
     island_complete = False if state is None else state.complete
     watch_complete = island_covers_watch(
         covered_starts_at=None if state is None else state.covered_starts_at,
@@ -202,11 +224,14 @@ async def inspect_gaps(
         lookback_hours=lookback_hours,
         interval=interval,
         closed_end=ends_at,
+        product_id=product_id,
+        now=now,
     )
     return GapInspection(
         starts_at=starts_at,
         ends_at=ends_at,
         gaps=gaps,
+        gap_summary=gap_summary,
         warning=probe_warning,
         lookback_hours=lookback_hours,
         complete=island_complete,
@@ -261,21 +286,74 @@ def _local_starts(
     return starts
 
 
-async def _probe_starts(
+async def _probe_starts_chunked(
     service: HistoricalRangeService,
     product_id: str,
     interval: CandleInterval,
     starts_at: datetime,
     ends_at: datetime,
 ) -> tuple[set[datetime] | None, str | None]:
-    """Fetch one diagnostic range without publishing it."""
-    try:
-        report = await fetch_historical_range(
-            service, product_id, interval, starts_at, ends_at, ends_at
+    """Probe exchange coverage in UTC-day chunks so 1m watches stay bounded."""
+    exchange_starts: set[datetime] = set()
+    cursor = starts_at.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    if cursor < starts_at:
+        cursor = starts_at
+    warnings: list[str] = []
+    while cursor < ends_at:
+        day_end = min(
+            cursor + timedelta(days=1),
+            ends_at,
         )
-    except Exception:  # noqa: BLE001 - probe failures are classified, not raised as coverage.
-        return None, "Exchange range probe failed; remaining gaps are not marked exchange-empty."
-    return {candle.starts_at for candle in report.quality.candles}, None
+        try:
+            report = await fetch_historical_range(
+                service, product_id, interval, cursor, day_end, ends_at
+            )
+        except Exception:  # noqa: BLE001 - probe failures are classified, not raised.
+            warnings.append(
+                "Exchange range probe failed for one UTC-day chunk; "
+                "remaining gaps in that chunk are not marked exchange-empty."
+            )
+            cursor = day_end
+            continue
+        exchange_starts.update(candle.starts_at for candle in report.quality.candles)
+        cursor = day_end
+    if not exchange_starts and warnings:
+        return None, warnings[0]
+    warning = warnings[0] if warnings else None
+    return exchange_starts, warning
+
+
+def _classify_watch_gaps(
+    *,
+    interval: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+    local_starts: set[datetime],
+    exchange_starts: set[datetime] | None,
+    state: MarketDataWorkerState | None,
+    max_listed: int,
+) -> tuple[tuple[GapObservation, ...], dict[str, int]]:
+    """Classify missing bars with bounded listing and summary counts."""
+    summary = {cause.value: 0 for cause in GapCause}
+    listed: list[GapObservation] = []
+    cursor = starts_at
+    while cursor < ends_at:
+        if cursor in local_starts:
+            cursor += interval.duration
+            continue
+        present_on_exchange = None if exchange_starts is None else cursor in exchange_starts
+        cause = classify_gap(
+            present_locally=False,
+            present_on_exchange=present_on_exchange,
+            worker_attempted=state is not None,
+            worker_complete=bool(state is not None and state.complete),
+        )
+        if cause is not None:
+            summary[cause.value] += 1
+            if len(listed) < max_listed:
+                listed.append(GapObservation(starts_at=cursor, cause=cause))
+        cursor += interval.duration
+    return tuple(listed), summary
 
 
 def _observation_for(
@@ -361,6 +439,8 @@ def worker_state_payload(
                 lookback_hours=lookback_hours,
                 interval=interval,
                 closed_end=closed_end,
+                product_id=state.product_id,
+                now=now or datetime.now(UTC),
             )
         else:
             watch_complete = False

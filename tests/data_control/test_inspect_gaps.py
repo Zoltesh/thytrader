@@ -99,7 +99,8 @@ def test_inspect_gaps_five_minute_thirty_day_lookback_is_not_clipped(tmp_path: P
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.FIVE_MINUTES.duration == 8_640
-        assert len(inspection.gaps) == 8_640
+        assert inspection.gap_summary["not_fetched"] == 8_640
+        assert len(inspection.gaps) <= 200
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
         assert inspection.complete is False
@@ -139,7 +140,7 @@ def test_inspect_gaps_fifteen_minute_thirty_day_lookback_is_not_clipped(tmp_path
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.FIFTEEN_MINUTES.duration == 2_880
-        assert len(inspection.gaps) == 2_880
+        assert inspection.gap_summary["not_fetched"] == 2_880
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 
@@ -176,7 +177,7 @@ def test_inspect_gaps_thirty_minute_thirty_day_lookback_is_not_clipped(tmp_path:
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.THIRTY_MINUTES.duration == 1_440
-        assert len(inspection.gaps) == 1_440
+        assert inspection.gap_summary["not_fetched"] == 1_440
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 
@@ -213,7 +214,7 @@ def test_inspect_gaps_six_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.SIX_HOURS.duration == 120
-        assert len(inspection.gaps) == 120
+        assert inspection.gap_summary["not_fetched"] == 120
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
         assert inspection.complete is False
@@ -251,7 +252,7 @@ def test_inspect_gaps_one_day_thirty_day_lookback_is_not_clipped(tmp_path: Path)
         )
         assert inspection.ends_at - inspection.starts_at == timedelta(hours=720)
         assert (inspection.ends_at - inspection.starts_at) // CandleInterval.ONE_DAY.duration == 30
-        assert len(inspection.gaps) == 30
+        assert inspection.gap_summary["not_fetched"] == 30
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 
@@ -288,7 +289,7 @@ def test_inspect_gaps_one_minute_two_hour_lookback_is_not_clipped(tmp_path: Path
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.ONE_MINUTE.duration == 120
-        assert len(inspection.gaps) == 120
+        assert inspection.gap_summary["not_fetched"] == 120
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 
@@ -325,7 +326,7 @@ def test_inspect_gaps_two_hour_thirty_day_lookback_is_not_clipped(tmp_path: Path
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.TWO_HOURS.duration == 360
-        assert len(inspection.gaps) == 360
+        assert inspection.gap_summary["not_fetched"] == 360
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 
@@ -362,7 +363,7 @@ def test_inspect_gaps_four_hour_thirty_day_lookback_is_not_clipped(tmp_path: Pat
         assert (
             inspection.ends_at - inspection.starts_at
         ) // CandleInterval.FOUR_HOURS.duration == 180
-        assert len(inspection.gaps) == 180
+        assert inspection.gap_summary["not_fetched"] == 180
         assert {gap.cause for gap in inspection.gaps} == {GapCause.NOT_FETCHED}
         assert inspection.warning is not None
 

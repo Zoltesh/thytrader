@@ -107,16 +107,19 @@ Missing telemetry is never treated as healthy. Worker health is PostgreSQL heart
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v27` and Alembic
-   `0040` on a current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v28` and Alembic
+   `0041` on a current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
    [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
    [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
+   [ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md),
    [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md)).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
-   current contiguous island. If `watch_complete` is false, use `thytrader-data inspect-gaps` for
+   current contiguous island. `sparsity` is island-only; use `watch_sparsity` for the configured
+   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
+   If `watch_complete` is false, use `thytrader-data inspect-gaps` for
    classified holes across the full watch window. Cover HTF-filter and per-indicator extra clocks
    the same way. Never interpolate.
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (any ingested venue clock: `1m`, `5m`,

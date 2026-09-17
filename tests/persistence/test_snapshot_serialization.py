@@ -504,6 +504,16 @@ def test_research_ops_contract_v27_migration_follows_operator_slice() -> None:
     assert "async backtest" in content.lower()
 
 
+def test_extended_slow_timeframe_lookback_migration_follows_research_slice() -> None:
+    """The forty-first migration widens slow-timeframe watch lookback after 0040."""
+    content = Path("alembic/versions/0041_extended_slow_timeframe_lookback.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0041"' in content
+    assert 'down_revision = "0040"' in content
+    assert "8760" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")
