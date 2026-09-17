@@ -25,7 +25,7 @@ drafts/backtests, memory writes, and YOLO skip audits even when `thytrader-runti
    Compose APIs run `production`; gating on the CLI copy of `trust_boundary_enabled` left Bearer
    auth off even though the API required it.
 3. Route all mutation-lane HTTP clients through that helper:
-   - `data_control.client` watchlist and ingest writes
+   - `data_control.client` watchlist, ingest, and fill-gaps continuation writes
    - `research.http` draft, publish, backtest, and study writes
    - `memory.client` journal, hook, notify, train, and trade-reason note writes
    - `agent_orchestration.client` skipped-confirmation audits
@@ -41,7 +41,8 @@ drafts/backtests, memory writes, and YOLO skip audits even when `thytrader-runti
 - No Alembic or ops-contract bump: HTTP contract and middleware are unchanged; only CLI wiring
   catches up to ADR 0061.
 - Future mutation CLIs must call `request_mutation_json()` (or an equivalent wrapper) rather than
-  raw `request_json()` for writes.
+  raw `request_json()` for writes. The dedicated `fill-gaps` POST originally shipped on
+  `request_json()` and 401'd on production loopback; it now uses the same helper as ingest.
 
 ## Alternatives considered
 

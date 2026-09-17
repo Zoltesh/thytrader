@@ -101,7 +101,7 @@ def fill_gaps(
     timeframe: str,
 ) -> object:
     """Queue continuation ingest that skips the current-island reconcile short-circuit."""
-    request_json(
+    request_mutation_json(
         method="POST",
         url=f"{base_url}{DATA_API_PREFIX}/fill-gaps",
         payload={"product_id": product_id, "timeframe": timeframe},

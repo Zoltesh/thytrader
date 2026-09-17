@@ -80,6 +80,23 @@ def test_ingest_without_confirm_does_not_mutate() -> None:
     request.assert_not_called()
 
 
+def test_fill_gaps_without_confirm_does_not_mutate() -> None:
+    """Fill-gaps is a mutation and requires --confirm unless YOLO covers data."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.data_control.cli.fill_gaps") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["fill-gaps", "--product-id", "DOGE-USD", "--timeframe", "5m"])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
 def test_watch_add_yolo_skips_confirm_and_mutates() -> None:
     """Data YOLO records a skip audit then proceeds without --confirm."""
     skip = {

@@ -21,7 +21,9 @@ Production installs enforce the application trust boundary
 ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
 `Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
 `$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
-The CLI sends that header automatically; do not paste tokens into commands.
+The CLI sends that header automatically on `watch-add`, `ingest`, and `fill-gaps` whenever a
+token is resolvable; do not paste tokens into commands. Status polls (`GET /api/v1/data/ingest`)
+stay unauthenticated reads.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke this lane's HTTP routes. It is
 not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
@@ -92,9 +94,11 @@ Gap `cause` values:
 - `incomplete_local` — an ingest attempt ran but did not publish a complete range
 
 `fill-gaps` calls `POST /api/v1/data/fill-gaps`, which queues continuation ingest and skips the
-current-island reconcile short-circuit while `watch_complete` is false. It does not invent prices
-for missing bars. `inspect-gaps` returns `gap_summary` counts plus a capped `gaps` sample; large 1m
-watches stay bounded.
+current-island reconcile short-circuit while `watch_complete` is false. The POST uses
+`request_mutation_json()` and sends installation Bearer auth the same way as `watch-add` and
+`ingest` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). It does not
+invent prices for missing bars. `inspect-gaps` returns `gap_summary` counts plus a capped `gaps`
+sample; large 1m watches stay bounded.
 
 ## Confirmation
 
