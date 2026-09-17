@@ -27,6 +27,7 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
     Position,
+    PositionSide,
     RuntimePhase,
 )
 from thytrader.research.indicators import canonical_decimal
@@ -355,3 +356,119 @@ def test_snapshot_open_position_uses_stored_entry_and_quantity() -> None:
     marked = ledger_from_snapshot(snapshot, mark_price=Decimal("105"))
     assert marked.unrealized_net_pnl == Decimal("5")
     assert marked.total_net_pnl == Decimal("4.9")
+
+
+def test_multi_book_ledger_aggregates_equity_and_marked_exposure() -> None:
+    """Two open books use per-product fills and marks; missing one mark fails closed."""
+    now = _at(0)
+    deployment_id = uuid4()
+    deployment = Deployment(
+        id=deployment_id,
+        strategy_fingerprint="sha256:" + ("b" * 64),
+        strategy_id=UUID(int=2),
+        product_id="BTC-USD",
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        paper_starting_cash=Decimal("10000"),
+        cash=Decimal("7000"),
+        phase=RuntimePhase.OPEN,
+        created_at=now,
+        updated_at=now,
+    )
+    btc_order = uuid4()
+    eth_order = uuid4()
+    snapshot = DeploymentSnapshot(
+        deployment=deployment,
+        positions=(
+            Position(
+                deployment_id=deployment_id,
+                product_id="BTC-USD",
+                quantity=Decimal("1"),
+                entry_price=Decimal("100"),
+                stop_price=Decimal("90"),
+                target_price=Decimal("120"),
+                entered_bar=_at(1),
+                updated_at=now,
+            ),
+            Position(
+                deployment_id=deployment_id,
+                product_id="ETH-USD",
+                quantity=Decimal("1"),
+                entry_price=Decimal("50"),
+                stop_price=Decimal("40"),
+                target_price=Decimal("70"),
+                entered_bar=_at(1),
+                side=PositionSide.SHORT,
+                updated_at=now,
+            ),
+        ),
+        orders=(
+            Order(
+                id=btc_order,
+                deployment_id=deployment_id,
+                intent_id=uuid4(),
+                client_order_id="btc-buy",
+                product_id="BTC-USD",
+                side=OrderSide.BUY,
+                kind=OrderKind.POST_ONLY_LIMIT,
+                quantity=Decimal("1"),
+                status=OrderStatus.FILLED,
+                created_at=now,
+                updated_at=now,
+                price=Decimal("100"),
+                filled_quantity=Decimal("1"),
+            ),
+            Order(
+                id=eth_order,
+                deployment_id=deployment_id,
+                intent_id=uuid4(),
+                client_order_id="eth-sell",
+                product_id="ETH-USD",
+                side=OrderSide.SELL,
+                kind=OrderKind.POST_ONLY_LIMIT,
+                quantity=Decimal("1"),
+                status=OrderStatus.FILLED,
+                created_at=now,
+                updated_at=now,
+                price=Decimal("50"),
+                filled_quantity=Decimal("1"),
+            ),
+        ),
+        fills=(
+            Fill(
+                id=uuid4(),
+                deployment_id=deployment_id,
+                order_id=btc_order,
+                venue_fill_id="btc",
+                price=Decimal("100"),
+                quantity=Decimal("1"),
+                fee=Decimal("0"),
+                filled_at=_at(1),
+            ),
+            Fill(
+                id=uuid4(),
+                deployment_id=deployment_id,
+                order_id=eth_order,
+                venue_fill_id="eth",
+                price=Decimal("50"),
+                quantity=Decimal("1"),
+                fee=Decimal("0"),
+                filled_at=_at(2),
+            ),
+        ),
+    )
+    partial = ledger_from_snapshot(
+        snapshot,
+        marks={"BTC-USD": Decimal("110")},
+    )
+    assert partial.mark_complete is False
+    assert partial.total_net_pnl is None
+    assert len(partial.books) == 2
+    complete = ledger_from_snapshot(
+        snapshot,
+        marks={"BTC-USD": Decimal("110"), "ETH-USD": Decimal("45")},
+    )
+    assert complete.mark_complete is True
+    assert complete.marked_exposure == Decimal("65")
+    assert complete.equity == Decimal("7065")
+    assert complete.total_net_pnl == Decimal("-2935")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
@@ -15,6 +16,9 @@ from thytrader.execution.models import (
     snapshot_positions,
 )
 from thytrader.risk.exposure import working_entry_notional
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _ZERO = Decimal("0")
 
@@ -72,14 +76,15 @@ def live_capital_base(deployment: Deployment) -> Decimal | None:
 def refresh_performance(
     snapshot: DeploymentSnapshot,
     *,
-    mark_price: Decimal | None,
+    marks: Mapping[str, Decimal] | None = None,
+    mark_price: Decimal | None = None,
     now: datetime,
 ) -> Deployment:
     """Persist inventory cost, performance equity, HWM, and UTC day-open baseline."""
     deployment = snapshot.deployment
     inventory_cost = _inventory_cost(snapshot)
     reserved = _reserved_working(snapshot)
-    ledger = ledger_from_snapshot(snapshot, mark_price=mark_price)
+    ledger = ledger_from_snapshot(snapshot, marks=marks, mark_price=mark_price)
     equity = ledger.equity
     initial = deployment.initial_equity
     baseline = deployment.baseline_equity

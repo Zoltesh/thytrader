@@ -14,6 +14,8 @@ from thytrader.execution.models import (
     DeploymentStatus,
     IntentPurpose,
     OrderStatus,
+    resolved_product_id,
+    snapshot_positions,
 )
 from thytrader.risk.exposure import snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
@@ -143,13 +145,12 @@ def _drawdown_verdict(
     )
     if target is None:
         return None
-    mark = observation.marks.get(target.deployment.product_id)
-    if target.position is not None and mark is None:
+    if _open_inventory_missing_mark(target, observation.marks):
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
             "Drawdown cannot be computed without a last-close mark on open inventory.",
         )
-    ledger = ledger_from_snapshot(target, mark_price=mark)
+    ledger = ledger_from_snapshot(target, marks=observation.marks)
     if not ledger.mark_complete or ledger.equity is None:
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
@@ -265,11 +266,11 @@ def _mode_daily_loss(
     occupied: Sequence[DeploymentSnapshot], observation: EntryObservation
 ) -> Decimal | None:
     """Sum UTC-day losses across occupied books, or None when a required mark is missing."""
-    day_start = _utc_day_start(observation.as_of)
     total = Decimal("0")
     for snapshot in occupied:
-        mark = observation.marks.get(snapshot.deployment.product_id)
-        pnl = _daily_pnl(snapshot, mark=mark, day_start=day_start)
+        if _open_inventory_missing_mark(snapshot, observation.marks):
+            return None
+        pnl = _daily_pnl(snapshot, marks=observation.marks)
         if pnl is None:
             return None
         total += pnl
@@ -278,12 +279,9 @@ def _mode_daily_loss(
     return -total
 
 
-def _daily_pnl(
-    snapshot: DeploymentSnapshot, *, mark: Decimal | None, day_start: datetime
-) -> Decimal | None:
+def _daily_pnl(snapshot: DeploymentSnapshot, *, marks: Mapping[str, Decimal]) -> Decimal | None:
     """Return UTC-day equity change from day-open, not realized-today plus lifetime unrealized."""
-    del day_start
-    ledger = ledger_from_snapshot(snapshot, mark_price=mark)
+    ledger = ledger_from_snapshot(snapshot, marks=marks)
     if not ledger.mark_complete:
         return None
     pnl = daily_pnl_from_day_open(snapshot.deployment, equity=ledger.equity)
@@ -346,6 +344,17 @@ def _utc_day_start(moment: datetime) -> datetime:
     aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
     as_utc = aware.astimezone(UTC)
     return datetime(as_utc.year, as_utc.month, as_utc.day, tzinfo=UTC)
+
+
+def _open_inventory_missing_mark(
+    snapshot: DeploymentSnapshot, marks: Mapping[str, Decimal]
+) -> bool:
+    """True when any open product book lacks a disclosed last-close mark."""
+    for position in snapshot_positions(snapshot):
+        product_id = resolved_product_id(position.product_id, snapshot.deployment)
+        if marks.get(product_id) is None:
+            return True
+    return False
 
 
 def _deny(reason_code: RiskReasonCode, detail: str) -> RiskVerdict:

@@ -87,7 +87,7 @@ Three read-only surfaces answer different questions. Do not conflate them.
 | Question | Surface | Access |
 | --- | --- | --- |
 | Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
-| Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}` |
+| Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}?detail=full` (default `detail=summary` omits historical orders/fills; paginate `.../fills` and `.../orders`) |
 | Diagnostic phase/side/protection without sizes | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
 
 `health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
@@ -110,9 +110,11 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v31`,
-   Alembic revision `0044`, `spot_quote_currencies` `USD`/`USDC`, and `catalog_health` on a
-   current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v32`,
+   Alembic revision `0045`, `spot_quote_currencies` `USD`/`USDC`, `catalog_health`, bounded
+   deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
+   multi-book ledger on a current image ([ADR 0074](../../docs/decisions/0074-multi-book-ledger-bounded-reads.md),
+   [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
    [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
    [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
    [ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md),

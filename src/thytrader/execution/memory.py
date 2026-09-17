@@ -9,7 +9,9 @@ from uuid import UUID  # noqa: TC003
 from thytrader.execution.fill_ledger import project_fill_economics
 from thytrader.execution.models import (
     Deployment,
+    DeploymentBookTotals,
     DeploymentSnapshot,
+    DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
@@ -17,8 +19,18 @@ from thytrader.execution.models import (
     Order,
     OrderIntent,
     OrderStatus,
+    PaginatedFills,
+    PaginatedOrders,
     Position,
+    resolved_product_id,
 )
+from thytrader.execution.pagination import (
+    decode_cursor,
+    decode_order_cursor,
+    encode_cursor,
+    encode_order_cursor,
+)
+from thytrader.execution.protection import working_order_count
 
 if TYPE_CHECKING:
     from datetime import datetime, timedelta
@@ -80,11 +92,105 @@ class InMemoryExecutionStore:
             instrument_runtimes=runtimes,
         )
 
-    async def list_deployments(self) -> tuple[Deployment, ...]:
-        """Return every deployment, newest-updated first."""
-        return tuple(
-            sorted(self.deployments.values(), key=lambda item: item.updated_at, reverse=True)
+    async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
+        """Load positions and overlays without historical orders or fills."""
+        snapshot = await self.get_deployment(deployment_id)
+        return DeploymentSummarySnapshot(
+            deployment=snapshot.deployment,
+            position=snapshot.position,
+            positions=snapshot.positions,
+            instrument_runtimes=snapshot.instrument_runtimes,
+            book_totals=DeploymentBookTotals(
+                open_books=len(snapshot.positions),
+                working_orders=working_order_count(snapshot.orders),
+                fill_count=len(snapshot.fills),
+            ),
+            open_orders=tuple(
+                order
+                for order in snapshot.orders
+                if order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+            ),
         )
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
+        """Return deployments newest-updated first, optionally paginated."""
+        rows = sorted(self.deployments.values(), key=lambda item: item.updated_at, reverse=True)
+        if offset:
+            rows = rows[offset:]
+        if limit is not None:
+            rows = rows[:limit]
+        return tuple(rows)
+
+    async def list_fills(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedFills:
+        """Return one descending page of fills for one deployment."""
+        if limit < 1:
+            raise ExecutionStoreError("Fill page limit must be positive.")
+        fills = [
+            fill
+            for fill in self.fills.values()
+            if fill.deployment_id == deployment_id
+        ]
+        fills.sort(key=lambda item: (item.filled_at, str(item.id)), reverse=True)
+        if cursor is not None:
+            try:
+                filled_at, row_id = decode_cursor(cursor)
+            except ValueError as error:
+                raise ExecutionStoreError("Invalid pagination cursor.") from error
+            fills = [
+                fill
+                for fill in fills
+                if (fill.filled_at, fill.id) < (filled_at, row_id)
+            ]
+        page = tuple(fills[:limit])
+        deployment = self.deployments.get(deployment_id)
+        if deployment is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        order_products = tuple(
+            (
+                fill.order_id,
+                resolved_product_id(self.orders[fill.order_id].product_id, deployment),
+            )
+            for fill in page
+            if fill.order_id in self.orders
+        )
+        next_cursor = None
+        if len(fills) > limit:
+            last = fills[limit - 1]
+            next_cursor = encode_cursor(filled_at=last.filled_at, row_id=last.id)
+        return PaginatedFills(fills=page, next_cursor=next_cursor, order_products=order_products)
+
+    async def list_orders(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedOrders:
+        """Return one descending page of orders for one deployment."""
+        if limit < 1:
+            raise ExecutionStoreError("Order page limit must be positive.")
+        orders = [
+            order
+            for order in self.orders.values()
+            if order.deployment_id == deployment_id
+        ]
+        orders.sort(key=lambda item: (item.created_at, str(item.id)), reverse=True)
+        if cursor is not None:
+            try:
+                created_at, row_id = decode_order_cursor(cursor)
+            except ValueError as error:
+                raise ExecutionStoreError("Invalid pagination cursor.") from error
+            orders = [
+                order
+                for order in orders
+                if (order.created_at, order.id) < (created_at, row_id)
+            ]
+        page = tuple(orders[:limit])
+        next_cursor = None
+        if len(orders) > limit:
+            last = orders[limit - 1]
+            next_cursor = encode_order_cursor(created_at=last.created_at, row_id=last.id)
+        return PaginatedOrders(orders=page, next_cursor=next_cursor)
 
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return deployments for one strategy identity, newest-updated first."""

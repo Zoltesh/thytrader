@@ -130,6 +130,9 @@ class OpsContractPayload(_FrozenModel):
     research_job_expiry_hours: int = Field(ge=1)
     spot_quote_currencies: tuple[Literal["USD", "USDC"], ...]
     catalog_health: tuple[str, ...]
+    bounded_deployment_reads: tuple[Literal["list", "summary", "fills", "orders"], ...]
+    deployment_ledger_pagination: tuple[Literal["cursor"], ...]
+    multi_book_ledger: tuple[Literal["paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -285,6 +288,17 @@ class DeploymentSummary(_FrozenModel):
     drawdown_latched: bool = False
     revision: int = 0
     worker_lease_held: bool = False
+    ledger_mark_complete: bool | None = None
+    open_book_count: int | None = None
+
+
+class PerformanceBookPayload(_FrozenModel):
+    """One product book within a deployment performance slice."""
+
+    product_id: str
+    trade_count: int
+    total_net_pnl: str | None = None
+    mark_complete: bool
 
 
 class UserOrderFeedPayload(_FrozenModel):
@@ -338,6 +352,9 @@ class PerformancePayload(_FrozenModel):
     maximum_drawdown_fraction: str | None
     total_spread_cost: str | None
     evaluation_bars: int | None
+    mark_complete: bool | None = None
+    marked_exposure: str | None = None
+    books: tuple[PerformanceBookPayload, ...] = ()
 
 
 class PerformanceReport(OperatorEnvelope):

@@ -160,7 +160,10 @@ secret or pasted PEM. Setting credentials does not arm live trading. Repeat the 
 
 Underlying HTTP:
 
-- `GET/POST /api/v1/deployments`
+- `GET /api/v1/deployments?limit=&offset=` (summary rows; no historical orders/fills)
+- `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`)
+- `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
+- `POST /api/v1/deployments`
 - `POST /api/v1/deployments/{id}/pause`
 - `POST /api/v1/deployments/{id}/resume`
 - `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)
