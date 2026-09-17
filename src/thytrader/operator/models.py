@@ -503,6 +503,8 @@ class DatasetCoverageRow(_FrozenModel):
     watched: bool
     lookback_hours: int | None
     worker_status: str | None
+    failure_code: str | None = None
+    failure_message: str | None = None
     watch_complete: bool | None = None
     complete: bool | None
     freshness_status: str
@@ -514,6 +516,7 @@ class DatasetCoverageRow(_FrozenModel):
     missing_intervals: int | None
     content_fingerprint: str | None
     sparsity: Literal["none", "unknown", "gapped"]
+    watch_sparsity: Literal["none", "unknown", "gapped"] | None = None
     watch_expected_candle_count: int | None = None
 
 

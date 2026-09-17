@@ -64,12 +64,16 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
 
-Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days) and may be set up to
-2,160 (90 days). Five-minute ingest can cover that whole lookback (25,920 bars). One-minute ingest
-covers the same lookback (129,600 bars). Fifteen-minute ingest covers the same lookback (8,640 bars).
-Thirty-minute ingest covers the same lookback (4,320 bars). Two-hour ingest covers the same lookback
-(1,080 bars). Four-hour ingest covers the same lookback (540 bars). Six-hour ingest covers the same
-lookback (360 bars). Daily ingest covers the same lookback (90 bars). Initial
+Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days). Sub-daily clocks (`1m`,
+`5m`, `15m`, `30m`, `1h`) may be set up to 2,160 hours (90 days). Slower venue clocks (`2h`,
+`4h`, `6h`, `1d`) may be set up to 8,760 hours (365 days) for low-trade-count research
+([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
+Five-minute ingest can cover a 90-day lookback (25,920 bars). One-minute ingest covers the same
+lookback (129,600 bars). Fifteen-minute ingest covers the same lookback (8,640 bars).
+Thirty-minute ingest covers the same lookback (4,320 bars). Two-hour ingest can cover a 365-day
+lookback (4,380 bars). Four-hour ingest can cover a 365-day lookback (2,190 bars). Six-hour ingest
+can cover a 365-day lookback (1,460 bars). Daily ingest can cover a 365-day lookback (365 bars).
+Initial
 backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
 days stay holes. When lookback starts before an existing complete island, the worker prepends
 complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. `inspect-gaps` classifies
@@ -77,7 +81,8 @@ holes across the **watch** window, not only the current island, and never interp
 
 `complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that
 island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 2160` is
-not done. Catalog `sparsity` is `gapped` in that case. `GET /api/v1/market-data/datasets` lists
+not done. Catalog `watch_sparsity` is `gapped` in that case while island `sparsity` may still be
+`none`. `GET /api/v1/market-data/datasets` lists
 island fingerprints; it is not the watch-completeness surface.
 
 Gap `cause` values:
@@ -86,7 +91,10 @@ Gap `cause` values:
 - `exchange_unavailable` — a live probe did not receive that bar from Coinbase
 - `incomplete_local` — an ingest attempt ran but did not publish a complete range
 
-`fill-gaps` queues the same worker publication path as `ingest`. It does not invent prices for missing bars.
+`fill-gaps` calls `POST /api/v1/data/fill-gaps`, which queues continuation ingest and skips the
+current-island reconcile short-circuit while `watch_complete` is false. It does not invent prices
+for missing bars. `inspect-gaps` returns `gap_summary` counts plus a capped `gaps` sample; large 1m
+watches stay bounded.
 
 ## Confirmation
 

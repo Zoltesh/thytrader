@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 # Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
 # 129,600 one-minute bars is 90 days; 25,920 five-minute bars is also 90 days.
 # 129,600 hourly bars is 5,400 days, but 1h watches stay min(requested, 2,160 hours)
-# via the existing lookback maximum.
+# via the per-interval lookback maximum in ``market_data.lookback``.
 MAX_HISTORICAL_INTERVAL_COUNT = 129_600
 
 DatasetTimeframe = Literal["1h", "5m", "15m", "30m", "6h", "1d", "1m", "2h", "4h"]

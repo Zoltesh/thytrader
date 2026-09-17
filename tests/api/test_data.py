@@ -116,7 +116,8 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         )
         assert longer["complete"] is True
         assert longer["watch_complete"] is False
-        assert longer["sparsity"] == "gapped"
+        assert longer["sparsity"] == "none"
+        assert longer["watch_sparsity"] == "gapped"
         assert longer["watch_expected_candle_count"] > longer["expected_candle_count"]
         gap_report = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
         assert gap_report.status_code == 200, gap_report.text

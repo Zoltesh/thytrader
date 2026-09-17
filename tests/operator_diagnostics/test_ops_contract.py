@@ -31,9 +31,9 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v27"
+    assert expected["id"] == "thytrader-ops-contract-v28"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0040"
+    assert expected["expected_schema_revision"] == "0041"
     assert expected["async_backtest_job_statuses"] == [
         "queued",
         "running",

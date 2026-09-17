@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from thytrader.market_data.lookback import validate_watch_lookback_hours
 from thytrader.market_data.models import (
     DATASET_TIMEFRAME_PATTERN,
     CandleInterval,
@@ -41,8 +42,15 @@ class WatchTargetRequest(_FrozenModel):
 
     product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
-    lookback_hours: int = Field(default=168, ge=1, le=2_160)
+    lookback_hours: int = Field(default=168, ge=1)
     enabled: bool = True
+
+    def model_post_init(self, __context: object) -> None:
+        """Reject lookbacks above the interval-specific ceiling."""
+        try:
+            validate_watch_lookback_hours(require_interval(self.timeframe), self.lookback_hours)
+        except ValueError as error:
+            raise ValueError(str(error)) from error
 
 
 class IngestRequest(_FrozenModel):
@@ -67,6 +75,7 @@ class GapInspection:
     starts_at: datetime
     ends_at: datetime
     gaps: tuple[GapObservation, ...]
+    gap_summary: dict[str, int]
     warning: str | None
     lookback_hours: int
     complete: bool

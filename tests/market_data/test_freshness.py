@@ -7,8 +7,18 @@ import pytest
 from thytrader.market_data.freshness import (
     FreshnessStatus,
     evaluate_freshness,
+    freshest_bar_start,
 )
 from thytrader.market_data.models import CandleInterval
+
+
+def test_freshest_bar_start_maps_exclusive_end_to_last_open() -> None:
+    """Catalog coverage ends are exclusive; freshness uses the last bar start."""
+    closed_end = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
+    assert freshest_bar_start(closed_end, CandleInterval.FIFTEEN_MINUTES) == datetime(
+        2026, 9, 17, 11, 45, tzinfo=UTC
+    )
+    assert freshest_bar_start(None, CandleInterval.ONE_HOUR) is None
 
 
 def test_evaluate_freshness_boundary_conditions() -> None:

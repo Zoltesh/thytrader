@@ -71,11 +71,10 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0063](0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) | Tracked CI, production web target, live-arming publication gate, optional absolute risk caps, purpose-aware order-rate budget | Accepted |
 | [0064](0064-deployment-http-lifecycle-and-breaker-latch-reset.md) | Deployment HTTP ADR 0058 fields, explicit breaker latch reset, operator-chat parity | Accepted |
 | [0065](0065-deployment-capital-accounting-http.md) | Deployment `capital` block on HTTP; ledger cash vs allocated/venue quote | Accepted |
-<<<<<<< HEAD
 | [0066](0066-research-ops-contract-v4.md) | Research ops-contract v25 advertises `thytrader-bar-backtest-v4`; stale v1–v3-only 422 hints rebuild | Accepted |
-=======
+| [0068](0068-slow-timeframe-watch-lookback-and-catalog-ingest.md) | Slow-timeframe 365-day lookback; catalog ingest continuation, gap summaries, failure detail | Accepted |
+| [0069](0069-async-backtest-jobs-study-summary.md) | Async backtest jobs and bounded study readback; ops contract v27 | Accepted |
 | [0070](0070-mutation-cli-installation-auth.md) | Shared `request_mutation_json()` wires installation Bearer auth on all mutation CLIs | Accepted |
->>>>>>> f45fb78 (fix(agent): wire installation auth on all mutation CLIs (ADR 0070))
 
 ## Status values
 

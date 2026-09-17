@@ -44,6 +44,16 @@ class MarketDataFreshness(_FrozenModel):
         return value
 
 
+def freshest_bar_start(
+    exclusive_end: datetime | None,
+    interval: CandleInterval,
+) -> datetime | None:
+    """Map an exclusive coverage end to the last closed bar's opening instant."""
+    if exclusive_end is None:
+        return None
+    return exclusive_end - interval.duration
+
+
 def evaluate_freshness(
     *,
     product_id: str,
