@@ -69,6 +69,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0061](0061-application-trust-boundary.md) | Application trust boundary: installation Bearer auth, Host/Origin, CSRF session | Accepted |
 | [0062](0062-research-paper-semantics-audit-stage-4.md) | Audit stage 4: v4 causal maker engine, runtime clock/indicator parity, truthful OOS fields, dataset numeric identity | Accepted |
 | [0063](0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) | Tracked CI, production web target, live-arming publication gate, optional absolute risk caps, purpose-aware order-rate budget | Accepted |
+| [0065](0065-deployment-capital-accounting-http.md) | Deployment `capital` block on HTTP; ledger cash vs allocated/venue quote | Accepted |
 
 ## Status values
 

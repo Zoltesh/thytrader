@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	bookTotalsReconcile,
+	capitalSummary,
 	canonicalBooks,
 	canonicalPositions,
 	fillProductId,
@@ -113,6 +114,35 @@ describe('canonicalBooks', () => {
 		});
 		expect(canonicalBooks(body).map((item) => item.product_id)).toEqual(['BTC-USD', 'ETH-USD']);
 		expect(canonicalBooks(body).map((item) => item.phase)).toEqual(['flat', 'open']);
+	});
+});
+
+describe('capitalSummary', () => {
+	it('labels live venue quote separately from ledger cash', () => {
+		const body = deployment({
+			mode: 'live',
+			cash: '0',
+			capital: {
+				allocated_capital: '25000',
+				venue_available_quote: '50000',
+				performance_equity: '24800',
+				inventory_cost: '800'
+			}
+		});
+		expect(capitalSummary(body)).toContain('allocated 25000');
+		expect(capitalSummary(body)).toContain('venue 50000');
+		expect(capitalSummary(body)).toContain('equity 24800');
+	});
+
+	it('marks unknown live venue quote explicitly', () => {
+		const body = deployment({
+			mode: 'live',
+			capital: {
+				allocated_capital: '10000',
+				venue_available_quote: null
+			}
+		});
+		expect(capitalSummary(body)).toContain('venue unknown');
 	});
 });
 

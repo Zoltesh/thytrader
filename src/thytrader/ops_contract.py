@@ -15,8 +15,8 @@ spot shorting, attached entry brackets, paper deploy fee fields, risk circuit
 breakers / order-rate limits / reference-price collars, the persisted
 research-study catalog, trade-reason journals, multi-instrument documents, or
 intra-strategy pyramiding, attached-child protection, worker leases, live
-capital vs venue cash, durable daily-loss/drawdown baselines, or lifecycle
-stop/flatten/managed-shutdown commands change.
+capital vs venue cash, deployment HTTP `capital` field names, durable
+daily-loss/drawdown baselines, or lifecycle stop/flatten/managed-shutdown commands change.
 """
 
 from __future__ import annotations
@@ -28,8 +28,19 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v22"
-EXPECTED_SCHEMA_REVISION = "0035"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v24"
+EXPECTED_SCHEMA_REVISION = "0037"
+DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
+    "allocated_capital",
+    "venue_available_quote",
+    "reserved_buying_power",
+    "inventory_cost",
+    "performance_equity",
+    "initial_equity",
+    "baseline_equity",
+    "high_water_mark_equity",
+    "utc_day_open_equity",
+)
 BACKTEST_ENGINES: tuple[str, ...] = (
     "thytrader-bar-backtest-v1",
     "thytrader-bar-backtest-v2",
@@ -74,6 +85,7 @@ def expected_ops_contract() -> dict[str, object]:
         "multi_instrument_documents": list(MULTI_INSTRUMENT_DOCUMENTS),
         "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),
+        "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

@@ -98,10 +98,15 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 `--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
-and `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
-([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)). The singular `position` field
-is compatibility-only (focused book, always includes `product_id` and `compatibility_focus`).
-Read `positions` for inventory. `--i-understand-live` is unchanged.
+`book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), and a `capital` block with
+`allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`,
+`performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, and
+`utc_day_open_equity` ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)).
+Top-level `cash` is ledger fill accounting only; live sizing uses `capital.allocated_capital` or
+`capital.venue_available_quote` (null when unknown). The singular `position` field is
+compatibility-only (focused book, always includes `product_id` and `compatibility_focus`). Read
+`positions` for inventory. `--i-understand-live` is unchanged.
 Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
 `--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
 `--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and

@@ -67,8 +67,11 @@ Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are e
 until the book is flat. Pass `--flatten` only when the operator asked to marketably exit then cancel
 remainders. Pause still maintains attached-child protection; it does not reset daily-loss or
 drawdown baselines. Live books size from allocated capital or venue available quote, not ledger
-`cash`. Operator `runtime` shows `lifecycle_command`, latches, `revision`, and whether a worker
-lease is held; `thytrader-runtime show` has the capital columns.
+`cash`. `GET /api/v1/deployments` and `thytrader-runtime show` expose a `capital` block
+(`allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`,
+`performance_equity`, and durable breaker baselines) separate from top-level `cash`
+([ADR 0065](../decisions/0065-deployment-capital-accounting-http.md)). Operator `runtime` shows
+`lifecycle_command`, latches, `revision`, and whether a worker lease is held without cash.
 
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with

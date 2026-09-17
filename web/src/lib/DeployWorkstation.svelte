@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		bookTotalsReconcile,
+		capitalSummary,
 		canonicalBooks,
 		canonicalPositions,
 		createDeployment,
@@ -97,8 +98,15 @@
 		return canonicalPositions(deployment).find((item) => item.product_id === book.product_id);
 	}
 
-	function protectionForBook(book: DeploymentInstrumentRuntime): string {
-		return book.phase === 'flat' ? 'flat' : 'unknown';
+	function protectionForBook(
+		deployment: Deployment,
+		book: DeploymentInstrumentRuntime
+	): string {
+		if (book.phase === 'flat') {
+			return 'flat';
+		}
+		const position = positionForBook(deployment, book);
+		return position?.protection_status ?? 'unknown';
 	}
 
 	async function loadStrategyDeployments(): Promise<void> {
@@ -273,7 +281,10 @@
 			<div class="version-block">
 				<h4>{deployment.mode} · {deployment.status} · {deployment.phase}</h4>
 				<p>
-					Cash {deployment.cash}
+					Ledger cash {deployment.cash}
+					{#if capitalSummary(deployment)}
+						· {capitalSummary(deployment)}
+					{/if}
 					{#if deployment.mode === 'paper' && deployment.maker_fee_rate && deployment.taker_fee_rate}
 						· paper fees {deployment.maker_fee_rate}/{deployment.taker_fee_rate}
 					{/if}
@@ -309,7 +320,7 @@
 								· compatibility focus (not the full inventory)
 							{/if}
 						{:else}
-							· no open book · {protectionForBook(book)}
+							· no open book · {protectionForBook(deployment, book)}
 						{/if}
 					</p>
 				{/each}

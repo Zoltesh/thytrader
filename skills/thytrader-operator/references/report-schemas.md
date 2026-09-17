@@ -34,7 +34,9 @@ breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision
 `worker_lease_held` without cash or lease-holder identity. Latches persist across pause.
 Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
 or `thytrader-runtime stop UUID --flatten --confirm`. Live capital fields stay on
-`thytrader-runtime show` / `GET /api/v1/deployments/{id}`.
+`thytrader-runtime show` / `GET /api/v1/deployments/{id}` as the `capital` block
+([ADR 0065](../../../docs/decisions/0065-deployment-capital-accounting-http.md)); this operator
+payload still omits cash.
 
 Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`.
 Hour-and-longer live still reconciles through REST. Live fill ingest pages Coinbase List Fills
