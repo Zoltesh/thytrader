@@ -26,7 +26,11 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import book_protection_status
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
-from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
+from thytrader.market_data.freshness import (
+    FreshnessStatus,
+    evaluate_freshness,
+    freshest_bar_start,
+)
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
@@ -1028,7 +1032,7 @@ class OperatorDiagnostics:
             )
         freshness = evaluate_freshness(
             product_id=product_id,
-            newest_candle_at=state.covered_ends_at,
+            newest_candle_at=freshest_bar_start(state.covered_ends_at, interval),
             now=now,
             interval=interval,
         )
@@ -2125,7 +2129,7 @@ def _coverage_row(
     newest = state.covered_ends_at if state is not None else _manifest_end(manifest)
     freshness = evaluate_freshness(
         product_id=product_id,
-        newest_candle_at=newest,
+        newest_candle_at=freshest_bar_start(newest, interval),
         now=now,
         interval=interval,
     )
