@@ -6,15 +6,22 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import OrderKind, OrderSide, PositionSide
+from thytrader.execution.models import (
+    OrderKind,
+    OrderSide,
+    Position,
+    PositionSide,
+    resolved_product_id,
+    snapshot_positions,
+)
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.models import DeploymentSnapshot, Fill, Order
+    from thytrader.execution.models import Deployment, DeploymentSnapshot, Fill, Order
 
 PAPER_MAKER_FEE_RATE = Decimal("0.001")
 PAPER_TAKER_FEE_RATE = Decimal("0.002")
@@ -30,6 +37,20 @@ class LedgerFill:
     quantity: Decimal
     fee: Decimal
     filled_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProductBookLedger:
+    """Per-product fill-ledger statistics marked at one last-close price."""
+
+    product_id: str
+    base_quantity: Decimal
+    mark_price: Decimal | None
+    realized_net_pnl: Decimal
+    unrealized_net_pnl: Decimal | None
+    total_net_pnl: Decimal | None
+    trade_count: int
+    mark_complete: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +71,8 @@ class DeploymentLedger:
     maximum_drawdown_fraction: Decimal | None
     trade_count: int
     mark_complete: bool
+    books: tuple[ProductBookLedger, ...] = ()
+    marked_exposure: Decimal | None = None
 
     def total_net_pnl_text(self) -> str | None:
         """Render total net PnL as a canonical decimal, or None when the mark is missing."""
@@ -126,6 +149,36 @@ def paper_fill_fee(
     return price * quantity * rate
 
 
+def ledger_fills_for_product(
+    snapshot: DeploymentSnapshot, product_id: str
+) -> tuple[LedgerFill, ...]:
+    """Join fills whose parent order belongs to one product book."""
+    deployment = snapshot.deployment
+    order_ids = {
+        order.id
+        for order in snapshot.orders
+        if resolved_product_id(order.product_id, deployment) == product_id
+    }
+    orders = {order.id: order for order in snapshot.orders if order.id in order_ids}
+    fills: list[LedgerFill] = []
+    for fill in sorted(snapshot.fills, key=_fill_sort_key):
+        if fill.order_id not in order_ids:
+            continue
+        order = orders.get(fill.order_id)
+        if order is None:
+            continue
+        fills.append(
+            LedgerFill(
+                side=order.side,
+                price=fill.price,
+                quantity=fill.quantity,
+                fee=fill.fee,
+                filled_at=fill.filled_at,
+            )
+        )
+    return tuple(fills)
+
+
 def ledger_fills_from_snapshot(snapshot: DeploymentSnapshot) -> tuple[LedgerFill, ...]:
     """Join fills to their orders so the ledger can pair buys and sells."""
     orders: dict[UUID, Order] = {order.id: order for order in snapshot.orders}
@@ -149,32 +202,215 @@ def ledger_fills_from_snapshot(snapshot: DeploymentSnapshot) -> tuple[LedgerFill
 def ledger_from_snapshot(
     snapshot: DeploymentSnapshot,
     *,
+    marks: Mapping[str, Decimal] | None = None,
+    mark_price: Decimal | None = None,
+) -> DeploymentLedger:
+    """Fold one deployment snapshot plus per-product last-close marks into ledger statistics."""
+    deployment = snapshot.deployment
+    starting = _starting_cash(deployment)
+    cash = deployment.cash
+    positions = snapshot_positions(snapshot)
+    marks_map = _resolve_marks(deployment, marks, mark_price, positions)
+    if len(positions) <= 1:
+        return _single_book_ledger(
+            snapshot,
+            starting_cash=starting,
+            cash=cash,
+            positions=positions,
+            marks_map=marks_map,
+            mark_price=mark_price,
+        )
+    return _multi_book_ledger(
+        snapshot,
+        starting_cash=starting,
+        cash=cash,
+        positions=positions,
+        marks_map=marks_map,
+    )
+
+
+def _starting_cash(deployment: Deployment) -> Decimal:
+    """Return the deployment starting equity baseline."""
+    if deployment.initial_equity is not None:
+        return deployment.initial_equity
+    if deployment.paper_starting_cash is not None:
+        return deployment.paper_starting_cash
+    return Decimal("0")
+
+
+def _resolve_marks(
+    deployment: Deployment,
+    marks: Mapping[str, Decimal] | None,
+    mark_price: Decimal | None,
+    positions: Sequence[Position],
+) -> dict[str, Decimal]:
+    """Merge explicit marks with a legacy single-product mark."""
+    resolved: dict[str, Decimal] = dict(marks) if marks is not None else {}
+    if mark_price is not None:
+        resolved.setdefault(deployment.product_id, mark_price)
+        for position in positions:
+            product_id = resolved_product_id(position.product_id, deployment)
+            resolved.setdefault(product_id, mark_price)
+    return resolved
+
+
+def _signed_quantity(position: Position) -> Decimal:
+    """Return signed inventory quantity, negative for shorts."""
+    quantity = position.quantity
+    if position.side is PositionSide.SHORT:
+        return -quantity
+    return quantity
+
+
+def _single_book_ledger(
+    snapshot: DeploymentSnapshot,
+    *,
+    starting_cash: Decimal,
+    cash: Decimal,
+    positions: Sequence[Position],
+    marks_map: Mapping[str, Decimal],
     mark_price: Decimal | None,
 ) -> DeploymentLedger:
-    """Fold one deployment snapshot plus an optional last-close mark into ledger statistics."""
+    """Compute one-book statistics, including the flat and compatibility paths."""
     deployment = snapshot.deployment
-    starting = deployment.initial_equity
-    if starting is None:
-        starting = (
-            deployment.paper_starting_cash
-            if deployment.paper_starting_cash is not None
-            else Decimal("0")
-        )
-    position = snapshot.position
+    position = positions[0] if positions else snapshot.position
     quantity = Decimal("0")
     entry_price = None
+    product_id = deployment.product_id
     if position is not None:
-        quantity = position.quantity
-        if position.side is PositionSide.SHORT:
-            quantity = -quantity
+        product_id = resolved_product_id(position.product_id, deployment)
+        quantity = _signed_quantity(position)
         entry_price = position.entry_price
-    return mark_deployment_ledger(
-        starting_cash=starting,
-        cash=deployment.cash,
-        fills=ledger_fills_from_snapshot(snapshot),
+    fills = (
+        ledger_fills_for_product(snapshot, product_id)
+        if position is not None
+        else ledger_fills_from_snapshot(snapshot)
+    )
+    mark = marks_map.get(product_id)
+    if mark is None and mark_price is not None and product_id == deployment.product_id:
+        mark = mark_price
+    ledger = mark_deployment_ledger(
+        starting_cash=starting_cash,
+        cash=cash,
+        fills=fills,
         position_quantity=quantity,
         position_entry_price=entry_price,
-        mark_price=mark_price,
+        mark_price=mark,
+    )
+    books: tuple[ProductBookLedger, ...] = ()
+    marked_exposure: Decimal | None = None
+    if position is not None and quantity != 0:
+        books = (_product_book_ledger(product_id, ledger),)
+        if mark is not None:
+            marked_exposure = quantity * mark
+    return DeploymentLedger(
+        starting_cash=ledger.starting_cash,
+        cash=ledger.cash,
+        base_quantity=ledger.base_quantity,
+        mark_price=ledger.mark_price,
+        equity=ledger.equity,
+        realized_net_pnl=ledger.realized_net_pnl,
+        unrealized_net_pnl=ledger.unrealized_net_pnl,
+        total_net_pnl=ledger.total_net_pnl,
+        total_return_fraction=ledger.total_return_fraction,
+        total_fees=ledger.total_fees,
+        maximum_drawdown=ledger.maximum_drawdown,
+        maximum_drawdown_fraction=ledger.maximum_drawdown_fraction,
+        trade_count=ledger.trade_count,
+        mark_complete=ledger.mark_complete,
+        books=books,
+        marked_exposure=marked_exposure,
+    )
+
+
+def _multi_book_ledger(
+    snapshot: DeploymentSnapshot,
+    *,
+    starting_cash: Decimal,
+    cash: Decimal,
+    positions: Sequence[Position],
+    marks_map: Mapping[str, Decimal],
+) -> DeploymentLedger:
+    """Aggregate per-product books that share one deployment cash balance."""
+    all_fills = ledger_fills_from_snapshot(snapshot)
+    realized, trade_count, _, _, fill_equities = _fold_fills(starting_cash, all_fills)
+    total_fees = sum((fill.fee for fill in all_fills), start=Decimal("0"))
+    books: list[ProductBookLedger] = []
+    marked_exposure = Decimal("0")
+    unrealized_total = Decimal("0")
+    mark_complete = True
+    needs_mark = False
+    primary_quantity = Decimal("0")
+    primary_mark: Decimal | None = None
+    for position in positions:
+        product_id = resolved_product_id(position.product_id, snapshot.deployment)
+        quantity = _signed_quantity(position)
+        mark = marks_map.get(product_id)
+        book_ledger = mark_deployment_ledger(
+            starting_cash=starting_cash,
+            cash=cash,
+            fills=ledger_fills_for_product(snapshot, product_id),
+            position_quantity=quantity,
+            position_entry_price=position.entry_price,
+            mark_price=mark,
+        )
+        books.append(_product_book_ledger(product_id, book_ledger))
+        if quantity == 0:
+            continue
+        needs_mark = True
+        if mark is None:
+            mark_complete = False
+            continue
+        marked_exposure += quantity * mark
+        unrealized_total += book_ledger.unrealized_net_pnl or Decimal("0")
+        if product_id == snapshot.deployment.product_id:
+            primary_quantity = quantity
+            primary_mark = mark
+    equity: Decimal | None = cash if not needs_mark else None
+    if needs_mark and mark_complete:
+        equity = cash + marked_exposure
+    total_net_pnl = None if equity is None else equity - starting_cash
+    total_return_fraction = None
+    if total_net_pnl is not None and starting_cash > 0:
+        total_return_fraction = total_net_pnl / starting_cash
+    curve = list(fill_equities)
+    if equity is not None:
+        curve.append(equity)
+    maximum_drawdown, maximum_drawdown_fraction = _drawdown(curve)
+    if primary_quantity == 0 and books:
+        primary_quantity = books[0].base_quantity
+        primary_mark = books[0].mark_price
+    return DeploymentLedger(
+        starting_cash=starting_cash,
+        cash=cash,
+        base_quantity=primary_quantity,
+        mark_price=primary_mark,
+        equity=equity,
+        realized_net_pnl=realized,
+        unrealized_net_pnl=None if not mark_complete else unrealized_total,
+        total_net_pnl=total_net_pnl,
+        total_return_fraction=total_return_fraction,
+        total_fees=total_fees,
+        maximum_drawdown=maximum_drawdown,
+        maximum_drawdown_fraction=maximum_drawdown_fraction,
+        trade_count=trade_count,
+        mark_complete=mark_complete,
+        books=tuple(books),
+        marked_exposure=None if not mark_complete else marked_exposure,
+    )
+
+
+def _product_book_ledger(product_id: str, ledger: DeploymentLedger) -> ProductBookLedger:
+    """Project one per-product ledger view from a single-book fold."""
+    return ProductBookLedger(
+        product_id=product_id,
+        base_quantity=ledger.base_quantity,
+        mark_price=ledger.mark_price,
+        realized_net_pnl=ledger.realized_net_pnl,
+        unrealized_net_pnl=ledger.unrealized_net_pnl,
+        total_net_pnl=ledger.total_net_pnl,
+        trade_count=ledger.trade_count,
+        mark_complete=ledger.mark_complete,
     )
 
 

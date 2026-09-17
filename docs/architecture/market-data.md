@@ -35,13 +35,17 @@ spans the configured half-open watch window. Catalog, ingest status, gap inspect
 data-catalog payloads put `watch_complete` on the decision surface before `complete`.
 `GET /api/v1/market-data/datasets` and `/datasets/latest` list fingerprint-addressed island
 publications; they are not a watch-completeness surface.
-`inspect-gaps` classifies missing bars across the full watch window as `not_fetched`,
+`inspect-gaps` classifies missing bars as `not_fetched`,
 `exchange_unavailable`, or `incomplete_local`; it never interpolates, and a clean short island does
-not produce `gap_count: 0` for an incomplete watch.
+not produce `gap_count: 0` for an incomplete watch. Server-side time, probe, and row budgets can
+stop the scan: the payload then sets `truncated` and a partial `gap_summary`
+([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 `POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
 The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
-endpoints remain diagnostics, not strategy inputs. The worker clears `ingest_requested_at` after
-`ingest_once` returns, so CLI polling waits for the walk, not only for queue acceptance.
+endpoints remain diagnostics, not strategy inputs. The worker keeps `ingest_requested_at` until
+`watch_complete` or a durable failure, walking a small UTC-day budget per target per cycle and
+touching its heartbeat between cells and chunks so one ingest queue can finish lookback without
+extra `fill-gaps` calls.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -70,13 +74,13 @@ The current preview supports:
 | Dimension | Current support |
 |---|---|
 | Provider | Coinbase Advanced Trade |
-| Product | Enabled Coinbase USD spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
+| Product | Enabled Coinbase USD and USDC spot products; deterministic demo: `BTC-USD`, `ETH-USD`, `SOL-USD` |
 | Timeframe | `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h` for complete-only datasets, strategy LTF, paper, live, discretionary books, and HTF tokens ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Extra-TF LTF-list indicators use the same last-completed complete-only bars ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Missing bars are never interpolated. |
 | Data access | Bounded recent REST request or deterministic demo |
 | Persistence | Complete validated ranges only, through the dedicated worker |
 | Trading use | None |
 
-The catalog is presentation-only. It filters to enabled USD spot products and exposes venue
+The catalog is presentation-only. It filters to enabled USD and USDC spot products and exposes venue
 constraints as exact decimal strings. The preview accepts the selected catalog product through a
 validated `product_id` query parameter; it is still not a complete historical API or execution
 input.

@@ -34,6 +34,7 @@ from thytrader.data_control.service import (
 )
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
@@ -124,7 +125,7 @@ async def get_ingest(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")],
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Return pending ingest request state and latest worker coverage."""
@@ -200,7 +201,7 @@ async def get_gaps(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")],
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Classify missing bars. Does not interpolate or write Parquet."""
@@ -230,6 +231,8 @@ async def get_gaps(
         "gap_summary": inspection.gap_summary,
         "gaps": [gap_payload(item) for item in listed],
         "omitted_gap_count": max(0, sum(inspection.gap_summary.values()) - len(listed)),
+        "truncated": inspection.truncated,
+        "scanned_bar_count": inspection.scanned_bar_count,
         "interpolated": False,
     }
     if inspection.warning:

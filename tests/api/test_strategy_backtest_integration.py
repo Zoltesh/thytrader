@@ -82,7 +82,7 @@ def test_browser_strategy_workflow_publishes_and_reuses_immutable_backtest(
             run_fingerprint = first_payload["run_fingerprint"]
             result_fingerprint = first_payload["result_fingerprint"]
 
-            detail = client.get(f"/api/v1/backtests/{result_fingerprint}")
+            detail = client.get(f"/api/v1/backtests/{result_fingerprint}?detail=full")
             assert detail.status_code == 200, detail.text
             assert detail.json()["result_fingerprint"] == result_fingerprint
             assert detail.json()["result"]["run_fingerprint"] == run_fingerprint

@@ -8,12 +8,15 @@ from typing import TYPE_CHECKING
 from thytrader.execution.models import (
     Deployment,
     DeploymentSnapshot,
+    DeploymentSummarySnapshot,
     ExecutionStoreError,
     Fill,
     InstrumentRuntime,
     Order,
     OrderIntent,
     OrderStatus,
+    PaginatedFills,
+    PaginatedOrders,
     Position,
     RuntimePhase,
     aggregate_phase,
@@ -123,9 +126,27 @@ class InstrumentScopedStore:
         snapshot = await self._inner.get_deployment(deployment_id)
         return overlay_snapshot(snapshot, self._product_id)
 
-    async def list_deployments(self) -> tuple[Deployment, ...]:
+    async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
+        """Load summary rows from the inner store without product overlay."""
+        return await self._inner.get_deployment_summary(deployment_id)
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
         """Return every deployment, newest-updated first."""
-        return await self._inner.list_deployments()
+        return await self._inner.list_deployments(limit=limit, offset=offset)
+
+    async def list_fills(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedFills:
+        """Return one descending page of fills for one deployment."""
+        return await self._inner.list_fills(deployment_id, limit=limit, cursor=cursor)
+
+    async def list_orders(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedOrders:
+        """Return one descending page of orders for one deployment."""
+        return await self._inner.list_orders(deployment_id, limit=limit, cursor=cursor)
 
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return deployments for one strategy identity, newest-updated first."""

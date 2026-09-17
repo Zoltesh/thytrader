@@ -131,6 +131,14 @@ def as_dataset_timeframe(interval: CandleInterval) -> DatasetTimeframe:
     raise ValueError(message)
 
 
+def published_execution_timeframe(timeframe: str) -> DatasetTimeframe:
+    """Return a legal execution clock, defaulting to 1h when the token is unsupported."""
+    for token in EXECUTION_TIMEFRAMES:
+        if timeframe == token:
+            return token
+    return "1h"
+
+
 def interval_from_range(report: CandleRangeReport) -> CandleInterval:
     """Infer the supported interval from one half-open range's requested span."""
     if report.requested_candle_count < 1:

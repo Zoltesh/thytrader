@@ -11,6 +11,7 @@ from thytrader.market_data.models import (
     MarketDataPreview,
     MarketProduct,
 )
+from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 
 
 class MarketDataProvider(Protocol):
@@ -49,15 +50,15 @@ class MarketDataService:
         """Initialize the service around a provider-neutral data boundary."""
         self._provider = provider
 
-    async def list_enabled_usd_spot_products(self) -> tuple[MarketProduct, ...]:
-        """Return deterministic selectable USD spot products without disabled markets."""
+    async def list_enabled_spot_products(self) -> tuple[MarketProduct, ...]:
+        """Return deterministic selectable USD and USDC spot products without disabled markets."""
         products = await self._provider.list_products()
         return tuple(
             sorted(
                 (
                     product
                     for product in products
-                    if product.quote_currency == "USD" and product.trading_enabled
+                    if product.quote_currency in SPOT_QUOTE_CURRENCIES and product.trading_enabled
                 ),
                 key=lambda product: product.product_id,
             )

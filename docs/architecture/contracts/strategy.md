@@ -26,9 +26,9 @@ classDiagram
     additional_instruments 0..7
   }
   class Instrument {
-    product_id BASE-USD
+    product_id BASE-USD|BASE-USDC
     base_currency
-    quote_currency USD
+    quote_currency USD|USDC
   }
   class DataRequirements {
     warmup_bars

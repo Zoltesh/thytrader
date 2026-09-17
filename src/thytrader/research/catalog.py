@@ -42,6 +42,7 @@ class StudyCatalogSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     study_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    plan_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     kind: str = Field(pattern=r"^[a-z_]+$")
     engine_contract_version: str
     published_at: datetime
@@ -91,6 +92,10 @@ class ResearchStudyCatalog(Protocol):
         """Return newest-first catalog rows without child ledgers."""
         ...
 
+    async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
+        """Return canonical study JSON when an equivalent plan already exists."""
+        ...
+
 
 class DisabledResearchStudyCatalog:
     """Fail-closed catalog used when PostgreSQL is unconfigured."""
@@ -117,6 +122,11 @@ class DisabledResearchStudyCatalog:
     ) -> tuple[StudyCatalogSummary, ...]:
         """Reject listing so disabled persistence never looks empty."""
         del kind, limit
+        raise StudyCatalogUnavailableError("Research study catalog is unavailable.")
+
+    async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
+        """Reject dedupe reads when durable storage is disabled."""
+        del plan_fingerprint
         raise StudyCatalogUnavailableError("Research study catalog is unavailable.")
 
 
@@ -170,3 +180,10 @@ class InMemoryResearchStudyCatalog:
         rows.sort(key=lambda item: item.study_fingerprint)
         rows.sort(key=lambda item: item.published_at, reverse=True)
         return tuple(rows[:limit])
+
+    async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
+        """Return one stored canonical study when the effective plan already exists."""
+        for summary, canonical in self._rows.values():
+            if summary.plan_fingerprint == plan_fingerprint:
+                return canonical
+        return None

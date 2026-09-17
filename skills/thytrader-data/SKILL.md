@@ -21,7 +21,9 @@ Production installs enforce the application trust boundary
 ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
 `Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
 `$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
-The CLI sends that header automatically; do not paste tokens into commands.
+The CLI sends that header automatically on `watch-add`, `ingest`, and `fill-gaps` whenever a
+token is resolvable; do not paste tokens into commands. Status polls (`GET /api/v1/data/ingest`)
+stay unauthenticated reads.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke this lane's HTTP routes. It is
 not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
@@ -92,9 +94,21 @@ Gap `cause` values:
 - `incomplete_local` — an ingest attempt ran but did not publish a complete range
 
 `fill-gaps` calls `POST /api/v1/data/fill-gaps`, which queues continuation ingest and skips the
-current-island reconcile short-circuit while `watch_complete` is false. It does not invent prices
-for missing bars. `inspect-gaps` returns `gap_summary` counts plus a capped `gaps` sample; large 1m
-watches stay bounded.
+current-island reconcile short-circuit while `watch_complete` is false. The POST uses
+`request_mutation_json()` and sends installation Bearer auth the same way as `watch-add` and
+`ingest` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). It does not
+invent prices for missing bars.
+
+`inspect-gaps` returns `gap_summary` counts plus a capped `gaps` sample. Server-side time, probe,
+and row budgets bound compute ([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
+When a budget is hit the payload is fail-closed: `truncated` is true, `scanned_bar_count` names how
+many bars were classified, and `gap_summary` covers only that scan. Treat `truncated` as incomplete
+evidence, not as `watch_complete`. Never interpolate.
+
+One `ingest --confirm` keeps walking until `watch_complete` or a durable failure. The worker
+processes a small UTC-day budget per target per cycle, touches its heartbeat between cells and
+chunks, and does not require extra `fill-gaps` calls to finish lookback. Use `fill-gaps` only when
+the user asked to re-queue continuation after a durable hole or failure.
 
 ## Confirmation
 
@@ -107,14 +121,16 @@ watches stay bounded.
 
 ## Workflow
 
-1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD spot ids.
+1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC spot ids.
    Judge `watch_complete`, not only `complete`.
 2. `watch-add` then `ingest` for a new product and any ingested venue clock (`1m`, `5m`, `15m`,
    `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Wait for the CLI poll; do not treat 202 as published
    Parquet. When a strategy uses `htf_filter` or a per-indicator `timeframe`, ingest those extra
    clocks the same way before research or deploy. Paper and live pause on extra-TF or HTF gaps.
-3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate.
-4. `fill-gaps --confirm` to retry complete-only publication, including prefix backfill.
+3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate. If `truncated` is
+   true, report the partial `gap_summary` and do not claim the full watch was scanned.
+4. Wait for the worker to self-complete the lookback. `fill-gaps --confirm` only if the user asked
+   to re-queue after a durable hole or failure.
 5. `uv run thytrader-operator indicators` before designing a study.
 6. Research backtests are `skills/thytrader-research/SKILL.md`. Paper and live may use any ingested
    venue clock via `skills/thytrader-runtime/SKILL.md`. Coarser integer-multiple coverage can back an

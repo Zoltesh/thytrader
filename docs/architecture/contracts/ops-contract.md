@@ -8,13 +8,21 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0041`):
+Current checkout (Alembic `0045`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v28` |
-| `expected_schema_revision` | `0041` |
-| `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed` |
+| `id` | `thytrader-ops-contract-v32` |
+| `expected_schema_revision` | `0045` |
+| `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
+| `research_job_statuses` | same as `async_backtest_job_statuses` |
+| `max_concurrent_research_jobs` | `2` |
+| `research_job_expiry_hours` | `24` |
+| `spot_quote_currencies` | `USD`, `USDC` |
+| `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest` |
+| `bounded_deployment_reads` | `list`, `summary`, `fills`, `orders` |
+| `deployment_ledger_pagination` | `cursor` |
+| `multi_book_ledger` | `paper`, `live` |
 | `max_historical_interval_count` | `129600` |
 | `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3`, `v4` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
@@ -37,7 +45,7 @@ Current checkout (Alembic `0041`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v28
+    id thytrader-ops-contract-v32
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -58,7 +66,15 @@ classDiagram
     deployment_capital_fields
     breaker_latch_reset
     async_backtest_job_statuses
-    expected_schema_revision 0041
+    research_job_statuses
+    max_concurrent_research_jobs
+    research_job_expiry_hours
+    spot_quote_currencies
+    catalog_health
+    bounded_deployment_reads
+    deployment_ledger_pagination
+    multi_book_ledger
+    expected_schema_revision 0045
   }
   class HealthPayload {
     api_probed

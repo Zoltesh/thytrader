@@ -71,6 +71,12 @@ class ResearchMutator:
         await self._audit("save_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
         return draft
 
+    async def import_draft(self, definition: StrategyDefinition) -> StrategyDraft:
+        """Persist one supplied custom document as a new draft identity."""
+        draft = await self.drafts.create_draft(definition)
+        await self._audit("import_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
+        return draft
+
     async def publish(self, strategy_id: UUID) -> PublishedStrategy:
         """Publish the matching durable draft as an immutable version."""
         drafts = await self.drafts.list_drafts()

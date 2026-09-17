@@ -927,7 +927,7 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
         asyncio.run(execution.save_position(eth, deployment_id=deployment_id))
         asyncio.run(execution.save_order(order))
         asyncio.run(execution.save_fill(fill))
-        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}?detail=full")
 
     assert fetched.status_code == 200
     body = fetched.json()
@@ -1014,7 +1014,7 @@ def test_two_open_books_keep_distinct_sides_and_reconcile_totals() -> None:
         asyncio.run(execution.save_order(btc_order))
         asyncio.run(execution.save_order(eth_order))
         asyncio.run(execution.save_fill(eth_fill))
-        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}?detail=full")
 
     assert fetched.status_code == 200
     body = fetched.json()
@@ -1077,7 +1077,7 @@ def test_deployment_response_includes_capital_accounting_block() -> None:
     assert created.id == deployment_id
 
     with _client(publication, execution) as client:
-        fetched = client.get(f"/api/v1/deployments/{deployment_id}")
+        fetched = client.get(f"/api/v1/deployments/{deployment_id}?detail=full")
 
     assert fetched.status_code == 200
     body = fetched.json()

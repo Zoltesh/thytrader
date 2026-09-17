@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,11 +16,13 @@ from thytrader.api.dependencies import (
     get_runtime_state,
     get_strategy_publication_store,
 )
+from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
@@ -163,6 +165,16 @@ class FillResponse(BaseModel):
     filled_at: str
 
 
+class DeploymentLedgerSummaryResponse(BaseModel):
+    """Aggregate fill-ledger statistics without loading every historical fill."""
+
+    trade_count: int
+    total_net_pnl: str | None = None
+    total_return_fraction: str | None = None
+    mark_complete: bool
+    marked_exposure: str | None = None
+
+
 class DeploymentResponse(BaseModel):
     """One deployment plus every product book, runtime overlay, and related evidence."""
 
@@ -203,14 +215,36 @@ class DeploymentResponse(BaseModel):
     instrument_runtimes: tuple[InstrumentRuntimeResponse, ...] = ()
     book_totals: DeploymentBookTotalsResponse = Field(default_factory=DeploymentBookTotalsResponse)
     capital: DeploymentCapitalResponse = Field(default_factory=DeploymentCapitalResponse)
+    ledger: DeploymentLedgerSummaryResponse | None = None
     orders: tuple[OrderResponse, ...] = ()
     fills: tuple[FillResponse, ...] = ()
 
 
 class DeploymentListResponse(BaseModel):
-    """Newest-first deployments."""
+    """Newest-first deployment summaries without historical orders or fills."""
 
     deployments: tuple[DeploymentResponse, ...]
+    limit: int
+    offset: int
+    returned: int
+
+
+class FillListResponse(BaseModel):
+    """One cursor page of fills for one deployment."""
+
+    fills: tuple[FillResponse, ...]
+    limit: int
+    returned: int
+    next_cursor: str | None = None
+
+
+class OrderListResponse(BaseModel):
+    """One cursor page of orders for one deployment."""
+
+    orders: tuple[OrderResponse, ...]
+    limit: int
+    returned: int
+    next_cursor: str | None = None
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -262,26 +296,36 @@ async def post_deployment(
 async def list_deployments(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DeploymentListResponse:
-    """Return every deployment, newest-updated first."""
+    """Return deployment summaries without loading every historical order or fill."""
     try:
-        deployments = await store.list_deployments()
-        snapshots = [await store.get_deployment(item.id) for item in deployments]
+        deployment_rows = await store.list_deployments(limit=limit, offset=offset)
     except ExecutionStoreError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from None
     bodies: list[DeploymentResponse] = []
-    for item in snapshots:
-        extra = await _covered_products(publication_store, item.deployment)
+    for item in deployment_rows:
+        try:
+            summary = await store.get_deployment_summary(item.id)
+        except ExecutionStoreError:
+            continue
+        extra = await _covered_products(publication_store, item)
         bodies.append(
-            await _snapshot_response(
-                item,
+            await _summary_response(
+                summary,
                 publication_store,
                 extra_product_ids=extra,
             )
         )
-    return DeploymentListResponse(deployments=tuple(bodies))
+    return DeploymentListResponse(
+        deployments=tuple(bodies),
+        limit=limit,
+        offset=offset,
+        returned=len(bodies),
+    )
 
 
 @router.get("/{deployment_id}", response_model=DeploymentResponse)
@@ -289,14 +333,100 @@ async def get_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    detail: Annotated[Literal["summary", "full"], Query()] = "summary",
 ) -> DeploymentResponse:
-    """Return one deployment with every product book, orders, and fills."""
-    snapshot = await _require_snapshot(store, deployment_id)
-    extra = await _covered_products(publication_store, snapshot.deployment)
-    return await _snapshot_response(
-        snapshot,
+    """Return one deployment; ``full`` includes every order and fill."""
+    if detail == "full":
+        snapshot = await _require_snapshot(store, deployment_id)
+        extra = await _covered_products(publication_store, snapshot.deployment)
+        return await _snapshot_response(
+            snapshot,
+            publication_store,
+            extra_product_ids=extra,
+        )
+    try:
+        summary = await store.get_deployment_summary(deployment_id)
+    except ExecutionStoreError as error:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in str(error).lower()
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise HTTPException(status_code=code, detail=str(error)) from None
+    extra = await _covered_products(publication_store, summary.deployment)
+    return await _summary_response(
+        summary,
         publication_store,
         extra_product_ids=extra,
+    )
+
+
+@router.get("/{deployment_id}/fills", response_model=FillListResponse)
+async def list_deployment_fills(
+    deployment_id: UUID,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    cursor: Annotated[str | None, Query()] = None,
+) -> FillListResponse:
+    """Return one cursor page of fills for one deployment."""
+    await _require_deployment_row(store, deployment_id)
+    try:
+        page = await store.list_fills(deployment_id, limit=limit, cursor=cursor)
+    except ExecutionStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from None
+    product_map = dict(page.order_products)
+    try:
+        summary = await store.get_deployment_summary(deployment_id)
+    except ExecutionStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from None
+    return FillListResponse(
+        fills=tuple(
+            _fill_response(
+                fill,
+                product_id=resolved_product_id(
+                    product_map.get(fill.order_id, ""),
+                    summary.deployment,
+                ),
+            )
+            for fill in page.fills
+        ),
+        limit=limit,
+        returned=len(page.fills),
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/{deployment_id}/orders", response_model=OrderListResponse)
+async def list_deployment_orders(
+    deployment_id: UUID,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    cursor: Annotated[str | None, Query()] = None,
+) -> OrderListResponse:
+    """Return one cursor page of orders for one deployment."""
+    await _require_deployment_row(store, deployment_id)
+    try:
+        page = await store.list_orders(deployment_id, limit=limit, cursor=cursor)
+        summary = await store.get_deployment_summary(deployment_id)
+    except ExecutionStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from None
+    return OrderListResponse(
+        orders=tuple(
+            _order_response(
+                order,
+                product_id=resolved_product_id(order.product_id, summary.deployment),
+            )
+            for order in page.orders
+        ),
+        limit=limit,
+        returned=len(page.orders),
+        next_cursor=page.next_cursor,
     )
 
 
@@ -468,6 +598,20 @@ async def _require_snapshot(store: ExecutionStore, deployment_id: UUID) -> Deplo
         raise HTTPException(status_code=code, detail=str(error)) from None
 
 
+async def _require_deployment_row(store: ExecutionStore, deployment_id: UUID) -> Deployment:
+    """Load one deployment row or map storage errors into HTTP failures."""
+    try:
+        summary = await store.get_deployment_summary(deployment_id)
+    except ExecutionStoreError as error:
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in str(error).lower()
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise HTTPException(status_code=code, detail=str(error)) from None
+    return summary.deployment
+
+
 async def _covered_products(
     publication_store: StrategyPublicationStore, deployment: Deployment
 ) -> tuple[str, ...]:
@@ -578,6 +722,7 @@ async def _snapshot_response(
     response = _deployment_response(snapshot.deployment, timeframe=timeframe)
     positions = _position_collection(snapshot)
     order_products = _order_product_ids(snapshot)
+    ledger = ledger_from_snapshot(snapshot)
     return response.model_copy(
         update={
             "position": _compatibility_position(snapshot, positions),
@@ -590,6 +735,7 @@ async def _snapshot_response(
                 working_orders=working_order_count(snapshot.orders),
                 fill_count=len(snapshot.fills),
             ),
+            "ledger": _ledger_summary_response(ledger),
             "orders": tuple(
                 _order_response(order, product_id=order_products[order.id])
                 for order in snapshot.orders
@@ -602,6 +748,64 @@ async def _snapshot_response(
                 for fill in snapshot.fills
             ),
         }
+    )
+
+
+async def _summary_response(
+    summary: DeploymentSummarySnapshot,
+    publication_store: StrategyPublicationStore | None = None,
+    *,
+    extra_product_ids: tuple[str, ...] = (),
+) -> DeploymentResponse:
+    """Serialize one deployment summary without historical orders or fills."""
+    snapshot = _summary_as_snapshot(summary)
+    if publication_store is None:
+        timeframe = summary.deployment.timeframe
+    else:
+        timeframe = await resolved_deployment_timeframe(summary.deployment, publication_store)
+    response = _deployment_response(summary.deployment, timeframe=timeframe)
+    positions = _position_collection(snapshot)
+    ledger = ledger_from_snapshot(snapshot)
+    return response.model_copy(
+        update={
+            "position": _compatibility_position(snapshot, positions),
+            "positions": positions,
+            "instrument_runtimes": _runtime_collection(
+                snapshot, extra_product_ids=extra_product_ids
+            ),
+            "book_totals": DeploymentBookTotalsResponse(
+                open_books=summary.book_totals.open_books,
+                working_orders=summary.book_totals.working_orders,
+                fill_count=summary.book_totals.fill_count,
+            ),
+            "ledger": _ledger_summary_response(ledger),
+            "orders": (),
+            "fills": (),
+        }
+    )
+
+
+def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapshot:
+    """Project a summary row into a snapshot shape for ledger and protection helpers."""
+    return DeploymentSnapshot(
+        deployment=summary.deployment,
+        position=summary.position,
+        positions=summary.positions,
+        instrument_runtimes=summary.instrument_runtimes,
+        orders=summary.open_orders,
+    )
+
+
+def _ledger_summary_response(ledger: DeploymentLedger) -> DeploymentLedgerSummaryResponse:
+    """Render aggregate ledger statistics for bounded deployment reads."""
+    return DeploymentLedgerSummaryResponse(
+        trade_count=ledger.trade_count,
+        total_net_pnl=ledger.total_net_pnl_text(),
+        total_return_fraction=ledger.total_return_fraction_text(),
+        mark_complete=ledger.mark_complete,
+        marked_exposure=(
+            None if ledger.marked_exposure is None else format(ledger.marked_exposure, "f")
+        ),
     )
 
 

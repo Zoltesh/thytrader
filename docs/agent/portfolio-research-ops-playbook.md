@@ -49,8 +49,9 @@ book from the deployment primary `product_id`. Read `positions[]` and `book_tota
 7. `uv run thytrader-operator data-catalog` — judge configured coverage by **`watch_complete`**, not
    island `complete` alone.
 8. `uv run thytrader-operator products` — confirm the product is enabled.
-9. If `watch_complete` is false: `uv run thytrader-data inspect-gaps --product-id … --timeframe …`,
-   then `watch-add` / `ingest` / `fill-gaps` with `--confirm` per
+9. If `watch_complete` is false: `uv run thytrader-data inspect-gaps --product-id … --timeframe …`.
+   If that report sets `truncated`, treat `gap_summary` as partial. Wait for the worker to
+   self-complete lookback; `fill-gaps --confirm` only after a durable hole per
    [`skills/thytrader-data/SKILL.md`](../../skills/thytrader-data/SKILL.md). Never interpolate.
 
 **Extra clocks:** HTF filters and per-indicator timeframes need ingest on **each** referenced clock

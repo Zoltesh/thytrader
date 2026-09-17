@@ -64,7 +64,9 @@ Extend the same durable complete-only Parquet + manifest + verify contract beyon
    (live `1h` only); 1d was not yet a research or execution clock.
    [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later widened those clocks.
 5. **Agent data-loop hardening** — ✅ Shipped: `watch_complete` is the completion decision field,
-   gap inspection covers the full watch window, and every HTTP agent CLI fails closed on an unequal
+   gap inspection covers the full watch window (or returns `truncated` with a partial `gap_summary`
+   when a server-side budget stops the scan; [ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)),
+   and every HTTP agent CLI fails closed on an unequal
    or missing ops contract. `complete` remains island completeness.
 
 **Exit gate met:** each timeframe has verified fingerprint-addressed datasets usable as research

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.config import Settings
@@ -142,6 +142,7 @@ def test_studies_report_lists_persisted_catalog_rows() -> None:
     summary = StudyCatalogSummary(
         study_fingerprint=fingerprint,
         request_fingerprint="sha256:" + "b" * 64,
+        plan_fingerprint="sha256:" + "c" * 64,
         kind="parameter_sweep",
         engine_contract_version="thytrader-bar-backtest-v1",
         published_at=datetime(2026, 9, 16, tzinfo=UTC),
@@ -229,6 +230,26 @@ def test_health_reports_missing_and_fresh_heartbeats() -> None:
     missing_code, ready_code = asyncio.run(_scenario())
     assert missing_code == "HEARTBEAT_MISSING"
     assert ready_code == "READY"
+
+
+def test_market_data_heartbeat_not_stale_after_ingest_poll_window() -> None:
+    """Health must not use the 5s ingest-request poll as the market-data stale window."""
+
+    async def _scenario() -> str:
+        store = InMemoryWorkerHeartbeatStore()
+        settings = Settings(market_data_worker_interval_seconds=300, _env_file=None)
+        now = datetime.now(UTC)
+        await store.touch("portfolio_worker", now)
+        await store.touch("execution_worker", now)
+        await store.touch("market_data_worker", now - timedelta(seconds=90))
+        report = await _diagnostics(settings=settings, heartbeat_store=store).health()
+        return next(
+            component.reason_code
+            for component in report.components
+            if component.name == "market_data_worker"
+        )
+
+    assert asyncio.run(_scenario()) == "READY"
 
 
 def test_risk_report_is_available_without_dollar_amounts() -> None:

@@ -87,7 +87,7 @@ Three read-only surfaces answer different questions. Do not conflate them.
 | Question | Surface | Access |
 | --- | --- | --- |
 | Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
-| Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}` |
+| Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}?detail=full` (default `detail=summary` omits historical orders/fills; paginate `.../fills` and `.../orders`) |
 | Diagnostic phase/side/protection without sizes | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
 
 `health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
@@ -103,25 +103,36 @@ recipe using these surfaces, see
 - argparse usage errors use the interpreter's usual non-zero code
 
 Missing telemetry is never treated as healthy. Worker health is PostgreSQL heartbeats, not Docker
-`/tmp` readiness files. Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
+`/tmp` readiness files. The market-data worker is stale after two ingest intervals plus slack, not
+the 5-second ingest-request poll; it heartbeats between ingest cells and UTC-day chunks
+([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
+Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v28` and Alembic
-   `0041` on a current image ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v32`,
+   Alembic revision `0045`, `spot_quote_currencies` `USD`/`USDC`, `catalog_health`, bounded
+   deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
+   multi-book ledger on a current image ([ADR 0074](../../docs/decisions/0074-multi-book-ledger-bounded-reads.md),
+   [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
    [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
    [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
    [ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md),
-   [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md)).
+   [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md),
+   [ADR 0071](../../docs/decisions/0071-usdc-spot-quote-markets.md),
+   [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md),
+   [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md)). Mismatch means rebuild with
+   `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
    current contiguous island. `sparsity` is island-only; use `watch_sparsity` for the configured
-   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
+   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
    If `watch_complete` is false, use `thytrader-data inspect-gaps` for
-   classified holes across the full watch window. Cover HTF-filter and per-indicator extra clocks
-   the same way. Never interpolate.
+   classified holes. If that report sets `truncated`, the `gap_summary` is partial (time/row budget)
+   and is not proof the full watch was scanned ([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
+   Cover HTF-filter and per-indicator extra clocks the same way. Never interpolate.
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (any ingested venue clock: `1m`, `5m`,
    `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`), strategy fingerprint, and dataset fingerprint in
    any answer. Performance timeframe is the published strategy's clock, or the discretionary book

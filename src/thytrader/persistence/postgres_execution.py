@@ -7,17 +7,19 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.execution.fill_ledger import project_fill_economics
 from thytrader.execution.models import (
     Deployment,
+    DeploymentBookTotals,
     DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
@@ -30,9 +32,17 @@ from thytrader.execution.models import (
     OrderKind,
     OrderSide,
     OrderStatus,
+    PaginatedFills,
+    PaginatedOrders,
     Position,
     PositionSide,
     RuntimePhase,
+)
+from thytrader.execution.pagination import (
+    decode_cursor,
+    decode_order_cursor,
+    encode_cursor,
+    encode_order_cursor,
 )
 from thytrader.persistence.schema import (
     deployments,
@@ -109,15 +119,125 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 
-    async def list_deployments(self) -> tuple[Deployment, ...]:
-        """Return every deployment, newest-updated first."""
-        statement = select(deployments).order_by(deployments.c.updated_at.desc())
+    async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
+        """Load positions and overlays without historical orders or fills."""
+        try:
+            async with self._engine.connect() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            select(deployments).where(deployments.c.id == deployment_id)
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None:
+                    raise ExecutionStoreError("Deployment was not found.")
+                deployment = _deployment_from_row(row)
+                return await _summary_snapshot(connection, deployment)
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
+        """Return deployments newest-updated first, optionally paginated."""
+        statement = select(deployments).order_by(deployments.c.updated_at.desc()).offset(offset)
+        if limit is not None:
+            statement = statement.limit(limit)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
+
+    async def list_fills(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedFills:
+        """Return one descending page of fills for one deployment."""
+        if limit < 1:
+            raise ExecutionStoreError("Fill page limit must be positive.")
+        statement = (
+            select(execution_fills, execution_orders.c.product_id)
+            .join(execution_orders, execution_fills.c.order_id == execution_orders.c.id)
+            .where(execution_fills.c.deployment_id == deployment_id)
+            .order_by(execution_fills.c.filled_at.desc(), execution_fills.c.id.desc())
+            .limit(limit + 1)
+        )
+        if cursor is not None:
+            try:
+                filled_at, row_id = decode_cursor(cursor)
+            except ValueError as error:
+                raise ExecutionStoreError("Invalid pagination cursor.") from error
+            statement = statement.where(
+                or_(
+                    execution_fills.c.filled_at < filled_at,
+                    and_(
+                        execution_fills.c.filled_at == filled_at,
+                        execution_fills.c.id < row_id,
+                    ),
+                )
+            )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        page_rows = rows[:limit]
+        fills: list[Fill] = []
+        order_products: list[tuple[UUID, str]] = []
+        for row in page_rows:
+            fills.append(_fill_from_row(row))
+            order_products.append((row["order_id"], row["product_id"] or ""))
+        next_cursor = None
+        if len(rows) > limit:
+            last = page_rows[-1]
+            next_cursor = encode_cursor(filled_at=last["filled_at"], row_id=last["id"])
+        return PaginatedFills(
+            fills=tuple(fills),
+            next_cursor=next_cursor,
+            order_products=tuple(order_products),
+        )
+
+    async def list_orders(
+        self, deployment_id: UUID, *, limit: int, cursor: str | None = None
+    ) -> PaginatedOrders:
+        """Return one descending page of orders for one deployment."""
+        if limit < 1:
+            raise ExecutionStoreError("Order page limit must be positive.")
+        statement = (
+            select(execution_orders)
+            .where(execution_orders.c.deployment_id == deployment_id)
+            .order_by(execution_orders.c.created_at.desc(), execution_orders.c.id.desc())
+            .limit(limit + 1)
+        )
+        if cursor is not None:
+            try:
+                created_at, row_id = decode_order_cursor(cursor)
+            except ValueError as error:
+                raise ExecutionStoreError("Invalid pagination cursor.") from error
+            statement = statement.where(
+                or_(
+                    execution_orders.c.created_at < created_at,
+                    and_(
+                        execution_orders.c.created_at == created_at,
+                        execution_orders.c.id < row_id,
+                    ),
+                )
+            )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        page = tuple(_order_from_row(row) for row in rows[:limit])
+        next_cursor = None
+        if len(rows) > limit:
+            last = rows[limit - 1]
+            next_cursor = encode_order_cursor(created_at=last["created_at"], row_id=last["id"])
+        return PaginatedOrders(orders=page, next_cursor=next_cursor)
 
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return deployments for one strategy identity, newest-updated first."""
@@ -789,4 +909,99 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
         intents=tuple(_intent_from_row(row) for row in intent_rows),
         positions=positions,
         instrument_runtimes=tuple(_runtime_from_row(row) for row in runtime_rows),
+    )
+
+
+async def _summary_snapshot(
+    connection: AsyncConnection, deployment: Deployment
+) -> DeploymentSummarySnapshot:
+    """Load positions, overlays, and counts without historical orders or fills."""
+    position_rows = (
+        (
+            await connection.execute(
+                select(execution_positions).where(
+                    execution_positions.c.deployment_id == deployment.id
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    runtime_rows = (
+        (
+            await connection.execute(
+                select(execution_instrument_state).where(
+                    execution_instrument_state.c.deployment_id == deployment.id
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    fill_count = int(
+        (
+            await connection.execute(
+                select(func.count())
+                .select_from(execution_fills)
+                .where(execution_fills.c.deployment_id == deployment.id)
+            )
+        ).scalar_one()
+    )
+    working_orders = int(
+        (
+            await connection.execute(
+                select(func.count())
+                .select_from(execution_orders)
+                .where(execution_orders.c.deployment_id == deployment.id)
+                .where(
+                    execution_orders.c.status.in_(
+                        (
+                            OrderStatus.OPEN.value,
+                            OrderStatus.PENDING.value,
+                            OrderStatus.UNKNOWN.value,
+                        )
+                    )
+                )
+            )
+        ).scalar_one()
+    )
+    open_order_rows = (
+        (
+            await connection.execute(
+                select(execution_orders)
+                .where(execution_orders.c.deployment_id == deployment.id)
+                .where(
+                    execution_orders.c.status.in_(
+                        (
+                            OrderStatus.OPEN.value,
+                            OrderStatus.PENDING.value,
+                            OrderStatus.UNKNOWN.value,
+                        )
+                    )
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    positions = tuple(_position_from_row(row) for row in position_rows)
+    focused = None
+    if len(positions) == 1:
+        focused = positions[0]
+    else:
+        focused = next(
+            (item for item in positions if item.product_id in {"", deployment.product_id}),
+            None,
+        )
+    return DeploymentSummarySnapshot(
+        deployment=deployment,
+        position=focused,
+        positions=positions,
+        instrument_runtimes=tuple(_runtime_from_row(row) for row in runtime_rows),
+        book_totals=DeploymentBookTotals(
+            open_books=len(positions),
+            working_orders=working_orders,
+            fill_count=fill_count,
+        ),
+        open_orders=tuple(_order_from_row(row) for row in open_order_rows),
     )

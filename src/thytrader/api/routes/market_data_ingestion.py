@@ -23,6 +23,7 @@ from thytrader.market_data.freshness import (
     evaluate_freshness,
 )
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
@@ -139,7 +140,7 @@ class MarketFeedResponse(BaseModel):
 async def get_market_data_freshness(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> FreshnessResponse:
     """Return explicit market data freshness evaluated against newest verified candle."""
@@ -170,7 +171,7 @@ async def get_market_data_freshness(
 @router.get("/feed", response_model=MarketFeedResponse)
 async def get_market_feed_state(
     store: Annotated[MarketFeedStateStore, Depends(get_market_feed_state_store)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
 ) -> MarketFeedResponse:
     """Return the latest public ticker lifecycle snapshot."""
     try:
@@ -216,7 +217,7 @@ async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=r"^[A-Z0-9]{2,20}-USD$")] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> IngestionStateResponse:
     """Return durable ingestion evidence without initiating or mutating worker activity."""

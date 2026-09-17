@@ -63,7 +63,9 @@ def test_backtest_execution_identity_ignores_request_id_and_publication_time() -
     first = _parser().parse_args(_publication_arguments())
     second = _parser().parse_args(_publication_arguments())
 
-    assert backtest_execution_fingerprint(first) == backtest_execution_fingerprint(second)
+    assert backtest_execution_fingerprint(first, quote_currency="USD") == (
+        backtest_execution_fingerprint(second, quote_currency="USD")
+    )
 
 
 def test_backtest_execution_identity_normalizes_equivalent_decimal_inputs() -> None:
@@ -75,9 +77,9 @@ def test_backtest_execution_identity_normalizes_equivalent_decimal_inputs() -> N
     equivalent[equivalent.index("0.002")] = "0.0020"
     equivalent[equivalent.index("1")] = "1.0"
 
-    assert backtest_execution_fingerprint(_parser().parse_args(equivalent)) == (
-        backtest_execution_fingerprint(canonical)
-    )
+    assert backtest_execution_fingerprint(
+        _parser().parse_args(equivalent), quote_currency="USD"
+    ) == backtest_execution_fingerprint(canonical, quote_currency="USD")
 
 
 def test_backtest_v2_execution_identity_requires_and_hashes_spread() -> None:
@@ -92,13 +94,13 @@ def test_backtest_v2_execution_identity_requires_and_hashes_spread() -> None:
     different = [*without_spread, "--spread-bps", "25"]
 
     with pytest.raises(ValueError, match="--spread-bps is required"):
-        backtest_execution_fingerprint(_parser().parse_args(without_spread))
-    assert backtest_execution_fingerprint(_parser().parse_args(with_spread)) == (
-        backtest_execution_fingerprint(_parser().parse_args(equivalent))
-    )
-    assert backtest_execution_fingerprint(_parser().parse_args(with_spread)) != (
-        backtest_execution_fingerprint(_parser().parse_args(different))
-    )
+        backtest_execution_fingerprint(_parser().parse_args(without_spread), quote_currency="USD")
+    assert backtest_execution_fingerprint(
+        _parser().parse_args(with_spread), quote_currency="USD"
+    ) == backtest_execution_fingerprint(_parser().parse_args(equivalent), quote_currency="USD")
+    assert backtest_execution_fingerprint(
+        _parser().parse_args(with_spread), quote_currency="USD"
+    ) != backtest_execution_fingerprint(_parser().parse_args(different), quote_currency="USD")
 
 
 def test_backtest_execution_identity_includes_indicator_datasets() -> None:
@@ -127,7 +129,17 @@ def test_backtest_execution_identity_includes_indicator_datasets() -> None:
             f"1h={hour}",
         ]
     )
-    assert backtest_execution_fingerprint(baseline) != backtest_execution_fingerprint(with_hour)
-    assert backtest_execution_fingerprint(with_hour_then_day) == (
-        backtest_execution_fingerprint(with_day_then_hour)
+    assert backtest_execution_fingerprint(baseline, quote_currency="USD") != (
+        backtest_execution_fingerprint(with_hour, quote_currency="USD")
+    )
+    assert backtest_execution_fingerprint(with_hour_then_day, quote_currency="USD") == (
+        backtest_execution_fingerprint(with_day_then_hour, quote_currency="USD")
+    )
+
+
+def test_backtest_execution_identity_distinguishes_quote_currency() -> None:
+    """USDC and USD capital assumptions must not share one execution fingerprint."""
+    arguments = _parser().parse_args(_publication_arguments())
+    assert backtest_execution_fingerprint(arguments, quote_currency="USD") != (
+        backtest_execution_fingerprint(arguments, quote_currency="USDC")
     )

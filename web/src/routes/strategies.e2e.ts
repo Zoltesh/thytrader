@@ -69,7 +69,7 @@ const libraryEntry = {
 	latest_fingerprint: null,
 	published_versions: [],
 	archived: false,
-	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) · RSI ≥ 50 · 0.5% risk · $10-$100',
+	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) AND RSI(14) ≥ 50 · 0.5% risk · $10-$100',
 	backtest: null,
 	paper_live: { paper: 'unavailable', live: 'unavailable' },
 	created_at: '2026-08-14T12:00:00Z',
@@ -732,6 +732,7 @@ test('research tab launches a backtest with engine and spread and lists version 
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
 	await expect(engineMatrix.getByRole('columnheader', { name: 'V3' })).toBeVisible();
+	await expect(engineMatrix.getByRole('columnheader', { name: 'V4' })).toBeVisible();
 	await expect(page.getByLabel('Template')).toBeVisible();
 	await expect(page.getByRole('option', { name: 'RSI mean reversion' })).toBeAttached();
 

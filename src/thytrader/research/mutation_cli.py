@@ -25,7 +25,7 @@ from thytrader.backtest.submission import (
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
-from thytrader.market_data.models import EXECUTION_TIMEFRAMES
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES, published_execution_timeframe
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.persistence.database import create_engine, dispose
@@ -47,6 +47,7 @@ from thytrader.research.studies import (
     ResearchStudyRequest,
     ResearchStudyService,
     StudyPlanningError,
+    summarize_research_study_plan,
 )
 from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.publication import StrategyPublicationError
@@ -159,8 +160,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Replace one draft from a JSON file.",
     )
     save.add_argument("--file", required=True, help="Path to a StrategyDefinition JSON document.")
-    save.add_argument("--revision", required=True, type=int, help="Expected durable revision.")
+    save.add_argument(
+        "--revision",
+        required=True,
+        type=int,
+        help=(
+            "Expected durable revision for an existing draft. New create-draft and "
+            "import-draft identities start at revision 1."
+        ),
+    )
     save.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    import_draft = subparsers.add_parser(
+        "import-draft",
+        parents=[trailing],
+        help="Create a new draft identity from a full StrategyDefinition JSON file.",
+    )
+    import_draft.add_argument(
+        "--file",
+        required=True,
+        help="Path to a StrategyDefinition JSON document with a new UUIDv7 strategy_id.",
+    )
+    import_draft.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     publish = subparsers.add_parser(
         "publish",
         parents=[trailing],
@@ -254,6 +274,24 @@ def _parser() -> argparse.ArgumentParser:
         help="Path to a ResearchStudyRequest JSON document.",
     )
     study.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    study.add_argument(
+        "--async",
+        action="store_true",
+        help="Queue the study (HTTP 202) and return a job id for polling.",
+    )
+    show_research_job = subparsers.add_parser(
+        "show-research-job",
+        parents=[trailing],
+        help="Poll one async research job (backtest or study).",
+    )
+    show_research_job.add_argument("--job-id", required=True)
+    cancel_research_job = subparsers.add_parser(
+        "cancel-research-job",
+        parents=[trailing],
+        help="Cancel one queued or running research job.",
+    )
+    cancel_research_job.add_argument("--job-id", required=True)
+    cancel_research_job.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -333,6 +371,10 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
             settings,
             lambda mutator: _save_draft(mutator, definition, arguments.revision),
         )
+    if arguments.command == "import-draft":
+        _require_confirm(arguments.confirm)
+        definition = StrategyDefinition.model_validate(_load_json(arguments.file))
+        return await _with_mutator(settings, lambda mutator: _import_draft(mutator, definition))
     if arguments.command == "publish":
         _require_confirm(arguments.confirm)
         strategy_id = UUID(arguments.strategy_id)
@@ -368,10 +410,8 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
     return await _dispatch_local_study(settings, arguments)
 
 
-def _dispatch_http(arguments: argparse.Namespace) -> str:
-    """Execute one research command against the loopback HTTP API."""
-    settings = Settings()
-    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+def _dispatch_http_draft(base_url: str, arguments: argparse.Namespace) -> str | None:
+    """Handle draft create/save/import mutations over HTTP."""
     if arguments.command == "create-draft":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="create-draft")
         require_matching_ops_contract(base_url)
@@ -387,11 +427,16 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
         definition = StrategyDefinition.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
         return research_http.save_draft(base_url, definition, arguments.revision)
-    if arguments.command == "publish":
-        _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
-        strategy_id = UUID(arguments.strategy_id)
+    if arguments.command == "import-draft":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="import-draft")
+        definition = StrategyDefinition.model_validate(_load_json(arguments.file))
         require_matching_ops_contract(base_url)
-        return research_http.publish(base_url, strategy_id)
+        return research_http.import_draft(base_url, definition)
+    return None
+
+
+def _dispatch_http_jobs(base_url: str, arguments: argparse.Namespace) -> str | None:
+    """Handle backtest and research job commands over HTTP."""
     if arguments.command == "submit-backtest":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-backtest")
         request = BacktestSubmissionRequest.model_validate(_load_json(arguments.file))
@@ -404,6 +449,31 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "show-backtest-job":
         require_matching_ops_contract(base_url)
         return research_http.show_backtest_job(base_url, arguments.job_id)
+    if arguments.command == "show-research-job":
+        require_matching_ops_contract(base_url)
+        return research_http.show_research_job(base_url, arguments.job_id)
+    if arguments.command == "cancel-research-job":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="cancel-research-job")
+        require_matching_ops_contract(base_url)
+        return research_http.cancel_research_job(base_url, arguments.job_id)
+    return None
+
+
+def _dispatch_http(arguments: argparse.Namespace) -> str:
+    """Execute one research command against the loopback HTTP API."""
+    settings = Settings()
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    draft_output = _dispatch_http_draft(base_url, arguments)
+    if draft_output is not None:
+        return draft_output
+    if arguments.command == "publish":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="publish")
+        strategy_id = UUID(arguments.strategy_id)
+        require_matching_ops_contract(base_url)
+        return research_http.publish(base_url, strategy_id)
+    job_output = _dispatch_http_jobs(base_url, arguments)
+    if job_output is not None:
+        return job_output
     if arguments.command == "list-results":
         require_matching_ops_contract(base_url)
         return research_http.list_results(
@@ -475,6 +545,19 @@ async def _save_draft(
     )
 
 
+async def _import_draft(mutator: ResearchMutator, definition: StrategyDefinition) -> str:
+    """Import one custom strategy document as a new draft identity."""
+    draft = await mutator.import_draft(definition)
+    return _encode(
+        {
+            "strategy_id": str(draft.definition.strategy_id),
+            "revision": draft.revision,
+            "version": draft.definition.version,
+            "name": draft.definition.name,
+        }
+    )
+
+
 async def _publish(mutator: ResearchMutator, strategy_id: UUID) -> str:
     """Publish one draft identity."""
     published = await mutator.publish(strategy_id)
@@ -531,8 +614,7 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     timeframe = "1h"
     try:
         published = await mutator.publications.load(result.strategy_fingerprint)
-        if published.definition.timeframe in EXECUTION_TIMEFRAMES:
-            timeframe = published.definition.timeframe
+        timeframe = published_execution_timeframe(published.definition.timeframe)
     except StrategyPublicationError:
         timeframe = "1h"
     return _encode(
@@ -569,7 +651,7 @@ async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespac
 def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against the loopback HTTP API."""
     if arguments.command == "submit-study":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
     require_matching_ops_contract(base_url)
     if arguments.command == "list-templates":
         return research_http.list_templates(base_url)
@@ -579,9 +661,12 @@ def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
         return research_http.plan_study(base_url, request)
     if arguments.command == "submit-study":
-        _require_confirm(arguments.confirm)
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
-        return research_http.submit_study(base_url, request)
+        return research_http.submit_study(
+            base_url,
+            request,
+            async_submission=bool(getattr(arguments, "async", False)),
+        )
     raise AssertionError(f"unsupported research command: {arguments.command}")
 
 
@@ -594,7 +679,7 @@ async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -
         catalog=mutator.catalog,
     )
     plan = await service.plan(request)
-    return _encode(plan.model_dump(mode="json"))
+    return _encode(summarize_research_study_plan(plan).model_dump(mode="json"))
 
 
 async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest) -> str:

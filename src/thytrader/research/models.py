@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe, parse_candle_interval
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
 
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -126,9 +127,9 @@ class WarmupWindow(_FrozenModel):
 
 
 class CapitalAssumptions(_FrozenModel):
-    """Exact starting quote capital for one USD spot simulation."""
+    """Exact starting quote capital for one USD or USDC spot simulation."""
 
-    quote_currency: Literal["USD"]
+    quote_currency: SpotQuoteCurrency
     initial_quote_balance: DecimalText
 
     @field_validator("initial_quote_balance")
@@ -208,7 +209,7 @@ class IndicatorTimeframeDataset(_FrozenModel):
 class AdditionalInstrumentDataset(_FrozenModel):
     """One extra covered product bound to verified complete-only datasets."""
 
-    product_id: str = Field(pattern=r"^[A-Z0-9]{2,20}-USD$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     dataset_fingerprint: FingerprintText
     htf_dataset_fingerprint: FingerprintText | None = None
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(

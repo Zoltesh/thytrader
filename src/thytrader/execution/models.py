@@ -259,6 +259,44 @@ class InstrumentRuntime:
 
 
 @dataclass(frozen=True, slots=True)
+class DeploymentBookTotals:
+    """Collection counts for summary reads without loading every order or fill."""
+
+    open_books: int
+    working_orders: int
+    fill_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentSummarySnapshot:
+    """Deployment inventory and overlay without historical orders or fills."""
+
+    deployment: Deployment
+    position: Position | None
+    positions: tuple[Position, ...]
+    instrument_runtimes: tuple[InstrumentRuntime, ...]
+    book_totals: DeploymentBookTotals
+    open_orders: tuple[Order, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class PaginatedFills:
+    """One page of fills plus an optional next cursor."""
+
+    fills: tuple[Fill, ...]
+    next_cursor: str | None
+    order_products: tuple[tuple[UUID, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PaginatedOrders:
+    """One page of orders plus an optional next cursor."""
+
+    orders: tuple[Order, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class DeploymentSnapshot:
     """One deployment plus positions, orders, fills, and per-product runtime overlays."""
 

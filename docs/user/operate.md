@@ -37,11 +37,14 @@ opens the same read-only Insight panel; Research and Deploy are links to their o
 
 Open http://127.0.0.1:5175/research (or `/research?strategy=` from the library). Research explicitly
 selects an immutable strategy version, verified dataset, evaluation period, initial capital,
-maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. When
-Coinbase credentials are present, maker/taker fields prefill from fee-tier suggested defaults and
-stay editable; demo or missing credentials leave those fields blank rather than inventing a tier.
-It lists every stored result for each exact published version and compares the latest result across
-versions; dataset and per-version result failures remain visible without hiding strategy evidence.
+maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. Omitting
+both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
+rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
+from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
+blank rather than inventing a tier. It lists every stored result for each exact published version
+and compares the latest result across versions; dataset and per-version result failures remain
+visible without hiding strategy evidence. Result summaries report the published strategy clock,
+including `2h` and `4h`, not a hardcoded `1h`.
 
 **Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
 consumes that mutable draft and records canonical strategy evidence; it does **not** start paper or
@@ -137,14 +140,16 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | Lane | What it may do | Gate |
 |---|---|---|
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
-| `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations |
+| `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations; writes send installation Bearer when a token is resolvable |
 | `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
 | `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials | `--confirm`; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 
 Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Missing candles are
-never interpolated.
+never interpolated. One ingest queue keeps walking until `watch_complete` or a durable failure.
+`inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
+stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 
 Command details live in the canonical skills under [`skills/`](../../skills/README.md). Do not
 scrape logs, query PostgreSQL, or print `.env`.

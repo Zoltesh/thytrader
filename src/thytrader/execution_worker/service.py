@@ -922,7 +922,7 @@ async def _discretionary_execution_broker(
         store=store,
         live_broker=live_broker,
         quote_reader=quote_reader,
-        quote_currency="USD",
+        quote_currency=product.quote_currency,
         product_id=product.product_id,
         cooldown_bars=0,
     )

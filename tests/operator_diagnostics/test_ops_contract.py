@@ -31,15 +31,29 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v28"
+    assert expected["id"] == "thytrader-ops-contract-v32"
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0041"
+    assert expected["expected_schema_revision"] == "0045"
+    assert expected["bounded_deployment_reads"] == ["list", "summary", "fills", "orders"]
+    assert expected["deployment_ledger_pagination"] == ["cursor"]
+    assert expected["multi_book_ledger"] == ["paper", "live"]
+    assert expected["spot_quote_currencies"] == ["USD", "USDC"]
+    assert expected["catalog_health"] == [
+        "bounded_gap_inspection",
+        "ingest_self_complete",
+        "heartbeat_during_ingest",
+    ]
     assert expected["async_backtest_job_statuses"] == [
         "queued",
         "running",
         "completed",
         "failed",
+        "cancelled",
+        "expired",
     ]
+    assert expected["research_job_statuses"] == expected["async_backtest_job_statuses"]
+    assert expected["max_concurrent_research_jobs"] == 2
+    assert expected["research_job_expiry_hours"] == 24
     assert expected["deployment_capital_fields"] == [
         "allocated_capital",
         "venue_available_quote",

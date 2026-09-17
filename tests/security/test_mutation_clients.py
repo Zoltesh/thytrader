@@ -11,7 +11,7 @@ from thytrader.agent_http import request_mutation_json
 from thytrader.agent_orchestration.client import record_skipped_confirmation
 from thytrader.agent_orchestration.models import YoloTier
 from thytrader.config import Environment, Settings
-from thytrader.data_control.client import add_watch
+from thytrader.data_control.client import add_watch, fill_gaps
 from thytrader.memory.client import add_journal
 from thytrader.research.http import create_draft
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
@@ -77,6 +77,29 @@ def test_data_client_watch_add_sends_installation_bearer() -> None:
             timeframe="5m",
             lookback_hours=168,
             enabled=True,
+        )
+    assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"
+
+
+def test_data_client_fill_gaps_sends_installation_bearer() -> None:
+    """Fill-gaps continuation POSTs use the shared installation-auth helper."""
+    patcher, captured = _capture_auth_header()
+    settings = _boundary_settings()
+    with (
+        patcher,
+        patch(
+            "thytrader.agent_http.Settings",
+            return_value=settings,
+        ),
+        patch(
+            "thytrader.data_control.client.ingest_status",
+            return_value={"ingest_requested_at": None},
+        ),
+    ):
+        fill_gaps(
+            "http://127.0.0.1:8200",
+            product_id="DOGE-USD",
+            timeframe="5m",
         )
     assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"
 

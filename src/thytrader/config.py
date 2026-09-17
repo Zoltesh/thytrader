@@ -11,6 +11,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from thytrader.agent_orchestration.models import YoloTier
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.memory.models import (
     NotifyProvider,
 )
@@ -94,7 +95,7 @@ class Settings(BaseSettings):
     worker_readiness_file: Path | None = None
     market_data_worker_interval_seconds: int = Field(default=300, ge=60, le=86_400)
     market_data_worker_lookback_hours: int = Field(default=168, ge=1, le=2_160)
-    market_data_worker_product_id: str = Field(default="BTC-USD", pattern=r"^[A-Z0-9]{2,20}-USD$")
+    market_data_worker_product_id: str = Field(default="BTC-USD", pattern=SPOT_PRODUCT_ID_PATTERN)
     market_data_dataset_root: Path = Path("data/market-data")
     market_data_worker_readiness_file: Path | None = None
     execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)

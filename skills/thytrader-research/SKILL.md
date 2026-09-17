@@ -21,7 +21,8 @@ Production installs enforce the application trust boundary
 `$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
 The CLI sends that header automatically; `--local` bypasses HTTP and therefore the boundary.
 
-Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/{id}/publish`,
+Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/import`,
+`POST /api/v1/strategies/{id}/publish`,
 `POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`) remain valid. The agent-facing mutation
 path is `uv run thytrader-research` with `--confirm`.
 
@@ -66,12 +67,16 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | List draft templates | `uv run thytrader-research list-templates` |
 | Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
+| Import a new custom draft from JSON | `uv run thytrader-research import-draft --file definition.json --confirm` |
 | Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
 | Queue a long backtest (HTTP 202) | `uv run thytrader-research submit-backtest --file request.json --async --confirm` |
 | Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
 | Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
+| Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` |
+| Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
+| Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
@@ -91,11 +96,15 @@ to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_per
 total candidates (≤8 values per axis does not imply ≤8 total).
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
-`plan-study` derives axis candidates in memory. `submit-study --confirm` publishes missing derived
-documents, then submits ordinary backtests, then persists a catalog row. `list-studies` is
-newest-first summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same
-bounded summary (`window_count`, aggregates, stitch metadata without `points`). Pass
-`?detail=full` for child `windows`. `show-study` uses the default summary. Operator
+`plan-study` derives axis candidates in memory and returns a compact plan summary by default
+(`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
+child windows are required. `submit-study --confirm` publishes missing derived documents, then
+submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
+`plan_fingerprint` even when request bounds differ. Long WFO batches should use
+`submit-study --async --confirm` and poll `show-research-job`. `list-studies` is newest-first
+summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
+(`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
+`windows`. `show-study` uses the default summary. Operator
 `thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
 a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
@@ -105,7 +114,7 @@ need 2–8 published single-instrument strategies on distinct products. See
 
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (any ingested venue clock) for another USD spot product. Paper and live may start that published fingerprint.
+`--timeframe` (any ingested venue clock) for another USD or USDC spot product. Paper and live may start that published fingerprint.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
 create-draft JSON. It does not change published strategy semantics, place orders, or arm live
@@ -142,14 +151,20 @@ Optional per-indicator `timeframe` on LTF-list indicators must be a coarser inte
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
-id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic
+id. Copy a candle field with `identity`. Custom documents need a new UUIDv7 `strategy_id` and
+`status: draft`; use `import-draft --file … --confirm` to create a new identity. Use
+`save-draft --file … --revision N --confirm` only to replace an existing draft (first save after
+create/import uses `--revision 1`; each accepted save bumps revision). `save-draft` prints the first Pydantic
 validation message; do not treat a generic “failed safely” string as success. HTTP 422 that lists
 backtest engines through v1/v2 only, or through v3 without v4, is a stale Compose image — rebuild
 with `make run`. A matching `/health/ready` ops contract must advertise v4 before v4
 `submit-backtest` requests ([ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
-dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
+common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,
+unbound indicator-timeframe datasets, and additional-instrument datasets). LTF warmup still sits
+before the start and one LTF bar after the end is reserved for next-open fill. Extra clocks use
+last-completed coverage only (no extra-clock next-open fill). If that intersection is empty, or
 supplied dates do not fit, the API returns 422 with a suggested ISO range. `evaluation_end` uses a
 half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `evaluation_end` named
 in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
@@ -157,6 +172,9 @@ long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtes
 poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
 `…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
 reproducing a published v3 fingerprint.
+
+`show-result` copies the published strategy decision clock (`1m` through `1d`, including `2h` and
+`4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
 ## Maker/taker rates
 
@@ -174,7 +192,7 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 
 ## Confirmation
 
-- Never run `create-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- Never run `create-draft`, `import-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
 - `--local` research always requires `--confirm` (YOLO is HTTP-only).
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
 - Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`, `study_fingerprint`). Keep those identities.

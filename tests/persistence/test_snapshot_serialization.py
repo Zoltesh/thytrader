@@ -514,6 +514,19 @@ def test_extended_slow_timeframe_lookback_migration_follows_research_slice() -> 
     assert "8760" in content
 
 
+def test_catalog_health_ops_contract_v30_follows_usdc_quote() -> None:
+    """0043 marks catalog health after 0042 and must not steal reserved 0044 or 0045."""
+    content = Path("alembic/versions/0043_catalog_health_ops_contract_v30.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0043"' in content
+    assert 'down_revision = "0042"' in content
+    assert "0044" in content
+    assert "0045" in content
+    assert "ADR 0072" in content
+    assert "v30" in content
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

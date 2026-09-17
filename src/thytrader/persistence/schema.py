@@ -316,11 +316,45 @@ Index(
     published_backtest_results.c.dataset_fingerprint,
 )
 
+research_jobs = Table(
+    "research_jobs",
+    metadata,
+    Column("job_id", UUID(), primary_key=True),
+    Column("kind", String(16), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("payload", Text(), nullable=False),
+    Column("progress_current", Integer(), nullable=False, server_default="0"),
+    Column("progress_total", Integer(), nullable=False, server_default="0"),
+    Column("error_message", String(256), nullable=True),
+    Column("run_fingerprint", String(71), nullable=True),
+    Column("result_fingerprint", String(71), nullable=True),
+    Column("study_fingerprint", String(71), nullable=True),
+    Column("plan_fingerprint", String(71), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("cancel_requested", Boolean(), nullable=False, server_default="false"),
+    CheckConstraint("kind IN ('backtest', 'study')", name="ck_research_jobs_kind"),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
+        name="ck_research_jobs_status",
+    ),
+    CheckConstraint("progress_current >= 0", name="ck_research_jobs_progress_current"),
+    CheckConstraint("progress_total >= 0", name="ck_research_jobs_progress_total"),
+)
+
+Index(
+    "ix_research_jobs_status_created",
+    research_jobs.c.status,
+    research_jobs.c.created_at.asc(),
+)
+
 published_research_studies = Table(
     "published_research_studies",
     metadata,
     Column("study_fingerprint", String(71), primary_key=True),
     Column("request_fingerprint", String(71), nullable=False),
+    Column("plan_fingerprint", String(71), nullable=False),
     Column("kind", String(32), nullable=False),
     Column("engine_contract_version", String(64), nullable=False),
     Column("product_id", String(32), nullable=False),
@@ -339,6 +373,10 @@ published_research_studies = Table(
     CheckConstraint(
         "request_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_research_study_request_fingerprint_format",
+    ),
+    CheckConstraint(
+        "plan_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        name="ck_research_study_plan_fingerprint_format",
     ),
     CheckConstraint(
         "kind IN ("
@@ -370,6 +408,12 @@ Index(
     published_research_studies.c.kind,
     published_research_studies.c.published_at.desc(),
     published_research_studies.c.study_fingerprint.asc(),
+)
+
+Index(
+    "ix_published_research_studies_plan_fingerprint",
+    published_research_studies.c.plan_fingerprint,
+    unique=True,
 )
 
 audit_events = Table(
@@ -986,6 +1030,7 @@ __all__ = [
     "published_research_studies",
     "published_risk_policies",
     "published_strategy_versions",
+    "research_jobs",
     "strategy_dataset_bindings",
     "strategy_drafts",
     "trade_reason_records",
