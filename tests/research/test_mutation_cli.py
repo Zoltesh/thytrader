@@ -125,6 +125,35 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
     assert "failed safely" not in message
 
 
+def test_submit_backtest_stale_v3_only_engine_422_hints_rebuild(tmp_path: Path) -> None:
+    """A pre-v4 API that lists v1-v3 but not v4 must tell operators to rebuild."""
+    path = tmp_path / "request.json"
+    path.write_text("{}")
+    with (
+        patch(
+            "thytrader.research.mutation_cli.BacktestSubmissionRequest.model_validate",
+            return_value=object(),
+        ),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch(
+            "thytrader.research.http.submit_backtest",
+            side_effect=AgentHttpError(
+                "HTTP 422: Input should be 'thytrader-bar-backtest-v1', "
+                "'thytrader-bar-backtest-v2', or 'thytrader-bar-backtest-v3'"
+            ),
+        ),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["submit-backtest", "--file", str(path), "--confirm"])
+    message = str(raised.value)
+    assert "422" in message
+    assert "make run" in message
+    assert "failed safely" not in message
+
+
 def test_create_draft_yolo_skips_confirm() -> None:
     """Research YOLO records a skip then creates a draft without --confirm."""
     skip = {

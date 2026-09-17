@@ -8,14 +8,14 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0035`):
+Current checkout (Alembic `0038`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v22` |
-| `expected_schema_revision` | `0035` |
+| `id` | `thytrader-ops-contract-v25` |
+| `expected_schema_revision` | `0038` |
 | `max_historical_interval_count` | `129600` |
-| `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3` |
+| `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3`, `v4` |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
 | `htf_filter_runtimes` | `research`, `paper`, `live` |
 | `indicator_timeframe_runtimes` | `research`, `paper`, `live` |
@@ -30,11 +30,12 @@ Current checkout (Alembic `0035`):
 | `multi_instrument_documents` | `research`, `paper`, `live` |
 | `intra_strategy_pyramiding` | `research`, `paper`, `live` |
 | `lifecycle_commands` | `none`, `stop_new_entries`, `flatten`, `managed_shutdown` |
+| `deployment_capital_fields` | `allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, `utc_day_open_equity` |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v22
+    id thytrader-ops-contract-v25
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -52,7 +53,8 @@ classDiagram
     multi_instrument_documents
     intra_strategy_pyramiding
     lifecycle_commands
-    expected_schema_revision 0035
+    deployment_capital_fields
+    expected_schema_revision 0038
   }
   class HealthPayload {
     api_probed
@@ -87,8 +89,9 @@ per-indicator clocks, spot shorting, attached entry brackets, paper deploy fee
 fields, risk circuit breakers / order-rate limits / reference-price collars, the
 persisted research-study catalog, trade-reason journals, multi-instrument
 documents, intra-strategy pyramiding, attached-child protection, worker leases,
-live capital vs venue cash, durable daily-loss/drawdown baselines, or lifecycle
-stop/flatten/managed-shutdown commands change
+live capital vs venue cash, deployment HTTP `capital` field names, durable
+daily-loss/drawdown baselines, or lifecycle stop/flatten/managed-shutdown
+commands change
 ([ADR 0019](../../decisions/0019-ops-contract-identity.md),
 [ADR 0048](../../decisions/0048-paper-deploy-fee-fields.md),
 [ADR 0049](../../decisions/0049-experiential-train-v1.md),

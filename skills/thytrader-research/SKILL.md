@@ -132,8 +132,10 @@ clock; omit it to keep the decision clock. `constant` and HTF-filter indicators 
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
 id. Copy a candle field with `identity`. `save-draft` prints the first Pydantic
-validation message; do not treat a generic “failed safely” string as success. HTTP 422 that still
-lists only backtest v1/v2 is a stale Compose image — rebuild with `make run`.
+validation message; do not treat a generic “failed safely” string as success. HTTP 422 that lists
+backtest engines through v1/v2 only, or through v3 without v4, is a stale Compose image — rebuild
+with `make run`. A matching `/health/ready` ops contract must advertise v4 before v4
+`submit-backtest` requests ([ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 dataset's usable window (warmup before the start, one bar after the end for next-open fill). If
