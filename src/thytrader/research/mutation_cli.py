@@ -642,6 +642,8 @@ async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespac
 
 def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against the loopback HTTP API."""
+    if arguments.command == "submit-study":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
     require_matching_ops_contract(base_url)
     if arguments.command == "list-templates":
         return research_http.list_templates(base_url)
@@ -651,7 +653,6 @@ def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
         return research_http.plan_study(base_url, request)
     if arguments.command == "submit-study":
-        _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
         return research_http.submit_study(
             base_url,
