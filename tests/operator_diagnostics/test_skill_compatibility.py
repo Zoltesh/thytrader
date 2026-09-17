@@ -69,6 +69,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
+    assert "thytrader-ops-contract-v26" in skill
+    assert "0039" in skill
     assert "0058-protection-lifecycle-accounting" in skill
     assert "lifecycle_command" in skill
     assert "lifecycle_commands" in schemas
@@ -122,6 +124,7 @@ def test_data_skill_requires_confirm_and_forbids_interpolation() -> None:
     assert "thytrader-data" in skill
     assert "--confirm" in skill
     assert "watch-add" in skill
+    assert "--disabled" in skill
     assert "inspect-gaps" in skill
     assert "Never interpolates" in skill or "never interpolated" in skill.lower()
     assert "Never deploys" in skill or "cannot deploy" in skill.lower()
@@ -191,8 +194,12 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "book_totals" in skill
     assert "compatibility" in skill.lower()
     assert "--flatten" in skill
+    assert "reset-breaker-latches" in skill
+    assert "0064-deployment-http-lifecycle-and-breaker-latch-reset" in skill
     assert "managed shutdown" in skill.lower() or "managed-shutdown" in skill.lower()
     assert "0058-protection-lifecycle-accounting" in skill
+    assert "lifecycle_command" in skill
+    assert "allocated_capital" in skill
     assert "allocated capital" in skill.lower() or "venue available quote" in skill.lower()
     assert "worker_lease_held" in skill or "fenced lease" in skill.lower()
 

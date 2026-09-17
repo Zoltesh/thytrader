@@ -81,7 +81,8 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Resume | `uv run thytrader-runtime resume UUID --confirm` |
 | Stop (managed shutdown) | `uv run thytrader-runtime stop UUID --confirm` |
 | Stop and flatten | `uv run thytrader-runtime stop UUID --flatten --confirm` ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)) |
-| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side long --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
+| Clear latched breakers | `uv run thytrader-runtime reset-breaker-latches UUID --confirm` ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)) |
+| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side long --origin agent --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
 | Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
@@ -100,23 +101,30 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
-([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), and a `capital` block with
-`allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`,
-`performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, and
-`utc_day_open_equity` ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)).
-Top-level `cash` is ledger fill accounting only; live sizing uses `capital.allocated_capital` or
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the published strategy
+`timeframe` (copied from the immutable strategy when the stored deployment row is null;
+[ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)),
+ADR 0058 lifecycle fields
+(`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`, `revision`, `worker_lease_held`;
+[ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)), and a
+`capital` block with `allocated_capital`, `venue_available_quote`, `reserved_buying_power`,
+`inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`,
+`high_water_mark_equity`, and `utc_day_open_equity`
+([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
+ledger fill accounting only; live sizing uses `capital.allocated_capital` or
 `capital.venue_available_quote` (null when unknown). The singular `position` field is
 compatibility-only (focused book, always includes `product_id` and `compatibility_focus`). Read
-`positions` for inventory. `--i-understand-live` is unchanged.
-Optional breaker flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
+`positions` for inventory. `--i-understand-live` is unchanged. `set-risk-policy` optional breaker
+flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
 `--max-strategy-drawdown-fraction 1`, `--max-entry-orders-per-minute 60`,
 `--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and
-drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not
-pause. Pass `--allow-intra-strategy-pyramiding` when paper/live same-side adds should be
-legal; the published strategy must also enable `entry.pyramiding`. Omitted (false) keeps
-compiled-default policy bytes stable. Schema-enabled pyramiding without this flag is denied
+drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not pause.
+Pass `--allow-intra-strategy-pyramiding` when paper/live same-side adds should be legal; the
+published strategy must also enable `entry.pyramiding`. Omitted (false) keeps compiled-default
+policy bytes stable. Schema-enabled pyramiding without this flag is denied
 (`PYRAMIDING_NOT_ALLOWED`). Backtests follow the strategy document only. `set-risk-policy`
-requires `--confirm` and does **not** require `--i-understand-live`.
+requires `--confirm` and does **not** require `--i-understand-live`. `reset-breaker-latches`
+always requires `--confirm`; YOLO never skips it.
 
 **Live start and live on-demand orders require a published policy** ([ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)):
 the compiled default is a wide **paper** research envelope, not a live-safe default. A fresh
@@ -156,6 +164,7 @@ Underlying HTTP:
 - `POST /api/v1/deployments/{id}/pause`
 - `POST /api/v1/deployments/{id}/resume`
 - `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)
+- `POST /api/v1/deployments/{id}/reset-breaker-latches`
 - `POST /api/v1/discretionary-orders`
 - `GET/PUT /api/v1/risk-policy`
 - `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))

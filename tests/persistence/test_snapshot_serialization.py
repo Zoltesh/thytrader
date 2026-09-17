@@ -484,6 +484,17 @@ def test_research_ops_contract_v25_migration_follows_portfolio_slice() -> None:
     assert "thytrader-bar-backtest-v4" in content
 
 
+def test_operator_ops_contract_v26_migration_follows_research_slice() -> None:
+    """The thirty-ninth migration must mark ops-contract v26 after 0038."""
+    content = Path("alembic/versions/0039_ops_contract_v26_breaker_latch_reset.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0039"' in content
+    assert 'down_revision = "0038"' in content
+    assert "ADR 0064" in content
+    assert "breaker latch reset" in content.lower()
+
+
 def test_migration_file_exists_with_correct_revision() -> None:
     """The initial migration must exist and declare revision 0001."""
     migration_path = Path("alembic/versions/0001_portfolio_snapshots.py")

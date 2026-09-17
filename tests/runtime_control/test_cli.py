@@ -967,6 +967,39 @@ def test_set_coinbase_credentials_reads_file_and_calls_http(
     assert "SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO" not in output
 
 
+def test_reset_breaker_latches_requires_confirm() -> None:
+    """Breaker latch reset never inherits YOLO skip-confirm."""
+    with (
+        patch("thytrader.runtime_control.cli.reset_breaker_latches") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["reset-breaker-latches", "00000000-0000-0000-0000-000000000001"])
+    assert raised.value.code != 0
+    request.assert_not_called()
+
+
+def test_reset_breaker_latches_calls_http_with_confirm() -> None:
+    """Confirmed latch reset posts to the deployment reset route."""
+    handlers = {"GET /health/ready": matching_ready_payload()}
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.reset_breaker_latches",
+            return_value={"daily_loss_latched": False},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "reset-breaker-latches",
+                "00000000-0000-0000-0000-000000000001",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    request.assert_called_once()
+
+
 def test_clear_coinbase_credentials_requires_confirm() -> None:
     """Clearing Coinbase secrets is confirmation-hard-gated."""
     with (

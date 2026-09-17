@@ -139,7 +139,7 @@ async def post_discretionary_order(
             product_id=request.product_id,
         )
     )
-    return _snapshot_response(snapshot)
+    return await _snapshot_response(snapshot)
 
 
 def _broker_for_request(

@@ -117,6 +117,7 @@ class OpsContractPayload(_FrozenModel):
         Literal["none", "stop_new_entries", "flatten", "managed_shutdown"], ...
     ]
     deployment_capital_fields: tuple[str, ...]
+    breaker_latch_reset: tuple[Literal["paper", "live"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

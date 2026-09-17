@@ -28,8 +28,8 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v25"
-EXPECTED_SCHEMA_REVISION = "0038"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v26"
+EXPECTED_SCHEMA_REVISION = "0039"
 DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "venue_available_quote",
@@ -62,6 +62,7 @@ TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
 MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
 INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
 LIFECYCLE_COMMANDS: tuple[str, ...] = ("none", "stop_new_entries", "flatten", "managed_shutdown")
+BREAKER_LATCH_RESET: tuple[str, ...] = ("paper", "live")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -87,6 +88,7 @@ def expected_ops_contract() -> dict[str, object]:
         "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),
         "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
+        "breaker_latch_reset": list(BREAKER_LATCH_RESET),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

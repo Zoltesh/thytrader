@@ -136,6 +136,20 @@ def set_deployment_status(
     )
 
 
+def reset_breaker_latches(
+    base_url: str,
+    deployment_id: str,
+    *,
+    settings: Settings | None = None,
+) -> object:
+    """Clear latched daily-loss and drawdown breakers on one deployment."""
+    return request_mutation_json(
+        method="POST",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/reset-breaker-latches",
+        settings=settings,
+    )
+
+
 def show_risk_policy(base_url: str) -> object:
     """Return the effective compiled or published risk policy."""
     return request_json(method="GET", url=f"{base_url}{_RISK_POLICY_PREFIX}")

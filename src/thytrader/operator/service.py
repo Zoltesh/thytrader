@@ -1199,7 +1199,12 @@ class OperatorDiagnostics:
             snapshot = await self._snapshot_or_none(item.id)
             extra_ids = extra.get(item.strategy_fingerprint or "", (item.product_id,))
             summaries.append(
-                _deployment_summary(item, snapshot=snapshot, extra_product_ids=extra_ids)
+                _deployment_summary(
+                    item,
+                    snapshot=snapshot,
+                    extra_product_ids=extra_ids,
+                    timeframe=await self._runtime_timeframe(item),
+                )
             )
         return tuple(summaries)
 
@@ -1695,6 +1700,7 @@ def _deployment_summary(
     *,
     snapshot: DeploymentSnapshot | None = None,
     extra_product_ids: tuple[str, ...] = (),
+    timeframe: SupportedTimeframe | None = None,
 ) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
     return DeploymentSummary(
@@ -1702,7 +1708,7 @@ def _deployment_summary(
         kind=deployment.kind.value,
         strategy_id=deployment.strategy_id,
         strategy_fingerprint=deployment.strategy_fingerprint,
-        timeframe=_supported_clock(deployment.timeframe),
+        timeframe=timeframe if timeframe is not None else _supported_clock(deployment.timeframe),
         mode=deployment.mode.value,
         status=deployment.status.value,
         phase=deployment.phase.value,

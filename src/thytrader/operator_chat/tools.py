@@ -93,7 +93,7 @@ def path_keys(path: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
-_QUERY_POST_TOOLS = frozenset({"research_create_draft"})
+_QUERY_POST_TOOLS = frozenset({"research_create_draft", "runtime_stop"})
 _PAYLOAD_BODY_TOOLS = frozenset(
     {
         "research_submit_backtest",
@@ -113,7 +113,16 @@ def split_request(
     path = tool.path.format(**{key: _as_str(value) for key, value in values.items()})
     rest = {key: value for key, value in arguments.items() if key not in values}
     if tool.method.upper() == "GET" or tool.name in _QUERY_POST_TOOLS:
-        query = {key: _as_str(value) for key, value in rest.items() if value is not None}
+        query: dict[str, str] = {}
+        for key, value in rest.items():
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                if not value:
+                    continue
+                query[key] = "true"
+            else:
+                query[key] = _as_str(value)
         return path, query, None
     body = _json_body(tool.name, rest)
     return path, {}, body
@@ -336,6 +345,32 @@ _TOOLS: tuple[ChatTool, ...] = (
         lane=ChatLane.OPERATOR,
         method="GET",
         path="/api/v1/operator/support-bundle",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={},
+        required=(),
+    ),
+    ChatTool(
+        name="operator_studies",
+        description="Persisted research study catalog without trading authority.",
+        lane=ChatLane.OPERATOR,
+        method="GET",
+        path="/api/v1/operator/studies",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={},
+        required=(),
+    ),
+    ChatTool(
+        name="operator_trade_reasons",
+        description="Why-trade journals and review notes without order payloads.",
+        lane=ChatLane.OPERATOR,
+        method="GET",
+        path="/api/v1/operator/trade-reasons",
         mutation=False,
         yolo="none",
         hard_gate=False,
@@ -592,7 +627,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="runtime_stop",
-        description="Stop one deployment.",
+        description=(
+            "Stop one deployment. Default is managed shutdown; pass flatten=true to "
+            "marketably exit then cancel remainders."
+        ),
         lane=ChatLane.RUNTIME,
         method="POST",
         path="/api/v1/deployments/{deployment_id}/stop",
@@ -600,7 +638,13 @@ _TOOLS: tuple[ChatTool, ...] = (
         yolo="deployment_mode",
         hard_gate=False,
         live_ack="never",
-        properties={"deployment_id": _UUID},
+        properties={
+            "deployment_id": _UUID,
+            "flatten": {
+                "type": "boolean",
+                "description": "When true, marketably exit inventory then cancel remainders.",
+            },
+        },
         required=("deployment_id",),
     ),
     ChatTool(

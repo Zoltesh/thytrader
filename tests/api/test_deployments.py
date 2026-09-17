@@ -12,7 +12,7 @@ from pydantic import SecretStr
 
 from thytrader.api.app import create_app
 from thytrader.config import Environment, Settings
-from thytrader.execution.ids import uuid7
+from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
@@ -26,9 +26,10 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
+    with_runtime,
 )
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
-from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.models import RiskReasonCode, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
@@ -285,6 +286,164 @@ def test_pause_resume_and_stop_deployment() -> None:
     assert resumed.json()["status"] == "running"
     assert stopped.json()["status"] == "stopped"
     assert rejected.status_code == 409
+
+
+def test_deployment_response_includes_lifecycle_and_capital_fields() -> None:
+    """Runtime show exposes ADR 0058 lifecycle and capital fields over HTTP."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+
+    body = created.json()
+    assert body["lifecycle_command"] == "none"
+    assert body["daily_loss_latched"] is False
+    assert body["drawdown_latched"] is False
+    assert body["revision"] == 0
+    assert body["worker_lease_held"] is False
+    capital = body["capital"]
+    assert capital["allocated_capital"] is None
+    assert capital["venue_available_quote"] is None
+
+
+def test_deployment_list_includes_lifecycle_observability_fields() -> None:
+    """List deployments returns the same runtime observability fields as show."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+        listed = client.get("/api/v1/deployments")
+
+    body = listed.json()["deployments"][0]
+    assert body["lifecycle_command"] == "none"
+    assert body["daily_loss_latched"] is False
+    assert body["drawdown_latched"] is False
+    assert body["revision"] == 0
+    assert body["worker_lease_held"] is False
+    assert "capital" in body
+
+
+def test_deployment_list_resolves_timeframe_from_published_strategy() -> None:
+    """Legacy rows with null deployment.timeframe copy the published strategy clock."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "2h"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    now = datetime(2026, 9, 17, tzinfo=UTC)
+    asyncio.run(
+        execution.create_deployment(
+            Deployment(
+                id=uuid4(),
+                strategy_fingerprint=fingerprint,
+                strategy_id=definition.strategy_id,
+                product_id=definition.instrument.product_id,
+                mode=DeploymentMode.PAPER,
+                status=DeploymentStatus.RUNNING,
+                cash=Decimal("100"),
+                phase=RuntimePhase.FLAT,
+                created_at=now,
+                updated_at=now,
+                paper_starting_cash=Decimal("100"),
+            )
+        )
+    )
+
+    with _client(publication, execution) as client:
+        listed = client.get("/api/v1/deployments")
+
+    assert listed.json()["deployments"][0]["timeframe"] == "2h"
+
+
+def test_create_deployment_persists_strategy_timeframe() -> None:
+    """New deployments store the published strategy clock for runtime list/show."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy().model_copy(update={"timeframe": "2h"})
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+
+    assert created.json()["timeframe"] == "2h"
+
+
+def test_reset_breaker_latches_clears_latched_breakers() -> None:
+    """Explicit operator reset clears latched breakers and breaker mismatch detail."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = PublishedStrategy(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_fingerprint": fingerprint,
+                "mode": "paper",
+                "paper_starting_cash": "5000",
+            },
+        )
+        deployment_id = UUID(created.json()["id"])
+        snapshot = asyncio.run(execution.get_deployment(deployment_id))
+        latched = with_runtime(
+            snapshot.deployment,
+            updated_at=utc_now(),
+            daily_loss_latched=True,
+            mismatch_detail=(
+                f"{RiskReasonCode.DAILY_LOSS_LIMIT.value}: Daily-loss breaker is latched."
+            ),
+        )
+        asyncio.run(execution.save_deployment(latched))
+        reset = client.post(f"/api/v1/deployments/{deployment_id}/reset-breaker-latches")
+        empty = client.post(f"/api/v1/deployments/{deployment_id}/reset-breaker-latches")
+
+    body = reset.json()
+    assert body["daily_loss_latched"] is False
+    assert body["drawdown_latched"] is False
+    assert body["mismatch_detail"] is None
+    assert empty.status_code == 409
 
 
 def test_duplicate_running_paper_deployment_conflicts() -> None:
