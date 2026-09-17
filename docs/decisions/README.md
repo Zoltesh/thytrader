@@ -77,6 +77,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0071](0071-usdc-spot-quote-markets.md) | USDC spot quote markets across product, strategy, research, risk, and runtime; ops contract v29 | Accepted |
 | [0070](0070-mutation-cli-installation-auth.md) | Shared `request_mutation_json()` wires installation Bearer auth on all mutation CLIs | Accepted |
 | [0072](0072-catalog-health-bounded-gaps-self-complete-ingest.md) | Bounded gap inspection, self-complete ingest, heartbeat during ingest; ops v30 / Alembic 0043 | Accepted |
+| [0073](0073-durable-research-jobs.md) | Durable bounded research jobs, plan dedupe, compact planner; ops contract v31 / Alembic 0044 | Accepted |
 
 ## Status values
 

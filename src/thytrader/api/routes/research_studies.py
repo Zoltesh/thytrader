@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated, Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
     get_backtest_result_store,
     get_backtest_submitter,
+    get_research_job_store,
     get_research_study_catalog,
     get_strategy_publication_store,
 )
+from thytrader.research.jobs import ResearchJobAcceptedResponse, ResearchJobRecord, ResearchJobStore
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
@@ -36,12 +39,14 @@ from thytrader.research.studies import (
     ResearchStudy,
     ResearchStudyError,
     ResearchStudyPlan,
+    ResearchStudyPlanSummary,
     ResearchStudyRequest,
     ResearchStudyService,
     ResearchStudySummary,
     StudyKind,
     StudyPlanningError,
     summarize_research_study,
+    summarize_research_study_plan,
 )
 from thytrader.strategies.publication import (
     StrategyPublicationError,
@@ -106,14 +111,18 @@ def get_strategy_templates() -> StrategyTemplateListResponse:
     return StrategyTemplateListResponse(templates=entries)
 
 
-@router.post("/studies/plan", response_model=ResearchStudyPlan)
+@router.post(
+    "/studies/plan",
+    response_model=ResearchStudyPlanSummary | ResearchStudyPlan,
+)
 async def plan_research_study(
     request: ResearchStudyRequest,
     service: Annotated[ResearchStudyService, Depends(_study_service)],
-) -> ResearchStudyPlan:
-    """Return the child window schedule without submitting backtests."""
+    detail: Annotated[Literal["summary", "full"], Query()] = "summary",
+) -> ResearchStudyPlanSummary | ResearchStudyPlan:
+    """Return a compact plan summary (default) or the full window schedule."""
     try:
-        return await service.plan(request)
+        plan = await service.plan(request)
     except StudyPlanningError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -125,14 +134,39 @@ async def plan_research_study(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Research study planning is unavailable.",
         ) from None
+    if detail == "full":
+        return plan
+    return summarize_research_study_plan(plan)
 
 
-@router.post("/studies", response_model=ResearchStudy, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/studies",
+    response_model=None,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_201_CREATED: {"model": ResearchStudy},
+        status.HTTP_202_ACCEPTED: {"model": ResearchJobAcceptedResponse},
+    },
+)
 async def submit_research_study(
     request: ResearchStudyRequest,
     service: Annotated[ResearchStudyService, Depends(_study_service)],
-) -> ResearchStudy:
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+    async_submission: Annotated[bool, Query(alias="async")] = False,
+) -> ResearchStudy | Response:
     """Submit or reuse child backtests and return the derived study document."""
+    if async_submission:
+        record = await job_store.create_study(request)
+        body = ResearchJobAcceptedResponse(
+            job_id=record.job_id,
+            kind=record.kind,
+            status=record.status,
+        )
+        return Response(
+            content=body.model_dump_json(),
+            status_code=status.HTTP_202_ACCEPTED,
+            media_type="application/json",
+        )
     try:
         return await service.submit(request)
     except StudyPlanningError as error:
@@ -150,6 +184,41 @@ async def submit_research_study(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Research study submission is unavailable.",
+        ) from None
+
+
+@router.get("/jobs/{job_id}", response_model=ResearchJobRecord)
+async def get_research_job(
+    job_id: UUID,
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+) -> ResearchJobRecord:
+    """Return async research job status and fingerprints when complete."""
+    record = await job_store.get(job_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "research_job_not_found", "message": "Research job was not found."},
+        )
+    return record
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=ResearchJobRecord)
+async def cancel_research_job(
+    job_id: UUID,
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+) -> ResearchJobRecord:
+    """Cancel one queued or running research job."""
+    try:
+        return await job_store.cancel(job_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "research_job_not_found", "message": "Research job was not found."},
+        ) from None
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "research_job_rejected", "message": str(error)},
         ) from None
 
 

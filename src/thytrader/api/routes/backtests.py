@@ -12,20 +12,19 @@ import re
 from typing import Annotated, Literal, Protocol, runtime_checkable
 from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
-    get_backtest_job_store,
+    get_research_job_store,
     get_backtest_result_store,
     get_backtest_submitter,
 )
-from thytrader.backtest.jobs import (
-    BacktestJobAcceptedResponse,
-    BacktestJobRecord,
-    InMemoryBacktestJobStore,
-    run_backtest_job,
+from thytrader.research.jobs import (
+    ResearchJobAcceptedResponse,
+    ResearchJobRecord,
+    ResearchJobStore,
 )
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -101,6 +100,19 @@ class BacktestDetailResponse(BaseModel):
     costs: CostAssumptions | None = None
 
 
+class BacktestSummaryDetailResponse(BaseModel):
+    """Bounded backtest projection without trades or equity curves."""
+
+    model_config = ConfigDict(from_attributes=True)
+    result_fingerprint: str
+    run_fingerprint: str
+    strategy_fingerprint: str
+    dataset_fingerprint: str
+    engine_contract_version: str
+    summary: BacktestSummary
+    costs: CostAssumptions | None = None
+
+
 class BacktestBenchmarkResponse(BaseModel):
     """One deterministic buy-and-hold comparison derived from an immutable result."""
 
@@ -159,27 +171,23 @@ def _fingerprint_or_none(value: str | None) -> str | None:
     status_code=status.HTTP_201_CREATED,
     responses={
         status.HTTP_201_CREATED: {"model": BacktestSubmissionResponse},
-        status.HTTP_202_ACCEPTED: {"model": BacktestJobAcceptedResponse},
+        status.HTTP_202_ACCEPTED: {"model": ResearchJobAcceptedResponse},
     },
 )
 async def submit_backtest(
     request: BacktestSubmissionRequest,
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
-    job_store: Annotated[InMemoryBacktestJobStore, Depends(get_backtest_job_store)],
-    background_tasks: BackgroundTasks,
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> BacktestSubmissionResponse | Response:
     """Submit one immutable historical simulation without paper or live authority."""
     if async_submission:
-        record = await job_store.create()
-        background_tasks.add_task(
-            run_backtest_job,
-            job_store,
-            submitter,
-            record.job_id,
-            request,
+        record = await job_store.create_backtest(request)
+        body = ResearchJobAcceptedResponse(
+            job_id=record.job_id,
+            kind=record.kind,
+            status=record.status,
         )
-        body = BacktestJobAcceptedResponse(job_id=record.job_id, status=record.status)
         return Response(
             content=body.model_dump_json(),
             status_code=status.HTTP_202_ACCEPTED,
@@ -207,11 +215,11 @@ async def submit_backtest(
     )
 
 
-@router.get("/jobs/{job_id}", response_model=BacktestJobRecord)
+@router.get("/jobs/{job_id}", response_model=ResearchJobRecord)
 async def get_backtest_job(
     job_id: UUID,
-    job_store: Annotated[InMemoryBacktestJobStore, Depends(get_backtest_job_store)],
-) -> BacktestJobRecord:
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+) -> ResearchJobRecord:
     """Return async backtest job status and fingerprints when complete."""
     record = await job_store.get(job_id)
     if record is None:
@@ -355,7 +363,7 @@ async def get_backtest_benchmark(
 
 @router.get(
     "/{result_fingerprint}",
-    response_model=BacktestDetailResponse,
+    response_model=BacktestSummaryDetailResponse | BacktestDetailResponse,
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": BacktestErrorResponse},
         status.HTTP_404_NOT_FOUND: {"model": BacktestErrorResponse},
@@ -363,17 +371,29 @@ async def get_backtest_benchmark(
     },
 )
 async def get_backtest(
+    http_request: Request,
     store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     result_fingerprint: str,
-) -> BacktestDetailResponse:
-    """Load and fully reverify one immutable result before returning it."""
+    detail: Annotated[Literal["summary", "full"], Query()] = "summary",
+) -> BacktestSummaryDetailResponse | BacktestDetailResponse:
+    """Load one immutable result as a bounded summary (default) or full document."""
     if _FINGERPRINT_PATTERN.fullmatch(result_fingerprint) is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "backtest_invalid", "message": "Result fingerprint is malformed."},
         )
     try:
+        if await http_request.is_disconnected():
+            raise HTTPException(
+                status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
+                detail={"code": "backtest_invalid", "message": "Client disconnected."},
+            )
         result = await store.load(result_fingerprint)
+        if await http_request.is_disconnected():
+            raise HTTPException(
+                status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
+                detail={"code": "backtest_invalid", "message": "Client disconnected."},
+            )
         verified_result_fingerprint = backtest_result_fingerprint(result)
         costs = await _published_costs_projection(store, result)
     except BacktestResultNotFoundError:
@@ -390,6 +410,8 @@ async def get_backtest(
                 "message": "Backtest results are unavailable.",
             },
         ) from None
+    except HTTPException:
+        raise
     except Exception as error:  # noqa: BLE001
         _logger.warning("Backtest detail failed: %s", type(error).__name__)
         raise HTTPException(
@@ -407,6 +429,16 @@ async def get_backtest(
                 "code": "backtests_unavailable",
                 "message": "Backtest results are unavailable.",
             },
+        )
+    if detail == "summary":
+        return BacktestSummaryDetailResponse(
+            result_fingerprint=result_fingerprint,
+            run_fingerprint=result.run_fingerprint,
+            strategy_fingerprint=result.strategy_fingerprint,
+            dataset_fingerprint=result.dataset_fingerprint,
+            engine_contract_version=result.engine_contract_version,
+            summary=result.summary,
+            costs=costs,
         )
     return BacktestDetailResponse(
         result=result,

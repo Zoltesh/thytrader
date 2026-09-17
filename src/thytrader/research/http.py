@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import ValidationError
 
@@ -175,11 +175,7 @@ def submit_backtest(
 
 def show_backtest_job(base_url: str, job_id: str) -> str:
     """GET one async backtest job status."""
-    body = _as_object(
-        request_json(method="GET", url=f"{base_url}/api/v1/backtests/jobs/{job_id}"),
-        "backtest job",
-    )
-    return _encode(body)
+    return show_research_job(base_url, job_id)
 
 
 def list_templates(base_url: str) -> str:
@@ -200,28 +196,76 @@ def engine_support(base_url: str) -> str:
     return _encode(body)
 
 
-def plan_study(base_url: str, request: ResearchStudyRequest) -> str:
+def plan_study(
+    base_url: str,
+    request: ResearchStudyRequest,
+    *,
+    detail: Literal["summary", "full"] = "summary",
+) -> str:
     """POST a study window plan without submitting child backtests."""
+    url = f"{base_url}/api/v1/research/studies/plan"
+    if detail == "full":
+        url = f"{url}?detail=full"
     body = _as_object(
         request_mutation_json(
             method="POST",
-            url=f"{base_url}/api/v1/research/studies/plan",
+            url=url,
             payload=request.model_dump(mode="json"),
+            timeout=30.0,
         ),
         "plan-study response",
     )
     return _encode(body)
 
 
-def submit_study(base_url: str, request: ResearchStudyRequest) -> str:
+def submit_study(
+    base_url: str,
+    request: ResearchStudyRequest,
+    *,
+    async_submission: bool = False,
+) -> str:
     """POST one composed research study through the research API."""
+    url = f"{base_url}/api/v1/research/studies"
+    if async_submission:
+        url = f"{url}?async=true"
     body = _as_object(
         request_mutation_json(
             method="POST",
-            url=f"{base_url}/api/v1/research/studies",
+            url=url,
             payload=request.model_dump(mode="json"),
+            timeout=5.0,
         ),
         "submit-study response",
+    )
+    if async_submission:
+        return _encode(
+            {
+                "job_id": body.get("job_id"),
+                "kind": body.get("kind"),
+                "status": body.get("status"),
+            }
+        )
+    return _encode(body)
+
+
+def show_research_job(base_url: str, job_id: str) -> str:
+    """GET one async research job status."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/jobs/{job_id}"),
+        "research job",
+    )
+    return _encode(body)
+
+
+def cancel_research_job(base_url: str, job_id: str) -> str:
+    """Cancel one queued or running research job."""
+    body = _as_object(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/research/jobs/{job_id}/cancel",
+            timeout=5.0,
+        ),
+        "cancel-research-job response",
     )
     return _encode(body)
 
@@ -278,11 +322,25 @@ def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) ->
 def show_result(base_url: str, result_fingerprint: str) -> str:
     """Show one result summary without dumping the full trade ledger."""
     body = _as_object(
-        request_json(method="GET", url=f"{base_url}/api/v1/backtests/{result_fingerprint}"),
+        request_json(
+            method="GET",
+            url=f"{base_url}/api/v1/backtests/{result_fingerprint}?detail=summary",
+        ),
         "backtest detail",
     )
-    result = _as_object(body.get("result"), "backtest result")
-    strategy_fingerprint = result.get("strategy_fingerprint")
+    if "result" in body:
+        result = _as_object(body.get("result"), "backtest result")
+        strategy_fingerprint = result.get("strategy_fingerprint")
+        run_fingerprint = result.get("run_fingerprint")
+        dataset_fingerprint = result.get("dataset_fingerprint")
+        engine_contract_version = result.get("engine_contract_version")
+        summary = result.get("summary")
+    else:
+        strategy_fingerprint = body.get("strategy_fingerprint")
+        run_fingerprint = body.get("run_fingerprint")
+        dataset_fingerprint = body.get("dataset_fingerprint")
+        engine_contract_version = body.get("engine_contract_version")
+        summary = body.get("summary")
     timeframe = "1h"
     if isinstance(strategy_fingerprint, str):
         try:
@@ -292,14 +350,14 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
     return _encode(
         {
             "result_fingerprint": body.get("result_fingerprint"),
-            "run_fingerprint": result.get("run_fingerprint"),
+            "run_fingerprint": run_fingerprint,
             "strategy_fingerprint": strategy_fingerprint,
-            "dataset_fingerprint": result.get("dataset_fingerprint"),
-            "engine_contract_version": result.get("engine_contract_version"),
+            "dataset_fingerprint": dataset_fingerprint,
+            "engine_contract_version": engine_contract_version,
             "mode": "backtest",
             "timeframe": timeframe,
             "currency": "USD",
-            "summary": result.get("summary"),
+            "summary": summary,
         }
     )
 

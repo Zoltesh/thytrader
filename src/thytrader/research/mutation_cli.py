@@ -47,6 +47,7 @@ from thytrader.research.studies import (
     ResearchStudyRequest,
     ResearchStudyService,
     StudyPlanningError,
+    summarize_research_study_plan,
 )
 from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.publication import StrategyPublicationError
@@ -273,6 +274,24 @@ def _parser() -> argparse.ArgumentParser:
         help="Path to a ResearchStudyRequest JSON document.",
     )
     study.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    study.add_argument(
+        "--async",
+        action="store_true",
+        help="Queue the study (HTTP 202) and return a job id for polling.",
+    )
+    show_research_job = subparsers.add_parser(
+        "show-research-job",
+        parents=[trailing],
+        help="Poll one async research job (backtest or study).",
+    )
+    show_research_job.add_argument("--job-id", required=True)
+    cancel_research_job = subparsers.add_parser(
+        "cancel-research-job",
+        parents=[trailing],
+        help="Cancel one queued or running research job.",
+    )
+    cancel_research_job.add_argument("--job-id", required=True)
+    cancel_research_job.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -440,6 +459,13 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "show-backtest-job":
         require_matching_ops_contract(base_url)
         return research_http.show_backtest_job(base_url, arguments.job_id)
+    if arguments.command == "show-research-job":
+        require_matching_ops_contract(base_url)
+        return research_http.show_research_job(base_url, arguments.job_id)
+    if arguments.command == "cancel-research-job":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="cancel-research-job")
+        require_matching_ops_contract(base_url)
+        return research_http.cancel_research_job(base_url, arguments.job_id)
     if arguments.command == "list-results":
         require_matching_ops_contract(base_url)
         return research_http.list_results(
@@ -616,8 +642,6 @@ async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespac
 
 def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against the loopback HTTP API."""
-    if arguments.command == "submit-study":
-        _require_confirm(arguments.confirm)
     require_matching_ops_contract(base_url)
     if arguments.command == "list-templates":
         return research_http.list_templates(base_url)
@@ -627,9 +651,13 @@ def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
         return research_http.plan_study(base_url, request)
     if arguments.command == "submit-study":
-        _require_confirm(arguments.confirm)
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
         request = ResearchStudyRequest.model_validate(_load_json(arguments.file))
-        return research_http.submit_study(base_url, request)
+        return research_http.submit_study(
+            base_url,
+            request,
+            async_submission=bool(getattr(arguments, "async", False)),
+        )
     raise AssertionError(f"unsupported research command: {arguments.command}")
 
 
@@ -642,7 +670,7 @@ async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -
         catalog=mutator.catalog,
     )
     plan = await service.plan(request)
-    return _encode(plan.model_dump(mode="json"))
+    return _encode(summarize_research_study_plan(plan).model_dump(mode="json"))
 
 
 async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest) -> str:

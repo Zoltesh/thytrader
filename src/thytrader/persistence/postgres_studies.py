@@ -56,6 +56,7 @@ class PostgresResearchStudyCatalog:
             .values(
                 study_fingerprint=summary.study_fingerprint,
                 request_fingerprint=summary.request_fingerprint,
+                plan_fingerprint=summary.plan_fingerprint,
                 kind=summary.kind,
                 engine_contract_version=summary.engine_contract_version,
                 product_id=summary.product_id,
@@ -117,6 +118,7 @@ class PostgresResearchStudyCatalog:
             select(
                 table.c.study_fingerprint,
                 table.c.request_fingerprint,
+                table.c.plan_fingerprint,
                 table.c.kind,
                 table.c.engine_contract_version,
                 table.c.product_id,
@@ -140,6 +142,21 @@ class PostgresResearchStudyCatalog:
             raise StudyCatalogUnavailableError("Research study catalog is unavailable.") from error
         return tuple(_summary_from_row(row) for row in rows)
 
+    async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
+        """Return canonical study JSON when an equivalent plan already exists."""
+        _validate_fingerprint(plan_fingerprint)
+        statement = select(published_research_studies.c.canonical_study).where(
+            published_research_studies.c.plan_fingerprint == plan_fingerprint
+        )
+        try:
+            async with self._engine.connect() as connection:
+                row = (await connection.execute(statement)).one_or_none()
+        except SQLAlchemyError as error:
+            raise StudyCatalogUnavailableError("Research study catalog is unavailable.") from error
+        if row is None:
+            return None
+        return cast("str", row[0])
+
 
 def _summary_from_row(row: RowMapping) -> StudyCatalogSummary:
     """Build one catalog summary from an indexed row."""
@@ -148,6 +165,7 @@ def _summary_from_row(row: RowMapping) -> StudyCatalogSummary:
         return StudyCatalogSummary(
             study_fingerprint=cast("str", row["study_fingerprint"]),
             request_fingerprint=cast("str", row["request_fingerprint"]),
+            plan_fingerprint=cast("str", row["plan_fingerprint"]),
             kind=cast("str", row["kind"]),
             engine_contract_version=cast("str", row["engine_contract_version"]),
             published_at=row["published_at"],

@@ -20,6 +20,7 @@ def _summary(*, fingerprint: str, kind: str = "oos_holdout") -> StudyCatalogSumm
     return StudyCatalogSummary(
         study_fingerprint=fingerprint,
         request_fingerprint="sha256:" + "b" * 64,
+        plan_fingerprint="sha256:" + "c" * 64,
         kind=kind,
         engine_contract_version="thytrader-bar-backtest-v1",
         published_at=datetime(2026, 9, 16, tzinfo=UTC),
@@ -29,6 +30,23 @@ def _summary(*, fingerprint: str, kind: str = "oos_holdout") -> StudyCatalogSumm
         mean_oos_return_fraction="0.01",
         stitched_oos_available=False,
     )
+
+
+def test_in_memory_catalog_finds_equivalent_plan_fingerprint() -> None:
+    """Equivalent effective plans resolve to the stored canonical study."""
+    catalog = InMemoryResearchStudyCatalog()
+    fingerprint = "sha256:" + "1" * 64
+    plan_fp = "sha256:" + "c" * 64
+    summary = _summary(fingerprint=fingerprint).model_copy(
+        update={"plan_fingerprint": plan_fp}
+    )
+
+    async def _scenario() -> str | None:
+        await catalog.persist(summary, f'{{"study_fingerprint":"{fingerprint}"}}')
+        return await catalog.find_by_plan_fingerprint(plan_fp)
+
+    canonical = asyncio.run(_scenario())
+    assert canonical == f'{{"study_fingerprint":"{fingerprint}"}}'
 
 
 def test_in_memory_catalog_lists_newest_first() -> None:

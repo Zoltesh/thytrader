@@ -118,7 +118,16 @@ class OpsContractPayload(_FrozenModel):
     ]
     deployment_capital_fields: tuple[str, ...]
     breaker_latch_reset: tuple[Literal["paper", "live"], ...]
-    async_backtest_job_statuses: tuple[Literal["queued", "running", "completed", "failed"], ...]
+    async_backtest_job_statuses: tuple[
+        Literal["queued", "running", "completed", "failed", "cancelled", "expired"],
+        ...,
+    ]
+    research_job_statuses: tuple[
+        Literal["queued", "running", "completed", "failed", "cancelled", "expired"],
+        ...,
+    ]
+    max_concurrent_research_jobs: int = Field(ge=1)
+    research_job_expiry_hours: int = Field(ge=1)
     spot_quote_currencies: tuple[Literal["USD", "USDC"], ...]
     catalog_health: tuple[str, ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)

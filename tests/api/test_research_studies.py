@@ -205,9 +205,17 @@ def test_plan_study_returns_in_sample_and_out_of_sample_windows() -> None:
     client, publications, submitter = _client()
     with client:
         fingerprint = _publish_reference(client)
-        response = client.post("/api/v1/research/studies/plan", json=_holdout_body(fingerprint))
-    assert response.status_code == 200, response.text
-    windows = response.json()["windows"]
+        summary = client.post("/api/v1/research/studies/plan", json=_holdout_body(fingerprint))
+        full = client.post(
+            "/api/v1/research/studies/plan?detail=full",
+            json=_holdout_body(fingerprint),
+        )
+    assert summary.status_code == 200, summary.text
+    summary_body = summary.json()
+    assert summary_body["window_count"] == 2
+    assert "windows" not in summary_body
+    assert full.status_code == 200, full.text
+    windows = full.json()["windows"]
     assert [window["role"] for window in windows] == ["in_sample", "out_of_sample"]
     assert submitter.calls == 0
     assert publications.published is not None
@@ -270,6 +278,27 @@ def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:
         )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "study_window_rejected"
+
+
+def test_async_study_submission_returns_job_and_polls_to_completion() -> None:
+    """Long composed studies can queue with HTTP 202 and poll job status."""
+    client, _, submitter = _client()
+    with client:
+        fingerprint = _publish_reference(client)
+        accepted = client.post(
+            "/api/v1/research/studies?async=true",
+            json=_holdout_body(fingerprint),
+        )
+        assert accepted.status_code == 202, accepted.text
+        job_id = accepted.json()["job_id"]
+        polled = client.get(f"/api/v1/research/jobs/{job_id}")
+        assert polled.status_code == 200, polled.text
+        body = polled.json()
+        assert body["kind"] == "study"
+        assert body["status"] in {"queued", "running", "completed"}
+        if body["status"] == "completed":
+            assert submitter.calls == 2
+            assert body["study_fingerprint"].startswith("sha256:")
 
 
 def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:

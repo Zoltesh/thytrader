@@ -6,7 +6,7 @@ from typing import cast
 from fastapi import Request  # noqa: TC002
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from thytrader.backtest.jobs import InMemoryBacktestJobStore
+from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobStore
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
@@ -126,13 +126,18 @@ def get_backtest_submitter(request: Request) -> BacktestSubmitter:
     return submitter
 
 
-def get_backtest_job_store(request: Request) -> InMemoryBacktestJobStore:
-    """Return the in-process async backtest job tracker attached during app startup."""
-    store = getattr(request.app.state, "backtest_job_store", None)
-    if not isinstance(store, InMemoryBacktestJobStore):
-        message = "Backtest job store is unavailable."
+def get_research_job_store(request: Request) -> ResearchJobStore:
+    """Return the durable async research job tracker attached during app startup."""
+    store = getattr(request.app.state, "research_job_store", None)
+    if store is None:
+        message = "Research job store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_backtest_job_store(request: Request) -> ResearchJobStore:
+    """Return the async backtest job tracker (alias of the research job store)."""
+    return get_research_job_store(request)
 
 
 def get_backtest_benchmark_reader(request: Request) -> BacktestBenchmarkReader:

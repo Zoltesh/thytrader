@@ -40,6 +40,9 @@ class HealthOpsContract(BaseModel):
     deployment_capital_fields: list[str]
     breaker_latch_reset: list[str]
     async_backtest_job_statuses: list[str]
+    research_job_statuses: list[str]
+    max_concurrent_research_jobs: int
+    research_job_expiry_hours: int
     spot_quote_currencies: list[str]
     catalog_health: list[str]
     expected_schema_revision: str

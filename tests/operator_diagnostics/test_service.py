@@ -142,6 +142,7 @@ def test_studies_report_lists_persisted_catalog_rows() -> None:
     summary = StudyCatalogSummary(
         study_fingerprint=fingerprint,
         request_fingerprint="sha256:" + "b" * 64,
+        plan_fingerprint="sha256:" + "c" * 64,
         kind="parameter_sweep",
         engine_contract_version="thytrader-bar-backtest-v1",
         published_at=datetime(2026, 9, 16, tzinfo=UTC),
