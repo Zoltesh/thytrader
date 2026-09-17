@@ -70,7 +70,11 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0062](0062-research-paper-semantics-audit-stage-4.md) | Audit stage 4: v4 causal maker engine, runtime clock/indicator parity, truthful OOS fields, dataset numeric identity | Accepted |
 | [0063](0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) | Tracked CI, production web target, live-arming publication gate, optional absolute risk caps, purpose-aware order-rate budget | Accepted |
 | [0065](0065-deployment-capital-accounting-http.md) | Deployment `capital` block on HTTP; ledger cash vs allocated/venue quote | Accepted |
+<<<<<<< HEAD
 | [0066](0066-research-ops-contract-v4.md) | Research ops-contract v25 advertises `thytrader-bar-backtest-v4`; stale v1–v3-only 422 hints rebuild | Accepted |
+=======
+| [0070](0070-mutation-cli-installation-auth.md) | Shared `request_mutation_json()` wires installation Bearer auth on all mutation CLIs | Accepted |
+>>>>>>> f45fb78 (fix(agent): wire installation auth on all mutation CLIs (ADR 0070))
 
 ## Status values
 

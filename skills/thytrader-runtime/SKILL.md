@@ -24,7 +24,8 @@ HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.
 Production installs enforce the application trust boundary
 ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
 `Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
-`$THYTRADER_CREDENTIALS_DIR/.installation-token`. Browser mutations additionally require CSRF
+`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)
+documents the shared helper used by every mutation lane). Browser mutations additionally require CSRF
 from `GET /api/v1/security/session`. Live arming still requires a published risk policy per
 [ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)
 plus `--i-understand-live`; do not expect a separate live-arm token endpoint.

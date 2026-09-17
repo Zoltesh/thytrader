@@ -28,8 +28,10 @@ Production loopback installs also enforce an application trust boundary
 ([ADR 0061](decisions/0061-application-trust-boundary.md)): HTTP mutations require an installation
 credential and browser writes require CSRF. Live arming remains the published-risk-policy gate from
 [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md) plus CLI
-`--i-understand-live`. Agent CLIs read the installation token from `THYTRADER_INSTALLATION_TOKEN`
-or the shared credentials directory.
+`--i-understand-live`. Every mutation lane CLI (`thytrader-data`, `thytrader-research`,
+`thytrader-memory`, `thytrader-runtime`, and YOLO skip audits) sends installation Bearer auth via
+the shared `request_mutation_json()` helper ([ADR 0070](decisions/0070-mutation-cli-installation-auth.md)).
+Agent CLIs read the token from `THYTRADER_INSTALLATION_TOKEN` or the shared credentials directory.
 
 ## Planned direction: agent experts that learn from evidence (hooks + V1 trainer + why-trade)
 

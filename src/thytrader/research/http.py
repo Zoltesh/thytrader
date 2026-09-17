@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from thytrader.agent_http import AgentHttpError, request_json
+from thytrader.agent_http import AgentHttpError, request_json, request_mutation_json
 from thytrader.memory.models import ExperientialModel
 from thytrader.research.mutation import ResearchMutationError
 
@@ -48,7 +48,7 @@ def create_draft(
     if query:
         url = f"{url}?{'&'.join(query)}"
     body = _as_object(
-        request_json(method="POST", url=url),
+        request_mutation_json(method="POST", url=url),
         "create-draft response",
     )
     strategy = _as_object(body.get("strategy"), "created strategy")
@@ -67,7 +67,7 @@ def save_draft(base_url: str, definition: StrategyDefinition, revision: int) -> 
     strategy_id = definition.strategy_id
     version = definition.version
     body = _as_object(
-        request_json(
+        request_mutation_json(
             method="PUT",
             url=f"{base_url}/api/v1/strategies/{strategy_id}/versions/{version}",
             payload={"strategy": definition.model_dump(mode="json"), "revision": revision},
@@ -102,7 +102,7 @@ def publish(base_url: str, strategy_id: UUID) -> str:
         "draft version",
     )
     published = _as_object(
-        request_json(
+        request_mutation_json(
             method="POST",
             url=f"{base_url}/api/v1/strategies/{strategy_id}/publish",
             payload={
@@ -125,7 +125,7 @@ def publish(base_url: str, strategy_id: UUID) -> str:
 def submit_backtest(base_url: str, request: BacktestSubmissionRequest) -> str:
     """POST one idempotent research run through the backtests API."""
     body = _as_object(
-        request_json(
+        request_mutation_json(
             method="POST",
             url=f"{base_url}/api/v1/backtests",
             payload=request.model_dump(mode="json"),
@@ -161,7 +161,7 @@ def engine_support(base_url: str) -> str:
 def plan_study(base_url: str, request: ResearchStudyRequest) -> str:
     """POST a study window plan without submitting child backtests."""
     body = _as_object(
-        request_json(
+        request_mutation_json(
             method="POST",
             url=f"{base_url}/api/v1/research/studies/plan",
             payload=request.model_dump(mode="json"),
@@ -174,7 +174,7 @@ def plan_study(base_url: str, request: ResearchStudyRequest) -> str:
 def submit_study(base_url: str, request: ResearchStudyRequest) -> str:
     """POST one composed research study through the research API."""
     body = _as_object(
-        request_json(
+        request_mutation_json(
             method="POST",
             url=f"{base_url}/api/v1/research/studies",
             payload=request.model_dump(mode="json"),

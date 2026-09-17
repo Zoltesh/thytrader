@@ -15,7 +15,10 @@ Orchestration over **existing** CLIs. This skill is not an extension of `thytrad
 `thytrader-data`, `thytrader-research`, or `thytrader-runtime`. It does not grant live authority.
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is
-no `--local` database mode. The playbook calls `thytrader-operator`, `thytrader-data`,
+no `--local` database mode. Child mutation CLIs send installation Bearer auth on writes per
+[ADR 0061](../../docs/decisions/0061-application-trust-boundary.md) and
+[ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md). The playbook calls
+`thytrader-operator`, `thytrader-data`,
 `thytrader-research`, and `thytrader-runtime` `main()` functions. It never constructs
 `--mode live` or `--i-understand-live`.
 

@@ -18,7 +18,15 @@ Confirmation-gated experiential memory. This skill is not an extension of `thytr
 place orders or inherit YOLO.
 
 HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is
-no `--local` database mode. Schema: `thytrader-experiential-memory-v1`. Monitor snapshot:
+no `--local` database mode.
+
+Production installs enforce the application trust boundary
+([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
+`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
+`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
+The CLI sends that header automatically. YOLO never covers this lane.
+
+Schema: `thytrader-experiential-memory-v1`. Monitor snapshot:
 `thytrader-monitor-v1`. Trained models: `thytrader-experiential-model-v1` from engine
 `thytrader-experiential-train-v1`. Advisory: `thytrader-experiential-advisory-v1`.
 
