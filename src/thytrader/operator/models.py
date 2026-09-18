@@ -182,6 +182,7 @@ class ConfigurationPayload(_FrozenModel):
     settings_file: str = "thytrader.yaml"
     yaml_loaded: bool = False
     yaml_source_of_truth: Literal[True] = True
+    effective_api_base_url: str | None = None
 
 
 class ConfigurationReport(OperatorEnvelope):
@@ -522,7 +523,9 @@ class DatasetCoverageRow(_FrozenModel):
     """Local verified coverage plus watchlist and worker facts for one target.
 
     ``sparsity`` is ``gapped`` when ``watch_complete`` is false, even if the
-    published island itself has zero gaps.
+    published island itself has zero gaps. ``watch_status`` restates
+    ``watch_complete`` as an operator noun so ``worker_status=succeeded``
+    (latest chunk only) cannot be misread as a finished backfill.
     """
 
     provider: str | None
@@ -546,6 +549,7 @@ class DatasetCoverageRow(_FrozenModel):
     sparsity: Literal["none", "unknown", "gapped"]
     watch_sparsity: Literal["none", "unknown", "gapped"] | None = None
     watch_expected_candle_count: int | None = None
+    watch_status: Literal["complete", "backfilling", "unknown"] | None = None
 
 
 class DataCatalogPayload(_FrozenModel):

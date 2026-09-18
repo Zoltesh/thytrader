@@ -252,6 +252,16 @@ def _parser() -> argparse.ArgumentParser:
         parents=[trailing],
         help="List fail-closed research draft templates.",
     )
+    show_template = subparsers.add_parser(
+        "show-template",
+        parents=[trailing],
+        help="Show one template's defaults, indicator ids, and sweepable axes.",
+    )
+    show_template.add_argument(
+        "--template",
+        required=True,
+        help="Template id from list-templates (for example macd-trend).",
+    )
     subparsers.add_parser(
         "engine-support",
         parents=[trailing],
@@ -285,6 +295,15 @@ def _parser() -> argparse.ArgumentParser:
         help="Poll one async research job (backtest or study).",
     )
     show_research_job.add_argument("--job-id", required=True)
+    find_study = subparsers.add_parser(
+        "find-study-by-request",
+        parents=[trailing],
+        help=(
+            "Read back one persisted study by request fingerprint after an "
+            "ambiguous submit-study failure."
+        ),
+    )
+    find_study.add_argument("--request-fingerprint", required=True)
     cancel_research_job = subparsers.add_parser(
         "cancel-research-job",
         parents=[trailing],
@@ -452,6 +471,9 @@ def _dispatch_http_jobs(base_url: str, arguments: argparse.Namespace) -> str | N
     if arguments.command == "show-research-job":
         require_matching_ops_contract(base_url)
         return research_http.show_research_job(base_url, arguments.job_id)
+    if arguments.command == "find-study-by-request":
+        require_matching_ops_contract(base_url)
+        return research_http.find_study_by_request(base_url, arguments.request_fingerprint)
     if arguments.command == "cancel-research-job":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="cancel-research-job")
         require_matching_ops_contract(base_url)
@@ -612,11 +634,14 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
     result = await mutator.results.load(result_fingerprint)
     computed = backtest_result_fingerprint(result)
     timeframe = "1h"
+    currency = "USD"
     try:
         published = await mutator.publications.load(result.strategy_fingerprint)
         timeframe = published_execution_timeframe(published.definition.timeframe)
+        currency = published.definition.instrument.quote_currency
     except StrategyPublicationError:
         timeframe = "1h"
+        currency = "USD"
     return _encode(
         {
             "result_fingerprint": computed,
@@ -626,7 +651,7 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
             "engine_contract_version": result.engine_contract_version,
             "mode": "backtest",
             "timeframe": timeframe,
-            "currency": "USD",
+            "currency": currency,
             "summary": result.summary.model_dump(mode="json"),
         }
     )
@@ -655,6 +680,9 @@ def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     require_matching_ops_contract(base_url)
     if arguments.command == "list-templates":
         return research_http.list_templates(base_url)
+    if arguments.command == "show-template":
+        require_matching_ops_contract(base_url)
+        return research_http.show_template(base_url, arguments.template)
     if arguments.command == "engine-support":
         return research_http.engine_support(base_url)
     if arguments.command == "plan-study":

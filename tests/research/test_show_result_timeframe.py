@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+from thytrader.agent_http import AgentHttpError
 from thytrader.market_data.models import published_execution_timeframe
 from thytrader.research.http import show_result
 
@@ -26,7 +27,7 @@ def _summary_payload() -> dict[str, object]:
     }
 
 
-def _show_result_for_timeframe(timeframe: str) -> dict[str, object]:
+def _show_result_for_timeframe(timeframe: str, quote_currency: str = "USD") -> dict[str, object]:
     """Run show_result against canned detail and strategy-source JSON."""
 
     def fake_request_json(*, method: str, url: str, **_kwargs: object) -> dict[str, object]:
@@ -34,7 +35,12 @@ def _show_result_for_timeframe(timeframe: str) -> dict[str, object]:
         if f"/api/v1/backtests/{_RESULT_FINGERPRINT}" in url and "detail=summary" in url:
             return _summary_payload()
         if url.endswith(f"/api/v1/strategies/source/{_STRATEGY_FINGERPRINT}"):
-            return {"strategy": {"timeframe": timeframe}}
+            return {
+                "strategy": {
+                    "timeframe": timeframe,
+                    "instrument": {"quote_currency": quote_currency},
+                }
+            }
         message = f"unexpected research HTTP request: {url}"
         raise AssertionError(message)
 
@@ -67,4 +73,32 @@ def test_show_result_reports_four_hour_strategy_clock() -> None:
 def test_show_result_reports_one_hour_strategy_clock() -> None:
     """BTC 1h remains 1h."""
     payload = _show_result_for_timeframe("1h")
+    assert payload["timeframe"] == "1h"
+
+
+def test_show_result_copies_usdc_quote_currency_from_published_strategy() -> None:
+    """AAVE-USDC results must be labeled USDC, never a USD default."""
+    payload = _show_result_for_timeframe("1h", quote_currency="USDC")
+    assert payload["currency"] == "USDC"
+    assert payload["timeframe"] == "1h"
+
+
+def test_show_result_keeps_usd_quote_currency() -> None:
+    """BTC-USD results stay USD."""
+    payload = _show_result_for_timeframe("1h", quote_currency="USD")
+    assert payload["currency"] == "USD"
+
+
+def test_show_result_falls_back_to_usd_when_source_is_unavailable() -> None:
+    """A missing strategy source keeps the historical USD fallback."""
+
+    def missing_source(*, method: str, url: str, **_kwargs: object) -> dict[str, object]:
+        del method
+        if f"/api/v1/backtests/{_RESULT_FINGERPRINT}" in url and "detail=summary" in url:
+            return _summary_payload()
+        raise AgentHttpError("HTTP 404: strategy source was not found.")
+
+    with patch("thytrader.research.http.request_json", side_effect=missing_source):
+        payload = json.loads(show_result("http://127.0.0.1:8000", _RESULT_FINGERPRINT))
+    assert payload["currency"] == "USD"
     assert payload["timeframe"] == "1h"

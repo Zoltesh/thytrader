@@ -39,9 +39,12 @@ and classified, never interpolated.
 
 Ingest is a **job**. `POST /api/v1/data/ingest` returns **202** and sets a watchlist flag. The
 market-data worker (`thytrader-market-data-worker`) is the only process that writes Parquet. The
-API dataset volume stays read-only. The CLI polls `GET /api/v1/data/ingest` until the flag clears
-(after the worker finishes `ingest_once`) or 45 minutes elapse. A 90-day 5m prefix walk can take
-minutes; do not treat a fast 202 as published coverage.
+API dataset volume stays read-only. By default the CLI polls `GET /api/v1/data/ingest` until the
+flag clears (after the worker finishes `ingest_once`) or 45 minutes elapse. A 90-day 5m prefix
+walk can take minutes; do not treat a fast 202 as published coverage. Agents with bounded
+execution windows should pass `--no-wait`: the mutation is identical, the CLI returns the 202-time
+ingest state immediately, and the worker keeps going. Re-check progress with
+`thytrader-data ingest ... --no-wait` (never re-queue to poll) or `thytrader-operator data-catalog`.
 
 ## Hard stop
 
@@ -61,6 +64,7 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 | Watch a product/timeframe | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --confirm` |
 | Watch disabled (no ingest until enabled) | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --disabled --confirm` |
 | Queue ingest (CLI polls the worker) | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
+| Queue ingest without polling | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --no-wait --confirm` |
 | Classify missing bars | `uv run thytrader-data inspect-gaps --product-id ETH-USD --timeframe 5m` |
 | Re-queue complete-only ingest | `uv run thytrader-data fill-gaps --product-id ETH-USD --timeframe 5m --confirm` |
 

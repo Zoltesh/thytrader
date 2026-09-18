@@ -11,6 +11,7 @@ from thytrader.agent_http import AgentHttpError, request_json, request_mutation_
 from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.research.mutation import ResearchMutationError
+from thytrader.research.studies import request_fingerprint
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -187,6 +188,15 @@ def list_templates(base_url: str) -> str:
     return _encode(body)
 
 
+def show_template(base_url: str, template_id: str) -> str:
+    """Show one template's defaults, indicator ids, and sweepable axes."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/templates/{template_id}"),
+        "template detail",
+    )
+    return _encode(body)
+
+
 def engine_support(base_url: str) -> str:
     """Fetch the V1-V4 engine-support matrix."""
     body = _as_object(
@@ -228,15 +238,18 @@ def submit_study(
     url = f"{base_url}/api/v1/research/studies"
     if async_submission:
         url = f"{url}?async=true"
-    body = _as_object(
-        request_mutation_json(
-            method="POST",
-            url=url,
-            payload=request.model_dump(mode="json"),
-            timeout=5.0,
-        ),
-        "submit-study response",
-    )
+    try:
+        body = _as_object(
+            request_mutation_json(
+                method="POST",
+                url=url,
+                payload=request.model_dump(mode="json"),
+                timeout=5.0,
+            ),
+            "submit-study response",
+        )
+    except AgentHttpError as error:
+        raise _ambiguous_study_error(request, error) from error
     if async_submission:
         return _encode(
             {
@@ -246,6 +259,54 @@ def submit_study(
             }
         )
     return _encode(body)
+
+
+def _ambiguous_study_error(
+    request: ResearchStudyRequest,
+    error: AgentHttpError,
+) -> AgentHttpError:
+    """Convert a timed-out study submission into an actionable ambiguous-state error."""
+    request_fp = request_fingerprint(request)
+    message = str(error)
+    ambiguous = "timed out" in message.lower() or "unreachable" in message.lower()
+    readback = (
+        "Submit-state is ambiguous: the study may already be persisted. "
+        "Read back before retrying: "
+        f"thytrader-research find-study-by-request --request-fingerprint {request_fp} "
+        "(or `thytrader-research list-studies --limit 50`)"
+    )
+    if not ambiguous:
+        return AgentHttpError(f"{message} ({readback})")
+    return AgentHttpError(f"{message} {readback}")
+
+
+def find_study_by_request(base_url: str, request_fingerprint: str) -> str:
+    """Return the persisted study for one request fingerprint when it exists.
+
+    The catalog route caps ``limit`` at 100, so scan bounded newest-first pages
+    of 100 rows; a just-submitted study is recent and normally on page one.
+    Rows persisted between page fetches can shift offsets (classic offset-
+    pagination race); the scan then fails closed with an explicit not-found
+    error, which is safe for a readback command.
+    """
+    prefix = f"{base_url}/api/v1/research/studies"
+    for offset in range(0, 500, 100):
+        body = _as_object(
+            request_json(method="GET", url=f"{prefix}?limit=100&offset={offset}"),
+            "study catalog",
+        )
+        studies = body.get("studies")
+        if not isinstance(studies, list):
+            raise ResearchMutationError("Study catalog was not a JSON array.")
+        for item in studies:
+            row = _as_object(item, "study catalog row")
+            if row.get("request_fingerprint") == request_fingerprint:
+                return _encode(row)
+        if len(studies) < 100:
+            break
+    raise ResearchMutationError(
+        f"No persisted study exists for request_fingerprint={request_fingerprint}."
+    )
 
 
 def show_research_job(base_url: str, job_id: str) -> str:
@@ -319,6 +380,29 @@ def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) ->
     return _encode({"results": results})
 
 
+def _strategy_source(base_url: str, strategy_fingerprint: str) -> dict[str, object]:
+    """Load one published strategy source document."""
+    return _as_object(
+        request_json(
+            method="GET",
+            url=f"{base_url}/api/v1/strategies/source/{strategy_fingerprint}",
+        ),
+        "strategy source",
+    )
+
+
+def _published_clock_and_quote(source: dict[str, object]) -> tuple[str, str]:
+    """Return (timeframe, quote currency) copied from a published strategy."""
+    strategy = _as_object(source.get("strategy"), "published strategy")
+    timeframe = strategy.get("timeframe")
+    instrument = strategy.get("instrument")
+    quote = instrument.get("quote_currency") if isinstance(instrument, dict) else None
+    if quote not in {"USD", "USDC"}:
+        raise ResearchMutationError("Published strategy quote currency was not USD or USDC.")
+    clock = published_execution_timeframe(timeframe) if isinstance(timeframe, str) else "1h"
+    return clock, str(quote)
+
+
 def show_result(base_url: str, result_fingerprint: str) -> str:
     """Show one result summary without dumping the full trade ledger."""
     body = _as_object(
@@ -342,11 +426,15 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
         engine_contract_version = body.get("engine_contract_version")
         summary = body.get("summary")
     timeframe = "1h"
+    currency = "USD"
     if isinstance(strategy_fingerprint, str):
         try:
-            timeframe = _strategy_timeframe(base_url, strategy_fingerprint)
+            source = _strategy_source(base_url, strategy_fingerprint)
         except AgentHttpError, ResearchMutationError:
             timeframe = "1h"
+            currency = "USD"
+        else:
+            timeframe, currency = _published_clock_and_quote(source)
     return _encode(
         {
             "result_fingerprint": body.get("result_fingerprint"),
@@ -356,7 +444,7 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "engine_contract_version": engine_contract_version,
             "mode": "backtest",
             "timeframe": timeframe,
-            "currency": "USD",
+            "currency": currency,
             "summary": summary,
         }
     )
@@ -379,22 +467,6 @@ def _experiential_advisory_fields(base_url: str, model_id: str) -> dict[str, obj
         "experiential_fingerprint": model.fingerprint,
         "experiential_advisory": model.advisory.model_dump(mode="json"),
     }
-
-
-def _strategy_timeframe(base_url: str, strategy_fingerprint: str) -> str:
-    """Copy the published strategy clock when it is a legal execution timeframe."""
-    source = _as_object(
-        request_json(
-            method="GET",
-            url=f"{base_url}/api/v1/strategies/source/{strategy_fingerprint}",
-        ),
-        "strategy source",
-    )
-    strategy = _as_object(source.get("strategy"), "published strategy")
-    timeframe = strategy.get("timeframe")
-    if isinstance(timeframe, str):
-        return published_execution_timeframe(timeframe)
-    return "1h"
 
 
 def _draft_entry(listing: dict[str, object], strategy_id: str) -> dict[str, object]:

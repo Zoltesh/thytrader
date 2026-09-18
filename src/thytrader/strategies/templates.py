@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from thytrader.strategies.models import (
     AllCondition,
@@ -95,6 +95,109 @@ def parse_template_id(value: str) -> StrategyTemplateId:
         allowed = ", ".join(item.value for item in StrategyTemplateId)
         message = f"Unknown strategy template. Use one of: {allowed}."
         raise ValueError(message) from None
+
+
+def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
+    """Return one template's indicator ids, defaults, and sweepable axes.
+
+    This is discovery metadata for agents authoring sweeps: it names the
+    indicator ids a ``parameter_axes`` entry may reference and the exit/sizing
+    defaults the template ships, without granting any trading authority.
+    """
+    blueprints: dict[StrategyTemplateId, dict[str, Any]] = {
+        StrategyTemplateId.EMA_TREND: {
+            "warmup_bars": 50,
+            "indicator_ids": ("fast", "slow", "rsi", "atr"),
+            "defaults": {
+                "fast.period": "20",
+                "slow.period": "50",
+                "rsi.period": "14",
+                "atr.period": "14",
+                "entry.literal.rsi_gte": "50",
+                "sizing.risk_fraction": "0.005",
+                "exits.initial_stop_multiple": "2",
+                "exits.take_profit_multiple": "2",
+                "exits.max_bars_held": "96",
+            },
+            "sweepable_axes": (
+                {"indicator_id": "fast", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "slow", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "rsi", "parameter": "period", "range": [2, 100]},
+                {"target": "exits", "parameter": "initial_stop_multiple"},
+                {"target": "exits", "parameter": "take_profit_multiple"},
+                {"target": "exits", "parameter": "max_bars_held"},
+                {"target": "sizing", "parameter": "risk_fraction"},
+                {"target": "entry_literal", "indicator_id": "rsi", "parameter": "literal"},
+            ),
+        },
+        StrategyTemplateId.RSI_MEAN_REVERSION: {
+            "warmup_bars": 15,
+            "indicator_ids": ("rsi", "atr"),
+            "defaults": {
+                "rsi.period": "14",
+                "entry.literal.rsi_lte": "30",
+                "sizing.risk_fraction": "0.005",
+                "exits.initial_stop_multiple": "2",
+                "exits.take_profit_multiple": "2",
+                "exits.max_bars_held": "96",
+            },
+            "sweepable_axes": (
+                {"indicator_id": "rsi", "parameter": "period", "range": [2, 100]},
+                {"target": "exits", "parameter": "initial_stop_multiple"},
+                {"target": "exits", "parameter": "take_profit_multiple"},
+                {"target": "exits", "parameter": "max_bars_held"},
+                {"target": "sizing", "parameter": "risk_fraction"},
+                {"target": "entry_literal", "indicator_id": "rsi", "parameter": "literal"},
+            ),
+        },
+        StrategyTemplateId.MACD_TREND: {
+            "warmup_bars": 34,
+            "indicator_ids": ("macd", "atr"),
+            "defaults": {
+                "macd.fast_period": "12",
+                "macd.slow_period": "26",
+                "macd.signal_period": "9",
+                "atr.period": "14",
+                "sizing.risk_fraction": "0.005",
+                "exits.initial_stop_multiple": "2",
+                "exits.take_profit_multiple": "2",
+                "exits.max_bars_held": "96",
+            },
+            "sweepable_axes": (
+                {"indicator_id": "macd", "parameter": "fast_period", "range": [2, 500]},
+                {"indicator_id": "macd", "parameter": "slow_period", "range": [2, 500]},
+                {"indicator_id": "macd", "parameter": "signal_period", "range": [2, 500]},
+                {"target": "exits", "parameter": "initial_stop_multiple"},
+                {"target": "exits", "parameter": "take_profit_multiple"},
+                {"target": "exits", "parameter": "max_bars_held"},
+                {"target": "sizing", "parameter": "risk_fraction"},
+            ),
+        },
+        StrategyTemplateId.BOLLINGER_MEAN_REVERSION: {
+            "warmup_bars": 20,
+            "indicator_ids": ("close", "bands", "atr"),
+            "defaults": {
+                "bands.period": "20",
+                "bands.stdev_multiplier": "2",
+                "atr.period": "14",
+                "sizing.risk_fraction": "0.005",
+                "exits.initial_stop_multiple": "2",
+                "exits.take_profit_multiple": "2",
+                "exits.max_bars_held": "96",
+            },
+            "sweepable_axes": (
+                {"indicator_id": "bands", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "bands", "parameter": "stdev_multiplier"},
+                {"target": "exits", "parameter": "initial_stop_multiple"},
+                {"target": "exits", "parameter": "take_profit_multiple"},
+                {"target": "exits", "parameter": "max_bars_held"},
+                {"target": "sizing", "parameter": "risk_fraction"},
+            ),
+        },
+    }
+    blueprint = dict(blueprints[template_id])
+    blueprint["id"] = template_id.value
+    return blueprint
 
 
 def build_template_draft(
