@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from thytrader.agent_http import request_json, request_mutation_json
+from thytrader.agent_http import AgentHttpError, request_json, request_mutation_json
 from thytrader.data_control.models import DataControlError
 
 DATA_API_PREFIX = "/api/v1/data"
@@ -44,14 +44,29 @@ def ingest(
     *,
     product_id: str,
     timeframe: str,
+    wait: bool = True,
 ) -> object:
-    """Queue ingest and poll until the market-data worker finishes or times out."""
+    """Queue ingest and poll until the market-data worker finishes or times out.
+
+    ``wait=False`` returns the 202-time ingest state immediately so agents and
+    scripts can hand the long backfill to the worker without blocking the caller.
+    """
     request_mutation_json(
         method="POST",
         url=f"{base_url}{DATA_API_PREFIX}/ingest",
         payload={"product_id": product_id, "timeframe": timeframe},
         timeout=_DATA_HTTP_TIMEOUT_SECONDS,
     )
+    if not wait:
+        try:
+            return ingest_status(base_url, product_id=product_id, timeframe=timeframe)
+        except AgentHttpError as error:
+            raise DataControlError(
+                "Ingest was queued, but the follow-up status read failed "
+                f"({error}). The queued request stays pending and the worker "
+                "keeps going; re-check read-only with `thytrader-operator "
+                "data-catalog` before any further ingest call."
+            ) from error
     deadline = time.monotonic() + _INGEST_POLL_TIMEOUT_SECONDS
     while True:
         payload = ingest_status(base_url, product_id=product_id, timeframe=timeframe)
@@ -60,7 +75,9 @@ def ingest(
         if time.monotonic() >= deadline:
             raise DataControlError(
                 "Timed out waiting for the market-data worker to finish ingest. "
-                "Confirm thytrader-market-data-worker is running."
+                "Confirm thytrader-market-data-worker is running. The queued "
+                "request stays pending and the worker keeps going; re-check with "
+                "`thytrader-data ingest --product-id ... --timeframe ... --no-wait`."
             )
         remaining = deadline - time.monotonic()
         time.sleep(min(_INGEST_POLL_SECONDS, max(0.0, remaining)))

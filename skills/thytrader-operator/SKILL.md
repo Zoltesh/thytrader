@@ -127,8 +127,11 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
-   current contiguous island. `sparsity` is island-only; use `watch_sparsity` for the configured
-   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
+   current contiguous island. Each row also carries a `watch_status` noun
+   (`complete` / `backfilling` / `unknown`) so `worker_status=succeeded` — which describes the
+   latest chunk only — cannot be misread as a finished backfill. `sparsity` is island-only; use
+   `watch_sparsity` for the configured
+   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
    If `watch_complete` is false, use `thytrader-data inspect-gaps` for
    classified holes. If that report sets `truncated`, the `gap_summary` is partial (time/row budget)
    and is not proof the full watch was scanned ([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
@@ -159,9 +162,11 @@ See [diagnostics-api.md](references/diagnostics-api.md) and [report-schemas.md](
 YOLO on/off and independent tiers (`data`, `research`, `paper`, `live`) live in `thytrader.yaml`
 ([ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). They apply without
 restart. Leftover `THYTRADER_YOLO_TIERS=paper` is valid; do not JSON-encode the env list.
-`GET /api/v1/operator/configuration` reports `yaml_source_of_truth`, `settings_file`, and
-`yaml_loaded`. Mutations use `thytrader-runtime show-settings` / `set-settings --confirm` or
-`GET`/`PUT /api/v1/settings`. This skill stays read-only.
+`GET /api/v1/operator/configuration` reports `yaml_source_of_truth`, `settings_file`,
+`yaml_loaded`, and `effective_api_base_url` (the loopback origin agent CLIs resolve for this
+checkout — use it instead of probing guessed ports). Mutations use `thytrader-runtime
+show-settings` / `set-settings --confirm` or `GET`/`PUT /api/v1/settings`. This skill stays
+read-only.
 
 ## In-app operator chat
 

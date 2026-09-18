@@ -88,6 +88,7 @@ class ResearchStudyCatalog(Protocol):
         *,
         kind: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
         """Return newest-first catalog rows without child ledgers."""
         ...
@@ -119,9 +120,10 @@ class DisabledResearchStudyCatalog:
         *,
         kind: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
         """Reject listing so disabled persistence never looks empty."""
-        del kind, limit
+        del kind, limit, offset
         raise StudyCatalogUnavailableError("Research study catalog is unavailable.")
 
     async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
@@ -166,12 +168,15 @@ class InMemoryResearchStudyCatalog:
         *,
         kind: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
         """Return newest-first summaries, optionally filtered by study kind."""
         if kind is not None and kind not in _STUDY_KINDS:
             raise StudyCatalogIntegrityError("Unknown research study kind.")
         if limit < 1 or limit > 100:
             raise StudyCatalogIntegrityError("Study catalog limit must be between 1 and 100.")
+        if offset < 0:
+            raise StudyCatalogIntegrityError("Study catalog offset must not be negative.")
         rows = [
             summary
             for summary, _canonical in self._rows.values()
@@ -179,7 +184,7 @@ class InMemoryResearchStudyCatalog:
         ]
         rows.sort(key=lambda item: item.study_fingerprint)
         rows.sort(key=lambda item: item.published_at, reverse=True)
-        return tuple(rows[:limit])
+        return tuple(rows[offset : offset + limit])
 
     async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
         """Return one stored canonical study when the effective plan already exists."""

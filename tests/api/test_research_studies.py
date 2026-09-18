@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -19,6 +21,7 @@ from thytrader.backtest.submission import (
 )
 from thytrader.config import Settings
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
+from thytrader.research.http import find_study_by_request
 from thytrader.strategies.models import strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -189,6 +192,25 @@ def test_templates_catalog_lists_fail_closed_ids() -> None:
     }
 
 
+def test_template_detail_names_indicator_ids_defaults_and_sweepable_axes() -> None:
+    """MACD sweeps can be authored from the blueprint without reading source."""
+    client, _, _ = _client()
+    with client:
+        response = client.get("/api/v1/research/templates/macd-trend")
+        missing = client.get("/api/v1/research/templates/stochastic")
+    assert response.status_code == 200, response.text
+    template = response.json()["template"]
+    assert template["id"] == "macd-trend"
+    assert "macd" in template["indicator_ids"]
+    assert template["defaults"]["macd.fast_period"] == "12"
+    axes = template["sweepable_axes"]
+    assert {"indicator_id": "macd", "parameter": "fast_period"} in [
+        {"indicator_id": axis.get("indicator_id"), "parameter": axis.get("parameter")}
+        for axis in axes
+    ]
+    assert missing.status_code == 404
+
+
 def test_create_draft_accepts_rsi_template_and_rejects_unknown() -> None:
     """Template query selects a named draft and fails closed on unknown ids."""
     client, _, _ = _client()
@@ -336,3 +358,52 @@ def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:
     assert sum(1 for window in body["windows"] if window.get("selected") is True) == 1
     assert body["selection_metric"] == "total_return_fraction"
     assert "stitched_oos_equity" not in body
+
+
+def test_study_catalog_supports_limit_100_offset_pagination() -> None:
+    """The list route honors the le=100 bound plus offset for readback scans."""
+    client, _, _ = _client()
+    with client:
+        fingerprint = _publish_reference(client)
+        first = client.post("/api/v1/research/studies", json=_holdout_body(fingerprint))
+        assert first.status_code == 201, first.text
+        ok = client.get("/api/v1/research/studies?limit=100")
+        assert ok.status_code == 200, ok.text
+        assert len(ok.json()["studies"]) == 1
+        page_two = client.get("/api/v1/research/studies?limit=100&offset=1")
+        assert page_two.status_code == 200, page_two.text
+        assert page_two.json()["studies"] == []
+        rejected = client.get("/api/v1/research/studies?limit=200")
+        assert rejected.status_code == 422
+        negative = client.get("/api/v1/research/studies?offset=-1")
+        assert negative.status_code == 422
+
+
+def test_find_study_by_request_reads_back_through_the_real_route() -> None:
+    """The ambiguous-submit recovery command must work against the real API."""
+    client, _, _ = _client()
+    with client:
+        fingerprint = _publish_reference(client)
+        submitted = client.post("/api/v1/research/studies", json=_holdout_body(fingerprint))
+        assert submitted.status_code == 201, submitted.text
+        request_fp = submitted.json()["request_fingerprint"]
+        assert isinstance(request_fp, str)
+
+        def route_through_test_client(
+            *, method: str, url: str, **_kwargs: object
+        ) -> dict[str, object]:
+            """Serve the CLI's loopback request via this TestClient."""
+            response = client.request(method, url.replace("http://127.0.0.1:8000", ""))
+            assert response.status_code == 200, response.text
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise TypeError("Study catalog response was not a JSON object.")
+            return payload
+
+        with patch(
+            "thytrader.research.http.request_json",
+            side_effect=route_through_test_client,
+        ):
+            row = json.loads(find_study_by_request("http://127.0.0.1:8000", request_fp))
+        assert row["study_fingerprint"] == submitted.json()["study_fingerprint"]
+        assert row["request_fingerprint"] == request_fp

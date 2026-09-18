@@ -272,7 +272,13 @@ class StudyWindowResult(_FrozenStudyModel):
 
 
 class StudyAggregate(_FrozenStudyModel):
-    """Disclosed OOS statistics that are not a stitched equity curve."""
+    """Disclosed scored-window statistics that are not a stitched equity curve.
+
+    ``oos_*`` fields carry genuine out-of-sample windows only. Parameter sweeps
+    score ``sweep_candidate`` full windows on one shared evaluation range; their
+    aggregates use the ``candidate_*`` aliases so the naming cannot imply an
+    out-of-sample claim (ADR 0044 aggregate honesty).
+    """
 
     window_count: int = Field(ge=1)
     oos_window_count: int = Field(ge=0)
@@ -283,6 +289,11 @@ class StudyAggregate(_FrozenStudyModel):
     mean_oos_drawdown_fraction: str | None = None
     mean_is_return_fraction: str | None = None
     is_oos_return_gap: str | None = None
+    candidate_window_count: int | None = Field(default=None, ge=0)
+    candidate_trade_count: int | None = Field(default=None, ge=0)
+    candidate_winning_trade_count: int | None = Field(default=None, ge=0)
+    mean_candidate_return_fraction: str | None = None
+    mean_candidate_drawdown_fraction: str | None = None
 
 
 class ResearchStudy(_FrozenStudyModel):
@@ -482,6 +493,7 @@ def aggregate_windows(
             pool = marked
     oos = tuple(item for item in pool if item.role is not WindowRole.IN_SAMPLE)
     is_windows = tuple(item for item in pool if item.role is WindowRole.IN_SAMPLE)
+    candidates = tuple(item for item in pool if item.role is WindowRole.SWEEP_CANDIDATE)
     oos_trades = sum(item.summary.trade_count for item in oos)
     oos_wins = sum(item.summary.winning_trade_count for item in oos)
     mean_oos = _mean_decimal(tuple(item.summary.total_return_fraction for item in oos))
@@ -493,7 +505,7 @@ def aggregate_windows(
     win_rate = None
     if oos_trades:
         win_rate = _canonical_decimal(Decimal(oos_wins) / Decimal(oos_trades))
-    return StudyAggregate(
+    aggregate = StudyAggregate(
         window_count=len(windows),
         oos_window_count=len(oos),
         oos_trade_count=oos_trades,
@@ -504,6 +516,31 @@ def aggregate_windows(
         mean_is_return_fraction=mean_is,
         is_oos_return_gap=gap,
     )
+    if candidates and not is_windows:
+        aggregate = aggregate.model_copy(
+            update={
+                "oos_window_count": 0,
+                "oos_trade_count": 0,
+                "oos_winning_trade_count": 0,
+                "oos_win_rate": None,
+                "mean_oos_return_fraction": None,
+                "mean_oos_drawdown_fraction": None,
+                "mean_is_return_fraction": None,
+                "is_oos_return_gap": None,
+                "candidate_window_count": len(candidates),
+                "candidate_trade_count": sum(item.summary.trade_count for item in candidates),
+                "candidate_winning_trade_count": sum(
+                    item.summary.winning_trade_count for item in candidates
+                ),
+                "mean_candidate_return_fraction": _mean_decimal(
+                    tuple(item.summary.total_return_fraction for item in candidates)
+                ),
+                "mean_candidate_drawdown_fraction": _mean_decimal(
+                    tuple(item.summary.maximum_drawdown_fraction for item in candidates)
+                ),
+            }
+        )
+    return aggregate
 
 
 @dataclass(frozen=True, slots=True)

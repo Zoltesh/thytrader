@@ -65,6 +65,7 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 |---|---|
 | Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
 | List draft templates | `uv run thytrader-research list-templates` |
+| Show one template's defaults and sweepable axes | `uv run thytrader-research show-template --template macd-trend` |
 | Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
 | Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
 | Import a new custom draft from JSON | `uv run thytrader-research import-draft --file definition.json --confirm` |
@@ -76,13 +77,15 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
 | Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` |
 | Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
+| Read back a study after an ambiguous submit | `uv run thytrader-research find-study-by-request --request-fingerprint sha256:…` |
 | Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `list-templates`, `engine-support`, `plan-study`, `list-studies`, and
+`list-results`, `show-result`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-studies`, and
 `show-study` are read-only and
 do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
 backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
@@ -94,6 +97,8 @@ to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_per
 `trailing_stop_multiple`, `max_bars_held`), `execution` (`max_entry_wait_bars`), or
 `entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8
 total candidates (≤8 values per axis does not imply ≤8 total).
+`show-template` prints one template's `indicator_ids`, shipped `defaults`, warmup, and
+`sweepable_axes` so parameter-axis studies can be authored without reading source or guessing ids.
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
 `plan-study` derives axis candidates in memory and returns a compact plan summary by default
@@ -101,20 +106,30 @@ not look ahead from OOS.
 child windows are required. `submit-study --confirm` publishes missing derived documents, then
 submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
 `plan_fingerprint` even when request bounds differ. Long WFO batches should use
-`submit-study --async --confirm` and poll `show-research-job`. `list-studies` is newest-first
+`submit-study --async --confirm` and poll `show-research-job`. If a synchronous `submit-study`
+fails with a timeout or unreachable-API error, the study may already be persisted: the CLI error
+names the `request_fingerprint` and a readback command. Re-run
+`thytrader-research find-study-by-request --request-fingerprint sha256:…` before retrying the
+submission; resubmission is idempotent. `list-studies` is newest-first
 summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
 (`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
 `windows`. `show-study` uses the default summary. Operator
 `thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
 a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
-interpolated. Parameter-sweep aggregates are not an out-of-sample claim. Cross-market studies
+interpolated. Parameter-sweep aggregates are not an out-of-sample claim: sweep documents carry
+`candidate_window_count` / `mean_candidate_return_fraction` (their `oos_*` fields are zero/absent),
+and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-market studies
 need 2–8 published single-instrument strategies on distinct products. See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
 `create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
 `--timeframe` (any ingested venue clock) for another USD or USDC spot product. Paper and live may start that published fingerprint.
+`show-result` (HTTP and `--local`) and operator `performance` copy the published strategy
+`instrument.quote_currency` into the result `currency` field; USDC-product results report
+`currency: USDC`. The USD value is a fallback only when the publication cannot be loaded, and it
+is then disclosed evidence, not a quote-currency claim.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
 create-draft JSON. It does not change published strategy semantics, place orders, or arm live

@@ -12,6 +12,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.config import Settings
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -128,6 +129,16 @@ def _yaml_settings_file(runtime: RuntimeState | None) -> str:
     if runtime is not None and runtime.settings_store is not None:
         return str(runtime.settings_store.path)
     return str(default_settings_path())
+
+
+def _effective_api_base_url(settings: Settings) -> str:
+    """Report the loopback origin agent CLIs resolve for this checkout.
+
+    Skills and docs name a default port; the running instance may override it.
+    Surfacing the resolved origin prevents operators from probing guessed ports.
+    """
+    host = "127.0.0.1" if not settings.api_host.is_loopback else str(settings.api_host)
+    return f"http://{host}:{settings.api_port}"
 
 
 def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
@@ -248,6 +259,7 @@ class OperatorDiagnostics:
                 notify_webhook_configured=self.settings.notify_webhook_url is not None,
                 settings_file=_yaml_settings_file(self.runtime),
                 yaml_loaded=_yaml_settings_loaded(self.runtime),
+                effective_api_base_url=_effective_api_base_url(self.settings),
             ),
         )
 
@@ -899,17 +911,29 @@ class OperatorDiagnostics:
 
     async def _strategy_timeframe(self, fingerprint: str) -> SupportedTimeframe:
         """Copy the published strategy clock; default 1h when it cannot be loaded."""
+        clock, _quote = await self._strategy_clock_and_quote(fingerprint)
+        return clock
+
+    async def _strategy_clock_and_quote(self, fingerprint: str) -> tuple[SupportedTimeframe, str]:
+        """Copy the published strategy clock and quote currency; USD is the fallback."""
         load = getattr(self.publications, "load", None)
         if not callable(load):
-            return "1h"
+            return "1h", "USD"
         try:
             published = await load(fingerprint)
-        except Exception:  # noqa: BLE001 - missing strategy evidence stays a 1h placeholder.
-            return "1h"
+        except Exception:  # noqa: BLE001 - missing strategy evidence keeps safe defaults.
+            return "1h", "USD"
         clock = _supported_clock(published.definition.timeframe)
         if clock is None:
-            return "1h"
-        return clock
+            return "1h", "USD"
+        return clock, published.definition.instrument.quote_currency
+
+    async def _strategy_quote_currency(self, fingerprint: str) -> Literal["USD", "USDC"]:
+        """Copy the published strategy quote currency; USD is the fallback."""
+        _clock, quote = await self._strategy_clock_and_quote(fingerprint)
+        if quote == "USDC":
+            return "USDC"
+        return "USD"
 
     async def _history_component(self) -> ComponentReport:
         """Treat missing portfolio history as incomplete telemetry, not health."""
@@ -1218,7 +1242,12 @@ class OperatorDiagnostics:
         """Map publications onto covered product ids for runtime book rows."""
         try:
             entries = await self.publications.list_published(include_archived=True)
-        except StrategyPublicationError, RuntimeError, TypeError, ValueError:
+        except (
+            StrategyPublicationError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
             return {}
         return {
             entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
@@ -1258,6 +1287,7 @@ class OperatorDiagnostics:
         payload = PerformancePayload(
             mode="backtest",
             timeframe=await self._strategy_timeframe(result.strategy_fingerprint),
+            currency=await self._strategy_quote_currency(result.strategy_fingerprint),
             strategy_fingerprint=result.strategy_fingerprint,
             dataset_fingerprint=result.dataset_fingerprint,
             engine_contract_version=result.engine_contract_version,
@@ -2237,7 +2267,17 @@ def _coverage_row(
         sparsity=island_sparsity,
         watch_sparsity=watch_sparsity,
         watch_expected_candle_count=watch_expected,
+        watch_status=_watch_status(watch_complete),
     )
+
+
+def _watch_status(watch_complete: bool | None) -> Literal["complete", "backfilling", "unknown"]:
+    """Restate watch_complete as an operator noun; succeeded means latest chunk only."""
+    if watch_complete is True:
+        return "complete"
+    if watch_complete is False:
+        return "backfilling"
+    return "unknown"
 
 
 def _coverage_sparsity(

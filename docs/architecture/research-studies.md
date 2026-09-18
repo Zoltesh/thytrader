@@ -112,13 +112,24 @@ window. Summaries stay when the point series exceeds 4096 marks.
 
 This is not a fourth backtest engine and does not claim live fill quality.
 
+### Parameter-sweep aggregate naming
+
+Parameter sweeps score `sweep_candidate` full windows on one shared evaluation range, so their
+aggregates must not read as out-of-sample evidence. For a pure sweep (no in-sample windows), the
+aggregate zeroes every `oos_*` field and populates `candidate_window_count`,
+`candidate_trade_count`, `candidate_winning_trade_count`, `mean_candidate_return_fraction`, and
+`mean_candidate_drawdown_fraction` instead. Only holdout, walk-forward, and WFO OOS windows use
+`oos_*` names.
+
 ## HTTP
 
 - `GET /api/v1/research/engine-support` — V1/V2/V3/V4 matrix.
 - `GET /api/v1/research/templates` — draft template ids.
+- `GET /api/v1/research/templates/{template_id}` — one template's `indicator_ids`, shipped
+  `defaults`, warmup, and `sweepable_axes` (404 on unknown ids).
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
 - `POST /api/v1/research/studies` — plan plus idempotent child submissions and catalog persist.
-- `GET /api/v1/research/studies` — newest-first catalog rows (`kind`, `limit`).
+- `GET /api/v1/research/studies` — newest-first catalog rows (`kind`, `limit` ≤ 100, `offset` ≥ 0).
 - `GET /api/v1/research/studies/{study_fingerprint}` — bounded study summary (`detail=summary`
   default). `?detail=full` returns child windows and stitched points.
 - `POST /api/v1/backtests?async=true` — queue one long backtest (HTTP 202 + `job_id`).

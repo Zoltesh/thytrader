@@ -107,12 +107,15 @@ class PostgresResearchStudyCatalog:
         *,
         kind: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
         """Return newest-first catalog rows without child ledgers."""
         if kind is not None and kind not in _STUDY_KINDS:
             raise StudyCatalogIntegrityError("Unknown research study kind.")
         if limit < 1 or limit > 100:
             raise StudyCatalogIntegrityError("Study catalog limit must be between 1 and 100.")
+        if offset < 0:
+            raise StudyCatalogIntegrityError("Study catalog offset must not be negative.")
         table = published_research_studies
         statement = (
             select(
@@ -132,6 +135,7 @@ class PostgresResearchStudyCatalog:
             )
             .order_by(table.c.published_at.desc(), table.c.study_fingerprint.asc())
             .limit(limit)
+            .offset(offset)
         )
         if kind is not None:
             statement = statement.where(table.c.kind == kind)

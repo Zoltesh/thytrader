@@ -52,7 +52,7 @@ from thytrader.strategies.publication import (
     StrategyPublicationError,
     StrategyPublicationStore,
 )
-from thytrader.strategies.templates import template_catalog
+from thytrader.strategies.templates import parse_template_id, template_blueprint, template_catalog
 
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 _logger = logging.getLogger(__name__)
@@ -67,10 +67,28 @@ class StrategyTemplateEntry(BaseModel):
     description: str
 
 
+class StrategyTemplateDetail(BaseModel):
+    """One template's defaults, indicator ids, and sweepable axes."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str
+    warmup_bars: int
+    indicator_ids: tuple[str, ...]
+    defaults: dict[str, str]
+    sweepable_axes: tuple[dict[str, object], ...]
+
+
 class StrategyTemplateListResponse(BaseModel):
     """Catalog of research draft templates."""
 
     templates: tuple[StrategyTemplateEntry, ...]
+
+
+class StrategyTemplateDetailResponse(BaseModel):
+    """One template blueprint keyed by id."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    template: StrategyTemplateDetail
 
 
 class StudyCatalogListResponse(BaseModel):
@@ -109,6 +127,27 @@ def get_strategy_templates() -> StrategyTemplateListResponse:
         for item in template_catalog()
     )
     return StrategyTemplateListResponse(templates=entries)
+
+
+@router.get("/templates/{template_id}", response_model=StrategyTemplateDetailResponse)
+def get_strategy_template_detail(template_id: str) -> StrategyTemplateDetailResponse:
+    """Return one template's defaults and sweepable parameter axes."""
+    try:
+        parsed = parse_template_id(template_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "template_not_found", "message": str(error)},
+        ) from None
+    blueprint = template_blueprint(parsed)
+    detail = StrategyTemplateDetail(
+        id=str(blueprint["id"]),
+        warmup_bars=int(blueprint["warmup_bars"]),
+        indicator_ids=tuple(str(item) for item in blueprint["indicator_ids"]),
+        defaults={str(key): str(value) for key, value in blueprint["defaults"].items()},
+        sweepable_axes=tuple(dict(axis) for axis in blueprint["sweepable_axes"]),
+    )
+    return StrategyTemplateDetailResponse(template=detail)
 
 
 @router.post(
@@ -227,12 +266,14 @@ async def list_research_studies(
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
     kind: StudyKind | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StudyCatalogListResponse:
     """List persisted study catalog rows without child equity curves."""
     try:
         rows = await catalog.list_summaries(
             kind=kind.value if kind is not None else None,
             limit=limit,
+            offset=offset,
         )
     except StudyCatalogIntegrityError as error:
         raise HTTPException(

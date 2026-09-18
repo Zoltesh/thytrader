@@ -74,6 +74,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     _target_args(ingest_cmd)
     ingest_cmd.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    ingest_cmd.add_argument(
+        "--no-wait",
+        action="store_true",
+        help=(
+            "Return immediately after the 202 with the ingest state instead of "
+            "polling until the worker finishes (long backfills can take minutes)."
+        ),
+    )
     gaps = subparsers.add_parser(
         "inspect-gaps",
         parents=[trailing],
@@ -155,6 +163,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str) -> object:
             base_url,
             product_id=arguments.product_id,
             timeframe=arguments.timeframe,
+            wait=not arguments.no_wait,
         )
     if command == "inspect-gaps":
         require_matching_ops_contract(base_url)

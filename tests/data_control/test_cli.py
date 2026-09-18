@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -76,6 +77,57 @@ def test_ingest_without_confirm_does_not_mutate() -> None:
         pytest.raises(SystemExit) as raised,
     ):
         main(["ingest", "--product-id", "ETH-USD", "--timeframe", "5m"])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_ingest_no_wait_returns_immediately_without_polling(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--no-wait hands the backfill to the worker without blocking the caller."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+        "POST /api/v1/data/ingest": {"ingest_requested_at": "2026-09-18T00:00:00Z"},
+        "GET /api/v1/data/ingest": {
+            "ingest_requested_at": "2026-09-18T00:00:00Z",
+            "watch_complete": False,
+        },
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.data_control.client.time.sleep") as sleep,
+    ):
+        main(
+            [
+                "ingest",
+                "--product-id",
+                "ETH-USD",
+                "--timeframe",
+                "5m",
+                "--no-wait",
+                "--confirm",
+            ]
+        )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ingest_requested_at"] is not None
+    assert payload["watch_complete"] is False
+    sleep.assert_not_called()
+
+
+def test_ingest_no_wait_still_requires_confirm() -> None:
+    """The no-wait fast path remains a confirmation-gated mutation."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.data_control.cli.ingest") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["ingest", "--product-id", "ETH-USD", "--timeframe", "5m", "--no-wait"])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
     request.assert_not_called()
