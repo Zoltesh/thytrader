@@ -52,15 +52,42 @@ def test_ambiguous_timeout_error_names_request_fingerprint_and_readback() -> Non
     assert "already be persisted" in message
 
 
-def test_definitive_rejection_still_names_readback() -> None:
-    """A 422 rejection is not ambiguous but still carries the identity."""
+def test_definitive_rejection_names_identity_without_ambiguity_hint() -> None:
+    """A 422 rejection is definitive: identity yes, ambiguous readback no."""
+    request = _study_request()
     error = _ambiguous_study_error(
-        _study_request(),
+        request,
         AgentHttpError("HTTP 422: study_window_rejected"),
     )
     message = str(error)
     assert "422" in message
     assert "--request-fingerprint" in message
+    assert request_fingerprint(request) in message
+    assert "already be persisted" not in message
+
+
+def test_unreachable_submission_is_ambiguous_and_names_readback() -> None:
+    """A transport-level unreachable failure must keep the readback hint."""
+    request = _study_request()
+    error = _ambiguous_study_error(
+        request,
+        AgentHttpError("ThyTrader API is unreachable at http://127.0.0.1:8000."),
+    )
+    message = str(error)
+    assert "--request-fingerprint" in message
+    assert "already be persisted" in message
+
+
+def test_server_timeout_status_is_ambiguous_and_names_readback() -> None:
+    """A 504 gateway timeout after a write-risk POST must carry the readback hint."""
+    error = _ambiguous_study_error(
+        _study_request(),
+        AgentHttpError("HTTP 504: gateway timed out"),
+    )
+    message = str(error)
+    assert "504" in message
+    assert "--request-fingerprint" in message
+    assert "already be persisted" in message
 
 
 def test_find_study_by_request_returns_matching_row() -> None:

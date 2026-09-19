@@ -48,3 +48,7 @@ process-local and composed studies still blocked synchronously.
 - Ops contract `thytrader-ops-contract-v31` advertises research job statuses, concurrency, and expiry.
   Alembic revision `0044` creates `research_jobs` and adds `plan_fingerprint` to
   `published_research_studies`.
+- Since ops contract `thytrader-ops-contract-v33` (Alembic revision `0046`), failed study jobs also
+  persist `failed_phase` (`publish_derived` | `submit_children` | `persist_study` | `unknown`) and
+  `failed_detail` (bounded underlying-cause text) alongside `error_message`, so operators can decide
+  retry safety and inspection targets without scraping logs.

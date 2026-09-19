@@ -311,6 +311,27 @@ def _parser() -> argparse.ArgumentParser:
     )
     cancel_research_job.add_argument("--job-id", required=True)
     cancel_research_job.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    list_strategies = subparsers.add_parser(
+        "list-strategies",
+        parents=[trailing],
+        help="List the strategy library with archive markers.",
+    )
+    list_strategies.add_argument(
+        "--include-archived",
+        action="store_true",
+        help="Include archived publications in the listing (default hides them).",
+    )
+    archive = subparsers.add_parser(
+        "archive",
+        parents=[trailing],
+        help="Permanently hide one published strategy without deleting evidence.",
+    )
+    archive.add_argument(
+        "--strategy-fingerprint",
+        required=True,
+        help="Published strategy fingerprint to archive (sha256:...).",
+    )
+    archive.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
 
 
@@ -512,6 +533,16 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     if arguments.command == "show-study":
         require_matching_ops_contract(base_url)
         return research_http.show_study(base_url, arguments.study_fingerprint)
+    if arguments.command == "list-strategies":
+        require_matching_ops_contract(base_url)
+        return research_http.list_strategies(
+            base_url,
+            include_archived=bool(arguments.include_archived),
+        )
+    if arguments.command == "archive":
+        _require_http_confirm(arguments.confirm, base_url=base_url, command="archive")
+        require_matching_ops_contract(base_url)
+        return research_http.archive_strategy(base_url, arguments.strategy_fingerprint)
     return _dispatch_http_study(base_url, arguments)
 
 

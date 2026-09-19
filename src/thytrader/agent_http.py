@@ -25,7 +25,17 @@ _STALE_OPS_CONTRACT = (
 
 
 class AgentHttpError(RuntimeError):
-    """Report a redacted loopback API failure without trading authority."""
+    """Report a redacted loopback API failure without trading authority.
+
+    ``status`` carries the HTTP status code when the failure came from an
+    HTTP error response; transport-level failures leave it ``None`` so callers
+    can distinguish definitive rejections from ambiguous ones.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        """Store the message and the optional HTTP status code."""
+        super().__init__(message)
+        self.status = status
 
 
 def default_api_base_url(settings: Settings) -> str:
@@ -114,13 +124,15 @@ def request_json(
             status = int(response.status)
             raw = response.read()
     except HTTPError as error:
-        raise AgentHttpError(_http_error_message(error.code, error.read(), url=url)) from error
+        message, status_code = _http_error_message(error.code, error.read(), url=url)
+        raise AgentHttpError(message, status=status_code) from error
     except URLError as error:
         raise AgentHttpError(
             f"ThyTrader API is unreachable at {url}. Start thytrader-api or pass --local."
         ) from error
     if status >= 400:
-        raise AgentHttpError(_http_error_message(status, raw, url=url))
+        message, status_code = _http_error_message(status, raw, url=url)
+        raise AgentHttpError(message, status=status_code)
     if not raw:
         return None
     try:
@@ -136,16 +148,23 @@ def _assert_loopback_request_url(url: str) -> None:
         raise AgentHttpError("Agent CLIs may only target a loopback ThyTrader API.")
 
 
-def _http_error_message(status: int, raw: bytes, url: str | None = None) -> str:
-    """Summarize one HTTP error body without dumping secrets or large payloads."""
+def _http_error_message(status: int, raw: bytes, url: str | None = None) -> tuple[str, int]:
+    """Summarize one HTTP error body without dumping secrets or large payloads.
+
+    Returns the redacted message plus the originating status code so callers
+    can classify the failure without re-parsing the text.
+    """
     if status == 404 and url is not None and _stale_image_missing_agent_routes(url):
         return (
-            "HTTP 404: agent API routes are missing on a ready listener "
-            f"(stale Compose image). {STALE_IMAGE_REBUILD}"
+            (
+                "HTTP 404: agent API routes are missing on a ready listener "
+                f"(stale Compose image). {STALE_IMAGE_REBUILD}"
+            ),
+            status,
         )
     text = raw.decode("utf-8", errors="replace")[:_MAX_ERROR_CHARS]
     detail = _extract_detail(text)
-    return f"HTTP {status}: {detail}"
+    return (f"HTTP {status}: {detail}", status)
 
 
 def _stale_image_missing_agent_routes(url: str) -> bool:

@@ -205,9 +205,31 @@ through `thytrader-runtime` ([ADR 0048](../../docs/decisions/0048-paper-deploy-f
 omitted paper rates keep the documented `0.001` maker / `0.002` taker schedule. Those paper rates
 are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.
 
+## Failed study submissions
+
+- A failed synchronous `submit-study` prints the real underlying reason plus the request
+  fingerprint (never a bare safe-failure line). Keep that identity for `find-study-by-request`.
+- A definitive rejection (HTTP 4xx except 408) names the request identity and the reason but never
+  claims an ambiguous submit state — nothing was persisted; fix the request instead of re-reading.
+- Ambiguous failures (timeout, unreachable API, HTTP 408/5xx) keep the readback suffix: the study
+  may already be persisted. Run `find-study-by-request --request-fingerprint …` before retrying.
+- Failed async study jobs expose `failed_phase` (`publish_derived`, `submit_children`,
+  `persist_study`, or `unknown`), `failed_detail` (underlying cause text), and `error_message` in
+  `show-research-job` output. Decide retries from the phase, not from `progress_current`.
+
+## Publication archive reads and writes
+
+- `uv run thytrader-research list-strategies` lists the strategy library; archived publications are
+  hidden by default. Pass `--include-archived` to audit them (rows keep fingerprints and
+  `archived_at` markers; nothing is deleted).
+- `uv run thytrader-research archive --strategy-fingerprint sha256:… --confirm` permanently hides
+  one immutable publication from default listings. It cannot remove evidence and cannot archive a
+  draft. Use it to retire sweep-variant or screening byproducts after recording the fingerprint in
+  the session report.
+
 ## Confirmation
 
-- Never run `create-draft`, `import-draft`, `save-draft`, `publish`, `submit-backtest`, or `submit-study` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- Never run `create-draft`, `import-draft`, `save-draft`, `publish`, `submit-backtest`, `submit-study`, or `archive` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
 - `--local` research always requires `--confirm` (YOLO is HTTP-only).
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
 - Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`, `study_fingerprint`). Keep those identities.
@@ -217,7 +239,7 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 - Deployments, pause/resume/stop, Coinbase orders, risk-limit edits, kill switches
 - Direct PostgreSQL access as the public agent contract
 - Treating a backtest as a live or paper fill
-- Archiving as part of this skill (out of scope)
+- Deleting research artifacts (archive hides; it never removes evidence)
 - Editing application source to change strategy or backtest semantics on a running instance
 
 Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be any ingested venue clock for backtests, paper, and live. Published `htf_filter` is executable in paper and live.

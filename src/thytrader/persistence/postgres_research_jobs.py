@@ -161,12 +161,21 @@ class PostgresResearchJobStore:
             plan_fingerprint=plan_fingerprint,
         )
 
-    async def mark_failed(self, job_id: UUID, *, error_message: str) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure."""
+    async def mark_failed(
+        self,
+        job_id: UUID,
+        *,
+        error_message: str,
+        failed_phase: str | None = None,
+        failed_detail: str | None = None,
+    ) -> ResearchJobRecord:
+        """Persist a caller-visible or redacted failure with optional detail."""
         return await self._replace(
             job_id,
             status=ResearchJobStatus.FAILED,
             error_message=error_message[:256],
+            failed_phase=failed_phase[:32] if failed_phase is not None else None,
+            failed_detail=failed_detail[:500] if failed_detail is not None else None,
         )
 
     async def mark_cancelled(self, job_id: UUID) -> ResearchJobRecord:
@@ -282,6 +291,8 @@ class PostgresResearchJobStore:
         *,
         status: ResearchJobStatus,
         error_message: str | None = None,
+        failed_phase: str | None = None,
+        failed_detail: str | None = None,
         run_fingerprint: str | None = None,
         result_fingerprint: str | None = None,
         study_fingerprint: str | None = None,
@@ -294,6 +305,8 @@ class PostgresResearchJobStore:
         values = _replacement_values(
             status=status,
             error_message=error_message,
+            failed_phase=failed_phase,
+            failed_detail=failed_detail,
             run_fingerprint=run_fingerprint,
             result_fingerprint=result_fingerprint,
             study_fingerprint=study_fingerprint,
@@ -314,10 +327,25 @@ class PostgresResearchJobStore:
         return record
 
 
+def _failure_values(
+    failed_phase: str | None,
+    failed_detail: str | None,
+) -> dict[str, object]:
+    """Build bounded failure-detail column updates when provided."""
+    values: dict[str, object] = {}
+    if failed_phase is not None:
+        values["failed_phase"] = failed_phase[:32]
+    if failed_detail is not None:
+        values["failed_detail"] = failed_detail[:500]
+    return values
+
+
 def _replacement_values(
     *,
     status: ResearchJobStatus,
     error_message: str | None,
+    failed_phase: str | None,
+    failed_detail: str | None,
     run_fingerprint: str | None,
     result_fingerprint: str | None,
     study_fingerprint: str | None,
@@ -333,6 +361,7 @@ def _replacement_values(
     }
     if error_message is not None:
         values["error_message"] = error_message[:256]
+    values.update(_failure_values(failed_phase, failed_detail))
     if run_fingerprint is not None:
         values["run_fingerprint"] = run_fingerprint
     if result_fingerprint is not None:
@@ -362,6 +391,8 @@ def _record_from_row(row: RowMapping) -> ResearchJobRecord:
         progress_current=cast("int", row["progress_current"]),
         progress_total=cast("int", row["progress_total"]),
         error_message=cast("str | None", row.get("error_message")),
+        failed_phase=cast("str | None", row.get("failed_phase")),
+        failed_detail=cast("str | None", row.get("failed_detail")),
         run_fingerprint=cast("str | None", row.get("run_fingerprint")),
         result_fingerprint=cast("str | None", row.get("result_fingerprint")),
         study_fingerprint=cast("str | None", row.get("study_fingerprint")),
