@@ -102,7 +102,7 @@ total candidates (≤8 values per axis does not imply ≤8 total).
 `sweepable_axes` so parameter-axis studies can be authored without reading source or guessing ids.
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
-`plan-study` derives axis candidates in memory and returns a compact plan summary by default
+`plan-study` derives axis candidates in memory, then rejects windows that cannot fit the selected dataset after warmup and the reserved next-open fill. A rejected plan is HTTP 422 `study_window_rejected` and names the field that failed (`evaluation_start` or `evaluation_end`) plus the same suggested ISO range child backtests use. It returns a compact plan summary by default
 (`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
 child windows are required. `submit-study --confirm` publishes missing derived documents, then
 submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
@@ -129,7 +129,10 @@ need 2–8 published single-instrument strategies on distinct products. See
 `--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live may start that published fingerprint.
 `show-result` (HTTP and `--local`) and operator `performance` copy the published strategy
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
-`currency: USDC`. The USD value is a fallback only when the publication cannot be loaded, and it
+`currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
+(`sharpe`, `sortino`, `calmar`, `sqn`, `cagr`, annualized volatility, max consecutive losses,
+exposure fraction, mark-to-mark buy-and-hold) without changing canonical result fingerprints.
+The USD value is a fallback only when the publication cannot be loaded, and it
 is then disclosed evidence, not a quote-currency claim.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
@@ -214,9 +217,10 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
   claims an ambiguous submit state — nothing was persisted; fix the request instead of re-reading.
 - Ambiguous failures (timeout, unreachable API, HTTP 408/5xx) keep the readback suffix: the study
   may already be persisted. Run `find-study-by-request --request-fingerprint …` before retrying.
-- Failed async study jobs expose `failed_phase` (`publish_derived`, `submit_children`,
+- Failed async study jobs expose `failed_phase` (`plan`, `publish_derived`, `submit_children`,
   `persist_study`, or `unknown`), `failed_detail` (underlying cause text), and `error_message` in
-  `show-research-job` output. Decide retries from the phase, not from `progress_current`.
+  `show-research-job` output. Child-window 422s copy the rejection text into `failed_detail`.
+  Decide retries from the phase, not from `progress_current`.
 
 ## Publication archive reads and writes
 

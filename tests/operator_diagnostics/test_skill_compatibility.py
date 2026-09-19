@@ -48,6 +48,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/indicators",
         "/support-bundle",
         "/studies",
+        "/portfolio",
+        "/fees",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
@@ -69,7 +71,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v35" in skill
+    assert "thytrader-ops-contract-v36" in skill
     assert "0046" in skill
     assert "spot_quote_currencies" in skill or "USDC" in skill
     assert "spot_quote_currencies" in schemas

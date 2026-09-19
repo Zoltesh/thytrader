@@ -40,7 +40,39 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "studies" in output
     assert "chat-status" in output
     assert "trade-reasons" in output
+    assert "portfolio" in output
+    assert "fees" in output
     assert "loopback HTTP" in output or "--local" in output
+
+
+def test_operator_local_portfolio_includes_balances_without_secrets(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Portfolio is a versioned report that shows cash amounts and omits secrets."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "portfolio"])
+    assert raised.value.code in {0, 1, 2}
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["report_kind"] == "portfolio"
+    assert payload["redaction"]["secrets_redacted"] is True
+    assert payload["redaction"]["balances_omitted"] is False
+    total = payload["payload"]["total_value"]
+    assert "amount" in total
+    assert total["currency"] in {"USD", "USDC", "USDT"}
+
+
+def test_operator_local_fees_include_suggested_research_rates(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fees is a versioned report matching the HTTP fee-profile contract."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "fees"])
+    assert raised.value.code in {0, 1, 2}
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["report_kind"] == "fees"
+    fees = payload["payload"]
+    assert "maker_fee_rate" in fees
+    assert "taker_fee_rate" in fees
 
 
 def test_operator_local_indicators_and_products_are_healthy(

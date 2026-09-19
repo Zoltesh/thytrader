@@ -65,7 +65,10 @@ invent trailing stops. Derived definitions copy the base document, raise `warmup
 periods require it, and take a deterministic UUIDv7 `strategy_id`. Indicator-only cells keep the
 ADR 0044 fingerprint 3-tuple.
 
-`plan-study` derives in memory and does not persist. `submit-study --confirm` publishes missing
+`plan-study` derives in memory and does not persist. It loads dataset manifests and
+rejects windows that fail the same warmup / next-open bound check as child
+backtests (`422 study_window_rejected`, named field plus suggested ISO range).
+`submit-study --confirm` publishes missing
 derived documents through the existing publication store, then submits ordinary backtests, then
 stores the assembled study in the catalog.
 

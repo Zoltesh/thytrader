@@ -22,7 +22,8 @@ inspection, ingest self-complete, heartbeat during ingest), bounded deployment
 bounded deployment reads, deployment ledger pagination, multi-book ledger
 aggregation, structured research-job failure detail, paper fill-atomic order
 status (a failed fill ingest leaves the order OPEN), split-state fail-closed
-pending-entry semantics, selectable USD/USDC/USDT spot quotes, or supported
+pending-entry semantics, selectable USD/USDC/USDT spot quotes, operator
+portfolio/fees reports, derived backtest performance metrics, or supported
 spot quote currencies change.
 """
 
@@ -36,7 +37,7 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v35"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v36"
 EXPECTED_SCHEMA_REVISION = "0046"
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)

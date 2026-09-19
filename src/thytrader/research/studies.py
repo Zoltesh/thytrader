@@ -28,6 +28,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
 )
+from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
 from thytrader.research.catalog import (
     ResearchStudyCatalog,
@@ -48,12 +49,14 @@ from thytrader.research.parameter_sweep import (
     unavailable_stitched_equity,
     validate_parameter_axes_candidate_budget,
 )
+from thytrader.research.publication import explain_evaluation_window_rejection
 from thytrader.strategies.publication import StrategyPublicationError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from thytrader.backtest.submission import BacktestSubmitter
+    from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
 
@@ -112,6 +115,7 @@ class ResearchStudyError(RuntimeError):
 class StudyFailedPhase(StrEnum):
     """Bounded submission phases a study failure can name."""
 
+    PLAN = "plan"
     PUBLISH_DERIVED = "publish_derived"
     SUBMIT_CHILDREN = "submit_children"
     PERSIST_STUDY = "persist_study"
@@ -570,12 +574,15 @@ class ResearchStudyService:
     submitter: BacktestSubmitter
     results: BacktestResultReader
     catalog: ResearchStudyCatalog | None = None
+    datasets: DatasetStore | None = None
 
     async def plan(self, request: ResearchStudyRequest) -> ResearchStudyPlan:
         """Return the window schedule after loading published strategies."""
         published = await self._load_publications(request)
         published = _merge_derived_candidates(request, published)
-        return plan_study(request, publications=published)
+        plan = plan_study(request, publications=published)
+        self._reject_windows_outside_datasets(plan, published)
+        return plan
 
     async def submit(self, request: ResearchStudyRequest) -> ResearchStudy:
         """Submit or reuse each child backtest and assemble the derived study."""
@@ -593,6 +600,7 @@ class ResearchStudyService:
             request, await self._load_publications(request)
         )
         plan = plan_study(request, publications=published)
+        self._reject_windows_outside_datasets(plan, published)
         existing = await self._load_existing_plan(plan.plan_fingerprint)
         if existing is not None:
             return existing
@@ -750,6 +758,44 @@ class ResearchStudyService:
                 raise
             return await self.publications.publish(candidate.definition)
 
+    def _reject_windows_outside_datasets(
+        self,
+        plan: ResearchStudyPlan,
+        publications: dict[str, PublishedStrategy],
+    ) -> None:
+        """Reject planned windows with the same dataset bound check as child backtests."""
+        if self.datasets is None:
+            return
+        seen: dict[str, tuple[datetime, datetime]] = {}
+        for window in plan.windows:
+            bounds = seen.get(window.dataset_fingerprint)
+            if bounds is None:
+                try:
+                    manifest = self.datasets.load_manifest(window.dataset_fingerprint)
+                except DatasetStoreError as error:
+                    raise StudyPlanningError(
+                        "The selected dataset was not found or is not a verified complete artifact."
+                    ) from error
+                try:
+                    bounds = (
+                        _coverage_instant(manifest.starts_at),
+                        _coverage_instant(manifest.ends_at),
+                    )
+                except ValueError as error:
+                    raise StudyPlanningError("Dataset coverage timestamps are invalid.") from error
+                seen[window.dataset_fingerprint] = bounds
+            published = publications[window.strategy_fingerprint]
+            rejection = explain_evaluation_window_rejection(
+                dataset_starts_at=bounds[0],
+                dataset_ends_at=bounds[1],
+                evaluation_start=window.evaluation_start,
+                evaluation_end=window.evaluation_end,
+                warmup_bars=published.definition.data_requirements.warmup_bars,
+                timeframe=published.definition.timeframe,
+            )
+            if rejection is not None:
+                raise StudyPlanningError(rejection)
+
     async def _load_publications(
         self, request: ResearchStudyRequest
     ) -> dict[str, PublishedStrategy]:
@@ -787,6 +833,14 @@ def _strategy_fingerprints(request: ResearchStudyRequest) -> tuple[str, ...]:
     fingerprints = [request.strategy_fingerprint]
     fingerprints.extend(request.candidate_strategy_fingerprints)
     return tuple(dict.fromkeys(fingerprints))
+
+
+def _coverage_instant(value: str) -> datetime:
+    """Parse one dataset coverage timestamp as timezone-aware UTC."""
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("Dataset coverage timestamps are invalid.")
+    return parsed.astimezone(UTC)
 
 
 def _raise_cancelled_study() -> None:

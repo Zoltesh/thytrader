@@ -7,8 +7,9 @@ Model: `thytrader.backtest.models.BacktestResult`.
 Canonical result JSON is sorted compact UTF-8. Its SHA-256 fingerprint is the
 result identity. Append-only PostgreSQL `published_backtest_results`. Load
 reverifies bytes, fingerprint, row identity, and the source run. Buy-and-hold
-comparison is a **derived** `thytrader-buy-and-hold-v1` report, not part of
-canonical result bytes.
+comparison is a **derived** `thytrader-buy-and-hold-v1` report. Sharpe-class
+ratios are a **derived** `thytrader-performance-metrics-v1` report. Neither is
+part of canonical result bytes.
 
 ```mermaid
 classDiagram

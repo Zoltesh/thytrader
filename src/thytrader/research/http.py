@@ -521,6 +521,7 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "timeframe": timeframe,
             "currency": currency,
             "summary": summary,
+            "metrics": body.get("metrics"),
         }
     )
 

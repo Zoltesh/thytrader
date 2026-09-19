@@ -12,6 +12,7 @@ import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
+from thytrader.market_data.datasets import DatasetManifest
 from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
@@ -32,7 +33,12 @@ from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.publication import PublishedStrategy
 
 if TYPE_CHECKING:
-    from thytrader.persistence.backtest_results import BacktestResultSummaryView
+    from thytrader.market_data.datasets import DatasetStore
+    from thytrader.persistence.backtest_results import (
+        BacktestResultReader,
+        BacktestResultSummaryView,
+    )
+    from thytrader.strategies.publication import StrategyPublicationStore
 
 
 def _published(product_id: str, timeframe: str = "1h") -> PublishedStrategy:
@@ -620,3 +626,69 @@ def test_walk_forward_optimization_selects_on_in_sample_only() -> None:
     assert all(window.strategy_fingerprint == strong_is for window in selected_oos)
     assert study.aggregate.mean_oos_return_fraction == "0.02"
     assert study.stitched_oos_equity is not None
+
+
+def test_plan_service_rejects_warmup_infeasible_evaluation_start() -> None:
+    """plan-study must share backtest bound checks so first-bar starts 422."""
+    published = _reference_publication()
+    request = ResearchStudyRequest(
+        kind=StudyKind.OOS_HOLDOUT,
+        evaluation_start=datetime(2026, 1, 1, tzinfo=UTC),
+        evaluation_end=datetime(2026, 1, 11, tzinfo=UTC),
+        initial_quote_balance="10000",
+        maker_fee_rate="0.001",
+        taker_fee_rate="0.002",
+        fixed_slippage_bps="10",
+        engine_contract_version="thytrader-bar-backtest-v1",
+        strategy_fingerprint=published.strategy_fingerprint,
+        dataset_fingerprint="sha256:" + "b" * 64,
+        oos_fraction="0.3",
+    )
+
+    class _Publications:
+        async def load(self, fingerprint: str) -> PublishedStrategy:
+            del fingerprint
+            return published
+
+    class _Datasets:
+        def load_manifest(self, fingerprint: str) -> DatasetManifest:
+            del fingerprint
+            return DatasetManifest(
+                provider="coinbase",
+                product_id="BTC-USD",
+                timeframe="1h",
+                starts_at="2026-01-01T00:00:00Z",
+                ends_at="2026-01-11T00:00:00Z",
+                expected_candle_count=241,
+                received_candle_count=241,
+                gap_count=0,
+                missing_intervals=0,
+                complete=True,
+                content_fingerprint="sha256:" + "b" * 64,
+                files=(Path("unused.parquet"),),
+                manifest_path=Path("unused.json"),
+            )
+
+    class _Submitter:
+        async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
+            del request
+            raise AssertionError("planning must not submit child backtests")
+
+    class _Results:
+        async def list_summaries(self, **kwargs: object) -> tuple[object, ...]:
+            del kwargs
+            return ()
+
+        async def load(self, result_fingerprint: str) -> BacktestResult:
+            del result_fingerprint
+            raise AssertionError("planning must not load results")
+
+    service = ResearchStudyService(
+        publications=cast("StrategyPublicationStore", _Publications()),
+        submitter=_Submitter(),
+        results=cast("BacktestResultReader", _Results()),
+        datasets=cast("DatasetStore", _Datasets()),
+    )
+    with pytest.raises(StudyPlanningError, match="evaluation_start") as raised:
+        asyncio.run(service.plan(request))
+    assert "Suggested range:" in str(raised.value)

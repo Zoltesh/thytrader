@@ -81,6 +81,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0073](0073-durable-research-jobs.md) | Durable bounded research jobs, plan dedupe, compact planner; ops contract v31 / Alembic 0044 | Accepted |
 | [0075](0075-fill-atomic-paper-order-status-and-split-state-fail-closed.md) | Fill-atomic paper order status and split-state fail-closed; ops contract v34 | Accepted |
 | [0076](0076-selectable-spot-quote-currencies.md) | Selectable USD/USDC/USDT spot quotes; ops contract v35 | Accepted |
+| [0077](0077-derived-performance-metrics.md) | Sharpe-class ratios as derived `thytrader-performance-metrics-v1`; ops contract v36 | Accepted |
 
 ## Status values
 

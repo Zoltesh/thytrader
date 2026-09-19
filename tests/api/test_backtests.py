@@ -628,6 +628,30 @@ def test_backtests_detail_returns_full_reverified_result() -> None:
     assert len(payload["result"]["equity_curve"]) == len(result.equity_curve)
 
 
+def test_backtests_summary_includes_derived_performance_metrics() -> None:
+    """Summary and /metrics expose Sharpe without changing the canonical result."""
+    result = _result()
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+    )
+    with TestClient(app) as client:
+        summary_response = client.get(f"/api/v1/backtests/{fingerprint}")
+        metrics_response = client.get(f"/api/v1/backtests/{fingerprint}/metrics")
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["metrics"]["metrics_contract_version"] == "thytrader-performance-metrics-v1"
+    assert "sharpe" in summary["metrics"]
+    assert "result" not in summary
+    assert metrics_response.status_code == 200
+    assert metrics_response.json()["result_fingerprint"] == fingerprint
+    assert (
+        metrics_response.json()["metrics"]["exposure_fraction"]
+        == summary["metrics"]["exposure_fraction"]
+    )
+
+
 def test_backtests_detail_returns_404_for_unknown_fingerprint() -> None:
     """A well-formed but unknown identity returns a redacted not-found."""
     app = create_app(
