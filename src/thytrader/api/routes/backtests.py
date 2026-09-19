@@ -55,6 +55,7 @@ from thytrader.research.jobs import (
     ResearchJobStore,
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
+from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
@@ -84,6 +85,8 @@ class BacktestListResponse(BaseModel):
     limit: int
     offset: int
     returned: int
+    has_more: bool = False
+    next_cursor: str | None = None
 
 
 class BacktestSubmissionResponse(BaseModel):
@@ -184,6 +187,19 @@ def _fingerprint_or_none(value: str | None) -> str | None:
     return value
 
 
+def _list_offset(*, offset: int, cursor: str | None) -> int:
+    """Prefer an opaque cursor when present; otherwise use the numeric offset."""
+    if cursor is None:
+        return offset
+    try:
+        return decode_offset_cursor(cursor)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "backtest_invalid", "message": "Pagination cursor is malformed."},
+        ) from None
+
+
 @router.post(
     "",
     response_model=None,
@@ -261,6 +277,7 @@ async def list_backtests(
     dataset_fingerprint: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    cursor: Annotated[str | None, Query()] = None,
 ) -> BacktestListResponse:
     """Return a bounded newest-first page of immutable result summaries."""
     selected = [
@@ -276,13 +293,14 @@ async def list_backtests(
                 "message": "Only one source fingerprint filter is accepted per request.",
             },
         )
+    start = _list_offset(offset=offset, cursor=cursor)
     try:
         entries = await store.list_summaries(
             run_fingerprint=_fingerprint_or_none(run_fingerprint),
             strategy_fingerprint=_fingerprint_or_none(strategy_fingerprint),
             dataset_fingerprint=_fingerprint_or_none(dataset_fingerprint),
-            limit=limit,
-            offset=offset,
+            limit=limit + 1,
+            offset=start,
         )
     except (BacktestResultUnavailableError, BacktestResultIntegrityError) as error:
         _logger.warning("Backtest list failed: %s", type(error).__name__)
@@ -302,11 +320,15 @@ async def list_backtests(
                 "message": "Backtest results are unavailable.",
             },
         ) from None
+    has_more = len(entries) > limit
+    page = entries[:limit]
     return BacktestListResponse(
-        entries=tuple(_to_summary_response(entry) for entry in entries),
+        entries=tuple(_to_summary_response(entry) for entry in page),
         limit=limit,
-        offset=offset,
-        returned=len(entries),
+        offset=start,
+        returned=len(page),
+        has_more=has_more,
+        next_cursor=encode_offset_cursor(start + limit) if has_more else None,
     )
 
 

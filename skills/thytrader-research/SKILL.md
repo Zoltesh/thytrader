@@ -81,14 +81,21 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
-| List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
+| List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 | Show one published strategy definition | `uv run thytrader-research show-strategy --strategy-fingerprint sha256:…` |
+| Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
+| List the strategy library | `uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR] [--include-archived]` |
 
-`list-results`, `show-result`, `show-strategy`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
-`list-studies`, and
+`list-results`, `show-result`, `show-strategy`, `show-evidence`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-studies`, `list-strategies`, and
 `show-study` are read-only and
-do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
+do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
+`next_cursor`). Default `show-study` includes `window_pnl` headlines (label, role, PnL, trades)
+without child equity curves; `?detail=full` still returns `windows[]`. Queued research jobs report
+`progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-draft`/`publish` loops
+can exceed a 180s agent timeout after HTTP 201 — list-strategies before retrying; the mutation is
+already persisted. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
 backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
 `mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
 `walk_forward_optimization` select among published fingerprints or `parameter_axes`. Axes default

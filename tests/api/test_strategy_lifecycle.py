@@ -1034,3 +1034,34 @@ def test_openapi_strategy_id_uses_uuid7_format() -> None:
     import_props = schema["components"]["schemas"]["StrategyImportRequest"]["properties"]
     import_request = import_props["strategy"]
     assert import_request["$ref"].endswith("StrategyDefinition-Input")
+
+
+def test_strategy_library_reports_has_more_and_next_cursor() -> None:
+    """The strategy library is cursor-paginated instead of dumping every row."""
+    draft_store = InMemoryDraftStore()
+    app = create_app(
+        Settings(_env_file=None),
+        strategy_draft_store=draft_store,
+        strategy_store=InMemoryPublicationStore(draft_store),
+    )
+    with TestClient(app) as client:
+        first = client.post("/api/v1/strategies")
+        second = client.post("/api/v1/strategies?template=rsi-mean-reversion")
+        assert first.status_code == 201, first.text
+        assert second.status_code == 201, second.text
+        page = client.get("/api/v1/strategies?limit=1")
+        body = page.json()
+        assert page.status_code == 200
+        assert body["returned"] == 1
+        assert len(body["strategies"]) == 1
+        assert body["has_more"] is True
+        assert body["next_cursor"]
+        follow = client.get(f"/api/v1/strategies?limit=1&cursor={body['next_cursor']}")
+        follow_body = follow.json()
+        assert follow.status_code == 200
+        assert follow_body["returned"] == 1
+        ids = {body["strategies"][0]["strategy_id"], follow_body["strategies"][0]["strategy_id"]}
+        assert ids == {
+            first.json()["strategy"]["strategy_id"],
+            second.json()["strategy"]["strategy_id"],
+        }

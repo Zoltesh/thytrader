@@ -67,7 +67,7 @@ class ResearchJobRecord(BaseModel):
     updated_at: datetime
     expires_at: datetime
     progress_current: int = Field(default=0, ge=0)
-    progress_total: int = Field(default=0, ge=0)
+    progress_total: int = Field(default=1, ge=0)
     error_message: str | None = None
     failed_phase: str | None = None
     failed_detail: str | None = None

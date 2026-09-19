@@ -340,6 +340,19 @@ class ResearchStudy(_FrozenStudyModel):
     )
 
 
+class StudyWindowPnl(_FrozenStudyModel):
+    """One child-window PnL headline without equity curves or trades."""
+
+    label: str
+    role: WindowRole
+    fold_index: int = Field(ge=0)
+    result_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    total_net_pnl: str
+    trade_count: int = Field(ge=0)
+    selected: bool = Field(default=False, exclude_if=lambda value: value is False)
+
+
 class ResearchStudySummary(_FrozenStudyModel):
     """Agent-safe study projection without child windows or stitch point series."""
 
@@ -359,6 +372,7 @@ class ResearchStudySummary(_FrozenStudyModel):
         exclude_if=lambda value: value is None,
     )
     window_count: int = Field(ge=1)
+    window_pnl: tuple[StudyWindowPnl, ...] = ()
 
 
 def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
@@ -376,6 +390,19 @@ def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
         selection_metric=study.selection_metric,
         stitched_oos_equity=stitched,
         window_count=len(study.windows),
+        window_pnl=tuple(
+            StudyWindowPnl(
+                label=window.label,
+                role=window.role,
+                fold_index=window.fold_index,
+                result_fingerprint=window.result_fingerprint,
+                strategy_fingerprint=window.strategy_fingerprint,
+                total_net_pnl=window.summary.total_net_pnl,
+                trade_count=window.summary.trade_count,
+                selected=window.selected,
+            )
+            for window in study.windows
+        ),
     )
 
 

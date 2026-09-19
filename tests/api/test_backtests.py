@@ -180,7 +180,6 @@ class InMemoryBacktestResultReader:
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
         """Return newest-first summary views honoring one optional filter."""
-        del offset
         views = []
         for fingerprint, result in self._results.items():
             if run_fingerprint is not None and result.run_fingerprint != run_fingerprint:
@@ -206,7 +205,9 @@ class InMemoryBacktestResultReader:
                     summary=result.summary,
                 )
             )
-        return tuple(views[:limit])
+        views.sort(key=lambda item: item.result_fingerprint)
+        views.sort(key=lambda item: item.published_at, reverse=True)
+        return tuple(views[offset : offset + limit])
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
         """Return one stored result or signal a miss."""
@@ -599,6 +600,38 @@ def test_backtests_list_rejects_out_of_range_limit() -> None:
 
     assert too_large.status_code == 422
     assert too_small.status_code == 422
+
+
+def test_backtests_list_reports_has_more_and_next_cursor() -> None:
+    """A bounded page must advertise whether another cursor page exists."""
+    first = _result()
+    second = _v2_result()
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((first, second)),
+    )
+
+    with TestClient(app) as client:
+        page = client.get("/api/v1/backtests?limit=1")
+        body = page.json()
+        assert page.status_code == 200
+        assert body["returned"] == 1
+        assert body["has_more"] is True
+        assert body["next_cursor"]
+        follow = client.get(f"/api/v1/backtests?limit=1&cursor={body['next_cursor']}")
+        follow_body = follow.json()
+        assert follow.status_code == 200
+        assert follow_body["returned"] == 1
+        fingerprints = {
+            body["entries"][0]["result_fingerprint"],
+            follow_body["entries"][0]["result_fingerprint"],
+        }
+        assert fingerprints == {
+            backtest_result_fingerprint(first),
+            backtest_result_fingerprint(second),
+        }
+        assert follow_body["has_more"] is False
+        assert follow_body["next_cursor"] is None
 
 
 def test_backtests_detail_returns_full_reverified_result() -> None:
