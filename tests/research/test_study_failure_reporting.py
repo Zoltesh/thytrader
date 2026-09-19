@@ -298,3 +298,4 @@ def test_run_study_job_rejected_child_records_phase_and_reason() -> None:
     assert record.failed_phase == "submit_children"
     assert record.error_message is not None
     assert "evaluation window does not fit" in record.error_message
+    assert record.failed_detail == record.error_message

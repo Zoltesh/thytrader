@@ -160,6 +160,16 @@ def _parser() -> argparse.ArgumentParser:
         help="Persisted research-study catalog rows.",
     )
     subparsers.add_parser(
+        "portfolio",
+        parents=[trailing],
+        help="Current Coinbase or demo balances without credentials.",
+    )
+    subparsers.add_parser(
+        "fees",
+        parents=[trailing],
+        help="Current fee tier and research-only suggested maker/taker rates.",
+    )
+    subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
         help="Redacted bundle of the supported reports.",
@@ -212,6 +222,8 @@ async def _dispatch(
         "reconciliation": diagnostics.reconciliation,
         "monitor": diagnostics.monitor,
         "studies": diagnostics.studies,
+        "portfolio": diagnostics.portfolio_report,
+        "fees": diagnostics.fees_report,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)
@@ -272,6 +284,7 @@ async def _run_local(arguments: argparse.Namespace) -> int:
     async with operator_diagnostics(settings) as diagnostics:
         report = await _dispatch(diagnostics, arguments)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
+    sys.stdout.flush()
     return exit_code_for(report.overall_status)
 
 
@@ -305,6 +318,7 @@ def _run_http(arguments: argparse.Namespace) -> int:
     )
     _reject_stale_report(report)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
+    sys.stdout.flush()
     return exit_code_for(report.overall_status)
 
 

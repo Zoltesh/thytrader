@@ -23,6 +23,7 @@ from thytrader.research.publication import (
     dataset_evaluation_bounds,
     evaluation_end_fits_dataset,
     evaluation_window_suggestion,
+    explain_evaluation_window_rejection,
     latest_allowed_evaluation_end,
     verify_research_run_eligibility,
 )
@@ -266,3 +267,63 @@ def test_dataset_evaluation_bounds_reject_a_too_short_range() -> None:
             warmup_bars=2,
             timeframe="1h",
         )
+
+
+def test_explain_evaluation_window_rejection_names_evaluation_start_for_warmup() -> None:
+    """A first-bar evaluation_start must name warmup, not a valid evaluation_end."""
+    dataset_starts_at = datetime(2026, 1, 1, tzinfo=UTC)
+    dataset_ends_at = datetime(2026, 1, 10, tzinfo=UTC)
+    latest = latest_allowed_evaluation_end(dataset_ends_at=dataset_ends_at, timeframe="1h")
+    message = explain_evaluation_window_rejection(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=dataset_starts_at,
+        evaluation_end=latest,
+        warmup_bars=2,
+        timeframe="1h",
+    )
+    assert message is not None
+    assert "evaluation_start" in message
+    assert "Suggested range:" in message
+    assert "2026-01-01T02:00:00Z" in message
+    assert "2026-01-09T23:00:00Z" in message
+
+
+def test_explain_evaluation_window_rejection_names_evaluation_end_when_past_latest() -> None:
+    """An evaluation_end after the reserved next-open bar must name evaluation_end."""
+    dataset_starts_at = datetime(2026, 1, 1, tzinfo=UTC)
+    dataset_ends_at = datetime(2026, 1, 10, tzinfo=UTC)
+    message = explain_evaluation_window_rejection(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=datetime(2026, 1, 1, 2, tzinfo=UTC),
+        evaluation_end=dataset_ends_at,
+        warmup_bars=2,
+        timeframe="1h",
+    )
+    assert message is not None
+    assert "evaluation_end" in message
+    assert "Suggested range:" in message
+
+
+def test_explain_evaluation_window_rejection_accepts_suggested_bounds() -> None:
+    """The suggested inclusive ISO range must be accepted by the shared checker."""
+    dataset_starts_at = datetime(2026, 1, 1, tzinfo=UTC)
+    dataset_ends_at = datetime(2026, 1, 10, tzinfo=UTC)
+    start, end = dataset_evaluation_bounds(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        warmup_bars=2,
+        timeframe="1h",
+    )
+    assert (
+        explain_evaluation_window_rejection(
+            dataset_starts_at=dataset_starts_at,
+            dataset_ends_at=dataset_ends_at,
+            evaluation_start=start,
+            evaluation_end=end,
+            warmup_bars=2,
+            timeframe="1h",
+        )
+        is None
+    )

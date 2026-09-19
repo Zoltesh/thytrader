@@ -23,7 +23,7 @@ class MoneyResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
     amount: Decimal
-    currency: Literal["USD"]
+    currency: Literal["USD", "USDC", "USDT"]
 
     @field_serializer("amount")
     def serialize_amount(self, value: Decimal) -> str:

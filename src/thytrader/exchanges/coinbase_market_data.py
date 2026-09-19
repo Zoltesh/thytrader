@@ -15,6 +15,7 @@ from thytrader.market_data.models import (
     MarketDataPreview,
     MarketProduct,
 )
+from thytrader.market_data.products import is_spot_product_id, parse_spot_product_id
 from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
 
 if TYPE_CHECKING:
@@ -231,6 +232,7 @@ def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
         message = "Coinbase product response did not include a product list."
         raise CoinbaseMarketDataError(message)
     products: list[MarketProduct] = []
+    seen: set[str] = set()
     for raw_product in raw_products:
         if not isinstance(raw_product, dict):
             message = "Coinbase product response included a non-object product."
@@ -241,8 +243,49 @@ def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
                 message = "Coinbase product response included a non-text field name."
                 raise CoinbaseMarketDataError(message)
             product_payload[key] = value
-        products.append(_parse_product(product_payload))
+        product = _parse_product(product_payload)
+        if product.product_id not in seen:
+            seen.add(product.product_id)
+            products.append(product)
+        products.extend(_alias_spot_products(product, product_payload.get("alias_to"), seen))
     return tuple(products)
+
+
+def _alias_spot_products(
+    source: MarketProduct, raw_aliases: object, seen: set[str]
+) -> tuple[MarketProduct, ...]:
+    """Materialize Coinbase alias_to ids as distinct spot products with the source constraints."""
+    if raw_aliases is None:
+        return ()
+    if not isinstance(raw_aliases, list):
+        message = "Coinbase product alias_to must be a list of product ids."
+        raise CoinbaseMarketDataError(message)
+    expanded: list[MarketProduct] = []
+    for raw_alias in raw_aliases:
+        if not isinstance(raw_alias, str) or not raw_alias:
+            message = "Coinbase product alias_to must contain non-empty product ids."
+            raise CoinbaseMarketDataError(message)
+        if not is_spot_product_id(raw_alias):
+            continue
+        alias_id = raw_alias.strip().upper()
+        if alias_id in seen:
+            continue
+        base, quote = parse_spot_product_id(alias_id)
+        seen.add(alias_id)
+        expanded.append(
+            MarketProduct(
+                product_id=alias_id,
+                base_currency=base,
+                quote_currency=quote,
+                price_increment=source.price_increment,
+                base_increment=source.base_increment,
+                quote_increment=source.quote_increment,
+                base_min_size=source.base_min_size,
+                quote_min_size=source.quote_min_size,
+                trading_enabled=source.trading_enabled,
+            )
+        )
+    return tuple(expanded)
 
 
 def _parse_candles(payload: dict[str, Any]) -> tuple[Candle, ...]:

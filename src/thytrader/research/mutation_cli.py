@@ -47,6 +47,7 @@ from thytrader.research.studies import (
     ResearchStudyRequest,
     ResearchStudyService,
     StudyPlanningError,
+    summarize_research_study,
     summarize_research_study_plan,
 )
 from thytrader.strategies.models import StrategyDefinition
@@ -128,8 +129,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument(
         "--product-id",
-        default="BTC-USD",
-        help="USD spot product. Default BTC-USD.",
+        default="BTC-USDC",
+        help="Spot product. Default BTC-USDC.",
     )
     create.add_argument(
         "--timeframe",
@@ -216,13 +217,29 @@ def _parser() -> argparse.ArgumentParser:
         help="List immutable backtest summaries.",
     )
     listing.add_argument("--strategy-fingerprint", default=None)
-    listing.add_argument("--limit", type=int, default=20)
+    listing.add_argument(
+        "--limit",
+        type=_page_limit,
+        default=20,
+        help="Page size. Maximum 100. Includes has_more and next_cursor.",
+    )
+    listing.add_argument(
+        "--cursor",
+        default=None,
+        help="Opaque next_cursor from the previous list-results page.",
+    )
     show = subparsers.add_parser(
         "show-result",
         parents=[trailing],
         help="Show one immutable result summary.",
     )
     show.add_argument("--result-fingerprint", required=True)
+    show_strategy = subparsers.add_parser(
+        "show-strategy",
+        parents=[trailing],
+        help="Show one published strategy definition.",
+    )
+    show_strategy.add_argument("--strategy-fingerprint", required=True)
     studies = subparsers.add_parser(
         "list-studies",
         parents=[trailing],
@@ -321,6 +338,23 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include archived publications in the listing (default hides them).",
     )
+    list_strategies.add_argument(
+        "--limit",
+        type=_page_limit,
+        default=50,
+        help="Page size. Maximum 100.",
+    )
+    list_strategies.add_argument(
+        "--cursor",
+        default=None,
+        help="Opaque next_cursor from the previous list-strategies page.",
+    )
+    show_evidence = subparsers.add_parser(
+        "show-evidence",
+        parents=[trailing],
+        help="Show IS vs OOS vs sweep vs paper vs live evidence for one strategy.",
+    )
+    show_evidence.add_argument("--strategy-fingerprint", required=True)
     archive = subparsers.add_parser(
         "archive",
         parents=[trailing],
@@ -333,6 +367,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     archive.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
+
+
+def _page_limit(value: str) -> int:
+    """Parse a 1-100 listing page size."""
+    parsed = int(value)
+    if parsed < 1 or parsed > 100:
+        message = "limit must be between 1 and 100"
+        raise argparse.ArgumentTypeError(message)
+    return parsed
 
 
 _RESEARCH_CONFIRM_MESSAGE = (
@@ -385,6 +428,7 @@ async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine | N
         results=result_store,
         audit=PostgresAuditEventStore(engine),
         catalog=PostgresResearchStudyCatalog(engine),
+        datasets=dataset_store,
     )
     return mutator, engine
 
@@ -523,6 +567,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
             base_url,
             arguments.strategy_fingerprint,
             arguments.limit,
+            cursor=getattr(arguments, "cursor", None),
         )
     if arguments.command == "show-result":
         require_matching_ops_contract(base_url)
@@ -538,6 +583,8 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
         return research_http.list_strategies(
             base_url,
             include_archived=bool(arguments.include_archived),
+            limit=int(getattr(arguments, "limit", 50)),
+            cursor=getattr(arguments, "cursor", None),
         )
     if arguments.command == "archive":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="archive")
@@ -690,6 +737,8 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
 
 async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against local stores."""
+    if arguments.command == "show-strategy":
+        raise ResearchCliError("show-strategy requires HTTP; do not use --local.")
     if arguments.command == "list-templates":
         return _encode({"templates": list(template_catalog())})
     if arguments.command == "engine-support":
@@ -706,6 +755,12 @@ async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespac
 
 def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against the loopback HTTP API."""
+    if arguments.command == "show-strategy":
+        require_matching_ops_contract(base_url)
+        return research_http.show_strategy(base_url, arguments.strategy_fingerprint)
+    if arguments.command == "show-evidence":
+        require_matching_ops_contract(base_url)
+        return research_http.show_evidence(base_url, arguments.strategy_fingerprint)
     if arguments.command == "submit-study":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
     require_matching_ops_contract(base_url)
@@ -736,6 +791,7 @@ async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -
         submitter=mutator.submitter,
         results=mutator.results,
         catalog=mutator.catalog,
+        datasets=mutator.datasets,
     )
     plan = await service.plan(request)
     return _encode(summarize_research_study_plan(plan).model_dump(mode="json"))
@@ -750,13 +806,7 @@ async def _submit_study(mutator: ResearchMutator, request: ResearchStudyRequest)
 async def _show_study(mutator: ResearchMutator, study_fingerprint: str) -> str:
     """Load one persisted study without dumping child equity curves."""
     study = await mutator.show_study(study_fingerprint)
-    payload = study.model_dump(mode="json")
-    payload.pop("windows", None)
-    if payload.get("stitched_oos_equity") is not None:
-        stitch = payload["stitched_oos_equity"]
-        if isinstance(stitch, dict):
-            stitch.pop("points", None)
-    return _encode(payload)
+    return _encode(summarize_research_study(study).model_dump(mode="json"))
 
 
 async def _list_studies(mutator: ResearchMutator, kind: str | None, limit: int) -> str:

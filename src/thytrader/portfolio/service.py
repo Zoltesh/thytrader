@@ -34,7 +34,7 @@ class PortfolioService:
 
         for balance in balances:
             price = await self._price_for(balance.currency)
-            value = None if price is None else Money(amount=balance.total * price)
+            value = None if price is None else Money(amount=balance.total * price, currency="USDC")
             if value is None:
                 unvalued.append(balance.currency)
             else:
@@ -58,14 +58,14 @@ class PortfolioService:
                 permissions=permissions,
             ),
             demo=self._demo,
-            total_value=Money(amount=total_value.quantize(Decimal("0.01"))),
+            total_value=Money(amount=total_value.quantize(Decimal("0.01")), currency="USDC"),
             assets=tuple(assets),
             unvalued_assets=tuple(unvalued),
         )
 
     async def _price_for(self, currency: str) -> Decimal | None:
         """Resolve stable USD at par and delegate all other direct markets."""
-        if currency in {"USD", "USDC"}:
+        if currency in {"USD", "USDC", "USDT"}:
             return Decimal("1")
         return await self._exchange.get_usd_price(currency)
 

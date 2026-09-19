@@ -118,6 +118,32 @@ def test_archive_posts_to_strategy_archive_route(
     assert payload["archived_at"] == "2026-09-19T00:00:00+00:00"
 
 
+def test_list_results_help_documents_cursor_and_max_100(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Operators must see the page cap and cursor flag before a 422."""
+    with pytest.raises(SystemExit) as raised:
+        main(["list-results", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    assert "maximum 100" in output or "max 100" in output
+    assert "--cursor" in output
+    assert "has_more" in output or "next page" in output
+
+
+def test_list_strategies_help_documents_cursor(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Strategy library listing is cursor-paginated like result listing."""
+    with pytest.raises(SystemExit) as raised:
+        main(["list-strategies", "--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out.lower()
+    assert "--cursor" in output
+    assert "--limit" in output
+    assert "maximum 100" in output or "max 100" in output
+
+
 def test_list_strategies_hides_archived_by_default(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

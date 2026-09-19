@@ -79,6 +79,8 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0070](0070-mutation-cli-installation-auth.md) | Shared `request_mutation_json()` wires installation Bearer auth on all mutation CLIs | Accepted |
 | [0072](0072-catalog-health-bounded-gaps-self-complete-ingest.md) | Bounded gap inspection, self-complete ingest, heartbeat during ingest; ops v30 / Alembic 0043 | Accepted |
 | [0073](0073-durable-research-jobs.md) | Durable bounded research jobs, plan dedupe, compact planner; ops contract v31 / Alembic 0044 | Accepted |
+| [0075](0075-selectable-spot-quote-currencies.md) | Selectable USD/USDC/USDT spot quotes; ops contract v34 | Accepted |
+| [0076](0076-derived-performance-metrics.md) | Sharpe-class ratios as derived `thytrader-performance-metrics-v1`; ops contract v35 | Accepted |
 
 ## Status values
 

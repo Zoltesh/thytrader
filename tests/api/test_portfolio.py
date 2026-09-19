@@ -49,7 +49,7 @@ def test_portfolio_endpoint_returns_demo_data_without_credentials() -> None:
         "status": "demo",
         "permissions": ["view", "trade"],
     }
-    assert payload["total_value"]["currency"] == "USD"
+    assert payload["total_value"]["currency"] == "USDC"
     assert isinstance(payload["total_value"]["amount"], str)
     assert {asset["currency"] for asset in payload["assets"]} == {"BTC", "ETH", "USDC"}
 

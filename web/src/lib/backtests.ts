@@ -144,6 +144,32 @@ export type BacktestBenchmarkResponse = {
 	result_fingerprint: string;
 };
 
+export type BacktestPerformanceMetrics = {
+	metrics_contract_version: 'thytrader-performance-metrics-v1';
+	metrics_fingerprint: string;
+	result_fingerprint: string;
+	run_fingerprint: string;
+	engine_contract_version: string;
+	risk_free_rate: string;
+	annualization: 'equity_curve_bar_clock';
+	bar_seconds?: string | null;
+	bars_per_year?: string | null;
+	sharpe?: string | null;
+	sortino?: string | null;
+	calmar?: string | null;
+	sqn?: string | null;
+	cagr?: string | null;
+	annualized_volatility?: string | null;
+	max_consecutive_losses: number;
+	exposure_fraction: string;
+	buy_and_hold_return_fraction?: string | null;
+};
+
+export type BacktestMetricsResponse = {
+	metrics: BacktestPerformanceMetrics;
+	result_fingerprint: string;
+};
+
 export type ApiError = {
 	detail?: { code?: string; message?: string };
 };
@@ -439,4 +465,22 @@ export async function fetchBacktestBenchmark(
 		throw new Error(body.detail?.message ?? 'Backtest benchmark is unavailable.');
 	}
 	return (await response.json()) as BacktestBenchmarkResponse;
+}
+
+export async function fetchBacktestMetrics(
+	resultFingerprint: string,
+	signal?: AbortSignal
+): Promise<BacktestMetricsResponse> {
+	const response = await fetch(
+		`/api/v1/backtests/${encodeURIComponent(resultFingerprint)}/metrics`,
+		{
+			headers: { Accept: 'application/json' },
+			signal
+		}
+	);
+	if (!response.ok) {
+		const body = (await response.json().catch(() => ({}))) as ApiError;
+		throw new Error(body.detail?.message ?? 'Backtest metrics are unavailable.');
+	}
+	return (await response.json()) as BacktestMetricsResponse;
 }

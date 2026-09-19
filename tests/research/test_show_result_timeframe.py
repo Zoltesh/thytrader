@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 from unittest.mock import patch
 
 from thytrader.agent_http import AgentHttpError
@@ -24,6 +25,10 @@ def _summary_payload() -> dict[str, object]:
         "dataset_fingerprint": _DATASET_FINGERPRINT,
         "engine_contract_version": "thytrader-bar-backtest-v4",
         "summary": {"trade_count": 13},
+        "metrics": {
+            "metrics_contract_version": "thytrader-performance-metrics-v1",
+            "sharpe": "0",
+        },
     }
 
 
@@ -102,3 +107,11 @@ def test_show_result_falls_back_to_usd_when_source_is_unavailable() -> None:
         payload = json.loads(show_result("http://127.0.0.1:8000", _RESULT_FINGERPRINT))
     assert payload["currency"] == "USD"
     assert payload["timeframe"] == "1h"
+
+
+def test_show_result_forwards_derived_performance_metrics() -> None:
+    """show-result must surface the versioned metrics block without the trade ledger."""
+    payload = _show_result_for_timeframe("1h")
+    metrics = cast("dict[str, str]", payload["metrics"])
+    assert metrics["metrics_contract_version"] == "thytrader-performance-metrics-v1"
+    assert metrics["sharpe"] == "0"

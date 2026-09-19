@@ -15,7 +15,7 @@ class Money:
     """An exact amount in a named fiat currency."""
 
     amount: Decimal
-    currency: Literal["USD"] = "USD"
+    currency: str = "USDC"
 
 
 @dataclass(frozen=True, slots=True)

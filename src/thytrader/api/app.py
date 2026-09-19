@@ -170,6 +170,7 @@ def create_app(
     user_order_feed_state_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
     research_study_catalog: ResearchStudyCatalog | None = None,
+    dataset_store: DatasetStore | None = None,
     notification_sender: NotificationSender | None = None,
     operator_chat_credentials: OperatorChatCredentialStore | None = None,
     operator_chat_sessions: OperatorChatSessionStore | None = None,
@@ -200,6 +201,7 @@ def create_app(
     external_user_order_feed_store = user_order_feed_state_store
     external_memory_store = memory_store
     external_research_study_catalog = research_study_catalog
+    external_dataset_store = dataset_store
     external_notification_sender = notification_sender
     engine: AsyncEngine | None = None
 
@@ -224,7 +226,9 @@ def create_app(
         memory = external_memory_store
         study_catalog = external_research_study_catalog
         notifier = external_notification_sender
-        dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
+        dataset_store = external_dataset_store or DatasetStore(
+            resolved_settings.market_data_dataset_root
+        )
         heartbeat_store: WorkerHeartbeatStore | None = None
         needs_database = (
             store is None
@@ -334,6 +338,7 @@ def create_app(
             submitter=_app.state.backtest_submitter,
             results=_app.state.backtest_result_store,
             catalog=_app.state.research_study_catalog,
+            datasets=dataset_store,
         )
         stop_jobs = asyncio.Event()
         runner = ResearchJobRunner(
@@ -373,7 +378,9 @@ def create_app(
     app.state.market_data_service = market_data_service or _build_market_data_service(
         resolved_settings
     )
-    app.state.dataset_store = DatasetStore(resolved_settings.market_data_dataset_root)
+    app.state.dataset_store = dataset_store or DatasetStore(
+        resolved_settings.market_data_dataset_root
+    )
     app.state.operator_chat_service = OperatorChatService(
         credentials=operator_chat_credentials or OperatorChatCredentialStore(),
         sessions=operator_chat_sessions or OperatorChatSessionStore(),

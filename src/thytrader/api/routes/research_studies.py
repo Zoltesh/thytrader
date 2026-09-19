@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from thytrader.api.dependencies import (
     get_backtest_result_store,
     get_backtest_submitter,
+    get_dataset_store,
+    get_execution_store,
     get_research_job_store,
     get_research_study_catalog,
     get_strategy_publication_store,
@@ -25,6 +27,9 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmitter,
 )
+from thytrader.execution.models import ExecutionStoreError
+from thytrader.execution.store import ExecutionStore  # noqa: TC001
+from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.research.catalog import (
     ResearchStudyCatalog,
@@ -35,6 +40,7 @@ from thytrader.research.catalog import (
 )
 from thytrader.research.engine_support import EngineSupportMatrix, engine_support_matrix
 from thytrader.research.jobs import ResearchJobAcceptedResponse, ResearchJobRecord, ResearchJobStore
+from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
 from thytrader.research.studies import (
     ResearchStudy,
     ResearchStudyError,
@@ -103,6 +109,7 @@ def _study_service(
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
 ) -> ResearchStudyService:
     """Compose studies from the same publication and backtest services as single runs."""
     return ResearchStudyService(
@@ -110,6 +117,7 @@ def _study_service(
         submitter=submitter,
         results=results,
         catalog=catalog,
+        datasets=datasets,
     )
 
 
@@ -324,3 +332,71 @@ async def get_research_study(
     if detail == "full":
         return study
     return summarize_research_study(study)
+
+
+@router.get("/promotion-evidence", response_model=PromotionEvidence)
+async def get_promotion_evidence(
+    strategy_fingerprint: Annotated[str, Query()],
+    publications: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> PromotionEvidence:
+    """Return IS vs OOS vs sweep vs paper vs live evidence for one strategy."""
+    if not strategy_fingerprint.startswith("sha256:") or len(strategy_fingerprint) != 71:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "strategy_invalid", "message": "Strategy fingerprint is malformed."},
+        )
+    try:
+        published = await publications.load(strategy_fingerprint)
+    except StrategyPublicationError as error:
+        message = str(error)
+        if "not found" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Published strategy was not found.",
+            ) from None
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Strategy publication is unavailable.",
+        ) from None
+    try:
+        backtests = await results.list_summaries(
+            strategy_fingerprint=strategy_fingerprint,
+            limit=100,
+            offset=0,
+        )
+    except Exception:  # noqa: BLE001
+        backtests = ()
+    studies = await _studies_for_strategy(catalog, strategy_fingerprint)
+    try:
+        deployments = await execution.list_by_strategy(str(published.definition.strategy_id))
+    except ExecutionStoreError:
+        deployments = ()
+    return assemble_promotion_evidence(
+        strategy_fingerprint=strategy_fingerprint,
+        full_window_backtests=backtests,
+        studies=studies,
+        deployments=deployments,
+    )
+
+
+async def _studies_for_strategy(
+    catalog: ResearchStudyCatalog,
+    strategy_fingerprint: str,
+) -> tuple[ResearchStudy, ...]:
+    """Load catalog studies that mention the requested strategy fingerprint."""
+    try:
+        rows = await catalog.list_summaries(limit=100, offset=0)
+    except StudyCatalogUnavailableError:
+        return ()
+    matched: list[ResearchStudy] = []
+    for row in rows:
+        try:
+            study = ResearchStudy.model_validate_json(await catalog.load(row.study_fingerprint))
+        except StudyCatalogUnavailableError, StudyCatalogNotFoundError, ValidationError:
+            continue
+        if any(window.strategy_fingerprint == strategy_fingerprint for window in study.windows):
+            matched.append(study)
+    return tuple(matched)

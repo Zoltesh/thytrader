@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionResult,
 )
 from thytrader.config import Settings
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
 from thytrader.research.http import find_study_by_request
 from thytrader.strategies.models import strategy_fingerprint
@@ -111,7 +113,42 @@ class _StudyResults:
         return _result_with_summary()
 
 
-def _client() -> tuple[TestClient, InMemoryStrategyPublicationStore, _StudySubmitter]:
+class _CoveringDatasetStore(DatasetStore):
+    """Return a complete manifest covering the requested evaluation window."""
+
+    def __init__(
+        self,
+        *,
+        starts_at: str = "2020-01-01T00:00:00Z",
+        ends_at: str = "2027-01-01T00:00:00Z",
+    ) -> None:
+        """Remember coverage bounds without writing files."""
+        super().__init__(Path("unused-datasets"))
+        self._starts_at = starts_at
+        self._ends_at = ends_at
+
+    def load_manifest(self, content_fingerprint: str) -> DatasetManifest:
+        """Return a verified-complete stand-in for the requested fingerprint."""
+        return DatasetManifest(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe="1h",
+            starts_at=self._starts_at,
+            ends_at=self._ends_at,
+            expected_candle_count=1,
+            received_candle_count=1,
+            gap_count=0,
+            missing_intervals=0,
+            complete=True,
+            content_fingerprint=content_fingerprint,
+            files=(Path("unused.parquet"),),
+            manifest_path=Path("unused.json"),
+        )
+
+
+def _client(
+    dataset_store: DatasetStore | None = None,
+) -> tuple[TestClient, InMemoryStrategyPublicationStore, _StudySubmitter]:
     """Build an API client with in-memory research stores."""
     drafts = InMemoryStrategyDraftStore()
     publications = InMemoryStrategyPublicationStore(drafts)
@@ -123,6 +160,7 @@ def _client() -> tuple[TestClient, InMemoryStrategyPublicationStore, _StudySubmi
         backtest_submitter=submitter,
         backtest_result_store=_StudyResults(),
         research_study_catalog=InMemoryResearchStudyCatalog(),
+        dataset_store=dataset_store or _CoveringDatasetStore(),
     )
     return TestClient(app), publications, submitter
 
@@ -268,6 +306,11 @@ def test_submit_study_composes_child_backtests() -> None:
         assert summary["study_fingerprint"] == body["study_fingerprint"]
         assert "windows" not in summary
         assert summary["window_count"] == len(body["windows"])
+        headlines = summary["window_pnl"]
+        assert len(headlines) == len(body["windows"])
+        assert {row["role"] for row in headlines} == {"in_sample", "out_of_sample"}
+        assert all("total_net_pnl" in row for row in headlines)
+        assert all("result_fingerprint" in row for row in headlines)
         full = client.get(f"/api/v1/research/studies/{body['study_fingerprint']}?detail=full")
         assert full.status_code == 200, full.text
         assert len(full.json()["windows"]) == len(body["windows"])
@@ -300,6 +343,24 @@ def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:
         )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "study_window_rejected"
+
+
+def test_plan_study_rejects_first_bar_start_with_suggested_range() -> None:
+    """plan-study must 422 with the same warmup suggestion child backtests use."""
+    client, _, _ = _client(
+        dataset_store=_CoveringDatasetStore(
+            starts_at="2026-01-01T00:00:00Z",
+            ends_at="2026-01-11T00:00:00Z",
+        )
+    )
+    with client:
+        fingerprint = _publish_reference(client)
+        response = client.post("/api/v1/research/studies/plan", json=_holdout_body(fingerprint))
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "study_window_rejected"
+    assert "evaluation_start" in detail["message"]
+    assert "Suggested range:" in detail["message"]
 
 
 def test_async_study_submission_returns_job_and_polls_to_completion() -> None:
