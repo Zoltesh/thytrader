@@ -409,6 +409,7 @@ def test_set_risk_policy_help_lists_breaker_flags(
     assert "--max-daily-loss-quote" in output
     assert "--max-portfolio-exposure-quote" in output
     assert "--max-venue-order-actions-per-minute" in output
+    assert "--quote-currency" in output
 
 
 def test_set_risk_policy_forwards_optional_absolute_caps_and_venue_budget() -> None:
@@ -452,6 +453,7 @@ def test_set_risk_policy_forwards_optional_absolute_caps_and_venue_budget() -> N
     assert payload["max_daily_loss_quote"] == "2500"
     assert payload["max_portfolio_exposure_quote"] == "50000"
     assert payload["max_venue_order_actions_per_minute"] == 90
+    assert payload["quote_currency"] == "USDC"
 
 
 def test_place_order_help_lists_venue_clocks(

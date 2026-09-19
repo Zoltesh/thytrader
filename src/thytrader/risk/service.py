@@ -12,6 +12,7 @@ async def publish_risk_policy(store: RiskPolicyStore, write: RiskPolicyWrite) ->
     definition = RiskPolicyDefinition(
         policy_id=current.definition.policy_id,
         version=next_policy_version(current),
+        quote_currency=write.quote_currency,
         product_allowlist=write.product_allowlist,
         max_concurrent_running_deployments=write.max_concurrent_running_deployments,
         max_concurrent_open_positions=write.max_concurrent_open_positions,

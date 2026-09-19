@@ -210,8 +210,8 @@ class PostgresBacktestResultStore:
             raise BacktestPublicationError("Summary discovery accepts one source filter at a time.")
         for value in filters:
             _validate_fingerprint(value)
-        if limit < 1 or limit > 100:
-            raise BacktestPublicationError("Summary discovery limit must be between 1 and 100.")
+        if limit < 1 or limit > 101:
+            raise BacktestPublicationError("Summary discovery limit must be between 1 and 101.")
         if offset < 0:
             raise BacktestPublicationError("Summary discovery offset must not be negative.")
 

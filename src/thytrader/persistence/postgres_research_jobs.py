@@ -55,7 +55,7 @@ class PostgresResearchJobStore:
             status=ResearchJobStatus.QUEUED.value,
             payload=payload,
             progress_current=0,
-            progress_total=0,
+            progress_total=1,
             created_at=now,
             updated_at=now,
             expires_at=now + timedelta(hours=RESEARCH_JOB_EXPIRY_HOURS),

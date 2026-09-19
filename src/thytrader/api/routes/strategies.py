@@ -27,6 +27,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
 )
+from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.strategies.authoring import (
     StrategyDraft,
     StrategyDraftStore,
@@ -108,9 +109,13 @@ class StrategyLibraryEntryResponse(BaseModel):
 
 
 class StrategyListResponse(BaseModel):
-    """The complete strategy library, newest-first by activity."""
+    """A bounded newest-first page of the strategy library."""
 
     strategies: tuple[StrategyLibraryEntryResponse, ...]
+    limit: int = 100
+    returned: int = 0
+    has_more: bool = False
+    next_cursor: str | None = None
 
 
 class StrategyCreatedResponse(BaseModel):
@@ -243,8 +248,11 @@ async def list_strategies(
     ],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     execution_store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    cursor: Annotated[str | None, Query()] = None,
+    include_archived: Annotated[bool, Query()] = True,
 ) -> StrategyListResponse:
-    """Return the strategy library grouped by stable identity with latest evidence."""
+    """Return a bounded strategy library page grouped by stable identity."""
     try:
         drafts = await draft_store.list_drafts()
     except RuntimeError, TypeError, ValueError:
@@ -277,7 +285,9 @@ async def list_strategies(
         paper_live = await _paper_live_status(identity, execution_store)
         entries.append(_library_entry(group, backtest, paper_live))
     entries.sort(key=_activity_instant, reverse=True)
-    return StrategyListResponse(strategies=tuple(entries))
+    if not include_archived:
+        entries = [entry for entry in entries if not entry.archived]
+    return _paginate_library(entries, limit=limit, cursor=cursor)
 
 
 @router.post("", response_model=StrategyCreatedResponse, status_code=status.HTTP_201_CREATED)
@@ -1036,6 +1046,33 @@ def _library_entry(
 def _activity_instant(entry: StrategyLibraryEntryResponse) -> datetime:
     """Parse one library row's activity instant for newest-first sorting."""
     return datetime.fromisoformat(entry.updated_at)
+
+
+def _paginate_library(
+    entries: list[StrategyLibraryEntryResponse],
+    *,
+    limit: int,
+    cursor: str | None,
+) -> StrategyListResponse:
+    """Slice one newest-first library into a cursor page."""
+    start = 0
+    if cursor is not None:
+        try:
+            start = decode_offset_cursor(cursor)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pagination cursor is malformed.",
+            ) from None
+    page = entries[start : start + limit]
+    has_more = start + limit < len(entries)
+    return StrategyListResponse(
+        strategies=tuple(page),
+        limit=limit,
+        returned=len(page),
+        has_more=has_more,
+        next_cursor=encode_offset_cursor(start + limit) if has_more else None,
+    )
 
 
 async def _paper_live_status(

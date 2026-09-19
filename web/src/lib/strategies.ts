@@ -732,7 +732,11 @@ export function researchWindowHint(
 }
 
 export type DraftResponse = { strategy: StrategyDraft; revision: number; summary: string };
-type StrategyLibraryResponse = { strategies: StrategyLibraryEntry[] };
+type StrategyLibraryResponse = {
+	strategies: StrategyLibraryEntry[];
+	has_more?: boolean;
+	next_cursor?: string | null;
+};
 type PublishedStrategy = { strategy_fingerprint: string; strategy: StrategyDraft };
 type ArchivedStrategy = { strategy_fingerprint: string; archived_at: string | null };
 type BacktestSubmission = { run_fingerprint: string; result_fingerprint: string };
@@ -776,7 +780,17 @@ export async function createDraft(options?: {
 }
 
 export async function listStrategies(): Promise<StrategyLibraryEntry[]> {
-	return (await request<StrategyLibraryResponse>('/api/v1/strategies')).strategies;
+	const rows: StrategyLibraryEntry[] = [];
+	let cursor: string | undefined;
+	for (let page = 0; page < 50; page += 1) {
+		const params = new URLSearchParams({ limit: '100' });
+		if (cursor !== undefined) params.set('cursor', cursor);
+		const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
+		rows.push(...body.strategies);
+		if (!body.has_more || !body.next_cursor) return rows;
+		cursor = body.next_cursor;
+	}
+	return rows;
 }
 
 export async function clonePublishedStrategy(fingerprint: string): Promise<DraftResponse> {

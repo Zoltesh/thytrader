@@ -109,10 +109,20 @@ def import_draft(base_url: str, definition: StrategyDefinition) -> str:
     )
 
 
-def list_strategies(base_url: str, *, include_archived: bool = False) -> str:
+def list_strategies(
+    base_url: str,
+    *,
+    include_archived: bool = False,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> str:
     """List the strategy library, hiding archived publications by default."""
+    archived_flag = "true" if include_archived else "false"
+    url = f"{base_url}/api/v1/strategies?limit={limit}&include_archived={archived_flag}"
+    if cursor:
+        url = f"{url}&cursor={cursor}"
     body = _as_object(
-        request_json(method="GET", url=f"{base_url}/api/v1/strategies"),
+        request_json(method="GET", url=url),
         "strategy list",
     )
     strategies = body.get("strategies")
@@ -121,8 +131,8 @@ def list_strategies(base_url: str, *, include_archived: bool = False) -> str:
     rows: list[dict[str, object]] = []
     for item in strategies:
         row = _as_object(item, "strategy library row")
-        archived = row.get("archived")
-        if archived is True and not include_archived:
+        archived = bool(row.get("archived"))
+        if archived and not include_archived:
             continue
         rows.append(
             {
@@ -130,11 +140,19 @@ def list_strategies(base_url: str, *, include_archived: bool = False) -> str:
                 "name": row.get("name"),
                 "latest_version": row.get("latest_version"),
                 "status": row.get("status"),
-                "archived": bool(archived),
+                "archived": archived,
                 "archived_at": row.get("archived_at"),
             }
         )
-    return _encode({"strategies": rows})
+    return _encode(
+        {
+            "strategies": rows,
+            "limit": body.get("limit", limit),
+            "returned": body.get("returned", len(rows)),
+            "has_more": body.get("has_more", False),
+            "next_cursor": body.get("next_cursor"),
+        }
+    )
 
 
 def archive_strategy(base_url: str, strategy_fingerprint: str) -> str:
@@ -422,11 +440,18 @@ def show_study(base_url: str, study_fingerprint: str) -> str:
     return _encode(body)
 
 
-def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) -> str:
+def list_results(
+    base_url: str,
+    strategy_fingerprint: str | None,
+    limit: int,
+    cursor: str | None = None,
+) -> str:
     """List bounded immutable result summaries."""
     url = f"{base_url}/api/v1/backtests?limit={limit}"
     if strategy_fingerprint:
         url = f"{url}&strategy_fingerprint={strategy_fingerprint}"
+    if cursor:
+        url = f"{url}&cursor={cursor}"
     body = _as_object(request_json(method="GET", url=url), "backtest list")
     entries = body.get("entries")
     if not isinstance(entries, list):
@@ -447,7 +472,15 @@ def list_results(base_url: str, strategy_fingerprint: str | None, limit: int) ->
                 "total_net_pnl": summary.get("total_net_pnl"),
             }
         )
-    return _encode({"results": results})
+    return _encode(
+        {
+            "results": results,
+            "limit": body.get("limit", limit),
+            "returned": body.get("returned", len(results)),
+            "has_more": body.get("has_more", False),
+            "next_cursor": body.get("next_cursor"),
+        }
+    )
 
 
 def _strategy_source(base_url: str, strategy_fingerprint: str) -> dict[str, object]:
@@ -476,6 +509,21 @@ def _published_clock_and_quote(source: dict[str, object]) -> tuple[str, str]:
 def show_strategy(base_url: str, strategy_fingerprint: str) -> str:
     """Show one published strategy definition."""
     return _encode(_strategy_source(base_url, strategy_fingerprint))
+
+
+def show_evidence(base_url: str, strategy_fingerprint: str) -> str:
+    """Show IS vs OOS vs sweep vs paper vs live evidence for one strategy."""
+    body = _as_object(
+        request_json(
+            method="GET",
+            url=(
+                f"{base_url}/api/v1/research/promotion-evidence"
+                f"?strategy_fingerprint={strategy_fingerprint}"
+            ),
+        ),
+        "promotion evidence",
+    )
+    return _encode(body)
 
 
 def show_result(base_url: str, result_fingerprint: str) -> str:

@@ -41,6 +41,7 @@ def test_compiled_default_is_the_conservative_multi_asset_envelope() -> None:
     assert active.source is RiskPolicySource.COMPILED_DEFAULT
     assert active.policy_fingerprint == risk_policy_fingerprint(definition)
     assert active.policy_fingerprint.startswith("sha256:")
+    assert definition.quote_currency == "USDC"
 
 
 def test_fingerprint_is_stable_under_key_reordering() -> None:

@@ -218,6 +218,7 @@ class RiskPolicyDefinition(_FrozenModel):
 class RiskPolicyWrite(_FrozenModel):
     """Operator-authored fields for publishing the next immutable policy version."""
 
+    quote_currency: SpotQuoteCurrency = "USDC"
     product_allowlist: tuple[str, ...] = Field(default=(), max_length=32)
     max_concurrent_running_deployments: int = Field(ge=1, le=32)
     max_concurrent_open_positions: int = Field(ge=1, le=32)
@@ -261,6 +262,7 @@ def compiled_default_risk_policy() -> RiskPolicyDefinition:
     return RiskPolicyDefinition(
         policy_id=COMPILED_POLICY_ID,
         version=1,
+        quote_currency="USDC",
         product_allowlist=(),
         max_concurrent_running_deployments=8,
         max_concurrent_open_positions=8,

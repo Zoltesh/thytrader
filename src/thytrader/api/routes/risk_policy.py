@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,6 +37,7 @@ class AllocationBody(BaseModel):
 class RiskPolicyWriteBody(BaseModel):
     """Operator-authored policy fields without identity or fingerprint."""
 
+    quote_currency: Literal["USD", "USDC", "USDT"] = "USDC"
     product_allowlist: tuple[str, ...] = ()
     max_concurrent_running_deployments: int = Field(ge=1, le=32)
     max_concurrent_open_positions: int = Field(ge=1, le=32)
@@ -128,6 +129,7 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         for item in body.allocations
     )
     return RiskPolicyWrite(
+        quote_currency=body.quote_currency,
         product_allowlist=body.product_allowlist,
         max_concurrent_running_deployments=body.max_concurrent_running_deployments,
         max_concurrent_open_positions=body.max_concurrent_open_positions,

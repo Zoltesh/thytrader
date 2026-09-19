@@ -201,6 +201,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Publish a new immutable risk-policy version.",
     )
     set_policy.add_argument(
+        "--quote-currency",
+        choices=("USD", "USDC", "USDT"),
+        default="USDC",
+        help="Installation quote currency for the published policy. Default USDC.",
+    )
+    set_policy.add_argument(
         "--product-allowlist",
         action="append",
         default=[],
@@ -671,6 +677,7 @@ def _read_private_key_file(path_value: str) -> str:
 def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
     """Map CLI flags onto the HTTP write body."""
     return {
+        "quote_currency": arguments.quote_currency,
         "product_allowlist": tuple(arguments.product_allowlist),
         "max_concurrent_running_deployments": arguments.max_concurrent_running_deployments,
         "max_concurrent_open_positions": arguments.max_concurrent_open_positions,

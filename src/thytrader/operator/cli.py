@@ -284,6 +284,7 @@ async def _run_local(arguments: argparse.Namespace) -> int:
     async with operator_diagnostics(settings) as diagnostics:
         report = await _dispatch(diagnostics, arguments)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
+    sys.stdout.flush()
     return exit_code_for(report.overall_status)
 
 
@@ -317,6 +318,7 @@ def _run_http(arguments: argparse.Namespace) -> int:
     )
     _reject_stale_report(report)
     sys.stdout.write(f"{_render(report, fmt=arguments.format, secrets=secrets)}\n")
+    sys.stdout.flush()
     return exit_code_for(report.overall_status)
 
 

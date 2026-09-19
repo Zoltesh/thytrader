@@ -16,10 +16,17 @@ uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-research list-studies [--kind parameter_sweep]
 uv run thytrader-research show-study --study-fingerprint sha256:…
+uv run thytrader-research show-evidence --strategy-fingerprint sha256:…
+uv run thytrader-research list-results [--limit 20] [--cursor CURSOR]
+uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR]
 uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
 ```
 
-`plan-study`, `engine-support`, `list-templates`, `list-studies`, and `show-study` are read-only.
+`plan-study`, `engine-support`, `list-templates`, `list-studies`, `show-study`, `show-evidence`,
+`list-results`, and `list-strategies` are read-only. Default `show-study` includes `window_pnl`
+headlines without child equity curves. `show-evidence` separates in-sample, genuine out-of-sample,
+parameter-sweep candidates, paper, and live — sweep means are never labeled OOS.
+`list-results` / `list-strategies` pages are at most 100 rows with `has_more` / `next_cursor`.
 `submit-study` requires `--confirm`. Repeating an identical submit reuses child backtests and is
 idempotent in the study catalog when canonical bytes match.
 
