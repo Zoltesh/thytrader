@@ -102,8 +102,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _target_args(parser: argparse.ArgumentParser) -> None:
-    """Require a USD spot product and a complete-only dataset timeframe."""
-    parser.add_argument("--product-id", required=True, help="USD spot product such as ETH-USD.")
+    """Require a spot product and a complete-only dataset timeframe."""
+    parser.add_argument("--product-id", required=True, help="Spot product such as ETH-USDC.")
     parser.add_argument(
         "--timeframe",
         required=True,

@@ -113,7 +113,7 @@ class RiskPolicyDefinition(_FrozenModel):
     schema_version: Literal["thytrader-risk-policy-v1"] = RISK_POLICY_SCHEMA_VERSION
     policy_id: UUID
     version: int = Field(ge=1)
-    quote_currency: SpotQuoteCurrency = "USD"
+    quote_currency: SpotQuoteCurrency = "USDC"
     product_allowlist: tuple[str, ...] = Field(default=(), max_length=32)
     max_concurrent_running_deployments: int = Field(ge=1, le=32)
     max_concurrent_open_positions: int = Field(ge=1, le=32)

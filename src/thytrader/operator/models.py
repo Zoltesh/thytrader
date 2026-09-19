@@ -128,7 +128,7 @@ class OpsContractPayload(_FrozenModel):
     ]
     max_concurrent_research_jobs: int = Field(ge=1)
     research_job_expiry_hours: int = Field(ge=1)
-    spot_quote_currencies: tuple[Literal["USD", "USDC"], ...]
+    spot_quote_currencies: tuple[Literal["USD", "USDC", "USDT"], ...]
     catalog_health: tuple[str, ...]
     bounded_deployment_reads: tuple[Literal["list", "summary", "fills", "orders"], ...]
     deployment_ledger_pagination: tuple[Literal["cursor"], ...]
@@ -340,7 +340,7 @@ class PerformancePayload(_FrozenModel):
 
     mode: Literal["backtest", "paper", "live"]
     timeframe: SupportedTimeframe
-    currency: Literal["USD", "USDC"] = "USD"
+    currency: Literal["USD", "USDC", "USDT"] = "USDC"
     strategy_fingerprint: str | None
     dataset_fingerprint: str | None
     engine_contract_version: str | None

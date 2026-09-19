@@ -131,7 +131,7 @@ def _broker_from_arguments(arguments: argparse.Namespace) -> BrokerAssumptions |
 def backtest_execution_fingerprint(
     arguments: argparse.Namespace,
     *,
-    quote_currency: Literal["USD", "USDC"],
+    quote_currency: Literal["USD", "USDC", "USDT"],
 ) -> str:
     """Hash the execution semantics that make repeated CLI publication idempotent."""
     capital = CapitalAssumptions(

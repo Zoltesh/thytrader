@@ -929,11 +929,13 @@ class OperatorDiagnostics:
             return "1h", "USD"
         return clock, published.definition.instrument.quote_currency
 
-    async def _strategy_quote_currency(self, fingerprint: str) -> Literal["USD", "USDC"]:
+    async def _strategy_quote_currency(self, fingerprint: str) -> Literal["USD", "USDC", "USDT"]:
         """Copy the published strategy quote currency; USD is the fallback."""
         _clock, quote = await self._strategy_clock_and_quote(fingerprint)
         if quote == "USDC":
             return "USDC"
+        if quote == "USDT":
+            return "USDT"
         return "USD"
 
     async def _history_component(self) -> ComponentReport:

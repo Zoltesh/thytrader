@@ -83,8 +83,9 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
+| Show one published strategy definition | `uv run thytrader-research show-strategy --strategy-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-results`, `show-result`, `show-strategy`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
 `list-studies`, and
 `show-study` are read-only and
 do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
@@ -123,9 +124,9 @@ and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-mar
 need 2–8 published single-instrument strategies on distinct products. See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
-`create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
+`create-draft` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (any ingested venue clock) for another USD or USDC spot product. Paper and live may start that published fingerprint.
+`--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live may start that published fingerprint.
 `show-result` (HTTP and `--local`) and operator `performance` copy the published strategy
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
 `currency: USDC`. The USD value is a fallback only when the publication cannot be loaded, and it
