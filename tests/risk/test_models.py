@@ -58,7 +58,7 @@ def test_allowlist_rejects_duplicates_and_non_usd_spot() -> None:
             {**payload, "product_allowlist": ("BTC-USD", "BTC-USD")}
         )
     with pytest.raises(ValidationError):
-        RiskPolicyDefinition.model_validate({**payload, "product_allowlist": ("BTC-USDT",)})
+        RiskPolicyDefinition.model_validate({**payload, "product_allowlist": ("BTC-EUR",)})
 
 
 def test_allocations_must_fit_the_paper_book() -> None:

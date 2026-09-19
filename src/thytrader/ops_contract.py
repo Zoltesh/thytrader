@@ -34,7 +34,7 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v33"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v34"
 EXPECTED_SCHEMA_REVISION = "0046"
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)

@@ -14,18 +14,21 @@ from thytrader.market_data.products import (
 from thytrader.strategies.models import Instrument
 
 
-def test_spot_product_pattern_accepts_usd_and_usdc() -> None:
-    """Both quote suffixes must pass the shared product regex."""
+def test_spot_product_pattern_accepts_usd_usdc_and_usdt() -> None:
+    """USD, USDC, and USDT quote suffixes must pass the shared product regex."""
     assert is_spot_product_id("BTC-USD")
     assert is_spot_product_id("btc-usdc")
+    assert is_spot_product_id("ETH-USDT")
     assert not is_spot_product_id("BTC-EUR")
 
 
 def test_parse_spot_product_id_returns_normalized_components() -> None:
     """Parsing uppercases ids and splits base and quote currencies."""
     assert parse_spot_product_id(" eth-usdc ") == ("ETH", "USDC")
+    assert parse_spot_product_id("btc-usdt") == ("BTC", "USDT")
     assert base_currency("SOL-USD") == "SOL"
     assert quote_currency("SOL-USDC") == "USDC"
+    assert quote_currency("ETH-USDT") == "USDT"
     assert normalize_spot_product_id("btc-usdc") == "BTC-USDC"
 
 

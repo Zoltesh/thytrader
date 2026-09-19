@@ -128,8 +128,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument(
         "--product-id",
-        default="BTC-USD",
-        help="USD spot product. Default BTC-USD.",
+        default="BTC-USDC",
+        help="Spot product. Default BTC-USDC.",
     )
     create.add_argument(
         "--timeframe",
@@ -216,13 +216,24 @@ def _parser() -> argparse.ArgumentParser:
         help="List immutable backtest summaries.",
     )
     listing.add_argument("--strategy-fingerprint", default=None)
-    listing.add_argument("--limit", type=int, default=20)
+    listing.add_argument(
+        "--limit",
+        type=_page_limit,
+        default=20,
+        help="Page size. Maximum 100.",
+    )
     show = subparsers.add_parser(
         "show-result",
         parents=[trailing],
         help="Show one immutable result summary.",
     )
     show.add_argument("--result-fingerprint", required=True)
+    show_strategy = subparsers.add_parser(
+        "show-strategy",
+        parents=[trailing],
+        help="Show one published strategy definition.",
+    )
+    show_strategy.add_argument("--strategy-fingerprint", required=True)
     studies = subparsers.add_parser(
         "list-studies",
         parents=[trailing],
@@ -333,6 +344,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     archive.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     return parser
+
+
+def _page_limit(value: str) -> int:
+    """Parse a 1-100 listing page size."""
+    parsed = int(value)
+    if parsed < 1 or parsed > 100:
+        message = "limit must be between 1 and 100"
+        raise argparse.ArgumentTypeError(message)
+    return parsed
 
 
 _RESEARCH_CONFIRM_MESSAGE = (
@@ -690,6 +710,8 @@ async def _show_result(mutator: ResearchMutator, result_fingerprint: str) -> str
 
 async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against local stores."""
+    if arguments.command == "show-strategy":
+        raise ResearchCliError("show-strategy requires HTTP; do not use --local.")
     if arguments.command == "list-templates":
         return _encode({"templates": list(template_catalog())})
     if arguments.command == "engine-support":
@@ -706,6 +728,9 @@ async def _dispatch_local_study(settings: Settings, arguments: argparse.Namespac
 
 def _dispatch_http_study(base_url: str, arguments: argparse.Namespace) -> str:
     """Handle Phase 11 study commands against the loopback HTTP API."""
+    if arguments.command == "show-strategy":
+        require_matching_ops_contract(base_url)
+        return research_http.show_strategy(base_url, arguments.strategy_fingerprint)
     if arguments.command == "submit-study":
         _require_http_confirm(arguments.confirm, base_url=base_url, command="submit-study")
     require_matching_ops_contract(base_url)

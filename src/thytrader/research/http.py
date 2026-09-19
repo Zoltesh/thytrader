@@ -467,10 +467,15 @@ def _published_clock_and_quote(source: dict[str, object]) -> tuple[str, str]:
     timeframe = strategy.get("timeframe")
     instrument = strategy.get("instrument")
     quote = instrument.get("quote_currency") if isinstance(instrument, dict) else None
-    if quote not in {"USD", "USDC"}:
-        raise ResearchMutationError("Published strategy quote currency was not USD or USDC.")
+    if quote not in {"USD", "USDC", "USDT"}:
+        raise ResearchMutationError("Published strategy quote currency was not USD, USDC, or USDT.")
     clock = published_execution_timeframe(timeframe) if isinstance(timeframe, str) else "1h"
     return clock, str(quote)
+
+
+def show_strategy(base_url: str, strategy_fingerprint: str) -> str:
+    """Show one published strategy definition."""
+    return _encode(_strategy_source(base_url, strategy_fingerprint))
 
 
 def show_result(base_url: str, result_fingerprint: str) -> str:

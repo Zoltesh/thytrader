@@ -28,6 +28,17 @@ _DEMO_PRODUCTS = (
         True,
     ),
     MarketProduct(
+        "BTC-USDC",
+        "BTC",
+        "USDC",
+        Decimal("0.01"),
+        Decimal("0.00000001"),
+        Decimal("0.01"),
+        Decimal("0.0001"),
+        Decimal("1"),
+        True,
+    ),
+    MarketProduct(
         "ETH-USD",
         "ETH",
         "USD",
