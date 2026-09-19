@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import ValidationError
@@ -104,6 +105,54 @@ def import_draft(base_url: str, definition: StrategyDefinition) -> str:
             "version": strategy.get("version"),
             "name": strategy.get("name"),
             "summary": body.get("summary"),
+        }
+    )
+
+
+def list_strategies(base_url: str, *, include_archived: bool = False) -> str:
+    """List the strategy library, hiding archived publications by default."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/strategies"),
+        "strategy list",
+    )
+    strategies = body.get("strategies")
+    if not isinstance(strategies, list):
+        raise ResearchMutationError("Strategy library was not a JSON array.")
+    rows: list[dict[str, object]] = []
+    for item in strategies:
+        row = _as_object(item, "strategy library row")
+        archived = row.get("archived")
+        if archived is True and not include_archived:
+            continue
+        rows.append(
+            {
+                "strategy_id": row.get("strategy_id"),
+                "name": row.get("name"),
+                "latest_version": row.get("latest_version"),
+                "status": row.get("status"),
+                "archived": bool(archived),
+                "archived_at": row.get("archived_at"),
+            }
+        )
+    return _encode({"strategies": rows})
+
+
+def archive_strategy(base_url: str, strategy_fingerprint: str) -> str:
+    """Archive one published strategy without deleting immutable evidence."""
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", strategy_fingerprint) is None:
+        raise ResearchMutationError("--strategy-fingerprint must match sha256:<64 hex characters>.")
+    body = _as_object(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/strategies/{strategy_fingerprint}/archive",
+            timeout=10.0,
+        ),
+        "archive response",
+    )
+    return _encode(
+        {
+            "strategy_fingerprint": body.get("strategy_fingerprint"),
+            "archived_at": body.get("archived_at"),
         }
     )
 
@@ -265,19 +314,40 @@ def _ambiguous_study_error(
     request: ResearchStudyRequest,
     error: AgentHttpError,
 ) -> AgentHttpError:
-    """Convert a timed-out study submission into an actionable ambiguous-state error."""
+    """Convert a study-submission failure into an actionable operator error.
+
+    A definitive rejection — a 4xx status other than 408 — proves the server
+    saw and refused the request, so nothing was persisted: the message keeps
+    the real reason and the request identity, and never claims an ambiguous
+    submit state. Ambiguous failures (client timeout, unreachable transport,
+    408, or any 5xx after this write-risk POST) keep the #99 readback suffix
+    because the study may already be persisted.
+    """
     request_fp = request_fingerprint(request)
     message = str(error)
-    ambiguous = "timed out" in message.lower() or "unreachable" in message.lower()
+    status = error.status
+    if status is not None:
+        ambiguous = status == 408 or status >= 500
+    else:
+        # Transport-level failures carry no status (urllib raised before a
+        # response existed). Odd bodies after this write-risk POST fall to the
+        # definitive branch rather than claiming a false ambiguous state.
+        lowered = message.lower()
+        ambiguous = "timed out" in lowered or "unreachable" in lowered
     readback = (
-        "Submit-state is ambiguous: the study may already be persisted. "
-        "Read back before retrying: "
         f"thytrader-research find-study-by-request --request-fingerprint {request_fp} "
         "(or `thytrader-research list-studies --limit 50`)"
     )
-    if not ambiguous:
-        return AgentHttpError(f"{message} ({readback})")
-    return AgentHttpError(f"{message} {readback}")
+    if ambiguous:
+        return AgentHttpError(
+            f"{message} Submit-state is ambiguous: the study may already be "
+            f"persisted. Read back before retrying: {readback}",
+            status=status,
+        )
+    return AgentHttpError(
+        f"{message} (Request identity: request_fingerprint={request_fp}. Verify with: {readback})",
+        status=status,
+    )
 
 
 def find_study_by_request(base_url: str, request_fingerprint: str) -> str:

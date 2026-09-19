@@ -19,7 +19,12 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     BacktestSubmitter,
 )
-from thytrader.research.studies import ResearchStudyError, ResearchStudyRequest, plan_fingerprint
+from thytrader.research.studies import (
+    ResearchStudyError,
+    ResearchStudyRequest,
+    StudyFailedPhase,
+    plan_fingerprint,
+)
 
 if TYPE_CHECKING:
     from thytrader.research.studies import ResearchStudyService
@@ -63,6 +68,8 @@ class ResearchJobRecord(BaseModel):
     progress_current: int = Field(default=0, ge=0)
     progress_total: int = Field(default=0, ge=0)
     error_message: str | None = None
+    failed_phase: str | None = None
+    failed_detail: str | None = None
     run_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     result_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     study_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -132,8 +139,15 @@ class ResearchJobStore(Protocol):
         """Persist successful study completion fingerprints."""
         ...
 
-    async def mark_failed(self, job_id: UUID, *, error_message: str) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure."""
+    async def mark_failed(
+        self,
+        job_id: UUID,
+        *,
+        error_message: str,
+        failed_phase: str | None = None,
+        failed_detail: str | None = None,
+    ) -> ResearchJobRecord:
+        """Persist a caller-visible or redacted failure with optional detail."""
         ...
 
     async def mark_cancelled(self, job_id: UUID) -> ResearchJobRecord:
@@ -276,14 +290,23 @@ class InMemoryResearchJobStore:
             plan_fingerprint=plan_fingerprint,
         )
 
-    async def mark_failed(self, job_id: UUID, *, error_message: str) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure."""
+    async def mark_failed(
+        self,
+        job_id: UUID,
+        *,
+        error_message: str,
+        failed_phase: str | None = None,
+        failed_detail: str | None = None,
+    ) -> ResearchJobRecord:
+        """Persist a caller-visible or redacted failure with optional detail."""
         async with self._lock:
             self._running_count = max(0, self._running_count - 1)
         return await self._replace(
             job_id,
             status=ResearchJobStatus.FAILED,
-            error_message=error_message,
+            error_message=error_message[:256],
+            failed_phase=failed_phase[:32] if failed_phase is not None else None,
+            failed_detail=failed_detail[:500] if failed_detail is not None else None,
         )
 
     async def mark_cancelled(self, job_id: UUID) -> ResearchJobRecord:
@@ -385,6 +408,8 @@ class InMemoryResearchJobStore:
         *,
         status: ResearchJobStatus,
         error_message: str | None = None,
+        failed_phase: str | None = None,
+        failed_detail: str | None = None,
         run_fingerprint: str | None = None,
         result_fingerprint: str | None = None,
         study_fingerprint: str | None = None,
@@ -404,6 +429,7 @@ class InMemoryResearchJobStore:
             }
             if error_message is not None:
                 updates["error_message"] = error_message
+            updates.update(_record_failure_updates(failed_phase, failed_detail))
             if run_fingerprint is not None:
                 updates["run_fingerprint"] = run_fingerprint
             if result_fingerprint is not None:
@@ -480,13 +506,42 @@ async def run_study_job(
             study_fingerprint=study.study_fingerprint,
             plan_fingerprint=plan_fp,
         )
+    except BacktestSubmissionRejectedError as rejected:
+        await store.mark_failed(
+            job_id,
+            error_message=str(rejected),
+            failed_phase=StudyFailedPhase.SUBMIT_CHILDREN.value,
+        )
     except ResearchStudyError as error:
         if "cancelled" in str(error).lower():
             await store.mark_cancelled(job_id)
             return
-        await store.mark_failed(job_id, error_message=str(error))
-    except Exception:  # noqa: BLE001 - background jobs must not leak internal failures
-        await store.mark_failed(job_id, error_message="Research study submission is unavailable.")
+        await store.mark_failed(
+            job_id,
+            error_message=str(error),
+            failed_phase=error.failed_phase,
+            failed_detail=(str(error.__cause__) if error.__cause__ is not None else None),
+        )
+    except Exception as error:  # noqa: BLE001 - background jobs must not leak internal failures
+        await store.mark_failed(
+            job_id,
+            error_message="Research study submission is unavailable.",
+            failed_phase=StudyFailedPhase.UNKNOWN.value,
+            failed_detail=str(error),
+        )
+
+
+def _record_failure_updates(
+    failed_phase: str | None,
+    failed_detail: str | None,
+) -> dict[str, object]:
+    """Build bounded failure-detail record updates when provided."""
+    updates: dict[str, object] = {}
+    if failed_phase is not None:
+        updates["failed_phase"] = failed_phase
+    if failed_detail is not None:
+        updates["failed_detail"] = failed_detail
+    return updates
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,6 +571,7 @@ class ResearchJobRunner:
                 await self.store.mark_failed(
                     job_id,
                     error_message="Research study submission is unavailable.",
+                    failed_phase=StudyFailedPhase.UNKNOWN.value,
                 )
 
     async def start(self, stop_event: asyncio.Event) -> asyncio.Task[None]:

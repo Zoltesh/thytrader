@@ -27,12 +27,133 @@ from thytrader.memory.models import (
     ExperientialModel,
     PatternScore,
 )
+from thytrader.operator.status import EXIT_HEALTHY
 from thytrader.research.mutation_cli import main
 
 _REFERENCE_STRATEGY = (
     Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 )
 _MODEL_ID = UUID("11111111-1111-1111-1111-111111111111")
+_ARCHIVE_FINGERPRINT = "sha256:" + "a" * 64
+
+
+def _library_payload() -> dict[str, object]:
+    """Return a strategy-library body with one active and one archived entry."""
+    return {
+        "strategies": [
+            {
+                "strategy_id": "22222222-2222-2222-2222-222222222222",
+                "name": "EMA trend active",
+                "latest_version": 1,
+                "status": "published",
+                "archived": False,
+                "archived_at": None,
+                "versions": [],
+            },
+            {
+                "strategy_id": "33333333-3333-3333-3333-333333333333",
+                "name": "RSI mean reversion orphan",
+                "latest_version": 1,
+                "status": "published",
+                "archived": True,
+                "archived_at": "2026-09-19T00:00:00+00:00",
+                "versions": [],
+            },
+        ]
+    }
+
+
+def test_archive_without_confirm_does_not_write() -> None:
+    """Omitting --confirm must exit before the archive HTTP call."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.research.http.archive_strategy") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["archive", "--strategy-fingerprint", _ARCHIVE_FINGERPRINT])
+    assert raised.value.code != 0
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
+
+
+def test_archive_rejects_malformed_fingerprint() -> None:
+    """A non-fingerprint argument fails closed before any HTTP call."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["archive", "--strategy-fingerprint", "not-a-fingerprint", "--confirm"])
+    assert raised.value.code != 0
+    assert "sha256" in str(raised.value)
+
+
+def test_archive_posts_to_strategy_archive_route(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Archive hides one immutable publication through the existing route."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+        f"POST /api/v1/strategies/{_ARCHIVE_FINGERPRINT}/archive": {
+            "strategy_fingerprint": _ARCHIVE_FINGERPRINT,
+            "archived_at": "2026-09-19T00:00:00+00:00",
+        },
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["archive", "--strategy-fingerprint", _ARCHIVE_FINGERPRINT, "--confirm"])
+    assert raised.value.code == EXIT_HEALTHY
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["strategy_fingerprint"] == _ARCHIVE_FINGERPRINT
+    assert payload["archived_at"] == "2026-09-19T00:00:00+00:00"
+
+
+def test_list_strategies_hides_archived_by_default(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Archived publications stay out of the default operator listing."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/strategies": _library_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["list-strategies"])
+    assert raised.value.code == EXIT_HEALTHY
+    payload = json.loads(capsys.readouterr().out)
+    names = [entry["name"] for entry in payload["strategies"]]
+    assert names == ["EMA trend active"]
+
+
+def test_list_strategies_include_archived_shows_all(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--include-archived keeps full fingerprint integrity for audit reads."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/strategies": _library_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["list-strategies", "--include-archived"])
+    assert raised.value.code == EXIT_HEALTHY
+    payload = json.loads(capsys.readouterr().out)
+    names = {entry["name"] for entry in payload["strategies"]}
+    assert names == {"EMA trend active", "RSI mean reversion orphan"}
 
 
 class _HasFullUrl(Protocol):

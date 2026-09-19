@@ -96,7 +96,26 @@ class StudyPlanningError(ValueError):
 
 
 class ResearchStudyError(RuntimeError):
-    """Report a redacted study failure without trading authority."""
+    """Report a redacted study failure without trading authority.
+
+    ``failed_phase`` names the submission stage that failed so operators and
+    agents can decide what to inspect or retry. It stays ``None`` on plain
+    construction for backward compatibility.
+    """
+
+    def __init__(self, message: str, *, failed_phase: str | None = None) -> None:
+        """Store the message and the optional structured failure phase."""
+        super().__init__(message)
+        self.failed_phase = failed_phase
+
+
+class StudyFailedPhase(StrEnum):
+    """Bounded submission phases a study failure can name."""
+
+    PUBLISH_DERIVED = "publish_derived"
+    SUBMIT_CHILDREN = "submit_children"
+    PERSIST_STUDY = "persist_study"
+    UNKNOWN = "unknown"
 
 
 class _FrozenStudyModel(BaseModel):
@@ -612,7 +631,10 @@ class ResearchStudyService:
         try:
             canonical = await self.catalog.find_by_plan_fingerprint(plan_fingerprint_value)
         except StudyCatalogUnavailableError as error:
-            raise ResearchStudyError("Research study catalog is unavailable.") from error
+            raise ResearchStudyError(
+                "Research study catalog is unavailable.",
+                failed_phase=StudyFailedPhase.PERSIST_STUDY.value,
+            ) from error
         if canonical is None:
             return None
         return ResearchStudy.model_validate_json(canonical)
@@ -627,7 +649,10 @@ class ResearchStudyService:
                 canonical_study_json(study),
             )
         except StudyCatalogUnavailableError as error:
-            raise ResearchStudyError("Research study catalog is unavailable.") from error
+            raise ResearchStudyError(
+                "Research study catalog is unavailable.",
+                failed_phase=StudyFailedPhase.PERSIST_STUDY.value,
+            ) from error
 
     async def _submit_windows(
         self,
@@ -674,7 +699,10 @@ class ResearchStudyService:
         except ResearchStudyError:
             raise
         except Exception as error:
-            raise ResearchStudyError("Research study submission is unavailable.") from error
+            raise ResearchStudyError(
+                f"Child window submission failed: {error}",
+                failed_phase=StudyFailedPhase.SUBMIT_CHILDREN.value,
+            ) from error
         return tuple(children), loaded_results
 
     async def _publish_derived_candidates(
@@ -698,9 +726,15 @@ class ResearchStudyService:
         except StrategyPublicationError as error:
             if "was not found" in str(error):
                 raise StudyPlanningError(str(error)) from error
-            raise ResearchStudyError("Research study submission is unavailable.") from error
+            raise ResearchStudyError(
+                f"Derived candidate publication failed: {error}",
+                failed_phase=StudyFailedPhase.PUBLISH_DERIVED.value,
+            ) from error
         except Exception as error:
-            raise ResearchStudyError("Research study submission is unavailable.") from error
+            raise ResearchStudyError(
+                f"Derived candidate publication failed: {error}",
+                failed_phase=StudyFailedPhase.PUBLISH_DERIVED.value,
+            ) from error
         return published
 
     async def _load_or_publish_derived(
@@ -728,11 +762,17 @@ class ResearchStudyService:
         except StrategyPublicationError as error:
             if "was not found" in str(error):
                 raise StudyPlanningError("Published strategy was not found.") from error
-            raise ResearchStudyError("Research study submission is unavailable.") from error
+            raise ResearchStudyError(
+                f"Published strategy load failed: {error}",
+                failed_phase=StudyFailedPhase.PUBLISH_DERIVED.value,
+            ) from error
         except StudyPlanningError:
             raise
         except Exception as error:
-            raise ResearchStudyError("Research study submission is unavailable.") from error
+            raise ResearchStudyError(
+                f"Published strategy load failed: {error}",
+                failed_phase=StudyFailedPhase.UNKNOWN.value,
+            ) from error
         return loaded
 
 

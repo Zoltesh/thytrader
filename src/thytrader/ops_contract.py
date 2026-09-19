@@ -19,7 +19,9 @@ capital vs venue cash, deployment HTTP `capital` field names, durable
 daily-loss/drawdown baselines, lifecycle stop/flatten/managed-shutdown commands,
 supported spot quote currencies, catalog-health capabilities (bounded gap
 inspection, ingest self-complete, heartbeat during ingest), bounded deployment
-reads, deployment ledger pagination, or multi-book ledger aggregation change.
+bounded deployment reads, deployment ledger pagination, multi-book ledger
+aggregation, structured research-job failure detail, or supported spot quote
+currencies change.
 """
 
 from __future__ import annotations
@@ -32,8 +34,8 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v32"
-EXPECTED_SCHEMA_REVISION = "0045"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v33"
+EXPECTED_SCHEMA_REVISION = "0046"
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
 MULTI_BOOK_LEDGER: tuple[str, ...] = ("paper", "live")

@@ -326,6 +326,8 @@ research_jobs = Table(
     Column("progress_current", Integer(), nullable=False, server_default="0"),
     Column("progress_total", Integer(), nullable=False, server_default="0"),
     Column("error_message", String(256), nullable=True),
+    Column("failed_phase", String(32), nullable=True),
+    Column("failed_detail", String(500), nullable=True),
     Column("run_fingerprint", String(71), nullable=True),
     Column("result_fingerprint", String(71), nullable=True),
     Column("study_fingerprint", String(71), nullable=True),
