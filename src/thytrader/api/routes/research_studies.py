@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from thytrader.api.dependencies import (
     get_backtest_result_store,
     get_backtest_submitter,
+    get_dataset_store,
     get_research_job_store,
     get_research_study_catalog,
     get_strategy_publication_store,
@@ -25,6 +26,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmitter,
 )
+from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.research.catalog import (
     ResearchStudyCatalog,
@@ -103,6 +105,7 @@ def _study_service(
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
 ) -> ResearchStudyService:
     """Compose studies from the same publication and backtest services as single runs."""
     return ResearchStudyService(
@@ -110,6 +113,7 @@ def _study_service(
         submitter=submitter,
         results=results,
         catalog=catalog,
+        datasets=datasets,
     )
 
 

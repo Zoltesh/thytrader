@@ -12,7 +12,9 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.config import Settings
+from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -50,6 +52,7 @@ from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
 from thytrader.operator.models import (
+    PORTFOLIO_REDACTION,
     STANDARD_REDACTION,
     ComponentReport,
     ConfigurationPayload,
@@ -62,6 +65,8 @@ from thytrader.operator.models import (
     DraftSummary,
     ExchangePayload,
     ExchangeReport,
+    FeesPayload,
+    FeesReport,
     HealthPayload,
     HealthReport,
     IndicatorCatalogEntry,
@@ -70,9 +75,13 @@ from thytrader.operator.models import (
     MarketDataPayload,
     MarketDataReport,
     MonitorReport,
+    OperatorMoneyPayload,
+    OperatorPortfolioAssetPayload,
     PerformanceBookPayload,
     PerformancePayload,
     PerformanceReport,
+    PortfolioPayload,
+    PortfolioReport,
     ProductsPayload,
     ProductsReport,
     ProductSummary,
@@ -162,6 +171,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.models import MonitorSnapshot
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
+    from thytrader.portfolio.models import PortfolioAsset
     from thytrader.portfolio.service import PortfolioService
     from thytrader.runtime import RuntimeState
     from thytrader.strategies.authoring import StrategyDraftStore
@@ -276,6 +286,141 @@ class OperatorDiagnostics:
             redaction=STANDARD_REDACTION,
             recommended_next_action=recommend_next_action(components),
             payload=payload,
+        )
+
+    async def portfolio_report(self) -> PortfolioReport:
+        """Return the current Coinbase or demo portfolio without credentials."""
+        now = datetime.now(UTC)
+        try:
+            portfolio = await self.portfolio.get_portfolio()
+        except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.
+            component = ComponentReport(
+                name="portfolio",
+                status=ReportStatus.FAILED,
+                reason_code="PORTFOLIO_UNAVAILABLE",
+                detail="The exchange account could not be queried.",
+            )
+            return PortfolioReport(
+                application_version=__version__,
+                generated_at=now,
+                overall_status=ReportStatus.FAILED,
+                components=(component,),
+                redaction=PORTFOLIO_REDACTION,
+                recommended_next_action=recommend_next_action((component,)),
+                payload=PortfolioPayload(
+                    as_of=now,
+                    demo=not _credentials_configured(self.settings),
+                    connection_status="unavailable",
+                    permissions=(),
+                    total_value=OperatorMoneyPayload(amount="0", currency="USDC"),
+                    assets=(),
+                    unvalued_assets=(),
+                ),
+            )
+        assets = tuple(_operator_portfolio_asset(asset) for asset in portfolio.assets)
+        component = ComponentReport(
+            name="portfolio",
+            status=ReportStatus.HEALTHY,
+            reason_code="DEMO_MODE" if portfolio.demo else "CONNECTED",
+            detail=(
+                "Coinbase credentials are absent; demo data is in use."
+                if portfolio.demo
+                else "Coinbase credentials are configured."
+            ),
+        )
+        return PortfolioReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=ReportStatus.HEALTHY,
+            components=(component,),
+            redaction=PORTFOLIO_REDACTION,
+            recommended_next_action=recommend_next_action((component,)),
+            payload=PortfolioPayload(
+                as_of=portfolio.as_of,
+                demo=portfolio.demo,
+                connection_status=portfolio.connection.status,
+                permissions=portfolio.connection.permissions,
+                total_value=_operator_money(
+                    portfolio.total_value.amount, portfolio.total_value.currency
+                ),
+                assets=assets,
+                unvalued_assets=portfolio.unvalued_assets,
+            ),
+        )
+
+    async def fees_report(self) -> FeesReport:
+        """Return the current fee tier and research-only suggested rates."""
+        now = datetime.now(UTC)
+        try:
+            profile = await self.portfolio.get_fee_profile()
+        except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.
+            component = ComponentReport(
+                name="fees",
+                status=ReportStatus.FAILED,
+                reason_code="FEES_UNAVAILABLE",
+                detail="Fee profile is temporarily unavailable.",
+            )
+            return FeesReport(
+                application_version=__version__,
+                generated_at=now,
+                overall_status=ReportStatus.FAILED,
+                components=(component,),
+                redaction=STANDARD_REDACTION,
+                recommended_next_action=recommend_next_action((component,)),
+                payload=FeesPayload(
+                    taker_fee_rate="0",
+                    maker_fee_rate="0",
+                    usd_volume_30d="0",
+                    fee_tier="unavailable",
+                    as_of=now,
+                    source="coinbase",
+                    suggestion_source="unavailable",
+                    suggestion_unavailable_reason="demo_or_missing_credentials",
+                ),
+            )
+        suggestion = suggest_research_fee_rates(profile=profile, demo=self.portfolio.demo)
+        component = ComponentReport(
+            name="fees",
+            status=ReportStatus.HEALTHY,
+            reason_code="OK",
+            detail=f"Fee tier {profile.fee_tier}.",
+        )
+        return FeesReport(
+            application_version=__version__,
+            generated_at=now,
+            overall_status=ReportStatus.HEALTHY,
+            components=(component,),
+            redaction=STANDARD_REDACTION,
+            recommended_next_action=recommend_next_action((component,)),
+            payload=FeesPayload(
+                taker_fee_rate=format(profile.taker_fee_rate, "f"),
+                maker_fee_rate=format(profile.maker_fee_rate, "f"),
+                usd_volume_30d=format(profile.usd_volume_30d, "f"),
+                fee_tier=profile.fee_tier,
+                as_of=profile.as_of,
+                source=profile.source,
+                suggested_maker_fee_rate=(
+                    format(suggestion.suggested_maker_fee_rate, "f")
+                    if suggestion.suggested_maker_fee_rate is not None
+                    else None
+                ),
+                suggested_taker_fee_rate=(
+                    format(suggestion.suggested_taker_fee_rate, "f")
+                    if suggestion.suggested_taker_fee_rate is not None
+                    else None
+                ),
+                suggestion_source=suggestion.source,
+                suggestion_unavailable_reason=suggestion.unavailable_reason,
+                suggestion_fee_tier=suggestion.fee_tier,
+                suggestion_schedule_tier_id=suggestion.schedule_tier_id,
+                suggestion_schedule_version=suggestion.schedule_version,
+                suggestion_schedule_as_of=(
+                    suggestion.schedule_as_of.isoformat()
+                    if suggestion.schedule_as_of is not None
+                    else None
+                ),
+                suggestion_fetched_at=suggestion.fetched_at,
+            ),
         )
 
     async def market_data_report(
@@ -1280,6 +1425,10 @@ class OperatorDiagnostics:
             )
             return _empty_performance(now, (component,))
         summary = result.summary
+        try:
+            metrics = compute_performance_metrics(result)
+        except TypeError, ValueError:
+            metrics = None
         component = ComponentReport(
             name="performance",
             status=ReportStatus.HEALTHY,
@@ -1302,6 +1451,7 @@ class OperatorDiagnostics:
             maximum_drawdown_fraction=summary.maximum_drawdown_fraction,
             total_spread_cost=summary.total_spread_cost,
             evaluation_bars=summary.evaluation_bars,
+            metrics=metrics,
         )
         return PerformanceReport(
             application_version=__version__,
@@ -2380,3 +2530,30 @@ def _manifest_datetime(manifest: object | None, field: str) -> datetime | None:
     if parsed.tzinfo is None:
         return None
     return parsed.astimezone(UTC)
+
+
+def _operator_money(amount: Decimal, currency: str) -> OperatorMoneyPayload:
+    """Render exact money as canonical operator decimal strings."""
+    if currency == "USD":
+        quote: Literal["USD", "USDC", "USDT"] = "USD"
+    elif currency == "USDT":
+        quote = "USDT"
+    else:
+        quote = "USDC"
+    return OperatorMoneyPayload(amount=format(amount, "f"), currency=quote)
+
+
+def _operator_portfolio_asset(asset: PortfolioAsset) -> OperatorPortfolioAssetPayload:
+    """Project one portfolio asset without account identifiers."""
+    value = asset.value
+    money = None
+    if value is not None:
+        money = _operator_money(value.amount, value.currency)
+    return OperatorPortfolioAssetPayload(
+        currency=str(asset.currency),
+        name=str(asset.name),
+        available=format(asset.available, "f"),
+        hold=format(asset.hold, "f"),
+        total=format(asset.total, "f"),
+        value=money,
+    )

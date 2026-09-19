@@ -21,8 +21,10 @@ from thytrader.api.dependencies import (
     get_backtest_submitter,
     get_research_job_store,
 )
+from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
+    BacktestPerformanceMetrics,
     BacktestResult,
     BacktestSummary,
     backtest_benchmark_fingerprint,
@@ -98,6 +100,7 @@ class BacktestDetailResponse(BaseModel):
     result: BacktestResult
     result_fingerprint: str
     costs: CostAssumptions | None = None
+    metrics: BacktestPerformanceMetrics | None = None
 
 
 class BacktestSummaryDetailResponse(BaseModel):
@@ -111,6 +114,14 @@ class BacktestSummaryDetailResponse(BaseModel):
     engine_contract_version: str
     summary: BacktestSummary
     costs: CostAssumptions | None = None
+    metrics: BacktestPerformanceMetrics | None = None
+
+
+class BacktestMetricsResponse(BaseModel):
+    """One derived ratio-metrics report keyed by result fingerprint."""
+
+    metrics: BacktestPerformanceMetrics
+    result_fingerprint: str
 
 
 class BacktestBenchmarkResponse(BaseModel):
@@ -370,6 +381,64 @@ async def get_backtest_benchmark(
 
 
 @router.get(
+    "/{result_fingerprint}/metrics",
+    response_model=BacktestMetricsResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": BacktestErrorResponse},
+        status.HTTP_404_NOT_FOUND: {"model": BacktestErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": BacktestErrorResponse},
+    },
+)
+async def get_backtest_metrics(
+    store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    result_fingerprint: str,
+) -> BacktestMetricsResponse:
+    """Return derived ratio metrics while leaving the canonical result immutable."""
+    if _FINGERPRINT_PATTERN.fullmatch(result_fingerprint) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "backtest_invalid", "message": "Result fingerprint is malformed."},
+        )
+    try:
+        result = await store.load(result_fingerprint)
+        verified = backtest_result_fingerprint(result)
+        metrics = compute_performance_metrics(result)
+    except BacktestResultNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "backtest_not_found", "message": "Backtest result was not found."},
+        ) from None
+    except (BacktestResultUnavailableError, BacktestResultIntegrityError) as error:
+        _logger.warning("Backtest metrics failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest metrics are unavailable.",
+            },
+        ) from None
+    except Exception as error:  # noqa: BLE001
+        _logger.warning("Backtest metrics failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest metrics are unavailable.",
+            },
+        ) from None
+    if verified != result_fingerprint or metrics.result_fingerprint != result_fingerprint:
+        _logger.warning("Backtest metrics returned mismatched result identity")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "backtests_unavailable",
+                "message": "Backtest metrics are unavailable.",
+            },
+        )
+    return BacktestMetricsResponse(metrics=metrics, result_fingerprint=result_fingerprint)
+
+
+@router.get(
     "/{result_fingerprint}",
     response_model=BacktestSummaryDetailResponse | BacktestDetailResponse,
     responses={
@@ -432,6 +501,7 @@ async def get_backtest(
                 "message": "Backtest results are unavailable.",
             },
         )
+    metrics = _derived_metrics(result)
     if detail == "summary":
         return BacktestSummaryDetailResponse(
             result_fingerprint=result_fingerprint,
@@ -441,12 +511,22 @@ async def get_backtest(
             engine_contract_version=result.engine_contract_version,
             summary=result.summary,
             costs=costs,
+            metrics=metrics,
         )
     return BacktestDetailResponse(
         result=result,
         result_fingerprint=result_fingerprint,
         costs=costs,
+        metrics=metrics,
     )
+
+
+def _derived_metrics(result: BacktestResult) -> BacktestPerformanceMetrics | None:
+    """Best-effort derived metrics; a failure must not hide the canonical result."""
+    try:
+        return compute_performance_metrics(result)
+    except TypeError, ValueError:
+        return None
 
 
 def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryResponse:

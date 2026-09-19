@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmitter
+    from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import (
         BacktestResultReader,
         BacktestResultSummaryView,
@@ -42,6 +43,7 @@ class ResearchMutator:
     results: BacktestResultReader
     audit: AuditEventStore
     catalog: ResearchStudyCatalog | None = None
+    datasets: DatasetStore | None = None
 
     async def create_reference_draft(
         self,
@@ -114,6 +116,7 @@ class ResearchMutator:
             submitter=self.submitter,
             results=self.results,
             catalog=self.catalog,
+            datasets=self.datasets,
         )
         study = await service.submit(request)
         await self._audit(

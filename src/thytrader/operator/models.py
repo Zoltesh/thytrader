@@ -9,6 +9,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.backtest.models import BacktestPerformanceMetrics  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
 from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
@@ -34,6 +35,8 @@ REPORT_KINDS: tuple[str, ...] = (
     "studies",
     "trade_reasons",
     "support_bundle",
+    "portfolio",
+    "fees",
 )
 
 SupportedTimeframe = DatasetTimeframe
@@ -209,6 +212,88 @@ class ExchangeReport(OperatorEnvelope):
     payload: ExchangePayload
 
 
+class OperatorMoneyPayload(_FrozenModel):
+    """Exact money serialized as a decimal string."""
+
+    amount: str
+    currency: Literal["USD", "USDC", "USDT"]
+
+
+class OperatorPortfolioAssetPayload(_FrozenModel):
+    """One balance and optional quote valuation without account identifiers."""
+
+    currency: str
+    name: str
+    available: str
+    hold: str
+    total: str
+    value: OperatorMoneyPayload | None
+
+
+class PortfolioPayload(_FrozenModel):
+    """Point-in-time portfolio matching GET /api/v1/portfolio without secrets."""
+
+    as_of: datetime
+    demo: bool
+    connection_status: str
+    permissions: tuple[str, ...]
+    total_value: OperatorMoneyPayload
+    assets: tuple[OperatorPortfolioAssetPayload, ...]
+    unvalued_assets: tuple[str, ...]
+
+    @field_validator("as_of")
+    @classmethod
+    def require_utc(cls, value: datetime) -> datetime:
+        """Keep portfolio timestamps timezone-aware UTC after JSON round-trips."""
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("as_of must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
+class PortfolioReport(OperatorEnvelope):
+    """Read-only portfolio snapshot for operators."""
+
+    report_kind: Literal["portfolio"] = "portfolio"
+    payload: PortfolioPayload
+
+
+class FeesPayload(_FrozenModel):
+    """Coinbase fee tier plus research-only suggested maker/taker rates."""
+
+    taker_fee_rate: str
+    maker_fee_rate: str
+    usd_volume_30d: str
+    fee_tier: str
+    as_of: datetime
+    source: Literal["coinbase"]
+    suggested_maker_fee_rate: str | None = None
+    suggested_taker_fee_rate: str | None = None
+    suggestion_source: Literal["coinbase_fee_schedule", "unavailable"]
+    suggestion_unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
+    suggestion_fee_tier: str | None = None
+    suggestion_schedule_tier_id: str | None = None
+    suggestion_schedule_version: str | None = None
+    suggestion_schedule_as_of: str | None = None
+    suggestion_fetched_at: datetime | None = None
+
+    @field_validator("as_of", "suggestion_fetched_at")
+    @classmethod
+    def require_utc(cls, value: datetime | None) -> datetime | None:
+        """Keep fee timestamps timezone-aware UTC after JSON round-trips."""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("datetime must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
+class FeesReport(OperatorEnvelope):
+    """Read-only fee profile for operators."""
+
+    report_kind: Literal["fees"] = "fees"
+    payload: FeesPayload
+
+
 class MarketDataPayload(_FrozenModel):
     """Durable ingestion coverage for one product and dataset timeframe."""
 
@@ -356,6 +441,7 @@ class PerformancePayload(_FrozenModel):
     mark_complete: bool | None = None
     marked_exposure: str | None = None
     books: tuple[PerformanceBookPayload, ...] = ()
+    metrics: BacktestPerformanceMetrics | None = None
 
 
 class PerformanceReport(OperatorEnvelope):
@@ -595,4 +681,10 @@ STANDARD_REDACTION = RedactionMetadata(
     raw_environment_omitted=True,
     account_identifiers_omitted=True,
     balances_omitted=True,
+)
+PORTFOLIO_REDACTION = RedactionMetadata(
+    secrets_redacted=True,
+    raw_environment_omitted=True,
+    account_identifiers_omitted=True,
+    balances_omitted=False,
 )

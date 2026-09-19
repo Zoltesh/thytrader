@@ -38,7 +38,9 @@
         "monitor",
         "studies",
         "trade_reasons",
-        "support_bundle"
+        "support_bundle",
+        "portfolio",
+        "fees"
       ]
     },
     "application_version": {

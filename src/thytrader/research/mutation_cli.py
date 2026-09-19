@@ -405,6 +405,7 @@ async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine | N
         results=result_store,
         audit=PostgresAuditEventStore(engine),
         catalog=PostgresResearchStudyCatalog(engine),
+        datasets=dataset_store,
     )
     return mutator, engine
 
@@ -761,6 +762,7 @@ async def _plan_study(mutator: ResearchMutator, request: ResearchStudyRequest) -
         submitter=mutator.submitter,
         results=mutator.results,
         catalog=mutator.catalog,
+        datasets=mutator.datasets,
     )
     plan = await service.plan(request)
     return _encode(summarize_research_study_plan(plan).model_dump(mode="json"))

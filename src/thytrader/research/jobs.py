@@ -23,6 +23,7 @@ from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyRequest,
     StudyFailedPhase,
+    StudyPlanningError,
     plan_fingerprint,
 )
 
@@ -506,11 +507,19 @@ async def run_study_job(
             study_fingerprint=study.study_fingerprint,
             plan_fingerprint=plan_fp,
         )
+    except StudyPlanningError as error:
+        await store.mark_failed(
+            job_id,
+            error_message=str(error),
+            failed_phase=StudyFailedPhase.PLAN.value,
+            failed_detail=str(error),
+        )
     except BacktestSubmissionRejectedError as rejected:
         await store.mark_failed(
             job_id,
             error_message=str(rejected),
             failed_phase=StudyFailedPhase.SUBMIT_CHILDREN.value,
+            failed_detail=str(rejected),
         )
     except ResearchStudyError as error:
         if "cancelled" in str(error).lower():
