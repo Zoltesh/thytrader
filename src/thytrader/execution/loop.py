@@ -295,17 +295,10 @@ async def _match_resting_orders(
         fill = broker.match_open_order(order, candle)
         if fill is None:
             continue
-        filled = replace(
-            order,
-            status=OrderStatus.FILLED,
-            filled_quantity=order.quantity,
-            updated_at=utc_now(),
-        )
-        await store.save_order(filled)
         result = await ingest_fill(
             snapshot,
             fill=fill,
-            order=filled,
+            order=order,
             store=store,
             cooldown_bars=cooldown_bars,
             timeframe=timeframe,
@@ -518,6 +511,9 @@ async def _manage_position(
             return snapshot
         if snapshot.position is None and snapshot.deployment.phase is RuntimePhase.FLAT:
             return snapshot
+    checked = await _fail_closed_on_split_state(snapshot, store=store)
+    if checked is not None:
+        return checked
     return await _manage_open_position(
         snapshot,
         strategy=strategy,
@@ -526,6 +522,54 @@ async def _manage_position(
         product=product,
         broker=broker,
         store=store,
+    )
+
+
+def split_pending_entry(snapshot: DeploymentSnapshot) -> bool:
+    """Whether a pending-entry book has neither a working entry nor a position.
+
+    A RUNNING or PAUSED book in PENDING_ENTRY phase always holds its working
+    entry until cancel/flatten. Missing both means the entry lifecycle was
+    skipped or fill economics never committed (ADR 0057 violation) — the
+    deployment 01a0bb90 stuck-pending_entry condition.
+    """
+    deployment = snapshot.deployment
+    if deployment.phase is not RuntimePhase.PENDING_ENTRY:
+        return False
+    if deployment.status not in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}:
+        return False
+    if deployment.mismatch_detail:
+        return False
+    return snapshot.position is None and _active_entry(snapshot) is None
+
+
+def _split_state_detail(snapshot: DeploymentSnapshot) -> str:
+    """Return the operator-facing reason a pending-entry book failed closed."""
+    if any(
+        order.status is OrderStatus.FILLED and order.kind is not OrderKind.TRIGGER_BRACKET
+        for order in snapshot.orders
+    ):
+        return (
+            "Filled entry order has no applied fill and no position; fill economics did not commit."
+        )
+    return (
+        "Book is pending entry with no working entry order and no position; "
+        "entry lifecycle did not advance."
+    )
+
+
+async def _fail_closed_on_split_state(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+) -> DeploymentSnapshot | None:
+    """Pause split pending-entry state, or return None to continue the bar."""
+    if not split_pending_entry(snapshot):
+        return None
+    return await _pause(
+        snapshot,
+        store=store,
+        detail=_split_state_detail(snapshot),
     )
 
 

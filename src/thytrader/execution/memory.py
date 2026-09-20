@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from thytrader.execution.fill_ledger import project_fill_economics
+from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
 from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
@@ -309,6 +309,26 @@ class InMemoryExecutionStore:
         )
         self.fills[stamped.id] = stamped
         self._applied_fill_keys.add(key)
+        applied_fill = replace(
+            order,
+            status=OrderStatus.FILLED,
+            filled_quantity=max(
+                order.filled_quantity,
+                applied_fill_quantity(snapshot, order.id) + fill.quantity,
+            ),
+            updated_at=stamped.economics_applied_at,
+        )
+        existing_order = next(
+            (
+                item
+                for item in self.orders.values()
+                if item.client_order_id == applied_fill.client_order_id
+            ),
+            None,
+        )
+        if existing_order is not None:
+            self.orders.pop(existing_order.id, None)
+        self.orders[applied_fill.id] = applied_fill
         saved = replace(projected.deployment, revision=projected.deployment.revision + 1)
         self.deployments[saved.id] = saved
         product_id = order.product_id or projected.deployment.product_id

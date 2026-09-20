@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from thytrader.config import Settings
+from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    RuntimePhase,
+)
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.models import SCHEMA_VERSION, ReportStatus
@@ -267,3 +281,112 @@ def test_risk_report_is_available_without_dollar_amounts() -> None:
     assert "paper_capital_quote" not in dumped
     assert "cash" not in dumped
     assert report.redaction.balances_omitted is True
+
+
+class _SeededSplitStateStore(InMemoryExecutionStore):
+    """Execution store seeded with the deployment 01a0bb90 split state."""
+
+    def __init__(self, *, order_status: OrderStatus = OrderStatus.FILLED) -> None:
+        """Create one running paper deployment stuck in pending_entry."""
+        super().__init__()
+        now = datetime.now(UTC)
+        self._deployment_id = uuid4()
+        self._intent_id = uuid4()
+        deployment = Deployment(
+            id=self._deployment_id,
+            strategy_fingerprint="sha256:" + ("b" * 64),
+            strategy_id=uuid4(),
+            product_id="UNI-USDC",
+            mode=DeploymentMode.PAPER,
+            status=DeploymentStatus.RUNNING,
+            cash=Decimal("10000"),
+            phase=RuntimePhase.PENDING_ENTRY,
+            created_at=now,
+            updated_at=now,
+            last_signal="matched",
+        )
+        self.deployments[deployment.id] = deployment
+        self.orders[uuid4()] = Order(
+            id=uuid4(),
+            deployment_id=self._deployment_id,
+            intent_id=self._intent_id,
+            client_order_id="stuck-entry",
+            side=OrderSide.BUY,
+            kind=OrderKind.POST_ONLY_LIMIT,
+            quantity=Decimal("11.736538"),
+            status=order_status,
+            created_at=now,
+            updated_at=now,
+            price=Decimal("8.5204"),
+            filled_quantity=(
+                Decimal("11.736538") if order_status is OrderStatus.FILLED else Decimal("0")
+            ),
+            product_id="UNI-USDC",
+        )
+
+    async def list_deployments(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[Deployment, ...]:
+        """Return the seeded deployment for operator reads."""
+        return await super().list_deployments(limit=limit, offset=offset)
+
+    async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Load the seeded snapshot."""
+        return await super().get_deployment(deployment_id)
+
+
+def _split_state_diagnostics(execution: InMemoryExecutionStore) -> OperatorDiagnostics:
+    """Build diagnostics over a seeded split-state execution store."""
+    return OperatorDiagnostics(
+        settings=Settings(_env_file=None),
+        portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
+        market_data_state=DisabledMarketDataWorkerStateStore(),
+        history=InMemoryPortfolioHistoryStore(),
+        publications=DisabledStrategyPublicationStore(),
+        drafts=DisabledStrategyDraftStore(),
+        backtests=DisabledBacktestResultStore(),
+        execution=execution,
+        audit=InMemoryAuditEventStore(),
+    )
+
+
+def test_reconciliation_flags_filled_order_without_fill() -> None:
+    """Split state (FILLED order, no fills, pending_entry) must surface as a finding.
+
+    Regression for deployment 01a0bb90: operator reconciliation reported healthy
+    while the book was stuck pending_entry because a FILLED order with no
+    applied fill and no position was invisible to the finding collectors.
+    """
+    diagnostics = _split_state_diagnostics(_SeededSplitStateStore())
+    report = asyncio.run(diagnostics.reconciliation())
+    codes = {finding.reason_code for finding in report.payload.findings}
+    assert "FILLED_WITHOUT_FILL" in codes
+    stuck = next(
+        finding
+        for finding in report.payload.findings
+        if finding.reason_code == "FILLED_WITHOUT_FILL"
+    )
+    assert stuck.detail
+    assert report.overall_status is ReportStatus.DEGRADED
+
+
+def test_reconciliation_flags_pending_entry_without_entry_order() -> None:
+    """A pending_entry book with no working entry surfaces the other reason code.
+
+    The entry lifecycle was skipped without any FILLED order: the finding must
+    be PENDING_ENTRY_WITHOUT_ENTRY, not FILLED_WITHOUT_FILL.
+    """
+    diagnostics = _split_state_diagnostics(
+        _SeededSplitStateStore(order_status=OrderStatus.CANCELED)
+    )
+    report = asyncio.run(diagnostics.reconciliation())
+    codes = {finding.reason_code for finding in report.payload.findings}
+    assert "PENDING_ENTRY_WITHOUT_ENTRY" in codes
+    assert "FILLED_WITHOUT_FILL" not in codes
+    stuck = next(
+        finding
+        for finding in report.payload.findings
+        if finding.reason_code == "PENDING_ENTRY_WITHOUT_ENTRY"
+    )
+    assert stuck.detail
+    assert report.overall_status is ReportStatus.DEGRADED

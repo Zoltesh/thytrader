@@ -11,7 +11,8 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from thytrader.execution.fill_ledger import project_fill_economics
+from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
@@ -459,6 +460,28 @@ class PostgresExecutionStore:
                     order=order,
                     cooldown_bars=cooldown_bars,
                     timeframe=timeframe,
+                )
+                applied_fill = replace(
+                    order,
+                    status=OrderStatus.FILLED,
+                    filled_quantity=max(
+                        order.filled_quantity,
+                        applied_fill_quantity(snapshot, order.id) + fill.quantity,
+                    ),
+                    updated_at=utc_now(),
+                )
+                order_values = _order_values(applied_fill)
+                await connection.execute(
+                    insert(execution_orders)
+                    .values(order_values)
+                    .on_conflict_do_update(
+                        index_elements=[execution_orders.c.client_order_id],
+                        set_={
+                            "status": order_values["status"],
+                            "filled_quantity": order_values["filled_quantity"],
+                            "updated_at": order_values["updated_at"],
+                        },
+                    )
                 )
                 await connection.execute(
                     execution_fills.update()

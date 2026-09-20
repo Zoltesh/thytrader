@@ -98,3 +98,11 @@ Live shorts fail closed without available base (`INSUFFICIENT_BASE_FOR_SPOT_SHOR
 Never `leverage`, `margin_type`, or futures. Nonempty allocations deny
 discretionary. Stale data or unhealthy required connections block new
 risk-increasing orders.
+
+Paper order status is fill-atomic (ADR 0057): `apply_fill_transaction` commits
+the fill row, order `filled` status, and cash/position projection together. A
+failed fill ingest leaves the order `open`, so the next closed bar retries the
+match instead of stranding a `filled` order without a fill. A `pending_entry`
+book with neither a working entry nor a position is split state: the runtime
+pauses it with a mismatch detail, and operator reconciliation reports
+`FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`.
