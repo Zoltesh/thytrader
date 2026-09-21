@@ -6,8 +6,12 @@ test('deploy is a first-class workstation page with a strategy picker', async ({
 	});
 	await page.goto('/deploy');
 	await expect(page.getByRole('heading', { name: 'Deploy' })).toBeVisible();
-	await expect(page.getByText('Choose a published strategy')).toBeVisible();
+	await expect(page.getByText('Loading the strategy library…')).toBeVisible();
+	await expect(page.getByText('No strategies yet')).toBeVisible();
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-	await expect(nav.getByRole('link', { name: 'Deploy' })).toHaveAttribute('href', '/deploy');
+	await expect(nav.getByRole('link', { name: 'Deploy', exact: true })).toHaveAttribute(
+		'href',
+		'/deploy'
+	);
 	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
 });

@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { resolve } from '$app/paths';
 	import MarketDataPanel, {
 		type FreshnessState,
 		type MarketFeedState
 	} from '$lib/MarketDataPanel.svelte';
 	import PortfolioChart from '$lib/PortfolioChart.svelte';
+	import PageHead from '$lib/PageHead.svelte';
 	import {
 		formatPercent,
 		formatUsd,
@@ -32,6 +34,8 @@
 	} from '$lib/asset-table';
 	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
 	import type { PortfolioAsset } from '$lib/portfolio';
+	import { listDeployments, type Deployment } from '$lib/deployments';
+	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
 
 	const ASSET_COLUMNS: Array<{ key: AssetSortKey; label: string }> = [
 		{ key: 'currency', label: 'Asset' },
@@ -70,6 +74,12 @@
 	let feeProfile: FeeProfile | null = $state(null);
 	let feesLoading = $state(true);
 	let feesAvailability: 'ready' | 'unavailable' = $state('ready');
+	// Deployment strip: independent of the portfolio load so a slow Coinbase
+	// refresh never hides local runtime state.
+	let deployments = $state<Deployment[] | null>(null);
+	let deploymentsLoading = $state(true);
+
+	const activeDeployments = $derived((deployments ?? []).filter((d) => d.status !== 'stopped'));
 
 	function assetTableState(assets: PortfolioAsset[]): AssetPage {
 		/** Sort then paginate for the template; the parameter carries the {#if portfolio} narrowing. */
@@ -89,6 +99,17 @@
 
 	function goToAssetPage(page: number): void {
 		assetPage = page;
+	}
+
+	async function loadDeployments(): Promise<void> {
+		deploymentsLoading = true;
+		try {
+			deployments = await listDeployments();
+		} catch {
+			deployments = null;
+		} finally {
+			deploymentsLoading = false;
+		}
 	}
 
 	async function loadHistory(range = historyRange): Promise<void> {
@@ -242,23 +263,56 @@
 
 	onMount(() => {
 		void loadPortfolio();
+		void loadDeployments();
 	});
 </script>
 
 <svelte:head><title>Your portfolio · ThyTrader</title></svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Coinbase overview</p>
-			<h1>Your portfolio</h1>
-			<p class="lede">Balances and estimated value from your connected Coinbase account.</p>
-		</div>
+	<PageHead
+		eyebrow="Coinbase overview"
+		title="Your portfolio"
+		lede="Balances and estimated value from your connected Coinbase account."
+	>
 		<button class="refresh" type="button" onclick={loadPortfolio} disabled={loading}>
 			<span class:spinning={loading}>↻</span>
 			{loading ? 'Refreshing…' : 'Refresh portfolio'}
 		</button>
-	</section>
+	</PageHead>
+
+	{#if deploymentsLoading}
+		<p class="strip-loading" role="status">Checking deployments…</p>
+	{:else if deployments !== null && activeDeployments.length > 0}
+		<section class="deploy-strip" aria-label="Active deployments">
+			<div class="strip-head">
+				<h2>Your deployments</h2>
+				<a href={resolve('/deployments')}>Manage all deployments →</a>
+			</div>
+			<div class="strip-cards">
+				{#each activeDeployments as deployment (deployment.id)}
+					<a
+						class="strip-card"
+						href={resolve('/deployments')}
+						class:strip-live={deployment.mode === 'live'}
+					>
+						<div class="strip-top">
+							<span class="mode mode-{deployment.mode}">{deployment.mode}</span>
+							<strong>{deployment.product_id}</strong>
+							<span class="strip-status">{deployment.status}</span>
+						</div>
+						<p class="strip-facts">
+							{deployment.timeframe ?? '—'} · cash {deployment.cash}
+							{#if deployment.position}
+								· in position{/if}
+							{#if !lifecycleControlsAvailable(deployment)}
+								· read-only{/if}
+						</p>
+					</a>
+				{/each}
+			</div>
+		</section>
+	{/if}
 
 	{#if error}
 		<div class="error-banner" role="alert">
@@ -363,15 +417,19 @@
 					</thead>
 					<tbody>
 						{#each assetPageView.items as asset (asset.currency)}
-							<tr>
+							<tr
+								class:dust-row={asset.value !== null && formatUsd(asset.value.amount) === '$0.00'}
+							>
 								<td
 									><div class="asset-name">
 										<span class="coin">{asset.currency.slice(0, 1)}</span>
 										<div><strong>{asset.name}</strong><small>{asset.currency}</small></div>
 									</div></td
 								>
-								<td>{asset.available}</td><td>{asset.hold}</td><td>{asset.total}</td>
-								<td class="asset-value"
+								<td class="num">{asset.available}</td>
+								<td class="num">{asset.hold}</td>
+								<td class="num">{asset.total}</td>
+								<td class="asset-value num"
 									>{asset.value ? formatUsd(asset.value.amount) : 'Unavailable'}</td
 								>
 							</tr>
@@ -489,3 +547,108 @@
 		/>
 	{/if}
 </main>
+
+<style>
+	.strip-loading {
+		color: #657174;
+		font-size: 12px;
+		margin: -12px 0 18px;
+	}
+	.deploy-strip {
+		margin-bottom: 26px;
+	}
+	.strip-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		margin-bottom: 10px;
+	}
+	.strip-head h2 {
+		margin: 0;
+		font-size: 14px;
+		color: #aeb9bb;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.strip-head a {
+		color: #5ce1b5;
+		font-size: 13px;
+		text-decoration: none;
+	}
+	.strip-head a:hover {
+		text-decoration: underline;
+	}
+	.strip-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		gap: 12px;
+	}
+	.strip-card {
+		display: grid;
+		gap: 8px;
+		border: 1px solid #232b2d;
+		border-radius: 11px;
+		background: #101617;
+		padding: 13px 15px;
+		text-decoration: none;
+	}
+	.strip-card:hover {
+		border-color: #5ce1b5;
+	}
+	.strip-top {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+	}
+	.strip-top strong {
+		color: #e9edf1;
+		font-size: 14px;
+	}
+	.strip-status {
+		margin-left: auto;
+		color: #778386;
+		font-size: 12px;
+	}
+	.strip-facts {
+		margin: 0;
+		color: #8d999c;
+		font:
+			400 12px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+	}
+	.mode {
+		font:
+			600 10px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		border-radius: 6px;
+		padding: 3px 7px;
+	}
+	.mode-paper {
+		color: #9fd9ff;
+		border: 1px solid #2c4a5c;
+		background: #10222c;
+	}
+	.mode-live {
+		color: #ffb3b3;
+		border: 1px solid #733d3d;
+		background: #2c1212;
+	}
+	.strip-live {
+		border-color: #4c2a2a;
+	}
+	.dust-row td {
+		color: #5f6d70;
+	}
+	.dust-row .asset-value {
+		color: #5f6d70;
+	}
+	.num {
+		font-variant-numeric: tabular-nums;
+	}
+</style>

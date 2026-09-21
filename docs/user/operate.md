@@ -90,6 +90,14 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
+Manage running deployments on http://127.0.0.1:5175/deployments. The page groups deployments into
+**Running**, **Needs attention**, and **Stopped**, and shows the lifecycle command, breaker latches,
+cash, open positions, and a link back to the strategy. Pause, resume, and stop render only when the
+deployment payload carries the full lifecycle contract (`lifecycle_command`, both breaker latches,
+`revision`, and `worker_lease_held`); an incomplete or malformed payload is shown as read-only
+inventory with an explanatory note — no lifecycle action, no inferred values — matching the
+agent-side gates.
+
 ### Journals
 
 Open http://127.0.0.1:5175/journals for origin-attributed facts, lessons, and notes already stored

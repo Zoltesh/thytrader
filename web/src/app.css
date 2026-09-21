@@ -119,10 +119,63 @@ main {
 	letter-spacing: 0.14em;
 }
 h1 {
-	margin: 8px 0;
-	font-size: clamp(34px, 5vw, 54px);
-	letter-spacing: -0.055em;
-	line-height: 1;
+	margin: 6px 0;
+	font-size: clamp(26px, 3vw, 32px);
+	letter-spacing: -0.02em;
+	line-height: 1.15;
+}
+.page-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: end;
+	gap: 18px;
+	margin-bottom: 26px;
+}
+.nav-group {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.nav-group-label {
+	color: #4d5a5d;
+	font-size: 9px;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+}
+.nav-group-links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 18px;
+}
+:focus-visible {
+	outline: 2px solid #5ce1b5;
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.skeleton,
+	.spinning {
+		animation: none;
+	}
+}
+.empty-state {
+	display: grid;
+	justify-items: start;
+	gap: 10px;
+	border: 1px dashed #2a3436;
+	border-radius: 13px;
+	padding: 34px 30px;
+	color: #8d999c;
+}
+.empty-state h2 {
+	margin: 0;
+	font-size: 18px;
+	color: #e9edf1;
+}
+.empty-state p {
+	margin: 0;
+	max-width: 60ch;
 }
 .lede {
 	margin: 0;

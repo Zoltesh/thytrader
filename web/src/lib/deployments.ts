@@ -95,6 +95,12 @@ export type Deployment = {
 	mismatch_detail: string | null;
 	pending_entry_bars: number;
 	bars_held: number;
+	/** Lifecycle contract: controls stay hidden unless all five arrive valid. */
+	lifecycle_command: string;
+	daily_loss_latched: boolean;
+	drawdown_latched: boolean;
+	revision: number;
+	worker_lease_held: boolean;
 	created_at: string;
 	updated_at: string;
 	position: DeploymentPosition | null;

@@ -70,19 +70,24 @@
 </svelte:head>
 
 <main class="workstation-page">
-	<section class="hero">
+	<section class="page-head">
 		<div>
 			<p class="eyebrow">Paper and live</p>
 			<h1>Deploy</h1>
 			<p class="lede">
-				Start, pause, resume, or stop a published strategy. Live places real Coinbase spot orders.
-				Agents use <code>thytrader-runtime --confirm</code>; live also
-				<code>--i-understand-live</code>.
+				Start a published strategy. Once it runs, manage it on
+				<a href={resolve('/deployments')}>Deployments</a>.
 			</p>
 		</div>
 	</section>
 	{#if error}
-		<div class="error-banner" role="alert">{error}</div>
+		<div class="error-banner" role="alert">
+			<div>
+				<strong>Couldn't load the strategy library</strong>
+				<p>{error}</p>
+			</div>
+			<button type="button" onclick={() => void loadLibrary()}>Try again</button>
+		</div>
 	{/if}
 	<label class="picker"
 		>Strategy
@@ -99,7 +104,14 @@
 			{/each}
 		</select>
 	</label>
-	{#if selectedId === ''}
+	{#if loading}
+		<p class="hint-loading" role="status">Loading the strategy library…</p>
+	{:else if entries.length === 0}
+		<p class="empty-hint">
+			No strategies yet. Create and publish one on
+			<a href={resolve('/strategies')}>Strategies</a> first — drafts cannot be deployed.
+		</p>
+	{:else if selectedId === ''}
 		<p class="empty-hint">Choose a published strategy. Discretionary orders stay on Trade.</p>
 	{:else if selected}
 		<p class="strategy-meta">
@@ -112,6 +124,13 @@
 <style>
 	.workstation-page {
 		width: min(1400px, 94vw);
+	}
+	.page-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: end;
+		gap: 18px;
+		margin-bottom: 28px;
 	}
 	.picker,
 	.picker select {
@@ -141,11 +160,14 @@
 		font-size: 13px;
 		margin: 0 0 20px;
 	}
-	.empty-hint {
+	.empty-hint,
+	.hint-loading {
 		color: #8d999c;
 	}
+	.hint-loading {
+		font-size: 13px;
+	}
 	.error-banner {
-		color: #f0a3a3;
 		margin-bottom: 16px;
 	}
 </style>
