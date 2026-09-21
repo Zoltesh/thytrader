@@ -179,3 +179,98 @@ async def test_reconcile_pauses_filled_order_without_rest_fills() -> None:
     )
     assert result.deployment.status is DeploymentStatus.PAUSED
     assert "no REST fills" in (result.deployment.mismatch_detail or "")
+
+
+class _FillsBroker(_LookupBroker):
+    """Lookup broker that also returns configured remote fills."""
+
+    def __init__(self, result: SubmitResult, fills: tuple[Fill, ...]) -> None:
+        """Bind the get-order snapshot and the remote fill page."""
+        super().__init__(result)
+        self._fills = fills
+
+    async def list_fills(self, *, product_id: str, order_id: str | None = None) -> tuple[Fill, ...]:
+        """Return the configured remote fills."""
+        del product_id, order_id
+        return self._fills
+
+
+@pytest.mark.anyio
+async def test_fill_transaction_keeps_venue_reported_total_without_double_count() -> None:
+    """Order status folded into the fill transaction must not inflate the venue total.
+
+    Reconcile passes the order already carrying the venue-reported
+    filled_quantity; the applied fill is the same quantity the total already
+    reflects. The folded status write must keep the venue total, not add the
+    fragment again.
+    """
+    store = InMemoryExecutionStore()
+    now = utc_now()
+    deployment_id = uuid7(now)
+    order = Order(
+        id=uuid7(now),
+        deployment_id=deployment_id,
+        intent_id=uuid7(now),
+        client_order_id="client-venue-total",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("2"),
+        status=OrderStatus.OPEN,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("100"),
+        filled_quantity=Decimal("2"),
+        venue_order_id="venue-1",
+        product_id="BTC-USD",
+    )
+    deployment = Deployment(
+        id=deployment_id,
+        strategy_fingerprint="sha256:" + ("a" * 64),
+        strategy_id=UUID(int=1),
+        product_id="BTC-USD",
+        mode=DeploymentMode.LIVE,
+        status=DeploymentStatus.RUNNING,
+        cash=Decimal("10000"),
+        phase=RuntimePhase.PENDING_ENTRY,
+        pending_stop_price=Decimal("90"),
+        pending_target_price=Decimal("120"),
+        timeframe="1h",
+        created_at=now,
+        updated_at=now,
+    )
+    await store.create_deployment(deployment)
+    await store.save_order(order)
+    snapshot = await store.get_deployment(deployment_id)
+    result = await reconcile_open_orders(
+        snapshot,
+        broker=_FillsBroker(
+            SubmitResult(
+                status=OrderStatus.FILLED,
+                venue_order_id="venue-1",
+                filled_quantity=Decimal("2"),
+                fill_price=Decimal("100"),
+            ),
+            (
+                Fill(
+                    id=uuid7(now),
+                    deployment_id=deployment_id,
+                    order_id=order.id,
+                    venue_fill_id="vf-1",
+                    price=Decimal("100"),
+                    quantity=Decimal("2"),
+                    fee=Decimal("0.2"),
+                    filled_at=now,
+                    venue_order_id="venue-1",
+                ),
+            ),
+        ),
+        store=store,
+        product_id="BTC-USD",
+    )
+    updated = next(item for item in result.orders if item.id == order.id)
+    assert updated.status is OrderStatus.FILLED
+    assert updated.filled_quantity == Decimal("2")
+    assert result.fills
+    assert result.fills[0].economics_applied_at is not None
+    assert result.position is not None
+    assert result.deployment.cash == Decimal("10000") - Decimal("200") - Decimal("0.2")

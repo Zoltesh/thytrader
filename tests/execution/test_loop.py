@@ -3,10 +3,15 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pytest
 
 from thytrader.execution.ids import utc_now, uuid7
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
 from thytrader.execution.loop import (
     _entry_admitted,
     flatten_stopped_residual,
@@ -19,7 +24,10 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionStoreError,
+    Fill,
     LifecycleCommand,
+    Order,
     OrderSide,
     OrderStatus,
     RuntimePhase,
@@ -819,3 +827,219 @@ async def test_historical_replay_does_not_place_a_new_entry() -> None:
     assert after.position is None
     assert after.orders == ()
     assert after.deployment.phase is RuntimePhase.FLAT
+
+
+class _FailingIngestStore(InMemoryExecutionStore):
+    """In-memory store whose fill transaction always raises."""
+
+    def __init__(self) -> None:
+        """Start with failure injection armed."""
+        super().__init__()
+        self.fail_ingest = True
+
+    async def apply_fill_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        fill: Fill,
+        order: Order,
+        cooldown_bars: int = 0,
+        timeframe: str | None = None,
+    ) -> tuple[bool, DeploymentSnapshot]:
+        """Simulate a persistence failure after the order was marked filled."""
+        if self.fail_ingest:
+            raise ExecutionStoreError("Execution storage is unavailable.")
+        return await super().apply_fill_transaction(
+            deployment_id,
+            fill=fill,
+            order=order,
+            cooldown_bars=cooldown_bars,
+            timeframe=timeframe,
+        )
+
+
+@pytest.mark.anyio
+async def test_ingest_failure_after_match_leaves_order_open() -> None:
+    """A failed fill ingest must not strand a FILLED order without fill economics.
+
+    The order status must be folded into the fill transaction: if the ingest
+    fails, the order stays OPEN so the next bar retries the match instead of
+    leaving a permanently stuck pending_entry book.
+    """
+    store = _FailingIngestStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert pending.deployment.phase is RuntimePhase.PENDING_ENTRY
+    assert pending.orders[0].status is OrderStatus.OPEN
+
+    last = warmup[-1]
+    continuation = Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    store.fail_ingest = True
+    with pytest.raises(ExecutionStoreError):
+        await process_closed_bar(
+            pending,
+            strategy=strategy,
+            product=_product(),
+            candles=(*warmup, continuation),
+            broker=PaperBroker(),
+            store=store,
+        )
+    failed = await store.get_deployment(pending.deployment.id)
+    assert failed.orders[0].status is OrderStatus.OPEN
+    assert failed.fills == ()
+    assert failed.deployment.phase is RuntimePhase.PENDING_ENTRY
+    assert failed.deployment.status is DeploymentStatus.RUNNING
+
+
+@pytest.mark.anyio
+async def test_ingest_failure_recovers_on_next_bar() -> None:
+    """After the persistence fault clears, the still-open entry fills normally."""
+    store = _FailingIngestStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    last = warmup[-1]
+    continuation = Candle(
+        starts_at=last.starts_at + timedelta(hours=1),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    store.fail_ingest = True
+    with pytest.raises(ExecutionStoreError):
+        await process_closed_bar(
+            pending,
+            strategy=strategy,
+            product=_product(),
+            candles=(*warmup, continuation),
+            broker=PaperBroker(),
+            store=store,
+        )
+    failed = await store.get_deployment(pending.deployment.id)
+    assert failed.orders[0].status is OrderStatus.OPEN
+
+    store.fail_ingest = False
+    recovered = await process_closed_bar(
+        failed,
+        strategy=strategy,
+        product=_product(),
+        candles=(*warmup, continuation),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert recovered.orders[0].status is OrderStatus.FILLED
+    assert recovered.fills
+    assert recovered.position is not None
+    assert recovered.deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+
+
+def _seed_split_state(order: Order) -> Order:
+    """Return a FILLED entry order with no fill row and no position."""
+    return replace(
+        order,
+        status=OrderStatus.FILLED,
+        filled_quantity=order.quantity,
+        updated_at=utc_now(),
+    )
+
+
+@pytest.mark.anyio
+async def test_filled_without_fill_rows_pauses_instead_of_silent_tick() -> None:
+    """Split state (FILLED order, no fills, pending_entry) must not tick forever.
+
+    Seeded exactly like deployment 01a0bb90: order FILLED, fills empty, phase
+    pending_entry, no position. The next bar must pause the book with a
+    mismatch detail instead of silently skipping entry management forever.
+    """
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    snapshot = await _running_snapshot(store, strategy)
+    warmup = _candles(30, low_offset=Decimal("0.01"))
+    pending = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=warmup,
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert pending.deployment.phase is RuntimePhase.PENDING_ENTRY
+
+    await store.save_order(_seed_split_state(pending.orders[0]))
+    stuck = await store.get_deployment(pending.deployment.id)
+    assert stuck.orders[0].status is OrderStatus.FILLED
+    assert stuck.fills == ()
+    assert stuck.position is None
+    assert stuck.deployment.phase is RuntimePhase.PENDING_ENTRY
+
+    last = warmup[-1]
+    current = stuck
+    for offset in (1, 2, 3):
+        bar = Candle(
+            starts_at=last.starts_at + timedelta(hours=offset),
+            open=last.close,
+            high=last.close + Decimal("1"),
+            low=last.close - Decimal("0.5"),
+            close=last.close,
+            volume=Decimal("10"),
+        )
+        current = await process_closed_bar(
+            current,
+            strategy=strategy,
+            product=_product(),
+            candles=(*warmup, bar),
+            broker=PaperBroker(),
+            store=store,
+        )
+        assert current.deployment.status is DeploymentStatus.PAUSED, (
+            f"bar {offset}: book kept ticking instead of pausing"
+        )
+        assert current.deployment.mismatch_detail, f"bar {offset}: pause carries no mismatch detail"
+
+    paused_detail = current.deployment.mismatch_detail
+    paused_bars = current.deployment.pending_entry_bars
+    fourth = Candle(
+        starts_at=last.starts_at + timedelta(hours=4),
+        open=last.close,
+        high=last.close + Decimal("1"),
+        low=last.close - Decimal("0.5"),
+        close=last.close,
+        volume=Decimal("10"),
+    )
+    current = await process_closed_bar(
+        current,
+        strategy=strategy,
+        product=_product(),
+        candles=(*warmup, fourth),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert current.deployment.status is DeploymentStatus.PAUSED
+    assert current.deployment.mismatch_detail == paused_detail
+    assert current.deployment.pending_entry_bars == paused_bars

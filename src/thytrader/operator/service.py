@@ -14,6 +14,7 @@ from sqlalchemy import text
 from thytrader import __version__
 from thytrader.config import Settings
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
+from thytrader.execution.loop import split_pending_entry
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -1495,6 +1496,37 @@ class OperatorDiagnostics:
                     detail=f"{len(unknown)} order(s) remain in unknown status.",
                 )
             )
+        self._collect_split_pending_entry(deployment, snapshot, findings)
+
+    @staticmethod
+    def _collect_split_pending_entry(
+        deployment: Deployment,
+        snapshot: DeploymentSnapshot,
+        findings: list[ReconciliationFinding],
+    ) -> None:
+        """Flag pending-entry books whose working order or position is missing.
+
+        A FILLED order with no applied fill row and no position means fill
+        economics never committed (ADR 0057 violation). A PENDING_ENTRY book
+        with no working entry and no position means the entry lifecycle was
+        skipped. Both demand operator attention; neither is inventoried.
+        """
+        if not split_pending_entry(snapshot):
+            return
+        findings.append(
+            ReconciliationFinding(
+                reason_code=(
+                    "FILLED_WITHOUT_FILL"
+                    if any(order.status is OrderStatus.FILLED for order in snapshot.orders)
+                    else "PENDING_ENTRY_WITHOUT_ENTRY"
+                ),
+                deployment_id=deployment.id,
+                detail=(
+                    "Pending-entry book has no working order and no position; "
+                    "entry state is split and the runtime will fail closed."
+                ),
+            )
+        )
 
 
 def _monitor_components(snapshot: MonitorSnapshot) -> list[ComponentReport]:
