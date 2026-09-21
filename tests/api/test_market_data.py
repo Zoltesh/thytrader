@@ -242,6 +242,7 @@ def test_market_data_products_uses_demo_catalog_without_coinbase_credentials() -
     assert response.status_code == 200
     assert [product["product_id"] for product in response.json()["products"]] == [
         "BTC-USD",
+        "BTC-USDC",
         "ETH-USD",
         "SOL-USD",
     ]

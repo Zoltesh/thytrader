@@ -3,20 +3,20 @@
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `support_bundle`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `support_bundle` \| `portfolio` \| `fees`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
 - `overall_status`: `healthy` \| `degraded` \| `failed`
 - `components[]`: `name`, `status`, `reason_code`, `detail`
-- `redaction`: `secrets_redacted`, `raw_environment_omitted`, `account_identifiers_omitted`, `balances_omitted` (all true). `balances_omitted` means this operator report never returns observed exchange or demo account balances — not that balances are unavailable elsewhere. Account holdings live on `GET /api/v1/portfolio` (no operator CLI today). Deployment quantities live on `thytrader-runtime show` / `GET /api/v1/deployments/{id}`.
+- `redaction`: `secrets_redacted`, `raw_environment_omitted`, `account_identifiers_omitted`, `balances_omitted`. Most reports set all four true. The `portfolio` report sets `balances_omitted=false` so operators can read cash amounts without credentials. Account holdings also remain on `GET /api/v1/portfolio`. Deployment quantities live on `thytrader-runtime show` / `GET /api/v1/deployments/{id}`.
 - `partial_result_warnings[]`
 - `recommended_next_action`
 - `payload`: report-specific object
 
 `reason_code` matches `^[A-Z][A-Z0-9_]{0,63}$`.
 
-Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
+Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Backtest `payload.metrics` is the derived `thytrader-performance-metrics-v1` block (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) and does not change v1–v3 result fingerprints. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown is fill-event marks, not a bar equity curve.
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
 reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
@@ -57,6 +57,10 @@ The `monitor` payload is `thytrader-monitor-v1`: redacted memory status, deploym
 The `trade_reasons` payload is `thytrader-trade-reason-v1` rows: frozen strategy/signal/risk/notes plus ledger facts joined on read. Denied risk with no intent is absent. Notes are attributed; runtime cannot author them.
 
 The `studies` payload reports `study_catalog: available|unavailable` plus newest-first catalog rows (`study_fingerprint`, `kind`, product, timeframe, window count, optional selected fingerprint / mean OOS return / stitched flag). It omits child windows and equity curves. Without PostgreSQL, `--local` is `STUDY_CATALOG_UNAVAILABLE` degraded rather than an empty healthy list. Studies do not grant paper or live authority.
+
+The `portfolio` payload matches `GET /api/v1/portfolio`: `as_of`, `demo`, `connection_status`, `permissions`, `total_value.{amount,currency}`, `assets[]`, `unvalued_assets`. It never includes credentials or account identifiers.
+
+The `fees` payload matches `GET /api/v1/fees`: Coinbase maker/taker snapshot plus research-only `suggested_*` rates. Suggested rates are modeled defaults, not observed fills.
 
 The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h`. `complete` is island completeness (contiguous published bars, `gap_count` 0). `watch_complete` is whether that island spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete. Each row also carries `watch_status` (`complete` / `backfilling` / `unknown`), a noun restatement of `watch_complete`: `worker_status=succeeded` describes the latest chunk, never the whole watch. `sparsity` is island-only (`none` when the published island has zero gaps). `watch_sparsity` is `gapped` when `watch_complete` is false. Failed worker rows include redacted `failure_code` / `failure_message` matching `GET /api/v1/market-data/ingestion`. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report (`truncated` / `scanned_bar_count` when a server-side budget stopped the scan; [ADR 0072](../../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). Dashboard ingestion (`GET /api/v1/market-data/ingestion`) reports the same watch decision. `GET /api/v1/market-data/datasets` lists island fingerprints only. Strategy, paper, live, and discretionary clocks are that same venue set ([ADR 0040](../../../docs/decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Extra catalog timeframes may also back an `htf_filter` dataset when they are a strictly coarser integer multiple of LTF (ADR 0025, ADR 0040, ADR 0041), or an optional per-indicator `timeframe` (ADR 0042). Paper and live evaluate those strategies on last-completed complete-only extra-TF and HTF bars.
 

@@ -1,4 +1,4 @@
-import { expect, test } from '../e2e/harness';
+import { expect, isStrategyLibraryRequest, test } from '../e2e/harness';
 
 const strategyId = '01985cf0-7b60-7000-8000-000000000007';
 const fingerprint = `sha256:${'c'.repeat(64)}`;
@@ -83,7 +83,7 @@ async function mockDraftStorage(page: import('@playwright/test').Page): Promise<
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		await route.fulfill({ json: { strategy: draft, revision: 1 } });
 	});
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -149,7 +149,7 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 		}
 		await route.fulfill({ json: { strategy: draft, revision: 1 } });
 	});
-	await page.route('**/api/v1/strategies', async (route) =>
+	await page.route(isStrategyLibraryRequest, async (route) =>
 		route.fulfill({ json: { strategies: [libraryEntry] } })
 	);
 	await page.goto(`/strategies/${strategyId}`);
@@ -168,7 +168,7 @@ test('required data and market hint follow the draft timeframe', async ({ page }
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		await route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } });
 	});
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -211,7 +211,7 @@ test('refuses to open a builder for a published or archived identity', async ({ 
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		await route.fulfill({ json: { strategy: draft, revision: 1 } });
 	});
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		await route.fulfill({
 			json: {
 				strategies: [{ ...libraryEntry, status: 'published', latest_fingerprint: fingerprint }]

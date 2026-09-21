@@ -485,6 +485,56 @@ def evaluation_window_suggestion(
     )
 
 
+def explain_evaluation_window_rejection(
+    *,
+    dataset_starts_at: datetime,
+    dataset_ends_at: datetime,
+    evaluation_start: datetime,
+    evaluation_end: datetime,
+    warmup_bars: int,
+    timeframe: str,
+) -> str | None:
+    """Name the field that failed dataset coverage, or None when the window fits."""
+    suggestion = evaluation_window_suggestion(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        warmup_bars=warmup_bars,
+        timeframe=timeframe,
+    )
+    if evaluation_end_fits_dataset(
+        dataset_starts_at=dataset_starts_at,
+        dataset_ends_at=dataset_ends_at,
+        evaluation_start=evaluation_start,
+        evaluation_end=evaluation_end,
+        warmup_bars=warmup_bars,
+        timeframe=timeframe,
+    ):
+        return None
+    interval = parse_candle_interval(timeframe)
+    latest = latest_allowed_evaluation_end(dataset_ends_at=dataset_ends_at, timeframe=timeframe)
+    warmup_start = warmup_starts_at(evaluation_start, warmup_bars, timeframe)
+    if evaluation_end > latest:
+        return (
+            f"evaluation_end {_canonical_utc_text(evaluation_end)} is after the latest allowed "
+            f"evaluation_end {_canonical_utc_text(latest)}. {suggestion}"
+        )
+    if dataset_starts_at > warmup_start:
+        return (
+            f"evaluation_start {_canonical_utc_text(evaluation_start)} requires warmup coverage "
+            f"starting at {_canonical_utc_text(warmup_start)}; dataset starts at "
+            f"{_canonical_utc_text(dataset_starts_at)}. {suggestion}"
+        )
+    required_fill_end = evaluation_end + interval.duration
+    coverage_end_exclusive = dataset_ends_at + interval.duration
+    if required_fill_end > coverage_end_exclusive:
+        return (
+            f"evaluation_end {_canonical_utc_text(evaluation_end)} requires a next-open fill at "
+            f"{_canonical_utc_text(required_fill_end)}; dataset coverage ends at "
+            f"{_canonical_utc_text(dataset_ends_at)}. {suggestion}"
+        )
+    return suggestion
+
+
 def _canonical_utc_text(value: datetime) -> str:
     """Serialize one UTC instant with the canonical Z suffix."""
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

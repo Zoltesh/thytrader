@@ -41,8 +41,7 @@ from thytrader.research.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
-    evaluation_end_fits_dataset,
-    evaluation_window_suggestion,
+    explain_evaluation_window_rejection,
 )
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
@@ -338,22 +337,16 @@ def _with_evaluation_window(
         EvaluationWindow(starts_at=request.evaluation_start, ends_at=request.evaluation_end)
     except ValueError as error:
         raise BacktestSubmissionRejectedError(str(error)) from error
-    if not evaluation_end_fits_dataset(
+    rejection = explain_evaluation_window_rejection(
         dataset_starts_at=dataset_starts_at,
         dataset_ends_at=dataset_ends_at,
         evaluation_start=request.evaluation_start,
         evaluation_end=request.evaluation_end,
         warmup_bars=strategy.definition.data_requirements.warmup_bars,
         timeframe=strategy.definition.timeframe,
-    ):
-        raise BacktestSubmissionRejectedError(
-            evaluation_window_suggestion(
-                dataset_starts_at=dataset_starts_at,
-                dataset_ends_at=dataset_ends_at,
-                warmup_bars=strategy.definition.data_requirements.warmup_bars,
-                timeframe=strategy.definition.timeframe,
-            )
-        )
+    )
+    if rejection is not None:
+        raise BacktestSubmissionRejectedError(rejection)
     _require_coverage_windows(request, strategy, dataset_store)
     return request
 

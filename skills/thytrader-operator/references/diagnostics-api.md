@@ -22,6 +22,8 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 | GET | `/api/v1/operator/studies` | `studies` |
 | GET | `/api/v1/operator/trade-reasons` | `trade_reasons` |
 | GET | `/api/v1/operator/support-bundle` | `support_bundle` |
+| GET | `/api/v1/operator/portfolio` | `portfolio` |
+| GET | `/api/v1/operator/fees` | `fees` |
 
 Query parameters:
 

@@ -52,6 +52,8 @@ def test_in_memory_job_store_runs_backtest_to_completion() -> None:
 
     async def _scenario() -> None:
         record = await store.create_backtest(_backtest_request())
+        assert record.progress_current == 0
+        assert record.progress_total >= 1
         await run_backtest_job(store, _ImmediateSubmitter(), record.job_id, _backtest_request())
         polled = await store.get(record.job_id)
         assert polled is not None

@@ -28,6 +28,7 @@ from thytrader.research.models import (  # noqa: TC001
 
 _RESULT_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 _BENCHMARK_FINGERPRINT_PLACEHOLDER = "sha256:" + "0" * 64
+_METRICS_FINGERPRINT_PLACEHOLDER = "sha256:" + "0" * 64
 
 
 def _validate_result_decimal_text(value: str) -> str:
@@ -278,6 +279,39 @@ class BacktestBenchmark(_FrozenBacktestModel):
         return self
 
 
+class BacktestPerformanceMetrics(_FrozenBacktestModel):
+    """Derived ratio metrics from one immutable equity curve and trade ledger."""
+
+    metrics_contract_version: Literal["thytrader-performance-metrics-v1"]
+    metrics_fingerprint: FingerprintText = _METRICS_FINGERPRINT_PLACEHOLDER
+    result_fingerprint: FingerprintText
+    run_fingerprint: FingerprintText
+    engine_contract_version: BacktestEngineContract
+    risk_free_rate: ResultDecimalText
+    annualization: Literal["equity_curve_bar_clock"]
+    bar_seconds: ResultDecimalText | None = None
+    bars_per_year: ResultDecimalText | None = None
+    sharpe: ResultDecimalText | None = None
+    sortino: ResultDecimalText | None = None
+    calmar: ResultDecimalText | None = None
+    sqn: ResultDecimalText | None = None
+    cagr: ResultDecimalText | None = None
+    annualized_volatility: ResultDecimalText | None = None
+    max_consecutive_losses: int = Field(ge=0)
+    exposure_fraction: ResultDecimalText
+    buy_and_hold_return_fraction: ResultDecimalText | None = None
+
+    @model_validator(mode="after")
+    def require_canonical_fingerprint(self) -> Self:
+        """Bind derived metrics to every field in their canonical payload."""
+        expected = _backtest_metrics_fingerprint_for_model(self)
+        if self.metrics_fingerprint == _METRICS_FINGERPRINT_PLACEHOLDER:
+            object.__setattr__(self, "metrics_fingerprint", expected)
+        elif self.metrics_fingerprint != expected:
+            raise ValueError("metrics fingerprint does not match its canonical evidence")
+        return self
+
+
 def canonical_backtest_result_bytes(result: BacktestResult) -> bytes:
     """Revalidate and encode a result as sorted compact canonical UTF-8 JSON."""
     validated = BacktestResult.model_validate(result.model_dump(mode="python"))
@@ -317,6 +351,26 @@ def _backtest_benchmark_payload_bytes(benchmark: BacktestBenchmark) -> bytes:
         benchmark.model_dump(
             mode="json",
             exclude={"benchmark_fingerprint"},
+            exclude_none=True,
+        ),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _backtest_metrics_fingerprint_for_model(metrics: BacktestPerformanceMetrics) -> str:
+    """Calculate a metrics identity without recursively revalidating the model."""
+    return f"sha256:{sha256(_backtest_metrics_payload_bytes(metrics)).hexdigest()}"
+
+
+def _backtest_metrics_payload_bytes(metrics: BacktestPerformanceMetrics) -> bytes:
+    """Encode every derived metrics field except the fingerprint that identifies them."""
+    return json.dumps(
+        metrics.model_dump(
+            mode="json",
+            exclude={"metrics_fingerprint"},
             exclude_none=True,
         ),
         sort_keys=True,

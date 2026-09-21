@@ -1,4 +1,4 @@
-import { expect, test } from '../e2e/harness';
+import { expect, isStrategyLibraryRequest, test } from '../e2e/harness';
 
 test('shared topbar marks the active route and stays reachable under 800px', async ({ page }) => {
 	await page.route('**/api/v1/portfolio', async (route) => {
@@ -13,7 +13,7 @@ test('shared topbar marks the active route and stays reachable under 800px', asy
 			}
 		});
 	});
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		await route.fulfill({ json: { strategies: [] } });
 	});
 

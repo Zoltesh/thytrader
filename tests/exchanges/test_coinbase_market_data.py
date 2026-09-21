@@ -169,6 +169,59 @@ def _inclusive_epochs(start: str, end: str, granularity: str, limit: int) -> lis
     return epochs
 
 
+class AliasTwinCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """Catalog fixture where Coinbase lists USD books and USDC aliases only via alias_to."""
+
+    def get_products(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        product_type: str | None = None,
+        product_ids: list[str] | None = None,
+        contract_expiry_type: str | None = None,
+        expiring_contract_status: str | None = None,
+        get_tradability_status: bool | None = False,
+        get_all_products: bool | None = False,
+    ) -> StubResponse:
+        """Return USD spot rows that name USDC twins only as alias_to ids."""
+        del limit, offset, product_ids, contract_expiry_type, expiring_contract_status
+        self.product_catalog_calls.append((product_type, get_tradability_status, get_all_products))
+        return StubResponse(
+            {
+                "products": [
+                    {
+                        "product_id": "BTC-USD",
+                        "base_currency_id": "BTC",
+                        "quote_currency_id": "USD",
+                        "quote_display_symbol": "USD",
+                        "price_increment": "0.01",
+                        "base_increment": "0.00000001",
+                        "quote_increment": "0.01",
+                        "base_min_size": "0.0001",
+                        "quote_min_size": "1",
+                        "is_disabled": False,
+                        "trading_disabled": False,
+                        "alias_to": ["BTC-USDC"],
+                    },
+                    {
+                        "product_id": "ETH-USD",
+                        "base_currency_id": "ETH",
+                        "quote_currency_id": "USD",
+                        "quote_display_symbol": "USD",
+                        "price_increment": "0.01",
+                        "base_increment": "0.00000001",
+                        "quote_increment": "0.01",
+                        "base_min_size": "0.001",
+                        "quote_min_size": "1",
+                        "is_disabled": True,
+                        "trading_disabled": True,
+                        "alias_to": ["ETH-USDC"],
+                    },
+                ]
+            }
+        )
+
+
 class PagedCoinbaseMarketClient(StubCoinbaseMarketClient):
     """SDK-shaped client that generates requested candles with Coinbase inclusive-end semantics."""
 
@@ -316,6 +369,27 @@ def test_coinbase_market_data_lists_normalized_spot_products() -> None:
     assert [product.product_id for product in products] == ["BTC-USD", "ETH-USD"]
     assert products[1].trading_enabled is False
     assert client.product_catalog_calls == [("SPOT", True, True)]
+
+
+def test_coinbase_market_data_expands_usdc_alias_products() -> None:
+    """Coinbase alias_to USDC twins must appear as distinct selectable product ids."""
+    client = AliasTwinCoinbaseMarketClient()
+
+    products = asyncio.run(CoinbaseMarketData(client).list_products())
+
+    assert [product.product_id for product in products] == [
+        "BTC-USD",
+        "BTC-USDC",
+        "ETH-USD",
+        "ETH-USDC",
+    ]
+    btc_usdc = products[1]
+    assert btc_usdc.base_currency == "BTC"
+    assert btc_usdc.quote_currency == "USDC"
+    assert btc_usdc.trading_enabled is True
+    assert btc_usdc.price_increment == products[0].price_increment
+    assert products[3].trading_enabled is False
+    assert products[3].quote_currency == "USDC"
 
 
 def test_coinbase_market_data_pages_explicit_hourly_range_without_losing_coverage() -> None:

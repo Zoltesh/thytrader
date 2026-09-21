@@ -1,4 +1,4 @@
-import { expect, test } from '../e2e/harness';
+import { expect, isStrategyLibraryRequest, test } from '../e2e/harness';
 
 const strategyId = '01985cf0-7b60-7000-8000-000000000003';
 const fingerprint = `sha256:${'a'.repeat(64)}`;
@@ -97,7 +97,7 @@ async function mockLibrary(
 	page: import('@playwright/test').Page,
 	entries: unknown[]
 ): Promise<void> {
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -258,7 +258,7 @@ test('links the latest backtest result to the backtests detail view', async ({ p
 test('creates a reference strategy and refreshes the library', async ({ page }) => {
 	await mockLibrary(page, [libraryEntry]);
 	let createCalls = 0;
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() === 'POST') {
 			createCalls += 1;
 			await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
@@ -296,7 +296,7 @@ test('clones a published strategy by fingerprint and refreshes the library', asy
 test('archives a published strategy and refreshes the library', async ({ page }) => {
 	const archivedEntry = { ...publishedEntry, status: 'archived', archived: true };
 	let archivedOnce = false;
-	await page.route('**/api/v1/strategies', async (route) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() !== 'GET') {
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
@@ -1107,7 +1107,7 @@ test('rejects invalid import JSON without leaving the dialog or sending a reques
 });
 
 test('surfaces a controlled error banner when the library cannot load', async ({ page }) => {
-	await page.route('**/api/v1/strategies', async (route) =>
+	await page.route(isStrategyLibraryRequest, async (route) =>
 		route.fulfill({ status: 503, json: { detail: 'Strategy lifecycle storage is unavailable.' } })
 	);
 	await page.goto('/strategies');

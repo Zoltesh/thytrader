@@ -41,11 +41,13 @@ from thytrader.operator.models import (
     ConfigurationReport,
     DataCatalogReport,
     ExchangeReport,
+    FeesReport,
     HealthReport,
     IndicatorsReport,
     MarketDataReport,
     MonitorReport,
     PerformanceReport,
+    PortfolioReport,
     ProductsReport,
     ReconciliationReport,
     RiskReport,
@@ -232,6 +234,22 @@ async def get_operator_studies(
 ) -> StudiesReport:
     """Return persisted research-study catalog rows without child equity."""
     return await diagnostics.studies()
+
+
+@router.get("/portfolio", response_model=PortfolioReport)
+async def get_operator_portfolio(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> PortfolioReport:
+    """Return current Coinbase or demo balances without credentials."""
+    return await diagnostics.portfolio_report()
+
+
+@router.get("/fees", response_model=FeesReport)
+async def get_operator_fees(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> FeesReport:
+    """Return the current fee tier and research-only suggested maker/taker rates."""
+    return await diagnostics.fees_report()
 
 
 @router.get("/trade-reasons", response_model=TradeReasonsReport)

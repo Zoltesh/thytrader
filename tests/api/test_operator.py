@@ -67,6 +67,8 @@ _OPERATOR_PATHS = (
     "/api/v1/operator/products",
     "/api/v1/operator/indicators",
     "/api/v1/operator/support-bundle",
+    "/api/v1/operator/portfolio",
+    "/api/v1/operator/fees",
 )
 
 

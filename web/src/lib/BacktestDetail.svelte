@@ -11,7 +11,8 @@
 		formatSpreadCostNote,
 		shortFingerprint,
 		type BacktestBenchmark,
-		type BacktestDetail
+		type BacktestDetail,
+		type BacktestPerformanceMetrics
 	} from '$lib/backtests';
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
@@ -22,6 +23,9 @@
 		benchmark = null,
 		benchmarkLoading = false,
 		benchmarkError = null,
+		metrics = null,
+		metricsLoading = false,
+		metricsError = null,
 		loading = false,
 		error = null,
 		onBack
@@ -30,6 +34,9 @@
 		benchmark?: BacktestBenchmark | null;
 		benchmarkLoading?: boolean;
 		benchmarkError?: string | null;
+		metrics?: BacktestPerformanceMetrics | null;
+		metricsLoading?: boolean;
+		metricsError?: string | null;
 		loading?: boolean;
 		error?: string | null;
 		onBack: () => void;
@@ -93,6 +100,48 @@
 					>{formatSameBarPolicy(result.engine_contract_version)}</span
 				>
 			</article>
+		</div>
+		<div
+			class="metrics-panel"
+			data-testid="performance-metrics"
+			aria-label="Derived performance metrics"
+		>
+			<div class="panel-heading">
+				<div>
+					<h3>Ratio metrics</h3>
+					<p>Derived from this result’s equity curve and trades · rf=0 · 365-day bar clock</p>
+				</div>
+				<span>read-only metrics</span>
+			</div>
+			{#if metricsLoading}<div class="empty"><p>Loading performance metrics…</p></div>
+			{:else if metricsError}<div class="empty" data-testid="metrics-unavailable">
+					<p>Performance metrics are unavailable.</p>
+					<small>{metricsError}</small>
+				</div>
+			{:else if metrics}<div class="metrics">
+					<article>
+						<small>Sharpe</small><strong>{metrics.sharpe ?? 'N/A'}</strong><span
+							>Sortino {metrics.sortino ?? 'N/A'}</span
+						>
+					</article>
+					<article>
+						<small>Calmar</small><strong>{metrics.calmar ?? 'N/A'}</strong><span
+							>CAGR {metrics.cagr ?? 'N/A'}</span
+						>
+					</article>
+					<article>
+						<small>SQN</small><strong>{metrics.sqn ?? 'N/A'}</strong><span
+							>vol {metrics.annualized_volatility ?? 'N/A'}</span
+						>
+					</article>
+					<article>
+						<small>Exposure</small><strong>{formatPercent(metrics.exposure_fraction)}</strong><span
+							>max consecutive losses {metrics.max_consecutive_losses} · BH {metrics.buy_and_hold_return_fraction
+								? formatPercent(metrics.buy_and_hold_return_fraction)
+								: 'N/A'}</span
+						>
+					</article>
+				</div>{/if}
 		</div>
 		<div
 			class="benchmark-panel"

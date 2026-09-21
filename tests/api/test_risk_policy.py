@@ -78,6 +78,7 @@ def test_put_risk_policy_publishes_an_immutable_version() -> None:
     assert body["source"] == "published"
     assert body["version"] == 1
     assert body["product_allowlist"] == ["BTC-USD", "ETH-USD"]
+    assert body["quote_currency"] == "USDC"
     assert fetched.json()["policy_fingerprint"] == body["policy_fingerprint"]
     events = asyncio.run(audit.list_recent(limit=20))
     assert any(event.action == "set_risk_policy" for event in events)

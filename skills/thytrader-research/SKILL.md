@@ -81,13 +81,21 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
-| List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…]` |
+| List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
+| Show one published strategy definition | `uv run thytrader-research show-strategy --strategy-fingerprint sha256:…` |
+| Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
+| List the strategy library | `uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR] [--include-archived]` |
 
-`list-results`, `show-result`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
-`list-studies`, and
+`list-results`, `show-result`, `show-strategy`, `show-evidence`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-studies`, `list-strategies`, and
 `show-study` are read-only and
-do not use `--confirm`. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
+do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
+`next_cursor`). Default `show-study` includes `window_pnl` headlines (label, role, PnL, trades)
+without child equity curves; `?detail=full` still returns `windows[]`. Queued research jobs report
+`progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-draft`/`publish` loops
+can exceed a 180s agent timeout after HTTP 201 — list-strategies before retrying; the mutation is
+already persisted. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
 backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
 `mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
 `walk_forward_optimization` select among published fingerprints or `parameter_axes`. Axes default
@@ -101,7 +109,7 @@ total candidates (≤8 values per axis does not imply ≤8 total).
 `sweepable_axes` so parameter-axis studies can be authored without reading source or guessing ids.
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
-`plan-study` derives axis candidates in memory and returns a compact plan summary by default
+`plan-study` derives axis candidates in memory, then rejects windows that cannot fit the selected dataset after warmup and the reserved next-open fill. A rejected plan is HTTP 422 `study_window_rejected` and names the field that failed (`evaluation_start` or `evaluation_end`) plus the same suggested ISO range child backtests use. It returns a compact plan summary by default
 (`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
 child windows are required. `submit-study --confirm` publishes missing derived documents, then
 submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
@@ -123,12 +131,15 @@ and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-mar
 need 2–8 published single-instrument strategies on distinct products. See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
-`create-draft` defaults to template `ema-trend`, `BTC-USD` / `1h`. Pass `--template`
+`create-draft` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (any ingested venue clock) for another USD or USDC spot product. Paper and live may start that published fingerprint.
+`--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live may start that published fingerprint.
 `show-result` (HTTP and `--local`) and operator `performance` copy the published strategy
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
-`currency: USDC`. The USD value is a fallback only when the publication cannot be loaded, and it
+`currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
+(`sharpe`, `sortino`, `calmar`, `sqn`, `cagr`, annualized volatility, max consecutive losses,
+exposure fraction, mark-to-mark buy-and-hold) without changing canonical result fingerprints.
+The USD value is a fallback only when the publication cannot be loaded, and it
 is then disclosed evidence, not a quote-currency claim.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
@@ -213,9 +224,10 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
   claims an ambiguous submit state — nothing was persisted; fix the request instead of re-reading.
 - Ambiguous failures (timeout, unreachable API, HTTP 408/5xx) keep the readback suffix: the study
   may already be persisted. Run `find-study-by-request --request-fingerprint …` before retrying.
-- Failed async study jobs expose `failed_phase` (`publish_derived`, `submit_children`,
+- Failed async study jobs expose `failed_phase` (`plan`, `publish_derived`, `submit_children`,
   `persist_study`, or `unknown`), `failed_detail` (underlying cause text), and `error_message` in
-  `show-research-job` output. Decide retries from the phase, not from `progress_current`.
+  `show-research-job` output. Child-window 422s copy the rejection text into `failed_detail`.
+  Decide retries from the phase, not from `progress_current`.
 
 ## Publication archive reads and writes
 

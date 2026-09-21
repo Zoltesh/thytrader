@@ -9,11 +9,13 @@
 		BACKTEST_LIST_DEFAULT_LIMIT,
 		fetchBacktest,
 		fetchBacktestBenchmark,
+		fetchBacktestMetrics,
 		fetchBacktests,
 		parseResultFingerprintParam,
 		type BacktestBenchmark,
 		type BacktestDetail as BacktestDetailData,
-		type BacktestList
+		type BacktestList,
+		type BacktestPerformanceMetrics
 	} from '$lib/backtests';
 
 	let listing: BacktestList | null = $state(null);
@@ -27,6 +29,9 @@
 	let benchmark = $state<BacktestBenchmark | null>(null);
 	let benchmarkLoading = $state(false);
 	let benchmarkError = $state<string | null>(null);
+	let metrics = $state<BacktestPerformanceMetrics | null>(null);
+	let metricsLoading = $state(false);
+	let metricsError = $state<string | null>(null);
 	let selectionRequest = 0;
 
 	const inspecting = $derived(selectedFingerprint !== null);
@@ -77,6 +82,19 @@
 		}
 	}
 
+	async function loadSelectedMetrics(fingerprint: string, requestId: number): Promise<void> {
+		try {
+			const result = await fetchBacktestMetrics(fingerprint);
+			if (requestId !== selectionRequest) return;
+			metrics = result.metrics;
+		} catch (caught) {
+			if (requestId !== selectionRequest) return;
+			metricsError = caught instanceof Error ? caught.message : 'Backtest metrics are unavailable.';
+		} finally {
+			if (requestId === selectionRequest) metricsLoading = false;
+		}
+	}
+
 	function resetInspection(): void {
 		selectionRequest += 1;
 		selectedFingerprint = null;
@@ -86,6 +104,9 @@
 		benchmark = null;
 		benchmarkError = null;
 		benchmarkLoading = false;
+		metrics = null;
+		metricsError = null;
+		metricsLoading = false;
 	}
 
 	function beginInspection(fingerprint: string): void {
@@ -98,8 +119,12 @@
 		benchmark = null;
 		benchmarkError = null;
 		benchmarkLoading = true;
+		metrics = null;
+		metricsError = null;
+		metricsLoading = true;
 		void loadSelectedDetail(fingerprint, requestId);
 		void loadSelectedBenchmark(fingerprint, requestId);
+		void loadSelectedMetrics(fingerprint, requestId);
 	}
 
 	function syncResultQuery(fingerprint: string | null): void {
@@ -185,6 +210,9 @@
 			{benchmark}
 			{benchmarkLoading}
 			{benchmarkError}
+			{metrics}
+			{metricsLoading}
+			{metricsError}
 			loading={detailLoading}
 			error={detailError}
 			onBack={clearSelection}
