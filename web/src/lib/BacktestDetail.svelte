@@ -101,7 +101,11 @@
 				>
 			</article>
 		</div>
-		<div class="metrics-panel" data-testid="performance-metrics" aria-label="Derived performance metrics">
+		<div
+			class="metrics-panel"
+			data-testid="performance-metrics"
+			aria-label="Derived performance metrics"
+		>
 			<div class="panel-heading">
 				<div>
 					<h3>Ratio metrics</h3>
@@ -133,8 +137,8 @@
 					<article>
 						<small>Exposure</small><strong>{formatPercent(metrics.exposure_fraction)}</strong><span
 							>max consecutive losses {metrics.max_consecutive_losses} · BH {metrics.buy_and_hold_return_fraction
-							? formatPercent(metrics.buy_and_hold_return_fraction)
-							: 'N/A'}</span
+								? formatPercent(metrics.buy_and_hold_return_fraction)
+								: 'N/A'}</span
 						>
 					</article>
 				</div>{/if}

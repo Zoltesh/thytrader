@@ -89,8 +89,7 @@
 			metrics = result.metrics;
 		} catch (caught) {
 			if (requestId !== selectionRequest) return;
-			metricsError =
-				caught instanceof Error ? caught.message : 'Backtest metrics are unavailable.';
+			metricsError = caught instanceof Error ? caught.message : 'Backtest metrics are unavailable.';
 		} finally {
 			if (requestId === selectionRequest) metricsLoading = false;
 		}
