@@ -19,9 +19,34 @@
 		type Portfolio,
 		type PortfolioHistory
 	} from '$lib/portfolio';
+	import {
+		ASSET_PAGE_SIZES,
+		isAssetPageSize,
+		nextAssetSort,
+		paginateAssets,
+		sortAssets,
+		type AssetPage,
+		type AssetPageSize,
+		type AssetSort,
+		type AssetSortKey
+	} from '$lib/asset-table';
 	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
+	import type { PortfolioAsset } from '$lib/portfolio';
+
+	const ASSET_COLUMNS: Array<{ key: AssetSortKey; label: string }> = [
+		{ key: 'currency', label: 'Asset' },
+		{ key: 'available', label: 'Available' },
+		{ key: 'hold', label: 'On hold' },
+		{ key: 'total', label: 'Total' },
+		{ key: 'value', label: 'Est. value' }
+	];
 
 	let portfolio: Portfolio | null = $state(null);
+	let assetSort: AssetSort | null = $state(null);
+	let assetPageSize = $state<AssetPageSize>(10);
+	// assetPage is deliberately kept across portfolio refreshes: paginateAssets clamps it
+	// back into range when a refresh shrinks the asset list, so no reset is needed here.
+	let assetPage = $state(1);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let history: HistoryEntry[] = $state([]);
@@ -45,6 +70,26 @@
 	let feeProfile: FeeProfile | null = $state(null);
 	let feesLoading = $state(true);
 	let feesAvailability: 'ready' | 'unavailable' = $state('ready');
+
+	function assetTableState(assets: PortfolioAsset[]): AssetPage {
+		/** Sort then paginate for the template; the parameter carries the {#if portfolio} narrowing. */
+		return paginateAssets(sortAssets(assets, assetSort), assetPage, assetPageSize);
+	}
+
+	function sortOn(key: AssetSortKey): void {
+		assetSort = nextAssetSort(assetSort, key);
+		assetPage = 1;
+	}
+
+	function setAssetPageSize(event: Event): void {
+		const size = Number((event.currentTarget as HTMLSelectElement).value);
+		assetPageSize = isAssetPageSize(size) ? size : 10;
+		assetPage = 1;
+	}
+
+	function goToAssetPage(page: number): void {
+		assetPage = page;
+	}
 
 	async function loadHistory(range = historyRange): Promise<void> {
 		historyLoading = true;
@@ -232,6 +277,7 @@
 			<div class="skeleton"></div>
 		</section>
 	{:else if portfolio}
+		{@const assetPageView = assetTableState(portfolio.assets)}
 		{#if portfolio.demo}
 			<div class="demo-banner">
 				<div><span class="demo-dot"></span><strong>Demo data</strong></div>
@@ -272,17 +318,51 @@
 					<h2>Assets</h2>
 					<p>{portfolio.assets.length} balances with value</p>
 				</div>
-				<span>Estimated in USD</span>
+				<div class="asset-controls">
+					<span>Estimated in USD</span>
+					<label class="page-size">
+						<span>Rows per page</span>
+						<select data-testid="asset-page-size" value={assetPageSize} onchange={setAssetPageSize}>
+							{#each ASSET_PAGE_SIZES as size (size)}
+								<option value={size}>{size}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table>
-					<thead
-						><tr
-							><th>Asset</th><th>Available</th><th>On hold</th><th>Total</th><th>Est. value</th></tr
-						></thead
-					>
+					<thead>
+						<tr>
+							{#each ASSET_COLUMNS as column (column.key)}
+								<th
+									aria-sort={assetSort?.key === column.key
+										? assetSort.direction === 'asc'
+											? 'ascending'
+											: 'descending'
+										: 'none'}
+								>
+									<button
+										type="button"
+										class="sort-header"
+										class:active={assetSort?.key === column.key}
+										onclick={() => sortOn(column.key)}
+									>
+										{column.label}
+										<span class="sort-arrow" aria-hidden="true">
+											{assetSort?.key === column.key
+												? assetSort.direction === 'asc'
+													? '▲'
+													: '▼'
+												: '↕'}
+										</span>
+									</button>
+								</th>
+							{/each}
+						</tr>
+					</thead>
 					<tbody>
-						{#each portfolio.assets as asset (asset.currency)}
+						{#each assetPageView.items as asset (asset.currency)}
 							<tr>
 								<td
 									><div class="asset-name">
@@ -298,6 +378,41 @@
 						{/each}
 					</tbody>
 				</table>
+			</div>
+			{#if assetPageView.total === 0}
+				<p class="table-empty">No balances with value to display.</p>
+			{/if}
+			<div class="table-foot" data-testid="asset-table-foot">
+				<p data-testid="asset-range">
+					Showing {assetPageView.start}–{assetPageView.end} of {assetPageView.total}
+				</p>
+				<div class="pager">
+					<button type="button" onclick={() => goToAssetPage(1)} disabled={assetPageView.page <= 1}>
+						« First
+					</button>
+					<button
+						type="button"
+						onclick={() => goToAssetPage(assetPageView.page - 1)}
+						disabled={assetPageView.page <= 1}
+					>
+						‹ Prev
+					</button>
+					<span>Page {assetPageView.page} of {assetPageView.pageCount}</span>
+					<button
+						type="button"
+						onclick={() => goToAssetPage(assetPageView.page + 1)}
+						disabled={assetPageView.page >= assetPageView.pageCount}
+					>
+						Next ›
+					</button>
+					<button
+						type="button"
+						onclick={() => goToAssetPage(assetPageView.pageCount)}
+						disabled={assetPageView.page >= assetPageView.pageCount}
+					>
+						Last »
+					</button>
+				</div>
 			</div>
 			{#if portfolio.unvalued_assets.length}
 				<p class="unvalued">No direct USD valuation: {portfolio.unvalued_assets.join(', ')}</p>

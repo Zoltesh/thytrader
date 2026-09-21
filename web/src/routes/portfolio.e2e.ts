@@ -32,6 +32,22 @@ const demoPortfolio = {
 	unvalued_assets: []
 };
 
+function generatedAsset(index: number) {
+	return {
+		currency: `TST${index}`,
+		name: `Token ${index}`,
+		available: `${index}.00000000`,
+		hold: '0.00000000',
+		total: `${index}.00000000`,
+		value: { amount: String(index * 10), currency: 'USD' }
+	};
+}
+
+const pagedPortfolio = {
+	...demoPortfolio,
+	assets: Array.from({ length: 12 }, (_, index) => generatedAsset(index))
+};
+
 type HistorySnapshot = {
 	as_of: string;
 	total_value: { amount: string; currency: 'USD' };
@@ -655,4 +671,99 @@ test('does not show a gap note for contiguous snapshots', async ({ page }) => {
 			'Gaps indicate missed worker observations; the line is intentionally not interpolated.'
 		)
 	).toHaveCount(0);
+});
+
+async function openPortfolioWithAssets(
+	page: Page,
+	portfolio: typeof demoPortfolio | typeof pagedPortfolio
+): Promise<void> {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({ json: portfolio });
+	});
+	await page.goto('/');
+	await expect(page.getByRole('heading', { name: 'Assets' })).toBeVisible();
+}
+
+test('paginates the assets table at ten rows with a page-size selector', async ({ page }) => {
+	await openPortfolioWithAssets(page, pagedPortfolio);
+
+	const rows = page.locator('.asset-panel tbody tr');
+	await expect(rows).toHaveCount(10);
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 12');
+	await expect(page.getByText('Page 1 of 2')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Next ›' }).click();
+
+	await expect(rows).toHaveCount(2);
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 11–12 of 12');
+	await expect(page.getByText('Page 2 of 2')).toBeVisible();
+	await expect(page.getByRole('button', { name: '« First' })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Next ›' })).toBeDisabled();
+
+	await page.getByRole('button', { name: '« First' }).click();
+
+	await expect(rows).toHaveCount(10);
+	await expect(page.getByText('Page 1 of 2')).toBeVisible();
+
+	await page.getByTestId('asset-page-size').selectOption('20');
+
+	await expect(rows).toHaveCount(12);
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–12 of 12');
+	await expect(page.getByText('Page 1 of 1')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Next ›' })).toBeDisabled();
+});
+
+test('sorts asset columns by clicking headers with a three-state cycle', async ({ page }) => {
+	await openPortfolioWithAssets(page, demoPortfolio);
+
+	const valueHeader = page.getByRole('columnheader', { name: 'Est. value' });
+	const firstCell = page.locator('.asset-panel tbody tr').first();
+
+	await valueHeader.click();
+	await expect(page.getByRole('columnheader', { name: 'Est. value' })).toHaveAttribute(
+		'aria-sort',
+		'ascending'
+	);
+	await expect(page.getByRole('columnheader', { name: 'Asset', exact: true })).toHaveAttribute(
+		'aria-sort',
+		'none'
+	);
+	await expect(firstCell).toContainText('ETH');
+
+	await valueHeader.click();
+	await expect(page.getByRole('columnheader', { name: 'Est. value' })).toHaveAttribute(
+		'aria-sort',
+		'descending'
+	);
+	await expect(firstCell).toContainText('BTC');
+
+	await valueHeader.click();
+	await expect(page.getByRole('columnheader', { name: 'Est. value' })).toHaveAttribute(
+		'aria-sort',
+		'none'
+	);
+	await expect(firstCell).toContainText('BTC');
+});
+
+test('sorts before slicing so page one shows the globally largest values', async ({ page }) => {
+	await openPortfolioWithAssets(page, pagedPortfolio);
+
+	await page.getByRole('columnheader', { name: 'Est. value' }).click();
+	await page.getByRole('columnheader', { name: 'Est. value' }).click();
+
+	await expect(page.getByRole('columnheader', { name: 'Est. value' })).toHaveAttribute(
+		'aria-sort',
+		'descending'
+	);
+	const rows = page.locator('.asset-panel tbody tr');
+	await expect(rows).toHaveCount(10);
+	await expect(rows.first()).toContainText('Token 11');
+	await expect(rows.nth(9)).toContainText('Token 2');
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 12');
+
+	await page.getByTestId('asset-page-size').selectOption('50');
+
+	await expect(rows).toHaveCount(12);
+	await expect(rows.first()).toContainText('Token 11');
+	await expect(rows.nth(11)).toContainText('Token 0');
 });
