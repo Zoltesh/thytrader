@@ -34,7 +34,8 @@
 	} from '$lib/asset-table';
 	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
 	import type { PortfolioAsset } from '$lib/portfolio';
-	import { listDeployments, type Deployment } from '$lib/deployments';
+	import { portfolioWindowSummary } from '$lib/portfolio-summary';
+	import { listDeployments, canonicalPositions, type Deployment } from '$lib/deployments';
 	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
 
 	const ASSET_COLUMNS: Array<{ key: AssetSortKey; label: string }> = [
@@ -46,7 +47,7 @@
 	];
 
 	let portfolio: Portfolio | null = $state(null);
-	let assetSort: AssetSort | null = $state(null);
+	let assetSort: AssetSort | null = $state({ key: 'value', direction: 'desc' });
 	let assetPageSize = $state<AssetPageSize>(10);
 	// assetPage is deliberately kept across portfolio refreshes: paginateAssets clamps it
 	// back into range when a refresh shrinks the asset list, so no reset is needed here.
@@ -80,6 +81,63 @@
 	let deploymentsLoading = $state(true);
 
 	const activeDeployments = $derived((deployments ?? []).filter((d) => d.status !== 'stopped'));
+	const windowSummary = $derived(portfolioWindowSummary(history));
+
+	/**
+	 * Performance figures across non-stopped deployments, from the capital and
+	 * ledger contract. Counts disclose what is measured; open books make PnL
+	 * provisional and are shown that way rather than silently mixed.
+	 */
+	const performance = $derived.by(() => {
+		const active = (deployments ?? []).filter((d) => d.status !== 'stopped');
+		const withLedger = active.filter((d) => d.ledger !== null);
+		const pnlStrings = withLedger
+			.map((d) => d.ledger?.total_net_pnl ?? null)
+			.filter((v): v is string => v !== null);
+		const totalPnl = pnlStrings.reduce((acc, pnl) => addDecimalStrings(acc, pnl), '0');
+		const openBooks = active.reduce((count, d) => count + canonicalPositions(d).length, 0);
+		const paperCount = active.filter((d) => d.mode === 'paper').length;
+		const liveCount = active.length - paperCount;
+		return {
+			tradeCount: withLedger.reduce((count, d) => count + (d.ledger?.trade_count ?? 0), 0),
+			totalPnl,
+			provisional: openBooks > 0,
+			paperCount,
+			liveCount
+		};
+	});
+
+	function addDecimalStrings(left: string, right: string): string {
+		const leftParts = parseDecimalForSum(left);
+		const rightParts = parseDecimalForSum(right);
+		const scale = Math.max(leftParts.scale, rightParts.scale);
+		const leftUnits = leftParts.units * 10n ** BigInt(scale - leftParts.scale);
+		const rightUnits = rightParts.units * 10n ** BigInt(scale - rightParts.scale);
+		const units = leftUnits + rightUnits;
+		const sign = units < 0n ? '-' : '';
+		const digits = (units < 0n ? -units : units).toString().padStart(scale + 1, '0');
+		const splitAt = digits.length - scale;
+		return `${sign}${digits.slice(0, splitAt)}.${digits.slice(splitAt)}`;
+	}
+
+	function parseDecimalForSum(amount: string): { units: bigint; scale: number } {
+		const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+		if (!match) {
+			throw new Error(`Invalid decimal string: ${amount}`);
+		}
+		const fraction = match[3] ?? '';
+		return {
+			units: BigInt(`${match[1] === '-' ? '-' : ''}${match[2]}${fraction}`),
+			scale: fraction.length
+		};
+	}
+
+	function comparePnlSign(amount: string): number {
+		const whole = amount.startsWith('-') ? amount.slice(1) : amount;
+		const [units, fraction = ''] = whole.split('.');
+		const normalized = units.replace(/^0+(?=\d)/, '') + fraction;
+		return normalized.replace(/0+$/, '') === '' ? 0 : amount.startsWith('-') ? -1 : 1;
+	}
 
 	function assetTableState(assets: PortfolioAsset[]): AssetPage {
 		/** Sort then paginate for the template; the parameter carries the {#if portfolio} narrowing. */
@@ -289,6 +347,24 @@
 				<h2>Your deployments</h2>
 				<a href={resolve('/deployments')}>Manage all deployments →</a>
 			</div>
+			{#if performance.tradeCount > 0 || performance.totalPnl !== '0'}
+				<p class="perf-line" data-testid="strategy-performance">
+					Strategy performance (paper {performance.paperCount}
+					{performance.paperCount === 1 ? 'bot' : 'bots'}{performance.liveCount > 0
+						? `, live ${performance.liveCount}`
+						: ''}):
+					<strong
+						class:value-loss={comparePnlSign(performance.totalPnl) < 0}
+						class:value-gain={comparePnlSign(performance.totalPnl) > 0}
+						>{formatUsd(performance.totalPnl)}</strong
+					>
+					· {performance.tradeCount}
+					{performance.tradeCount === 1 ? 'trade' : 'trades'} closed
+					{#if performance.provisional}
+						· <em>open position(s) — PnL provisional until books close</em>
+					{/if}
+				</p>
+			{/if}
 			<div class="strip-cards">
 				{#each activeDeployments as deployment (deployment.id)}
 					<a
@@ -343,7 +419,24 @@
 			<article class="value-card">
 				<p>Estimated portfolio value</p>
 				<strong>{formatUsd(portfolio.total_value.amount)}</strong>
-				<span>USD estimate</span>
+				{#if windowSummary.sampleCount >= 2 && windowSummary.changePercent !== null}
+					<span
+						class="value-change value-{windowSummary.direction}"
+						data-testid="portfolio-window-change"
+					>
+						{windowSummary.direction === 'gain'
+							? '▲'
+							: windowSummary.direction === 'loss'
+								? '▼'
+								: '■'}
+						{windowSummary.changePercent} · {formatUsd(windowSummary.changeAmount)} · {historyRange} ·
+						{windowSummary.sampleCount} samples
+					</span>
+				{:else}
+					<span class="value-change value-flat" data-testid="portfolio-window-change">
+						Not enough history yet · {historyRange}
+					</span>
+				{/if}
 			</article>
 			<article class="connection-card">
 				<div class="card-heading">
@@ -617,6 +710,40 @@
 			SFMono-Regular,
 			Consolas,
 			monospace;
+	}
+	.perf-line {
+		margin: 0 0 10px;
+		color: #8d999c;
+		font-size: 13px;
+	}
+	.perf-line strong {
+		font:
+			500 13px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+	}
+	.perf-line em {
+		color: #b39b72;
+		font-style: normal;
+	}
+	.value-change {
+		display: block;
+		margin-top: 8px;
+		font:
+			500 12px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+	}
+	.value-gain {
+		color: #5ce1b5;
+	}
+	.value-loss {
+		color: #f0a3a3;
+	}
+	.value-flat {
+		color: #718083;
 	}
 	.mode {
 		font:

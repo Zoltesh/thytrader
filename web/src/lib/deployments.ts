@@ -108,6 +108,14 @@ export type Deployment = {
 	instrument_runtimes?: DeploymentInstrumentRuntime[];
 	book_totals?: DeploymentBookTotals;
 	capital?: DeploymentCapital;
+	/** Aggregate fill-ledger statistics; null when the summary has not been computed. */
+	ledger?: {
+		trade_count: number;
+		total_net_pnl: string | null;
+		total_return_fraction: string | null;
+		mark_complete: boolean;
+		marked_exposure: string | null;
+	} | null;
 	orders: DeploymentOrder[];
 	fills: DeploymentFill[];
 };
