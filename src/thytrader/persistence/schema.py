@@ -316,6 +316,12 @@ Index(
     published_backtest_results.c.dataset_fingerprint,
 )
 
+Index(
+    "ix_published_backtest_results_published_result",
+    published_backtest_results.c.published_at.desc(),
+    published_backtest_results.c.result_fingerprint.asc(),
+)
+
 research_jobs = Table(
     "research_jobs",
     metadata,

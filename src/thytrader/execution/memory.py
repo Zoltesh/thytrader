@@ -33,6 +33,7 @@ from thytrader.execution.pagination import (
 from thytrader.execution.protection import working_order_count
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime, timedelta
 
 
@@ -186,6 +187,23 @@ class InMemoryExecutionStore:
             if item.strategy_id is not None and str(item.strategy_id) == strategy_id
         ]
         return tuple(sorted(matching, key=lambda item: item.updated_at, reverse=True))
+
+    async def list_by_strategy_ids(
+        self, strategy_ids: Sequence[str]
+    ) -> dict[str, tuple[Deployment, ...]]:
+        """Return every deployment grouped per requested strategy identity."""
+        buckets: dict[str, list[Deployment]] = {identity: [] for identity in strategy_ids}
+        for item in self.deployments.values():
+            if item.strategy_id is None:
+                continue
+            identity = str(item.strategy_id)
+            bucket = buckets.get(identity)
+            if bucket is not None:
+                bucket.append(item)
+        return {
+            identity: tuple(sorted(bucket, key=lambda item: item.updated_at, reverse=True))
+            for identity, bucket in buckets.items()
+        }
 
     async def save_deployment(
         self, deployment: Deployment, *, expected_revision: int | None = None

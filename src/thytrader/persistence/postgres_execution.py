@@ -55,6 +55,7 @@ from thytrader.persistence.schema import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime, timedelta
 
     from sqlalchemy.engine import RowMapping
@@ -253,6 +254,28 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
+
+    async def list_by_strategy_ids(
+        self, strategy_ids: Sequence[str]
+    ) -> dict[str, tuple[Deployment, ...]]:
+        """Return every deployment grouped per requested strategy identity."""
+        if not strategy_ids:
+            return {}
+        statement = (
+            select(deployments)
+            .where(deployments.c.strategy_id.in_(strategy_ids))
+            .order_by(deployments.c.strategy_id, deployments.c.updated_at.desc())
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        grouped: dict[str, list[Deployment]] = {identity: [] for identity in strategy_ids}
+        for row in rows:
+            deployment = _deployment_from_row(row)
+            grouped[str(row["strategy_id"])].append(deployment)
+        return {identity: tuple(items) for identity, items in grouped.items()}
 
     async def save_deployment(
         self,

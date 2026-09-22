@@ -344,11 +344,20 @@ class PostgresStrategyPublicationStore:
         return _validate_draft_row(row)
 
     async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
-        """List verified published evidence, hiding permanently archived versions by default."""
+        """List verified published evidence, hiding permanently archived versions by default.
+
+        One query returns each publication's canonical document beside its
+        archive marker; every row is cryptographically verified before it
+        becomes catalog evidence.
+        """
         statement = (
             select(
                 published_strategy_versions.c.strategy_fingerprint,
                 archived_strategy_versions.c.archived_at,
+                published_strategy_versions.c.strategy_id,
+                published_strategy_versions.c.version,
+                published_strategy_versions.c.created_at,
+                published_strategy_versions.c.canonical_definition,
             )
             .select_from(
                 published_strategy_versions.outerjoin(
@@ -372,13 +381,12 @@ class PostgresStrategyPublicationStore:
         entries: list[StrategyCatalogEntry] = []
         for row in rows:
             fingerprint = cast("str", row["strategy_fingerprint"])
-            published = await self.load(fingerprint)
-            archived_at = cast("datetime | None", row["archived_at"])
+            published = _published_strategy_from_row(row, fingerprint)
             entries.append(
                 StrategyCatalogEntry(
                     strategy_fingerprint=fingerprint,
                     definition=published.definition,
-                    archived_at=archived_at,
+                    archived_at=cast("datetime | None", row["archived_at"]),
                 )
             )
         return tuple(entries)
