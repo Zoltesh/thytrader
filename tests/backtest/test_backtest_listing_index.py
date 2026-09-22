@@ -16,12 +16,6 @@ from thytrader.persistence.schema import metadata
 _INDEX_NAME = "ix_published_backtest_results_published_result"
 
 
-def _migration_tree_text() -> str:
-    """Concatenate every Alembic migration file's source text."""
-    versions = Path("alembic/versions")
-    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(versions.glob("*.py")))
-
-
 def test_result_listing_has_a_newest_first_ordering_index() -> None:
     """Schema metadata must carry an index leading with the listing's sort key."""
     table = metadata.tables["published_backtest_results"]
@@ -35,4 +29,9 @@ def test_result_listing_has_a_newest_first_ordering_index() -> None:
 
 def test_newest_first_listing_index_is_declared_in_migrations() -> None:
     """The ordering index must exist in the applied Alembic chain, not only metadata."""
-    assert _INDEX_NAME in _migration_tree_text()
+    migration = Path("alembic/versions/0047_backtest_listing_newest_first_index.py").read_text(
+        encoding="utf-8"
+    )
+    assert _INDEX_NAME in migration
+    assert 'text("published_at DESC")' in migration
+    assert '"result_fingerprint"' in migration

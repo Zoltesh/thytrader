@@ -7,6 +7,8 @@ Create Date: 2026-09-22
 
 from __future__ import annotations
 
+from sqlalchemy import text
+
 from alembic import op
 
 revision = "0047"
@@ -20,7 +22,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_published_backtest_results_published_result",
         "published_backtest_results",
-        ["published_at DESC", "result_fingerprint ASC"],
+        [text("published_at DESC"), "result_fingerprint"],
     )
 
 
