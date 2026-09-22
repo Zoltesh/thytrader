@@ -237,7 +237,9 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
   reads the identity's `GET /api/v1/strategies/{strategy_id}/history` directly: its `draft` is editable;
   `draft: null` means only immutable published/archived versions remain, not a missing strategy.
   Use the library's View → Versions panel to inspect or revise one into a new draft; do not retry
-  a published version through the draft-version endpoint.
+  a published version through the draft-version endpoint. The browser renders the first page while
+  fetching subsequent cursor pages; “Loading remaining strategies” means the library is not yet
+  complete. A later-page failure leaves visible rows but explicitly marks the library incomplete.
 - `uv run thytrader-research archive --strategy-fingerprint sha256:… --confirm` permanently hides
   one immutable publication from default listings. It cannot remove evidence and cannot archive a
   draft. Use it to retire sweep-variant or screening byproducts after recording the fingerprint in

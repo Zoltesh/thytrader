@@ -15,8 +15,11 @@ live balances when both Coinbase variables are configured. That screen never sub
 
 ### Strategies
 
-Open http://127.0.0.1:5175/strategies when the stack is healthy. The library lists every strategy
-identity with its market and timeframe, latest version, draft/published/archived status, the newest
+Open http://127.0.0.1:5175/strategies when the stack is healthy. The library shows the first
+page as soon as it arrives, labels remaining pages while they load, and retains visible rows with
+an explicit incomplete warning if a later page fails; it never calls a failed load an empty library.
+Each row shows the strategy identity, market and timeframe, latest version,
+draft/published/archived status, the newest
 backtest bound to any of its immutable versions, and its paper/live column: newest deployment
 status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
 `unavailable` means no runtime of that mode (not that the execution worker is missing). Clicking a
