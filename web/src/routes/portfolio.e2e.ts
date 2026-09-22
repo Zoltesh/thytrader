@@ -894,7 +894,7 @@ test('collapses sub-threshold balances into an expandable dust summary', async (
 
 	await dustToggle.click();
 
-	await expect(page.getByRole('listitem')).toContainText('Token 0 (Token 0)');
+	await expect(page.getByRole('listitem')).toContainText('Token 0 (TST0)');
 	await expect(dustToggle).toHaveAttribute('aria-expanded', 'true');
 });
 

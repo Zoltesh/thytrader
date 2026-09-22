@@ -80,6 +80,17 @@ const libraryEntry = {
 };
 
 async function mockDraftStorage(page: import('@playwright/test').Page): Promise<void> {
+	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
+		await route.fulfill({
+			json: {
+				strategy_id: strategyId,
+				latest_version: 1,
+				next_version: 2,
+				versions: [],
+				draft: { strategy: draft, revision: 1 }
+			}
+		});
+	});
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		await route.fulfill({ json: { strategy: draft, revision: 1 } });
 	});
@@ -139,6 +150,17 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 	type SavedPayload = { strategy: { name: string }; revision: number };
 	let savedBody = null as SavedPayload | null;
 	let savedOnce = false;
+	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
+		await route.fulfill({
+			json: {
+				strategy_id: strategyId,
+				latest_version: 1,
+				next_version: 2,
+				versions: [],
+				draft: { strategy: draft, revision: 1 }
+			}
+		});
+	});
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		if (route.request().method() === 'PUT') {
 			savedBody = (await route.request().postDataJSON()) as SavedPayload;
@@ -165,6 +187,17 @@ test('saves edited builder state through the durable draft boundary', async ({ p
 test('required data and market hint follow the draft timeframe', async ({ page }) => {
 	const fiveMinuteDraft = { ...draft, timeframe: '5m' };
 	const fiveMinuteEntry = { ...libraryEntry, timeframe: '5m' };
+	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
+		await route.fulfill({
+			json: {
+				strategy_id: strategyId,
+				latest_version: 1,
+				next_version: 2,
+				versions: [],
+				draft: { strategy: fiveMinuteDraft, revision: 1 }
+			}
+		});
+	});
 	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
 		await route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } });
 	});
@@ -207,19 +240,51 @@ test('shows a literal editor when the left operand is a literal value', async ({
 	await expect(page.getByLabel('Left literal value')).toHaveCount(0);
 });
 
-test('refuses to open a builder for a published or archived identity', async ({ page }) => {
-	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
-		await route.fulfill({ json: { strategy: draft, revision: 1 } });
-	});
+test('loads the current draft from identity history without scanning the library', async ({
+	page
+}) => {
+	let libraryRequests = 0;
 	await page.route(isStrategyLibraryRequest, async (route) => {
+		libraryRequests += 1;
+		await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
+	});
+	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
 		await route.fulfill({
 			json: {
-				strategies: [{ ...libraryEntry, status: 'published', latest_fingerprint: fingerprint }]
+				strategy_id: strategyId,
+				latest_version: 2,
+				next_version: 3,
+				versions: [],
+				draft: { strategy: { ...draft, version: 2 }, revision: 7 }
 			}
 		});
 	});
 	await page.goto(`/strategies/${strategyId}`);
-	await expect(page.getByRole('alert')).toContainText(
-		'published or archived; its builder is read-only history'
-	);
+	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
+	await expect(page.getByText('Draft v2')).toBeVisible();
+	expect(libraryRequests).toBe(0);
+});
+
+test('explains a published identity without treating its absent draft as an error', async ({
+	page
+}) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
+	});
+	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
+		await route.fulfill({
+			json: {
+				strategy_id: strategyId,
+				latest_version: 1,
+				next_version: 2,
+				versions: [{ version: 1, strategy_fingerprint: fingerprint, published: true }],
+				draft: null
+			}
+		});
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await expect(page.getByRole('status')).toContainText('No editable draft');
+	await expect(page.getByRole('status')).toContainText('immutable');
+	await expect(page.getByText('Builder unavailable')).toHaveCount(0);
+	await expect(page.getByText('HTTP 404')).toHaveCount(0);
 });

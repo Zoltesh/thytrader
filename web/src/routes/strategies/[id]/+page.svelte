@@ -4,12 +4,11 @@
 	import { resolve } from '$app/paths';
 	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
 	import {
-		fetchDraftVersion,
+		fetchStrategyHistory,
 		toBuilderModel,
 		fromBuilderModel,
 		saveDraft,
 		publishDraft,
-		listStrategies,
 		defaultHtfFilter,
 		validHtfTimeframes,
 		INDICATOR_KIND_OPTIONS,
@@ -32,6 +31,7 @@
 	let publishing = $state(false);
 	let dirty = $state(false);
 	let error = $state<string | null>(null);
+	let noDraft = $state(false);
 	let publishedNotice = $state<string | null>(null);
 	let savedAt = $state<string | null>(null);
 	let validationErrors = $state<string[]>([]);
@@ -219,18 +219,15 @@
 	async function load(): Promise<void> {
 		loading = true;
 		error = null;
+		noDraft = false;
 		try {
-			const id = strategyId();
-			const library = await listStrategies().catch(() => []);
-			const entry = library.find((candidate) => candidate.strategy_id === id);
-			const draftVersion = entry?.latest_version ?? 1;
-			const draftResponse = await fetchDraftVersion(id, draftVersion);
-			model = toBuilderModel(draftResponse.strategy, draftResponse.revision);
-			if (entry && entry.status !== 'draft' && entry.latest_fingerprint) {
-				error =
-					'This strategy identity is published or archived; its builder is read-only history.';
+			const history = await fetchStrategyHistory(strategyId());
+			if (history.draft === null) {
 				model = null;
+				noDraft = true;
+				return;
 			}
+			model = toBuilderModel(history.draft.strategy, history.draft.revision);
 			dirty = false;
 			validate(model);
 		} catch (caught) {
@@ -348,6 +345,17 @@
 			<div>
 				<strong>Published</strong>
 				<p>{publishedNotice}</p>
+			</div>
+			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+		</div>
+	{:else if noDraft}
+		<div class="read-only-banner" role="status">
+			<div>
+				<strong>No editable draft</strong>
+				<p>
+					Published versions are immutable. Open the library, choose View → Versions, and revise a
+					version to create a new draft.
+				</p>
 			</div>
 			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
 		</div>
@@ -954,6 +962,21 @@
 {/snippet}
 
 <style>
+	.read-only-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 14px 17px;
+		border: 1px solid #315849;
+		border-radius: 10px;
+		background: #10241d;
+	}
+	.read-only-banner p {
+		margin: 4px 0 0;
+		color: #a7c6b6;
+		font-size: 13px;
+	}
 	.builder-head {
 		display: flex;
 		justify-content: space-between;

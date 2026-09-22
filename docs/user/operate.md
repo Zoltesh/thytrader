@@ -27,8 +27,12 @@ fresh draft identity (Clone stays ungated), import a complete strategy definitio
 draft, and archive an immutable publication after confirming the latest published version and
 fingerprint.
 
+The builder at `/strategies/{strategy_id}` reads that identity's version history directly and opens
+its durable draft without loading the full library. If the identity has only immutable published or
+archived versions, the page says **No editable draft**; return to the library's View → Versions panel
+to inspect or revise a version into a new draft. That state is not a missing strategy or an API outage.
 Saves carry an opaque revision and reject stale browser tabs rather than overwriting newer edits.
-The builder at `/strategies/{strategy_id}` opens any durable draft for full-schema editing with a
+The builder supports full-schema editing with a
 nested ALL/ANY/NOT rule tree and an inspector showing a plain-English summary, validation errors,
 required warmup, unsaved state, and an explicit V1/V2 engine-support matrix. Every library row
 opens the same read-only Insight panel; Research and Deploy are links to their own pages.

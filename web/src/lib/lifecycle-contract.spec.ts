@@ -46,9 +46,9 @@ describe('lifecycle contract gating', () => {
 	});
 
 	it('forbids controls when a boolean latch is missing', () => {
-		const deployment = baseDeployment();
-		const { daily_loss_latched: _omitted, ...rest } = deployment;
-		const partial = rest as Deployment;
+		const partialFields: Partial<Deployment> = { ...baseDeployment() };
+		delete partialFields.daily_loss_latched;
+		const partial = partialFields as Deployment;
 		const contract = lifecycleContractOf(partial);
 		expect(contract.state).toBe('incomplete');
 		expect(contract.missing).toEqual(['daily_loss_latched']);
@@ -56,9 +56,9 @@ describe('lifecycle contract gating', () => {
 	});
 
 	it('forbids controls when revision is missing and never infers 0', () => {
-		const deployment = baseDeployment();
-		const { revision: _omitted, ...rest } = deployment;
-		const partial = rest as Deployment;
+		const partialFields: Partial<Deployment> = { ...baseDeployment() };
+		delete partialFields.revision;
+		const partial = partialFields as Deployment;
 		const contract = lifecycleContractOf(partial);
 		expect(contract.missing).toEqual(['revision']);
 		expect(lifecycleControlsAvailable(partial)).toBe(false);

@@ -27,8 +27,6 @@ const STRING_FIELDS = ['lifecycle_command'] as const;
 const BOOLEAN_FIELDS = ['daily_loss_latched', 'drawdown_latched', 'worker_lease_held'] as const;
 const NUMBER_FIELDS = ['revision'] as const;
 
-const REQUIRED_FIELDS: readonly string[] = [...STRING_FIELDS, ...BOOLEAN_FIELDS, ...NUMBER_FIELDS];
-
 const KNOWN_LIFECYCLE_COMMANDS: readonly string[] = [
 	'none',
 	'stop_new_entries',

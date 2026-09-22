@@ -5,7 +5,7 @@
  * returns presentation text. Sorting, comparison, and rollups keep using the
  * exact strings — rounding never enters the data path.
  */
-import { compareDecimalStrings, type Money, type PortfolioAsset } from './portfolio';
+import { compareDecimalStrings, type PortfolioAsset } from './portfolio';
 
 /** Balances valued below this USD amount collapse into the dust summary. */
 export const DUST_THRESHOLD = '0.10';
@@ -81,7 +81,7 @@ export function formatQuantityDisplay(quantity: string): QuantityDisplay {
 		return { text: '0', title, compact: raw !== '0' };
 	}
 	let fractionText: string;
-	let carry = false;
+	let carry: boolean;
 	if (compareDecimalStrings(raw, '1') < 0) {
 		const leadingZeros = parts.fraction.match(/^0*/)?.[0].length ?? 0;
 		const keep = Math.min(leadingZeros + 3, parts.fraction.length);
