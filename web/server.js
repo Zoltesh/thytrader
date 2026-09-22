@@ -46,7 +46,6 @@ if (!INSTALLATION_TOKEN) {
 	);
 }
 
-
 /**
  * Forward one `/api/...` request to the backend API and stream the response back.
  * @param {import('node:http').IncomingMessage} request Inbound HTTP request.
@@ -57,7 +56,11 @@ async function proxyApiRequest(request, response) {
 	const target = new URL(request.url ?? '/', API_PROXY_TARGET);
 	const headers = new Headers();
 	for (const [name, value] of Object.entries(request.headers)) {
-		if (value === undefined || name.toLowerCase() === 'host' || name.toLowerCase() === 'authorization') {
+		if (
+			value === undefined ||
+			name.toLowerCase() === 'host' ||
+			name.toLowerCase() === 'authorization'
+		) {
 			continue;
 		}
 		headers.set(name, Array.isArray(value) ? value.join(', ') : value);

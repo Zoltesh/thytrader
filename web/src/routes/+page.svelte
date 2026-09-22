@@ -35,6 +35,13 @@
 	import { fetchFeeProfile, formatFeeProfileAsOf, type FeeProfile } from '$lib/fees';
 	import type { PortfolioAsset } from '$lib/portfolio';
 	import { portfolioWindowSummary } from '$lib/portfolio-summary';
+	import {
+		analyzeDust,
+		formatQuantityDisplay,
+		snapshotAgeMinutes,
+		type DustAnalysis,
+		type QuantityDisplay
+	} from '$lib/money';
 	import { listDeployments, canonicalPositions, type Deployment } from '$lib/deployments';
 	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
 
@@ -82,6 +89,33 @@
 
 	const activeDeployments = $derived((deployments ?? []).filter((d) => d.status !== 'stopped'));
 	const windowSummary = $derived(portfolioWindowSummary(history));
+	/**
+	 * Display model for the assets panel: dust rows collapse into a summary so
+	 * the table carries holdings worth reading. Sorting and pagination keep
+	 * exact decimal strings; only presentation is condensed.
+	 */
+	let dustOpen = $state(false);
+	/**
+	 * Display-model helpers take the narrowed portfolio as a parameter:
+	 * top-level `$derived` loses `{#if portfolio}` narrowing (svelte-check
+	 * reads the portfolio as `never`).
+	 */
+	function dustSummary(current: Portfolio): DustAnalysis {
+		return analyzeDust(current.assets);
+	}
+
+	function stalenessOf(current: Portfolio): { ageMinutes: number | null; stale: boolean } {
+		const ageMinutes = snapshotAgeMinutes(current.as_of);
+		return { ageMinutes, stale: ageMinutes !== null && ageMinutes > 10 };
+	}
+
+	function isFreshInstallState(current: Portfolio): boolean {
+		return current.demo && current.assets.length === 0;
+	}
+
+	function quantityCell(quantity: string): QuantityDisplay {
+		return formatQuantityDisplay(quantity);
+	}
 
 	/**
 	 * Performance figures across non-stopped deployments, from the capital and
@@ -407,12 +441,28 @@
 			<div class="skeleton"></div>
 		</section>
 	{:else if portfolio}
-		{@const assetPageView = assetTableState(portfolio.assets)}
+		{@const assetPageView = assetTableState(dustSummary(portfolio).visible)}
+		{@const staleness = stalenessOf(portfolio)}
+		{@const dust = dustSummary(portfolio)}
+		{@const freshInstall = isFreshInstallState(portfolio)}
 		{#if portfolio.demo}
-			<div class="demo-banner">
-				<div><span class="demo-dot"></span><strong>Demo data</strong></div>
-				<p>Add Coinbase credentials to <code>.env</code> to display your live balances.</p>
-			</div>
+			{#if freshInstall}
+				<section class="empty-state" aria-label="Getting started">
+					<h2>Connect Coinbase to see your portfolio</h2>
+					<p>
+						ThyTrader is showing an empty demo until Coinbase Advanced Trade credentials are
+						configured on the server. Then this page shows your real spot balances, and Strategies
+						is where your first strategy starts.
+					</p>
+					<a class="link-button" href={resolve('/settings')}>Add credentials in Settings</a>
+					<a class="link-button" href={resolve('/strategies')}>Explore Strategies</a>
+				</section>
+			{:else}
+				<div class="demo-banner">
+					<div><span class="demo-dot"></span><strong>Demo data</strong></div>
+					<p>Add Coinbase credentials to <code>.env</code> to display your live balances.</p>
+				</div>
+			{/if}
 		{/if}
 
 		<section class="summary-grid">
@@ -435,6 +485,12 @@
 				{:else}
 					<span class="value-change value-flat" data-testid="portfolio-window-change">
 						Not enough history yet · {historyRange}
+					</span>
+				{/if}
+				<span class="value-source">USD estimate · Coinbase spot balances</span>
+				{#if staleness.stale}
+					<span class="value-stale" role="status">
+						Snapshot {staleness.ageMinutes} min old · refresh for current balances
 					</span>
 				{/if}
 			</article>
@@ -510,6 +566,9 @@
 					</thead>
 					<tbody>
 						{#each assetPageView.items as asset (asset.currency)}
+							{@const available = quantityCell(asset.available)}
+							{@const hold = quantityCell(asset.hold)}
+							{@const total = quantityCell(asset.total)}
 							<tr
 								class:dust-row={asset.value !== null && formatUsd(asset.value.amount) === '$0.00'}
 							>
@@ -519,9 +578,9 @@
 										<div><strong>{asset.name}</strong><small>{asset.currency}</small></div>
 									</div></td
 								>
-								<td class="num">{asset.available}</td>
-								<td class="num">{asset.hold}</td>
-								<td class="num">{asset.total}</td>
+								<td class="num" title={available.title}>{available.text}</td>
+								<td class="num" title={hold.title}>{hold.text}</td>
+								<td class="num" title={total.title}>{total.text}</td>
 								<td class="asset-value num"
 									>{asset.value ? formatUsd(asset.value.amount) : 'Unavailable'}</td
 								>
@@ -567,6 +626,31 @@
 			</div>
 			{#if portfolio.unvalued_assets.length}
 				<p class="unvalued">No direct USD valuation: {portfolio.unvalued_assets.join(', ')}</p>
+			{/if}
+			{#if dust.dust.length > 0 && dust.dustTotal !== null}
+				<div class="dust-summary">
+					<button
+						type="button"
+						class="dust-toggle"
+						aria-expanded={dustOpen}
+						onclick={() => (dustOpen = !dustOpen)}
+					>
+						{dustOpen ? '▾' : '▸'}
+						{dust.dust.length}
+						{dust.dust.length === 1 ? 'balance' : 'balances'} under
+						{formatUsd('0.10')} totaling {formatUsd(dust.dustTotal)}
+					</button>
+					{#if dustOpen}
+						<ul class="dust-list">
+							{#each dust.dust as asset (asset.currency)}
+								<li>
+									{asset.name} ({asset.currency}) ·
+									{asset.value ? formatUsd(asset.value.amount) : 'Unavailable'}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 			{/if}
 		</section>
 
@@ -744,6 +828,57 @@
 	}
 	.value-flat {
 		color: #718083;
+	}
+	.value-source {
+		display: block;
+		margin-top: 6px;
+		color: #657174;
+		font-size: 11px;
+	}
+	.value-stale {
+		display: block;
+		margin-top: 6px;
+		color: #b39b72;
+		font-size: 11px;
+	}
+	.dust-summary {
+		padding: 10px 24px 16px;
+	}
+	.dust-toggle {
+		color: #778386;
+		background: transparent;
+		border: none;
+		padding: 4px 0;
+		cursor: pointer;
+		font: inherit;
+		font-size: 12px;
+	}
+	.dust-toggle:hover {
+		color: #aeb9bb;
+	}
+	.dust-list {
+		margin: 6px 0 0;
+		padding-left: 18px;
+		color: #718083;
+		font:
+			400 12px ui-monospace,
+			SFMono-Regular,
+			Consolas,
+			monospace;
+	}
+	.link-button {
+		display: inline-block;
+		color: #dce4e5;
+		background: #151b1d;
+		border: 1px solid #303a3c;
+		border-radius: 9px;
+		padding: 11px 15px;
+		text-decoration: none;
+		font: inherit;
+		font-size: 14px;
+	}
+	.link-button:hover {
+		border-color: #5ce1b5;
 	}
 	.mode {
 		font:

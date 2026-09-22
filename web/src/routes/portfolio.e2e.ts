@@ -121,7 +121,7 @@ test('shows a practical demo portfolio and detected extra permissions', async ({
 	await expect(
 		page.getByText(`As of ${new Date('2026-08-17T12:00:00Z').toLocaleString()}`)
 	).toBeVisible();
-	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76000000');
+	await expect(page.getByRole('row', { name: /Bitcoin BTC/ })).toContainText('0.76');
 	await expect(page.getByRole('row', { name: /Ethereum ETH/ })).toContainText('$7,342.17');
 	await expect(page.getByText('View', { exact: true })).toBeVisible();
 	await expect(page.getByRole('main').getByText('Trade', { exact: true })).toBeVisible();
@@ -689,13 +689,14 @@ test('paginates the assets table at ten rows with a page-size selector', async (
 
 	const rows = page.locator('.asset-panel tbody tr');
 	await expect(rows).toHaveCount(10);
-	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 12');
+	// Token 0 is valued below the dust threshold and collapses into the summary.
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 11');
 	await expect(page.getByText('Page 1 of 2')).toBeVisible();
 
 	await page.getByRole('button', { name: 'Next ›' }).click();
 
-	await expect(rows).toHaveCount(2);
-	await expect(page.getByTestId('asset-range')).toHaveText('Showing 11–12 of 12');
+	await expect(rows).toHaveCount(1);
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 11–11 of 11');
 	await expect(page.getByText('Page 2 of 2')).toBeVisible();
 	await expect(page.getByRole('button', { name: '« First' })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Next ›' })).toBeDisabled();
@@ -707,8 +708,8 @@ test('paginates the assets table at ten rows with a page-size selector', async (
 
 	await page.getByTestId('asset-page-size').selectOption('20');
 
-	await expect(rows).toHaveCount(12);
-	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–12 of 12');
+	await expect(rows).toHaveCount(11);
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–11 of 11');
 	await expect(page.getByText('Page 1 of 1')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Next ›' })).toBeDisabled();
 });
@@ -751,19 +752,20 @@ test('sorts before slicing so page one shows the globally largest values', async
 	await expect(rows).toHaveCount(10);
 	await expect(rows.first()).toContainText('Token 11');
 	await expect(rows.nth(9)).toContainText('Token 2');
-	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 12');
+	await expect(page.getByTestId('asset-range')).toHaveText('Showing 1–10 of 11');
 
 	await page.getByRole('columnheader', { name: 'Est. value' }).click();
 	await expect(page.getByRole('columnheader', { name: 'Est. value' })).toHaveAttribute(
 		'aria-sort',
 		'none'
 	);
-	await expect(rows.first()).toContainText('Token 0');
+	// Token 0 ($0.00) is dust; Token 1 ($10) leads the unsorted order.
+	await expect(rows.first()).toContainText('Token 1');
 
 	await page.getByTestId('asset-page-size').selectOption('50');
 
-	await expect(rows).toHaveCount(12);
-	await expect(rows.first()).toContainText('Token 0');
+	await expect(rows).toHaveCount(11);
+	await expect(rows.first()).toContainText('Token 1');
 });
 
 test('shows window change with sample disclosure, or an honest sparse state', async ({ page }) => {
@@ -883,3 +885,57 @@ function deploymentFixture(overrides: Record<string, unknown> = {}): Record<stri
 		...overrides
 	};
 }
+
+test('collapses sub-threshold balances into an expandable dust summary', async ({ page }) => {
+	await openPortfolioWithAssets(page, pagedPortfolio);
+
+	const dustToggle = page.getByRole('button', { name: /balance under \$0.10/ });
+	await expect(dustToggle).toContainText('1 balance under $0.10 totaling $0.00');
+
+	await dustToggle.click();
+
+	await expect(page.getByRole('listitem')).toContainText('Token 0 (Token 0)');
+	await expect(dustToggle).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('shows stale-snapshot disclosure next to the value', async ({ page }) => {
+	await openPortfolioWithHistory(page, {
+		entries: [
+			historyEntry('10450.50', '2026-09-22T02:00:00Z'),
+			historyEntry('10000', '2026-09-21T02:00:00Z')
+		]
+	});
+	// The fixture as_of (2026-07-27) is weeks old, so the disclosure must show.
+	await expect(page.getByText(/Snapshot \d+ min old/)).toBeVisible();
+});
+
+test('labels the value source so ledger cash and venue balances stay distinct', async ({
+	page
+}) => {
+	await openPortfolioWithHistory(page, {
+		entries: [
+			historyEntry('10450.50', '2026-09-22T02:00:00Z'),
+			historyEntry('10000', '2026-09-21T02:00:00Z')
+		]
+	});
+	await expect(page.getByText('USD estimate · Coinbase spot balances')).toBeVisible();
+});
+
+test('fresh demo install shows an onboarding path instead of empty zeros', async ({ page }) => {
+	await page.route('**/api/v1/portfolio', async (route) => {
+		await route.fulfill({
+			json: {
+				...demoPortfolio,
+				assets: [],
+				total_value: { amount: '0', currency: 'USD' }
+			}
+		});
+	});
+	await page.goto('/');
+
+	await expect(
+		page.getByRole('heading', { name: 'Connect Coinbase to see your portfolio' })
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Add credentials in Settings' })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Explore Strategies' })).toBeVisible();
+});
