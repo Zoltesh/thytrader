@@ -430,7 +430,7 @@ export function compareDecimalStrings(left: string, right: string): number {
 	return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
 }
 
-function subtractDecimalStrings(left: string, right: string): string {
+export function subtractDecimalStrings(left: string, right: string): string {
 	const leftParts = parseDecimal(left);
 	const rightParts = parseDecimal(right);
 	const scale = Math.max(leftParts.scale, rightParts.scale);

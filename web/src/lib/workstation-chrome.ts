@@ -1,5 +1,8 @@
 /**
- * Shared workstation chrome: primary nav labels and active-route matching.
+ * Shared workstation chrome: primary nav groups and active-route matching.
+ *
+ * Nav is grouped by operator verb — watch running state, do research/trading
+ * work, govern the system — instead of one flat list of eleven links.
  *
  * Context pills are static environment labels (not health). Route layouts set
  * `contextLabel` on page data; the root layout renders it.
@@ -12,6 +15,7 @@ export const SETTINGS_CONTEXT_LABEL = 'Loopback settings';
 
 export type WorkstationNavHref =
 	| '/'
+	| '/deployments'
 	| '/strategies'
 	| '/backtests'
 	| '/research'
@@ -27,6 +31,7 @@ export type WorkstationNavItem = {
 	href: WorkstationNavHref;
 	label:
 		| 'Portfolio'
+		| 'Deployments'
 		| 'Strategies'
 		| 'Backtests'
 		| 'Research'
@@ -39,19 +44,46 @@ export type WorkstationNavItem = {
 		| 'Settings';
 };
 
-export const WORKSTATION_NAV: readonly WorkstationNavItem[] = [
-	{ href: '/', label: 'Portfolio' },
-	{ href: '/strategies', label: 'Strategies' },
-	{ href: '/backtests', label: 'Backtests' },
-	{ href: '/research', label: 'Research' },
-	{ href: '/deploy', label: 'Deploy' },
-	{ href: '/trade', label: 'Trade' },
-	{ href: '/journals', label: 'Journals' },
-	{ href: '/chat', label: 'Chat' },
-	{ href: '/audit', label: 'Audit' },
-	{ href: '/memory', label: 'Memory' },
-	{ href: '/settings', label: 'Settings' }
+export type WorkstationNavGroup = {
+	/** Visible group label; also the accessible heading for the link set. */
+	label: 'Watch' | 'Work' | 'Govern';
+	items: readonly WorkstationNavItem[];
+};
+
+export const WORKSTATION_NAV_GROUPS: readonly WorkstationNavGroup[] = [
+	{
+		label: 'Watch',
+		items: [
+			{ href: '/', label: 'Portfolio' },
+			{ href: '/deployments', label: 'Deployments' }
+		]
+	},
+	{
+		label: 'Work',
+		items: [
+			{ href: '/strategies', label: 'Strategies' },
+			{ href: '/backtests', label: 'Backtests' },
+			{ href: '/research', label: 'Research' },
+			{ href: '/deploy', label: 'Deploy' },
+			{ href: '/trade', label: 'Trade' }
+		]
+	},
+	{
+		label: 'Govern',
+		items: [
+			{ href: '/journals', label: 'Journals' },
+			{ href: '/chat', label: 'Chat' },
+			{ href: '/audit', label: 'Audit' },
+			{ href: '/memory', label: 'Memory' },
+			{ href: '/settings', label: 'Settings' }
+		]
+	}
 ];
+
+/** Flat nav in display order; derived once so route matching stays a plain lookup. */
+export const WORKSTATION_NAV: readonly WorkstationNavItem[] = WORKSTATION_NAV_GROUPS.flatMap(
+	(group) => group.items
+);
 
 /**
  * Whether a primary-nav href is the current SvelteKit route.

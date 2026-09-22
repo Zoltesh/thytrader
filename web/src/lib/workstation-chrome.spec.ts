@@ -6,6 +6,7 @@ import {
 	RESEARCH_CONTEXT_LABEL,
 	SETTINGS_CONTEXT_LABEL,
 	WORKSTATION_NAV,
+	WORKSTATION_NAV_GROUPS,
 	isWorkstationNavActive
 } from './workstation-chrome';
 
@@ -13,11 +14,34 @@ describe('workstation chrome', () => {
 	it('preserves the primary nav labels in route order', () => {
 		expect(WORKSTATION_NAV.map((item) => item.label)).toEqual([
 			'Portfolio',
+			'Deployments',
 			'Strategies',
 			'Backtests',
 			'Research',
 			'Deploy',
 			'Trade',
+			'Journals',
+			'Chat',
+			'Audit',
+			'Memory',
+			'Settings'
+		]);
+	});
+
+	it('groups the nav into watch, work, and govern clusters', () => {
+		expect(WORKSTATION_NAV_GROUPS.map((group) => group.label)).toEqual(['Watch', 'Work', 'Govern']);
+		expect(WORKSTATION_NAV_GROUPS[0].items.map((item) => item.label)).toEqual([
+			'Portfolio',
+			'Deployments'
+		]);
+		expect(WORKSTATION_NAV_GROUPS[1].items.map((item) => item.label)).toEqual([
+			'Strategies',
+			'Backtests',
+			'Research',
+			'Deploy',
+			'Trade'
+		]);
+		expect(WORKSTATION_NAV_GROUPS[2].items.map((item) => item.label)).toEqual([
 			'Journals',
 			'Chat',
 			'Audit',
@@ -39,6 +63,12 @@ describe('workstation chrome', () => {
 		expect(isWorkstationNavActive('/', '/strategies')).toBe(false);
 		expect(isWorkstationNavActive('/', '/audit')).toBe(false);
 		expect(isWorkstationNavActive('/', null)).toBe(false);
+	});
+
+	it('marks Deployments on its own route only', () => {
+		expect(isWorkstationNavActive('/deployments', '/deployments')).toBe(true);
+		expect(isWorkstationNavActive('/deployments', '/deploy')).toBe(false);
+		expect(isWorkstationNavActive('/deployments', '/')).toBe(false);
 	});
 
 	it('marks Trade on the trade route only', () => {

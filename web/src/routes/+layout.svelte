@@ -4,7 +4,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import {
 		DEFAULT_CONTEXT_LABEL,
-		WORKSTATION_NAV,
+		WORKSTATION_NAV_GROUPS,
 		isWorkstationNavActive
 	} from '$lib/workstation-chrome';
 	import type { Snippet } from 'svelte';
@@ -28,11 +28,18 @@
 			<span>ThyTrader</span>
 		</a>
 		<nav aria-label="Primary navigation">
-			{#each WORKSTATION_NAV as item (item.href)}
-				{@const active = isWorkstationNavActive(item.href, page.route.id)}
-				<a href={resolve(item.href)} class:active aria-current={active ? 'page' : undefined}>
-					{item.label}
-				</a>
+			{#each WORKSTATION_NAV_GROUPS as group (group.label)}
+				<div class="nav-group">
+					<span class="nav-group-label" aria-hidden="true">{group.label}</span>
+					<div class="nav-group-links">
+						{#each group.items as item (item.href)}
+							{@const active = isWorkstationNavActive(item.href, page.route.id)}
+							<a href={resolve(item.href)} class:active aria-current={active ? 'page' : undefined}>
+								{item.label}
+							</a>
+						{/each}
+					</div>
+				</div>
 			{/each}
 		</nav>
 		<div class="local-pill">

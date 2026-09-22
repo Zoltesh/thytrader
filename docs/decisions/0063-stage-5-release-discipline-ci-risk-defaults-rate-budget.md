@@ -65,6 +65,10 @@ Docker Compose deployment model (native processes are the other supported target
 adapter). `web/server.js` wraps the compiled `build/handler.js` with the same `/api` reverse proxy
 the Vite dev server already performs in development, driven by the existing
 `THYTRADER_API_PROXY_TARGET` environment variable so no new configuration surface is introduced.
+Like the Vite dev proxy, `web/server.js` injects the installation credential server-side on
+proxied `/api` requests (from `THYTRADER_INSTALLATION_TOKEN`, or the durable token file via
+`THYTRADER_INSTALLATION_TOKEN_FILE`); the browser never receives it. Compose supplies the token
+file by mounting the credentials volume read-only into the web container.
 `web/Dockerfile` becomes a two-stage build: `npm ci && npm run build` in the builder stage, then
 `npm ci --omit=dev` plus the compiled `build/` output and `server.js` in the runtime stage, started
 with `node server.js`. Compose's published port, health check, and environment variables are
