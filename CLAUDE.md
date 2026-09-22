@@ -47,9 +47,9 @@ scraping logs or inventing commands.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thytrader** (17830 symbols, 39436 relationships, 382 execution flows).
+This project is indexed by GitNexus as **thytrader** (45104 symbols, 103104 relationships, 587 execution flows).
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. If GitNexus is not available (no MCP, no `.gitnexus/run.cjs`, `Cannot find module`), **bootstrap** with `bunx gitnexus@latest analyze` (or `npx` / `pnpm dlx`; npm 11 npx crash; #1939). Do not skip the graph.
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
 ## Always Do
 
