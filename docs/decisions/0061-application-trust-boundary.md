@@ -22,8 +22,10 @@ This ADR does not duplicate that gate.
 1. **Installation credential** — Production enables `trust_boundary_enabled` and requires
    `Authorization: Bearer <installation-token>` on HTTP mutations. The token is persisted
    under `THYTRADER_CREDENTIALS_DIR` when not supplied explicitly.
-2. **Host and Origin validation** — Reject hostile `Host` and browser `Origin` headers while
-   keeping loopback bind defaults.
+2. **Host and Origin validation** — Reject hostile `Host` headers and non-loopback browser
+   `Origin` headers while keeping loopback bind defaults. Origins are validated on hostname
+   only: any port on a loopback hostname (`127.0.0.1`, `localhost`, `::1`) is accepted, so
+   the workstation UI and the API may listen on different loopback ports.
 3. **CSRF for browser mutations** — Browser-origin writes require double-submit
    `X-CSRF-Token` plus `thytrader_csrf` cookie from `GET /api/v1/security/session`.
 4. **Durable credential propagation** — Compose mounts `thytrader_credentials` at
@@ -35,6 +37,21 @@ This ADR does not duplicate that gate.
 
 Development and test processes keep the boundary off until an installation token is
 configured.
+
+### Amendment 2026-09-22: origin validation is hostname-only
+
+**Accepted.** Browser mutations from every supported topology were rejected by the previous
+port-matching rule: the UI Origin is `http://127.0.0.1:<ui-port>` (5175 under Compose, 14173
+under `npm run dev`), which never equals the API listener port (8200 default). No browser
+mutation — lifecycle controls or discretionary tickets — could pass the boundary, and the
+e2e suite did not catch it because it stubs mutation POSTs.
+
+Origin validation now compares **hostnames only** and accepts any port on a loopback
+hostname. Cross-site protection is unchanged in substance: non-loopback hosts are still
+rejected, and cross-*site* request forgery remains the job of the independent double-submit
+CSRF gate (decision 3) plus `samesite=strict` cookies — the origin check is host
+defense-in-depth, not the CSRF mechanism. Rejected alternative: a configurable allow-list
+of UI origins (more configuration surface for a single-operator, loopback-first product).
 
 ## Consequences
 

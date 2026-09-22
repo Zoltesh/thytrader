@@ -134,15 +134,19 @@ class TrustBoundary:
         raise TrustBoundaryError("Host header is not allowed.")
 
     def _validate_origin(self, origin: str) -> None:
-        """Reject cross-origin browser mutations."""
+        """Reject non-loopback browser origins regardless of port.
+
+        Hostname-only comparison (ADR 0061 amendment 2026-09-22): the UI and
+        the API listen on different loopback ports in every supported
+        topology, so a port match would reject every legitimate browser
+        mutation. Cross-site requests remain the CSRF gate's job.
+        """
         parsed = urlparse(origin.strip())
         if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
             raise TrustBoundaryError("Origin header is not allowed.")
         hostname = parsed.hostname.lower()
         if hostname not in _LOOPBACK_HOSTS:
             raise TrustBoundaryError("Origin header is not allowed.")
-        if parsed.port is not None and parsed.port != self.api_port:
-            raise TrustBoundaryError("Origin port does not match the API listener.")
 
     def _validate_installation_token(self, authorization: str | None) -> None:
         """Require Bearer installation credential on mutations."""

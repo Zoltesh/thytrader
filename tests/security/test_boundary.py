@@ -86,3 +86,55 @@ def test_requires_csrf_for_browser_origin_mutations() -> None:
         csrf_token=session.csrf_token,
         csrf_cookie=session.csrf_token,
     )
+
+
+def test_accepts_loopback_origin_on_any_port() -> None:
+    """UI origins on a different loopback port than the API still pass (ADR 0061 amendment)."""
+    boundary = TrustBoundary(
+        settings=Settings(
+            installation_token=SecretStr("test-token"),
+            trust_boundary_enabled=True,
+            _env_file=None,
+        ),
+        credentials_dir=Settings().credentials_dir,
+        enabled=True,
+    )
+    session = boundary.issue_session()
+    for origin in (
+        "http://127.0.0.1:5175",
+        "http://localhost:14173",
+        "http://127.0.0.1:8200",
+    ):
+        boundary.validate_request(
+            method="POST",
+            path="/api/v1/deployments",
+            host="127.0.0.1:8200",
+            origin=origin,
+            authorization="Bearer test-token",
+            csrf_token=session.csrf_token,
+            csrf_cookie=session.csrf_token,
+        )
+
+
+def test_rejects_non_loopback_origin_despite_valid_csrf() -> None:
+    """Hostname validation is the origin gate; a remote host fails even with CSRF."""
+    boundary = TrustBoundary(
+        settings=Settings(
+            installation_token=SecretStr("test-token"),
+            trust_boundary_enabled=True,
+            _env_file=None,
+        ),
+        credentials_dir=Settings().credentials_dir,
+        enabled=True,
+    )
+    session = boundary.issue_session()
+    with pytest.raises(TrustBoundaryError, match="Origin header is not allowed"):
+        boundary.validate_request(
+            method="POST",
+            path="/api/v1/deployments",
+            host="127.0.0.1:8200",
+            origin="http://evil.example:5175",
+            authorization="Bearer test-token",
+            csrf_token=session.csrf_token,
+            csrf_cookie=session.csrf_token,
+        )
