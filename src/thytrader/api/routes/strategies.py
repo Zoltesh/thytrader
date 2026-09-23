@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -61,6 +61,11 @@ from thytrader.strategies.publication import (
     StrategyPublicationError,
     StrategyPublicationStore,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from thytrader.execution.models import Deployment
 
 router = APIRouter(prefix="/api/v1/strategies", tags=["strategies"])
 
@@ -279,15 +284,62 @@ async def list_strategies(
         definition = _require_exact_catalog_entry(entry)
         _register_publication(groups, entry, definition)
 
-    entries: list[StrategyLibraryEntryResponse] = []
-    for identity, group in groups.items():
-        backtest = await _latest_backtest(group.fingerprints, result_store)
-        paper_live = await _paper_live_status(identity, execution_store)
-        entries.append(_library_entry(group, backtest, paper_live))
-    entries.sort(key=_activity_instant, reverse=True)
+    # Select the page before paying enrichment cost: ordering, archive
+    # filtering, and slicing work on the in-memory groups, so lookups run per
+    # returned row instead of per catalog identity.
+    if cursor is None:
+        start = 0
+    else:
+        try:
+            start = decode_offset_cursor(cursor)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pagination cursor is malformed.",
+            ) from None
+    ordered = sorted(groups.items(), key=lambda item: item[1].updated_at, reverse=True)
     if not include_archived:
-        entries = [entry for entry in entries if not entry.archived]
-    return _paginate_library(entries, limit=limit, cursor=cursor)
+        ordered = [item for item in ordered if not item[1].archived]
+    page = ordered[start : start + limit]
+
+    page_fingerprints = [
+        fingerprint for _identity, group in page for fingerprint in group.fingerprints
+    ]
+    latest_backtests = await _latest_backtests(page_fingerprints, result_store)
+    paper_live_statuses = await _paper_live_statuses(
+        [identity for identity, _group in page], execution_store
+    )
+
+    entries: list[StrategyLibraryEntryResponse] = []
+    for identity, group in page:
+        backtest = None
+        group_views = [
+            view
+            for fingerprint in group.fingerprints
+            if (view := latest_backtests.get(fingerprint))
+        ]
+        if group_views:
+            newest = max(group_views, key=lambda view: view.published_at)
+            backtest = StrategyLibraryBacktestResponse(
+                result_fingerprint=newest.result_fingerprint,
+                published_at=newest.published_at.isoformat(),
+                summary=newest.summary,
+            )
+        entries.append(
+            _library_entry(
+                group,
+                backtest,
+                paper_live_statuses.get(identity) or StrategyLibraryPaperLiveResponse(),
+            )
+        )
+    has_more = start + limit < len(ordered)
+    return StrategyListResponse(
+        strategies=tuple(entries),
+        limit=limit,
+        returned=len(entries),
+        has_more=has_more,
+        next_cursor=encode_offset_cursor(start + limit) if has_more else None,
+    )
 
 
 @router.post("", response_model=StrategyCreatedResponse, status_code=status.HTTP_201_CREATED)
@@ -370,7 +422,10 @@ async def create_strategy_draft(
             continue
         backtest = await _latest_backtest(group.fingerprints, result_store)
         siblings.append(_library_entry(group, backtest))
-    siblings.sort(key=_activity_instant, reverse=True)
+    siblings.sort(
+        key=lambda entry: datetime.fromisoformat(entry.updated_at),
+        reverse=True,
+    )
     return StrategyCreatedResponse(
         strategy=draft.definition,
         revision=draft.revision,
@@ -1003,6 +1058,77 @@ async def _latest_backtest(
     )
 
 
+async def _latest_backtests(
+    strategy_fingerprints: Sequence[str],
+    result_store: BacktestResultReader,
+) -> dict[str, BacktestResultSummaryView]:
+    """Resolve the newest stored backtest per requested fingerprint in one batch.
+
+    A storage boundary that predates batched discovery degrades to one bounded
+    query per fingerprint; missing or failing fingerprints are simply absent.
+    """
+    fingerprints = list(dict.fromkeys(strategy_fingerprints))
+    if not fingerprints:
+        return {}
+    batched = getattr(result_store, "list_summaries_for_strategies", None)
+    if batched is not None:
+        try:
+            return await batched(fingerprints)
+        except Exception:  # noqa: BLE001, S110 - fall back to per-fingerprint reads.
+            pass
+    grouped: dict[str, BacktestResultSummaryView] = {}
+    for fingerprint_value in fingerprints:
+        try:
+            summaries = await result_store.list_summaries(
+                strategy_fingerprint=fingerprint_value,
+                limit=1,
+                offset=0,
+            )
+        except Exception:  # noqa: BLE001, S112 - redacted per-request degradation.
+            continue
+        if summaries:
+            grouped[fingerprint_value] = summaries[0]
+    return grouped
+
+
+async def _paper_live_statuses(
+    strategy_ids: Sequence[str],
+    store: ExecutionStore,
+) -> dict[str, StrategyLibraryPaperLiveResponse]:
+    """Project paper/live deployment statuses for one page of identities.
+
+    A storage boundary that predates batched discovery degrades to one query
+    per identity; failing identities report the neutral unavailable status.
+    """
+    identities = list(strategy_ids)
+    if not identities:
+        return {}
+    batched = getattr(store, "list_by_strategy_ids", None)
+    grouped: dict[str, tuple[Deployment, ...]] = {}
+    if batched is not None:
+        try:
+            grouped = await batched(identities)
+        except ExecutionStoreError:
+            grouped = {}
+    else:
+        for identity in identities:
+            try:
+                grouped[identity] = await store.list_by_strategy(identity)
+            except ExecutionStoreError:
+                grouped[identity] = ()
+    statuses: dict[str, StrategyLibraryPaperLiveResponse] = {}
+    for identity, deployments in grouped.items():
+        paper = "unavailable"
+        live = "unavailable"
+        for item in deployments:
+            if item.mode is DeploymentMode.PAPER and paper == "unavailable":
+                paper = item.status.value
+            elif item.mode is DeploymentMode.LIVE and live == "unavailable":
+                live = item.status.value
+        statuses[identity] = StrategyLibraryPaperLiveResponse(paper=paper, live=live)
+    return statuses
+
+
 def _library_entry(
     group: _LibraryGroup,
     backtest: StrategyLibraryBacktestResponse | None,
@@ -1041,56 +1167,6 @@ def _library_entry(
         created_at=created_at.isoformat(),
         updated_at=updated_at.isoformat(),
     )
-
-
-def _activity_instant(entry: StrategyLibraryEntryResponse) -> datetime:
-    """Parse one library row's activity instant for newest-first sorting."""
-    return datetime.fromisoformat(entry.updated_at)
-
-
-def _paginate_library(
-    entries: list[StrategyLibraryEntryResponse],
-    *,
-    limit: int,
-    cursor: str | None,
-) -> StrategyListResponse:
-    """Slice one newest-first library into a cursor page."""
-    start = 0
-    if cursor is not None:
-        try:
-            start = decode_offset_cursor(cursor)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Pagination cursor is malformed.",
-            ) from None
-    page = entries[start : start + limit]
-    has_more = start + limit < len(entries)
-    return StrategyListResponse(
-        strategies=tuple(page),
-        limit=limit,
-        returned=len(page),
-        has_more=has_more,
-        next_cursor=encode_offset_cursor(start + limit) if has_more else None,
-    )
-
-
-async def _paper_live_status(
-    strategy_id: str, store: ExecutionStore
-) -> StrategyLibraryPaperLiveResponse:
-    """Project the newest paper and live deployment statuses for one identity."""
-    try:
-        deployments = await store.list_by_strategy(strategy_id)
-    except ExecutionStoreError:
-        return StrategyLibraryPaperLiveResponse()
-    paper = "unavailable"
-    live = "unavailable"
-    for item in deployments:
-        if item.mode is DeploymentMode.PAPER and paper == "unavailable":
-            paper = item.status.value
-        elif item.mode is DeploymentMode.LIVE and live == "unavailable":
-            live = item.status.value
-    return StrategyLibraryPaperLiveResponse(paper=paper, live=live)
 
 
 def _require_exact_publication(

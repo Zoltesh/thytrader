@@ -36,6 +36,8 @@ from thytrader.research.models import (
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import pytest
 
 
@@ -216,6 +218,21 @@ class InMemoryBacktestResultReader:
         except KeyError:
             raise BacktestResultNotFoundError("missing") from None
 
+    async def list_summaries_for_strategies(
+        self,
+        strategy_fingerprints: Sequence[str],
+    ) -> dict[str, BacktestResultSummaryView]:
+        """Return the newest summary per requested fingerprint, like Postgres."""
+        grouped = {
+            view.strategy_fingerprint: view
+            for view in await self.list_summaries(limit=len(self._results) or 1, offset=0)
+        }
+        return {
+            fingerprint: grouped[fingerprint]
+            for fingerprint in strategy_fingerprints
+            if fingerprint in grouped
+        }
+
 
 class CostProjectingBacktestResultReader(InMemoryBacktestResultReader):
     """In-memory reader that can project published CostAssumptions like Postgres."""
@@ -300,6 +317,14 @@ class UnavailableBacktestResultReader:
     async def load(self, result_fingerprint: str) -> BacktestResult:
         """Raise a redacted unavailability failure."""
         del result_fingerprint
+        raise BacktestResultUnavailableError("unavailable")
+
+    async def list_summaries_for_strategies(
+        self,
+        strategy_fingerprints: Sequence[str],
+    ) -> dict[str, BacktestResultSummaryView]:
+        """Raise a redacted unavailability failure."""
+        del strategy_fingerprints
         raise BacktestResultUnavailableError("unavailable")
 
 

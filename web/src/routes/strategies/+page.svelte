@@ -31,6 +31,8 @@
 	let entries = $state<StrategyLibraryEntry[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
+	let loadingMore = $state(false);
+	let libraryRequestId = 0;
 	let pendingAction = $state<string | null>(null);
 	let showImport = $state(false);
 	let importText = $state('');
@@ -282,14 +284,29 @@
 	}
 
 	async function loadLibrary(): Promise<void> {
+		const requestId = ++libraryRequestId;
 		loading = true;
+		loadingMore = false;
+		entries = [];
 		error = null;
 		try {
-			entries = await listStrategies();
+			const loaded = await listStrategies((pageEntries, hasMore) => {
+				if (requestId !== libraryRequestId) return;
+				entries = pageEntries;
+				loading = false;
+				loadingMore = hasMore;
+			});
+			if (requestId === libraryRequestId) entries = loaded;
 		} catch (caught) {
-			error = caught instanceof Error ? caught.message : 'Could not load the strategy library.';
+			if (requestId !== libraryRequestId) return;
+			const detail =
+				caught instanceof Error ? caught.message : 'Could not load the strategy library.';
+			error = entries.length > 0 ? `Strategy library incomplete: ${detail}` : detail;
 		} finally {
-			loading = false;
+			if (requestId === libraryRequestId) {
+				loading = false;
+				loadingMore = false;
+			}
 		}
 	}
 
@@ -427,13 +444,26 @@
 	</section>
 	{#if error}<div class="error-banner" role="alert">
 			<div>
-				<strong>Strategy library unavailable</strong>
+				<strong
+					>{entries.length > 0
+						? 'Strategy library incomplete'
+						: 'Strategy library unavailable'}</strong
+				>
 				<p>{error}</p>
 			</div>
 			<button type="button" onclick={loadLibrary}>Retry library load</button>
 		</div>{/if}
+	{#if loadingMore}
+		<p class="loading-more" role="status" data-testid="library-loading-more">
+			Loading remaining strategies… {entries.length} shown so far.
+		</p>
+	{/if}
 	<section class="library-card" aria-label="Strategy library">
 		{#if loading}
+			<div class="loading-region"><div class="skeleton wide"></div></div>
+		{:else if error && entries.length === 0}
+			<div class="empty-state"><p>Could not load strategies. Retry the library load.</p></div>
+		{:else if loadingMore && entries.length === 0}
 			<div class="loading-region"><div class="skeleton wide"></div></div>
 		{:else if entries.length === 0}
 			<div class="empty-state">
@@ -852,6 +882,11 @@
 {/if}
 
 <style>
+	.loading-more {
+		margin: 0 0 12px;
+		color: #a7c6b6;
+		font-size: 13px;
+	}
 	.library-card {
 		background: var(--card, #141b1c);
 		border: 1px solid #303a3c;

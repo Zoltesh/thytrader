@@ -26,6 +26,7 @@ from thytrader.execution.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime, timedelta
     from uuid import UUID
 
@@ -151,6 +152,18 @@ class InstrumentScopedStore:
     async def list_by_strategy(self, strategy_id: str) -> tuple[Deployment, ...]:
         """Return deployments for one strategy identity, newest-updated first."""
         return await self._inner.list_by_strategy(strategy_id)
+
+    async def list_by_strategy_ids(
+        self, strategy_ids: Sequence[str]
+    ) -> dict[str, tuple[Deployment, ...]]:
+        """Return every deployment grouped per requested strategy identity."""
+        batched = getattr(self._inner, "list_by_strategy_ids", None)
+        if batched is not None:
+            return await batched(strategy_ids)
+        grouped: dict[str, tuple[Deployment, ...]] = {}
+        for identity in strategy_ids:
+            grouped[identity] = await self._inner.list_by_strategy(identity)
+        return grouped
 
     async def save_deployment(
         self, deployment: Deployment, *, expected_revision: int | None = None

@@ -162,6 +162,102 @@ test('shows an empty library with create and import actions when no strategies e
 	await expect(page.getByRole('button', { name: 'Import JSON…' })).toBeVisible();
 });
 
+test('shows the first page while later strategy pages are still loading', async ({ page }) => {
+	let releaseNextPage: () => void = () => undefined;
+	const nextPageHeld = new Promise<void>((resolve) => {
+		releaseNextPage = resolve;
+	});
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		if (new URL(route.request().url()).searchParams.has('cursor')) {
+			await nextPageHeld;
+			await route.fulfill({
+				json: { strategies: [secondStrategyEntry], returned: 1, has_more: false, next_cursor: null }
+			});
+			return;
+		}
+		await route.fulfill({
+			json: { strategies: [libraryEntry], returned: 1, has_more: true, next_cursor: 'next' }
+		});
+	});
+	await page.goto('/strategies');
+	try {
+		await expect(page.locator(`tr[data-strategy-id="${strategyId}"]`)).toBeVisible();
+		await expect(page.getByTestId('library-loading-more')).toContainText(
+			'Loading remaining strategies'
+		);
+		await expect(
+			page.locator(`tr[data-strategy-id="${secondStrategyEntry.strategy_id}"]`)
+		).toHaveCount(0);
+	} finally {
+		releaseNextPage();
+	}
+	await expect(page.locator('tbody tr')).toHaveCount(2);
+	await expect(page.getByTestId('library-loading-more')).toHaveCount(0);
+});
+
+test('discloses a later-page failure without calling a partial library empty', async ({ page }) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		if (new URL(route.request().url()).searchParams.has('cursor')) {
+			await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
+			return;
+		}
+		await route.fulfill({
+			json: { strategies: [libraryEntry], returned: 1, has_more: true, next_cursor: 'next' }
+		});
+	});
+	await page.goto('/strategies');
+	await expect(page.locator(`tr[data-strategy-id="${strategyId}"]`)).toBeVisible();
+	await expect(page.getByRole('alert')).toContainText('incomplete');
+	await expect(page.getByText('No strategies yet.')).toHaveCount(0);
+});
+
+test('marks the library incomplete when the 50-page fetch cap is exhausted', async ({ page }) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		const cursor = new URL(route.request().url()).searchParams.get('cursor');
+		const index = cursor === null ? 0 : Number(cursor.slice(1));
+		await route.fulfill({
+			json: {
+				strategies: [
+					{
+						...libraryEntry,
+						strategy_id: `01985cf0-7b60-7000-8000-${String(index).padStart(12, '0')}`
+					}
+				],
+				returned: 1,
+				has_more: true,
+				next_cursor: `p${index + 1}`
+			}
+		});
+	});
+	await page.goto('/strategies');
+	await expect(page.getByRole('alert')).toContainText('50-page');
+	await expect(page.locator('tbody tr')).toHaveCount(50);
+	await expect(page.getByTestId('library-loading-more')).toHaveCount(0);
+});
+
+test('rejects an empty page that claims more instead of reporting an empty library', async ({
+	page
+}) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		await route.fulfill({
+			json: { strategies: [], returned: 0, has_more: true, next_cursor: 'next' }
+		});
+	});
+	await page.goto('/strategies');
+	await expect(page.getByRole('alert')).toContainText('empty page');
+	await expect(page.getByText('No strategies yet.')).toHaveCount(0);
+});
+
+test('does not label an unavailable first page as an empty library', async ({ page }) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
+	});
+	await page.goto('/strategies');
+	await expect(page.getByRole('alert')).toBeVisible();
+	await expect(page.getByText('Could not load strategies. Retry the library load.')).toBeVisible();
+	await expect(page.getByText('No strategies yet.')).toHaveCount(0);
+});
+
 test('lists every strategy with market, version, status, backtest, and paper/live columns', async ({
 	page
 }) => {

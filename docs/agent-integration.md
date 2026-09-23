@@ -126,6 +126,14 @@ capabilities. Research, data, runtime, playbook, and memory already follow that 
 
 ### Research mutation boundary
 
+The browser strategy builder (`/strategies/{strategy_id}`) reads the identity's version-history
+endpoint to find its editable draft. `draft: null` means the remaining versions are immutable;
+inspect or revise them from the library's View → Versions panel rather than requesting a published
+version through the draft endpoint. This read requires no confirmation and does not scan the full
+strategy library. The browser library displays page one immediately while the remaining cursor
+pages load, and marks a later-page failure as incomplete rather than calling the partial result
+empty. The CLI still follows its bounded `--limit` / `--cursor` contract.
+
 The earliest permitted mutation surface is limited to research artifacts:
 
 - create or edit a strategy **draft**;

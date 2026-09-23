@@ -19,6 +19,7 @@ from thytrader.execution.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime, timedelta
     from uuid import UUID
 
@@ -163,6 +164,13 @@ class DisabledExecutionStore:
         """Return no deployments when storage is unconfigured."""
         del strategy_id
         return ()
+
+    async def list_by_strategy_ids(
+        self, strategy_ids: Sequence[str]
+    ) -> dict[str, tuple[Deployment, ...]]:
+        """Return no deployments when storage is unconfigured."""
+        del strategy_ids
+        return {}
 
     async def save_deployment(
         self, deployment: Deployment, *, expected_revision: int | None = None

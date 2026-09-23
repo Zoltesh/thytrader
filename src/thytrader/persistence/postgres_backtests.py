@@ -29,7 +29,7 @@ from thytrader.research.publication import ResearchRunPublicationError
 from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -250,6 +250,62 @@ class PostgresBacktestResultStore:
                 "Backtest result storage is unavailable."
             ) from error
         return tuple(_to_summary_view(row) for row in rows)
+
+    async def list_summaries_for_strategies(
+        self,
+        strategy_fingerprints: Sequence[str],
+    ) -> dict[str, BacktestResultSummaryView]:
+        """Return the newest summary per requested strategy fingerprint.
+
+        One bounded ``DISTINCT ON`` query answers the whole requested set, so a
+        library page costs a single round trip regardless of fingerprint count.
+        Fingerprints without stored results are absent from the mapping.
+        """
+        if not strategy_fingerprints:
+            return {}
+        if len(strategy_fingerprints) > 1000:
+            raise BacktestPublicationError(
+                "Summary discovery accepts at most 1000 strategy fingerprints."
+            )
+        for value in strategy_fingerprints:
+            _validate_fingerprint(value)
+        table = published_backtest_results
+        summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
+        engine_contract_version = (
+            sql_cast(table.c.canonical_result, JSON)["engine_contract_version"]
+            .as_string()
+            .label("engine_contract_version")
+        )
+        statement = (
+            select(
+                table.c.result_fingerprint,
+                table.c.run_fingerprint,
+                table.c.strategy_fingerprint,
+                table.c.dataset_fingerprint,
+                table.c.published_at,
+                engine_contract_version,
+                summary_json,
+            )
+            .where(table.c.strategy_fingerprint.in_(strategy_fingerprints))
+            .distinct(table.c.strategy_fingerprint)
+            .order_by(
+                table.c.strategy_fingerprint,
+                table.c.published_at.desc(),
+                table.c.result_fingerprint.asc(),
+            )
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise BacktestResultUnavailableError(
+                "Backtest result storage is unavailable."
+            ) from error
+        newest: dict[str, BacktestResultSummaryView] = {}
+        for row in rows:
+            view = _to_summary_view(row)
+            newest[view.strategy_fingerprint] = view
+        return newest
 
     async def load_source_specification(
         self,

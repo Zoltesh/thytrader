@@ -15,8 +15,11 @@ live balances when both Coinbase variables are configured. That screen never sub
 
 ### Strategies
 
-Open http://127.0.0.1:5175/strategies when the stack is healthy. The library lists every strategy
-identity with its market and timeframe, latest version, draft/published/archived status, the newest
+Open http://127.0.0.1:5175/strategies when the stack is healthy. The library shows the first
+page as soon as it arrives, labels remaining pages while they load, and retains visible rows with
+an explicit incomplete warning if a later page fails; it never calls a failed load an empty library.
+Each row shows the strategy identity, market and timeframe, latest version,
+draft/published/archived status, the newest
 backtest bound to any of its immutable versions, and its paper/live column: newest deployment
 status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
 `unavailable` means no runtime of that mode (not that the execution worker is missing). Clicking a
@@ -27,8 +30,12 @@ fresh draft identity (Clone stays ungated), import a complete strategy definitio
 draft, and archive an immutable publication after confirming the latest published version and
 fingerprint.
 
+The builder at `/strategies/{strategy_id}` reads that identity's version history directly and opens
+its durable draft without loading the full library. If the identity has only immutable published or
+archived versions, the page says **No editable draft**; return to the library's View → Versions panel
+to inspect or revise a version into a new draft. That state is not a missing strategy or an API outage.
 Saves carry an opaque revision and reject stale browser tabs rather than overwriting newer edits.
-The builder at `/strategies/{strategy_id}` opens any durable draft for full-schema editing with a
+The builder supports full-schema editing with a
 nested ALL/ANY/NOT rule tree and an inspector showing a plain-English summary, validation errors,
 required warmup, unsaved state, and an explicit V1/V2 engine-support matrix. Every library row
 opens the same read-only Insight panel; Research and Deploy are links to their own pages.

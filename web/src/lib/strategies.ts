@@ -779,18 +779,29 @@ export async function createDraft(options?: {
 	return request<StrategyCreatedResponse>(path, { method: 'POST' });
 }
 
-export async function listStrategies(): Promise<StrategyLibraryEntry[]> {
+export async function listStrategies(
+	onPage?: (entries: StrategyLibraryEntry[], hasMore: boolean) => void
+): Promise<StrategyLibraryEntry[]> {
 	const rows: StrategyLibraryEntry[] = [];
 	let cursor: string | undefined;
 	for (let page = 0; page < 50; page += 1) {
 		const params = new URLSearchParams({ limit: '100' });
 		if (cursor !== undefined) params.set('cursor', cursor);
 		const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
+		const hasMore = body.has_more === true;
+		const nextCursor = body.next_cursor;
+		if (hasMore && body.strategies.length === 0) {
+			throw new Error('Strategy library returned an empty page while claiming more strategies.');
+		}
+		if (hasMore && !nextCursor) {
+			throw new Error('Strategy library has more strategies but no next cursor.');
+		}
 		rows.push(...body.strategies);
-		if (!body.has_more || !body.next_cursor) return rows;
-		cursor = body.next_cursor;
+		onPage?.([...rows], hasMore);
+		if (!hasMore) return rows;
+		cursor = nextCursor ?? undefined;
 	}
-	return rows;
+	throw new Error('Strategy library truncated: exceeded the 50-page fetch cap.');
 }
 
 export async function clonePublishedStrategy(fingerprint: string): Promise<DraftResponse> {

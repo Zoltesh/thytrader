@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -27,6 +28,8 @@ from thytrader.research.http import find_study_by_request
 from thytrader.strategies.models import strategy_fingerprint
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from thytrader.persistence.backtest_results import BacktestResultSummaryView
 
 
@@ -111,6 +114,14 @@ class _StudyResults:
         """Return a V1 child result with a constant summary."""
         del result_fingerprint
         return _result_with_summary()
+
+    async def list_summaries_for_strategies(
+        self,
+        strategy_fingerprints: Sequence[str],
+    ) -> dict[str, BacktestResultSummaryView]:
+        """Return no summaries, like an empty durable catalog."""
+        del strategy_fingerprints
+        return {}
 
 
 class _CoveringDatasetStore(DatasetStore):
