@@ -26,6 +26,47 @@ const summary = {
 	total_spread_cost: '0.10'
 };
 
+test('requests bounded backtest pages with configurable size', async ({ page }) => {
+	const requested: string[] = [];
+	await page.route(
+		(url) => url.pathname === '/api/v1/backtests',
+		async (route) => {
+			const url = new URL(route.request().url());
+			requested.push(url.search);
+			const limit = Number(url.searchParams.get('limit'));
+			const offset = Number(url.searchParams.get('offset'));
+			await route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit,
+					offset,
+					returned: limit,
+					has_more: offset === 0
+				}
+			});
+		}
+	);
+	await page.goto('/backtests');
+	await expect(page.getByTestId('backtest-page-size')).toHaveValue('10');
+	await expect(page.getByTestId('backtest-list-engine')).toBeVisible();
+	await expect.poll(() => requested).toEqual(['?limit=10&offset=0']);
+	await page.getByRole('button', { name: 'Older' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&offset=10');
+	await page.getByTestId('backtest-page-size').selectOption('25');
+	await expect.poll(() => requested.at(-1)).toBe('?limit=25&offset=0');
+	await expect(page.getByTestId('backtest-page-size')).toHaveValue('25');
+});
+
 test('shows a published backtest summary then its immutable detail', async ({ page }) => {
 	await page.route(
 		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),
@@ -676,7 +717,7 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 });
 
 test('discloses a full newest-first page and can load older results', async ({ page }) => {
-	const entries = Array.from({ length: 51 }, (_, index) => ({
+	const entries = Array.from({ length: 11 }, (_, index) => ({
 		result_fingerprint: `sha256:${index.toString(16).padStart(64, '0')}`,
 		run_fingerprint: runFingerprint,
 		strategy_fingerprint: strategyFingerprint,
@@ -703,13 +744,13 @@ test('discloses a full newest-first page and can load older results', async ({ p
 		}
 	);
 	await page.goto('/backtests');
-	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 50 (newest)');
+	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 10 (newest)');
 	await expect(page.getByTestId('backtest-list-truncated')).toContainText(
 		'Older immutable results may exist'
 	);
 	await page.getByRole('button', { name: 'Older' }).click();
 	await expect(page.getByTestId('backtest-list-bound')).toHaveText(
-		'Showing 1 (newest-first, offset 50)'
+		'Showing 1 (newest-first, offset 10)'
 	);
 	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Newer' })).toBeEnabled();

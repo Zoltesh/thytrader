@@ -779,6 +779,23 @@ export async function createDraft(options?: {
 	return request<StrategyCreatedResponse>(path, { method: 'POST' });
 }
 
+export async function fetchStrategyPage(
+	limit: 10 | 25 | 50 | 100,
+	cursor?: string
+): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null }> {
+	const params = new URLSearchParams({ limit: String(limit) });
+	if (cursor !== undefined) params.set('cursor', cursor);
+	const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
+	const hasMore = body.has_more === true;
+	if (hasMore && body.strategies.length === 0) {
+		throw new Error('Strategy library returned an empty page while claiming more strategies.');
+	}
+	if (hasMore && !body.next_cursor) {
+		throw new Error('Strategy library has more strategies but no next cursor.');
+	}
+	return { entries: body.strategies, nextCursor: hasMore ? body.next_cursor! : null };
+}
+
 export async function listStrategies(
 	onPage?: (entries: StrategyLibraryEntry[], hasMore: boolean) => void
 ): Promise<StrategyLibraryEntry[]> {

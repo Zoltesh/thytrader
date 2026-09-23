@@ -17,6 +17,8 @@
 		bound = null as BacktestList | null,
 		loading = false,
 		availability = 'ready' as 'ready' | 'unavailable' | 'failed',
+		pageSize = 10 as 10 | 25 | 50 | 100,
+		onPageSizeChange,
 		onSelect,
 		onOlder,
 		onNewer
@@ -25,6 +27,8 @@
 		bound?: BacktestList | null;
 		loading?: boolean;
 		availability?: 'ready' | 'unavailable' | 'failed';
+		pageSize?: 10 | 25 | 50 | 100;
+		onPageSizeChange: (event: Event) => void;
 		onSelect: (fingerprint: string) => void;
 		onOlder: () => void;
 		onNewer: () => void;
@@ -33,7 +37,7 @@
 	const boundLabel = $derived(bound === null ? null : formatBacktestListBound(bound));
 	const pageFull = $derived(bound !== null && backtestListPageIsFull(bound));
 	const canNewer = $derived((bound?.offset ?? 0) > 0);
-	const canOlder = $derived(pageFull);
+	const canOlder = $derived(pageFull && bound?.has_more !== false);
 </script>
 
 <section class="backtest-panel" aria-label="Published backtests">
@@ -42,9 +46,15 @@
 			<h2>Published backtests</h2>
 			<p>Immutable historical simulations · not evidence of future profit</p>
 		</div>
-		{#if boundLabel !== null}
-			<span data-testid="backtest-list-bound">{boundLabel}</span>
-		{/if}
+		<div class="page-controls">
+			<label
+				>Rows per page
+				<select data-testid="backtest-page-size" value={pageSize} onchange={onPageSizeChange}>
+					{#each [10, 25, 50, 100] as size (size)}<option value={size}>{size}</option>{/each}
+				</select>
+			</label>
+			{#if boundLabel !== null}<span data-testid="backtest-list-bound">{boundLabel}</span>{/if}
+		</div>
 	</div>
 	{#if loading}
 		<div class="empty"><div class="skeleton"></div></div>
@@ -110,7 +120,7 @@
 				</tbody>
 			</table>
 		</div>
-		{#if pageFull}
+		{#if canOlder}
 			<p class="bound-note" data-testid="backtest-list-truncated">
 				This page is full ({bound?.limit} newest-first). Older immutable results may exist.
 			</p>
@@ -143,11 +153,26 @@
 		font-size: 18px;
 	}
 	.panel-heading p,
-	.panel-heading > span,
+	.page-controls > span,
 	.empty small {
 		margin: 5px 0 0;
 		color: #778386;
 		font-size: 12px;
+	}
+	.page-controls {
+		display: flex;
+		align-items: center;
+		gap: 18px;
+		color: #aeb9bb;
+		font-size: 12px;
+	}
+	.page-controls select {
+		margin-left: 8px;
+		padding: 6px;
+		color: #dce4e5;
+		background: #151b1d;
+		border: 1px solid #303a3c;
+		border-radius: 6px;
 	}
 	.table-wrap {
 		overflow-x: auto;

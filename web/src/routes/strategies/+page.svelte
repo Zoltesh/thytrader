@@ -10,11 +10,11 @@
 		clonePublishedStrategy,
 		EXECUTION_TIMEFRAMES,
 		fetchDraftVersion,
+		fetchStrategyPage,
 		fetchStrategyHistory,
 		fetchStrategySource,
 		formatUtcInputValue,
 		importStrategy,
-		listStrategies,
 		PAPER_LIVE_STATUS_LEGEND,
 		PAPER_LIVE_STATUS_TITLE,
 		paperLiveStatusLabel,
@@ -31,7 +31,10 @@
 	let entries = $state<StrategyLibraryEntry[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
-	let loadingMore = $state(false);
+	let pageSize = $state<10 | 25 | 50 | 100>(10);
+	let pageIndex = $state(0);
+	let pageCursors = $state<(string | undefined)[]>([undefined]);
+	let nextCursor = $state<string | null>(null);
 	let libraryRequestId = 0;
 	let pendingAction = $state<string | null>(null);
 	let showImport = $state(false);
@@ -182,15 +185,10 @@
 		reviseError = null;
 		try {
 			await reviseStrategy(entry.strategy_id, fingerprint);
-			const [library, history] = await Promise.all([
-				listStrategies().catch(() => null),
-				fetchStrategyHistory(entry.strategy_id).catch(() => null)
-			]);
-			if (library !== null) entries = library;
+			const history = await fetchStrategyHistory(entry.strategy_id).catch(() => null);
+			await loadLibrary(false);
 			const revised = history?.draft ?? null;
-			const [updatedEntry] = (library ?? []).filter(
-				(candidate) => candidate.strategy_id === entry.strategy_id
-			);
+			const updatedEntry = entries.find((candidate) => candidate.strategy_id === entry.strategy_id);
 			if (history !== null) {
 				versionHistory = history;
 				if (revised !== null && viewEntry?.strategy_id === entry.strategy_id) {
@@ -283,31 +281,50 @@
 		diffCache = {};
 	}
 
-	async function loadLibrary(): Promise<void> {
+	async function loadLibrary(reset = true): Promise<void> {
 		const requestId = ++libraryRequestId;
+		if (reset) {
+			pageIndex = 0;
+			pageCursors = [undefined];
+		}
 		loading = true;
-		loadingMore = false;
-		entries = [];
 		error = null;
 		try {
-			const loaded = await listStrategies((pageEntries, hasMore) => {
-				if (requestId !== libraryRequestId) return;
-				entries = pageEntries;
-				loading = false;
-				loadingMore = hasMore;
-			});
-			if (requestId === libraryRequestId) entries = loaded;
+			const page = await fetchStrategyPage(pageSize, pageCursors[pageIndex]);
+			if (requestId !== libraryRequestId) return;
+			if (page.entries.length === 0 && pageIndex > 0) {
+				pageIndex -= 1;
+				void loadLibrary(false);
+				return;
+			}
+			entries = page.entries;
+			nextCursor = page.nextCursor;
 		} catch (caught) {
 			if (requestId !== libraryRequestId) return;
-			const detail =
-				caught instanceof Error ? caught.message : 'Could not load the strategy library.';
-			error = entries.length > 0 ? `Strategy library incomplete: ${detail}` : detail;
+			entries = [];
+			nextCursor = null;
+			error = caught instanceof Error ? caught.message : 'Could not load the strategy library.';
 		} finally {
-			if (requestId === libraryRequestId) {
-				loading = false;
-				loadingMore = false;
-			}
+			if (requestId === libraryRequestId) loading = false;
 		}
+	}
+
+	function changePageSize(event: Event): void {
+		pageSize = Number((event.currentTarget as HTMLSelectElement).value) as typeof pageSize;
+		void loadLibrary();
+	}
+
+	function nextPage(): void {
+		if (loading || nextCursor === null) return;
+		pageCursors = [...pageCursors.slice(0, pageIndex + 1), nextCursor];
+		pageIndex += 1;
+		void loadLibrary(false);
+	}
+
+	function previousPage(): void {
+		if (loading || pageIndex === 0) return;
+		pageIndex -= 1;
+		void loadLibrary(false);
 	}
 
 	async function createNew(): Promise<void> {
@@ -352,7 +369,7 @@
 		error = null;
 		try {
 			await archivePublishedStrategy(entry.latest_fingerprint);
-			await loadLibrary();
+			await loadLibrary(false);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not archive the strategy.';
 		} finally {
@@ -444,27 +461,16 @@
 	</section>
 	{#if error}<div class="error-banner" role="alert">
 			<div>
-				<strong
-					>{entries.length > 0
-						? 'Strategy library incomplete'
-						: 'Strategy library unavailable'}</strong
-				>
+				<strong>Strategy library unavailable</strong>
 				<p>{error}</p>
 			</div>
-			<button type="button" onclick={loadLibrary}>Retry library load</button>
+			<button type="button" onclick={() => loadLibrary(false)}>Retry library load</button>
 		</div>{/if}
-	{#if loadingMore}
-		<p class="loading-more" role="status" data-testid="library-loading-more">
-			Loading remaining strategies… {entries.length} shown so far.
-		</p>
-	{/if}
 	<section class="library-card" aria-label="Strategy library">
 		{#if loading}
 			<div class="loading-region"><div class="skeleton wide"></div></div>
 		{:else if error && entries.length === 0}
 			<div class="empty-state"><p>Could not load strategies. Retry the library load.</p></div>
-		{:else if loadingMore && entries.length === 0}
-			<div class="loading-region"><div class="skeleton wide"></div></div>
 		{:else if entries.length === 0}
 			<div class="empty-state">
 				<p>No strategies yet.</p>
@@ -542,6 +548,27 @@
 			</div>
 		{/if}
 	</section>
+	<div class="library-pager" aria-label="Strategy pagination">
+		<label
+			>Rows per page
+			<select data-testid="strategy-page-size" value={pageSize} onchange={changePageSize}>
+				{#each [10, 25, 50, 100] as size (size)}<option value={size}>{size}</option>{/each}
+			</select>
+		</label>
+		<span data-testid="strategy-page-range">Page {pageIndex + 1}</span>
+		<button
+			type="button"
+			onclick={previousPage}
+			disabled={loading || pageIndex === 0}
+			aria-label="Previous strategy page">Previous</button
+		>
+		<button
+			type="button"
+			onclick={nextPage}
+			disabled={loading || nextCursor === null}
+			aria-label="Next strategy page">Next</button
+		>
+	</div>
 </main>
 
 {#if showImport}
@@ -882,10 +909,32 @@
 {/if}
 
 <style>
-	.loading-more {
-		margin: 0 0 12px;
-		color: #a7c6b6;
+	.library-pager {
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 12px;
+		margin: -12px 0 24px;
+		color: #aeb9bb;
 		font-size: 13px;
+	}
+	.library-pager select,
+	.library-pager button {
+		padding: 7px 10px;
+		color: #dce4e5;
+		background: #151b1d;
+		border: 1px solid #303a3c;
+		border-radius: 8px;
+	}
+	.library-pager select {
+		margin-left: 8px;
+	}
+	.library-pager button:not(:disabled) {
+		cursor: pointer;
+	}
+	.library-pager button:disabled {
+		opacity: 0.45;
 	}
 	.library-card {
 		background: var(--card, #141b1c);

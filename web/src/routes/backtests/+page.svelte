@@ -22,6 +22,8 @@
 	let listingAvailability = $state<'ready' | 'unavailable' | 'failed'>('ready');
 	let listingLoading = $state(true);
 	let listOffset = $state(0);
+	let pageSize = $state<10 | 25 | 50 | 100>(BACKTEST_LIST_DEFAULT_LIMIT);
+	let listRequest = 0;
 	let selected: BacktestDetailData | null = $state(null);
 	let selectedFingerprint = $state<string | null>(null);
 	let detailLoading = $state(false);
@@ -37,21 +39,21 @@
 	const inspecting = $derived(selectedFingerprint !== null);
 
 	async function loadList(): Promise<void> {
+		const requestId = ++listRequest;
 		listingLoading = true;
 		listingAvailability = 'ready';
 		try {
-			listing = await fetchBacktests({
-				limit: BACKTEST_LIST_DEFAULT_LIMIT,
-				offset: listOffset
-			});
+			const result = await fetchBacktests({ limit: pageSize, offset: listOffset });
+			if (requestId === listRequest) listing = result;
 		} catch (caught) {
+			if (requestId !== listRequest) return;
 			listing = null;
 			const message = caught instanceof Error ? caught.message : '';
 			listingAvailability = message.includes('unavailable on this installation')
 				? 'unavailable'
 				: 'failed';
 		} finally {
-			listingLoading = false;
+			if (requestId === listRequest) listingLoading = false;
 		}
 	}
 
@@ -154,14 +156,26 @@
 	}
 
 	function showOlder(): void {
-		if (listing === null || listing.returned !== listing.limit) return;
+		if (
+			listingLoading ||
+			listing === null ||
+			listing.has_more === false ||
+			listing.returned !== listing.limit
+		)
+			return;
 		listOffset = listing.offset + listing.limit;
 		void loadList();
 	}
 
 	function showNewer(): void {
-		if (listOffset <= 0) return;
-		listOffset = Math.max(0, listOffset - BACKTEST_LIST_DEFAULT_LIMIT);
+		if (listingLoading || listOffset <= 0) return;
+		listOffset = Math.max(0, listOffset - pageSize);
+		void loadList();
+	}
+
+	function changePageSize(event: Event): void {
+		pageSize = Number((event.currentTarget as HTMLSelectElement).value) as typeof pageSize;
+		listOffset = 0;
 		void loadList();
 	}
 
@@ -221,6 +235,8 @@
 			bound={listing}
 			loading={listingLoading}
 			availability={listingAvailability}
+			{pageSize}
+			onPageSizeChange={changePageSize}
 			onSelect={(fingerprint) => void selectBacktest(fingerprint)}
 			onOlder={showOlder}
 			onNewer={showNewer}
