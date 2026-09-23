@@ -340,8 +340,9 @@ test('paper/live status opens the Deploy page', async ({ page }) => {
 			url.toString().includes('strategy_fingerprint='),
 		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
 	);
-	await page.route('**/api/v1/deployments', async (route) =>
-		route.fulfill({ json: { deployments: [] } })
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => route.fulfill({ json: { deployments: [] } })
 	);
 	await page.goto('/strategies');
 	const status = page.getByRole('link', { name: 'running / paused' });
@@ -1334,14 +1335,17 @@ test('deploy tab starts paper runtime and shows fills and reject reasons', async
 		maker_fee_rate?: string;
 		taker_fee_rate?: string;
 	} | null = null;
-	await page.route('**/api/v1/deployments', async (route) => {
-		if (route.request().method() === 'POST') {
-			createdBody = (await route.request().postDataJSON()) as typeof createdBody;
-			await route.fulfill({ status: 201, json: deployment });
-			return;
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => {
+			if (route.request().method() === 'POST') {
+				createdBody = (await route.request().postDataJSON()) as typeof createdBody;
+				await route.fulfill({ status: 201, json: deployment });
+				return;
+			}
+			await route.fulfill({ json: { deployments: [deployment] } });
 		}
-		await route.fulfill({ json: { deployments: [deployment] } });
-	});
+	);
 
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
@@ -1384,8 +1388,9 @@ test('deploy tab shows accurate timeframe copy and allows live 5m', async ({ pag
 			url.toString().includes('strategy_fingerprint='),
 		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
 	);
-	await page.route('**/api/v1/deployments', async (route) =>
-		route.fulfill({ json: { deployments: [] } })
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => route.fulfill({ json: { deployments: [] } })
 	);
 
 	await page.goto('/strategies');
@@ -1417,8 +1422,9 @@ test('live start button is visually distinct and confirms with fingerprint and t
 			url.toString().includes('strategy_fingerprint='),
 		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
 	);
-	await page.route('**/api/v1/deployments', async (route) =>
-		route.fulfill({ json: { deployments: [] } })
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => route.fulfill({ json: { deployments: [] } })
 	);
 
 	await page.goto('/strategies');
@@ -1488,8 +1494,9 @@ test('resuming a paused live deployment requires explicit confirmation', async (
 	};
 
 	let resumeCalled = false;
-	await page.route('**/api/v1/deployments', async (route) =>
-		route.fulfill({ json: { deployments: [liveDeployment] } })
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => route.fulfill({ json: { deployments: [liveDeployment] } })
 	);
 	await page.route('**/api/v1/deployments/*/resume', async (route) => {
 		resumeCalled = true;
@@ -1533,39 +1540,42 @@ test('deploy tab prefills paper fees from the Coinbase fee-tier suggestion', asy
 		taker_fee_rate?: string;
 		mode?: string;
 	} | null = null;
-	await page.route('**/api/v1/deployments', async (route) => {
-		if (route.request().method() === 'POST') {
-			createdBody = (await route.request().postDataJSON()) as typeof createdBody;
-			await route.fulfill({
-				status: 201,
-				json: {
-					id: '01985cf0-7b60-7000-8000-000000000115',
-					strategy_fingerprint: fingerprint,
-					strategy_id: strategyId,
-					product_id: 'BTC-USD',
-					mode: 'paper',
-					status: 'running',
-					phase: 'flat',
-					cash: '10000',
-					paper_starting_cash: '10000',
-					maker_fee_rate: '0.0025',
-					taker_fee_rate: '0.0040',
-					last_evaluated_bar: null,
-					last_signal: null,
-					mismatch_detail: null,
-					pending_entry_bars: 0,
-					bars_held: 0,
-					created_at: '2026-08-14T12:00:00+00:00',
-					updated_at: '2026-08-14T12:00:00+00:00',
-					position: null,
-					orders: [],
-					fills: []
-				}
-			});
-			return;
+	await page.route(
+		(url) => url.pathname === '/api/v1/deployments',
+		async (route) => {
+			if (route.request().method() === 'POST') {
+				createdBody = (await route.request().postDataJSON()) as typeof createdBody;
+				await route.fulfill({
+					status: 201,
+					json: {
+						id: '01985cf0-7b60-7000-8000-000000000115',
+						strategy_fingerprint: fingerprint,
+						strategy_id: strategyId,
+						product_id: 'BTC-USD',
+						mode: 'paper',
+						status: 'running',
+						phase: 'flat',
+						cash: '10000',
+						paper_starting_cash: '10000',
+						maker_fee_rate: '0.0025',
+						taker_fee_rate: '0.0040',
+						last_evaluated_bar: null,
+						last_signal: null,
+						mismatch_detail: null,
+						pending_entry_bars: 0,
+						bars_held: 0,
+						created_at: '2026-08-14T12:00:00+00:00',
+						updated_at: '2026-08-14T12:00:00+00:00',
+						position: null,
+						orders: [],
+						fills: []
+					}
+				});
+				return;
+			}
+			await route.fulfill({ json: { deployments: [] } });
 		}
-		await route.fulfill({ json: { deployments: [] } });
-	});
+	);
 
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
@@ -1581,3 +1591,139 @@ test('deploy tab prefills paper fees from the Coinbase fee-tier suggestion', asy
 		taker_fee_rate: '0.0040'
 	});
 });
+
+const fingerprintV2 = `sha256:${'c'.repeat(64)}`;
+
+const twoVersionEntry = {
+	...publishedEntry,
+	published_versions: [
+		{ version: 1, strategy_fingerprint: fingerprint },
+		{ version: 2, strategy_fingerprint: fingerprintV2 }
+	]
+};
+
+test('deploy honors the exact fingerprint query instead of defaulting to latest', async ({
+	page
+}) => {
+	await mockLibrary(page, [twoVersionEntry]);
+	await page.route('**/api/v1/strategies/source/*', (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	await page.route('**/api/v1/deployments**', (route) => {
+		if (route.request().method() === 'POST') {
+			return route.fulfill({ status: 201, json: publishedDeployment() });
+		}
+		return route.fulfill({ json: { deployments: [] } });
+	});
+
+	await page.goto(`/deploy?strategy=${strategyId}&strategy_fingerprint=${fingerprint}`);
+	await expect(page.getByLabel('Published version')).toHaveValue(fingerprint);
+	// The existing-runtime list shows only this exact version's deployment.
+	await expect(page.getByText('No deployments of this strategy yet.')).toBeVisible();
+});
+
+test('an unknown fingerprint query fails closed instead of silently launching latest', async ({
+	page
+}) => {
+	await mockLibrary(page, [twoVersionEntry]);
+	await page.route('**/api/v1/strategies/source/*', (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	const createdBodies: unknown[] = [];
+	await page.route('**/api/v1/deployments**', (route) => {
+		if (route.request().method() === 'POST') {
+			createdBodies.push(route.request().postDataJSON());
+			return route.fulfill({ status: 201, json: publishedDeployment() });
+		}
+		return route.fulfill({ json: { deployments: [publishedDeployment()] } });
+	});
+
+	await page.goto(`/deploy?strategy=${strategyId}&strategy_fingerprint=sha256:deadbeef`);
+	// The blocked notice names the failure, never "showing the latest".
+	const notice = page.getByTestId('fingerprint-notice');
+	await expect(notice).toBeVisible();
+	await expect(notice).toContainText('Launch is blocked');
+	await expect(
+		page.getByText('Select a published version to view its deployments.', { exact: false })
+	).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'paper · running · flat' })).toHaveCount(0);
+	// The launch button is disabled: an explicit invalid fingerprint cannot
+	// silently select or launch the latest version.
+	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeDisabled();
+	// Picking a published version explicitly re-enables launch.
+	await page.getByLabel('Published version').selectOption(fingerprint);
+	await expect(page.getByRole('button', { name: 'Start deployment' })).toBeEnabled();
+	expect(createdBodies).toEqual([]);
+});
+
+test('other-version deployments are separated from the selected version runtime', async ({
+	page
+}) => {
+	await mockLibrary(page, [twoVersionEntry]);
+	await page.route('**/api/v1/strategies/source/*', (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
+	await page.route(
+		(url) =>
+			url.toString().includes('/api/v1/backtests') &&
+			url.toString().includes('strategy_fingerprint='),
+		async (route) => route.fulfill({ json: { entries: [], limit: 20, offset: 0, returned: 0 } })
+	);
+	const v1Deployment = publishedDeployment();
+	const v2Deployment = {
+		...publishedDeployment(),
+		id: '01985cf0-7b60-7000-8000-000000000333',
+		strategy_fingerprint: fingerprintV2,
+		status: 'paused' as const
+	};
+	await page.route('**/api/v1/deployments**', (route) =>
+		route.fulfill({ json: { deployments: [v1Deployment, v2Deployment] } })
+	);
+
+	await page.goto(`/deploy?strategy=${strategyId}&strategy_fingerprint=${fingerprint}`);
+	await expect(page.getByLabel('Published version')).toHaveValue(fingerprint);
+	// Runtime section lists the exact version's deployment.
+	await expect(page.getByRole('heading', { name: 'paper · running · flat' })).toBeVisible();
+	// The other version is listed separately with its fingerprint.
+	const other = page.getByText('Other deployments for this strategy');
+	await expect(other).toBeVisible();
+	await expect(page.getByText(new RegExp(fingerprintV2.slice(0, 18)))).toBeVisible();
+	// And it is not mixed into the selected version's runtime rows.
+	await expect(page.getByRole('heading', { name: 'paper · paused · flat' })).toHaveCount(0);
+});
+
+function publishedDeployment() {
+	return {
+		id: '01985cf0-7b60-7000-8000-000000000222',
+		strategy_fingerprint: fingerprint,
+		strategy_id: strategyId,
+		product_id: 'BTC-USD',
+		mode: 'paper' as const,
+		status: 'running' as const,
+		phase: 'flat',
+		cash: '10000',
+		paper_starting_cash: null,
+		last_evaluated_bar: null,
+		last_signal: null,
+		mismatch_detail: null,
+		pending_entry_bars: 0,
+		bars_held: 0,
+		created_at: '2026-08-14T12:00:00+00:00',
+		updated_at: '2026-08-14T13:00:00+00:00',
+		position: null,
+		orders: [],
+		fills: []
+	};
+}

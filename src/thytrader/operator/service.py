@@ -38,6 +38,7 @@ from thytrader.market_data.freshness import (
     freshest_bar_start,
 )
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
+from thytrader.market_data.products import SpotQuoteCurrency, quote_currency
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
@@ -1074,14 +1075,30 @@ class OperatorDiagnostics:
             return "1h", "USD"
         return clock, published.definition.instrument.quote_currency
 
-    async def _strategy_quote_currency(self, fingerprint: str) -> Literal["USD", "USDC", "USDT"]:
-        """Copy the published strategy quote currency; USD is the fallback."""
-        _clock, quote = await self._strategy_clock_and_quote(fingerprint)
-        if quote == "USDC":
-            return "USDC"
-        if quote == "USDT":
-            return "USDT"
-        return "USD"
+    async def _strategy_clock_and_published_quote(
+        self, fingerprint: str
+    ) -> tuple[SupportedTimeframe, SpotQuoteCurrency | None]:
+        """Copy the published clock and quote, or ``None`` quote when unpublished.
+
+        The quote currency is provenance, not decoration: PnL amounts must not be
+        relabeled when the published instrument cannot be loaded.
+        """
+        load = getattr(self.publications, "load", None)
+        if not callable(load):
+            return "1h", None
+        try:
+            published = await load(fingerprint)
+        except Exception:  # noqa: BLE001 - unprovable currency stays None, never a guess.
+            return "1h", None
+        clock = _supported_clock(published.definition.timeframe)
+        if clock is None:
+            return "1h", None
+        return clock, published.definition.instrument.quote_currency
+
+    async def _strategy_quote_currency(self, fingerprint: str) -> SpotQuoteCurrency | None:
+        """Return the published strategy quote currency, or ``None`` when unprovable."""
+        _clock, quote = await self._strategy_clock_and_published_quote(fingerprint)
+        return quote
 
     async def _history_component(self) -> ComponentReport:
         """Treat missing portfolio history as incomplete telemetry, not health."""
@@ -1482,12 +1499,16 @@ class OperatorDiagnostics:
             return _empty_performance(now, (component,))
         deployment = snapshot.deployment
         timeframe = await self._runtime_timeframe(deployment)
+        currency, currency_warning = await self._deployment_quote_currency(deployment)
         marks = await self._deployment_marks(snapshot, timeframe)
         ledger = ledger_from_snapshot(snapshot, marks=marks)
         component, warnings = _deployment_ledger_component(deployment, ledger)
+        if currency_warning is not None:
+            warnings = (*warnings, currency_warning)
         payload = PerformancePayload(
             mode="live" if deployment.mode is DeploymentMode.LIVE else "paper",
             timeframe=timeframe,
+            currency=currency,
             strategy_fingerprint=deployment.strategy_fingerprint,
             dataset_fingerprint=None,
             engine_contract_version=None,
@@ -1516,6 +1537,34 @@ class OperatorDiagnostics:
             recommended_next_action=recommend_next_action((component,)),
             payload=payload,
         )
+
+    async def _deployment_quote_currency(
+        self, deployment: Deployment
+    ) -> tuple[SpotQuoteCurrency | None, str | None]:
+        """Return the deployment quote currency plus a warning when it stays unknown.
+
+        Strategy books inherit the published instrument quote. Discretionary and
+        unreconcilable books derive the quote from the Coinbase product id, and a
+        product id that does not parse leaves ``None`` so the report never asserts
+        a currency it cannot prove.
+        """
+        if deployment.strategy_fingerprint:
+            _clock, quote = await self._strategy_clock_and_published_quote(
+                deployment.strategy_fingerprint
+            )
+            if quote is not None:
+                return quote, None
+            return None, (
+                "Quote currency is unknown: the published strategy could not be loaded, "
+                "so PnL amounts are reported without a currency label."
+            )
+        try:
+            return quote_currency(deployment.product_id), None
+        except ValueError:
+            return None, (
+                f"Quote currency is unknown: product id {deployment.product_id!r} "
+                "does not encode a supported quote currency."
+            )
 
     async def _last_close_mark(
         self, product_id: str, timeframe: SupportedTimeframe

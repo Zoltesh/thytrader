@@ -768,6 +768,14 @@
 													>
 														Compare to latest
 													</button>
+													<a
+														class="bar-button"
+														href={resolve(
+															`/deploy?strategy=${encodeURIComponent(viewSnapshot.strategy_id)}&strategy_fingerprint=${encodeURIComponent(version.strategy_fingerprint)}`
+														)}
+														aria-label="Deploy version {version.version}"
+														>Deploy v{version.version}</a
+													>
 												</div>
 											</td>
 										</tr>

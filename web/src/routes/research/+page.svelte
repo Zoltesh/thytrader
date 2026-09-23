@@ -21,6 +21,13 @@
 	let modelLoading = $state(false);
 
 	const selectedId = $derived(page.url.searchParams.get('strategy') ?? '');
+	/**
+	 * Exact published fingerprint requested by the caller, or '' when absent.
+	 *
+	 * Passed through to the launch panel so backtests run against the linked
+	 * version, not whatever version happens to be newest.
+	 */
+	const requestedFingerprint = $derived(page.url.searchParams.get('strategy_fingerprint') ?? '');
 	const selected = $derived(entries.find((entry) => entry.strategy_id === selectedId) ?? null);
 
 	async function loadLibrary(): Promise<void> {
@@ -122,7 +129,7 @@
 		<p class="strategy-meta">
 			{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}
 		</p>
-		<ResearchLaunchPanel entry={selected} {model} />
+		<ResearchLaunchPanel entry={selected} {model} {requestedFingerprint} />
 	{/if}
 </main>
 

@@ -139,8 +139,7 @@ need 2–8 published single-instrument strategies on distinct products. See
 `currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
 (`sharpe`, `sortino`, `calmar`, `sqn`, `cagr`, annualized volatility, max consecutive losses,
 exposure fraction, mark-to-mark buy-and-hold) without changing canonical result fingerprints.
-The USD value is a fallback only when the publication cannot be loaded, and it
-is then disclosed evidence, not a quote-currency claim.
+The quote is `null` when the publication cannot be loaded; never relabel an unverified result as USD or USDC.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
 create-draft JSON. It does not change published strategy semantics, place orders, or arm live

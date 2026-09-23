@@ -104,6 +104,11 @@
         },
         "applied_schema_revision": {
           "type": ["string", "null"]
+        },
+        "currency": {
+          "type": ["string", "null"],
+          "enum": ["USD", "USDC", "USDT", null],
+          "description": "Performance only. Quote currency from the published instrument or discretionary product; null means provenance is unavailable, with a partial_result_warnings explanation."
         }
       }
     }

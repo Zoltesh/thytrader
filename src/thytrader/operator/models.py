@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.backtest.models import BacktestPerformanceMetrics  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
+from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Pydantic field type.
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
 from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
@@ -425,7 +426,7 @@ class PerformancePayload(_FrozenModel):
 
     mode: Literal["backtest", "paper", "live"]
     timeframe: SupportedTimeframe
-    currency: Literal["USD", "USDC", "USDT"] = "USDC"
+    currency: SpotQuoteCurrency | None = None
     strategy_fingerprint: str | None
     dataset_fingerprint: str | None
     engine_contract_version: str | None

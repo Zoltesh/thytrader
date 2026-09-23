@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import {
 		bookTotalsReconcile,
 		capitalSummary,
@@ -6,7 +7,7 @@
 		canonicalPositions,
 		createDeployment,
 		fillProductId,
-		listDeployments,
+		listAllDeployments,
 		orderProductId,
 		pauseDeployment,
 		resumeDeployment,
@@ -15,6 +16,7 @@
 		type DeploymentInstrumentRuntime,
 		type DeploymentPosition
 	} from '$lib/deployments';
+	import { resolveRequestedFingerprint } from '$lib/deployment-detail';
 	import {
 		PAPER_DEFAULT_MAKER_FEE_RATE,
 		PAPER_DEFAULT_TAKER_FEE_RATE,
@@ -33,10 +35,13 @@
 	let {
 		entry,
 		model,
+		requestedFingerprint = '',
 		onChanged
 	}: {
 		entry: StrategyLibraryEntry;
 		model: BuilderModel | null;
+		/** Exact fingerprint an inbound link asked for; honored only if published for this strategy. */
+		requestedFingerprint?: string;
 		onChanged?: () => void;
 	} = $props();
 
@@ -45,6 +50,8 @@
 	let deploying = $state(false);
 	let deployError = $state<string | null>(null);
 	let deployFingerprint = $state('');
+	let fingerprintNotice = $state<string | null>(null);
+	let fingerprintBlocked = $state(false);
 	let deployMode = $state<'paper' | 'live'>('paper');
 	let deployCash = $state('10000');
 	let deployMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
@@ -56,7 +63,14 @@
 
 	$effect(() => {
 		const strategyId = entry.strategy_id;
-		deployFingerprint = publishedVersionsFor(entry).at(-1)?.strategy_fingerprint ?? '';
+		const versions = publishedVersionsFor(entry);
+		// Honor the exact requested fingerprint only when it is really published
+		// for this strategy. An unknown explicit fingerprint fails closed: launch
+		// stays blocked until the operator picks a published version explicitly.
+		const resolution = resolveRequestedFingerprint(requestedFingerprint, versions);
+		fingerprintNotice = resolution.notice;
+		fingerprintBlocked = resolution.blocked;
+		deployFingerprint = resolution.selected;
 		deployMode = 'paper';
 		deployCash = '10000';
 		deployMakerFee = PAPER_DEFAULT_MAKER_FEE_RATE;
@@ -110,7 +124,9 @@
 		const current = entry;
 		deployLoading = true;
 		try {
-			const deployments = await listDeployments();
+			// Follow every page: the version grouping must not silently truncate at
+			// the first page of a large inventory.
+			const deployments = await listAllDeployments();
 			if (entry.strategy_id !== current.strategy_id) return;
 			strategyDeployments = deployments.filter(
 				(deployment) => deployment.strategy_id === current.strategy_id
@@ -124,6 +140,21 @@
 			}
 		}
 	}
+
+	/** Deployments of the selected fingerprint; other versions stay visible but separate. */
+	const versionDeployments = $derived(
+		strategyDeployments.filter(
+			(deployment) =>
+				deployFingerprint !== '' && deployment.strategy_fingerprint === deployFingerprint
+		)
+	);
+	/** Deployments of other versions of the same strategy — never mixed in. */
+	const otherVersionDeployments = $derived(
+		strategyDeployments.filter(
+			(deployment) =>
+				deployFingerprint !== '' && deployment.strategy_fingerprint !== deployFingerprint
+		)
+	);
 
 	async function deployStrategy(): Promise<void> {
 		if (deployMode === 'live') {
@@ -211,10 +242,16 @@
 	{#if publishedVersions.length === 0}
 		<p class="view-note">Publish this strategy before deploying.</p>
 	{:else}
+		{#if fingerprintNotice}
+			<p class="view-problem" role="status" data-testid="fingerprint-notice">{fingerprintNotice}</p>
+		{/if}
 		<div class="launch-grid">
 			<label
 				>Published version
 				<select bind:value={deployFingerprint}>
+					<option value="" disabled selected hidden={fingerprintBlocked}>
+						Select a published version
+					</option>
 					{#each publishedVersions as version (version.strategy_fingerprint)}
 						<option value={version.strategy_fingerprint}>Version {version.version}</option>
 					{/each}
@@ -269,14 +306,30 @@
 </div>
 <div class="view-block">
 	<h3>Runtime</h3>
+	<p class="view-note">
+		Existing deployments of the selected version. Start a new one with the Start-paper panel above.
+	</p>
 	{#if deployLoading}
 		<p class="view-note">Loading deployments…</p>
 	{:else if strategyDeployments.length === 0}
-		<p class="view-note">No deployments yet.</p>
+		<p class="view-note">No deployments of this strategy yet.</p>
+	{:else if deployFingerprint === ''}
+		<p class="view-note">
+			Select a published version to view its deployments. <a href={resolve('/deployments')}
+				>Browse all deployments</a
+			>.
+		</p>
+	{:else if versionDeployments.length === 0}
+		<p class="view-note">No deployment of this exact version. Other versions are listed below.</p>
 	{:else}
-		{#each strategyDeployments as deployment (deployment.id)}
+		{#each versionDeployments as deployment (deployment.id)}
 			<div class="version-block">
 				<h4>{deployment.mode} · {deployment.status} · {deployment.phase}</h4>
+				<p>
+					<a href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
+						>Open deployment detail</a
+					>
+				</p>
 				<p>
 					Ledger cash {deployment.cash}
 					{#if capitalSummary(deployment)}
@@ -399,6 +452,23 @@
 			</div>
 		{/each}
 	{/if}
+	{#if !deployLoading && otherVersionDeployments.length > 0}
+		<div class="version-block other-versions">
+			<h4>Other deployments for this strategy</h4>
+			<p class="view-note">
+				These run different published versions of this strategy. Their evidence is not mixed into
+				the selected version above.
+			</p>
+			{#each otherVersionDeployments as deployment (deployment.id)}
+				<p>
+					<a href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
+						>{deployment.mode} · {deployment.status} · fingerprint
+						{deployment.strategy_fingerprint?.slice(0, 18) ?? 'unknown'}…</a
+					>
+				</p>
+			{/each}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -426,6 +496,9 @@
 	.view-problem {
 		color: #f0a3a3;
 		font-size: 13px;
+	}
+	.other-versions {
+		border-style: dashed;
 	}
 	.launch-grid {
 		display: grid;

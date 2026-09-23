@@ -38,6 +38,7 @@
 		type Dataset,
 		type StrategyLibraryEntry
 	} from '$lib/strategies';
+	import { resolveRequestedFingerprint } from '$lib/deployment-detail';
 
 	type VersionResultEntry = {
 		result_fingerprint: string;
@@ -57,7 +58,16 @@
 		entries: VersionResultEntry[];
 	};
 
-	let { entry, model }: { entry: StrategyLibraryEntry; model: BuilderModel } = $props();
+	let {
+		entry,
+		model,
+		requestedFingerprint = ''
+	}: {
+		entry: StrategyLibraryEntry;
+		model: BuilderModel;
+		/** Exact fingerprint an inbound link asked for; honored only if published for this strategy. */
+		requestedFingerprint?: string;
+	} = $props();
 
 	let launchDatasets = $state<Dataset[]>([]);
 	let launchDatasetsLoading = $state(false);
@@ -124,12 +134,20 @@
 	);
 
 	let loadedStrategyId = $state('');
+	let fingerprintBlocked = $state(false);
+	let fingerprintNotice = $state<string | null>(null);
 	$effect(() => {
 		const strategyId = entry.strategy_id;
 		if (loadedStrategyId === strategyId) return;
 		loadedStrategyId = strategyId;
 		const next = publishedVersionsFor(entry);
-		selectedStrategyFingerprint = next[next.length - 1]?.strategy_fingerprint ?? '';
+		// An unknown explicit fingerprint fails closed: no backtest or study can
+		// silently run against the latest version. Pick a published version
+		// explicitly to continue.
+		const resolution = resolveRequestedFingerprint(requestedFingerprint, next);
+		selectedStrategyFingerprint = resolution.selected;
+		fingerprintBlocked = resolution.blocked;
+		fingerprintNotice = resolution.notice;
 		launchError = null;
 		studyResult = null;
 		feeFieldsTouched = false;
@@ -532,10 +550,18 @@
 	{#if publishedVersions.length === 0}
 		<p class="view-note">Publish this draft before launching a reproducible backtest.</p>
 	{:else}
+		{#if fingerprintNotice}
+			<p class="view-problem" role="status" data-testid="fingerprint-notice">
+				{fingerprintNotice}
+			</p>
+		{/if}
 		<div class="launch-grid">
 			<label
 				>Strategy version
 				<select bind:value={selectedStrategyFingerprint}>
+					<option value="" disabled selected hidden={fingerprintBlocked}>
+						Select a published version
+					</option>
 					{#each publishedVersions as version (version.strategy_fingerprint)}
 						<option value={version.strategy_fingerprint}>Version {version.version}</option>
 					{/each}

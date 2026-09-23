@@ -376,6 +376,7 @@ export const RESULT_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
 export type BacktestListQuery = {
 	limit?: number;
 	offset?: number;
+	strategy_fingerprint?: string;
 };
 
 export function formatBacktestListBound(
@@ -419,6 +420,9 @@ export async function fetchBacktests(
 	}
 	if (query.offset !== undefined) {
 		params.set('offset', String(query.offset));
+	}
+	if (query.strategy_fingerprint !== undefined) {
+		params.set('strategy_fingerprint', query.strategy_fingerprint);
 	}
 	const search = params.toString();
 	const response = await fetch(

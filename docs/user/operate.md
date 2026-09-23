@@ -106,13 +106,23 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
-Manage running deployments on http://127.0.0.1:5175/deployments. The page groups deployments into
-**Running**, **Needs attention**, and **Stopped**, and shows the lifecycle command, breaker latches,
-cash, open positions, and a link back to the strategy. Pause, resume, and stop render only when the
-deployment payload carries the full lifecycle contract (`lifecycle_command`, both breaker latches,
-`revision`, and `worker_lease_held`); an incomplete or malformed payload is shown as read-only
-inventory with an explanatory note — no lifecycle action, no inferred values — matching the
-agent-side gates.
+Manage deployments at http://127.0.0.1:5175/deployments. Its paged inventory opens each
+runtime's own `/deployments/{id}` detail; it does not send you to the draft editor. Detail is
+anchored to the immutable published strategy fingerprint and separates mode/status, latest
+completed-bar signal, current exposure and protection, paper fee assumptions, fill-ledger
+performance, and paged orders/fills from historical backtest and research evidence for the same
+version. A last signal is not a full per-bar decision history; no-trade conditions are stated only
+when the runtime supplied that signal. Discretionary deployments have no published strategy source.
+Published-only strategies have no editable draft; inspect the published definition from the
+strategy library’s View → Versions panel. Research and Deploy accept an exact published fingerprint
+alongside the strategy identity, and an invalid requested version must not start a different version.
+Start a new deployment on `/deploy`; manage an existing one on its detail page. The UI must not
+silently relabel a `BASE-USD` book’s PnL as USDC. Performance quote comes from the published
+instrument (or discretionary product), with unknown provenance shown explicitly.
+Lifecycle controls require the full deployment contract (`lifecycle_command`, both breaker
+latches, `revision`, and `worker_lease_held`); incomplete or malformed payloads stay read-only.
+Managed stop is the default and is not a flatten. Flatten requires an explicit choice and may
+settle asynchronously; pause still maintains protective exits.
 
 ### Journals
 
