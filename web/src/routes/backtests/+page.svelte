@@ -35,15 +35,21 @@
 	let metricsLoading = $state(false);
 	let metricsError = $state<string | null>(null);
 	let selectionRequest = 0;
+	let loadedFilter: string | null | undefined;
 
 	const inspecting = $derived(selectedFingerprint !== null);
+	const strategyFilter = $derived(page.url.searchParams.get('strategy_fingerprint'));
 
 	async function loadList(): Promise<void> {
 		const requestId = ++listRequest;
 		listingLoading = true;
 		listingAvailability = 'ready';
 		try {
-			const result = await fetchBacktests({ limit: pageSize, offset: listOffset });
+			const result = await fetchBacktests({
+				limit: pageSize,
+				offset: listOffset,
+				...(strategyFilter !== null ? { strategy_fingerprint: strategyFilter } : {})
+			});
 			if (requestId === listRequest) listing = result;
 		} catch (caught) {
 			if (requestId !== listRequest) return;
@@ -130,15 +136,21 @@
 	}
 
 	function syncResultQuery(fingerprint: string | null): void {
+		const filter =
+			strategyFilter !== null ? `strategy_fingerprint=${encodeURIComponent(strategyFilter)}` : '';
 		const current = `${page.url.pathname}${page.url.search}`;
 		if (fingerprint === null) {
-			if (current === resolve('/backtests')) return;
-			void goto(resolve('/backtests'), { replaceState: true, keepFocus: true, noScroll: true });
+			const next = `${resolve('/backtests')}${filter ? `?${filter}` : ''}`;
+			if (current === next) return;
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved route plus preserved query
+			void goto(next, { replaceState: true, keepFocus: true, noScroll: true });
 			return;
 		}
-		const next = resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`);
+		const next = resolve(
+			`/backtests?${filter ? `${filter}&` : ''}result=${encodeURIComponent(fingerprint)}`
+		);
 		if (current === next) return;
-		void goto(resolve(`/backtests?result=${encodeURIComponent(fingerprint)}`), {
+		void goto(next, {
 			replaceState: true,
 			keepFocus: true,
 			noScroll: true
@@ -191,6 +203,17 @@
 	onMount(() => {
 		void loadList();
 	});
+	$effect(() => {
+		const filter = strategyFilter;
+		if (loadedFilter === undefined) {
+			loadedFilter = filter;
+			return;
+		}
+		if (loadedFilter === filter) return;
+		loadedFilter = filter;
+		listOffset = 0;
+		void loadList();
+	});
 </script>
 
 <svelte:head><title>Backtests · ThyTrader</title></svelte:head>
@@ -201,6 +224,12 @@
 			<p class="eyebrow">Research evidence</p>
 			<h1>Backtests</h1>
 			<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
+			{#if strategyFilter !== null}
+				<p class="lede">
+					Filtered to published strategy version <code>{strategyFilter}</code>.
+					<a href={resolve('/backtests')}>Show all backtests</a>
+				</p>
+			{/if}
 		</div>
 		<button
 			class="refresh"

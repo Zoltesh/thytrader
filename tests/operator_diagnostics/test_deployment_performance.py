@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
+    DeploymentKind,
     DeploymentMode,
     DeploymentStatus,
     Fill,
@@ -77,14 +80,32 @@ class _CloseProvider:
         return ()
 
 
-class _TimeframeCatalog(DisabledStrategyPublicationStore):
-    """Return one published strategy whose timeframe is fixed."""
+class _SingleResultBacktestStore(DisabledBacktestResultStore):
+    """Serve exactly one immutable result for fingerprint loads."""
 
-    def __init__(self, timeframe: str) -> None:
-        """Build an in-memory published definition at the requested clock."""
-        payload = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC)).model_dump(
-            mode="python"
-        )
+    def __init__(self, result: BacktestResult) -> None:
+        """Bind the served result."""
+        self._result = result
+
+    async def load(self, result_fingerprint: str) -> BacktestResult:
+        """Return the bound result for its own fingerprint, else not found."""
+        if result_fingerprint != self._result.strategy_fingerprint and (
+            result_fingerprint != self._result.run_fingerprint
+        ):
+            message = "result not found"
+            raise LookupError(message)
+        return self._result
+
+
+class _TimeframeCatalog(DisabledStrategyPublicationStore):
+    """Return one published strategy whose timeframe and instrument are fixed."""
+
+    def __init__(self, timeframe: str, product_id: str = "BTC-USD") -> None:
+        """Build an in-memory published definition at the requested clock and product."""
+        payload = create_reference_draft(
+            now=datetime(2026, 1, 1, tzinfo=UTC),
+            product_id=product_id,
+        ).model_dump(mode="python")
         payload["timeframe"] = timeframe
         self._published = PublishedStrategy(
             strategy_fingerprint="sha256:" + ("b" * 64),
@@ -102,6 +123,7 @@ def _diagnostics(
     execution: ExecutionStore,
     publications: StrategyPublicationCatalog | None = None,
     market_data: MarketDataService | None = None,
+    backtests: DisabledBacktestResultStore | None = None,
 ) -> OperatorDiagnostics:
     """Build diagnostics against an in-memory execution store."""
     return OperatorDiagnostics(
@@ -111,7 +133,7 @@ def _diagnostics(
         history=InMemoryPortfolioHistoryStore(),
         publications=publications or DisabledStrategyPublicationStore(),
         drafts=DisabledStrategyDraftStore(),
-        backtests=DisabledBacktestResultStore(),
+        backtests=backtests or DisabledBacktestResultStore(),
         execution=execution,
         audit=InMemoryAuditEventStore(),
         market_data=market_data,
@@ -129,6 +151,8 @@ def _deployment(
     phase: RuntimePhase = RuntimePhase.FLAT,
     status: DeploymentStatus = DeploymentStatus.RUNNING,
     mismatch_detail: str | None = None,
+    product_id: str = "BTC-USD",
+    kind: DeploymentKind = DeploymentKind.STRATEGY,
 ) -> Deployment:
     """Return one paper deployment with known starting cash."""
     instant = _now()
@@ -136,7 +160,7 @@ def _deployment(
         id=uuid4(),
         strategy_fingerprint="sha256:" + ("a" * 64),
         strategy_id=UUID(int=1),
-        product_id="BTC-USD",
+        product_id=product_id,
         mode=DeploymentMode.PAPER,
         status=status,
         paper_starting_cash=Decimal("10000"),
@@ -145,6 +169,7 @@ def _deployment(
         created_at=instant,
         updated_at=instant,
         mismatch_detail=mismatch_detail,
+        kind=kind,
     )
 
 
@@ -404,5 +429,128 @@ def test_paused_mismatch_still_reports_realized_pnl() -> None:
         assert report.payload.total_net_pnl == canonical_decimal(Decimal("9.8"))
         assert report.overall_status is ReportStatus.DEGRADED
         assert report.components[0].reason_code == "STATE_MISMATCH"
+
+    asyncio.run(_scenario())
+
+
+def test_paper_performance_reports_published_usdc_quote_currency() -> None:
+    """A strategy deployment on a USDC book labels PnL in USDC, not USD."""
+
+    async def _scenario() -> None:
+        store, deployment_id = await _round_trip_store(fee=Decimal("0.1"))
+        snapshot = await store.get_deployment(deployment_id)
+        await store.save_deployment(
+            replace(snapshot.deployment, product_id="BTC-USDC", updated_at=_now())
+        )
+        report = await _diagnostics(
+            execution=store, publications=_TimeframeCatalog("5m", product_id="BTC-USDC")
+        ).performance(deployment_id=deployment_id)
+        assert report.payload.currency == "USDC"
+        assert report.payload.timeframe == "5m"
+        assert report.payload.total_net_pnl == canonical_decimal(Decimal("9.8"))
+
+    asyncio.run(_scenario())
+
+
+def test_paper_performance_reports_published_usd_quote_currency() -> None:
+    """A strategy deployment on a USD book labels PnL in USD, never USDC by default."""
+
+    async def _scenario() -> None:
+        store, deployment_id = await _round_trip_store(fee=Decimal("0.1"))
+        snapshot = await store.get_deployment(deployment_id)
+        await store.save_deployment(
+            replace(snapshot.deployment, product_id="BTC-USD", updated_at=_now())
+        )
+        report = await _diagnostics(
+            execution=store, publications=_TimeframeCatalog("5m", product_id="BTC-USD")
+        ).performance(deployment_id=deployment_id)
+        assert report.payload.currency == "USD"
+
+    asyncio.run(_scenario())
+
+
+def test_discretionary_performance_derives_currency_from_product_id() -> None:
+    """A discretionary book has no published instrument; the product quote is used."""
+
+    async def _scenario() -> None:
+        store, deployment_id = await _round_trip_store(fee=Decimal("0.1"))
+        snapshot = await store.get_deployment(deployment_id)
+        await store.save_deployment(
+            replace(
+                snapshot.deployment,
+                product_id="SOL-USDT",
+                updated_at=_now(),
+                strategy_fingerprint=None,
+                strategy_id=None,
+                kind=DeploymentKind.DISCRETIONARY,
+            )
+        )
+        report = await _diagnostics(
+            execution=store, publications=DisabledStrategyPublicationStore()
+        ).performance(deployment_id=deployment_id)
+        assert report.payload.currency == "USDT"
+        assert report.payload.timeframe == "1h"
+
+    asyncio.run(_scenario())
+
+
+def test_paper_performance_with_unloadable_publication_reports_unknown_currency() -> None:
+    """A strategy book whose publication cannot be loaded says so instead of guessing."""
+
+    async def _scenario() -> None:
+        store, deployment_id = await _round_trip_store(fee=Decimal("0.1"))
+        report = await _diagnostics(
+            execution=store, publications=DisabledStrategyPublicationStore()
+        ).performance(deployment_id=deployment_id)
+        assert report.payload.currency is None
+        assert report.payload.total_net_pnl == canonical_decimal(Decimal("9.8"))
+        assert any("currency" in warning.lower() for warning in report.partial_result_warnings)
+
+    asyncio.run(_scenario())
+
+
+def test_backtest_performance_carries_published_quote_currency() -> None:
+    """Backtest performance evidence labels PnL with the published strategy quote."""
+
+    async def _scenario() -> None:
+        fingerprint = "sha256:" + "c" * 64
+        point = EquityPoint(
+            candle_starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+            cash="100",
+            base_quantity="0",
+            mark_price="100",
+            equity="100",
+        )
+        result = BacktestResult(
+            schema_version="1.0",
+            engine_contract_version="thytrader-bar-backtest-v1",
+            run_fingerprint=fingerprint,
+            strategy_fingerprint="sha256:" + "b" * 64,
+            dataset_fingerprint=fingerprint,
+            signal_trace_fingerprint=fingerprint,
+            trades=(),
+            equity_curve=(point,),
+            summary=BacktestSummary(
+                initial_equity="100",
+                final_equity="100",
+                total_net_pnl="0",
+                total_return_fraction="0",
+                gross_profit="0",
+                gross_loss="0",
+                win_rate="0",
+                trade_count=0,
+                winning_trade_count=0,
+                maximum_drawdown="10",
+                maximum_drawdown_fraction="0.1",
+                exposure_bars=0,
+                evaluation_bars=1,
+            ),
+        )
+        report = await _diagnostics(
+            execution=InMemoryExecutionStore(),
+            publications=_TimeframeCatalog("1h", product_id="ETH-USDC"),
+            backtests=_SingleResultBacktestStore(result),
+        ).performance(result_fingerprint=fingerprint)
+        assert report.payload.currency == "USDC"
 
     asyncio.run(_scenario())

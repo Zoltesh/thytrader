@@ -112,7 +112,7 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v38`,
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v39`,
    Alembic revision `0047`, `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
    deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
    multi-book ledger on a current image ([ADR 0074](../../docs/decisions/0074-multi-book-ledger-bounded-reads.md),
@@ -140,7 +140,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    Cover HTF-filter and per-indicator extra clocks the same way. Never interpolate.
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (any ingested venue clock: `1m`, `5m`,
    `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`), strategy fingerprint, and dataset fingerprint in
-   any answer. Performance timeframe is the published strategy's clock, or the discretionary book
+   any answer. Performance `currency` is the published instrument quote for strategy books or
+   the product quote for discretionary books; `null` means provenance could not be established
+   and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the published strategy's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
    at last close; `MISSING_MARK` means open inventory was not marked. Live REST fill ingest uses
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or

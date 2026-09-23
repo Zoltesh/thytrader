@@ -177,8 +177,11 @@ See [agent-driven platform gap plan](plans/2026-09-12-agent-driven-platform-gap-
 Account balances and portfolio history are **`GET /api/v1/portfolio`** and
 **`GET /api/v1/portfolio/history`** (loopback; no `thytrader-operator` CLI subcommand today).
 Deployment inventory (quantities, orders, fills, capital, lifecycle/latch state) is
-**`thytrader-runtime show`** / **`GET /api/v1/deployments/{id}?detail=full`**. Default
-`detail=summary` omits historical orders and fills; paginate **`/fills`** and **`/orders`**
+**`thytrader-runtime show`** / **`GET /api/v1/deployments/{id}?detail=full`**. Operator
+`performance --deployment-id` reports the published instrument quote for strategy deployments
+or the product quote for discretionary books. When quote provenance cannot be verified,
+`payload.currency` is null with a partial-result warning; never silently interpret it as USDC.
+Default `detail=summary` omits historical orders and fills; paginate **`/fills`** and **`/orders`**
 ([ADR 0074](decisions/0074-multi-book-ledger-bounded-reads.md)). Live sizing uses the nested
 `capital` block; lifecycle fields (`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`,
 `revision`, `worker_lease_held`) are top-level on the same payload

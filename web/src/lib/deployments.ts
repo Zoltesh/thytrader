@@ -236,6 +236,194 @@ export async function listDeployments(): Promise<Deployment[]> {
 	return (await request<{ deployments: Deployment[] }>('/api/v1/deployments')).deployments;
 }
 
+export type DeploymentListPage = {
+	deployments: Deployment[];
+	/** True only when the server returned a full page; an empty page can never claim more. */
+	hasMore: boolean;
+};
+
+/**
+ * Fetch one offset page of the deployment inventory.
+ *
+ * `hasMore` is `returned === limit`, the only signal the bounded list contract
+ * provides; a page shorter than the limit is the end of the inventory.
+ */
+export async function listDeploymentsPage(
+	limit: number,
+	offset: number
+): Promise<DeploymentListPage> {
+	const body = await request<{
+		deployments: Deployment[];
+		returned?: number;
+	}>(`/api/v1/deployments?limit=${limit}&offset=${offset}`);
+	const returned = body.deployments.length;
+	if (returned > limit) {
+		throw new Error(`Deployment inventory exceeded the requested page limit (${limit}).`);
+	}
+	// `returned` is present in the real contract; absent only in legacy test
+	// doubles. Fail closed when the server's count contradicts its rows.
+	if (body.returned !== undefined && body.returned !== returned) {
+		throw new Error(
+			`Deployment inventory is inconsistent: the server counted ${body.returned} rows but sent ${returned}.`
+		);
+	}
+	return { deployments: body.deployments, hasMore: returned === limit && returned > 0 };
+}
+
+/** Backend page ceiling for the bounded deployment inventory read. */
+const INVENTORY_PAGE_SIZE = 200;
+/** Hard stop so a misbehaving server cannot keep a consumer paging forever. */
+const MAX_INVENTORY_PAGES = 25;
+
+/**
+ * Fetch the complete deployment inventory, cursor/offset page by page.
+ *
+ * Selection flows that must never silently truncate (exact-version runtime
+ * grouping, other-version discovery) follow `hasMore` until a short page ends
+ * the inventory. Fails closed at the page cap instead of presenting a prefix.
+ */
+export async function listAllDeployments(
+	onPage?: (rows: Deployment[]) => void
+): Promise<Deployment[]> {
+	const rows: Deployment[] = [];
+	let offset = 0;
+	for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
+		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset);
+		rows.push(...result.deployments);
+		onPage?.([...rows]);
+		if (!result.hasMore) return rows;
+		offset += result.deployments.length;
+	}
+	throw new Error('Deployment inventory truncated: exceeded the 25-page fetch cap.');
+}
+
+export type DeploymentLedgerPage<T> = {
+	rows: T[];
+	nextCursor: string | null;
+};
+
+/**
+ * Fetch one cursor page of a deployment's orders or fills.
+ *
+ * Fails closed on protocol violations: a page with more rows than the limit,
+ * or an empty page that still claims `next_cursor` — either means the paging
+ * contract broke and continuing would silently skip or duplicate history.
+ */
+async function fetchLedgerPage<T>(
+	path: string,
+	limit: number,
+	cursor: string | undefined,
+	collectionKey: 'orders' | 'fills'
+): Promise<DeploymentLedgerPage<T>> {
+	const params = new URLSearchParams({ limit: String(limit) });
+	if (cursor !== undefined) params.set('cursor', cursor);
+	const body = await request<{
+		orders?: T[];
+		fills?: T[];
+		returned: number;
+		next_cursor: string | null;
+	}>(`${path}?${params.toString()}`);
+	const rows = body[collectionKey];
+	if (rows === undefined) {
+		throw new Error(`The server response is missing its ${collectionKey} page.`);
+	}
+	if (rows.length > limit) {
+		throw new Error(
+			`The server sent ${rows.length} rows for a ${limit}-row page; the paging contract is broken.`
+		);
+	}
+	if (body.next_cursor !== null && rows.length === 0) {
+		throw new Error('The server sent an empty page while claiming more rows exist.');
+	}
+	return { rows, nextCursor: body.next_cursor };
+}
+
+export async function listDeploymentOrders(
+	id: string,
+	limit: number,
+	cursor?: string
+): Promise<DeploymentLedgerPage<DeploymentOrder>> {
+	return fetchLedgerPage<DeploymentOrder>(
+		`/api/v1/deployments/${encodeURIComponent(id)}/orders`,
+		limit,
+		cursor,
+		'orders'
+	);
+}
+
+export async function listDeploymentFills(
+	id: string,
+	limit: number,
+	cursor?: string
+): Promise<DeploymentLedgerPage<DeploymentFill>> {
+	return fetchLedgerPage<DeploymentFill>(
+		`/api/v1/deployments/${encodeURIComponent(id)}/fills`,
+		limit,
+		cursor,
+		'fills'
+	);
+}
+
+/** One operator performance slice for a runtime deployment. */
+export type OperatorPerformance = {
+	mode: 'backtest' | 'paper' | 'live' | string;
+	timeframe: string;
+	/** Quote currency provenance; null means the server could not prove it. */
+	currency: 'USD' | 'USDC' | 'USDT' | null;
+	strategy_fingerprint: string | null;
+	deployment_id: string | null;
+	trade_count: number | null;
+	total_net_pnl: string | null;
+	total_return_fraction: string | null;
+	maximum_drawdown_fraction: string | null;
+	mark_complete: boolean | null;
+	marked_exposure: string | null;
+};
+
+/** One operator performance report envelope. */
+export type OperatorPerformanceReport = {
+	report_kind: string;
+	overall_status: string;
+	partial_result_warnings: string[];
+	recommended_next_action: string;
+	payload: OperatorPerformance;
+};
+
+/**
+ * Fetch the operator performance report for one deployment.
+ *
+ * This is the labeled provenance surface (currency, drawdown caveat, mark
+ * completeness) — distinct from the local ledger-summary projection.
+ */
+export async function fetchDeploymentPerformance(id: string): Promise<OperatorPerformanceReport> {
+	return request<OperatorPerformanceReport>(
+		`/api/v1/operator/performance?deployment_id=${encodeURIComponent(id)}`
+	);
+}
+
+/**
+ * Stop a deployment.
+ *
+ * Default is managed shutdown (`POST /stop`): cancel risk-increasing entry
+ * orders, keep protective exits active. `flatten: true` sends `?flatten=true`
+ * to also submit marketable exits for remaining inventory — never inferred
+ * from the managed path.
+ */
+export async function stopDeployment(id: string, flatten = false): Promise<Deployment> {
+	const suffix = flatten ? '?flatten=true' : '';
+	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/stop${suffix}`, {
+		method: 'POST'
+	});
+}
+
+/** Clear latched daily-loss and drawdown breakers after explicit operator reset. */
+export async function resetBreakerLatches(id: string): Promise<Deployment> {
+	return request<Deployment>(
+		`/api/v1/deployments/${encodeURIComponent(id)}/reset-breaker-latches`,
+		{ method: 'POST' }
+	);
+}
+
 export async function fetchDeployment(id: string): Promise<Deployment> {
 	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
 }
@@ -261,12 +449,6 @@ export async function pauseDeployment(id: string): Promise<Deployment> {
 
 export async function resumeDeployment(id: string): Promise<Deployment> {
 	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/resume`, {
-		method: 'POST'
-	});
-}
-
-export async function stopDeployment(id: string): Promise<Deployment> {
-	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/stop`, {
 		method: 'POST'
 	});
 }

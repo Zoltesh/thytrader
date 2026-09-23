@@ -67,6 +67,53 @@ test('requests bounded backtest pages with configurable size', async ({ page }) 
 	await expect(page.getByTestId('backtest-page-size')).toHaveValue('25');
 });
 
+test('deployment evidence filters backtest pages to the exact strategy version', async ({
+	page
+}) => {
+	const requested: string[] = [];
+	await page.route(
+		(url) => url.pathname === '/api/v1/backtests',
+		async (route) => {
+			const url = new URL(route.request().url());
+			requested.push(url.search);
+			const limit = Number(url.searchParams.get('limit'));
+			const offset = Number(url.searchParams.get('offset'));
+			await route.fulfill({
+				json: {
+					entries: [
+						{
+							result_fingerprint: fingerprint,
+							run_fingerprint: runFingerprint,
+							strategy_fingerprint: strategyFingerprint,
+							dataset_fingerprint: datasetFingerprint,
+							engine_contract_version: 'thytrader-bar-backtest-v2',
+							published_at: '2026-08-03T17:25:34Z',
+							summary
+						}
+					],
+					limit,
+					offset,
+					returned: limit,
+					has_more: offset === 0
+				}
+			});
+		}
+	);
+	await page.goto(`/backtests?strategy_fingerprint=${encodeURIComponent(strategyFingerprint)}`);
+	await expect(
+		page.getByText('Filtered to published strategy version', { exact: false })
+	).toBeVisible();
+	await expect
+		.poll(() => requested.at(-1))
+		.toContain(`strategy_fingerprint=${encodeURIComponent(strategyFingerprint)}`);
+	await page.getByRole('button', { name: 'Older' }).click();
+	await expect
+		.poll(() => requested.at(-1))
+		.toContain(`offset=10&strategy_fingerprint=${encodeURIComponent(strategyFingerprint)}`);
+	await page.getByRole('link', { name: 'Show all backtests' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&offset=0');
+});
+
 test('shows a published backtest summary then its immutable detail', async ({ page }) => {
 	await page.route(
 		(url) => /\/api\/v1\/backtests\/?$/.test(new URL(url).pathname),

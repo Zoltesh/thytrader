@@ -19,6 +19,14 @@
 	let model = $state<BuilderModel | null>(null);
 
 	const selectedId = $derived(page.url.searchParams.get('strategy') ?? '');
+	/**
+	 * Exact published fingerprint requested by the caller, or '' when absent.
+	 *
+	 * Honored only when it really belongs to this strategy's published versions:
+	 * an unknown fingerprint falls back to the latest with a visible notice
+	 * rather than silently deploying a different immutable version.
+	 */
+	const requestedFingerprint = $derived(page.url.searchParams.get('strategy_fingerprint') ?? '');
 	const selected = $derived(entries.find((entry) => entry.strategy_id === selectedId) ?? null);
 
 	async function loadLibrary(): Promise<void> {
@@ -117,7 +125,12 @@
 		<p class="strategy-meta">
 			{selected.name} · {selected.status} · v{selected.latest_version ?? '—'}
 		</p>
-		<DeployWorkstation entry={selected} {model} onChanged={() => void loadLibrary()} />
+		<DeployWorkstation
+			entry={selected}
+			{model}
+			{requestedFingerprint}
+			onChanged={() => void loadLibrary()}
+		/>
 	{/if}
 </main>
 

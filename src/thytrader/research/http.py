@@ -549,13 +549,12 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
         engine_contract_version = body.get("engine_contract_version")
         summary = body.get("summary")
     timeframe = "1h"
-    currency = "USD"
+    currency: str | None = None
     if isinstance(strategy_fingerprint, str):
         try:
             source = _strategy_source(base_url, strategy_fingerprint)
         except AgentHttpError, ResearchMutationError:
-            timeframe = "1h"
-            currency = "USD"
+            pass
         else:
             timeframe, currency = _published_clock_and_quote(source)
     return _encode(

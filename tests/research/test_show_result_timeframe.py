@@ -94,8 +94,8 @@ def test_show_result_keeps_usd_quote_currency() -> None:
     assert payload["currency"] == "USD"
 
 
-def test_show_result_falls_back_to_usd_when_source_is_unavailable() -> None:
-    """A missing strategy source keeps the historical USD fallback."""
+def test_show_result_keeps_currency_unknown_when_source_is_unavailable() -> None:
+    """Missing publication provenance cannot relabel a result as USD."""
 
     def missing_source(*, method: str, url: str, **_kwargs: object) -> dict[str, object]:
         del method
@@ -105,7 +105,7 @@ def test_show_result_falls_back_to_usd_when_source_is_unavailable() -> None:
 
     with patch("thytrader.research.http.request_json", side_effect=missing_source):
         payload = json.loads(show_result("http://127.0.0.1:8000", _RESULT_FINGERPRINT))
-    assert payload["currency"] == "USD"
+    assert payload["currency"] is None
     assert payload["timeframe"] == "1h"
 
 
