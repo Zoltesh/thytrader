@@ -15,9 +15,10 @@ live balances when both Coinbase variables are configured. That screen never sub
 
 ### Strategies
 
-Open http://127.0.0.1:5175/strategies when the stack is healthy. The library shows the first
-page as soon as it arrives, labels remaining pages while they load, and retains visible rows with
-an explicit incomplete warning if a later page fails; it never calls a failed load an empty library.
+Open http://127.0.0.1:5175/strategies when the stack is healthy. The library requests one
+server page at a time (10 rows by default; select 10, 25, 50, or 100). Use Next/Previous to
+navigate cursor pages. Changing the page size returns to page one. A failed page shows a retryable
+error rather than an empty library. Other selection screens may still load the full library.
 Each row shows the strategy identity, market and timeframe, latest version,
 draft/published/archived status, the newest
 backtest bound to any of its immutable versions, and its paper/live column: newest deployment
@@ -59,6 +60,14 @@ live trading. A published version can be archived from the library after confirm
 a permanent archive marker and hides it from active selection without changing its fingerprint or
 canonical bytes. Backtests require a verified dataset fingerprint and remain deterministic research
 artifacts.
+
+### Backtests
+
+Open `/backtests` to inspect immutable result summaries. The list requests 10 newest-first rows
+by default; its Rows per page selector offers 10, 25, 50, and 100. Newer/Older request only the
+current server page, and changing the size restarts at the newest results. A full page does not
+by itself imply there are older results: the server's `has_more` indicates that. Opening an
+individual result does not require loading every list page.
 
 ### Paper and live
 

@@ -65,6 +65,7 @@ export type BacktestList = {
 	limit: number;
 	offset: number;
 	returned: number;
+	has_more?: boolean;
 };
 
 export type BacktestFill = {
@@ -367,8 +368,8 @@ export function formatFillFee(fill: Pick<BacktestFill, 'fee' | 'fee_rate'>): str
 	return `${amount} (${formatDisplayFeeRate(fill.fee_rate)})`;
 }
 
-/** Default newest-first page size matching `GET /api/v1/backtests` (limit 1–100, default 50). */
-export const BACKTEST_LIST_DEFAULT_LIMIT = 50;
+/** Default UI page size; the API accepts limits from 1 through 100. */
+export const BACKTEST_LIST_DEFAULT_LIMIT = 10;
 
 export const RESULT_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
