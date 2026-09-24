@@ -1,3 +1,5 @@
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 export type StrategyDraft = {
 	strategy_id: string;
 	version: number;
@@ -742,9 +744,18 @@ type ArchivedStrategy = { strategy_fingerprint: string; archived_at: string | nu
 type BacktestSubmission = { run_fingerprint: string; result_fingerprint: string };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	if (method !== 'GET' && method !== 'HEAD') {
+		await ensureBrowserCsrfSession();
+	}
 	const response = await fetch(url, {
 		...init,
-		headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init?.headers }
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...init?.headers,
+			...mutationHeaders()
+		}
 	});
 	if (!response.ok) {
 		const body = (await response.json().catch(() => ({}))) as {

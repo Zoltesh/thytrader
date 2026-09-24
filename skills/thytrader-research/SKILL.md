@@ -28,6 +28,10 @@ path is `uv run thytrader-research` with `--confirm`.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
+Browser strategy, backtest, and study writes establish a CSRF session automatically and send its
+matching header and cookie. If a browser write gets HTTP 401 `CSRF token required for browser
+mutations`, diagnose the browser/proxy path; do not change strategy inputs or disable the security
+boundary. The CLI uses installation Bearer auth without browser CSRF.
 
 ## Hard stop
 

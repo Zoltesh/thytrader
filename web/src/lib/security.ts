@@ -4,19 +4,27 @@
  */
 
 let csrfToken: string | null = null;
+let sessionRequest: Promise<void> | null = null;
 
 export async function ensureBrowserCsrfSession(): Promise<void> {
 	if (csrfToken !== null) {
 		return;
 	}
-	const response = await fetch('/api/v1/security/session', {
-		headers: { Accept: 'application/json' }
-	});
-	if (!response.ok) {
-		throw new Error('Could not establish a browser security session.');
+	sessionRequest ??= (async () => {
+		const response = await fetch('/api/v1/security/session', {
+			headers: { Accept: 'application/json' }
+		});
+		if (!response.ok) {
+			throw new Error('Could not establish a browser security session.');
+		}
+		const payload = (await response.json()) as { csrf_token: string };
+		csrfToken = payload.csrf_token;
+	})();
+	try {
+		await sessionRequest;
+	} finally {
+		sessionRequest = null;
 	}
-	const payload = (await response.json()) as { csrf_token: string };
-	csrfToken = payload.csrf_token;
 }
 
 export function mutationHeaders(): Record<string, string> {

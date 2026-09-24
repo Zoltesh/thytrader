@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-	clearCoinbaseCredentials,
-	fetchCoinbaseCredentialsStatus,
-	setCoinbaseCredentials
-} from './credentials';
+import { fetchCoinbaseCredentialsStatus, setCoinbaseCredentials } from './credentials';
 
 const status = {
 	provider: 'coinbase' as const,
@@ -31,10 +27,13 @@ describe('credentials client', () => {
 	});
 
 	it('PUTs key name and private key then returns status only', async () => {
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: true,
-			json: async () => status
-		});
+		const fetchMock = vi
+			.fn()
+			.mockImplementation(async (path: string) =>
+				path === '/api/v1/security/session'
+					? { ok: true, json: async () => ({ csrf_token: 'credential-test-csrf' }) }
+					: { ok: true, json: async () => status }
+			);
 		vi.stubGlobal('fetch', fetchMock);
 		await expect(
 			setCoinbaseCredentials({
@@ -42,21 +41,30 @@ describe('credentials client', () => {
 				private_key: 'SYNTHETIC-DO-NOT-ECHO'
 			})
 		).resolves.toEqual(status);
-		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/security/session');
+		const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
 		expect(init.method).toBe('PUT');
+		expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('credential-test-csrf');
 		expect(init.body).toContain('SYNTHETIC-DO-NOT-ECHO');
 		vi.unstubAllGlobals();
 	});
 
 	it('DELETE clears without echoing secrets from a generic 422', async () => {
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: false,
-			json: async () => ({ detail: 'Invalid Coinbase credentials payload.' })
-		});
+		vi.resetModules();
+		const fetchMock = vi
+			.fn()
+			.mockImplementation(async (path: string) =>
+				path === '/api/v1/security/session'
+					? { ok: true, json: async () => ({ csrf_token: 'delete-test-csrf' }) }
+					: { ok: false, json: async () => ({ detail: 'Invalid Coinbase credentials payload.' }) }
+			);
 		vi.stubGlobal('fetch', fetchMock);
-		await expect(clearCoinbaseCredentials()).rejects.toThrow(
-			'Invalid Coinbase credentials payload.'
-		);
+		const { clearCoinbaseCredentials: clearWithFreshSession } = await import('./credentials');
+		await expect(clearWithFreshSession()).rejects.toThrow('Invalid Coinbase credentials payload.');
+		expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/security/session');
+		const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+		expect(init.method).toBe('DELETE');
+		expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('delete-test-csrf');
 		vi.unstubAllGlobals();
 	});
 });

@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { defineConfig } from '@playwright/test';
 
+const installationToken = randomBytes(32).toString('hex');
 const e2eApiPort = 18200;
 const e2eUiPort = 14173;
 const e2eApiOrigin = `http://127.0.0.1:${e2eApiPort}`;
@@ -24,7 +26,8 @@ export default defineConfig({
 				THYTRADER_API_PORT: String(e2eApiPort),
 				THYTRADER_COINBASE_API_KEY_NAME: '',
 				THYTRADER_COINBASE_API_PRIVATE_KEY: '',
-				THYTRADER_DATABASE_URL: '',
+				THYTRADER_DATABASE_URL: process.env.THYTRADER_E2E_DATABASE_URL ?? '',
+				THYTRADER_INSTALLATION_TOKEN: installationToken,
 				THYTRADER_ENVIRONMENT: 'test'
 			}
 		},
@@ -34,7 +37,8 @@ export default defineConfig({
 			timeout: 120_000,
 			reuseExistingServer: false,
 			env: {
-				THYTRADER_API_PROXY_TARGET: e2eApiOrigin
+				THYTRADER_API_PROXY_TARGET: e2eApiOrigin,
+				THYTRADER_INSTALLATION_TOKEN: installationToken
 			}
 		}
 	]

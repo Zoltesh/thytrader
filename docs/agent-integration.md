@@ -32,6 +32,11 @@ credential and browser writes require CSRF. Live arming remains the published-ri
 `thytrader-memory`, `thytrader-runtime`, and YOLO skip audits) sends installation Bearer auth via
 the shared `request_mutation_json()` helper ([ADR 0070](decisions/0070-mutation-cli-installation-auth.md)).
 Agent CLIs read the token from `THYTRADER_INSTALLATION_TOKEN` or the shared credentials directory.
+The browser bootstraps `GET /api/v1/security/session` before strategy, backtest, study, chat, and
+credential mutations, then sends the matching `X-CSRF-Token` and cookie through the web proxy.
+Read-only browser requests do not need a CSRF session; CLI writes use installation auth without
+browser CSRF. Tests must exercise a trust-boundary-enabled browser POST rather than only mocked
+mutation responses.
 
 ## Planned direction: agent experts that learn from evidence (hooks + V1 trainer + why-trade)
 
