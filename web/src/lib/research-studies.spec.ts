@@ -50,23 +50,26 @@ describe('listStrategyTemplates', () => {
 
 describe('submitResearchStudy', () => {
 	it('posts the study contract and returns the derived document', async () => {
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: true,
-			json: async () => ({
-				study_fingerprint: `sha256:${'a'.repeat(64)}`,
-				kind: 'oos_holdout',
-				engine_contract_version: 'thytrader-bar-backtest-v1',
-				windows: [],
-				aggregate: {
-					oos_window_count: 1,
-					oos_trade_count: 0,
-					mean_oos_return_fraction: '0.01',
-					mean_is_return_fraction: '0.02',
-					is_oos_return_gap: '0.01'
-				},
-				warnings: []
-			})
-		});
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, json: async () => ({ csrf_token: 'test-csrf' }) })
+			.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({
+					study_fingerprint: `sha256:${'a'.repeat(64)}`,
+					kind: 'oos_holdout',
+					engine_contract_version: 'thytrader-bar-backtest-v1',
+					windows: [],
+					aggregate: {
+						oos_window_count: 1,
+						oos_trade_count: 0,
+						mean_oos_return_fraction: '0.01',
+						mean_is_return_fraction: '0.02',
+						is_oos_return_gap: '0.01'
+					},
+					warnings: []
+				})
+			});
 		vi.stubGlobal('fetch', fetchMock);
 		const study = await submitResearchStudy({
 			schema_version: 'thytrader-research-study-v1',
@@ -83,9 +86,16 @@ describe('submitResearchStudy', () => {
 			oos_fraction: '0.3'
 		});
 		expect(study.kind).toBe('oos_holdout');
-		expect(fetchMock).toHaveBeenCalledWith(
+		expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/security/session', {
+			headers: { Accept: 'application/json' }
+		});
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			2,
 			'/api/v1/research/studies',
-			expect.objectContaining({ method: 'POST' })
+			expect.objectContaining({
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'X-CSRF-Token': 'test-csrf' }
+			})
 		);
 		vi.unstubAllGlobals();
 	});

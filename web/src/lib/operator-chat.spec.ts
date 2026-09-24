@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { visibleChatMessages, type ChatMessage } from './operator-chat';
+import { sendOperatorChatMessage, visibleChatMessages, type ChatMessage } from './operator-chat';
 
 describe('operator chat client helpers', () => {
 	it('shows only user and assistant rows in the transcript pane', () => {
@@ -53,5 +53,29 @@ describe('operator chat client helpers', () => {
 			}
 		];
 		expect(visibleChatMessages(rows).map((row) => row.id)).toEqual(['2']);
+	});
+
+	it('establishes CSRF before sending a chat mutation', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, json: async () => ({ csrf_token: 'chat-test-csrf' }) })
+			.mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [] }) });
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			await sendOperatorChatMessage('health?');
+			expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/security/session', {
+				headers: { Accept: 'application/json' }
+			});
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				2,
+				'/api/v1/operator-chat/messages',
+				expect.objectContaining({
+					method: 'POST',
+					headers: expect.objectContaining({ 'X-CSRF-Token': 'chat-test-csrf' })
+				})
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

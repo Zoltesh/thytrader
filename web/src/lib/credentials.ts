@@ -1,3 +1,5 @@
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 /**
  * Write-only Coinbase Advanced Trade credential client.
  *
@@ -43,18 +45,24 @@ export async function setCoinbaseCredentials(input: {
 	api_key_name: string;
 	private_key: string;
 }): Promise<CoinbaseCredentialsStatus> {
+	await ensureBrowserCsrfSession();
 	const response = await fetch('/api/v1/credentials/coinbase', {
 		method: 'PUT',
-		headers: { Accept: 'application/json', 'content-type': 'application/json' },
+		headers: {
+			Accept: 'application/json',
+			'content-type': 'application/json',
+			...mutationHeaders()
+		},
 		body: JSON.stringify(input)
 	});
 	return parseStatus(response, 'Could not set Coinbase credentials.');
 }
 
 export async function clearCoinbaseCredentials(): Promise<CoinbaseCredentialsStatus> {
+	await ensureBrowserCsrfSession();
 	const response = await fetch('/api/v1/credentials/coinbase', {
 		method: 'DELETE',
-		headers: { Accept: 'application/json' }
+		headers: { Accept: 'application/json', ...mutationHeaders() }
 	});
 	return parseStatus(response, 'Could not clear Coinbase credentials.');
 }

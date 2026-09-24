@@ -1,3 +1,5 @@
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 /** Research-study HTTP helpers. Studies compose existing backtests. */
 
 export type StudyKind =
@@ -162,9 +164,10 @@ export async function listStrategyTemplates(): Promise<StrategyTemplate[]> {
 }
 
 export async function submitResearchStudy(request: ResearchStudyRequest): Promise<ResearchStudy> {
+	await ensureBrowserCsrfSession();
 	const response = await fetch('/api/v1/research/studies', {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' },
+		headers: { 'content-type': 'application/json', ...mutationHeaders() },
 		body: JSON.stringify(request)
 	});
 	if (!response.ok) {

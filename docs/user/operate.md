@@ -29,7 +29,9 @@ paper/live cell opens `/deploy` for that strategy.
 From the library you can create the conservative reference draft, clone a published strategy into a
 fresh draft identity (Clone stays ungated), import a complete strategy definition JSON as a new
 draft, and archive an immutable publication after confirming the latest published version and
-fingerprint.
+fingerprint. Browser writes first establish a CSRF session and send its matching token and cookie;
+the app handles this automatically. A 401 CSRF error is a browser-session/client failure, not a
+strategy-validation error. Do not disable the trust boundary to work around it.
 
 The builder at `/strategies/{strategy_id}` reads that identity's version history directly and opens
 its durable draft without loading the full library. If the identity has only immutable published or

@@ -1,3 +1,5 @@
+import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
+
 /**
  * Typed client for in-app operator chat. LLM keys are write-only.
  */
@@ -48,9 +50,18 @@ export interface LlmCredentialWrite {
 }
 
 async function readJson<T>(path: string, fallback: string, init?: RequestInit): Promise<T> {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	if (method !== 'GET' && method !== 'HEAD') {
+		await ensureBrowserCsrfSession();
+	}
 	const response = await fetch(path, {
-		headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-		...init
+		...init,
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(init?.headers ?? {}),
+			...mutationHeaders()
+		}
 	});
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, fallback));

@@ -131,8 +131,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		...init,
 		headers: {
 			'content-type': 'application/json',
-			...mutationHeaders(),
-			...(init?.headers ?? {})
+			...(init?.headers ?? {}),
+			...mutationHeaders()
 		}
 	});
 	if (!response.ok) {
