@@ -86,8 +86,8 @@
 	<p class="lede">
 		Set, rotate, or clear Coinbase Advanced Trade API secrets. Keys stay server-side. This form
 		never echoes them, never logs them, and never puts them in a GET body. View + Trade is enough;
-		extra permissions are reported, not treated as consent. LLM keys stay on Chat. Extra exchanges
-		are out of scope.
+		extra permissions are reported, not treated as consent. LLM keys stay in the Agent panel. Extra
+		exchanges are out of scope.
 	</p>
 	{#if loading}
 		<p class="muted">Loading status…</p>
@@ -164,9 +164,9 @@
 
 <style>
 	.card {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 12px;
-		background: #141b1c;
+		background: var(--surface-2);
 		padding: 24px;
 		margin-bottom: 20px;
 		display: grid;
@@ -179,7 +179,7 @@
 	}
 	.lede {
 		margin: 0;
-		color: #d8e1e2;
+		color: var(--text);
 		font-size: 14px;
 	}
 	dl {
@@ -188,7 +188,7 @@
 		margin: 0;
 	}
 	dt {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 11px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
@@ -201,14 +201,14 @@
 		display: grid;
 		gap: 6px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 	}
 	input,
 	textarea {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
-		background: #101617;
-		color: #edf3f3;
+		background: var(--surface);
+		color: var(--text);
 		padding: 10px 12px;
 		font: inherit;
 		font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -218,7 +218,7 @@
 		display: flex;
 		gap: 10px;
 		align-items: flex-start;
-		color: #d8e1e2;
+		color: var(--text);
 		font-size: 13px;
 		text-transform: none;
 	}
@@ -232,9 +232,9 @@
 		gap: 10px;
 	}
 	.danger {
-		color: #f0a3a3;
-		background: #151b1d;
-		border: 1px solid #5c3232;
+		color: var(--neg);
+		background: var(--surface-2);
+		border: 1px solid var(--danger-line);
 		border-radius: 9px;
 		padding: 11px 15px;
 		cursor: pointer;
@@ -245,16 +245,16 @@
 		cursor: default;
 	}
 	.muted {
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 13px;
 		margin: 0;
 	}
 	.problem {
-		color: #f0a3a3;
+		color: var(--neg);
 		margin: 0;
 	}
 	.ok {
-		color: #83d5a3;
+		color: var(--pos);
 		margin: 0;
 	}
 </style>

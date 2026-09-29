@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import CoinbaseCredentialsPanel from '$lib/CoinbaseCredentialsPanel.svelte';
 	import YamlSettingsPanel from '$lib/YamlSettingsPanel.svelte';
 </script>
@@ -8,44 +9,18 @@
 </svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Loopback settings</p>
-			<h1>Settings</h1>
+	<PageHead eyebrow="Loopback settings" title="Settings">
+		{#snippet intro()}
 			<p class="lede">
 				YAML is the source of truth for non-secret knobs, including YOLO. Coinbase Advanced Trade
-				secrets are write-only beside that panel. LLM keys stay on Chat. Extra exchanges are out of
-				scope.
+				secrets are write-only beside that panel. LLM keys stay in the Agent panel. Extra exchanges
+				are out of scope.
 			</p>
-		</div>
-	</section>
+		{/snippet}
+	</PageHead>
 	<YamlSettingsPanel />
 	<CoinbaseCredentialsPanel />
 </main>
 
 <style>
-	.hero {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 1rem;
-		margin-bottom: 1.5rem;
-	}
-	.eyebrow {
-		font-size: 0.8125rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #a0aec0;
-		margin: 0 0 0.25rem 0;
-	}
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 0.5rem 0;
-		color: #f7fafc;
-	}
-	.lede {
-		color: #a0aec0;
-		margin: 0;
-		max-width: 46rem;
-	}
 </style>

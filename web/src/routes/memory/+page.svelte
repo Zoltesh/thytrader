@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { onMount } from 'svelte';
 	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { formatUtcTimestamp } from '$lib/time';
@@ -81,21 +82,19 @@
 </svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Experiential memory</p>
-			<h1>Journals and monitor</h1>
+	<PageHead eyebrow="Experiential memory" title="Journals and monitor">
+		{#snippet intro()}
 			<p class="lede">
 				Origin-attributed facts, lessons, why-trade records, sentiment, and pattern hooks. Mutations
 				stay on <code>thytrader-memory --confirm</code>; this page is read-only. YOLO never covers
 				that lane.
 			</p>
-		</div>
+		{/snippet}
 		<button class="refresh" type="button" onclick={loadMemory} disabled={loading}>
 			<span class:spinning={loading}>↻</span>
 			{loading ? 'Refreshing…' : 'Refresh memory'}
 		</button>
-	</section>
+	</PageHead>
 
 	{#if error}
 		<div class="error-banner" role="alert">
@@ -224,45 +223,6 @@
 </main>
 
 <style>
-	.hero {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 1rem;
-	}
-	.eyebrow {
-		font-size: 0.8125rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #a0aec0;
-		margin: 0 0 0.25rem 0;
-	}
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 0.5rem 0;
-		color: #f7fafc;
-	}
-	.lede {
-		color: #a0aec0;
-		margin: 0;
-		max-width: 42rem;
-	}
-	.refresh {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: #2b6cb0;
-		color: #fff;
-		border: none;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		cursor: pointer;
-		font-weight: 600;
-	}
-	.refresh:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
 	.spinning {
 		display: inline-block;
 		animation: spin 1s linear infinite;
@@ -275,10 +235,10 @@
 	.error-banner {
 		margin-top: 1.5rem;
 		padding: 1rem;
-		border: 1px solid #c53030;
+		border: 1px solid var(--neg);
 		border-radius: 0.5rem;
-		background: #2d1b1b;
-		color: #feb2b2;
+		background: var(--danger-soft);
+		color: var(--neg);
 		display: flex;
 		justify-content: space-between;
 		gap: 1rem;
@@ -291,7 +251,7 @@
 	}
 	.label {
 		margin: 0;
-		color: #a0aec0;
+		color: var(--muted);
 		font-size: 0.75rem;
 		text-transform: uppercase;
 	}
@@ -312,14 +272,14 @@
 	td {
 		text-align: left;
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid #2d3748;
+		border-bottom: 1px solid var(--line-2);
 	}
 	.timestamp {
 		white-space: nowrap;
 	}
 	.skeleton {
 		height: 0.75rem;
-		background: #2d3748;
+		background: var(--surface-2);
 		border-radius: 0.25rem;
 		margin-bottom: 0.5rem;
 	}

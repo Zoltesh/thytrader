@@ -129,7 +129,7 @@
 	.backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(5, 8, 9, 0.78);
+		background: var(--scrim);
 		display: grid;
 		place-items: center;
 		z-index: 60;
@@ -139,9 +139,9 @@
 		width: min(560px, 100%);
 		max-height: 90vh;
 		overflow-y: auto;
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 13px;
-		background: #12191b;
+		background: var(--surface);
 		padding: 22px 24px;
 		display: grid;
 		gap: 12px;
@@ -149,15 +149,15 @@
 	.dialog h2 {
 		margin: 0;
 		font-size: 18px;
-		color: #e9edf1;
+		color: var(--text);
 	}
 	.dialog p {
 		margin: 0 0 6px;
 		font-size: 13px;
-		color: #c6cfd1;
+		color: var(--muted);
 	}
 	.stop-mode {
-		border: 1px solid #232d2e;
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 10px 12px;
 		display: grid;
@@ -165,7 +165,7 @@
 		margin: 0;
 	}
 	.stop-mode legend {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 11px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
@@ -176,21 +176,21 @@
 		grid-template-columns: auto 1fr;
 		gap: 10px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 		cursor: pointer;
 	}
 	.choice strong {
 		display: block;
-		color: #e9edf1;
+		color: var(--text);
 		font-size: 13px;
 		margin-bottom: 2px;
 	}
 	.async-note {
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 12px;
 	}
 	.dialog-problem {
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 13px;
 	}
 	.dialog-actions {
@@ -200,9 +200,9 @@
 		margin-top: 4px;
 	}
 	.dialog-actions button {
-		border: 1px solid #303a3c;
-		background: #151b1d;
-		color: #dce4e5;
+		border: 1px solid var(--line-2);
+		background: var(--surface-2);
+		color: var(--text);
 		border-radius: 8px;
 		padding: 9px 14px;
 		font: inherit;
@@ -210,12 +210,12 @@
 		cursor: pointer;
 	}
 	.dialog-actions button:hover:not(:disabled) {
-		border-color: #5ce1b5;
+		border-color: var(--accent);
 	}
 	.dialog-actions button.danger {
-		background: #2c1212;
-		border-color: #733d3d;
-		color: #ffd4d4;
+		background: var(--danger-soft);
+		border-color: var(--danger-line);
+		color: var(--neg);
 		font-weight: 600;
 	}
 	.dialog-actions button:disabled {

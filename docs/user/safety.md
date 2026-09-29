@@ -19,7 +19,7 @@ theme.
   are write-only: GET never echoes secrets; YOLO never covers set/clear. Saving credentials does
   not arm live trading.
 - An in-app operator-chat LLM key is also server-side (API process only) and is **not** a Coinbase
-  credential. Status never echoes it. Do not paste a Coinbase key into `/chat`.
+  credential. Status never echoes it. Do not paste a Coinbase key into the Agent panel or `/chat`.
 - `.env` is ignored. `.env.example` contains names and placeholders only.
 - `make run` / `scripts/setup_local_stack.py` must not print credentials or connection URLs.
 - View + Trade is enough for planned trading. Extra key permissions are accepted and reported; they
@@ -35,7 +35,7 @@ theme.
   `THYTRADER_YOLO_TIERS=paper` is valid.
 - Live start, live resume, and live on-demand place-order also require `--i-understand-live`
   (HTTP `i_understand_live: true`; the API answers 428 without it). The web UI sends it only after
-  its live confirmation dialog; `/chat` only after the understand-live box
+  its live confirmation dialog; the Agent panel and `/chat` only after the understand-live box
   ([ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). YOLO never skips that flag. Live place-order, risk-policy publication, Coinbase credential set/clear, `--local`
   research, and memory stay confirmation-hard-gated even when YOLO advertises `live`.
 - The playbook never starts live. Memory mutations never inherit YOLO.

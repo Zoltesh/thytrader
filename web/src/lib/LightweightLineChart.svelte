@@ -8,6 +8,7 @@
 		type UTCTimestamp
 	} from 'lightweight-charts';
 	import { formatUsd, honestLineSegments, type HonestLinePoint } from '$lib/portfolio';
+	import { readToken } from '$lib/theme';
 
 	type ChartSample = {
 		time: number;
@@ -56,37 +57,53 @@
 			return;
 		}
 
+		// Canvas cannot read CSS custom properties, so resolve the design tokens
+		// now and again whenever the theme attribute on <html> changes.
+		const palette = (): {
+			text: string;
+			grid: string;
+			border: string;
+			crosshair: string;
+			line: string;
+		} => ({
+			text: readToken('--faint', '#838e92'),
+			grid: readToken('--line', '#20282a'),
+			border: readToken('--line-2', '#2b3437'),
+			crosshair: readToken('--line-strong', '#3e4a4d'),
+			line: readToken('--accent', '#5ce1b5')
+		});
+		const colors = palette();
 		const chart: IChartApi = createChart(el, {
 			autoSize: true,
 			height,
 			layout: {
 				attributionLogo: true,
 				background: { type: ColorType.Solid, color: 'transparent' },
-				fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+				fontFamily: readToken('--font-mono', 'ui-monospace, monospace'),
 				fontSize: 10,
-				textColor: '#657174'
+				textColor: colors.text
 			},
 			grid: {
-				horzLines: { color: '#1d2426' },
-				vertLines: { color: '#1d2426' }
+				horzLines: { color: colors.grid },
+				vertLines: { color: colors.grid }
 			},
-			rightPriceScale: { borderColor: '#232b2d' },
+			rightPriceScale: { borderColor: colors.border },
 			timeScale: {
-				borderColor: '#232b2d',
+				borderColor: colors.border,
 				secondsVisible: false,
 				timeVisible: true
 			},
 			crosshair: {
 				mode: CrosshairMode.Magnet,
-				horzLine: { color: '#4c5c5e', labelVisible: false },
-				vertLine: { color: '#4c5c5e', labelVisible: true }
+				horzLine: { color: colors.crosshair, labelVisible: false },
+				vertLine: { color: colors.crosshair, labelVisible: true }
 			},
 			localization: {
 				priceFormatter: (price: number) => formatAxisUsd(price)
 			}
 		});
 		const lineOptions = {
-			color: '#5ce1b5',
+			color: colors.line,
 			crosshairMarkerVisible: true,
 			lastValueVisible: false,
 			lineWidth: 2 as const,
@@ -121,7 +138,30 @@
 			crosshair = lookup[String(param.time)] ?? null;
 		});
 
+		const lineSeries = chart.panes().flatMap((pane) => pane.getSeries());
+		const themeObserver = new MutationObserver(() => {
+			const next = palette();
+			chart.applyOptions({
+				layout: { textColor: next.text },
+				grid: { horzLines: { color: next.grid }, vertLines: { color: next.grid } },
+				rightPriceScale: { borderColor: next.border },
+				timeScale: { borderColor: next.border },
+				crosshair: {
+					horzLine: { color: next.crosshair },
+					vertLine: { color: next.crosshair }
+				}
+			});
+			for (const item of lineSeries) {
+				item.applyOptions({ color: next.line });
+			}
+		});
+		themeObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-theme']
+		});
+
 		return () => {
+			themeObserver.disconnect();
 			crosshair = null;
 			chart.remove();
 		};
@@ -174,7 +214,7 @@
 	}
 	.crosshair-readout {
 		margin: 0;
-		color: #8f9d9f;
+		color: var(--muted);
 		font:
 			12px ui-monospace,
 			SFMono-Regular,

@@ -215,9 +215,9 @@
 
 <style>
 	.card {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 12px;
-		background: #141b1c;
+		background: var(--surface-2);
 		padding: 24px;
 		margin-bottom: 20px;
 		display: grid;
@@ -233,7 +233,7 @@
 	.meta,
 	.restart p {
 		margin: 0;
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 14px;
 	}
 	form {
@@ -244,7 +244,7 @@
 	.toggle {
 		display: grid;
 		gap: 6px;
-		color: #dce4e5;
+		color: var(--text);
 		font-size: 13px;
 	}
 	.toggle {
@@ -252,11 +252,11 @@
 		align-items: center;
 	}
 	fieldset {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
 		display: grid;
 		gap: 8px;
-		color: #dce4e5;
+		color: var(--text);
 	}
 	fieldset label {
 		grid-template-columns: auto 1fr;
@@ -266,9 +266,9 @@
 	select,
 	button {
 		font: inherit;
-		color: #e9edf1;
-		background: #151b1d;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface-2);
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
 		padding: 8px 10px;
 	}
@@ -277,13 +277,13 @@
 		width: fit-content;
 	}
 	button:hover {
-		border-color: #5ce1b5;
+		border-color: var(--accent);
 	}
 	.error {
-		color: #d5a8a8;
+		color: var(--neg);
 	}
 	.ok {
-		color: #5ce1b5;
+		color: var(--accent);
 	}
 	dl {
 		display: grid;
@@ -297,11 +297,11 @@
 		font-size: 13px;
 	}
 	dt {
-		color: #778386;
+		color: var(--faint);
 	}
 	dd {
 		margin: 0;
-		color: #dce4e5;
+		color: var(--text);
 		font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 	}
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -86,18 +87,16 @@
 	<title>Research · ThyTrader</title>
 </svelte:head>
 
-<main class="workstation-page">
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Conservative research</p>
-			<h1>Research</h1>
+<main>
+	<PageHead eyebrow="Conservative research" title="Research">
+		{#snippet intro()}
 			<p class="lede">
 				Launch a deterministic backtest or composed study against an immutable published strategy.
 				Paper and live stay on Deploy. Confirmation-gated agents use
 				<code>thytrader-research --confirm</code>.
 			</p>
-		</div>
-	</section>
+		{/snippet}
+	</PageHead>
 	{#if error}
 		<div class="error-banner" role="alert">
 			<strong>Research operation unavailable</strong>
@@ -134,9 +133,6 @@
 </main>
 
 <style>
-	.workstation-page {
-		width: min(1400px, 94vw);
-	}
 	.picker,
 	.picker select {
 		display: grid;
@@ -145,7 +141,7 @@
 		margin-bottom: 24px;
 	}
 	.picker {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 12px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
@@ -154,22 +150,22 @@
 		text-transform: none;
 		letter-spacing: 0;
 		font-size: 14px;
-		color: #edf3f3;
-		background: #101617;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface);
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
 		padding: 10px 12px;
 	}
 	.strategy-meta {
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 13px;
 		margin: 0 0 20px;
 	}
 	.empty-hint {
-		color: #8d999c;
+		color: var(--muted);
 	}
 	.error-banner {
-		color: #f0a3a3;
+		color: var(--neg);
 		margin-bottom: 16px;
 	}
 </style>

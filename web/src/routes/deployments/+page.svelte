@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { listDeploymentsPage, type Deployment } from '$lib/deployments';
@@ -68,17 +69,15 @@
 <svelte:head><title>Deployments · ThyTrader</title></svelte:head>
 
 <main>
-	<section class="page-head">
-		<div>
-			<p class="eyebrow">Runtime status</p>
-			<h1>Deployments</h1>
+	<PageHead eyebrow="Runtime status" title="Deployments">
+		{#snippet intro()}
 			<p class="lede">
 				Everything running on this workstation. Open a deployment for exact-version evidence,
 				positions, orders, and fills. Start new deployments from
 				<a href={resolve('/deploy')}>Deploy</a>.
 			</p>
-		</div>
-	</section>
+		{/snippet}
+	</PageHead>
 
 	{#if listLoading}
 		<section class="loading-card" aria-label="Loading deployments">
@@ -217,17 +216,10 @@
 {/snippet}
 
 <style>
-	.page-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: end;
-		gap: 18px;
-		margin-bottom: 28px;
-	}
 	.group-heading {
 		margin: 26px 0 12px;
 		font-size: 13px;
-		color: #778386;
+		color: var(--faint);
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
 	}
@@ -239,8 +231,8 @@
 		list-style: none;
 	}
 	.deploy-card {
-		border: 1px solid #232b2d;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		border: 1px solid var(--line);
+		background: var(--surface);
 		border-radius: 13px;
 		padding: 18px 20px;
 		display: grid;
@@ -263,14 +255,14 @@
 		font-size: 18px;
 	}
 	.title h2 a {
-		color: #dce4e5;
+		color: var(--text);
 		text-decoration: none;
 	}
 	.title h2 a:hover {
-		color: #5ce1b5;
+		color: var(--accent);
 	}
 	.meta {
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.mode {
@@ -285,14 +277,14 @@
 		padding: 3px 7px;
 	}
 	.mode-paper {
-		color: #9fd9ff;
-		border: 1px solid #2c4a5c;
-		background: #10222c;
+		color: var(--info);
+		border: 1px solid var(--info-line);
+		background: var(--info-soft);
 	}
 	.mode-live {
-		color: #ffb3b3;
-		border: 1px solid #733d3d;
-		background: #2c1212;
+		color: var(--neg);
+		border: 1px solid var(--danger-line);
+		background: var(--danger-soft);
 	}
 	.facts {
 		display: flex;
@@ -301,7 +293,7 @@
 	}
 	.facts span {
 		display: block;
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
@@ -312,16 +304,16 @@
 			SFMono-Regular,
 			Consolas,
 			monospace;
-		color: #dce4e5;
+		color: var(--text);
 	}
 	.problem {
 		margin: 0;
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 13px;
 	}
 	.contract-note {
 		margin: 0;
-		color: #b39b72;
+		color: var(--warn);
 		font-size: 12px;
 	}
 	.card-actions {
@@ -329,9 +321,9 @@
 	}
 	.bar-button {
 		display: inline-block;
-		border: 1px solid #303a3c;
-		background: #151b1d;
-		color: #dce4e5;
+		border: 1px solid var(--line-2);
+		background: var(--surface-2);
+		color: var(--text);
 		border-radius: 8px;
 		padding: 7px 12px;
 		font: inherit;
@@ -340,27 +332,27 @@
 		cursor: pointer;
 	}
 	.bar-button:hover {
-		border-color: #5ce1b5;
+		border-color: var(--accent);
 	}
 	.inventory-pager {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		margin-top: 22px;
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.inventory-pager button {
-		color: #dce4e5;
-		background: #151b1d;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface-2);
+		border: 1px solid var(--line-2);
 		border-radius: 7px;
 		padding: 7px 11px;
 		cursor: pointer;
 		font-size: 12px;
 	}
 	.inventory-pager button:hover:not(:disabled) {
-		border-color: #5ce1b5;
+		border-color: var(--accent);
 	}
 	.inventory-pager button:disabled {
 		opacity: 0.45;

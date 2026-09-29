@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { formatUtcTimestamp } from '$lib/time';
@@ -31,21 +32,19 @@
 </svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Experiential memory</p>
-			<h1>Journals</h1>
+	<PageHead eyebrow="Experiential memory" title="Journals">
+		{#snippet intro()}
 			<p class="lede">
 				Origin-attributed facts, lessons, and notes from experiential memory. Why-trade review stays
 				on Memory and Trade. Mutations stay on
 				<code>thytrader-memory --confirm</code>. YOLO never covers that lane.
 			</p>
-		</div>
+		{/snippet}
 		<button class="refresh" type="button" onclick={() => void loadJournals()} disabled={loading}>
 			<span class:spinning={loading}>↻</span>
 			Refresh
 		</button>
-	</section>
+	</PageHead>
 	<p class="destination-note">
 		Per-intent why-trade records live on
 		<a href={resolve('/memory')}>Memory</a>
@@ -90,26 +89,26 @@
 
 <style>
 	.destination-note {
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 14px;
 		margin: 0 0 24px;
 		max-width: 72ch;
 	}
 	.destination-note a {
-		color: #7fd0f0;
+		color: var(--info);
 	}
 	.empty-hint,
 	.error-banner {
-		color: #8d999c;
+		color: var(--muted);
 	}
 	.error-banner {
-		color: #f0a3a3;
+		color: var(--neg);
 	}
 	.table-wrap {
 		overflow-x: auto;
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 12px;
-		background: #141b1c;
+		background: var(--surface-2);
 	}
 	table {
 		width: 100%;
@@ -120,15 +119,15 @@
 	td {
 		text-align: left;
 		padding: 12px 16px;
-		border-bottom: 1px solid #232d2e;
+		border-bottom: 1px solid var(--line);
 	}
 	th {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-weight: 500;
 		font-size: 12px;
 	}
 	.timestamp {
 		font-variant-numeric: tabular-nums;
-		color: #aeb9bb;
+		color: var(--muted);
 	}
 </style>

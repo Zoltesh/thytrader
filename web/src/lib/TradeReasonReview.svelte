@@ -90,15 +90,15 @@
 	}
 	.panel-heading h2 {
 		margin: 0 0 0.35rem 0;
-		color: #f7fafc;
+		color: var(--text);
 	}
 	.panel-heading p {
 		margin: 0 0 0.75rem 0;
-		color: #a0aec0;
+		color: var(--muted);
 		font-size: 0.875rem;
 	}
 	.empty {
-		color: #a0aec0;
+		color: var(--muted);
 	}
 	.table-wrap {
 		overflow-x: auto;
@@ -111,13 +111,13 @@
 	td {
 		text-align: left;
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid #2d3748;
-		color: #e9edf1;
+		border-bottom: 1px solid var(--line-2);
+		color: var(--text);
 		font-size: 0.875rem;
 		vertical-align: top;
 	}
 	th {
-		color: #a0aec0;
+		color: var(--muted);
 		font-weight: 600;
 	}
 	.timestamp {

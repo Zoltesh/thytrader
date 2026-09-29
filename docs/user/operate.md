@@ -13,6 +13,30 @@ After [setup](setup.md), open http://127.0.0.1:5175.
 The first usable slice shows deterministic demo balances when Coinbase credentials are empty, and
 live balances when both Coinbase variables are configured. That screen never submits an order.
 
+### Finding your way around
+
+The left rail has four destinations ([ADR 0079](../decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)):
+
+| Rail item | Opens | Also holds |
+| --- | --- | --- |
+| **Home** | `/`: portfolio overview | |
+| **Strategies** | `/strategies`: library and builder | Research (`/research`), Backtests (`/backtests`), and Deploy (`/deploy`) |
+| **Portfolio** | `/deployments`: running and past deployments | `/deployments/{id}` detail |
+| **Trade** | `/trade`: on-demand order ticket | |
+
+**System**, at the bottom of the rail, expands to Settings (`/settings`), Audit log (`/audit`),
+Journal (`/journals`), and Memory & why-trade (`/memory`). Every route above still works as a
+direct link. The top bar shows where you are (`section / page`).
+
+- Press **⌘K** (macOS) or **Ctrl+K**, or click the search box, to open the command palette. It
+  jumps to any page, opens the agent, or takes you to **New strategy** (the library's create
+  controls). It only navigates. It never creates, deploys, or orders anything.
+- The **Agent** button opens the operator chat in a right-side panel on any page. The panel shows
+  what you are looking at, and remembers whether you left it open. The same chat is also at
+  `/chat` as a full page.
+- The moon/sun button switches between dark and light themes. Your choice is kept in this browser.
+  Until you choose, the app follows your operating system's setting.
+
 ### Strategies
 
 Open http://127.0.0.1:5175/strategies when the stack is healthy. The library requests one
@@ -140,7 +164,8 @@ by experiential memory. Why-trade review is on [Memory](http://127.0.0.1:5175/me
 
 ### Operator chat
 
-Open http://127.0.0.1:5175/chat. Paste **your LLM API key** (OpenAI or OpenAI-compatible). This is
+Click **Agent** in the top bar on any page, or open http://127.0.0.1:5175/chat for the full-page
+view. Both are the same chat with the same gates. Paste **your LLM API key** (OpenAI or OpenAI-compatible). This is
 not a Coinbase form — Coinbase keys stay on the separate secrets surface and never enter the
 browser. The key is held in the API process only; restarting the API clears it.
 
@@ -159,7 +184,7 @@ ingest product, and notify provider. Changes apply without restarting API or wor
 in ignored `.env`. Leftover `THYTRADER_YOLO_TIERS=paper` is valid. Live still needs
 `--i-understand-live`. The Coinbase section beside that panel sets, rotates, or clears Advanced
 Trade API secrets. Keys stay server-side. The form wipes before the request; GET never echoes them.
-LLM keys stay on Chat.
+LLM keys stay in the Agent panel / `/chat`.
 
 ## With an agent (or the CLIs yourself)
 

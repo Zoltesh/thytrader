@@ -4,6 +4,24 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			// Theme boot (ADR 0079): apply the stored choice, else prefers-color-scheme, before
+			// first paint so there is no flash. Keep in sync with src/lib/theme.ts.
+			(function () {
+				var theme = 'dark';
+				try {
+					var stored = localStorage.getItem('thytrader.theme');
+					if (stored === 'light' || stored === 'dark') {
+						theme = stored;
+					} else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+						theme = 'light';
+					}
+				} catch (e) {
+					theme = 'dark';
+				}
+				document.documentElement.setAttribute('data-theme', theme);
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

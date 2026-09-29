@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { onMount } from 'svelte';
 	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
@@ -109,18 +110,16 @@
 </svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">On-demand</p>
-			<h1>Place a long or short with SL/TP</h1>
+	<PageHead eyebrow="On-demand" title="Place a long or short with SL/TP">
+		{#snippet intro()}
 			<p class="lede">
 				Human origin over the same intent → risk → broker path as
 				<code>thytrader-runtime place-order --confirm</code>. Optional note is frozen onto the
 				why-trade record. Live still requires Coinbase credentials. Live shorts need available base;
 				they never borrow. Timeouts are reconciled, never retried.
 			</p>
-		</div>
-	</section>
+		{/snippet}
+	</PageHead>
 
 	<form
 		class="ticket"
@@ -244,26 +243,6 @@
 </main>
 
 <style>
-	.hero {
-		margin-bottom: 1.5rem;
-	}
-	.eyebrow {
-		font-size: 0.8125rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #a0aec0;
-		margin: 0 0 0.25rem 0;
-	}
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 0.5rem 0;
-		color: #f7fafc;
-	}
-	.lede {
-		color: #a0aec0;
-		margin: 0;
-		max-width: 42rem;
-	}
 	.ticket {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
@@ -274,7 +253,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
-		color: #a0aec0;
+		color: var(--muted);
 		font-size: 0.75rem;
 		text-transform: uppercase;
 	}
@@ -288,9 +267,9 @@
 	input,
 	select,
 	textarea {
-		background: #11181c;
-		color: #e9edf1;
-		border: 1px solid #2a3438;
+		background: var(--surface);
+		color: var(--text);
+		border: 1px solid var(--line-2);
 		border-radius: 0.375rem;
 		padding: 0.5rem 0.65rem;
 	}
@@ -303,8 +282,8 @@
 	}
 	button {
 		align-self: end;
-		background: #2b6cb0;
-		color: #fff;
+		background: var(--accent);
+		color: var(--accent-ink);
 		border: none;
 		padding: 0.65rem 1rem;
 		border-radius: 0.375rem;
@@ -318,26 +297,26 @@
 	.error-banner {
 		margin-top: 1.5rem;
 		padding: 1rem;
-		border: 1px solid #c53030;
+		border: 1px solid var(--neg);
 		border-radius: 0.5rem;
-		background: #2d1b1b;
-		color: #feb2b2;
+		background: var(--danger-soft);
+		color: var(--neg);
 	}
 	.panel {
 		margin-top: 1.5rem;
 		padding: 1rem;
-		border: 1px solid #20282a;
+		border: 1px solid var(--line);
 		border-radius: 0.5rem;
 	}
 	.label {
 		margin: 0 0 0.5rem 0;
-		color: #a0aec0;
+		color: var(--muted);
 		font-size: 0.75rem;
 		text-transform: uppercase;
 	}
 	.empty,
 	.panel p,
 	.panel li {
-		color: #e9edf1;
+		color: var(--text);
 	}
 </style>

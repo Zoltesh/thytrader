@@ -484,21 +484,21 @@
 	.view-block h3 {
 		margin: 0 0 6px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
 	.view-block p {
 		margin: 0;
 		font-size: 13px;
-		color: #d8e1e2;
+		color: var(--text);
 	}
 	.view-note {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 13px;
 	}
 	.view-problem {
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 13px;
 	}
 	.other-versions {
@@ -521,10 +521,10 @@
 	.launch-grid input,
 	.launch-grid select,
 	.deploy-cash input {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 7px;
-		background: #101617;
-		color: #edf3f3;
+		background: var(--surface);
+		color: var(--text);
 		padding: 7px 9px;
 		font: inherit;
 		font-size: 12px;
@@ -534,27 +534,27 @@
 		justify-self: start;
 		border: none;
 		border-radius: 8px;
-		background: #2f6f52;
-		color: #eafff3;
+		background: var(--accent);
+		color: var(--accent-ink);
 		padding: 9px 14px;
 		font: inherit;
 		font-size: 13px;
 		cursor: pointer;
 	}
 	.launch-button.live-danger {
-		background: #8c3636;
-		color: #ffe0e0;
+		background: var(--live);
+		color: var(--live-ink);
 		font-weight: 600;
 	}
-	.launch-button.live-danger:hover:not(:disabled) {
-		background: #a54040;
+	.launch-button:hover:not(:disabled) {
+		filter: brightness(1.06);
 	}
 	.launch-button:disabled {
 		opacity: 0.55;
 		cursor: default;
 	}
 	.version-block {
-		border: 1px solid #232d2e;
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 10px 12px;
 		margin-bottom: 10px;
@@ -562,7 +562,7 @@
 	.version-block h4 {
 		margin: 0 0 8px;
 		font-size: 11px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -575,10 +575,10 @@
 	.results-table td {
 		text-align: left;
 		padding: 5px 8px 5px 0;
-		border-bottom: 1px solid #232d2e;
+		border-bottom: 1px solid var(--line);
 	}
 	.results-table th {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-weight: 500;
 		font-size: 11px;
 	}
@@ -589,9 +589,9 @@
 		margin-top: 8px;
 	}
 	.bar-button {
-		border: 1px solid #303a3c;
-		background: #151b1d;
-		color: #dce4e5;
+		border: 1px solid var(--line-2);
+		background: var(--surface-2);
+		color: var(--text);
 		border-radius: 8px;
 		padding: 6px 10px;
 		font: inherit;
@@ -599,8 +599,8 @@
 		cursor: pointer;
 	}
 	.bar-danger {
-		color: #f0a3a3;
-		border-color: #5c3232;
+		color: var(--neg);
+		border-color: var(--danger-line);
 	}
 	@media (max-width: 640px) {
 		.launch-grid {

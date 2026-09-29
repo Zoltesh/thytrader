@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -77,17 +78,15 @@
 	<title>Deploy · ThyTrader</title>
 </svelte:head>
 
-<main class="workstation-page">
-	<section class="page-head">
-		<div>
-			<p class="eyebrow">Paper and live</p>
-			<h1>Deploy</h1>
+<main>
+	<PageHead eyebrow="Paper and live" title="Deploy">
+		{#snippet intro()}
 			<p class="lede">
 				Start a published strategy. Once it runs, manage it on
 				<a href={resolve('/deployments')}>Deployments</a>.
 			</p>
-		</div>
-	</section>
+		{/snippet}
+	</PageHead>
 	{#if error}
 		<div class="error-banner" role="alert">
 			<div>
@@ -135,16 +134,6 @@
 </main>
 
 <style>
-	.workstation-page {
-		width: min(1400px, 94vw);
-	}
-	.page-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: end;
-		gap: 18px;
-		margin-bottom: 28px;
-	}
 	.picker,
 	.picker select {
 		display: grid;
@@ -153,7 +142,7 @@
 		margin-bottom: 24px;
 	}
 	.picker {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 12px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
@@ -162,20 +151,20 @@
 		text-transform: none;
 		letter-spacing: 0;
 		font-size: 14px;
-		color: #edf3f3;
-		background: #101617;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface);
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
 		padding: 10px 12px;
 	}
 	.strategy-meta {
-		color: #8d999c;
+		color: var(--muted);
 		font-size: 13px;
 		margin: 0 0 20px;
 	}
 	.empty-hint,
 	.hint-loading {
-		color: #8d999c;
+		color: var(--muted);
 	}
 	.hint-loading {
 		font-size: 13px;

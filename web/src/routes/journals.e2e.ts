@@ -36,6 +36,14 @@ test('journals lists origin-attributed memory rows without mutation controls', a
 	await expect(whyTradeNote.getByRole('link', { name: 'Trade' })).toHaveAttribute('href', '/trade');
 	await expect(page.getByRole('button', { name: /add journal/i })).toHaveCount(0);
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-	await expect(nav.getByRole('link', { name: 'Journals' })).toHaveAttribute('href', '/journals');
-	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
+	// Journal lives in the System group, auto-expanded on System pages; Chat is the Agent panel.
+	await expect(nav.getByRole('link', { name: 'Journal', exact: true })).toHaveAttribute(
+		'href',
+		'/journals'
+	);
+	await expect(nav.getByRole('link', { name: 'Journal', exact: true })).toHaveAttribute(
+		'aria-current',
+		'page'
+	);
+	await expect(page.getByRole('button', { name: 'Agent', exact: true })).toBeVisible();
 });
