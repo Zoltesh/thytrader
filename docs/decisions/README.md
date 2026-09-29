@@ -82,6 +82,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0075](0075-fill-atomic-paper-order-status-and-split-state-fail-closed.md) | Fill-atomic paper order status and split-state fail-closed; ops contract v34 | Accepted |
 | [0076](0076-selectable-spot-quote-currencies.md) | Selectable USD/USDC/USDT spot quotes; ops contract v35 | Accepted |
 | [0077](0077-derived-performance-metrics.md) | Sharpe-class ratios as derived `thytrader-performance-metrics-v1`; ops contract v36 | Accepted |
+| [0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md) | HTTP `i_understand_live` on live start/resume/place-order, execution-worker credential hot reload, definite create rejects vs ambiguous lookup, feed-only pause auto-clear; ops contract v40 | Accepted |
 
 ## Status values
 

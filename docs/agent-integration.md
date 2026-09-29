@@ -152,8 +152,12 @@ arm live trading, submit/cancel Coinbase orders, modify risk limits, or perform 
 
 ### Safe mode vs YOLO mode
 
-**Default remains Safe mode:** mutations use `--confirm`, and live start also requires
-`--i-understand-live`.
+**Default remains Safe mode:** mutations use `--confirm`, and live start, live resume, and live
+place-order also require `--i-understand-live`. Over HTTP that acknowledgement is the strict
+boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
+`POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
+(mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
+`thytrader-ops-contract-v40` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

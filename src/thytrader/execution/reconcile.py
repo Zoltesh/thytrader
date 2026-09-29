@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from thytrader.execution.audit_scope import record_execution_audit
+from thytrader.execution.broker import ClientOrderLookup
 from thytrader.execution.fill_ledger import (
     applied_fill_quantity,
     fill_economics_complete,
@@ -22,11 +24,15 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.overlay import overlay_snapshot
+from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
-    from thytrader.execution.broker import Broker
+    from thytrader.execution.broker import Broker, SubmitResult
     from thytrader.execution.models import DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
+
+UNCONFIRMED_SUBMIT_PREFIX = "Order submit is unconfirmed"
+FILLED_WITHOUT_REST_FILLS_DETAIL = "Filled order has no REST fills."
 
 _WATCH = {
     OrderStatus.OPEN,
@@ -98,17 +104,23 @@ async def _reconcile_one_order(
     """Refresh one watched order from REST JSON and apply unseen fills."""
     if not _needs_reconcile(order, snapshot):
         return snapshot
-    result = await broker.get_order(
-        venue_order_id=order.venue_order_id or "",
-        client_order_id=order.client_order_id,
-    )
+    if not order.venue_order_id and isinstance(broker, ClientOrderLookup):
+        recovered = await _recover_unconfirmed_submit(order, broker=broker, product_id=product_id)
+        if recovered is None:
+            return await _pause_unconfirmed_submit(snapshot, order=order, store=store)
+        result = recovered
+    else:
+        result = await broker.get_order(
+            venue_order_id=order.venue_order_id or "",
+            client_order_id=order.client_order_id,
+        )
     venue_order_id = result.venue_order_id or order.venue_order_id
     if not venue_order_id:
         paused = with_runtime(
             snapshot.deployment,
             updated_at=utc_now(),
             status=DeploymentStatus.PAUSED,
-            mismatch_detail="Order submit is unconfirmed and has no venue id.",
+            mismatch_detail=f"{UNCONFIRMED_SUBMIT_PREFIX} and has no venue id.",
         )
         await store.save_deployment(paused)
         return await store.get_deployment(order.deployment_id)
@@ -127,7 +139,7 @@ async def _reconcile_one_order(
             snapshot.deployment,
             updated_at=utc_now(),
             status=DeploymentStatus.PAUSED,
-            mismatch_detail="Filled order has no REST fills.",
+            mismatch_detail=FILLED_WITHOUT_REST_FILLS_DETAIL,
         )
         await store.save_deployment(paused)
         return await store.get_deployment(order.deployment_id)
@@ -139,6 +151,69 @@ async def _reconcile_one_order(
         known=known,
         cooldown_bars=cooldown_bars,
     )
+
+
+async def _recover_unconfirmed_submit(
+    order: Order,
+    *,
+    broker: ClientOrderLookup,
+    product_id: str,
+) -> SubmitResult | None:
+    """Resolve an ambiguous create by client_order_id; never re-submits.
+
+    Returns the venue snapshot when Coinbase shows the order, or None when a
+    complete bounded scan found nothing. The order then stays UNKNOWN.
+    """
+    found = await broker.find_order_by_client_id(
+        client_order_id=order.client_order_id,
+        product_id=product_id,
+        submitted_at=order.created_at,
+    )
+    if found is None or not found.venue_order_id:
+        return None
+    await record_execution_audit(
+        action="unconfirmed_order_recovered",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={order.deployment_id} client_order_id={order.client_order_id} "
+            f"venue_order_id={found.venue_order_id} status={found.status.value}: "
+            "ambiguous submit located at Coinbase by client_order_id."
+        ),
+        product_id=product_id,
+    )
+    return found
+
+
+async def _pause_unconfirmed_submit(
+    snapshot: DeploymentSnapshot,
+    *,
+    order: Order,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Keep an unlocated ambiguous submit UNKNOWN and pause fail-closed.
+
+    Audits once per pause so the worker's per-cycle re-check does not flood the trail.
+    """
+    detail = (
+        f"{UNCONFIRMED_SUBMIT_PREFIX}: no Coinbase order with client_order_id "
+        f"{order.client_order_id} was found; verify on Coinbase before resuming."
+    )
+    first_observation = snapshot.deployment.mismatch_detail != detail
+    paused = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.PAUSED,
+        mismatch_detail=detail,
+    )
+    await store.save_deployment(paused)
+    if first_observation:
+        await record_execution_audit(
+            action="unconfirmed_order_not_found",
+            outcome=AuditEventOutcome.FAILURE,
+            detail=f"deployment_id={order.deployment_id} {detail}",
+            product_id=order.product_id,
+        )
+    return await store.get_deployment(order.deployment_id)
 
 
 def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:

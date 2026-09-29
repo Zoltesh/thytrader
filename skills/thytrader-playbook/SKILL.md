@@ -49,11 +49,19 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Need | Command |
 |---|---|
 | Show Safe vs YOLO | `uv run thytrader-playbook status` |
-| Health + watchlist only | `uv run thytrader-playbook run --product-id ETH-USD --timeframe 5m` |
-| Ensure watch + ingest | `uv run thytrader-playbook run --product-id ETH-USD --timeframe 1m --ingest --confirm` |
+| Health + watchlist only | `uv run thytrader-playbook run --product-id ETH-USDC --timeframe 5m` |
+| Ensure watch + ingest | `uv run thytrader-playbook run --product-id ETH-USDC --timeframe 1m --ingest --confirm` |
 | Create a draft | `uv run thytrader-playbook run --create-draft --confirm` |
 | Publish + backtest | `uv run thytrader-playbook run --publish --strategy-id UUID --backtest-file request.json --confirm` |
 | Optional paper | `uv run thytrader-playbook run --paper-cash 10000 --strategy-fingerprint sha256:… --confirm` |
+
+`run --ingest` alone queues the ingest job and returns right after the worker accepts it (it
+forwards `thytrader-data ingest --no-wait`), so it never holds a call for the 45-minute ingest
+poll. Then poll `uv run thytrader-operator data-catalog` until the target reports
+`watch_complete: true` (re-check every few minutes; never re-queue ingest to poll) before
+drafting, publishing, or backtesting. If the same `run` also passes `--create-draft`,
+`--publish`, `--backtest-file`, or `--paper-cash`, the ingest step waits for completion (up to
+45 minutes) so those steps see the data; prefer separate runs for long backfills.
 
 `status` is read-only. `run` forwards `--confirm` to child mutations (`watch-add`, `ingest`,
 `create-draft`, `publish`, `submit-backtest`, paper `start`). It never starts live.

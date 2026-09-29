@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 YoloBinding = Literal["none", "data", "research", "paper", "live", "deployment_mode"]
-LiveAck = Literal["never", "when_mode_live"]
+LiveAck = Literal["never", "when_mode_live", "when_deployment_live"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -614,14 +614,17 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="runtime_resume",
-        description="Resume one paused deployment.",
+        description=(
+            "Resume one paused deployment. Resuming a live deployment re-arms live orders "
+            "and needs understand-live."
+        ),
         lane=ChatLane.RUNTIME,
         method="POST",
         path="/api/v1/deployments/{deployment_id}/resume",
         mutation=True,
         yolo="deployment_mode",
         hard_gate=False,
-        live_ack="never",
+        live_ack="when_deployment_live",
         properties={"deployment_id": _UUID},
         required=("deployment_id",),
     ),

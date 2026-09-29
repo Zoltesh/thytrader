@@ -105,4 +105,12 @@ failed fill ingest leaves the order `open`, so the next closed bar retries the
 match instead of stranding a `filled` order without a fill. A `pending_entry`
 book with neither a working entry nor a position is split state: the runtime
 pauses it with a mismatch detail, and operator reconciliation reports
-`FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`.
+`FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`. Live reconcile pauses report
+`STATE_MISMATCH` with the `mismatch_detail`; `Filled order has no REST fills.` also reports
+`FILLED_WITHOUT_FILL`.
+
+Live create outcomes ([ADR 0078](../../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)): Coinbase `success=false` or HTTP
+400/401/403/404/422 is a definite `rejected` order. Timeouts, 408/409/429/5xx, and transport
+failures are ambiguous `unknown` orders with no venue id; reconcile looks them up by
+`client_order_id` (bounded to the product and a window from five minutes before submit), adopts a
+hit, and otherwise keeps the book paused. Nothing is re-submitted automatically.

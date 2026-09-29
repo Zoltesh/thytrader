@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.execution.models import OrderSide
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from thytrader.execution.models import Fill, Order, OrderKind, OrderStatus
     from thytrader.market_data.models import Candle
 
@@ -77,4 +79,24 @@ class Broker(Protocol):
         self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
     ) -> Decimal:
         """Return the post-only limit price for an entry on one spot side."""
+        ...
+
+
+@runtime_checkable
+class ClientOrderLookup(Protocol):
+    """Optional venue capability: resolve an ambiguous submit by client order id.
+
+    Reconciliation uses it for orders persisted UNKNOWN without a venue id (a
+    timeout, 5xx, or transport failure on create). It only reads; it never
+    re-submits. ``None`` means a complete bounded scan found no such order.
+    """
+
+    async def find_order_by_client_id(
+        self,
+        *,
+        client_order_id: str,
+        product_id: str,
+        submitted_at: datetime,
+    ) -> SubmitResult | None:
+        """Return the venue snapshot for ``client_order_id``, or None when absent."""
         ...

@@ -428,12 +428,17 @@ export async function fetchDeployment(id: string): Promise<Deployment> {
 	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Start a paper or live deployment. Live requires `i_understand_live: true`, which callers
+ * set only after the operator accepted the live confirmation (the API answers 428 otherwise).
+ */
 export async function createDeployment(input: {
 	strategy_fingerprint: string;
 	mode: 'paper' | 'live';
 	paper_starting_cash?: string;
 	maker_fee_rate?: string;
 	taker_fee_rate?: string;
+	i_understand_live?: boolean;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/deployments', {
 		method: 'POST',
@@ -447,9 +452,17 @@ export async function pauseDeployment(id: string): Promise<Deployment> {
 	});
 }
 
-export async function resumeDeployment(id: string): Promise<Deployment> {
+/**
+ * Resume a paused deployment. Resuming a live book re-arms live orders, so callers pass
+ * `liveAcknowledged: true` only after the operator accepted the live resume confirmation.
+ */
+export async function resumeDeployment(
+	id: string,
+	options: { liveAcknowledged?: boolean } = {}
+): Promise<Deployment> {
 	return request<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/resume`, {
-		method: 'POST'
+		method: 'POST',
+		...(options.liveAcknowledged ? { body: JSON.stringify({ i_understand_live: true }) } : {})
 	});
 }
 
@@ -470,6 +483,8 @@ export async function placeDiscretionaryOrder(input: {
 	maker_fee_rate?: string;
 	taker_fee_rate?: string;
 	note?: string;
+	/** Required true for live tickets; set only after the live confirmation was accepted. */
+	i_understand_live?: boolean;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/discretionary-orders', {
 		method: 'POST',

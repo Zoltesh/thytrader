@@ -58,7 +58,7 @@
 	async function clearCredentials(): Promise<void> {
 		if (!confirmed || submitting) return;
 		const ok = window.confirm(
-			'Clear Coinbase Advanced Trade credentials from this API process and the env file if writable? Workers still need a restart. This does not cancel orders.'
+			'Clear Coinbase Advanced Trade credentials from this API process and the env file if writable? Portfolio and execution workers on the shared credentials volume drop them within seconds; live deployments then pause (Live broker is unavailable.). This does not cancel orders.'
 		);
 		if (!ok) return;
 		submitting = true;

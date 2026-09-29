@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from thytrader.agent_orchestration.service import orchestration_status
+from thytrader.api.live_ack import LIVE_ACK_FIELD
 from thytrader.observability.logging import extra_redacted_secrets
 from thytrader.operator.redaction import REDACTION, configured_secrets, redact_text
 from thytrader.operator_chat.asgi import LocalApiError, invoke_local_json
@@ -117,7 +118,13 @@ async def execute_confirmed_tool(
     tool = tool_by_name(pending.tool_name)
     if tool is None:
         raise OperatorChatError("Unknown pending tool.")
-    result = await _invoke_tool(app, tool, pending.arguments, secrets)
+    result = await _invoke_tool(
+        app,
+        tool,
+        pending.arguments,
+        secrets,
+        live_acknowledged=pending.requires_understand_live,
+    )
     session.add_message(
         role=ChatRole.TOOL,
         content=result,
@@ -247,12 +254,12 @@ async def _gate(
     arguments: dict[str, object],
 ) -> tuple[bool, bool]:
     """Decide confirmation and understand-live requirements."""
-    needs_live = _needs_live_ack(tool, arguments)
     if not tool.mutation:
         return False, False
+    mode = await _deployment_mode(app, tool, arguments)
+    needs_live = _needs_live_ack(tool, arguments, deployment_mode=mode)
     if tool.hard_gate:
         return True, needs_live
-    mode = await _deployment_mode(app, tool, arguments)
     tier = yolo_tier_for(tool.yolo, mode=mode)
     status = orchestration_status(settings)
     if tier is not None and status.allows(tier):
@@ -260,10 +267,21 @@ async def _gate(
     return True, needs_live
 
 
-def _needs_live_ack(tool: ChatTool, arguments: dict[str, object]) -> bool:
-    """Live start and live place-order always keep the understand-live hard gate."""
+def _needs_live_ack(
+    tool: ChatTool,
+    arguments: dict[str, object],
+    *,
+    deployment_mode: str | None = None,
+) -> bool:
+    """Live start, live resume, and live place-order always keep the understand-live gate.
+
+    For ``when_deployment_live`` an unresolvable deployment mode fails closed and
+    still requires understand-live.
+    """
     if tool.live_ack == "never":
         return False
+    if tool.live_ack == "when_deployment_live":
+        return deployment_mode is None or deployment_mode.lower() == "live"
     return str(arguments.get("mode", "")).lower() == "live"
 
 
@@ -327,10 +345,20 @@ async def _invoke_tool(
     tool: ChatTool,
     arguments: dict[str, object],
     secrets: tuple[str, ...],
+    *,
+    live_acknowledged: bool = False,
 ) -> str:
-    """Call the matching HTTP skill route in-process."""
+    """Call the matching HTTP skill route in-process.
+
+    The model can never supply the live acknowledgement itself: any
+    ``i_understand_live`` argument is dropped, and the field is added only when
+    the operator ticked understand-live on this pending confirmation.
+    """
+    call_arguments = {key: value for key, value in arguments.items() if key != LIVE_ACK_FIELD}
+    if live_acknowledged and tool.live_ack != "never":
+        call_arguments[LIVE_ACK_FIELD] = True
     try:
-        path, query, body = split_request(tool, arguments)
+        path, query, body = split_request(tool, call_arguments)
     except (KeyError, ValueError) as error:
         return redact_chat_text(f"Invalid tool arguments: {error}", secrets)
     try:

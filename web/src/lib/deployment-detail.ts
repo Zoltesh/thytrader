@@ -81,6 +81,11 @@ export function lifecycleDialog(deployment: Deployment, action: LifecycleAction)
 			const body = [
 				`New risk-increasing orders may be submitted when the next eligible completed ${deployment.timeframe ?? ''} bar is processed. Existing inventory and protection are unchanged by this command.`
 			];
+			if (deployment.mode === 'live') {
+				body.unshift(
+					'This re-arms REAL Coinbase spot order submission using your API keys. You are solely responsible for all trades and market risk.'
+				);
+			}
 			const breakerNote = resumeBreakerNote(deployment);
 			if (breakerNote !== null) body.push(breakerNote);
 			return {

@@ -90,7 +90,13 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--ingest",
         action="store_true",
-        help="Queue complete-only ingest (implies --ensure-watch).",
+        help=(
+            "Queue complete-only ingest (implies --ensure-watch). Returns right after "
+            "the worker accepts the job (thytrader-data ingest --no-wait) unless this run "
+            "also drafts, publishes, backtests, or starts paper; then it waits for the "
+            "ingest (up to 45 minutes). Poll thytrader-operator data-catalog for "
+            "watch_complete before the next step."
+        ),
     )
     run.add_argument("--create-draft", action="store_true")
     run.add_argument("--publish", action="store_true")
@@ -266,10 +272,25 @@ def _run_data_steps(
             arguments.product_id,
             "--timeframe",
             arguments.timeframe,
+            *(() if _later_steps_need_data(arguments) else ("--no-wait",)),
             *_confirm_argv(arguments.confirm),
         ],
     )
     steps.append(_step("ingest", "thytrader-data", ingest_argv, data_main))
+
+
+def _later_steps_need_data(arguments: argparse.Namespace) -> bool:
+    """True when this run drafts, publishes, backtests, or starts paper after ingest.
+
+    Only then does the playbook block on ingest completion; an ingest-only run
+    returns after the 202 so agents poll instead of holding a 45-minute call.
+    """
+    return bool(
+        arguments.create_draft
+        or arguments.publish
+        or arguments.backtest_file
+        or arguments.paper_cash
+    )
 
 
 def _run_research_steps(

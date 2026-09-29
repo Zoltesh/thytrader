@@ -482,7 +482,7 @@ def test_live_deployment_requires_credentials() -> None:
     with _client(publication, execution) as client:
         denied = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     with _client(
@@ -490,7 +490,7 @@ def test_live_deployment_requires_credentials() -> None:
     ) as client:
         allowed = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     assert denied.status_code == 409
@@ -522,7 +522,7 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
         )
         live = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     with _client(
@@ -530,7 +530,7 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
     ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     assert paper.status_code == 201
@@ -561,7 +561,7 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
         )
         live = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     with _client(
@@ -569,7 +569,7 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
     ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
         )
 
     assert paper.status_code == 201
@@ -773,6 +773,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
             json={
                 "strategy_fingerprint": fingerprint,
                 "mode": "live",
+                "i_understand_live": True,
                 "maker_fee_rate": "0.001",
                 "taker_fee_rate": "0.002",
             },
