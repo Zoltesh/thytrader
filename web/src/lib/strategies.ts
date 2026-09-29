@@ -879,7 +879,7 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		additional_instruments: extras.map((item) => ({
 			product_id: item.product_id,
 			base_currency: item.base_currency,
-			quote_currency: item.quote_currency ?? 'USD'
+			quote_currency: quoteCurrencyFor(item.product_id, item.quote_currency ?? 'USD')
 		})),
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
@@ -908,6 +908,16 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 	};
 }
 
+/**
+ * Quote currency of a Coinbase spot product id (`BASE-QUOTE`). The backend requires
+ * `product_id == base-quote`, so the quote is always derived from the id; `fallback`
+ * applies only when the id does not have that shape.
+ */
+export function quoteCurrencyFor(productId: string, fallback = 'USD'): string {
+	const parts = productId.split('-');
+	return parts.length === 2 && parts[1].length > 0 ? parts[1] : fallback;
+}
+
 export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 	return {
 		schema_version: '1.0',
@@ -920,7 +930,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 		instrument: {
 			product_id: model.product_id,
 			base_currency: model.base_currency,
-			quote_currency: 'USD'
+			quote_currency: quoteCurrencyFor(model.product_id)
 		},
 		...(model.additional_instruments.length === 0
 			? {}
@@ -928,7 +938,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 					additional_instruments: model.additional_instruments.map((item) => ({
 						product_id: item.product_id,
 						base_currency: item.base_currency,
-						quote_currency: item.quote_currency ?? 'USD'
+						quote_currency: quoteCurrencyFor(item.product_id, item.quote_currency ?? 'USD')
 					}))
 				}),
 		timeframe: model.timeframe,

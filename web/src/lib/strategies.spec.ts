@@ -11,6 +11,7 @@ import {
 	serializeIndicator,
 	toBuilderModel,
 	fromBuilderModel,
+	quoteCurrencyFor,
 	unboundIndicatorTimeframes,
 	validHtfTimeframes
 } from './strategies';
@@ -439,5 +440,24 @@ describe('builder multi-instrument pass-through', () => {
 		expect(saved.additional_instruments).toBeUndefined();
 		expect((saved.entry as { pyramiding?: object }).pyramiding).toBeUndefined();
 		expect((saved.entry as { max_open_positions: number }).max_open_positions).toBe(1);
+
+		// USDC markets must keep their quote so product_id == base-quote on the backend.
+		const usdc = {
+			...draft,
+			instrument: { product_id: 'BTC-USDC', base_currency: 'BTC', quote_currency: 'USDC' },
+			additional_instruments: [
+				{ product_id: 'ETH-USDC', base_currency: 'ETH', quote_currency: 'USDC' }
+			],
+			portfolio_limits: { max_strategy_exposure_fraction: '0.10', max_concurrent_positions: 2 }
+		};
+		const savedUsdc = fromBuilderModel(toBuilderModel(usdc, 0));
+		expect(savedUsdc.instrument).toEqual(usdc.instrument);
+		expect(savedUsdc.additional_instruments).toEqual(usdc.additional_instruments);
+	});
+
+	it('derives the quote currency from a BASE-QUOTE product id', () => {
+		expect(quoteCurrencyFor('BTC-USDC')).toBe('USDC');
+		expect(quoteCurrencyFor('UNI-USD')).toBe('USD');
+		expect(quoteCurrencyFor('malformed', 'USDC')).toBe('USDC');
 	});
 });
