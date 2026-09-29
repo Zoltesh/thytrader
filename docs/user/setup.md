@@ -41,8 +41,11 @@ Leave Coinbase variables empty for deterministic demo balances. Configure both
 `THYTRADER_COINBASE_API_KEY_NAME` and `THYTRADER_COINBASE_API_PRIVATE_KEY` in ignored `.env`, or
 set/rotate/clear them from loopback Settings (`http://127.0.0.1:5175/settings`) or
 `thytrader-runtime set-coinbase-credentials --private-key-file … --confirm`. GET never echoes
-secrets. Workers still interpolate host `.env` at start and need a restart. Setting credentials
-does not arm live trading. ThyTrader accepts View + Trade keys and keys with additional
+secrets. The portfolio and execution workers reload credentials from the shared credentials
+volume within about 5 seconds without restart (the execution worker swaps its live broker,
+Coinbase candles, and user-order feed between cycles; [ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). The market-data
+ingest worker keeps its startup provider until restarted. Without credentials, paper evaluates
+synthetic demo candles and live deployments pause. Setting credentials does not arm live trading. ThyTrader accepts View + Trade keys and keys with additional
 permissions. The portfolio screen is read-only; it never submits an order.
 
 Never commit `.env`. `.env.example` lists names and placeholders only. Startup must not print

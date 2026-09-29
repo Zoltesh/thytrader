@@ -42,12 +42,18 @@ def start_deployment(
     maker_fee_rate: str | None = None,
     taker_fee_rate: str | None = None,
     settings: Settings | None = None,
+    i_understand_live: bool = False,
 ) -> object:
-    """Create one paper or live deployment through the existing HTTP contract."""
-    payload: dict[str, str] = {
+    """Create one paper or live deployment through the existing HTTP contract.
+
+    ``i_understand_live`` is forwarded only for live; the API rejects live without it.
+    """
+    payload: dict[str, str | bool] = {
         "strategy_fingerprint": strategy_fingerprint,
         "mode": mode,
     }
+    if mode == "live" and i_understand_live:
+        payload["i_understand_live"] = True
     if paper_starting_cash is not None:
         payload["paper_starting_cash"] = paper_starting_cash
     if maker_fee_rate is not None:
@@ -82,9 +88,13 @@ def place_discretionary_order(
     maker_fee_rate: str | None = None,
     taker_fee_rate: str | None = None,
     note: str | None = None,
+    i_understand_live: bool = False,
 ) -> object:
-    """Place one long or short discretionary order through the HTTP contract."""
-    payload: dict[str, str] = {
+    """Place one long or short discretionary order through the HTTP contract.
+
+    ``i_understand_live`` is forwarded only for live; the API rejects live without it.
+    """
+    payload: dict[str, str | bool] = {
         "mode": mode,
         "product_id": product_id,
         "stop_price": stop_price,
@@ -109,6 +119,8 @@ def place_discretionary_order(
         payload["taker_fee_rate"] = taker_fee_rate
     if note is not None:
         payload["note"] = note
+    if mode == "live" and i_understand_live:
+        payload["i_understand_live"] = True
     return request_mutation_json(
         method="POST",
         url=f"{base_url}/api/v1/discretionary-orders",
@@ -124,14 +136,23 @@ def set_deployment_status(
     *,
     settings: Settings | None = None,
     flatten: bool = False,
+    i_understand_live: bool = False,
 ) -> object:
-    """Pause, resume, or stop one deployment."""
+    """Pause, resume, or stop one deployment.
+
+    Resume sends ``{"i_understand_live": true}`` when acknowledged; the API rejects
+    resuming a live deployment without it.
+    """
     if action not in {"pause", "resume", "stop"}:
         raise RuntimeControlError(f"unsupported runtime action: {action}")
     suffix = "?flatten=true" if action == "stop" and flatten else ""
+    payload: dict[str, object] | None = None
+    if action == "resume" and i_understand_live:
+        payload = {"i_understand_live": True}
     return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/{action}{suffix}",
+        payload=payload,
         settings=settings,
     )
 

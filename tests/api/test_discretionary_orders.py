@@ -90,9 +90,9 @@ def _client(
     return TestClient(app)
 
 
-def _body(**overrides: str) -> dict[str, str]:
-    """Return one valid paper marketable ticket."""
-    payload = {
+def _body(**overrides: str) -> dict[str, str | bool]:
+    """Return one valid paper marketable ticket; live tickets carry the explicit ack."""
+    payload: dict[str, str | bool] = {
         "mode": "paper",
         "product_id": "BTC-USD",
         "entry_kind": "marketable",
@@ -105,6 +105,8 @@ def _body(**overrides: str) -> dict[str, str]:
         "paper_starting_cash": "10000",
     }
     payload.update(overrides)
+    if payload["mode"] == "live":
+        payload["i_understand_live"] = True
     return payload
 
 
@@ -176,6 +178,7 @@ def test_live_fake_broker_attaches_bracket_without_coinbase() -> None:
             "/api/v1/discretionary-orders",
             json={
                 "mode": "live",
+                "i_understand_live": True,
                 "product_id": "BTC-USD",
                 "entry_kind": "marketable",
                 "stop_price": "50000",
@@ -225,6 +228,7 @@ def test_live_short_without_base_is_conflict() -> None:
             "/api/v1/discretionary-orders",
             json={
                 "mode": "live",
+                "i_understand_live": True,
                 "product_id": "BTC-USD",
                 "side": "short",
                 "entry_kind": "marketable",

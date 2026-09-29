@@ -25,7 +25,8 @@ status (a failed fill ingest leaves the order OPEN), split-state fail-closed
 pending-entry semantics, selectable USD/USDC/USDT spot quotes, operator
 portfolio/fees reports, derived backtest performance metrics, paginated
 strategy/result listings, batched strategy-library enrichment reads,
-promotion evidence, or supported
+promotion evidence, the explicit `i_understand_live` HTTP acknowledgement on live
+start/resume/place-order, or supported
 spot quote currencies change.
 """
 
@@ -39,7 +40,7 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v39"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v40"
 EXPECTED_SCHEMA_REVISION = "0047"
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)

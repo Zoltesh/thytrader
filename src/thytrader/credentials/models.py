@@ -11,8 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field
 INVALID_CREDENTIALS_PAYLOAD = "Invalid Coinbase credentials payload."
 CREDENTIALS_PERSIST_FAILED = "Could not persist Coinbase credentials."
 WORKERS_RESTART_DETAIL = (
-    "This API process rebuilt Coinbase clients. Workers on the shared credentials "
-    "volume reload secrets from disk without restart. Setting credentials does not "
+    "This API process rebuilt Coinbase clients. The portfolio and execution workers on "
+    "the shared credentials volume reload these secrets from disk within about 5 "
+    "seconds without restart; the execution worker swaps its live broker, market data, "
+    "and user-order feed between cycles. The market-data ingest worker keeps its "
+    "startup provider (demo or Coinbase) until restarted. Setting credentials does not "
     "arm live trading."
 )
 WORKERS_RESTART_LEGACY_DETAIL = (
@@ -36,7 +39,9 @@ class CoinbaseCredentialsStatus(_FrozenModel):
         persisted: True when the dotenv file was written on the last mutation.
         env_file_writable: True when this process can create or replace the file.
         api_hot_reloaded: True when this process rebuilt Coinbase clients.
-        workers_require_restart: Always true after a mutation; workers do not hot-reload.
+        workers_require_restart: True only when this process is not using the shared
+            credentials volume, so portfolio/execution workers cannot hot-reload the
+            new keys. False on the supported Compose install.
         workers_restart_detail: Operator copy; contains no secret values.
     """
 

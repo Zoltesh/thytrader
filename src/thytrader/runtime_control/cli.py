@@ -43,16 +43,22 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _CONFIRM_HELP = (
-    "Required for mutations unless YOLO covers that tier. Live start also "
-    "requires --i-understand-live. Publishing a risk policy requires --confirm "
-    "only; it does not arm live trading. Live place-order, set-settings, and "
-    "Coinbase credential set/clear never skip --confirm."
+    "Required for mutations unless YOLO covers that tier. Live start, live "
+    "resume, and live place-order also require --i-understand-live. Publishing "
+    "a risk policy requires --confirm only; it does not arm live trading. Live "
+    "place-order, set-settings, and Coinbase credential set/clear never skip --confirm."
 )
 _LIVE_HELP = (
-    "Required to start live trading or place a live order. Live spends real "
-    "money. YOLO never skips this flag."
+    "Required to start live trading, resume a live deployment, or place a live "
+    "order. Sent to the API as i_understand_live=true. Live spends real money. "
+    "YOLO never skips this flag."
 )
-_ALLOCATION_HELP = "Optional strategy_id:allocated_quote reservation. Repeatable."
+_ALLOCATION_HELP = (
+    "Optional strategy_id:allocated_quote reservation. Repeatable. strategy_id is the "
+    "strategy UUID (thytrader-research list-strategies, or strategy_id on "
+    "thytrader-runtime show). Any allocation turns the policy into an allowlist: "
+    "discretionary place-order and strategies without an allocation are denied."
+)
 
 
 def _shared_options() -> argparse.ArgumentParser:
@@ -77,8 +83,8 @@ def _parser() -> argparse.ArgumentParser:
             "discretionary orders, publish the risk-policy registry, update YAML "
             "non-secret settings (including YOLO), and set or clear write-only "
             "Coinbase credentials, through the loopback HTTP API. Mutations "
-            "require --confirm unless YOLO covers that tier. Live start and live "
-            "place-order also require --i-understand-live. Live place-order, "
+            "require --confirm unless YOLO covers that tier. Live start, live "
+            "resume, and live place-order also require --i-understand-live. Live place-order, "
             "set-risk-policy, set-settings, and Coinbase credential set/clear "
             "never skip --confirm. This is not the operator or research CLI."
         ),
@@ -174,6 +180,8 @@ def _parser() -> argparse.ArgumentParser:
         )
         command.add_argument("deployment_id", help="Deployment UUID.")
         command.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+        if action == "resume":
+            command.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
         if action == "stop":
             command.add_argument(
                 "--flatten",
@@ -210,7 +218,10 @@ def _parser() -> argparse.ArgumentParser:
         "--product-allowlist",
         action="append",
         default=[],
-        help="Optional BASE-USD product. Repeatable. Empty means no extra restriction.",
+        help=(
+            "Optional spot product such as BTC-USDC (BASE-QUOTE, matching --quote-currency). "
+            "Repeatable. Empty means no extra restriction."
+        ),
     )
     set_policy.add_argument("--max-concurrent-running-deployments", type=int, required=True)
     set_policy.add_argument("--max-concurrent-open-positions", type=int, required=True)
@@ -352,7 +363,8 @@ def _parser() -> argparse.ArgumentParser:
 
 _RUNTIME_CONFIRM_MESSAGE = (
     "Pass --confirm to change paper or live runtimes, the risk-policy "
-    "registry, or YAML settings. Live start also requires --i-understand-live."
+    "registry, or YAML settings. Live start, live resume, and live place-order "
+    "also require --i-understand-live."
 )
 _CREDENTIALS_CONFIRM_MESSAGE = (
     "Pass --confirm to set or clear Coinbase credentials. YOLO never covers this command."
@@ -420,6 +432,7 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         maker_fee_rate=maker,
         taker_fee_rate=taker,
         settings=settings,
+        i_understand_live=live and arguments.i_understand_live,
     )
 
 
@@ -460,6 +473,7 @@ def _place_order(arguments: argparse.Namespace, base_url: str, settings: Setting
         maker_fee_rate=maker,
         taker_fee_rate=taker,
         note=arguments.note,
+        i_understand_live=live and arguments.i_understand_live,
     )
 
 
@@ -479,6 +493,12 @@ def _runtime_mutation(arguments: argparse.Namespace, base_url: str, settings: Se
             arguments.deployment_id,
             settings=settings,
         )
+    acknowledged = bool(getattr(arguments, "i_understand_live", False))
+    live_resume = False
+    if command == "resume":
+        mode = _deployment_mode(show_deployment(base_url, arguments.deployment_id))
+        _require_live_ack(mode=mode, acknowledged=acknowledged)
+        live_resume = mode == "live"
     require_paper_runtime_confirmation(
         confirmed=arguments.confirm,
         missing_message=_RUNTIME_CONFIRM_MESSAGE,
@@ -496,6 +516,7 @@ def _runtime_mutation(arguments: argparse.Namespace, base_url: str, settings: Se
         command,
         settings=settings,
         flatten=bool(getattr(arguments, "flatten", False)),
+        i_understand_live=live_resume and acknowledged,
     )
 
 

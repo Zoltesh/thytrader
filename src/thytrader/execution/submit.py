@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
@@ -21,6 +22,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.memory.recording import maybe_record_submitted_intent
+from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -116,6 +118,17 @@ async def submit_intent(
             updated_at=utc_now(),
         )
         await store.save_order(unknown)
+        await record_execution_audit(
+            action="order_submit_unconfirmed",
+            outcome=AuditEventOutcome.FAILURE,
+            detail=(
+                f"deployment_id={deployment_id} client_order_id={client_order_id} "
+                f"purpose={purpose.value} error={type(error).__name__}: create outcome is "
+                "ambiguous; the order stays UNKNOWN and is looked up by client_order_id. "
+                "It is never re-submitted automatically."
+            ),
+            product_id=product_id,
+        )
         return unknown
     submitted = replace(
         order,
@@ -127,6 +140,17 @@ async def submit_intent(
         updated_at=utc_now(),
     )
     await store.save_order(submitted)
+    if result.status is OrderStatus.REJECTED:
+        await record_execution_audit(
+            action="order_submit_rejected",
+            outcome=AuditEventOutcome.INFO,
+            detail=(
+                f"deployment_id={deployment_id} client_order_id={client_order_id} "
+                f"purpose={purpose.value} reason={result.reject_reason or 'rejected'}: "
+                "venue definitively rejected the create; no order exists."
+            ),
+            product_id=product_id,
+        )
     if result.attached_child_venue_order_id:
         child = Order(
             id=uuid7(utc_now()),

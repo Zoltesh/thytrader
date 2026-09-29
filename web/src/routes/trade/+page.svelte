@@ -61,6 +61,12 @@
 			if (entryKind === 'post_only_limit' && limitPrice === '') {
 				throw new Error('Post-only entries require a limit price.');
 			}
+			if (mode === 'live') {
+				const confirmed = window.confirm(
+					`PLACE A LIVE ORDER on Coinbase?\n\nThis submits a REAL ${side} spot order on ${productId} using your Coinbase API keys.\n\nYou are solely responsible for all trades and market risk.`
+				);
+				if (!confirmed) return;
+			}
 			const trimmedNote = note.trim();
 			result = await placeDiscretionaryOrder({
 				mode,
@@ -78,7 +84,9 @@
 				paper_starting_cash: mode === 'paper' ? paperCash : undefined,
 				maker_fee_rate: mode === 'paper' ? paperMakerFee : undefined,
 				taker_fee_rate: mode === 'paper' ? paperTakerFee : undefined,
-				note: trimmedNote === '' ? undefined : trimmedNote
+				note: trimmedNote === '' ? undefined : trimmedNote,
+				// Reached only after the PLACE A LIVE ORDER confirmation above was accepted.
+				i_understand_live: mode === 'live' ? true : undefined
 			});
 			await refreshBooks();
 			await refreshReasons(result.id);

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -18,8 +18,10 @@ from thytrader.api.dependencies import (
     get_risk_policy_store,
     get_runtime_state,
 )
+from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.routes.deployments import DeploymentResponse, _snapshot_response
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.geometry import base_currency
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.discretionary import DiscretionaryOrderRequest
+    from thytrader.execution.models import DeploymentSnapshot
 
 router = APIRouter(prefix="/api/v1/discretionary-orders", tags=["discretionary-orders"])
 
@@ -68,6 +71,13 @@ class PlaceDiscretionaryOrderRequest(BaseModel):
     maker_fee_rate: str | None = None
     taker_fee_rate: str | None = None
     note: str | None = Field(default=None, max_length=4000)
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true for mode=live (HTTP 428 live_acknowledgement_required otherwise). "
+            "Send only after the operator explicitly acknowledged live trading."
+        ),
+    )
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -84,6 +94,7 @@ async def post_discretionary_order(
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
 ) -> DeploymentResponse:
     """Persist a discretionary intent, submit once, and never retry an ambiguous timeout."""
+    require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     try:
         request = parse_discretionary_request(
             mode=body.mode.value,
@@ -104,23 +115,17 @@ async def post_discretionary_order(
             note=body.note,
         )
         broker = _broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
-        snapshot = await place_discretionary_order(
-            store=store,
-            broker=broker,
-            market_data=market_data,
-            request=request,
-            live_allowed=runtime.settings.coinbase_api_key_name is not None,
-            risk_store=risk_store,
-            live_quote_cash=await _currency_available(
-                quote_reader, mode=request.mode, currency=spot_quote_currency(request.product_id)
-            ),
-            live_base_available=await _currency_available(
-                quote_reader,
-                mode=request.mode,
-                currency=base_currency(request.product_id),
-            ),
-            memory_store=memory_store,
-        )
+        with execution_audit_scope(audit):
+            snapshot = await _place(
+                request,
+                store=store,
+                broker=broker,
+                market_data=market_data,
+                live_allowed=runtime.settings.coinbase_api_key_name is not None,
+                risk_store=risk_store,
+                quote_reader=quote_reader,
+                memory_store=memory_store,
+            )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
     except ExecutionStoreError as error:
@@ -144,6 +149,37 @@ async def post_discretionary_order(
         )
     )
     return await _snapshot_response(snapshot)
+
+
+async def _place(
+    request: DiscretionaryOrderRequest,
+    *,
+    store: ExecutionStore,
+    broker: Broker,
+    market_data: MarketDataService,
+    live_allowed: bool,
+    risk_store: RiskPolicyStore,
+    quote_reader: ExchangeAccount | None,
+    memory_store: ExperientialMemoryStore,
+) -> DeploymentSnapshot:
+    """Run the shared discretionary order path with live venue balances attached."""
+    return await place_discretionary_order(
+        store=store,
+        broker=broker,
+        market_data=market_data,
+        request=request,
+        live_allowed=live_allowed,
+        risk_store=risk_store,
+        live_quote_cash=await _currency_available(
+            quote_reader, mode=request.mode, currency=spot_quote_currency(request.product_id)
+        ),
+        live_base_available=await _currency_available(
+            quote_reader,
+            mode=request.mode,
+            currency=base_currency(request.product_id),
+        ),
+        memory_store=memory_store,
+    )
 
 
 def _broker_for_request(

@@ -76,7 +76,13 @@ individual result does not require loading every list page.
 Open http://127.0.0.1:5175/deploy (or `/deploy?strategy=` from the library). The execution worker
 evaluates published paper and live deployments against closed venue candles about every 30 seconds.
 Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when credentials
-exist. Sub-hour live pauses unless the authenticated user-order feed is connected. Paper deploy and
+exist (credentials set from Settings reach the execution worker without restart; without them
+paper uses synthetic demo candles and operator `runtime` reports `DEMO_MARKET_DATA`). Sub-hour
+live pauses unless the authenticated user-order feed is connected; a pause caused only by the feed
+clears automatically once it is healthy. A definitively rejected live order is recorded
+`rejected` and the book continues; an ambiguous submit stays `unknown`, is looked up at Coinbase
+by client order id, and is never re-submitted ([ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). Live start, live resume, and
+live Trade-page orders each ask for an explicit live confirmation first. Paper deploy and
 new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, or
 `thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates stay `0.001` /
 `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
@@ -139,9 +145,9 @@ not a Coinbase form — Coinbase keys stay on the separate secrets surface and n
 browser. The key is held in the API process only; restarting the API clears it.
 
 The chat is an operator over the same gated skill lanes as `ops/`. Read-only diagnosis runs
-immediately. Data, research, runtime, and memory mutations wait for in-app confirmation. Live start
-and live place-order also need the understand-live checkbox. Paper start and paper on-demand orders
-may include maker and taker fee assumptions; live Coinbase fees stay venue-recorded.
+immediately. Data, research, runtime, and memory mutations wait for in-app confirmation. Live start,
+live resume, and live place-order also need the understand-live checkbox. Paper start and paper
+on-demand orders may include maker and taker fee assumptions; live Coinbase fees stay venue-recorded.
 `uv run thytrader-operator chat-status` reports whether a key is configured; it never prints the
 secret.
 

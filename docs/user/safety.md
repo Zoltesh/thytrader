@@ -33,8 +33,10 @@ theme.
   allowed tier. YOLO is **off** by default. Toggle it from `/settings` or `thytrader.yaml`
   ([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); leftover
   `THYTRADER_YOLO_TIERS=paper` is valid.
-- Live start (and live on-demand place-order) also require `--i-understand-live`. YOLO never skips
-  that flag. Live place-order, risk-policy publication, Coinbase credential set/clear, `--local`
+- Live start, live resume, and live on-demand place-order also require `--i-understand-live`
+  (HTTP `i_understand_live: true`; the API answers 428 without it). The web UI sends it only after
+  its live confirmation dialog; `/chat` only after the understand-live box
+  ([ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). YOLO never skips that flag. Live place-order, risk-policy publication, Coinbase credential set/clear, `--local`
   research, and memory stay confirmation-hard-gated even when YOLO advertises `live`.
 - The playbook never starts live. Memory mutations never inherit YOLO.
 

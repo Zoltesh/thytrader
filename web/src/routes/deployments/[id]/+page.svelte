@@ -220,7 +220,11 @@
 		try {
 			let updated: Deployment;
 			if (action === 'pause') updated = await pauseDeployment(targetId);
-			else if (action === 'resume') updated = await resumeDeployment(targetId);
+			else if (action === 'resume')
+				// The lifecycle dialog is the live resume confirmation; only its Confirm reaches here.
+				updated = await resumeDeployment(targetId, {
+					liveAcknowledged: current.mode === 'live'
+				});
 			else if (action === 'flatten') updated = await stopDeployment(targetId, true);
 			else if (action === 'reset-breakers') updated = await resetBreakerLatches(targetId);
 			else updated = await stopDeployment(targetId, stopWithFlatten);

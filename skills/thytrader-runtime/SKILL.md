@@ -6,8 +6,9 @@ description: >-
   through the confirmation-gated thytrader-runtime CLI. Use when the user
   explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
   the risk policy, or manage Coinbase API secrets. Requires --confirm on every
-  mutation unless YOLO covers that tier. Live start and live place-order also
-  require --i-understand-live. YOLO live may skip --confirm on start/pause/resume/stop
+  mutation unless YOLO covers that tier. Live start, live resume, and live
+  place-order also require --i-understand-live (sent as HTTP i_understand_live=true).
+  YOLO live may skip --confirm on start/pause/resume/stop
   only. Credential set/clear always need --confirm; YOLO never covers them.
   Publishing a risk policy or setting credentials does not arm live trading.
   Never diagnose through this skill and never submit Coinbase orders directly.
@@ -28,7 +29,12 @@ Production installs enforce the application trust boundary
 documents the shared helper used by every mutation lane). Browser mutations additionally require CSRF
 from `GET /api/v1/security/session`. Live arming still requires a published risk policy per
 [ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)
-plus `--i-understand-live`; do not expect a separate live-arm token endpoint.
+plus `--i-understand-live`; do not expect a separate live-arm token endpoint. Over HTTP the
+same acknowledgement is the strict boolean `i_understand_live: true` on `POST /api/v1/deployments`
+(mode `live`), `POST /api/v1/deployments/{id}/resume` (live books), and
+`POST /api/v1/discretionary-orders` (mode `live`); without it the API answers **HTTP 428** with
+detail `live_acknowledgement_required: …` and nothing is created or resumed
+([ADR 0078](../../docs/decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
 Protection, leases, and live capital follow
 [ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
 (`lifecycle_command=stop_new_entries`) still maintains verified attached-child protection on
@@ -41,7 +47,8 @@ across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runti
 on `thytrader-runtime show`.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
-not extra authority: mutations still need in-app confirmation, and live still needs understand-live.
+not extra authority: mutations still need in-app confirmation, and live start, live resume, and
+live place-order still need understand-live (chat sends `i_understand_live` only after that box).
 Paper start and paper place-order tools may pass optional `maker_fee_rate` / `taker_fee_rate`
 together ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md)); live rejects them.
 `runtime_set_risk_policy` publishes the same `PUT /api/v1/risk-policy` document as this CLI,
@@ -56,7 +63,16 @@ Do not treat chat as this skill.
 
 Live trading spends real money. Do not start live unless the user explicitly asked to arm live trading.
 
-Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses unless the user-order feed is connected. Published `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
+Credentials and market data. `set-coinbase-credentials` / `clear-coinbase-credentials` (or
+`/settings`) write the shared credentials volume. The portfolio and execution workers reload them
+within about 5 seconds **without restart**; the execution worker swaps its live broker, Coinbase
+candles, quote reader, and user-order feed between cycles (audit `execution_venue_reloaded`).
+Clearing credentials makes live books pause with `Live broker is unavailable.` Without
+credentials, paper evaluates **synthetic demo candles**, not Coinbase prices: operator `runtime`
+then reports component `execution_market_data` / `DEMO_MARKET_DATA`. The market-data ingest worker
+keeps its startup provider until restarted (`make run` only when the user asked).
+
+Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses (`mismatch_detail` `User-order feed is not connected.`) unless the user-order feed is connected and fresh; when that feed pause is the **only** reason (no operator pause, no other mismatch, no breaker latch) the worker resumes the book automatically once the feed is healthy (audit `user_feed_pause_cleared`). Operator pauses, other mismatches, and latches never auto-clear. Published `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
 
 ## Hard stop
 
@@ -78,16 +94,17 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode live --confirm --i-understand-live` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
-| Resume | `uv run thytrader-runtime resume UUID --confirm` |
+| Resume paper | `uv run thytrader-runtime resume UUID --confirm` |
+| Resume live (re-arms orders) | `uv run thytrader-runtime resume UUID --confirm --i-understand-live` |
 | Stop (managed shutdown) | `uv run thytrader-runtime stop UUID --confirm` |
 | Stop and flatten | `uv run thytrader-runtime stop UUID --flatten --confirm` ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)) |
 | Clear latched breakers | `uv run thytrader-runtime reset-breaker-latches UUID --confirm` ([ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)) |
-| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side long --origin agent --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
-| Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USD --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
-| Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
-| Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USD --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
+| Place paper long | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USDC --timeframe 5m --side long --origin agent --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --cash 10000 --confirm` |
+| Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USDC --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
+| Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USDC --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
+| Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USDC --timeframe 1h --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
-| Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
+| Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
 | Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
@@ -97,7 +114,14 @@ evidence. Open the `ops/` workspace instead of the git root. Run every
 | Clear Coinbase credentials | `uv run thytrader-runtime clear-coinbase-credentials --confirm` |
 
 `list`, `show`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
-`--product-allowlist BASE-USD` and `--allocation STRATEGY_UUID:QUOTE` may be repeated.
+`--product-allowlist BASE-QUOTE` (for example `BTC-USDC`, matching `--quote-currency`; USDC is the
+default quote) and `--allocation STRATEGY_UUID:QUOTE` may be repeated. `STRATEGY_UUID` is the
+strategy's `strategy_id` (not the `sha256:` fingerprint): read it from
+`thytrader-research list-strategies` or `strategy_id` on `thytrader-runtime show UUID`.
+**Allocations have side effects:** once any allocation is published the policy becomes an
+allowlist. `place-order` (discretionary books) is denied and every strategy without its own
+allocation is denied at start and entry. The allocations may not sum above
+`--paper-capital-quote`. Omit `--allocation` unless the user wants exactly that restriction.
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
@@ -158,17 +182,43 @@ never skip `--confirm`. YOLO never covers credentials. Pass `--private-key-file`
 secret or pasted PEM. Setting credentials does not arm live trading. Repeat the same
 `--idempotency-key` instead of retrying a timeout.
 
+## Rejected and unconfirmed live orders
+
+The worker never re-submits an order automatically
+([ADR 0078](../../docs/decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
+
+- **Definite rejection.** Coinbase `success=false`, or HTTP 400/401/403/404/422 on create, means no
+  order exists. The order is `rejected` with `reject_reason` such as
+  `coinbase_http_400:INVALID_ARGUMENT` (audit `order_submit_rejected`). The book returns to flat
+  and keeps running; fix the cause (size, permissions, product) before the next entry. A rejected
+  protective bracket still pauses the book because the position is unprotected.
+- **Ambiguous outcome.** Timeouts, HTTP 408/409/429/5xx, and transport failures leave the order
+  `unknown` with no venue id (audit `order_submit_unconfirmed`, operator finding
+  `UNKNOWN_ORDERS`). Every poll the worker looks it up at Coinbase by `client_order_id` (same
+  product, orders created from five minutes before submit). If Coinbase shows it, the worker
+  adopts the venue id and status (audit `unconfirmed_order_recovered`); then `resume`.
+  If a complete scan finds nothing, the book stays paused with `mismatch_detail`
+  `Order submit is unconfirmed: no Coinbase order with client_order_id … was found; …`
+  (audit `unconfirmed_order_not_found`). Resuming does not clear it; the next poll re-pauses.
+- **Operator recovery for a not-found unconfirmed order.** Do not retry the order. Ask the user to
+  check Coinbase Advanced Trade orders (the product, around the submit time) for that
+  `client_order_id` and for any matching fill. If Coinbase shows the order, wait: the worker
+  adopts it on the next poll. If the user confirms no such order or fill exists, stop the
+  deployment (`stop UUID --confirm`, managed shutdown) and start a new one; the stopped book keeps
+  the unknown order in its history and any priced remainder may still count in account risk until a
+  contributor resolves it.
+
 Underlying HTTP:
 
 - `GET /api/v1/deployments?limit=&offset=` (summary rows; no historical orders/fills)
 - `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`)
 - `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
-- `POST /api/v1/deployments`
+- `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428)
 - `POST /api/v1/deployments/{id}/pause`
-- `POST /api/v1/deployments/{id}/resume`
+- `POST /api/v1/deployments/{id}/resume` (live books require body `{"i_understand_live": true}`, else 428)
 - `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)
 - `POST /api/v1/deployments/{id}/reset-breaker-latches`
-- `POST /api/v1/discretionary-orders`
+- `POST /api/v1/discretionary-orders` (mode `live` requires `"i_understand_live": true`, else 428)
 - `GET/PUT /api/v1/risk-policy`
 - `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))
 - `GET/PUT/DELETE /api/v1/credentials/coinbase`
@@ -178,8 +228,8 @@ Underlying HTTP:
 - Never mutate unless the user explicitly asked **and** `--confirm` is present, unless the user
   explicitly asked to operate under YOLO **and** operator `configuration` /
   `thytrader-playbook status` shows the matching tier (`paper` or `live`) enabled.
-- Never start live or place a live order without `--i-understand-live`. YOLO never skips that
-  flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
+- Never start live, resume a live deployment, or place a live order without
+  `--i-understand-live`. YOLO never skips that flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
   and the skip audit succeeds. Live `place-order`, `set-risk-policy`, `set-settings`, and Coinbase
   credential set/clear never YOLO.
 - Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
@@ -203,4 +253,6 @@ and applies without restart. Secrets stay out of YAML. Live still needs `--i-und
 - Setting or clearing Coinbase credentials without `--confirm`, printing the PEM, or treating
   a credentials write as live arming
 - Treating a timeout as proof the start/pause/stop/place-order failed; `show` the deployment and reconcile before retrying
+- Re-submitting or duplicating an order whose submit is unconfirmed; follow the recovery above
+- Sending `i_understand_live` over HTTP without the user's explicit live acknowledgement
 - Editing application source to arm, pause, or change execution on a running instance

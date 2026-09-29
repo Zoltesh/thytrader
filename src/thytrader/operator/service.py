@@ -31,6 +31,7 @@ from thytrader.execution.models import (
     visible_instrument_runtimes,
 )
 from thytrader.execution.protection import book_protection_status
+from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
 from thytrader.market_data.freshness import (
     FreshnessStatus,
@@ -714,6 +715,7 @@ class OperatorDiagnostics:
             *risk.components,
             *reconciliation.components,
             *extra,
+            *(await self._execution_market_data_components()),
         )
         return RuntimeReport(
             application_version=__version__,
@@ -732,6 +734,38 @@ class OperatorDiagnostics:
                 risk_findings=risk_findings,
                 reconciliation_findings=recon_findings,
                 user_order_feed=await self._user_order_feed_payload(),
+            ),
+        )
+
+    async def _execution_market_data_components(self) -> tuple[ComponentReport, ...]:
+        """Disclose when paper books evaluate synthetic demo candles instead of venue prices.
+
+        The execution worker follows the same shared credentials as this process, so
+        absent credentials here mean it runs ``DemoMarketData`` and has no live broker.
+        """
+        if _credentials_configured(self.settings):
+            return ()
+        try:
+            deployments = await self.execution.list_deployments()
+        except Exception:  # noqa: BLE001 - deployment listing failures stay partial.
+            return ()
+        active_paper = [
+            item
+            for item in deployments
+            if item.mode is DeploymentMode.PAPER and item.status is not DeploymentStatus.STOPPED
+        ]
+        if not active_paper:
+            return ()
+        return (
+            ComponentReport(
+                name="execution_market_data",
+                status=ReportStatus.HEALTHY,
+                reason_code="DEMO_MARKET_DATA",
+                detail=(
+                    f"Coinbase credentials are absent: {len(active_paper)} paper deployment(s) "
+                    "evaluate synthetic demo candles, not Coinbase prices. Live deployments "
+                    "pause (Live broker is unavailable.)."
+                ),
             ),
         )
 
@@ -1636,8 +1670,10 @@ class OperatorDiagnostics:
                         detail=deployment.mismatch_detail[:500],
                     )
                 )
+                findings.extend(_precise_mismatch_findings(deployment))
             if deployment.status is not DeploymentStatus.STOPPED:
                 await self._collect_unknown_orders(deployment, findings)
+        findings = _dedupe_findings(findings)
         try:
             events = await self.audit.list_recent(limit=20)
         except AuditEventUnavailableError:
@@ -1728,6 +1764,41 @@ class OperatorDiagnostics:
                 ),
             )
         )
+
+
+def _precise_mismatch_findings(deployment: Deployment) -> tuple[ReconciliationFinding, ...]:
+    """Add a precise code alongside STATE_MISMATCH for known live reconcile pauses.
+
+    A live order Coinbase reports FILLED while List Fills returns no rows is the
+    live form of ``FILLED_WITHOUT_FILL``: no fill economics were applied.
+    """
+    if deployment.mismatch_detail == FILLED_WITHOUT_REST_FILLS_DETAIL:
+        return (
+            ReconciliationFinding(
+                reason_code="FILLED_WITHOUT_FILL",
+                deployment_id=deployment.id,
+                detail=(
+                    "Venue reports a FILLED order but Coinbase List Fills returned no rows; "
+                    "no fill economics were applied and the book is paused."
+                ),
+            ),
+        )
+    return ()
+
+
+def _dedupe_findings(
+    findings: list[ReconciliationFinding],
+) -> list[ReconciliationFinding]:
+    """Keep the first finding per (reason_code, deployment_id), preserving order."""
+    seen: set[tuple[str, UUID | None]] = set()
+    unique: list[ReconciliationFinding] = []
+    for finding in findings:
+        key = (finding.reason_code, finding.deployment_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(finding)
+    return unique
 
 
 def _monitor_components(snapshot: MonitorSnapshot) -> list[ComponentReport]:

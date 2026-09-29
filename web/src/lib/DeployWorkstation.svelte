@@ -178,7 +178,9 @@
 				mode: deployMode,
 				paper_starting_cash: deployMode === 'paper' ? deployCash : undefined,
 				maker_fee_rate: deployMode === 'paper' ? deployMakerFee : undefined,
-				taker_fee_rate: deployMode === 'paper' ? deployTakerFee : undefined
+				taker_fee_rate: deployMode === 'paper' ? deployTakerFee : undefined,
+				// Reached only after the ARM LIVE TRADING confirmation above was accepted.
+				i_understand_live: deployMode === 'live' ? true : undefined
 			});
 			await loadStrategyDeployments();
 			onChanged?.();
@@ -206,7 +208,9 @@
 		deployError = null;
 		try {
 			if (action === 'pause') await pauseDeployment(id);
-			else if (action === 'resume') await resumeDeployment(id);
+			else if (action === 'resume')
+				// Live resume reaches here only after the RESUME LIVE TRADING confirmation.
+				await resumeDeployment(id, { liveAcknowledged: deployment?.mode === 'live' });
 			else await stopDeployment(id);
 			await loadStrategyDeployments();
 			onChanged?.();

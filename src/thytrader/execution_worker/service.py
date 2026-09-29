@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
+from thytrader.execution.audit_scope import execution_audit_scope, record_execution_audit
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.freshness import signal_still_valid
@@ -38,6 +39,7 @@ from thytrader.execution.trade_reason_scope import (
 )
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.store import load_effective_policy
@@ -58,9 +60,11 @@ if TYPE_CHECKING:
     from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
+    from thytrader.execution_worker.venue import ExecutionVenue
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
+    from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.risk.store import RiskPolicyStore
@@ -114,25 +118,45 @@ async def run_execution_worker(
     wake_requested: asyncio.Event | None = None,
     memory_store: ExperientialMemoryStore | None = None,
     settings_store: SettingsStore | None = None,
+    venue_provider: Callable[[], ExecutionVenue] | None = None,
+    audit_store: AuditEventStore | None = None,
 ) -> None:
-    """Poll running deployments until shutdown."""
+    """Poll running deployments until shutdown.
+
+    When ``venue_provider`` is given it overrides ``market_data``, ``live_broker``,
+    and ``quote_reader``. It is read once at the start of every cycle, so a
+    credential hot-swap takes effect between cycles and never mid-cycle.
+    ``audit_store`` is bound for execution audit events (rejected/unconfirmed
+    submits, recovery, user-feed pause transitions) for the whole cycle.
+    """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     try:
         while not stop_requested.is_set():
             if heartbeat_store is not None:
                 await heartbeat_store.touch("execution_worker", datetime.now(UTC))
-            await _run_cycle(
-                store=store,
-                publication_store=publication_store,
-                market_data=market_data,
-                paper_broker=paper_broker,
-                live_broker=live_broker,
-                quote_reader=quote_reader,
-                risk_store=risk_store,
-                user_feed_store=user_feed_store,
-                memory_store=memory_store,
+            cycle_market_data, cycle_live_broker, cycle_quote_reader = (
+                market_data,
+                live_broker,
+                quote_reader,
             )
+            if venue_provider is not None:
+                venue = venue_provider()
+                cycle_market_data = venue.market_data
+                cycle_live_broker = venue.live_broker
+                cycle_quote_reader = venue.quote_reader
+            with execution_audit_scope(audit_store):
+                await _run_cycle(
+                    store=store,
+                    publication_store=publication_store,
+                    market_data=cycle_market_data,
+                    paper_broker=paper_broker,
+                    live_broker=cycle_live_broker,
+                    quote_reader=cycle_quote_reader,
+                    risk_store=risk_store,
+                    user_feed_store=user_feed_store,
+                    memory_store=memory_store,
+                )
             if wake_requested is not None:
                 wake_requested.clear()
             wait_seconds = (
@@ -1498,6 +1522,9 @@ async def _maintain_discretionary(
     )
 
 
+USER_FEED_PAUSE_DETAIL = "User-order feed is not connected."
+
+
 async def _pause_five_minute_live_if_feed_down(
     snapshot: DeploymentSnapshot,
     *,
@@ -1505,10 +1532,16 @@ async def _pause_five_minute_live_if_feed_down(
     store: ExecutionStore,
     user_feed_store: UserOrderFeedStateStore | None,
 ) -> bool:
-    """Pause sub-hour live entries when the user-order feed is down.
+    """Pause sub-hour live entries when the user-order feed is down; clear that pause on recovery.
 
     True means new entries are disabled for this cycle. Callers still reconcile
     and maintain verified protection on owned orders.
+
+    Only a RUNNING book is paused for the feed, so the feed reason never
+    overwrites an operator pause or another fail-closed mismatch. When the feed
+    is connected and fresh again, a book whose *sole* pause reason is the feed
+    (worker pause, no lifecycle command, no breaker latch) resumes with an audit
+    row. Every other pause or latch stays until the operator acts.
     """
     deployment = snapshot.deployment
     if deployment.mode is not DeploymentMode.LIVE:
@@ -1517,15 +1550,60 @@ async def _pause_five_minute_live_if_feed_down(
     if not interval.requires_live_user_feed:
         return False
     if await _user_feed_connected(user_feed_store):
+        await _clear_feed_only_pause(deployment, store=store)
         return False
+    if deployment.status is not DeploymentStatus.RUNNING:
+        return True
     paused = with_runtime(
         deployment,
         updated_at=utc_now(),
         status=DeploymentStatus.PAUSED,
-        mismatch_detail="User-order feed is not connected.",
+        mismatch_detail=USER_FEED_PAUSE_DETAIL,
     )
     await store.save_deployment(paused)
+    await record_execution_audit(
+        action="user_feed_pause",
+        outcome=AuditEventOutcome.INFO,
+        detail=(
+            f"deployment_id={deployment.id} timeframe={timeframe}: sub-hour live paused "
+            "because the user-order feed is not connected and fresh."
+        ),
+        product_id=deployment.product_id,
+    )
     return True
+
+
+def _is_feed_only_pause(deployment: Deployment) -> bool:
+    """True when the user-feed gate is the only reason this live book is paused."""
+    return (
+        deployment.status is DeploymentStatus.PAUSED
+        and deployment.mismatch_detail == USER_FEED_PAUSE_DETAIL
+        and deployment.lifecycle_command is LifecycleCommand.NONE
+        and not deployment.daily_loss_latched
+        and not deployment.drawdown_latched
+    )
+
+
+async def _clear_feed_only_pause(deployment: Deployment, *, store: ExecutionStore) -> None:
+    """Resume a book paused solely by the user-feed gate once the feed is healthy."""
+    if not _is_feed_only_pause(deployment):
+        return
+    resumed = with_runtime(
+        deployment,
+        updated_at=utc_now(),
+        status=DeploymentStatus.RUNNING,
+        clear_mismatch=True,
+    )
+    await store.save_deployment(resumed)
+    await record_execution_audit(
+        action="user_feed_pause_cleared",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id}: user-order feed is connected and fresh again; "
+            "the feed-only pause was cleared automatically. Entries resume on the next due bar."
+        ),
+        product_id=deployment.product_id,
+    )
 
 
 async def _user_feed_connected(store: UserOrderFeedStateStore | None) -> bool:

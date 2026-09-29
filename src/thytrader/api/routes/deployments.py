@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field, StrictBool
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -16,6 +16,7 @@ from thytrader.api.dependencies import (
     get_runtime_state,
     get_strategy_publication_store,
 )
+from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -70,6 +71,22 @@ class CreateDeploymentRequest(BaseModel):
     paper_starting_cash: str | None = None
     maker_fee_rate: str | None = None
     taker_fee_rate: str | None = None
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true for mode=live (HTTP 428 live_acknowledgement_required otherwise). "
+            "Send only after the operator explicitly acknowledged live trading."
+        ),
+    )
+
+
+class ResumeDeploymentRequest(BaseModel):
+    """Optional resume body; live books require the explicit live acknowledgement."""
+
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description="Required true to resume a live deployment (re-arms live order submission).",
+    )
 
 
 class PositionResponse(BaseModel):
@@ -257,6 +274,7 @@ async def post_deployment(
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
 ) -> DeploymentResponse:
     """Create a running paper or live deployment without waiting for the worker."""
+    require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     try:
         deployment = await create_deployment(
             store=store,
@@ -449,8 +467,16 @@ async def resume_deployment(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    body: Annotated[ResumeDeploymentRequest | None, Body()] = None,
 ) -> DeploymentResponse:
-    """Resume a paused deployment."""
+    """Resume a paused deployment; a live book also needs ``i_understand_live=true``."""
+    acknowledged = body.i_understand_live if body is not None else False
+    try:
+        current = await store.get_deployment(deployment_id)
+    except ExecutionStoreError:
+        current = None
+    if current is not None:
+        require_live_acknowledgement(current.deployment.mode, acknowledged=acknowledged)
     return await _set_status(
         store, audit, deployment_id, DeploymentStatus.RUNNING, publication_store
     )

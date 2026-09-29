@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from thytrader.exchanges.rest_transport import SignedHttpTransport, json_object
+from thytrader.exchanges.rest_transport import (
+    CoinbaseHttpStatusError,
+    SignedHttpTransport,
+    json_object,
+)
 from thytrader.execution.broker import BrokerError, SubmitResult
 from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
 
@@ -26,6 +30,13 @@ _BOOK_PATH = "/api/v3/brokerage/product_book"
 _MAX_PAGES = 20
 _FILL_ID_NAMESPACE = uuid5(NAMESPACE_URL, "https://thytrader.dev/coinbase/fill")
 _FILL_ORDER_NAMESPACE = uuid5(NAMESPACE_URL, "https://thytrader.dev/coinbase/fill-order")
+# Create-order HTTP statuses that prove Coinbase refused the request before any order
+# existed: malformed/invalid (400, 422), unauthenticated (401), unauthorized scope (403),
+# unknown route (404). 408, 409, 429, every 5xx, and transport failures stay ambiguous.
+_DEFINITE_CREATE_REJECTIONS = frozenset({400, 401, 403, 404, 422})
+# Recovery lookups scan orders created from this long before the local submit instant,
+# which absorbs clock skew between this host and Coinbase.
+_CLIENT_LOOKUP_LEAD = timedelta(minutes=5)
 
 
 class CoinbaseRestBroker:
@@ -59,10 +70,10 @@ class CoinbaseRestBroker:
         attached = _attached_order_configuration(kind, take_profit_price, stop_trigger_price)
         if attached is not None:
             body["attached_order_configuration"] = attached
-        try:
-            payload = await asyncio.to_thread(self._transport.post, _ORDERS_PATH, body)
-        except (OSError, TimeoutError, TypeError, ValueError) as error:
-            raise BrokerError("Coinbase create-order request failed.") from error
+        posted = await self._post_create(body, client_order_id=client_order_id)
+        if isinstance(posted, SubmitResult):
+            return posted
+        payload = posted
         success = payload.get("success")
         order_payload = _nested_object(payload, "success_response") or _nested_object(
             payload, "order"
@@ -102,6 +113,28 @@ class CoinbaseRestBroker:
                 attached_child_venue_order_id=attached_child_id,
             )
         return observed
+
+    async def _post_create(
+        self, body: dict[str, object], *, client_order_id: str
+    ) -> dict[str, Any] | SubmitResult:
+        """POST one create-order body; map a definite HTTP refusal to REJECTED.
+
+        Only statuses proving Coinbase created no order become REJECTED. Every
+        other failure raises ``BrokerError`` so the caller records UNKNOWN and
+        reconciles by client_order_id instead of assuming failure.
+        """
+        try:
+            return await asyncio.to_thread(self._transport.post, _ORDERS_PATH, body)
+        except CoinbaseHttpStatusError as error:
+            if error.status_code in _DEFINITE_CREATE_REJECTIONS:
+                return SubmitResult(
+                    status=OrderStatus.REJECTED,
+                    venue_order_id=client_order_id,
+                    reject_reason=_http_reject_reason(error),
+                )
+            raise BrokerError("Coinbase create-order request failed.") from error
+        except (OSError, TimeoutError, TypeError, ValueError) as error:
+            raise BrokerError("Coinbase create-order request failed.") from error
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """POST batch cancel, then GET the resulting order."""
@@ -170,6 +203,54 @@ class CoinbaseRestBroker:
             return await asyncio.to_thread(self._transport.get, _FILLS_PATH, params)
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase list-fills request failed.") from error
+
+    async def find_order_by_client_id(
+        self,
+        *,
+        client_order_id: str,
+        product_id: str,
+        submitted_at: datetime,
+    ) -> SubmitResult | None:
+        """Look up an ambiguous submit by client_order_id within one product and time window.
+
+        Pages List Orders filtered to ``product_id`` and orders created since
+        ``submitted_at`` minus a five-minute skew allowance, so the scan stays
+        bounded regardless of account history. Returns the order's current
+        snapshot when found, and None only after a complete scan finds nothing.
+        Transport failures and pagination anomalies raise ``BrokerError`` so an
+        incomplete scan is never mistaken for "not at the venue". Never submits.
+        """
+        if not client_order_id:
+            return None
+        start_date = (submitted_at - _CLIENT_LOOKUP_LEAD).astimezone(UTC)
+        cursor: str | None = None
+        for _page in range(_MAX_PAGES):
+            params: dict[str, object] = {
+                "product_ids": [product_id],
+                "product_type": "SPOT",
+                "start_date": start_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "limit": 100,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                payload = await asyncio.to_thread(self._transport.get, _LIST_ORDERS_PATH, params)
+            except (OSError, TimeoutError, TypeError, ValueError) as error:
+                raise BrokerError("Coinbase client-order lookup failed.") from error
+            venue_id = _venue_id_on_page(payload, client_order_id)
+            if venue_id is not None:
+                return await self.get_order(
+                    venue_order_id=venue_id, client_order_id=client_order_id
+                )
+            if payload.get("has_next") is not True:
+                return None
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                raise BrokerError(
+                    "Coinbase order pagination declared a next page without a cursor."
+                )
+            cursor = next_cursor
+        raise BrokerError("Coinbase client-order lookup exceeded the page limit.")
 
     def match_open_order(self, order: Order, candle: Candle) -> Fill | None:
         """Live fills come from REST, not candle matching."""
@@ -268,6 +349,26 @@ class CoinbaseRestBroker:
                 )
             cursor = next_cursor
         raise BrokerError("Coinbase order pagination exceeded the page limit.")
+
+
+def _venue_id_on_page(payload: Mapping[str, Any], client_order_id: str) -> str | None:
+    """Return the venue id of the order carrying ``client_order_id`` on one page."""
+    for item in _object_list(payload.get("orders")):
+        if _text(item.get("client_order_id")) != client_order_id:
+            continue
+        venue_id = _text(item.get("order_id"))
+        if venue_id is None:
+            raise BrokerError("Coinbase listed the client order without an order_id.")
+        return venue_id
+    return None
+
+
+def _http_reject_reason(error: CoinbaseHttpStatusError) -> str:
+    """Render a definite HTTP rejection as a stable, secret-free reject reason."""
+    reason = f"coinbase_http_{error.status_code}"
+    if error.error_code:
+        reason = f"{reason}:{error.error_code}"
+    return reason
 
 
 def _order_configuration(

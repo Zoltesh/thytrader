@@ -56,7 +56,9 @@ Write-only Coinbase credentials:
 - `GET/PUT/DELETE /api/v1/credentials/coinbase` report presence flags only. GET never returns
   secrets. PUT/DELETE never echo request bodies in 422 payloads.
 - Persist to the dotenv file when writable (`0o600`). Always hot-reload this API process.
-  Workers still require a restart. Setting credentials does not arm live trading.
+  Workers still require a restart (superseded for the portfolio and execution workers on the
+  shared credentials volume by [ADR 0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
+  Setting credentials does not arm live trading.
 - `thytrader-runtime show-coinbase-credentials`, `set-coinbase-credentials --private-key-file`,
   and `clear-coinbase-credentials`. Mutations require `--confirm`. YOLO never covers them.
 - The Settings form wipes fields before the HTTP request. LLM keys stay on `/chat`
