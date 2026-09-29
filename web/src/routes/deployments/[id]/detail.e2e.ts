@@ -411,7 +411,11 @@ test.describe('deployment detail', () => {
 		await expect(links.first()).toBeVisible();
 		await expect(page.getByTestId('evidence-link').first()).toHaveAttribute(
 			'href',
-			`/backtests?strategy_fingerprint=${encodeURIComponent(fingerprintA)}`
+			`/strategies/${strategyDraft.strategy_id}/test?version=${encodeURIComponent(fingerprintA)}`
+		);
+		await expect(page.getByTestId('evidence-link').nth(1)).toHaveAttribute(
+			'href',
+			`/strategies/${strategyDraft.strategy_id}/why?version=${encodeURIComponent(fingerprintA)}`
 		);
 		await expect(page.getByText(/not a comprehensive record/)).toBeVisible();
 	});

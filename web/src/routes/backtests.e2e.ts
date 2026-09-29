@@ -802,3 +802,113 @@ test('discloses a full newest-first page and can load older results', async ({ p
 	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Newer' })).toBeEnabled();
 });
+
+test('an old ?result= link opens the owning strategy workspace when resolvable', async ({
+	page
+}) => {
+	const ownerId = '01985cf0-7b60-7000-8000-0000000000aa';
+	await page.route('**/api/v1/backtests/**', (route) =>
+		route.fulfill({
+			json: {
+				result_fingerprint: fingerprint,
+				result: {
+					schema_version: '1.0',
+					engine_contract_version: 'thytrader-bar-backtest-v1',
+					broker: {
+						price_model: 'constant_spread_bps',
+						spread_bps: '0',
+						fill_policy: 'full',
+						trigger_evaluation: 'bar_extreme',
+						equity_marking: 'last_close'
+					},
+					run_fingerprint: runFingerprint,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
+					summary,
+					equity_curve: [],
+					trades: []
+				},
+				costs: {}
+			}
+		})
+	);
+	await page.route('**/api/v1/strategies/source/*', (route) =>
+		route.fulfill({
+			json: {
+				strategy: {
+					strategy_id: ownerId,
+					version: 1,
+					name: 'Owner strategy',
+					description: null,
+					status: 'published',
+					created_at: '2026-08-01T00:00:00Z',
+					instrument: { product_id: 'BTC-USDC', base_currency: 'BTC', quote_currency: 'USDC' },
+					timeframe: '1h',
+					data_requirements: { warmup_bars: 50, required_fields: [] },
+					indicators: [],
+					entry: { side: 'long', when: { all: [] }, cooldown_bars: 0 },
+					sizing: { risk_fraction: '0.01', min_quote_notional: '10', max_quote_notional: '100' },
+					portfolio_limits: { max_strategy_exposure_fraction: '0.1' },
+					exits: {
+						initial_stop: { kind: 'atr_multiple', atr_indicator: '', multiple: '2' },
+						take_profit: { kind: 'reward_risk', multiple: '2' },
+						trailing_stop: { enabled: false },
+						time_exit: { max_bars_held: 10 }
+					},
+					execution: {
+						entry_preference: 'maker_only',
+						max_entry_wait_bars: 1,
+						on_unfilled_entry: 'cancel'
+					},
+					metadata: { tags: [], notes: [] }
+				}
+			}
+		})
+	);
+	await page.route(`**/api/v1/strategies/${ownerId}/history`, (route) =>
+		route.fulfill({
+			json: {
+				strategy_id: ownerId,
+				latest_version: 1,
+				next_version: 2,
+				versions: [
+					{
+						version: 1,
+						strategy_fingerprint: strategyFingerprint,
+						published: true,
+						archived: false,
+						archived_at: null,
+						backtest: null
+					}
+				],
+				draft: null
+			}
+		})
+	);
+	await page.goto(`/backtests?result=${fingerprint}`);
+	await expect(page).toHaveURL(
+		new RegExp(
+			`/strategies/${ownerId}/test\\?version=${encodeURIComponent(strategyFingerprint)}&result=${encodeURIComponent(fingerprint)}`
+		)
+	);
+	await expect(page.getByTestId('workspace-name')).toHaveText('Owner strategy');
+
+	await page.goto(`/backtests?strategy_fingerprint=${strategyFingerprint}`);
+	await expect(page).toHaveURL(
+		new RegExp(`/strategies/${ownerId}/test\\?version=${encodeURIComponent(strategyFingerprint)}$`)
+	);
+});
+
+test('the standalone list points at the strategy workspaces', async ({ page }) => {
+	await page.route(
+		(url) => url.pathname === '/api/v1/backtests',
+		(route) => route.fulfill({ json: { entries: [], limit: 10, offset: 0, returned: 0 } })
+	);
+	await page.goto('/backtests');
+	await expect(page.getByText(/each strategy's Test stage/)).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open a strategy' })).toHaveAttribute(
+		'href',
+		'/strategies'
+	);
+});

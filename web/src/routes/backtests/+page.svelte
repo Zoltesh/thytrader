@@ -18,6 +18,8 @@
 		type BacktestList,
 		type BacktestPerformanceMetrics
 	} from '$lib/backtests';
+	import { workspaceHref } from '$lib/strategy-workspace';
+	import { resolveStrategyOwner } from '$lib/workspace-data';
 
 	let listing: BacktestList | null = $state(null);
 	let listingAvailability = $state<'ready' | 'unavailable' | 'failed'>('ready');
@@ -201,8 +203,35 @@
 		resetInspection();
 	});
 
+	let redirecting = $state(false);
+
+	/**
+	 * Old deep links keep working: when the result's (or filter's) strategy
+	 * fingerprint is a published version of a strategy, open that strategy's
+	 * Test stage. Otherwise stay on this standalone view.
+	 */
+	async function redirectToOwner(): Promise<void> {
+		const result = parseResultFingerprintParam(page.url.searchParams.get('result'));
+		let fingerprint = strategyFilter;
+		if (result !== null) {
+			try {
+				fingerprint = (await fetchBacktest(result)).result.strategy_fingerprint;
+			} catch {
+				return;
+			}
+		}
+		if (fingerprint === null || fingerprint === '') return;
+		const owner = await resolveStrategyOwner(fingerprint);
+		if (owner === null) return;
+		redirecting = true;
+		await goto(resolve(workspaceHref(owner, 'test', { version: fingerprint, result })), {
+			replaceState: true
+		});
+	}
+
 	onMount(() => {
 		void loadList();
+		void redirectToOwner();
 	});
 	$effect(() => {
 		const filter = strategyFilter;
@@ -222,7 +251,14 @@
 <main>
 	<PageHead eyebrow="Research evidence" title="Backtests">
 		{#snippet intro()}
-			<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
+			<p class="lede">
+				Immutable historical simulations with disclosed assumptions. Running backtests and reading
+				one strategy's results now happen on each strategy's Test stage.
+				<a href={resolve('/strategies')}>Open a strategy</a>
+			</p>
+			{#if redirecting}<p class="lede" role="status">
+					Opening this in its strategy workspace…
+				</p>{/if}
 			{#if strategyFilter !== null}
 				<p class="lede">
 					Filtered to published strategy version <code>{strategyFilter}</code>.

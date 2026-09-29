@@ -8,6 +8,7 @@
 		stopWithFlatten = $bindable(false),
 		mutating,
 		actionError = null,
+		requireLiveAcknowledgement = false,
 		oncancel,
 		onconfirm
 	}: {
@@ -17,11 +18,17 @@
 		stopWithFlatten: boolean;
 		mutating: boolean;
 		actionError: string | null;
+		/** Live resume: gate Confirm behind an explicit "real orders" checkbox. */
+		requireLiveAcknowledgement?: boolean;
 		oncancel: () => void;
 		onconfirm: () => void;
 	} = $props();
 
 	const dialog = $derived(lifecycleDialog(deployment, action));
+	let liveAcknowledged = $state(false);
+	const needsAck = $derived(
+		requireLiveAcknowledgement && deployment.mode === 'live' && action === 'resume'
+	);
 
 	let cancelButton: HTMLButtonElement | null = $state(null);
 	let dialogRef: HTMLDivElement | null = $state(null);
@@ -101,6 +108,12 @@
 				asynchronously by the worker.
 			</p>
 		{/if}
+		{#if needsAck}
+			<label class="live-ack">
+				<input type="checkbox" bind:checked={liveAcknowledged} />
+				<span>I understand this places real orders on Coinbase with real money.</span>
+			</label>
+		{/if}
 		{#if actionError}
 			<p class="dialog-problem" role="alert">{actionError}</p>
 		{/if}
@@ -111,7 +124,7 @@
 			<button
 				type="button"
 				class:danger={dialog.danger}
-				disabled={mutating}
+				disabled={mutating || (needsAck && !liveAcknowledged)}
 				onclick={onconfirm}
 				aria-live="polite"
 			>
@@ -188,6 +201,17 @@
 	.async-note {
 		color: var(--muted);
 		font-size: 12px;
+	}
+	.live-ack {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 12px;
+		border-radius: 8px;
+		background: var(--live-soft);
+		color: var(--text);
+		font-size: 13px;
+		cursor: pointer;
 	}
 	.dialog-problem {
 		color: var(--neg);

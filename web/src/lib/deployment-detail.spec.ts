@@ -16,7 +16,6 @@ import {
 	performanceReportText,
 	productIdQuote,
 	quoteAmountLabel,
-	resolveRequestedFingerprint,
 	resumeBreakerNote,
 	strategyIdentityLink,
 	strategyVersionLink,
@@ -226,10 +225,10 @@ describe('version mixup guards', () => {
 	it('builds a fingerprint-exact deploy link and a strategy-identity link', () => {
 		const current = deployment();
 		expect(strategyVersionLink(current)).toEqual({
-			href: `/deploy?strategy=strat-1&strategy_fingerprint=${encodeURIComponent('sha256:' + 'a'.repeat(64))}`,
+			href: `/strategies/strat-1/run?version=${encodeURIComponent('sha256:' + 'a'.repeat(64))}`,
 			fingerprint: 'sha256:' + 'a'.repeat(64)
 		});
-		expect(strategyIdentityLink(current)).toBe('/deploy?strategy=strat-1');
+		expect(strategyIdentityLink(current)).toBe('/strategies/strat-1/run');
 	});
 
 	it('keeps discretionary rows honest: no invented fingerprint or link', () => {
@@ -476,56 +475,23 @@ describe('operator performance provenance', () => {
 });
 
 describe('exact-version evidence links', () => {
-	it('scopes backtests and research links to this exact fingerprint', () => {
+	it('scopes Test and Why workspace links to this exact fingerprint', () => {
 		const current = deployment();
 		const links = exactVersionEvidenceLinks(current);
 		const fingerprint = current.strategy_fingerprint!;
 		expect(links).toHaveLength(2);
 		expect(links[0]!.label).toBe('Backtests of this version');
 		expect(links[0]!.href).toBe(
-			`/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			`/strategies/strat-1/test?version=${encodeURIComponent(fingerprint)}`
 		);
-		expect(links[1]!.label).toBe('Research for this version');
+		expect(links[1]!.label).toBe('Decisions for this version');
 		expect(links[1]!.href).toBe(
-			`/research?strategy=strat-1&strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			`/strategies/strat-1/why?version=${encodeURIComponent(fingerprint)}`
 		);
 	});
 
 	it('offers no version-scoped evidence for a discretionary deployment', () => {
 		expect(exactVersionEvidenceLinks(deployment({ strategy_fingerprint: null }))).toEqual([]);
-	});
-});
-
-describe('requested fingerprint resolution fails closed', () => {
-	const versions = [
-		{ strategy_fingerprint: 'sha256:' + 'a'.repeat(64) },
-		{ strategy_fingerprint: 'sha256:' + 'b'.repeat(64) }
-	];
-
-	it('honors a matching explicit fingerprint', () => {
-		const requested = 'sha256:' + 'a'.repeat(64);
-		const resolution = resolveRequestedFingerprint(requested, versions);
-		expect(resolution).toEqual({ selected: requested, blocked: false, notice: null });
-	});
-
-	it('defaults to latest only when no fingerprint was requested', () => {
-		const resolution = resolveRequestedFingerprint('', versions);
-		expect(resolution.selected).toBe('sha256:' + 'b'.repeat(64));
-		expect(resolution.blocked).toBe(false);
-	});
-
-	it('blocks launch on an unknown explicit fingerprint instead of picking latest', () => {
-		const resolution = resolveRequestedFingerprint('sha256:' + 'd'.repeat(64), versions);
-		expect(resolution.selected).toBe('');
-		expect(resolution.blocked).toBe(true);
-		expect(resolution.notice).toContain('Launch is blocked');
-		expect(resolution.notice).not.toContain('showing the latest');
-	});
-
-	it('blocks when nothing is published but a fingerprint was requested', () => {
-		const resolution = resolveRequestedFingerprint('sha256:' + 'd'.repeat(64), []);
-		expect(resolution.selected).toBe('');
-		expect(resolution.blocked).toBe(true);
 	});
 });
 

@@ -5,10 +5,6 @@ import {
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
 	operandChoices,
-	PAPER_LIVE_STATUS_LEGEND,
-	PAPER_LIVE_STATUS_TITLE,
-	paperLiveStatusLabel,
-	paperLiveStatusTitle,
 	parseIndicatorOperandKey,
 	publishedVersionsFor,
 	researchWindowHint,
@@ -148,21 +144,7 @@ describe('archiveConfirmMessage', () => {
 	});
 });
 
-describe('paper/live library column copy', () => {
-	it('lists the real status tokens in the column legend', () => {
-		expect(PAPER_LIVE_STATUS_LEGEND).toBe('unavailable · running · paused · stopped');
-		expect(PAPER_LIVE_STATUS_TITLE).toContain('unavailable = no runtime');
-		expect(PAPER_LIVE_STATUS_TITLE).toContain('paused = halted (protective exits continue)');
-	});
-
-	it('renders paper then live and explains both tokens', () => {
-		const paperLive = { paper: 'running', live: 'unavailable' };
-		expect(paperLiveStatusLabel(paperLive)).toBe('running / unavailable');
-		expect(paperLiveStatusTitle(paperLive)).toBe(
-			'Paper: running. Live: unavailable. Opens the Deploy page.'
-		);
-	});
-
+describe('publishedVersionsFor', () => {
 	it('falls back to the latest fingerprint when published_versions is empty', () => {
 		expect(
 			publishedVersionsFor({

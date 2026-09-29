@@ -7,6 +7,7 @@
  * here invents state: absent values render as explicit unknowns.
  */
 import { canonicalPositions, type Deployment, type DeploymentOrder } from './deployments';
+import { workspaceHref } from './strategy-workspace';
 
 export const LIFECYCLE_INSTRUCTION_LABELS: Record<string, string> = {
 	none: 'Entries enabled',
@@ -289,61 +290,23 @@ export type LedgerPaging<T> = {
 	nextCursor: string | null;
 };
 
-/** Link to the immutable strategy version that exactly matches this fingerprint. */
+/** Run stage of the strategy workspace for exactly this deployment's fingerprint. */
 export function strategyVersionLink(
 	deployment: Deployment
 ): { href: string; fingerprint: string } | null {
 	if (deployment.strategy_id === null || deployment.strategy_fingerprint === null) return null;
 	return {
-		href: `/deploy?strategy=${encodeURIComponent(deployment.strategy_id)}&strategy_fingerprint=${encodeURIComponent(deployment.strategy_fingerprint)}`,
+		href: workspaceHref(deployment.strategy_id, 'run', {
+			version: deployment.strategy_fingerprint
+		}),
 		fingerprint: deployment.strategy_fingerprint
 	};
 }
 
-/** Link to the strategy identity on Deploy (picker-level, not version-exact). */
+/** Run stage of the strategy workspace (latest version, not version-exact). */
 export function strategyIdentityLink(deployment: Deployment): string | null {
 	if (deployment.strategy_id === null) return null;
-	return `/deploy?strategy=${encodeURIComponent(deployment.strategy_id)}`;
-}
-
-/**
- * Resolve the fingerprint a launch surface should preselect.
- *
- * An explicit `?strategy_fingerprint=` request is honored only when it really
- * is a published version of this strategy. An unknown explicit fingerprint
- * fails closed (`selected: ''`, `blocked: true`) so no launch can silently run
- * against the latest version; without the query parameter the latest version is
- * the normal default.
- */
-export function resolveRequestedFingerprint(
-	requested: string,
-	published: { strategy_fingerprint: string }[]
-): { selected: string; blocked: boolean; notice: string | null } {
-	if (requested === '') {
-		return {
-			selected: published[published.length - 1]?.strategy_fingerprint ?? '',
-			blocked: false,
-			notice: null
-		};
-	}
-	const match = published.find((version) => version.strategy_fingerprint === requested);
-	if (match !== undefined) {
-		return { selected: requested, blocked: false, notice: null };
-	}
-	if (published.length === 0) {
-		return {
-			selected: '',
-			blocked: true,
-			notice:
-				'The requested version is not published for this strategy, and no published version exists; nothing can be launched.'
-		};
-	}
-	return {
-		selected: '',
-		blocked: true,
-		notice:
-			'The requested version is not published for this strategy. Launch is blocked so a different immutable version cannot be started by mistake. Pick a published version explicitly to continue.'
-	};
+	return workspaceHref(deployment.strategy_id, 'run');
 }
 
 /** Order display row collapsing the API product fallback into one value. */
@@ -406,21 +369,29 @@ export type EvidenceLink = { label: string; href: string };
 /**
  * Evidence links for this exact version.
  *
- * Backtests and research are filtered by the deployment's exact fingerprint so
- * the operator sees this version's evidence only. Discretionary deployments
+ * The strategy workspace's Test and Why stages, pinned to the deployment's
+ * exact fingerprint, so the operator sees this version's evidence only. Discretionary deployments
  * without a fingerprint have no version-scoped evidence.
  */
 export function exactVersionEvidenceLinks(deployment: Deployment): EvidenceLink[] {
 	const fingerprint = deployment.strategy_fingerprint;
 	if (fingerprint === null) return [];
+	if (deployment.strategy_id === null) {
+		return [
+			{
+				label: 'Backtests of this version',
+				href: `/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			}
+		];
+	}
 	return [
 		{
 			label: 'Backtests of this version',
-			href: `/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			href: workspaceHref(deployment.strategy_id, 'test', { version: fingerprint })
 		},
 		{
-			label: 'Research for this version',
-			href: `/research?strategy=${encodeURIComponent(deployment.strategy_id ?? '')}&strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			label: 'Decisions for this version',
+			href: workspaceHref(deployment.strategy_id, 'why', { version: fingerprint })
 		}
 	];
 }

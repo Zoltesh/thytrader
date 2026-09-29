@@ -50,7 +50,16 @@ describe('workstation chrome', () => {
 
 	it('keeps Strategies active for the library, builder, research, backtests, and deploy', () => {
 		const strategies = primary('strategies');
-		for (const route of ['/strategies', '/strategies/[id]', '/research', '/backtests', '/deploy']) {
+		for (const route of [
+			'/strategies',
+			'/strategies/[id]',
+			'/strategies/[id]/test',
+			'/strategies/[id]/run',
+			'/strategies/[id]/why',
+			'/research',
+			'/backtests',
+			'/deploy'
+		]) {
 			expect(isPrimaryNavActive(strategies, route)).toBe(true);
 		}
 		expect(isPrimaryNavActive(strategies, '/deployments')).toBe(false);
@@ -84,7 +93,10 @@ describe('workstation chrome', () => {
 
 	it('builds section / page breadcrumbs for every route', () => {
 		expect(breadcrumbFor('/')).toEqual({ section: null, page: 'Home' });
-		expect(breadcrumbFor('/strategies/[id]')).toEqual({ section: 'Strategies', page: 'Builder' });
+		expect(breadcrumbFor('/strategies/[id]')).toEqual({ section: 'Strategies', page: 'Build' });
+		expect(breadcrumbFor('/strategies/[id]/test')).toEqual({ section: 'Strategies', page: 'Test' });
+		expect(breadcrumbFor('/strategies/[id]/run')).toEqual({ section: 'Strategies', page: 'Run' });
+		expect(breadcrumbFor('/strategies/[id]/why')).toEqual({ section: 'Strategies', page: 'Why' });
 		expect(breadcrumbFor('/research')).toEqual({ section: 'Strategies', page: 'Research' });
 		expect(breadcrumbFor('/deployments/[id]')).toEqual({
 			section: 'Portfolio',

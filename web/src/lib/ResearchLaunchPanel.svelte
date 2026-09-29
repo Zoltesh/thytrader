@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { formatPercent } from '$lib/backtests';
+	import { productIdQuote } from '$lib/deployment-detail';
 	import {
 		RESEARCH_FEE_ENGINE_NOTE,
 		fetchFeeProfile,
@@ -29,44 +30,29 @@
 		latestDatasets,
 		listDatasets,
 		parseUtcInputValue,
-		publishedVersionsFor,
 		researchWindowHint,
 		submitBacktest,
 		unboundIndicatorTimeframes,
 		type BacktestLaunchInput,
 		type BuilderModel,
-		type Dataset,
-		type StrategyLibraryEntry
+		type Dataset
 	} from '$lib/strategies';
-	import { resolveRequestedFingerprint } from '$lib/deployment-detail';
-
-	type VersionResultEntry = {
-		result_fingerprint: string;
-		published_at: string;
-		engine_contract_version: string;
-		total_return_fraction: string;
-		trade_count: number;
-		win_rate: string;
-		maximum_drawdown_fraction: string;
-	};
-
-	type VersionResultGroup = {
-		version: number;
-		fingerprint: string;
-		loading: boolean;
-		error: string | null;
-		entries: VersionResultEntry[];
-	};
 
 	let {
-		entry,
+		strategyId,
+		productId,
 		model,
-		requestedFingerprint = ''
+		fingerprint,
+		onBacktestLaunched
 	}: {
-		entry: StrategyLibraryEntry;
+		strategyId: string;
+		productId: string;
+		/** Definition of the exact published version being tested. */
 		model: BuilderModel;
-		/** Exact fingerprint an inbound link asked for; honored only if published for this strategy. */
-		requestedFingerprint?: string;
+		/** Exact published fingerprint from the workspace version context ('' blocks launch). */
+		fingerprint: string;
+		/** Called with the new result fingerprint after a single backtest is published. */
+		onBacktestLaunched: (resultFingerprint: string) => void;
 	} = $props();
 
 	let launchDatasets = $state<Dataset[]>([]);
@@ -75,8 +61,8 @@
 	let launchError = $state<string | null>(null);
 	let launching = $state(false);
 	let studyKind = $state<
-		'single' | 'oos_holdout' | 'walk_forward' | 'parameter_sweep' | 'walk_forward_optimization'
-	>('single');
+		'oos_holdout' | 'walk_forward' | 'parameter_sweep' | 'walk_forward_optimization'
+	>('walk_forward');
 	let oosFraction = $state('0.3');
 	let inSampleBars = $state('720');
 	let outOfSampleBars = $state('168');
@@ -103,16 +89,13 @@
 		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
 		spread_bps: '8'
 	});
-	let versionResults = $state<VersionResultGroup[]>([]);
 	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let feeSuggestionLoading = $state(false);
 	let feeFieldsTouched = $state(false);
 	let feeSuggestionRequestId = 0;
 	let catalogRequestId = 0;
-	let resultsRequestId = 0;
 
-	const publishedVersions = $derived(publishedVersionsFor(entry));
 	const feeFieldSource = $derived(
 		researchFeeFieldSource({
 			makerFeeRate: launchForm.maker_fee_rate,
@@ -133,29 +116,22 @@
 		)
 	);
 
-	let loadedStrategyId = $state('');
-	let fingerprintBlocked = $state(false);
-	let fingerprintNotice = $state<string | null>(null);
+	let loadedKey = $state('');
 	$effect(() => {
-		const strategyId = entry.strategy_id;
-		if (loadedStrategyId === strategyId) return;
-		loadedStrategyId = strategyId;
-		const next = publishedVersionsFor(entry);
-		// An unknown explicit fingerprint fails closed: no backtest or study can
-		// silently run against the latest version. Pick a published version
-		// explicitly to continue.
-		const resolution = resolveRequestedFingerprint(requestedFingerprint, next);
-		selectedStrategyFingerprint = resolution.selected;
-		fingerprintBlocked = resolution.blocked;
-		fingerprintNotice = resolution.notice;
+		const key = `${strategyId}:${fingerprint}`;
+		if (loadedKey === key) return;
+		const strategyChanged = loadedKey.split(':')[0] !== strategyId;
+		loadedKey = key;
+		selectedStrategyFingerprint = fingerprint;
 		launchError = null;
 		studyResult = null;
-		feeFieldsTouched = false;
-		appliedFeeSuggestion = null;
-		latestFeeSuggestion = null;
 		void loadLaunchDatasets();
-		void loadFeeSuggestion();
-		void loadVersionResults();
+		if (strategyChanged) {
+			feeFieldsTouched = false;
+			appliedFeeSuggestion = null;
+			latestFeeSuggestion = null;
+			void loadFeeSuggestion();
+		}
 	});
 
 	function applyFeeSuggestion(suggestion: ResearchFeeSuggestion): void {
@@ -261,7 +237,7 @@
 		}
 	}
 
-	async function runLaunch(): Promise<void> {
+	async function runLaunch(mode: 'single' | 'study'): Promise<void> {
 		if (selectedStrategyFingerprint === '' || launching) return;
 		if (launchForm.engine === '') {
 			launchError = 'Select an engine contract before launching.';
@@ -271,7 +247,7 @@
 			launchError = 'Enter modeled maker and taker fee rates before launching.';
 			return;
 		}
-		const candidateFields = studyKind === 'single' ? {} : studyCandidateFields();
+		const candidateFields = mode === 'single' ? {} : studyCandidateFields();
 		if (typeof candidateFields === 'string') {
 			launchError = candidateFields;
 			return;
@@ -280,7 +256,7 @@
 		launchError = null;
 		studyResult = null;
 		try {
-			if (studyKind !== 'single') {
+			if (mode === 'study') {
 				const study = await submitResearchStudy({
 					schema_version: 'thytrader-research-study-v1',
 					kind: studyKind,
@@ -326,9 +302,7 @@
 				spread_bps: launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null
 			};
 			const result = await submitBacktest(input);
-			window.location.assign(
-				resolve(`/backtests?result=${encodeURIComponent(result.result_fingerprint)}`)
-			);
+			onBacktestLaunched(result.result_fingerprint);
 		} catch (caught) {
 			launchError = caught instanceof Error ? caught.message : 'Backtest submission failed.';
 		} finally {
@@ -338,14 +312,14 @@
 
 	async function loadLaunchDatasets(): Promise<void> {
 		const requestId = ++catalogRequestId;
-		const current = entry;
+		const currentProduct = productId;
 		launchDatasetsLoading = true;
 		launchDatasetError = null;
 		try {
 			const datasets = await listDatasets();
 			if (requestId !== catalogRequestId) return;
-			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === current.product_id));
-			const ltf = model.timeframe ?? current.timeframe;
+			launchDatasets = latestDatasets(datasets.filter((d) => d.product_id === currentProduct));
+			const ltf = model.timeframe;
 			const preferred = launchDatasets.find((dataset) => dataset.timeframe === ltf);
 			if (preferred !== undefined) {
 				selectLaunchDataset(preferred);
@@ -383,9 +357,7 @@
 	}
 
 	function decisionLaunchDatasets(): Dataset[] {
-		return launchDatasets.filter(
-			(dataset) => dataset.timeframe === (model.timeframe ?? entry.timeframe)
-		);
+		return launchDatasets.filter((dataset) => dataset.timeframe === model.timeframe);
 	}
 
 	function htfLaunchDatasets(): Dataset[] {
@@ -452,128 +424,40 @@
 	function launchWindowHint(): string | null {
 		const bounds = launchWindowBounds();
 		if (bounds === null) return null;
-		return researchWindowHint(bounds, model.warmup_bars ?? 0, model.timeframe ?? entry.timeframe);
+		return researchWindowHint(bounds, model.warmup_bars ?? 0, model.timeframe);
 	}
 
-	async function loadVersionResults(): Promise<void> {
-		const requestId = ++resultsRequestId;
-		const current = entry;
-		const published = publishedVersionsFor(current);
-		versionResults = published.map((publishedVersion) => ({
-			version: publishedVersion.version,
-			fingerprint: publishedVersion.strategy_fingerprint,
-			loading: true,
-			error: null,
-			entries: []
-		}));
-		await Promise.all(
-			published.map(async (publishedVersion, index) => {
-				const fingerprint = publishedVersion.strategy_fingerprint;
-				try {
-					const collected: VersionResultEntry[] = [];
-					const pageSize = 20;
-					let offset = 0;
-					while (true) {
-						const response = await fetch(
-							`/api/v1/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}&limit=${pageSize}&offset=${offset}`
-						);
-						if (!response.ok) throw new Error(`HTTP ${response.status}`);
-						const body = (await response.json()) as {
-							entries: {
-								result_fingerprint: string;
-								published_at: string;
-								engine_contract_version: string;
-								summary: {
-									total_return_fraction: string;
-									trade_count: number;
-									win_rate: string;
-									maximum_drawdown_fraction: string;
-								};
-							}[];
-							returned: number;
-						};
-						collected.push(
-							...body.entries.map((row) => ({
-								result_fingerprint: row.result_fingerprint,
-								published_at: row.published_at,
-								engine_contract_version: row.engine_contract_version,
-								total_return_fraction: row.summary.total_return_fraction,
-								trade_count: row.summary.trade_count,
-								win_rate: row.summary.win_rate,
-								maximum_drawdown_fraction: row.summary.maximum_drawdown_fraction
-							}))
-						);
-						if (body.returned < pageSize) break;
-						offset += body.returned;
-					}
-					if (requestId !== resultsRequestId) return;
-					versionResults[index] = {
-						version: publishedVersion.version,
-						fingerprint,
-						loading: false,
-						error: null,
-						entries: collected
-					};
-				} catch (caught) {
-					if (requestId !== resultsRequestId) return;
-					versionResults[index] = {
-						version: publishedVersion.version,
-						fingerprint,
-						loading: false,
-						error: caught instanceof Error ? caught.message : 'Could not load backtest results.',
-						entries: []
-					};
-				}
-			})
-		);
-	}
-
-	function latestComparisonRows(): (VersionResultEntry & {
-		version: number;
-		fingerprint: string;
-	})[] {
-		return versionResults.flatMap((group) => {
-			const latest = group.entries[0];
-			return latest === undefined
-				? []
-				: [{ ...latest, version: group.version, fingerprint: group.fingerprint }];
-		});
-	}
+	const launchBlocked = $derived(
+		launching ||
+			selectedStrategyFingerprint === '' ||
+			launchForm.dataset_fingerprint === '' ||
+			(model.htf_filter !== null && launchForm.htf_dataset_fingerprint === '') ||
+			missingExtraLaunchDatasets() ||
+			launchForm.evaluation_start === '' ||
+			launchForm.evaluation_end === '' ||
+			launchForm.engine === '' ||
+			launchForm.maker_fee_rate.trim() === '' ||
+			launchForm.taker_fee_rate.trim() === ''
+	);
 </script>
 
-<div class="view-block">
-	<h3>Launch backtest</h3>
-	<p class="view-note">
-		Runs against the selected immutable version of this strategy. Results are deterministic and
-		reproducible. This page does not start paper or live trading.
+<section class="card run-bar" aria-label="Run a backtest">
+	<p class="view-note run-lede">
+		Runs against the selected immutable version. Results are deterministic and reproducible research
+		evidence, not a promise: candles don't show queue position or real fills. This stage does not
+		start paper or live trading.
 	</p>
-	{#if publishedVersions.length === 0}
-		<p class="view-note">Publish this draft before launching a reproducible backtest.</p>
+	{#if fingerprint === ''}
+		<p class="view-note">Select a published version to run a backtest.</p>
 	{:else}
-		{#if fingerprintNotice}
-			<p class="view-problem" role="status" data-testid="fingerprint-notice">
-				{fingerprintNotice}
-			</p>
-		{/if}
-		<div class="launch-grid">
+		<div class="run-grid">
 			<label
-				>Strategy version
-				<select bind:value={selectedStrategyFingerprint}>
-					<option value="" disabled selected hidden={fingerprintBlocked}>
-						Select a published version
-					</option>
-					{#each publishedVersions as version (version.strategy_fingerprint)}
-						<option value={version.strategy_fingerprint}>Version {version.version}</option>
-					{/each}
-				</select></label
-			>
-			<label
-				>Verified {entry.timeframe} dataset
+				>Verified {model.timeframe} dataset
 				<select
 					bind:value={launchForm.dataset_fingerprint}
 					onchange={() => applyLaunchWindowDefaults()}
 				>
-					<option value="">Select a verified {entry.product_id} {entry.timeframe} dataset</option>
+					<option value="">Select a verified {productId} {model.timeframe} dataset</option>
 					{#each decisionLaunchDatasets() as dataset (dataset.content_fingerprint)}
 						<option value={dataset.content_fingerprint}
 							>{dataset.timeframe} · {formatUtcInputValue(new Date(dataset.starts_at)).replace(
@@ -588,7 +472,7 @@
 				{:else if launchDatasetError}
 					<small class="field-error" role="alert">{launchDatasetError}</small>
 				{:else if decisionLaunchDatasets().length === 0}
-					<small class="field-note">No verified {entry.timeframe} datasets match this market.</small
+					<small class="field-note">No verified {model.timeframe} datasets match this market.</small
 					>
 				{/if}</label
 			>
@@ -640,8 +524,6 @@
 					{/if}</label
 				>
 			{/each}
-		</div>
-		<div class="launch-grid">
 			<label
 				>Engine
 				<select bind:value={launchForm.engine}>
@@ -651,157 +533,63 @@
 					<option value="thytrader-bar-backtest-v3">V3 — resting maker limit</option>
 				</select></label
 			>
-			<label
-				>Study
-				<select bind:value={studyKind}>
-					<option value="single">Single window</option>
-					<option value="oos_holdout">OOS holdout</option>
-					<option value="walk_forward">Walk-forward</option>
-					<option value="parameter_sweep">Parameter sweep</option>
-					<option value="walk_forward_optimization">Walk-forward optimization</option>
-				</select></label
-			>
 			{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
 				<label
 					>Constant spread (bps, total bid-ask)
 					<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
 				>
 			{/if}
-		</div>
-		{#if studyKind === 'oos_holdout'}
 			<div class="launch-grid">
 				<label
-					>OOS fraction (last share) <input inputmode="decimal" bind:value={oosFraction} /></label
+					>Evaluation start
+					<input
+						type="datetime-local"
+						bind:value={launchForm.evaluation_start}
+						min={launchWindowBounds()?.min}
+						max={launchWindowBounds()?.max}
+					/></label
+				>
+				<label
+					>Evaluation end
+					<input
+						type="datetime-local"
+						bind:value={launchForm.evaluation_end}
+						min={launchWindowBounds()?.min}
+						max={launchWindowBounds()?.max}
+					/></label
 				>
 			</div>
-			<p class="view-note">
-				The same published fingerprint is simulated on in-sample then out-of-sample. OOS is the
-				honest claim; this does not retune parameters.
-			</p>
-		{/if}
-		{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
-			<div class="launch-grid">
-				<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
-				<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
-				<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
-				<label
-					>Fold mode
-					<select bind:value={foldMode}>
-						<option value="rolling">Rolling</option>
-						<option value="anchored">Anchored</option>
-					</select></label
-				>
-			</div>
-			<p class="view-note">
-				{#if studyKind === 'walk_forward'}
-					Walk-forward validation uses the same published fingerprint on each fold. Non-overlapping
-					OOS windows may include a derived stitched equity curve. Cross-market studies stay on the
-					research CLI.
-				{:else}
-					WFO simulates every candidate on every fold and selects only on in-sample
-					{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
-					selected OOS returns without interpolating embargo gaps.
-				{/if}
-			</p>
-		{/if}
-		{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
-			<div class="launch-grid">
-				<label
-					>Axis target
-					<select value={axisTarget} onchange={onAxisTargetChange}>
-						<option value="indicator">indicator</option>
-						<option value="sizing">sizing</option>
-						<option value="exits">exits</option>
-						<option value="execution">execution</option>
-						<option value="entry_literal">entry_literal</option>
-						<option value="htf_literal">htf_literal</option>
-					</select></label
-				>
-				{#if axisNeedsIndicator(axisTarget)}
-					<label>Indicator id<input bind:value={axisIndicatorId} /></label>
-				{/if}
-				<label
-					>Parameter
-					<select bind:value={axisParameter}>
-						{#each parametersForTarget(axisTarget) as parameter (parameter)}
-							<option value={parameter}>{parameter}</option>
-						{/each}
-					</select></label
-				>
-				<label>Axis values (comma-separated) <input bind:value={axisValues} /></label>
-				{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
-					<label
-						>Condition operator (optional)
-						<input bind:value={axisConditionOperator} /></label
-					>
-				{/if}
-				<label
-					>Selection metric
-					<select bind:value={selectionMetric}>
-						<option value="total_return_fraction">Total return</option>
-						<option value="total_net_pnl">Total net PnL</option>
-						<option value="maximum_drawdown_fraction">Max drawdown</option>
-					</select></label
-				>
-			</div>
-			{#if studyKind === 'parameter_sweep'}
-				<p class="view-note">
-					Each axis cell is one published-shaped candidate on the same window. The aggregate is not
-					an out-of-sample claim. Submit publishes missing derived fingerprints. Product and
-					timeframe are not sweepable.
-				</p>
+			{#if launchWindowHint() !== null}
+				<p class="view-note">{launchWindowHint()}</p>
 			{/if}
-		{/if}
-		<div class="launch-grid">
-			<label
-				>Evaluation start
-				<input
-					type="datetime-local"
-					bind:value={launchForm.evaluation_start}
-					min={launchWindowBounds()?.min}
-					max={launchWindowBounds()?.max}
-				/></label
-			>
-			<label
-				>Evaluation end
-				<input
-					type="datetime-local"
-					bind:value={launchForm.evaluation_end}
-					min={launchWindowBounds()?.min}
-					max={launchWindowBounds()?.max}
-				/></label
-			>
-		</div>
-		{#if launchWindowHint() !== null}
-			<p class="view-note">{launchWindowHint()}</p>
-		{/if}
-		<div class="launch-grid">
-			<label
-				>Initial capital (USD)
-				<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
-			>
-			<label
-				>Fixed slippage (bps)
-				<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
-			>
-		</div>
-		<div class="launch-grid">
-			<label
-				>Maker fee rate
-				<input
-					inputmode="decimal"
-					bind:value={launchForm.maker_fee_rate}
-					oninput={onFeeFieldInput}
-				/></label
-			>
-			<label
-				>Taker fee rate
-				<input
-					inputmode="decimal"
-					bind:value={launchForm.taker_fee_rate}
-					oninput={onFeeFieldInput}
-				/></label
-			>
+			<div class="launch-grid">
+				<label
+					>Initial capital ({productIdQuote(productId) ?? 'quote'})
+					<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
+				>
+				<label
+					>Fixed slippage (bps)
+					<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
+				>
+			</div>
+			<div class="launch-grid">
+				<label
+					>Maker fee rate
+					<input
+						inputmode="decimal"
+						bind:value={launchForm.maker_fee_rate}
+						oninput={onFeeFieldInput}
+					/></label
+				>
+				<label
+					>Taker fee rate
+					<input
+						inputmode="decimal"
+						bind:value={launchForm.taker_fee_rate}
+						oninput={onFeeFieldInput}
+					/></label
+				>
+			</div>
 		</div>
 		<div class="fee-source-row">
 			<span
@@ -836,24 +624,125 @@
 		</div>
 		<p class="view-note">{RESEARCH_FEE_ENGINE_NOTE}</p>
 		{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
-		<button
-			class="refresh launch-button"
-			type="button"
-			onclick={runLaunch}
-			disabled={launching ||
-				selectedStrategyFingerprint === '' ||
-				launchForm.dataset_fingerprint === '' ||
-				(model.htf_filter !== null && launchForm.htf_dataset_fingerprint === '') ||
-				missingExtraLaunchDatasets() ||
-				launchForm.evaluation_start === '' ||
-				launchForm.evaluation_end === '' ||
-				launchForm.maker_fee_rate.trim() === '' ||
-				launchForm.taker_fee_rate.trim() === ''}
-		>
-			{launching ? 'Running simulation…' : studyKind === 'single' ? 'Run backtest' : 'Run study'}
-		</button>
+		<div class="run-actions">
+			<details class="study">
+				<summary>Run a study</summary>
+				<div class="study-body">
+					<div class="launch-grid">
+						<label
+							>Study
+							<select bind:value={studyKind}>
+								<option value="oos_holdout">OOS holdout</option>
+								<option value="walk_forward">Walk-forward</option>
+								<option value="parameter_sweep">Parameter sweep</option>
+								<option value="walk_forward_optimization">Walk-forward optimization</option>
+							</select></label
+						>
+					</div>
+					{#if studyKind === 'oos_holdout'}
+						<div class="launch-grid">
+							<label
+								>OOS fraction (last share) <input
+									inputmode="decimal"
+									bind:value={oosFraction}
+								/></label
+							>
+						</div>
+						<p class="view-note">
+							The same published fingerprint is simulated on in-sample then out-of-sample. OOS is
+							the honest claim; this does not retune parameters.
+						</p>
+					{/if}
+					{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
+						<div class="launch-grid">
+							<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
+							<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
+							<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
+							<label
+								>Fold mode
+								<select bind:value={foldMode}>
+									<option value="rolling">Rolling</option>
+									<option value="anchored">Anchored</option>
+								</select></label
+							>
+						</div>
+						<p class="view-note">
+							{#if studyKind === 'walk_forward'}
+								Walk-forward validation uses the same published fingerprint on each fold.
+								Non-overlapping OOS windows may include a derived stitched equity curve.
+								Cross-market studies stay on the research CLI.
+							{:else}
+								WFO simulates every candidate on every fold and selects only on in-sample
+								{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
+								selected OOS returns without interpolating embargo gaps.
+							{/if}
+						</p>
+					{/if}
+					{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
+						<div class="launch-grid">
+							<label
+								>Axis target
+								<select value={axisTarget} onchange={onAxisTargetChange}>
+									<option value="indicator">indicator</option>
+									<option value="sizing">sizing</option>
+									<option value="exits">exits</option>
+									<option value="execution">execution</option>
+									<option value="entry_literal">entry_literal</option>
+									<option value="htf_literal">htf_literal</option>
+								</select></label
+							>
+							{#if axisNeedsIndicator(axisTarget)}
+								<label>Indicator id<input bind:value={axisIndicatorId} /></label>
+							{/if}
+							<label
+								>Parameter
+								<select bind:value={axisParameter}>
+									{#each parametersForTarget(axisTarget) as parameter (parameter)}
+										<option value={parameter}>{parameter}</option>
+									{/each}
+								</select></label
+							>
+							<label>Axis values (comma-separated) <input bind:value={axisValues} /></label>
+							{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
+								<label
+									>Condition operator (optional)
+									<input bind:value={axisConditionOperator} /></label
+								>
+							{/if}
+							<label
+								>Selection metric
+								<select bind:value={selectionMetric}>
+									<option value="total_return_fraction">Total return</option>
+									<option value="total_net_pnl">Total net PnL</option>
+									<option value="maximum_drawdown_fraction">Max drawdown</option>
+								</select></label
+							>
+						</div>
+						{#if studyKind === 'parameter_sweep'}
+							<p class="view-note">
+								Each axis cell is one published-shaped candidate on the same window. The aggregate
+								is not an out-of-sample claim. Submit publishes missing derived fingerprints.
+								Product and timeframe are not sweepable.
+							</p>
+						{/if}
+					{/if}
+					<button
+						class="btn"
+						type="button"
+						onclick={() => void runLaunch('study')}
+						disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run study'}</button
+					>
+				</div>
+			</details>
+			<button
+				class="btn primary"
+				type="button"
+				onclick={() => void runLaunch('single')}
+				disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run backtest'}</button
+			>
+		</div>
 	{/if}
-</div>
+</section>
 {#if studyResult}
 	<div class="view-block" data-testid="research-study-result">
 		<h3>Research study</h3>
@@ -914,92 +803,83 @@
 		</table>
 	</div>
 {/if}
-<div class="view-block">
-	<h3>Results by version</h3>
-	{#if latestComparisonRows().length > 1}
-		{@const comparisonRows = latestComparisonRows()}
-		<table class="results-table comparison-table" aria-label="Latest result comparison">
-			<thead>
-				<tr>
-					<th scope="col">Version</th>
-					<th scope="col">Engine</th>
-					<th scope="col">Return</th>
-					<th scope="col">Trades</th>
-					<th scope="col">Win rate</th>
-					<th scope="col">Max drawdown</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each comparisonRows as row (row.fingerprint)}
-					<tr>
-						<td>V{row.version}</td>
-						<td>{engineContractLabel(row.engine_contract_version)}</td>
-						<td>
-							<a href={resolve(`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`)}
-								>{formatPercent(row.total_return_fraction)}</a
-							>
-						</td>
-						<td>{row.trade_count}</td>
-						<td>{formatPercent(row.win_rate)}</td>
-						<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	{/if}
-	{#if versionResults.length === 0}
-		<p class="view-note">This strategy has no immutable published versions to compare yet.</p>
-	{:else}
-		{#each versionResults as version (version.fingerprint)}
-			<div class="version-block">
-				<h4>
-					Version {version.version}
-					<code>{version.fingerprint.slice(0, 18)}…</code>
-				</h4>
-				{#if version.loading}
-					<p class="view-note">Loading results…</p>
-				{:else if version.error}
-					<p class="view-problem">{version.error}</p>
-				{:else if version.entries.length === 0}
-					<p class="view-note">No backtests yet for this version.</p>
-				{:else}
-					<table class="results-table">
-						<thead>
-							<tr>
-								<th scope="col">Return</th>
-								<th scope="col">Engine</th>
-								<th scope="col">Trades</th>
-								<th scope="col">Win rate</th>
-								<th scope="col">Max drawdown</th>
-								<th scope="col">Published</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each version.entries as row (row.result_fingerprint)}
-								<tr>
-									<td>
-										<a
-											href={resolve(
-												`/backtests?result=${encodeURIComponent(row.result_fingerprint)}`
-											)}>{formatPercent(row.total_return_fraction)}</a
-										>
-									</td>
-									<td>{engineContractLabel(row.engine_contract_version)}</td>
-									<td>{row.trade_count}</td>
-									<td>{formatPercent(row.win_rate)}</td>
-									<td>{formatPercent(row.maximum_drawdown_fraction)}</td>
-									<td>{formatUtcInputValue(new Date(row.published_at)).replace('T', ' ')}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{/if}
-			</div>
-		{/each}
-	{/if}
-</div>
 
 <style>
+	.run-bar {
+		display: grid;
+		gap: 12px;
+		margin-bottom: var(--space-4);
+		padding: 16px;
+	}
+	.run-lede {
+		margin: 0;
+	}
+	.run-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+		gap: 10px;
+		align-items: end;
+	}
+	.run-grid .launch-grid {
+		display: contents;
+	}
+	.run-grid label {
+		display: grid;
+		gap: 4px;
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.run-grid select,
+	.run-grid input {
+		width: 100%;
+		min-height: 34px;
+		padding: 6px 9px;
+		border: 1px solid var(--line-2);
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
+		color: var(--text);
+		font: inherit;
+		font-size: var(--fs-sm);
+	}
+	.run-grid .view-note {
+		grid-column: 1 / -1;
+		order: 99;
+		font-size: var(--fs-sm);
+	}
+	.run-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	.study {
+		flex: 1;
+		min-width: 260px;
+	}
+	.study summary {
+		display: inline-flex;
+		align-items: center;
+		min-height: 34px;
+		padding: 0 12px;
+		border: 1px solid var(--line-2);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		cursor: pointer;
+		font-weight: 500;
+	}
+	.study-body {
+		display: grid;
+		gap: 10px;
+		margin-top: 10px;
+		padding: 12px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
+	}
+	.study-body .btn {
+		justify-self: start;
+	}
 	.view-block {
 		display: grid;
 		gap: 12px;
@@ -1033,17 +913,19 @@
 	.launch-grid label {
 		display: grid;
 		gap: 4px;
-		font-size: 11px;
+		color: var(--muted);
+		font-size: var(--fs-sm);
 	}
 	.launch-grid input,
 	.launch-grid select {
 		border: 1px solid var(--line-2);
-		border-radius: 7px;
-		background: var(--surface);
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
 		color: var(--text);
-		padding: 7px 9px;
+		min-height: 34px;
+		padding: 6px 9px;
 		font: inherit;
-		font-size: 12px;
+		font-size: var(--fs-sm);
 		width: 100%;
 	}
 	.field-note,
@@ -1085,22 +967,6 @@
 		font-size: 12px;
 		padding: 4px 10px;
 	}
-	.launch-button {
-		justify-self: start;
-	}
-	.version-block {
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 10px 12px;
-		margin-bottom: 10px;
-	}
-	.version-block h4 {
-		margin: 0 0 8px;
-		font-size: 11px;
-		color: var(--muted);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
 	.results-table {
 		width: 100%;
 		border-collapse: collapse;
@@ -1122,9 +988,6 @@
 	}
 	.results-table td a {
 		color: var(--info);
-	}
-	.comparison-table {
-		margin: 10px 0 16px;
 	}
 	.secondary {
 		color: var(--text);

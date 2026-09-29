@@ -4,7 +4,9 @@
  * line, and the command-palette catalog.
  *
  * Every existing route keeps resolving. Research, Backtests, and Deploy fold
- * under Strategies (they become strategy-workspace stages in a later slice);
+ * under Strategies: since ADR 0080 they are the Test and Run stages of each
+ * strategy's workspace (`/strategies/[id]`, `/test`, `/run`, `/why`), and the
+ * old routes redirect there or show a small chooser;
  * Deployments is Portfolio; Chat is the Agent side panel, with `/chat` kept as
  * its full-page view for deep links.
  */
@@ -93,7 +95,10 @@ export type Breadcrumb = {
 const BREADCRUMBS: Readonly<Record<string, Breadcrumb>> = {
 	'/': { section: null, page: 'Home' },
 	'/strategies': { section: 'Strategies', page: 'Library' },
-	'/strategies/[id]': { section: 'Strategies', page: 'Builder' },
+	'/strategies/[id]': { section: 'Strategies', page: 'Build' },
+	'/strategies/[id]/test': { section: 'Strategies', page: 'Test' },
+	'/strategies/[id]/run': { section: 'Strategies', page: 'Run' },
+	'/strategies/[id]/why': { section: 'Strategies', page: 'Why' },
 	'/research': { section: 'Strategies', page: 'Research' },
 	'/backtests': { section: 'Strategies', page: 'Backtests' },
 	'/deploy': { section: 'Strategies', page: 'Deploy' },
@@ -148,7 +153,7 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
 		id: 'go:research',
 		group: 'Go to',
 		label: 'Research',
-		hint: 'Strategies',
+		hint: 'Strategies · Test stage',
 		href: '/research'
 	},
 	{
@@ -156,7 +161,7 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
 		id: 'go:backtests',
 		group: 'Go to',
 		label: 'Backtests',
-		hint: 'Strategies',
+		hint: 'Strategies · all results',
 		href: '/backtests'
 	},
 	{
@@ -164,7 +169,7 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
 		id: 'go:deploy',
 		group: 'Go to',
 		label: 'Deploy',
-		hint: 'Strategies',
+		hint: 'Strategies · Run stage',
 		href: '/deploy'
 	},
 	{ kind: 'agent', id: 'action:agent', group: 'Actions', label: 'Open agent', hint: 'Side panel' },
@@ -175,6 +180,14 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
 		label: 'New strategy',
 		hint: 'Strategy library',
 		href: '/strategies#library-actions'
+	},
+	{
+		kind: 'link',
+		id: 'action:open-strategy',
+		group: 'Actions',
+		label: 'Open a strategy workspace',
+		hint: 'Build · Test · Run · Why',
+		href: '/strategies'
 	},
 	{
 		kind: 'link',

@@ -45,8 +45,15 @@ Execution worker ------------------------+
   ([ADR 0079](../decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)):
   - A left rail with four destinations (Home `/`, Strategies `/strategies`, Portfolio
     `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Audit log, Journal,
-    Memory & why-trade). Research, Backtests, and Deploy are current under Strategies. The rail
-    collapses to icons on narrow desktop widths.
+    Memory & why-trade). The rail collapses to icons on narrow desktop widths.
+  - A per-strategy workspace layout at `/strategies/[id]` with stage routes Build (`/`), Test
+    (`/test`), Run (`/run`), and Why (`/why`), a sticky identity bar, and `?version=` exact-version
+    context shared through Svelte context (`web/src/lib/workspace/`)
+    ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md)). An unknown
+    version fails closed. `/research` and `/deploy` redirect (`+page.ts`) to Test and Run;
+    `/backtests` resolves a result's owning strategy client-side. Pure view logic (version
+    resolution, library pipeline, live preflight, signal wording) lives in
+    `web/src/lib/strategy-workspace.ts` and composes existing endpoints only.
   - A top bar with a breadcrumb, a ⌘K / Ctrl+K command palette (navigation only), an Agent toggle,
     and a theme toggle.
   - An Agent side panel hosting `OperatorChatPanel`, the same component as `/chat`, on every route.
@@ -56,7 +63,7 @@ Execution worker ------------------------+
 - The UI is required and must stay capable; it is **not** the completeness bar for a new
   capability ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)).
 - TradingView Lightweight Charts (canvas) renders portfolio history and backtest equity. Portfolio gaps stay visible on a wall-clock time scale with no Y interpolation; backtest equity is labeled as mark-to-model research evidence. Market-data diagnostics stay non-charted.
-- Backtest discovery discloses its newest-first page bound and deep-links an open immutable result with `?result=`. The audit trail UI labels its latest-50 bound so the page is not read as a complete archive.
+- Backtest discovery discloses its newest-first page bound and deep-links an open immutable result with `?result=` (inline on the workspace Test stage, or standalone on `/backtests`). The audit trail UI labels its latest-50 bound so the page is not read as a complete archive.
 - The browser never receives exchange secrets.
 - Typed clients should be generated from FastAPI's OpenAPI contract where practical.
 

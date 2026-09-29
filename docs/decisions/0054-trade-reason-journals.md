@@ -79,6 +79,9 @@ The same `TradeReasonRecord` payload is returned by:
 - `POST /api/v1/memory/trade-reasons/{intent_id}/notes` (`--confirm` on the CLI)
 - `GET /api/v1/operator/trade-reasons` / `uv run thytrader-operator trade-reasons`
 - composable workstation review on Memory and Trade (not a third nav dump)
+- amended by [ADR 0080](0080-per-strategy-workspace-build-test-run-why.md): the strategy workspace's
+  Why stage (`/strategies/{id}/why`) shows the same payload filtered by deployment of the selected
+  version; no contract change
 
 ### Persistence and ops contract
 

@@ -261,11 +261,11 @@ test('loads the current draft from identity history without scanning the library
 	});
 	await page.goto(`/strategies/${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
-	await expect(page.getByText('Draft v2')).toBeVisible();
+	await expect(page.getByTestId('workspace-version-pill')).toHaveText(/Draft v2/);
 	expect(libraryRequests).toBe(0);
 });
 
-test('explains a published identity without treating its absent draft as an error', async ({
+test('a published-only identity shows its definition read-only in the same layout', async ({
 	page
 }) => {
 	await page.route(isStrategyLibraryRequest, async (route) => {
@@ -282,9 +282,94 @@ test('explains a published identity without treating its absent draft as an erro
 			}
 		});
 	});
+	await page.route('**/api/v1/strategies/source/*', (route) =>
+		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	);
 	await page.goto(`/strategies/${strategyId}`);
-	await expect(page.getByRole('status')).toContainText('No editable draft');
-	await expect(page.getByRole('status')).toContainText('immutable');
+	const banner = page.getByRole('status').filter({ hasText: 'No editable draft' });
+	await expect(banner).toContainText('immutable');
 	await expect(page.getByText('Builder unavailable')).toHaveCount(0);
 	await expect(page.getByText('HTTP 404')).toHaveCount(0);
+	await expect(page.getByLabel('Strategy name')).toHaveValue('Builder test trend');
+	await expect(page.getByLabel('Strategy name')).toBeDisabled();
+	await expect(page.getByTestId('plain-english')).toContainText('fast crosses above slow');
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	await expect(page.getByLabel('Left operand').first()).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /Publish/ })).toHaveCount(0);
+	await expect(page.getByTestId('workspace-draft-state')).toContainText('No editable draft');
+	await expect(page.getByRole('button', { name: 'Revise into new draft' })).toBeEnabled();
+});
+
+test('publishing needs the immutable-version confirmation and never offers paper', async ({
+	page
+}) => {
+	await mockDraftStorage(page);
+	let publishBody: { revision: number } | null = null;
+	await page.route(`**/api/v1/strategies/${strategyId}/publish`, async (route) => {
+		publishBody = (await route.request().postDataJSON()) as { revision: number };
+		await route.fulfill({
+			json: { strategy_fingerprint: fingerprint, strategy: { ...draft, status: 'published' } }
+		});
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await expect(page.getByText("It doesn't start trading.")).toBeVisible();
+	await page.getByRole('button', { name: 'Publish v1…' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Publish immutable strategy version?' });
+	await expect(dialog).toContainText('Builder test trend · Version 1');
+	await expect(dialog).toContainText('BTC / USD · 1h');
+	await expect(dialog).toContainText('This version cannot be edited');
+	await expect(dialog).toContainText('No blocking definition errors');
+	await expect(dialog).toContainText('Created after publication');
+	await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
+	expect(publishBody).toBeNull();
+	await page.getByRole('button', { name: 'Publish v1…' }).click();
+	await dialog.getByRole('button', { name: 'Publish version' }).click();
+	await expect.poll(() => publishBody?.revision).toBe(1);
+	const success = page.getByTestId('publish-success');
+	await expect(success).toContainText('Published v1');
+	await expect(success).toContainText(fingerprint);
+	await expect(success.getByRole('link', { name: 'Set up a backtest' })).toHaveAttribute(
+		'href',
+		`/strategies/${strategyId}/test?version=${encodeURIComponent(fingerprint)}`
+	);
+	await expect(success.getByRole('link', { name: 'View published version' })).toBeVisible();
+	await expect(success.getByRole('link', { name: /paper|deploy|run/i })).toHaveCount(0);
+});
+
+test('leaving with unsaved edits asks first and keeps the draft on cancel', async ({ page }) => {
+	await mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByLabel('Strategy name').fill('Edited but unsaved');
+	await expect(page.getByTestId('workspace-draft-state')).toContainText('unsaved changes');
+	await page
+		.getByRole('navigation', { name: 'Strategy stages' })
+		.getByRole('link', { name: 'Test' })
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Leave with unsaved changes?' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}$`));
+	await expect(page.getByLabel('Strategy name')).toHaveValue('Edited but unsaved');
+	await page
+		.getByRole('navigation', { name: 'Strategy stages' })
+		.getByRole('link', { name: 'Test' })
+		.click();
+	await page.getByRole('button', { name: 'Discard changes and leave' }).click();
+	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}/test$`));
+});
+
+test('rule rows read as IF / AND rows and nested groups keep their keyword', async ({ page }) => {
+	await mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	const rows = page.locator('.rule-comparison');
+	await expect(rows).toHaveCount(2);
+	await expect(rows.nth(0).locator('.kw')).toHaveText('IF');
+	await expect(rows.nth(1).locator('.kw')).toHaveText('AND');
+	await page.getByRole('button', { name: '+ ANY' }).first().click();
+	await expect(page.getByText('ANY', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('workspace-draft-state')).toContainText('unsaved changes');
 });

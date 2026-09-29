@@ -28,6 +28,7 @@
 		metricsError = null,
 		loading = false,
 		error = null,
+		backLabel = '← All backtests',
 		onBack
 	}: {
 		detail: BacktestDetail | null;
@@ -39,6 +40,8 @@
 		metricsError?: string | null;
 		loading?: boolean;
 		error?: string | null;
+		/** Label of the button that leaves this detail view. */
+		backLabel?: string;
 		onBack: () => void;
 	} = $props();
 	const result = $derived(detail?.result ?? null);
@@ -54,7 +57,7 @@
 <section class="detail" aria-label="Backtest result detail">
 	<div class="heading">
 		<div>
-			<button type="button" onclick={onBack}>← All backtests</button>
+			<button type="button" onclick={onBack}>{backLabel}</button>
 			<h2>Simulation result</h2>
 			<p>
 				Historical evidence only · immutable published result · this page cannot submit orders or

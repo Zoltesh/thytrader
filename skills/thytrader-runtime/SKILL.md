@@ -35,6 +35,11 @@ same acknowledgement is the strict boolean `i_understand_live: true` on `POST /a
 `POST /api/v1/discretionary-orders` (mode `live`); without it the API answers **HTTP 428** with
 detail `live_acknowledgement_required: …` and nothing is created or resumed
 ([ADR 0078](../../docs/decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
+In the browser these controls live on each strategy's Run stage (`/strategies/{strategy_id}/run`,
+optionally `?version=<strategy_fingerprint>`; old `/deploy?strategy=` links redirect there,
+[ADR 0080](../../docs/decisions/0080-per-strategy-workspace-build-test-run-why.md)); its live
+arm / resume dialogs send `i_understand_live: true` only after an explicit checkbox, and its live
+preflight list is informational, not a readiness gate. Agents keep using this CLI.
 Protection, leases, and live capital follow
 [ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
 (`lifecycle_command=stop_new_entries`) still maintains verified attached-child protection on

@@ -20,7 +20,7 @@ The left rail has four destinations ([ADR 0079](../decisions/0079-four-destinati
 | Rail item | Opens | Also holds |
 | --- | --- | --- |
 | **Home** | `/`: portfolio overview | |
-| **Strategies** | `/strategies`: library and builder | Research (`/research`), Backtests (`/backtests`), and Deploy (`/deploy`) |
+| **Strategies** | `/strategies`: library | Each strategy's workspace: Build `/strategies/{id}`, Test `/test`, Run `/run`, Why `/why`. Old `/research`, `/backtests`, `/deploy` links redirect there |
 | **Portfolio** | `/deployments`: running and past deployments | `/deployments/{id}` detail |
 | **Trade** | `/trade`: on-demand order ticket | |
 
@@ -43,34 +43,50 @@ Open http://127.0.0.1:5175/strategies when the stack is healthy. The library req
 server page at a time (10 rows by default; select 10, 25, 50, or 100). Use Next/Previous to
 navigate cursor pages. Changing the page size returns to page one. A failed page shows a retryable
 error rather than an empty library. Other selection screens may still load the full library.
-Each row shows the strategy identity, market and timeframe, latest version,
-draft/published/archived status, the newest
-backtest bound to any of its immutable versions, and its paper/live column: newest deployment
-status per mode (`unavailable`, `running`, `paused`, or `stopped`) with a column legend.
-`unavailable` means no runtime of that mode (not that the execution worker is missing). Clicking a
-paper/live cell opens `/deploy` for that strategy.
+Each row shows the strategy name and short fingerprint, market (`BTC / USDC`) and clock, the
+latest version (an open draft over published history reads `v3 · draft v4`), a progress pipeline,
+the latest backtest, and when it was updated. The pipeline chips are evidence, not readiness:
+**Build** (draft open or published), **Test** (a backtest exists), **Paper** and **Live** (newest
+deployment status per mode: running, paused, stopped, or not deployed). Clicking a row opens that
+strategy's workspace; the latest-backtest link opens that result on its Test stage.
 
 From the library you can create the conservative reference draft, clone a published strategy into a
 fresh draft identity (Clone stays ungated), import a complete strategy definition JSON as a new
 draft, and archive an immutable publication after confirming the latest published version and
-fingerprint. Browser writes first establish a CSRF session and send its matching token and cookie;
+fingerprint in the Archive dialog (Cancel is the default focus; Escape cancels). Browser writes first establish a CSRF session and send its matching token and cookie;
 the app handles this automatically. A 401 CSRF error is a browser-session/client failure, not a
 strategy-validation error. Do not disable the trust boundary to work around it.
 
-The builder at `/strategies/{strategy_id}` reads that identity's version history directly and opens
-its durable draft without loading the full library. If the identity has only immutable published or
-archived versions, the page says **No editable draft**; return to the library's View → Versions panel
-to inspect or revise a version into a new draft. That state is not a missing strategy or an API outage.
-Saves carry an opaque revision and reject stale browser tabs rather than overwriting newer edits.
-The builder supports full-schema editing with a
-nested ALL/ANY/NOT rule tree and an inspector showing a plain-English summary, validation errors,
-required warmup, unsaved state, and an explicit V1/V2 engine-support matrix. Every library row
-opens the same read-only Insight panel; Research and Deploy are links to their own pages.
+### Strategy workspace
 
-### Research
+Every strategy has one workspace ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md)).
+A sticky identity bar shows the name, **Draft vN** or **Published vN**, a version picker
+(published versions plus the open draft), the short fingerprint with **Copy full fingerprint**,
+the market with its Coinbase product id, the clock, and the draft state (unsaved changes, or
+**No editable draft** with **Revise into new draft**). **Versions** opens the history (export,
+semantic diff, Edit into next draft); **Clone** copies the selected published version into a new
+strategy. The stage links are **Build · Test · Run · Why**.
 
-Open http://127.0.0.1:5175/research (or `/research?strategy=` from the library). Research explicitly
-selects an immutable strategy version, verified dataset, evaluation period, initial capital,
+`?version=<strategy_fingerprint>` pins the exact published version for Test, Run, and Why; without
+it the latest published version is used. A fingerprint that does not belong to the strategy shows
+an error and no stage content, so nothing can be tested or started against a different version.
+
+**Build** (`/strategies/{strategy_id}`) reads that identity's version history directly and opens its
+durable draft without loading the full library. Rules read as IF / AND / OR rows in a nested
+ALL/ANY/NOT tree; the right column shows **In plain English**, **Checks** (validation, warmup and
+required data, collapsible engine support), save state, **Save draft**, and **Publish vN…**. Publish
+asks for confirmation ("Publish immutable strategy version?") and never starts trading; the success
+panel offers View published version and Set up a backtest. If the identity has only immutable
+published or archived versions, Build says **No editable draft** and shows the published
+definition read-only in the same layout. That state is not a missing strategy or an API outage.
+Saves carry an opaque revision and reject stale browser tabs rather than overwriting newer edits;
+leaving Build with unsaved edits asks first.
+
+### Test (research and backtests)
+
+Open a strategy's **Test** stage (`/strategies/{strategy_id}/test`; old `/research?strategy=` links
+redirect here, and `/research` alone points you to the library). The run bar uses the workspace's
+selected immutable version and shows the verified dataset, evaluation period, initial capital,
 maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
@@ -78,7 +94,11 @@ from fee-tier suggested defaults and stay editable; demo or missing credentials 
 blank rather than inventing a tier. It lists every stored result for each exact published version
 and compares the latest result across versions; dataset and per-version result failures remain
 visible without hiding strategy evidence. Result summaries report the published strategy clock,
-including `2h` and `4h`, not a hardcoded `1h`.
+including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
+(OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same version. Below
+the run bar, **Results for this strategy** lists every published result for every version; opening
+one shows it inline (`?result=` deep link) with its assumptions. Results are research evidence, not
+a promise, and there is no Deploy or Start-paper button on them.
 
 **Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
 consumes that mutable draft and records canonical strategy evidence; it does **not** start paper or
@@ -89,7 +109,9 @@ artifacts.
 
 ### Backtests
 
-Open `/backtests` to inspect immutable result summaries. The list requests 10 newest-first rows
+Open `/backtests` to inspect immutable result summaries across all strategies. An old
+`/backtests?result=` or `/backtests?strategy_fingerprint=` link opens the owning strategy's Test
+stage when that fingerprint is one of its published versions; otherwise the standalone view stays. The list requests 10 newest-first rows
 by default; its Rows per page selector offers 10, 25, 50, and 100. Newer/Older request only the
 current server page, and changing the size restarts at the newest results. A full page does not
 by itself imply there are older results: the server's `has_more` indicates that. Opening an
@@ -97,7 +119,21 @@ individual result does not require loading every list page.
 
 ### Paper and live
 
-Open http://127.0.0.1:5175/deploy (or `/deploy?strategy=` from the library). The execution worker
+Open a strategy's **Run** stage (`/strategies/{strategy_id}/run`; old `/deploy?strategy=` links
+redirect here). A **Paper** card and a **Live** card sit side by side, each listing deployments of
+the selected exact version with status, instruction, entry eligibility, fill-ledger performance,
+exposure and protection, and an **Open bot →** link to `/deployments/{id}`. Other versions'
+deployments are listed separately. **Start paper deployment…** asks for confirmation and starts a
+new deployment of the version (never a promotion of a backtest). Pause, resume, stop, and flatten
+use the lifecycle dialog. **Arm live trading…** opens a dialog whose confirm stays disabled until
+you tick "I understand this places real orders on Coinbase with real money"; live resume asks the
+same. The Live card's preflight lists, independently, Coinbase credential presence, whether a risk
+policy is published, the available balance in the strategy's quote currency, whether the policy
+allocates capital to this strategy, and the clock / user-order feed. Any source that cannot be read
+shows **Unknown**. It is not a readiness verdict and does not gate arming; paper results are shown
+as information only.
+
+The execution worker
 evaluates published paper and live deployments against closed venue candles about every 30 seconds.
 Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when credentials
 exist (credentials set from Settings reach the execution worker without restart; without them
@@ -113,7 +149,7 @@ new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, 
 keeps venue-recorded fees.
 
 Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
-`/deploy` or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
+the Run stage or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
 **managed shutdown**: protective brackets stay and residual exposure stays in account-level risk
 until the book is flat. Pass `--flatten` only when the operator asked to marketably exit then cancel
 remainders. Pause still maintains attached-child protection; it does not reset daily-loss or
@@ -145,10 +181,19 @@ completed-bar signal, current exposure and protection, paper fee assumptions, fi
 performance, and paged orders/fills from historical backtest and research evidence for the same
 version. A last signal is not a full per-bar decision history; no-trade conditions are stated only
 when the runtime supplied that signal. Discretionary deployments have no published strategy source.
-Published-only strategies have no editable draft; inspect the published definition from the
-strategy library’s View → Versions panel. Research and Deploy accept an exact published fingerprint
-alongside the strategy identity, and an invalid requested version must not start a different version.
-Start a new deployment on `/deploy`; manage an existing one on its detail page. The UI must not
+Published-only strategies have no editable draft; their Build stage shows the published definition
+read-only. The workspace's `?version=` selects an exact published fingerprint, and an invalid
+requested version must not start a different version. Detail links **Backtests of this version**
+and **Decisions for this version** open the Test and Why stages for that fingerprint. Start a new
+deployment on the Run stage; manage an existing one there or on its detail page.
+
+### Why
+
+A strategy's **Why** stage (`/strategies/{strategy_id}/why`) lists each deployment of the selected
+version with its latest completed-bar signal ("No trade — conditions did not match", "could not be
+evaluated", or matched) and the persisted trade reasons for that deployment (risk decision,
+reconciled order and fills when the reason names one, notes). Full per-bar decision history is not
+recorded yet; "no recorded trade rationale" does not mean the conditions failed. The UI must not
 silently relabel a `BASE-USD` book’s PnL as USDC. Performance quote comes from the published
 instrument (or discretionary product), with unknown provenance shown explicitly.
 Lifecycle controls require the full deployment contract (`lifecycle_command`, both breaker
@@ -237,4 +282,4 @@ uv run thytrader-research-evaluate <run_fingerprint> --pretty
 The command prints a deterministic completed-candle entry-condition trace and its SHA-256
 fingerprint. It does not publish a run, create an order intent, apply cooldown, simulate entries or
 exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
-separate `/deploy` runtime, not this CLI.
+separate runtime (the workspace Run stage or `thytrader-runtime`), not this CLI.

@@ -132,10 +132,15 @@ capabilities. Research, data, runtime, playbook, and memory already follow that 
 
 ### Research mutation boundary
 
-The browser strategy builder (`/strategies/{strategy_id}`) reads the identity's version-history
-endpoint to find its editable draft. `draft: null` means the remaining versions are immutable;
-inspect or revise them from the library's View → Versions panel rather than requesting a published
-version through the draft endpoint. This read requires no confirmation and does not scan the full
+The browser strategy workspace ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md))
+lives at `/strategies/{strategy_id}` (Build), `/test`, `/run`, and `/why`, with
+`?version=<strategy_fingerprint>` pinning an exact published version (a foreign fingerprint fails
+closed). Old `/research?strategy=` and `/deploy?strategy=` links redirect to Test and Run. Build
+reads the identity's version-history endpoint to find its editable draft. `draft: null` means the
+remaining versions are immutable; Build shows the published definition read-only, and the
+workspace's Versions dialog revises one into a new draft, rather than requesting a published
+version through the draft endpoint. The browser uses only existing HTTP routes; agents keep the
+CLI lanes. This read requires no confirmation and does not scan the full
 strategy library. The browser library displays page one immediately while the remaining cursor
 pages load, and marks a later-page failure as incomplete rather than calling the partial result
 empty. The CLI still follows its bounded `--limit` / `--cursor` contract.
