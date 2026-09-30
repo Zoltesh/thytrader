@@ -5,16 +5,13 @@ import {
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
 	operandChoices,
-	PAPER_LIVE_STATUS_LEGEND,
-	PAPER_LIVE_STATUS_TITLE,
-	paperLiveStatusLabel,
-	paperLiveStatusTitle,
 	parseIndicatorOperandKey,
 	publishedVersionsFor,
 	researchWindowHint,
 	serializeIndicator,
 	toBuilderModel,
 	fromBuilderModel,
+	quoteCurrencyFor,
 	unboundIndicatorTimeframes,
 	validHtfTimeframes
 } from './strategies';
@@ -148,21 +145,7 @@ describe('archiveConfirmMessage', () => {
 	});
 });
 
-describe('paper/live library column copy', () => {
-	it('lists the real status tokens in the column legend', () => {
-		expect(PAPER_LIVE_STATUS_LEGEND).toBe('unavailable · running · paused · stopped');
-		expect(PAPER_LIVE_STATUS_TITLE).toContain('unavailable = no runtime');
-		expect(PAPER_LIVE_STATUS_TITLE).toContain('paused = halted (protective exits continue)');
-	});
-
-	it('renders paper then live and explains both tokens', () => {
-		const paperLive = { paper: 'running', live: 'unavailable' };
-		expect(paperLiveStatusLabel(paperLive)).toBe('running / unavailable');
-		expect(paperLiveStatusTitle(paperLive)).toBe(
-			'Paper: running. Live: unavailable. Opens the Deploy page.'
-		);
-	});
-
+describe('publishedVersionsFor', () => {
 	it('falls back to the latest fingerprint when published_versions is empty', () => {
 		expect(
 			publishedVersionsFor({
@@ -457,5 +440,24 @@ describe('builder multi-instrument pass-through', () => {
 		expect(saved.additional_instruments).toBeUndefined();
 		expect((saved.entry as { pyramiding?: object }).pyramiding).toBeUndefined();
 		expect((saved.entry as { max_open_positions: number }).max_open_positions).toBe(1);
+
+		// USDC markets must keep their quote so product_id == base-quote on the backend.
+		const usdc = {
+			...draft,
+			instrument: { product_id: 'BTC-USDC', base_currency: 'BTC', quote_currency: 'USDC' },
+			additional_instruments: [
+				{ product_id: 'ETH-USDC', base_currency: 'ETH', quote_currency: 'USDC' }
+			],
+			portfolio_limits: { max_strategy_exposure_fraction: '0.10', max_concurrent_positions: 2 }
+		};
+		const savedUsdc = fromBuilderModel(toBuilderModel(usdc, 0));
+		expect(savedUsdc.instrument).toEqual(usdc.instrument);
+		expect(savedUsdc.additional_instruments).toEqual(usdc.additional_instruments);
+	});
+
+	it('derives the quote currency from a BASE-QUOTE product id', () => {
+		expect(quoteCurrencyFor('BTC-USDC')).toBe('USDC');
+		expect(quoteCurrencyFor('UNI-USD')).toBe('USD');
+		expect(quoteCurrencyFor('malformed', 'USDC')).toBe('USDC');
 	});
 });

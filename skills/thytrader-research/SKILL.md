@@ -236,10 +236,12 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 
 - `uv run thytrader-research list-strategies` lists the strategy library; archived publications are
   hidden by default. Pass `--include-archived` to audit them (rows keep fingerprints and
-  `archived_at` markers; nothing is deleted). The browser builder at `/strategies/{strategy_id}`
+  `archived_at` markers; nothing is deleted). The browser workspace Build stage at `/strategies/{strategy_id}`
   reads the identity's `GET /api/v1/strategies/{strategy_id}/history` directly: its `draft` is editable;
   `draft: null` means only immutable published/archived versions remain, not a missing strategy.
-  Use the library's View → Versions panel to inspect or revise one into a new draft; do not retry
+  Build then shows the published definition read-only; the workspace **Versions** dialog revises
+  one into a new draft (browser Test stage: `/strategies/{strategy_id}/test?version=<fingerprint>`;
+  old `/research?strategy=` links redirect there). Do not retry
   a published version through the draft-version endpoint. The browser `/strategies` list requests
   one cursor page at a time: 10 rows by default, configurable to 25, 50, or 100. Next/Previous
   navigate pages; changing the size resets to the first page. A failed page is retryable, not an

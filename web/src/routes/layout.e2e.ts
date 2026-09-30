@@ -125,7 +125,7 @@ test('strategy builder keeps Strategies active', async ({ page }) => {
 		'aria-current',
 		'page'
 	);
-	await expect(page.getByTestId('breadcrumb')).toHaveText(/Strategies\s*\/\s*Builder/);
+	await expect(page.getByTestId('breadcrumb')).toHaveText(/Strategies\s*\/\s*Build/);
 });
 
 test('command palette opens with Ctrl+K, navigates by keyboard, and restores focus', async ({

@@ -33,30 +33,6 @@ export type StrategyLibraryBacktest = {
 
 export type StrategyLibraryPaperLive = { paper: string; live: string };
 
-/** Newest paper then live status tokens shown in the library column. */
-export const PAPER_LIVE_STATUS_LEGEND = 'unavailable · running · paused · stopped';
-
-/**
- * Explain the library paper/live column: two tokens, newest deployment per mode.
- * `unavailable` means no runtime of that mode, not an unknown health signal.
- */
-export const PAPER_LIVE_STATUS_TITLE =
-	'Paper then live. Newest deployment per mode. unavailable = no runtime; running = active; paused = halted (protective exits continue); stopped = ended.';
-
-/**
- * Visible library cell text: paper status, then live status.
- */
-export function paperLiveStatusLabel(paperLive: StrategyLibraryPaperLive): string {
-	return `${paperLive.paper} / ${paperLive.live}`;
-}
-
-/**
- * Tooltip for one library paper/live cell. Names both modes so the slash is not opaque.
- */
-export function paperLiveStatusTitle(paperLive: StrategyLibraryPaperLive): string {
-	return `Paper: ${paperLive.paper}. Live: ${paperLive.live}. Opens the Deploy page.`;
-}
-
 /**
  * Immutable versions a library row can launch or deploy.
  *
@@ -77,7 +53,7 @@ export function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPubli
 }
 
 /**
- * Confirm copy for archiving the latest published fingerprint from the hover toolbar.
+ * Confirm copy for archiving the latest published fingerprint from the library.
  * Names version and fingerprint identity; archive is an append-only hide, not a delete.
  */
 export function archiveConfirmMessage(input: {
@@ -903,7 +879,7 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 		additional_instruments: extras.map((item) => ({
 			product_id: item.product_id,
 			base_currency: item.base_currency,
-			quote_currency: item.quote_currency ?? 'USD'
+			quote_currency: quoteCurrencyFor(item.product_id, item.quote_currency ?? 'USD')
 		})),
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
@@ -932,6 +908,16 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 	};
 }
 
+/**
+ * Quote currency of a Coinbase spot product id (`BASE-QUOTE`). The backend requires
+ * `product_id == base-quote`, so the quote is always derived from the id; `fallback`
+ * applies only when the id does not have that shape.
+ */
+export function quoteCurrencyFor(productId: string, fallback = 'USD'): string {
+	const parts = productId.split('-');
+	return parts.length === 2 && parts[1].length > 0 ? parts[1] : fallback;
+}
+
 export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 	return {
 		schema_version: '1.0',
@@ -944,7 +930,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 		instrument: {
 			product_id: model.product_id,
 			base_currency: model.base_currency,
-			quote_currency: 'USD'
+			quote_currency: quoteCurrencyFor(model.product_id)
 		},
 		...(model.additional_instruments.length === 0
 			? {}
@@ -952,7 +938,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 					additional_instruments: model.additional_instruments.map((item) => ({
 						product_id: item.product_id,
 						base_currency: item.base_currency,
-						quote_currency: item.quote_currency ?? 'USD'
+						quote_currency: quoteCurrencyFor(item.product_id, item.quote_currency ?? 'USD')
 					}))
 				}),
 		timeframe: model.timeframe,

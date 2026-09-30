@@ -1,241 +1,95 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { page } from '$app/state';
+	/**
+	 * Build stage: edit the open draft (revision-guarded saves, validation,
+	 * publish behind an explicit confirmation), or read an immutable published
+	 * definition in the same layout when there is no draft or `?version=` asks
+	 * for one. Publishing never starts trading.
+	 */
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
+	import { untrack } from 'svelte';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import { marketLabel } from '$lib/deployment-detail';
 	import {
-		fetchStrategyHistory,
-		toBuilderModel,
 		fromBuilderModel,
-		saveDraft,
 		publishDraft,
-		defaultHtfFilter,
-		validHtfTimeframes,
-		INDICATOR_KIND_OPTIONS,
-		IDENTITY_INPUT_OPTIONS,
-		applyIndicatorKindDefaults,
-		isConfigurableRollingKind,
-		defaultIndicatorOperand,
-		indicatorOperandKey,
-		parseIndicatorOperandKey,
-		operandChoices,
-		type BuilderModel,
-		type ConditionDraft,
-		type IndicatorDraft
+		saveDraft,
+		toBuilderModel,
+		type BuilderModel
 	} from '$lib/strategies';
-	import { plainEnglishSummary, requiredDataText, validateDefinition } from '$lib/strategy-insight';
+	import { validateDefinition } from '$lib/strategy-insight';
+	import { workspaceHref } from '$lib/strategy-workspace';
+	import BuildInspector from '$lib/workspace/BuildInspector.svelte';
+	import DefinitionForm from '$lib/workspace/DefinitionForm.svelte';
+	import { useWorkspace } from '$lib/workspace/workspace.svelte';
+
+	const workspace = useWorkspace();
 
 	let model = $state<BuilderModel | null>(null);
-	let loading = $state(true);
+	let modelKey = '';
 	let saving = $state(false);
 	let publishing = $state(false);
 	let dirty = $state(false);
 	let error = $state<string | null>(null);
-	let noDraft = $state(false);
-	let publishedNotice = $state<string | null>(null);
 	let savedAt = $state<string | null>(null);
 	let validationErrors = $state<string[]>([]);
-	let activeSection = $state('overview');
+	let publishOpen = $state(false);
+	let published = $state<{ version: number; fingerprint: string } | null>(null);
+	let leaveTarget = $state<URL | null>(null);
+	let leaving = false;
 
-	const sections = [
-		{ id: 'overview', label: 'Overview' },
-		{ id: 'market', label: 'Market and data' },
-		{ id: 'indicators', label: 'Indicators' },
-		{ id: 'entry', label: 'Entry conditions' },
-		{ id: 'exits', label: 'Exit conditions and protective stops' },
-		{ id: 'sizing', label: 'Position sizing' },
-		{ id: 'limits', label: 'Portfolio limits' },
-		{ id: 'execution', label: 'Execution preferences' }
-	];
+	const editingDraft = $derived(workspace.draft !== null && workspace.requestedVersion === null);
+	const readonlyModel = $derived(editingDraft ? null : workspace.selectedModel);
+	const readonlyVersion = $derived(workspace.version.entry);
+	const blockReason = $derived(
+		validationErrors.length > 0
+			? `Fix ${validationErrors.length} definition problem${validationErrors.length === 1 ? '' : 's'} before saving or publishing.`
+			: null
+	);
 
-	const operators: { value: string; label: string }[] = [
-		{ value: 'crosses_above', label: 'crosses above' },
-		{ value: 'crosses_below', label: 'crosses below' },
-		{ value: 'greater_than', label: '>' },
-		{ value: 'greater_than_or_equal', label: '≥' },
-		{ value: 'less_than', label: '<' },
-		{ value: 'less_than_or_equal', label: '≤' },
-		{ value: 'equals', label: '=' }
-	];
-
-	function strategyId(): string {
-		return page.params.id ?? '';
-	}
-
-	function markDirty(): void {
-		dirty = true;
-		validate(model);
-	}
-
-	function isGroup(condition: ConditionDraft): boolean {
-		return 'all' in condition || 'any' in condition;
-	}
-
-	function isNot(condition: ConditionDraft): boolean {
-		return 'not' in condition;
-	}
-
-	function addComparison(
-		parent: { all?: ConditionDraft[]; any?: ConditionDraft[] },
-		indicators: IndicatorDraft[]
-	): void {
-		const child: ConditionDraft = {
-			left: defaultIndicatorOperand(indicators),
-			operator: 'greater_than',
-			right: { literal: '0' }
-		};
-		if (parent.all) parent.all.push(child);
-		if (parent.any) parent.any.push(child);
-		markDirty();
-	}
-
-	function addGroup(
-		parent: { all?: ConditionDraft[]; any?: ConditionDraft[] },
-		kind: 'all' | 'any'
-	): void {
-		const child: ConditionDraft = kind === 'all' ? { all: [] } : { any: [] };
-		if (parent.all) parent.all.push(child);
-		if (parent.any) parent.any.push(child);
-		markDirty();
-	}
-
-	function removeChild(
-		parent: { all?: ConditionDraft[]; any?: ConditionDraft[] },
-		index: number
-	): void {
-		if (parent.all) parent.all.splice(index, 1);
-		if (parent.any) parent.any.splice(index, 1);
-		markDirty();
-	}
-
-	function childIndex(condition: ConditionDraft, parent: object): number {
-		const container = parent as {
-			all?: ConditionDraft[];
-			any?: ConditionDraft[];
-			not?: ConditionDraft;
-		};
-		if (container.all) return container.all.indexOf(condition);
-		if (container.any) return container.any.indexOf(condition);
-		return -1;
-	}
-
-	/** Add one negated comparison as a direct child of a nested group. */
-	function addNotChild(
-		group: { all?: ConditionDraft[]; any?: ConditionDraft[] },
-		indicators: IndicatorDraft[]
-	): void {
-		const child: ConditionDraft = {
-			not: {
-				left: defaultIndicatorOperand(indicators),
-				operator: 'greater_than',
-				right: { literal: '0' }
-			}
-		};
-		if (group.all) group.all.push(child);
-		if (group.any) group.any.push(child);
-		markDirty();
-	}
-
-	/** Wrap the root condition itself so the top-level group can be negated. */
-	function toggleRootNot(kind: 'entry' | 'htf'): void {
-		if (!model) return;
-		if (kind === 'entry') {
-			const root = model.entry.when;
-			model.entry.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
-		} else if (model.htf_filter !== null) {
-			const root = model.htf_filter.when;
-			model.htf_filter.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
-		}
-		markDirty();
-	}
-
-	function isRootGroup(condition: ConditionDraft, root: ConditionDraft): boolean {
-		return condition === root;
-	}
-
-	function rightOperandKey(comparison: {
-		right: { indicator?: string; series?: string; literal?: string };
-	}): string {
-		return comparison.right.indicator !== undefined
-			? indicatorOperandKey({
-					indicator: comparison.right.indicator,
-					series: comparison.right.series
-				})
-			: 'literal';
-	}
-
-	function setRightOperand(
-		comparison: { right: { indicator?: string; series?: string; literal?: string } },
-		key: string
-	): void {
-		if (key === 'literal') {
-			comparison.right = { literal: '0' };
-		} else {
-			comparison.right = parseIndicatorOperandKey(key) ?? { literal: '0' };
-		}
-		markDirty();
-	}
-
-	/** Keep each indicator's input and parameters aligned with its kind. */
-	function onIndicatorKindChange(indicator: IndicatorDraft): void {
-		applyIndicatorKindDefaults(indicator);
-		markDirty();
-	}
-
-	function leftOperandKey(comparison: {
-		left: { indicator?: string; series?: string; literal?: string };
-	}): string {
-		return comparison.left.indicator !== undefined
-			? indicatorOperandKey({
-					indicator: comparison.left.indicator,
-					series: comparison.left.series
-				})
-			: 'literal';
-	}
-
-	function setLeftOperand(
-		comparison: { left: { indicator?: string; series?: string; literal?: string } },
-		key: string
-	): void {
-		if (key === 'literal') {
-			comparison.left = { literal: '0' };
-		} else {
-			comparison.left = parseIndicatorOperandKey(key) ?? { literal: '0' };
-		}
-		markDirty();
-	}
-
-	function operandLabel(operand: { indicator?: string; series?: string }): string {
-		if (operand.indicator === undefined) return '';
-		return operand.series === undefined
-			? operand.indicator
-			: `${operand.indicator}.${operand.series}`;
-	}
-
-	function validate(current: BuilderModel | null): void {
-		validationErrors = current === null ? [] : validateDefinition(current);
-	}
-
-	async function load(): Promise<void> {
-		loading = true;
-		error = null;
-		noDraft = false;
-		try {
-			const history = await fetchStrategyHistory(strategyId());
-			if (history.draft === null) {
+	$effect(() => {
+		const draft = workspace.draft;
+		const key =
+			editingDraft && draft !== null ? `${workspace.strategyId}:${draft.strategy.version}` : '';
+		untrack(() => {
+			if (key === modelKey) return;
+			modelKey = key;
+			if (key === '' || draft === null) {
 				model = null;
-				noDraft = true;
 				return;
 			}
-			model = toBuilderModel(history.draft.strategy, history.draft.revision);
+			model = toBuilderModel(draft.strategy, draft.revision);
 			dirty = false;
-			validate(model);
-		} catch (caught) {
-			error = caught instanceof Error ? caught.message : 'Could not load the strategy draft.';
-			model = null;
-		} finally {
-			loading = false;
+			validate();
+		});
+	});
+
+	$effect(() => {
+		workspace.draftDirty = dirty;
+		workspace.draftName = model?.name ?? null;
+		return () => {
+			workspace.draftDirty = false;
+			workspace.draftName = null;
+		};
+	});
+
+	beforeNavigate((navigation) => {
+		if (!dirty || leaving || navigation.to === null) return;
+		if (navigation.type === 'leave') {
+			navigation.cancel();
+			return;
 		}
+		navigation.cancel();
+		leaveTarget = navigation.to.url;
+	});
+
+	function validate(): void {
+		validationErrors = model === null ? [] : validateDefinition(model);
+	}
+
+	function onEdit(): void {
+		dirty = true;
+		validate();
 	}
 
 	async function save(): Promise<void> {
@@ -255,8 +109,16 @@
 			} else {
 				model.revision = saved.revision;
 			}
+			// Keep the shared history on the new revision so a later stage visit
+			// does not reload a stale revision into the builder.
+			if (workspace.history?.draft) {
+				workspace.history = {
+					...workspace.history,
+					draft: { ...workspace.history.draft, strategy: saved.strategy, revision: saved.revision }
+				};
+			}
 			savedAt = new Date().toLocaleTimeString();
-			validate(model);
+			validate();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not save the strategy draft.';
 		} finally {
@@ -269,10 +131,13 @@
 		publishing = true;
 		error = null;
 		try {
-			await publishDraft(fromBuilderModel(model), model.revision);
+			const result = await publishDraft(fromBuilderModel(model), model.revision);
+			published = { version: model.version, fingerprint: result.strategy_fingerprint };
+			publishOpen = false;
+			dirty = false;
 			model = null;
-			publishedNotice =
-				'This version is now immutable; revise it into a new draft to keep editing.';
+			modelKey = '';
+			await workspace.refresh();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Strategy publication failed.';
 		} finally {
@@ -280,928 +145,272 @@
 		}
 	}
 
-	function addIndicator(): void {
-		if (!model) return;
-		const next: IndicatorDraft = {
-			id: `indicator_${model.indicators.length + 1}`,
-			kind: 'sma',
-			input: 'close',
-			timeframe: '',
-			parameters: { period: 50 }
-		};
-		model.indicators.push(next);
-		markDirty();
-	}
-
-	function removeIndicator(index: number): void {
-		if (!model) return;
-		const removedId = model.indicators[index]?.id;
-		model.indicators.splice(index, 1);
-		// The initial stop must always reference a live ATR indicator.
-		if (removedId !== undefined && model.exits.initial_stop.atr_indicator === removedId) {
-			const replacement = model.indicators.find((candidate) => candidate.kind === 'atr');
-			model.exits.initial_stop.atr_indicator = replacement?.id ?? '';
+	async function copy(text: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			/* the full value stays visible and selectable */
 		}
-		markDirty();
 	}
 
-	function addHtfIndicator(): void {
-		if (!model?.htf_filter) return;
-		model.htf_filter.indicators.push({
-			id: `htf_indicator_${model.htf_filter.indicators.length + 1}`,
-			kind: 'sma',
-			input: 'close',
-			parameters: { period: 50 }
-		});
-		markDirty();
+	async function leaveAnyway(): Promise<void> {
+		const target = leaveTarget;
+		leaveTarget = null;
+		if (target === null) return;
+		leaving = true;
+		dirty = false;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- target came from SvelteKit's own navigation
+		await goto(`${target.pathname}${target.search}${target.hash}`);
+		leaving = false;
 	}
-
-	function removeHtfIndicator(index: number): void {
-		if (!model?.htf_filter) return;
-		model.htf_filter.indicators.splice(index, 1);
-		markDirty();
-	}
-
-	function toggleHtfFilter(enabled: boolean): void {
-		if (!model) return;
-		model.htf_filter = enabled ? defaultHtfFilter(model.timeframe) : null;
-		markDirty();
-	}
-
-	function summaryText(): string {
-		return model === null ? '' : plainEnglishSummary(model);
-	}
-
-	onMount(() => void load());
 </script>
 
-<svelte:head><title>Strategy builder · ThyTrader</title></svelte:head>
+<svelte:head><title>Build · {workspace.name ?? 'Strategy'} · ThyTrader</title></svelte:head>
 
-<main>
-	{#if loading}
-		<div class="loading-card"><div class="skeleton wide"></div></div>
-	{:else if publishedNotice}
-		<div class="error-banner" role="status">
-			<div>
-				<strong>Published</strong>
-				<p>{publishedNotice}</p>
-			</div>
-			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
+{#if published}
+	<section class="card success" role="status" data-testid="publish-success">
+		<h2>Published v{published.version}</h2>
+		<p>
+			This version is now immutable. Research and runtimes use its fingerprint. Publishing does not
+			start trading.
+		</p>
+		<p class="fingerprint">
+			<code>{published.fingerprint}</code>
+			<button
+				class="btn ghost small"
+				type="button"
+				onclick={() => void copy(published!.fingerprint)}>Copy full fingerprint</button
+			>
+		</p>
+		<div class="success-actions">
+			<a
+				class="btn"
+				href={resolve(
+					workspaceHref(workspace.strategyId, 'build', { version: published.fingerprint })
+				)}
+				onclick={() => (published = null)}>View published version</a
+			>
+			<a
+				class="btn primary"
+				href={resolve(
+					workspaceHref(workspace.strategyId, 'test', { version: published.fingerprint })
+				)}>Set up a backtest</a
+			>
+			<a class="btn ghost" href={resolve('/strategies')}>Back to strategies</a>
 		</div>
-	{:else if noDraft}
-		<div class="read-only-banner" role="status">
-			<div>
-				<strong>No editable draft</strong>
-				<p>
-					Published versions are immutable. Open the library, choose View → Versions, and revise a
-					version to create a new draft.
-				</p>
-			</div>
-			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
-		</div>
-	{:else if error}
+	</section>
+{:else if model}
+	{@const draftModel = model}
+	{#if error}
 		<div class="error-banner" role="alert">
 			<div>
-				<strong>Builder unavailable</strong>
+				<strong>Draft not saved</strong>
 				<p>{error}</p>
 			</div>
-			<a class="secondary" href={resolve('/strategies')}>Back to library</a>
-		</div>
-	{:else if model}
-		<section class="builder-head">
-			<div>
-				<p class="eyebrow">Draft v{model.version}</p>
-				<h1>{model.name}</h1>
-			</div>
-			<div class="head-actions">
-				{#if dirty}<span class="dirty-pill">Unsaved changes</span>{/if}
-				{#if savedAt}<span class="saved">Saved {savedAt}</span>{/if}
-				<button
-					class="secondary"
-					type="button"
-					onclick={save}
-					disabled={saving || validationErrors.length > 0}
-					>{saving ? 'Saving…' : 'Save draft'}</button
-				>
-				<button
-					class="refresh"
-					type="button"
-					onclick={publish}
-					disabled={publishing || validationErrors.length > 0}
-					>{publishing ? 'Publishing…' : 'Validate & publish immutable version'}</button
-				>
-			</div>
-		</section>
-		<div class="builder-grid">
-			<div class="sections">
-				<nav aria-label="Builder sections">
-					{#each sections as section (section.id)}
-						<button
-							class="section-tab"
-							class:active={activeSection === section.id}
-							type="button"
-							onclick={() => (activeSection = section.id)}>{section.label}</button
-						>
-					{/each}
-				</nav>
-
-				{#if activeSection === 'overview'}
-					<section class="panel">
-						<h2>Overview</h2>
-						<label>Strategy name<input bind:value={model.name} oninput={markDirty} /></label>
-						<label
-							>Thesis / description
-							<textarea
-								bind:value={model.description}
-								rows={3}
-								oninput={markDirty}
-								placeholder="What market behavior does this capture, and when should it not trade?"
-							></textarea></label
-						>
-						<div class="hint">
-							Identity note: the name is part of the immutable published fingerprint.
-						</div>
-					</section>
-				{:else if activeSection === 'market'}
-					<section class="panel">
-						<h2>Market and data</h2>
-						<div class="grid-two">
-							<label>Product<input value={model.product_id} disabled /></label>
-							<label>Timeframe<input value={model.timeframe} disabled /></label>
-						</div>
-						<label
-							>Warmup bars (required history before signals)
-							<input
-								type="number"
-								min="1"
-								bind:value={model.warmup_bars}
-								oninput={markDirty}
-							/></label
-						>
-						<div class="hint">
-							V1 is Coinbase USD spot, long-only. Research, paper, and live use any ingested venue
-							clock (this draft uses {model.timeframe} candles). Sub-hour live requires a connected user-order
-							feed. Optional HTF filters may use a strictly coarser integer-multiple venue clock; paper
-							and live evaluate those strategies on last-completed HTF bars.
-						</div>
-					</section>
-				{:else if activeSection === 'indicators'}
-					<section class="panel">
-						<h2>Indicators</h2>
-						{#each model.indicators as indicator, index (index)}
-							<div class="indicator-row">
-								{@render indicatorFields(indicator, true)}
-								<button class="secondary" type="button" onclick={() => removeIndicator(index)}
-									>Remove</button
-								>
-							</div>
-						{/each}
-						<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
-						<div class="hint">
-							OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
-							crosses 40). ATR / Williams %R / CCI / stochastic / ADX use high/low/close. MFI uses
-							high/low/close/volume. EMA, SMA, WMA, highest, lowest, stdev, sample stdev, ROC, and
-							momentum select one OHLCV field. RSI, volume SMA, MACD, and Bollinger stay locked.
-							MACD declares fast/slow/signal periods (fast &lt; slow). Stochastic declares %K and %D
-							periods. Bollinger adds a population-stdev multiplier. Conditions reference
-							MACD/Bollinger/stochastic/ADX outputs as series ids. RSI, ATR, Williams %R, CCI, MFI,
-							and ADX periods cap at 100; stochastic %K caps at 100. Momentum and MFI need period +
-							1 bars. MACD needs slow + signal − 1 bars. Stochastic needs k + d − 1 bars. ADX needs
-							2×period − 1 bars. Optional per-indicator timeframes may use a coarser
-							integer-multiple venue clock; omitting the field keeps the decision clock. Constant
-							omits timeframe. Stop ATR stays on the decision clock. Extra-TF values overlay LTF
-							entry before the HTF filter AND.
-						</div>
-					</section>
-				{:else if activeSection === 'entry'}
-					<section class="panel">
-						<h2>Entry conditions</h2>
-						<div class="rule-tree">
-							{#if model.entry.when}
-								{@render conditionNode(
-									model.entry.when,
-									model.entry.when,
-									0,
-									model.entry.when,
-									model.indicators,
-									'entry'
-								)}
-							{/if}
-						</div>
-						<label class="cooldown-row"
-							><input
-								type="checkbox"
-								checked={model.htf_filter !== null}
-								onchange={(event) =>
-									toggleHtfFilter((event.currentTarget as HTMLInputElement).checked)}
-							/>
-							Enable higher-timeframe filter
-						</label>
-						{#if model.htf_filter}
-							<div class="grid-two">
-								<label
-									>HTF timeframe
-									<select bind:value={model.htf_filter.timeframe} onchange={markDirty}>
-										{#each validHtfTimeframes(model.timeframe) as timeframe (timeframe)}
-											<option value={timeframe}>{timeframe}</option>
-										{/each}
-									</select></label
-								>
-								<label
-									>HTF warmup bars
-									<input
-										type="number"
-										min="1"
-										bind:value={model.htf_filter.warmup_bars}
-										oninput={markDirty}
-									/></label
-								>
-							</div>
-							{#each model.htf_filter.indicators as indicator, index (index)}
-								<div class="indicator-row">
-									{@render indicatorFields(indicator, false)}
-									<button class="secondary" type="button" onclick={() => removeHtfIndicator(index)}
-										>Remove</button
-									>
-								</div>
-							{/each}
-							<button class="secondary" type="button" onclick={addHtfIndicator}
-								>Add HTF indicator</button
-							>
-							<div class="rule-tree">
-								{@render conditionNode(
-									model.htf_filter.when,
-									model.htf_filter.when,
-									0,
-									model.htf_filter.when,
-									model.htf_filter.indicators,
-									'htf'
-								)}
-							</div>
-							<div class="hint">
-								The HTF <code>when</code> tree is AND-ed with LTF entry using the last completed HTF bar.
-								Paper and live evaluate this block on live complete-only HTF candles.
-							</div>
-						{/if}
-						<label class="cooldown-row"
-							>Position side
-							<select bind:value={model.side} onchange={markDirty}>
-								<option value="long">Long</option>
-								<option value="short">Short (spot; live needs available base)</option>
-							</select></label
-						>
-						<label class="cooldown-row"
-							>Re-entry cooldown (bars, declared — not yet modeled by the backtester)
-							<input
-								type="number"
-								min="0"
-								bind:value={model.cooldown_bars}
-								oninput={markDirty}
-							/></label
-						>
-					</section>
-				{:else if activeSection === 'exits'}
-					<section class="panel">
-						<h2>Exit conditions and protective stops</h2>
-						<div class="grid-two">
-							<label
-								>Initial stop — ATR indicator
-								<select bind:value={model.exits.initial_stop.atr_indicator} onchange={markDirty}>
-									{#each model.indicators.filter((candidate) => candidate.kind === 'atr') as atr (atr.id)}
-										<option value={atr.id}>{atr.id} (ATR)</option>
-									{/each}
-									{#if !model.indicators.some((candidate) => candidate.kind === 'atr')}
-										<option value="">No ATR indicator defined</option>
-									{/if}
-								</select></label
-							>
-							<label
-								>Initial stop — ATR multiple
-								<input
-									inputmode="decimal"
-									bind:value={model.exits.initial_stop.multiple}
-									oninput={markDirty}
-								/></label
-							>
-						</div>
-						<div class="grid-two">
-							<label
-								>Take profit — reward/risk multiple
-								<input
-									inputmode="decimal"
-									bind:value={model.exits.take_profit.multiple}
-									oninput={markDirty}
-								/></label
-							>
-							<span></span>
-						</div>
-						<div class="grid-two">
-							<label
-								>Time exit — max bars held
-								<input
-									type="number"
-									min="1"
-									bind:value={model.exits.time_exit.max_bars_held}
-									oninput={markDirty}
-								/></label
-							>
-							<label>Trailing stop<input value="disabled (V1)" disabled /></label>
-						</div>
-					</section>
-				{:else if activeSection === 'sizing'}
-					<section class="panel">
-						<h2>Position sizing</h2>
-						<label
-							>Risk fraction of equity per trade
-							<input
-								inputmode="decimal"
-								bind:value={model.sizing.risk_fraction}
-								oninput={markDirty}
-							/></label
-						>
-						<div class="grid-two">
-							<label
-								>Minimum USD notional
-								<input
-									inputmode="decimal"
-									bind:value={model.sizing.min_quote_notional}
-									oninput={markDirty}
-								/></label
-							>
-							<label
-								>Maximum USD notional
-								<input
-									inputmode="decimal"
-									bind:value={model.sizing.max_quote_notional}
-									oninput={markDirty}
-								/></label
-							>
-						</div>
-					</section>
-				{:else if activeSection === 'limits'}
-					<section class="panel">
-						<h2>Portfolio limits</h2>
-						<label
-							>Max strategy exposure (fraction of equity)
-							<input
-								inputmode="decimal"
-								bind:value={model.portfolio_limits.max_strategy_exposure_fraction}
-								oninput={markDirty}
-							/></label
-						>
-						<div class="hint">V1 allows exactly one concurrent position per strategy.</div>
-					</section>
-				{:else if activeSection === 'execution'}
-					<section class="panel">
-						<h2>Execution preferences</h2>
-						<label
-							>Entry preference
-							<select bind:value={model.execution.entry_preference} onchange={markDirty}>
-								<option value="maker_only">Maker only</option>
-								<option value="marketable_limit">Marketable limit</option>
-							</select></label
-						>
-						<div class="grid-two">
-							<label
-								>Max entry wait (bars)
-								<input
-									type="number"
-									min="1"
-									bind:value={model.execution.max_entry_wait_bars}
-									oninput={markDirty}
-								/></label
-							>
-							<label
-								>On unfilled entry
-								<select bind:value={model.execution.on_unfilled_entry} onchange={markDirty}>
-									<option value="cancel">Cancel</option>
-									<option value="reprice">Reprice</option>
-								</select></label
-							>
-						</div>
-						<div class="warn">
-							The current backtester fills every entry at the next bar open. These preferences are
-							declared for future runtimes and are shown as unsupported in the inspector.
-						</div>
-					</section>
-				{/if}
-			</div>
-
-			<aside class="inspector" aria-label="Strategy inspector">
-				<h2>Inspector</h2>
-				<div class="inspector-block">
-					<h3>Plain-English summary</h3>
-					<p>{summaryText()}</p>
-				</div>
-				<div class="inspector-block">
-					<h3>Validation</h3>
-					{#if validationErrors.length === 0}
-						<p class="ok">No problems detected.</p>
-					{:else}
-						<ul class="problems">
-							{#each validationErrors as problem (problem)}
-								<li>{problem}</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-				<div class="inspector-block">
-					<h3>Required data</h3>
-					<p>
-						{requiredDataText(model)}
-					</p>
-				</div>
-				<div class="inspector-block">
-					<h3>Unsaved changes</h3>
-					{#if dirty}<p class="warn">This draft has unsaved edits.</p>
-					{:else}<p class="ok">All edits saved.</p>{/if}
-				</div>
-				<div class="inspector-block">
-					<h3>Engine support</h3>
-					<EngineSupportMatrix />
-				</div>
-			</aside>
 		</div>
 	{/if}
-</main>
-
-{#snippet indicatorFields(indicator: IndicatorDraft, allowTimeframe: boolean)}
-	<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
-	<label
-		>Kind
-		<select bind:value={indicator.kind} onchange={() => onIndicatorKindChange(indicator)}>
-			{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
-				<option value={option.kind}>{option.label}</option>
-			{/each}
-		</select></label
+	<div class="build-grid">
+		<DefinitionForm bind:model onchange={onEdit} />
+		<BuildInspector {model} {validationErrors}>
+			{#snippet actions()}
+				<p class="save-state">
+					{#if dirty}<span class="dirty-pill">Unsaved changes</span>
+					{:else}<span class="saved-ok">All edits saved</span>{/if}
+					{#if savedAt}<span class="saved">Saved {savedAt}</span>{/if}
+				</p>
+				<div class="buttons">
+					<button
+						class="btn"
+						type="button"
+						onclick={() => void save()}
+						disabled={saving || publishing || validationErrors.length > 0}
+						aria-describedby={blockReason ? 'build-block-reason' : undefined}
+						>{saving ? 'Saving…' : 'Save draft'}</button
+					>
+					<button
+						class="btn primary grow"
+						type="button"
+						onclick={() => (publishOpen = true)}
+						disabled={saving || publishing || validationErrors.length > 0}
+						aria-describedby={blockReason ? 'build-block-reason' : undefined}
+						>Publish v{draftModel.version}…</button
+					>
+				</div>
+				{#if blockReason}<p class="note" id="build-block-reason">{blockReason}</p>{/if}
+				<p class="note">
+					Publishing locks v{draftModel.version} so it can't be edited. It doesn't start trading.
+				</p>
+			{/snippet}
+		</BuildInspector>
+	</div>
+	<ConfirmDialog
+		open={publishOpen}
+		title="Publish immutable strategy version?"
+		confirmLabel="Publish version"
+		pendingLabel="Publishing…"
+		pending={publishing}
+		{error}
+		testId="publish-dialog"
+		oncancel={() => (publishOpen = false)}
+		onconfirm={() => void publish()}
 	>
-	{#if allowTimeframe && indicator.kind !== 'constant' && model}
-		<label
-			>Timeframe
-			<select bind:value={indicator.timeframe} onchange={markDirty}>
-				<option value="">Decision clock ({model.timeframe})</option>
-				{#each validHtfTimeframes(model.timeframe) as timeframe (timeframe)}
-					<option value={timeframe}>{timeframe}</option>
-				{/each}
-			</select></label
-		>
-	{/if}
-	{#if indicator.kind === 'identity' || isConfigurableRollingKind(indicator.kind)}
-		<label
-			>Source
-			<select bind:value={indicator.input} onchange={markDirty}>
-				{#each IDENTITY_INPUT_OPTIONS as option (option.value)}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select></label
-		>
-	{/if}
-	{#if indicator.kind === 'constant'}
-		<label>Value<input bind:value={indicator.parameters.value} oninput={markDirty} /></label>
-	{:else if indicator.kind === 'macd'}
-		<label
-			>Fast period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.fast_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Slow period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.slow_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Signal period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.signal_period}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind === 'bollinger'}
-		<label
-			>Period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Stdev multiplier<input
-				bind:value={indicator.parameters.stdev_multiplier}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind === 'stochastic'}
-		<label
-			>%K period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.k_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>%D period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.d_period}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind !== 'identity'}
-		<label
-			>Period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.period}
-				oninput={markDirty}
-			/></label
-		>
-	{/if}
-{/snippet}
-
-{#snippet conditionNode(
-	condition: ConditionDraft,
-	parent: object,
-	depth: number,
-	root: ConditionDraft,
-	indicators: IndicatorDraft[],
-	kind: 'entry' | 'htf'
-)}
-	{@const index = childIndex(condition, parent)}
-	{@const isRoot = isRootGroup(condition, root)}
-	<div class="rule-node" style="margin-left: {depth * 18}px">
-		{#if isGroup(condition)}
-			{@const group = condition as { all?: ConditionDraft[]; any?: ConditionDraft[] }}
-			<div class="rule-group-head">
-				<span class="group-kind">{group.all !== undefined ? 'ALL' : 'ANY'}</span>
-				{#if depth > 0}
-					<button class="secondary" type="button" onclick={() => removeChild(parent, index)}
-						>Remove group</button
-					>
-				{/if}
-				<button class="secondary" type="button" onclick={() => addComparison(group, indicators)}
-					>+ comparison</button
-				>
-				<button class="secondary" type="button" onclick={() => addGroup(group, 'all')}>+ ALL</button
-				>
-				<button class="secondary" type="button" onclick={() => addGroup(group, 'any')}>+ ANY</button
-				>
-				{#if isRoot}
-					<button
-						class="secondary"
-						type="button"
-						onclick={() => toggleRootNot(kind)}
-						aria-label="Negate the root condition group">+ NOT</button
-					>
-				{:else}
-					<button
-						class="secondary"
-						type="button"
-						onclick={() => addNotChild(group, indicators)}
-						aria-label="Add a negated condition">+ NOT</button
-					>
-				{/if}
-			</div>
-			{#each group.all ?? group.any ?? [] as child, childIdx (childIdx)}
-				{@render conditionNode(child, group, depth + 1, root, indicators, kind)}
-			{/each}
-		{:else if isNot(condition)}
-			<div class="rule-group-head">
-				<span class="group-kind">NOT</span>
-				<button class="secondary" type="button" onclick={() => removeChild(parent, index)}
-					>Remove</button
-				>
-			</div>
-			{@render conditionNode(
-				(condition as { not: ConditionDraft }).not,
-				condition,
-				depth + 1,
-				root,
-				indicators,
-				kind
-			)}
-		{:else}
-			{@const comparison = condition as {
-				left: { indicator?: string; series?: string; literal?: string };
-				operator: string;
-				right: { indicator?: string; series?: string; literal?: string };
-			}}
-			<div class="rule-comparison">
-				<select
-					aria-label="Left operand"
-					value={leftOperandKey(comparison)}
-					onchange={(event) =>
-						setLeftOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
-				>
-					{#each operandChoices(indicators) as choice (choice.key)}
-						<option value={choice.key}>{choice.label}</option>
-					{/each}
-				</select>
-				{#if comparison.left.indicator === undefined}
-					<input
-						class="literal"
-						inputmode="decimal"
-						value={comparison.left.literal ?? ''}
-						oninput={(event) => {
-							comparison.left = { literal: (event.currentTarget as HTMLInputElement).value };
-							markDirty();
-						}}
-						placeholder="value"
-						aria-label="Left literal value"
-					/>
-				{/if}
-				<select bind:value={comparison.operator} onchange={markDirty} aria-label="Operator">
-					{#each operators as operator (operator.value)}
-						<option value={operator.value}>{operator.label}</option>
-					{/each}
-				</select>
-				<select
-					aria-label="Right operand"
-					value={rightOperandKey(comparison)}
-					onchange={(event) =>
-						setRightOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
-				>
-					{#each operandChoices(indicators) as choice (choice.key)}
-						<option value={choice.key}>{choice.label}</option>
-					{/each}
-				</select>
-				{#if comparison.right.indicator !== undefined}
-					<span class="operand-name">{operandLabel(comparison.right)}</span>
-				{:else}
-					<input
-						class="literal"
-						inputmode="decimal"
-						value={comparison.right.literal ?? ''}
-						oninput={(event) => {
-							comparison.right = { literal: (event.currentTarget as HTMLInputElement).value };
-							markDirty();
-						}}
-						placeholder="value"
-						aria-label="Right literal value"
-					/>
-				{/if}
-				<button
-					class="secondary"
-					type="button"
-					onclick={() => removeChild(parent, index)}
-					aria-label="Remove this rule"
-				>
-					×
-				</button>
-			</div>
+		<p><strong>{draftModel.name}</strong> · Version {draftModel.version}</p>
+		<p>{marketLabel(draftModel.product_id)} · {draftModel.timeframe}</p>
+		<p>
+			Publishing creates an immutable fingerprint used by research and runtimes. This version cannot
+			be edited. Further changes require a new draft version. It does not start paper or live
+			trading.
+		</p>
+		<div class="row">
+			<span>Validation</span><span
+				>{validationErrors.length === 0
+					? 'No blocking definition errors'
+					: validationErrors.join(' ')}</span
+			>
+		</div>
+		<div class="row"><span>Canonical product record</span><code>{draftModel.product_id}</code></div>
+		<div class="row"><span>Expected fingerprint</span><span>Created after publication</span></div>
+	</ConfirmDialog>
+{:else if readonlyModel && readonlyVersion}
+	<div class="read-only-banner" role="status">
+		<div>
+			<strong
+				>{workspace.draft === null
+					? 'No editable draft'
+					: `Published v${readonlyVersion.version}`}</strong
+			>
+			<p>
+				Published v{readonlyVersion.version} is immutable and shown read-only. Use
+				<em>Revise into new draft</em> (or Versions → Edit into next draft) to keep editing.
+			</p>
+		</div>
+		{#if workspace.draft !== null}
+			<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'build'))}
+				>Open draft v{workspace.draft.strategy.version}</a
+			>
 		{/if}
 	</div>
-{/snippet}
+	<div class="build-grid">
+		<DefinitionForm model={readonlyModel} readonly onchange={() => undefined} />
+		<BuildInspector model={readonlyModel} validationErrors={validateDefinition(readonlyModel)}>
+			{#snippet actions()}
+				<p class="note">
+					Published v{readonlyVersion.version} · immutable. Publishing and editing do not apply to this
+					version.
+				</p>
+			{/snippet}
+		</BuildInspector>
+	</div>
+{:else if workspace.version.status === 'none' && workspace.draft === null}
+	<div class="empty-state">
+		<h2>Nothing to build yet</h2>
+		<p>This strategy has no open draft and no published version.</p>
+	</div>
+{:else if readonlyVersion && workspace.modelErrors[readonlyVersion.strategy_fingerprint]}
+	<div class="error-banner" role="alert">
+		<div>
+			<strong>Published definition unavailable</strong>
+			<p>{workspace.modelErrors[readonlyVersion.strategy_fingerprint]}</p>
+		</div>
+	</div>
+{:else}
+	<div class="loading-card" aria-busy="true"><div class="skeleton wide"></div></div>
+{/if}
+
+<ConfirmDialog
+	open={leaveTarget !== null}
+	title="Leave with unsaved changes?"
+	tone="danger"
+	confirmLabel="Discard changes and leave"
+	pendingLabel="Leaving…"
+	oncancel={() => (leaveTarget = null)}
+	onconfirm={() => void leaveAnyway()}
+>
+	<p>This draft has edits that are not saved. Leaving discards them.</p>
+</ConfirmDialog>
 
 <style>
+	.build-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+		gap: var(--space-4);
+		align-items: start;
+	}
 	.read-only-banner {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+		margin-bottom: var(--space-4);
 		padding: 14px 17px;
 		border: 1px solid var(--accent-line);
-		border-radius: 10px;
+		border-radius: var(--radius-lg);
 		background: var(--accent-soft);
 	}
 	.read-only-banner p {
 		margin: 4px 0 0;
 		color: var(--muted);
-		font-size: 13px;
 	}
-	.builder-head {
+	.save-state {
 		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
-		gap: 16px;
 		flex-wrap: wrap;
-		margin-bottom: 16px;
-	}
-	.head-actions {
-		display: flex;
-		gap: 10px;
 		align-items: center;
-		flex-wrap: wrap;
+		gap: 8px;
+		margin: 0;
 	}
 	.dirty-pill {
-		color: var(--warn);
-		font-size: 12px;
+		padding: 2px 10px;
 		border: 1px solid var(--warn-line);
-		border-radius: 999px;
-		padding: 3px 10px;
+		border-radius: var(--radius-pill);
+		color: var(--warn);
+		font-size: var(--fs-sm);
 	}
+	.saved-ok,
 	.saved {
 		color: var(--pos);
-		font-size: 12px;
+		font-size: var(--fs-sm);
 	}
-	.builder-grid {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) 340px;
-		gap: 18px;
-		align-items: start;
-	}
-	.sections nav {
+	.buttons {
 		display: flex;
 		gap: 8px;
-		flex-wrap: wrap;
-		margin-bottom: 12px;
 	}
-	.section-tab {
-		border: 1px solid var(--line-2);
-		background: transparent;
-		color: var(--muted);
-		border-radius: 999px;
-		padding: 7px 13px;
-		font: inherit;
-		font-size: 12px;
-		cursor: pointer;
+	.grow {
+		flex: 1;
 	}
-	.section-tab.active {
-		background: var(--accent-soft);
-		color: var(--pos);
+	.note {
+		margin: 0;
+		color: var(--faint);
+		font-size: var(--fs-sm);
+	}
+	.success {
+		display: grid;
+		gap: 10px;
+		padding: 18px 20px;
 		border-color: var(--accent-line);
 	}
-	.panel {
-		background: var(--surface);
-		border: 1px solid var(--line-2);
-		border-radius: 12px;
-		padding: 20px 22px;
-		display: grid;
-		gap: 14px;
-	}
-	.panel h2 {
+	.success p {
 		margin: 0;
-		font-size: 16px;
-		color: var(--text);
-	}
-	label {
-		display: grid;
-		gap: 6px;
 		color: var(--muted);
-		font-size: 12px;
 	}
-	input,
-	select,
-	textarea {
-		width: 100%;
-		border: 1px solid var(--line-2);
-		border-radius: 8px;
-		background: var(--surface);
-		color: var(--text);
-		padding: 9px 11px;
-		font: inherit;
-	}
-	textarea {
-		resize: vertical;
-	}
-	.grid-two {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 14px;
-	}
-	.hint {
-		color: var(--faint);
-		font-size: 12px;
-	}
-	.warn {
-		color: var(--warn);
-		font-size: 12px;
-	}
-	.ok {
-		color: var(--pos);
-		font-size: 13px;
-	}
-	.indicator-row {
-		display: grid;
-		grid-template-columns: 1.2fr 1fr 0.8fr auto;
-		gap: 10px;
-		align-items: end;
-	}
-	.secondary {
-		border: 1px solid var(--line-strong);
-		border-radius: 8px;
-		background: transparent;
-		color: var(--text);
-		padding: 8px 11px;
-		font: inherit;
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.refresh {
-		border: none;
-		border-radius: 8px;
-		background: var(--accent);
-		color: var(--accent-ink);
-		padding: 10px 14px;
-		font: inherit;
-		font-size: 13px;
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.55;
-		cursor: default;
-	}
-	.rule-tree {
-		display: grid;
-		gap: 8px;
-	}
-	.rule-node {
-		border-left: 2px solid var(--line-2);
-		padding-left: 12px;
-	}
-	.rule-group-head {
+	.fingerprint {
 		display: flex;
-		gap: 8px;
-		align-items: center;
 		flex-wrap: wrap;
-		margin-bottom: 6px;
+		align-items: center;
+		gap: 8px;
+		word-break: break-all;
 	}
-	.group-kind {
-		font-weight: 700;
-		color: var(--pos);
-		letter-spacing: 0.08em;
-		font-size: 12px;
+	.btn.small {
+		min-height: 26px;
+		font-size: var(--fs-sm);
 	}
-	.rule-comparison {
+	.success-actions {
 		display: flex;
-		gap: 8px;
-		align-items: center;
 		flex-wrap: wrap;
+		gap: 8px;
 	}
-	.rule-comparison select,
-	.rule-comparison .literal {
-		width: auto;
-		min-width: 110px;
-	}
-	.operand-name {
-		color: var(--pos);
-		font-size: 12px;
-		padding: 0 2px;
-	}
-	.cooldown-row {
-		margin-top: 6px;
-	}
-	.inspector {
-		background: var(--surface);
-		border: 1px solid var(--line-2);
-		border-radius: 12px;
-		padding: 18px 20px;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 14px;
-		position: sticky;
-		top: calc(var(--topbar-height) + 16px);
-	}
-	.inspector-block {
-		min-width: 0;
-		overflow-x: auto;
-	}
-	.inspector h2 {
-		margin: 0;
-		font-size: 14px;
-		color: var(--text);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-	}
-	.inspector-block h3 {
-		margin: 0 0 6px;
-		font-size: 12px;
-		color: var(--muted);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-	.inspector-block p {
-		margin: 0;
-		font-size: 13px;
-		color: var(--text);
-	}
-	.problems {
-		margin: 0;
-		padding-left: 16px;
-		color: var(--neg);
-		font-size: 12px;
-		display: grid;
-		gap: 4px;
-	}
-
-	@media (max-width: 900px) {
-		.builder-grid {
-			grid-template-columns: 1fr;
-		}
-		.inspector {
-			position: static;
-		}
-		/* Keep the inspector readable without scrolling past the whole form. */
-		.builder-grid .inspector {
-			order: -1;
+	@media (max-width: 1100px) {
+		.build-grid {
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>

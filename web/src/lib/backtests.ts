@@ -489,3 +489,29 @@ export async function fetchBacktestMetrics(
 	}
 	return (await response.json()) as BacktestMetricsResponse;
 }
+
+/**
+ * Every published result for one exact strategy fingerprint, newest first.
+ *
+ * Follows offset pages (bounded) so a version's evidence list never silently
+ * stops at the first page.
+ */
+export async function fetchAllBacktestsForFingerprint(
+	strategyFingerprint: string,
+	pageSize = 50,
+	maxPages = 20
+): Promise<BacktestSummaryEntry[]> {
+	const rows: BacktestSummaryEntry[] = [];
+	let offset = 0;
+	for (let page = 0; page < maxPages; page += 1) {
+		const listing = await fetchBacktests({
+			limit: pageSize,
+			offset,
+			strategy_fingerprint: strategyFingerprint
+		});
+		rows.push(...listing.entries);
+		if (listing.returned < pageSize || listing.has_more === false) return rows;
+		offset += listing.returned;
+	}
+	return rows;
+}
