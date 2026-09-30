@@ -21,8 +21,8 @@ The left rail has four destinations ([ADR 0079](../decisions/0079-four-destinati
 | --- | --- | --- |
 | **Home** | `/`: portfolio overview | |
 | **Strategies** | `/strategies`: library | Each strategy's workspace: Build `/strategies/{id}`, Test `/test`, Run `/run`, Why `/why`. Old `/research`, `/backtests`, `/deploy` links redirect there |
-| **Portfolio** | `/deployments`: running and past deployments | `/deployments/{id}` detail |
-| **Trade** | `/trade`: on-demand order ticket | |
+| **Portfolio** | `/deployments`: every paper and live bot, grouped by state | `/deployments/{id}` bot detail |
+| **Trade** | `/trade`: on-demand order ticket with a Review aside | |
 
 **System**, at the bottom of the rail, expands to Settings (`/settings`), Audit log (`/audit`),
 Journal (`/journals`), and Memory & why-trade (`/memory`). Every route above still works as a
@@ -36,6 +36,12 @@ direct link. The top bar shows where you are (`section / page`).
   `/chat` as a full page.
 - The moon/sun button switches between dark and light themes. Your choice is kept in this browser.
   Until you choose, the app follows your operating system's setting.
+- **Live chrome.** Whenever a page shows live exposure or is composing a live order, an amber strip
+  under the top bar reads `LIVE: …` next to a warning icon (for example "this bot places real
+  Coinbase orders · ETH / USDC · allocated 100.00 USDC"), and an amber frame outlines the page.
+  It appears on a live bot's detail page, on Trade while the mode is **Live**, and on a strategy's
+  Run stage while the **Arm live trading** dialog is open. It never appears for paper-only views.
+  The text always says LIVE, so it does not rely on color.
 
 ### Strategies
 
@@ -85,9 +91,14 @@ leaving Build with unsaved edits asks first.
 ### Test (research and backtests)
 
 Open a strategy's **Test** stage (`/strategies/{strategy_id}/test`; old `/research?strategy=` links
-redirect here, and `/research` alone points you to the library). The run bar uses the workspace's
-selected immutable version and shows the verified dataset, evaluation period, initial capital,
-maker/taker fees, fixed slippage, engine, and the V2 constant-spread stress assumption. Omitting
+redirect here, and `/research` alone points you to the library). The run bar is one compact row for
+the workspace's selected immutable version: verified dataset, period (**Full coverage** unless you
+set custom dates), initial capital, maker/taker fees, and engine, with **Run a study** and **Run
+backtest** on the right. **Advanced options** holds fixed slippage, the V2 constant-spread stress,
+and custom evaluation dates; its summary line always shows the current slippage, spread, and
+period. The engine defaults to the newest engine that both `GET /api/v1/research/engine-support`
+advertises and the browser launcher offers (V3 today; V4 is launched from the research CLI). If
+that endpoint cannot be read, the engine stays on **Select an engine**. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
 from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
@@ -97,7 +108,11 @@ visible without hiding strategy evidence. Result summaries report the published 
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
 (OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same version. Below
 the run bar, **Results for this strategy** lists every published result for every version; opening
-one shows it inline (`?result=` deep link) with its assumptions. Results are research evidence, not
+one shows it inline (`?result=` deep link): a compact header (version · period · engine · time and a
+**Simulated result (candle-based fills)** chip), a metrics row (net return, buy & hold, max
+drawdown, trades, win rate, profit factor), the equity curve, the modeled assumptions line, and a
+collapsed **Evidence** row with the result, strategy, dataset, and run fingerprints. Ratio metrics,
+the buy-and-hold comparison, and the modeled trade ledger follow. Results are research evidence, not
 a promise, and there is no Deploy or Start-paper button on them.
 
 **Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
@@ -174,18 +189,63 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
-Manage deployments at http://127.0.0.1:5175/deployments. Its paged inventory opens each
-runtime's own `/deployments/{id}` detail; it does not send you to the draft editor. Detail is
-anchored to the immutable published strategy fingerprint and separates mode/status, latest
-completed-bar signal, current exposure and protection, paper fee assumptions, fill-ledger
-performance, and paged orders/fills from historical backtest and research evidence for the same
-version. A last signal is not a full per-bar decision history; no-trade conditions are stated only
-when the runtime supplied that signal. Discretionary deployments have no published strategy source.
-Published-only strategies have no editable draft; their Build stage shows the published definition
-read-only. The workspace's `?version=` selects an exact published fingerprint, and an invalid
-requested version must not start a different version. Detail links **Backtests of this version**
-and **Decisions for this version** open the Test and Why stages for that fingerprint. Start a new
-deployment on the Run stage; manage an existing one there or on its detail page.
+### Portfolio and bot detail
+
+**Portfolio** (http://127.0.0.1:5175/deployments) lists every bot: one row per deployment, grouped
+**Needs attention** (any status other than running, paused, or stopped), **Running**, **Paused**,
+and **Stopped**. An **All / Paper / Live** switch filters the rows. Each row shows the strategy name
+and version (resolved from the strategy library by exact fingerprint; otherwise the short
+fingerprint, or "Discretionary order"), a **Paper** or amber **LIVE** chip, the market with the
+product's own quote (`ETH / USDC`) and clock, position and protection, fill-ledger net PnL (`—` when
+not computed), and status. Rows open `/deployments/{id}`. The list is paged 50 at a time; the filter
+applies to the page you are on. The header counts running, paused, and needs-attention bots across
+the whole inventory, and totals allocated capital, performance equity, and gross marked exposure
+only from the deployments' `capital` and ledger fields, per quote currency. Money is never totalled
+across paper and live (choose Paper or Live), and a figure that cannot be computed truthfully (no
+capital block, an open position without a complete mark) shows `—` with the reason. **Start a
+deployment** opens the strategy library; start from a strategy's Run stage. Portfolios with shared
+capital and a manager agent are not built yet.
+
+**Bot detail** (`/deployments/{id}`) is anchored to the immutable published strategy fingerprint.
+The header shows the strategy name, the mode chip, a version pill that opens the strategy workspace
+at that exact fingerprint, market · clock · status · worker lease (a held lease is coordination
+state, not proof the worker is healthy), instruction, entry eligibility, and revision, plus
+**Pause entries…**, **Resume entries…**, **Stop…** (managed stop or stop and flatten), and
+**Flatten remaining exposure…** when a managed stop left residual exposure. A stopped bot never
+offers Resume. Four cards show allocated capital and performance equity (the `capital` block; live
+adds venue availability), PnL (operator performance report, with currency, drawdown, and incomplete
+mark caveats; ledger fallback when the report is unavailable), position and protection, and the
+latest completed-bar signal. **Orders & fills** is one card with an Orders / Fills switch; each list
+keeps its own cursor paging. **Why it traded** is a timeline of the latest bar signal and this bot's
+persisted trade reasons; full per-bar decision history is not recorded yet. A latched breaker shows
+a banner with **Reset breaker latches…** (its own confirmation). Positions & protection, evidence
+links (**Backtests of this version** and **Decisions for this version** open the Test and Why
+stages for that fingerprint), other deployments of the same strategy, and the **Capital breakdown**
+and **Exact published configuration** disclosures follow. Live resume, here and on the Run stage,
+keeps its confirm disabled until you tick "I understand this places real orders on Coinbase with
+real money"; only then is `i_understand_live: true` sent. Incomplete or malformed lifecycle payloads
+(including an unknown `lifecycle_command`) stay read-only, and an ambiguous or stale mutation
+disables controls until a refresh succeeds. Discretionary deployments have no published strategy
+source. Published-only strategies have no editable draft; their Build stage shows the published
+definition read-only. The workspace's `?version=` selects an exact published fingerprint, and an
+invalid requested version must not start a different version. Start a new deployment on the Run
+stage; manage an existing one there or on its detail page.
+
+### Trade
+
+**Trade** (http://127.0.0.1:5175/trade) places a one-off long or short with a stop loss and take
+profit through the same intent → risk → broker path as `thytrader-runtime place-order --confirm`.
+The form is on the left: a **Paper / Live** switch, product, side, order type (post-only limit or
+marketable), clock, limit price, quantity or quote notional (exactly one), stop loss, take profit,
+paper cash and fee assumptions (paper only), and an optional why note. The **Review** aside on the
+right shows the entry, max loss at stop and reward : risk computed exactly from your numbers (before
+fees; **Unknown** for a marketable entry), whether a risk policy is published (read from
+`GET /api/v1/risk-policy`; the server still checks every order), and warnings when the stop or
+target sits on the wrong side of the entry. **Live** turns on the live chrome and an amber aside;
+**Review live order…** opens a live confirmation whose **Send** stays disabled until you tick "I
+understand this places real orders on Coinbase with real money". ThyTrader never borrows: live
+shorts need available base. A timeout is reconciled by client order id, never re-sent. Recent
+why-trade records stay below the ticket.
 
 ### Why
 

@@ -14,7 +14,9 @@
 	} from '$lib/fees';
 	import {
 		axisNeedsIndicator,
+		defaultLaunchEngine,
 		engineContractLabel,
+		fetchEngineSupport,
 		parametersForTarget,
 		parseParameterAxisValues,
 		submitResearchStudy,
@@ -89,6 +91,10 @@
 		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
 		spread_bps: '8'
 	});
+	let studyOpen = $state(false);
+	/** Engines advertised by `GET /api/v1/research/engine-support`; null until read or on failure. */
+	let advertisedEngines = $state<string[] | null>(null);
+	let engineDefaulted = $state(false);
 	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let feeSuggestionLoading = $state(false);
@@ -133,6 +139,37 @@
 			void loadFeeSuggestion();
 		}
 	});
+
+	$effect(() => {
+		void loadEngineSupport();
+	});
+
+	/** Default the engine once from the engine-support matrix; never override a choice. */
+	async function loadEngineSupport(): Promise<void> {
+		try {
+			advertisedEngines = (await fetchEngineSupport()).engines;
+		} catch {
+			advertisedEngines = null;
+		}
+		const engine = defaultLaunchEngine(advertisedEngines);
+		if (launchForm.engine === '' && engine !== '') {
+			launchForm.engine = engine;
+			engineDefaulted = true;
+		}
+	}
+
+	function periodLabel(): string {
+		const bounds = launchWindowBounds();
+		if (launchForm.evaluation_start === '' || launchForm.evaluation_end === '') return 'Not set';
+		if (
+			bounds !== null &&
+			launchForm.evaluation_start === bounds.min &&
+			launchForm.evaluation_end === bounds.max
+		) {
+			return 'Full coverage';
+		}
+		return `${launchForm.evaluation_start.slice(0, 10)} → ${launchForm.evaluation_end.slice(0, 10)}`;
+	}
 
 	function applyFeeSuggestion(suggestion: ResearchFeeSuggestion): void {
 		launchForm.maker_fee_rate = suggestion.makerFeeRate;
@@ -442,16 +479,11 @@
 </script>
 
 <section class="card run-bar" aria-label="Run a backtest">
-	<p class="view-note run-lede">
-		Runs against the selected immutable version. Results are deterministic and reproducible research
-		evidence, not a promise: candles don't show queue position or real fills. This stage does not
-		start paper or live trading.
-	</p>
 	{#if fingerprint === ''}
 		<p class="view-note">Select a published version to run a backtest.</p>
 	{:else}
-		<div class="run-grid">
-			<label
+		<div class="bar" data-testid="run-bar">
+			<label class="f dataset"
 				>Verified {model.timeframe} dataset
 				<select
 					bind:value={launchForm.dataset_fingerprint}
@@ -466,18 +498,10 @@
 							)} – {formatUtcInputValue(new Date(dataset.ends_at)).replace('T', ' ')} UTC</option
 						>
 					{/each}
-				</select>
-				{#if launchDatasetsLoading}
-					<small class="field-note">Loading verified datasets…</small>
-				{:else if launchDatasetError}
-					<small class="field-error" role="alert">{launchDatasetError}</small>
-				{:else if decisionLaunchDatasets().length === 0}
-					<small class="field-note">No verified {model.timeframe} datasets match this market.</small
-					>
-				{/if}</label
+				</select></label
 			>
 			{#if model.htf_filter}
-				<label
+				<label class="f"
 					>Verified {model.htf_filter.timeframe} HTF dataset
 					<select bind:value={launchForm.htf_dataset_fingerprint}>
 						<option value="">Select a verified {model.htf_filter.timeframe} dataset</option>
@@ -489,16 +513,11 @@
 								)} – {formatUtcInputValue(new Date(dataset.ends_at)).replace('T', ' ')} UTC</option
 							>
 						{/each}
-					</select>
-					{#if htfLaunchDatasets().length === 0}
-						<small class="field-note"
-							>No verified {model.htf_filter.timeframe} HTF dataset for this market.</small
-						>
-					{/if}</label
+					</select></label
 				>
 			{/if}
 			{#each extraLaunchTimeframes() as timeframe (timeframe)}
-				<label
+				<label class="f"
 					>Verified {timeframe} indicator dataset
 					<select
 						value={launchForm.indicator_dataset_fingerprints[timeframe] ?? ''}
@@ -518,79 +537,84 @@
 								)} – {formatUtcInputValue(new Date(dataset.ends_at)).replace('T', ' ')} UTC</option
 							>
 						{/each}
-					</select>
-					{#if extraLaunchDatasets(timeframe).length === 0}
-						<small class="field-note">No verified {timeframe} dataset for this market.</small>
-					{/if}</label
+					</select></label
 				>
 			{/each}
-			<label
+			<div class="f period">
+				<span class="f-label" id="run-period-label">Period</span>
+				<span class="static" aria-labelledby="run-period-label" data-testid="run-period"
+					>{periodLabel()}</span
+				>
+			</div>
+			<label class="f capital"
+				>Initial capital ({productIdQuote(productId) ?? 'quote'})
+				<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
+			>
+			<div class="f fees" role="group" aria-labelledby="run-fees-label">
+				<span class="f-label" id="run-fees-label">Fees (maker / taker)</span>
+				<div class="pair">
+					<input
+						inputmode="decimal"
+						aria-label="Maker fee rate"
+						bind:value={launchForm.maker_fee_rate}
+						oninput={onFeeFieldInput}
+					/>
+					<input
+						inputmode="decimal"
+						aria-label="Taker fee rate"
+						bind:value={launchForm.taker_fee_rate}
+						oninput={onFeeFieldInput}
+					/>
+				</div>
+			</div>
+			<label class="f engine"
 				>Engine
-				<select bind:value={launchForm.engine}>
-					<option value="" disabled selected hidden>Select an engine</option>
+				<select
+					bind:value={launchForm.engine}
+					title={engineDefaulted
+						? 'Defaulted to the newest engine this launcher offers from the server engine-support matrix'
+						: undefined}
+				>
+					<option value="" disabled hidden>Select an engine</option>
 					<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
 					<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
 					<option value="thytrader-bar-backtest-v3">V3 — resting maker limit</option>
 				</select></label
 			>
-			{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
-				<label
-					>Constant spread (bps, total bid-ask)
-					<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
+			<div class="actions">
+				<button
+					class="btn"
+					class:on={studyOpen}
+					type="button"
+					aria-expanded={studyOpen}
+					aria-controls="run-study-panel"
+					onclick={() => (studyOpen = !studyOpen)}>Run a study {studyOpen ? '▴' : '▾'}</button
 				>
-			{/if}
-			<div class="launch-grid">
-				<label
-					>Evaluation start
-					<input
-						type="datetime-local"
-						bind:value={launchForm.evaluation_start}
-						min={launchWindowBounds()?.min}
-						max={launchWindowBounds()?.max}
-					/></label
-				>
-				<label
-					>Evaluation end
-					<input
-						type="datetime-local"
-						bind:value={launchForm.evaluation_end}
-						min={launchWindowBounds()?.min}
-						max={launchWindowBounds()?.max}
-					/></label
-				>
-			</div>
-			{#if launchWindowHint() !== null}
-				<p class="view-note">{launchWindowHint()}</p>
-			{/if}
-			<div class="launch-grid">
-				<label
-					>Initial capital ({productIdQuote(productId) ?? 'quote'})
-					<input inputmode="decimal" bind:value={launchForm.initial_quote_balance} /></label
-				>
-				<label
-					>Fixed slippage (bps)
-					<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
-				>
-			</div>
-			<div class="launch-grid">
-				<label
-					>Maker fee rate
-					<input
-						inputmode="decimal"
-						bind:value={launchForm.maker_fee_rate}
-						oninput={onFeeFieldInput}
-					/></label
-				>
-				<label
-					>Taker fee rate
-					<input
-						inputmode="decimal"
-						bind:value={launchForm.taker_fee_rate}
-						oninput={onFeeFieldInput}
-					/></label
+				<button
+					class="btn primary"
+					type="button"
+					onclick={() => void runLaunch('single')}
+					disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run backtest'}</button
 				>
 			</div>
 		</div>
+		{#if launchDatasetsLoading}
+			<p class="field-note">Loading verified datasets…</p>
+		{:else if launchDatasetError}
+			<p class="field-error" role="alert">{launchDatasetError}</p>
+		{:else if decisionLaunchDatasets().length === 0}
+			<p class="field-note">No verified {model.timeframe} datasets match this market.</p>
+		{/if}
+		{#if model.htf_filter && htfLaunchDatasets().length === 0}
+			<p class="field-note">
+				No verified {model.htf_filter.timeframe} HTF dataset for this market.
+			</p>
+		{/if}
+		{#each extraLaunchTimeframes() as timeframe (timeframe)}
+			{#if extraLaunchDatasets(timeframe).length === 0}
+				<p class="field-note">No verified {timeframe} dataset for this market.</p>
+			{/if}
+		{/each}
 		<div class="fee-source-row">
 			<span
 				class="fee-source-chip"
@@ -622,125 +646,167 @@
 				>
 			{/if}
 		</div>
-		<p class="view-note">{RESEARCH_FEE_ENGINE_NOTE}</p>
-		{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
-		<div class="run-actions">
-			<details class="study">
-				<summary>Run a study</summary>
-				<div class="study-body">
+		<details class="advanced" data-testid="run-advanced">
+			<summary
+				>Advanced options <span class="summary-values"
+					>slippage {launchForm.fixed_slippage_bps || '—'} bps{launchForm.engine ===
+					'thytrader-bar-backtest-v2'
+						? ` · spread ${launchForm.spread_bps || '—'} bps`
+						: ''} · {periodLabel()}</span
+				></summary
+			>
+			<div class="advanced-body">
+				<div class="launch-grid">
+					<label
+						>Fixed slippage (bps)
+						<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
+					>
+					{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
+						<label
+							>Constant spread (bps, total bid-ask)
+							<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
+						>
+					{/if}
+				</div>
+				<div class="launch-grid">
+					<label
+						>Evaluation start
+						<input
+							type="datetime-local"
+							bind:value={launchForm.evaluation_start}
+							min={launchWindowBounds()?.min}
+							max={launchWindowBounds()?.max}
+						/></label
+					>
+					<label
+						>Evaluation end
+						<input
+							type="datetime-local"
+							bind:value={launchForm.evaluation_end}
+							min={launchWindowBounds()?.min}
+							max={launchWindowBounds()?.max}
+						/></label
+					>
+				</div>
+				{#if launchWindowHint() !== null}
+					<p class="view-note">{launchWindowHint()}</p>
+				{/if}
+			</div>
+		</details>
+		{#if studyOpen}
+			<div class="study-body" id="run-study-panel">
+				<div class="launch-grid">
+					<label
+						>Study
+						<select bind:value={studyKind}>
+							<option value="oos_holdout">OOS holdout</option>
+							<option value="walk_forward">Walk-forward</option>
+							<option value="parameter_sweep">Parameter sweep</option>
+							<option value="walk_forward_optimization">Walk-forward optimization</option>
+						</select></label
+					>
+				</div>
+				{#if studyKind === 'oos_holdout'}
 					<div class="launch-grid">
 						<label
-							>Study
-							<select bind:value={studyKind}>
-								<option value="oos_holdout">OOS holdout</option>
-								<option value="walk_forward">Walk-forward</option>
-								<option value="parameter_sweep">Parameter sweep</option>
-								<option value="walk_forward_optimization">Walk-forward optimization</option>
+							>OOS fraction (last share) <input
+								inputmode="decimal"
+								bind:value={oosFraction}
+							/></label
+						>
+					</div>
+					<p class="view-note">
+						The same published fingerprint is simulated on in-sample then out-of-sample. OOS is the
+						honest claim; this does not retune parameters.
+					</p>
+				{/if}
+				{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
+					<div class="launch-grid">
+						<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
+						<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
+						<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
+						<label
+							>Fold mode
+							<select bind:value={foldMode}>
+								<option value="rolling">Rolling</option>
+								<option value="anchored">Anchored</option>
 							</select></label
 						>
 					</div>
-					{#if studyKind === 'oos_holdout'}
-						<div class="launch-grid">
-							<label
-								>OOS fraction (last share) <input
-									inputmode="decimal"
-									bind:value={oosFraction}
-								/></label
-							>
-						</div>
-						<p class="view-note">
-							The same published fingerprint is simulated on in-sample then out-of-sample. OOS is
-							the honest claim; this does not retune parameters.
-						</p>
-					{/if}
-					{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
-						<div class="launch-grid">
-							<label>In-sample bars<input inputmode="numeric" bind:value={inSampleBars} /></label>
-							<label>OOS bars<input inputmode="numeric" bind:value={outOfSampleBars} /></label>
-							<label>Step bars<input inputmode="numeric" bind:value={stepBars} /></label>
-							<label
-								>Fold mode
-								<select bind:value={foldMode}>
-									<option value="rolling">Rolling</option>
-									<option value="anchored">Anchored</option>
-								</select></label
-							>
-						</div>
-						<p class="view-note">
-							{#if studyKind === 'walk_forward'}
-								Walk-forward validation uses the same published fingerprint on each fold.
-								Non-overlapping OOS windows may include a derived stitched equity curve.
-								Cross-market studies stay on the research CLI.
-							{:else}
-								WFO simulates every candidate on every fold and selects only on in-sample
-								{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
-								selected OOS returns without interpolating embargo gaps.
-							{/if}
-						</p>
-					{/if}
-					{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
-						<div class="launch-grid">
-							<label
-								>Axis target
-								<select value={axisTarget} onchange={onAxisTargetChange}>
-									<option value="indicator">indicator</option>
-									<option value="sizing">sizing</option>
-									<option value="exits">exits</option>
-									<option value="execution">execution</option>
-									<option value="entry_literal">entry_literal</option>
-									<option value="htf_literal">htf_literal</option>
-								</select></label
-							>
-							{#if axisNeedsIndicator(axisTarget)}
-								<label>Indicator id<input bind:value={axisIndicatorId} /></label>
-							{/if}
-							<label
-								>Parameter
-								<select bind:value={axisParameter}>
-									{#each parametersForTarget(axisTarget) as parameter (parameter)}
-										<option value={parameter}>{parameter}</option>
-									{/each}
-								</select></label
-							>
-							<label>Axis values (comma-separated) <input bind:value={axisValues} /></label>
-							{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
-								<label
-									>Condition operator (optional)
-									<input bind:value={axisConditionOperator} /></label
-								>
-							{/if}
-							<label
-								>Selection metric
-								<select bind:value={selectionMetric}>
-									<option value="total_return_fraction">Total return</option>
-									<option value="total_net_pnl">Total net PnL</option>
-									<option value="maximum_drawdown_fraction">Max drawdown</option>
-								</select></label
-							>
-						</div>
-						{#if studyKind === 'parameter_sweep'}
-							<p class="view-note">
-								Each axis cell is one published-shaped candidate on the same window. The aggregate
-								is not an out-of-sample claim. Submit publishes missing derived fingerprints.
-								Product and timeframe are not sweepable.
-							</p>
+					<p class="view-note">
+						{#if studyKind === 'walk_forward'}
+							Walk-forward validation uses the same published fingerprint on each fold.
+							Non-overlapping OOS windows may include a derived stitched equity curve. Cross-market
+							studies stay on the research CLI.
+						{:else}
+							WFO simulates every candidate on every fold and selects only on in-sample
+							{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
+							selected OOS returns without interpolating embargo gaps.
 						{/if}
+					</p>
+				{/if}
+				{#if studyKind === 'parameter_sweep' || studyKind === 'walk_forward_optimization'}
+					<div class="launch-grid">
+						<label
+							>Axis target
+							<select value={axisTarget} onchange={onAxisTargetChange}>
+								<option value="indicator">indicator</option>
+								<option value="sizing">sizing</option>
+								<option value="exits">exits</option>
+								<option value="execution">execution</option>
+								<option value="entry_literal">entry_literal</option>
+								<option value="htf_literal">htf_literal</option>
+							</select></label
+						>
+						{#if axisNeedsIndicator(axisTarget)}
+							<label>Indicator id<input bind:value={axisIndicatorId} /></label>
+						{/if}
+						<label
+							>Parameter
+							<select bind:value={axisParameter}>
+								{#each parametersForTarget(axisTarget) as parameter (parameter)}
+									<option value={parameter}>{parameter}</option>
+								{/each}
+							</select></label
+						>
+						<label>Axis values (comma-separated) <input bind:value={axisValues} /></label>
+						{#if axisTarget === 'entry_literal' || axisTarget === 'htf_literal'}
+							<label
+								>Condition operator (optional)
+								<input bind:value={axisConditionOperator} /></label
+							>
+						{/if}
+						<label
+							>Selection metric
+							<select bind:value={selectionMetric}>
+								<option value="total_return_fraction">Total return</option>
+								<option value="total_net_pnl">Total net PnL</option>
+								<option value="maximum_drawdown_fraction">Max drawdown</option>
+							</select></label
+						>
+					</div>
+					{#if studyKind === 'parameter_sweep'}
+						<p class="view-note">
+							Each axis cell is one published-shaped candidate on the same window. The aggregate is
+							not an out-of-sample claim. Submit publishes missing derived fingerprints. Product and
+							timeframe are not sweepable.
+						</p>
 					{/if}
-					<button
-						class="btn"
-						type="button"
-						onclick={() => void runLaunch('study')}
-						disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run study'}</button
-					>
-				</div>
-			</details>
-			<button
-				class="btn primary"
-				type="button"
-				onclick={() => void runLaunch('single')}
-				disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run backtest'}</button
-			>
-		</div>
+				{/if}
+				<button
+					class="btn"
+					type="button"
+					onclick={() => void runLaunch('study')}
+					disabled={launchBlocked}>{launching ? 'Running simulation…' : 'Run study'}</button
+				>
+			</div>
+		{/if}
+		{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
+		<p class="view-note run-lede">
+			Runs against the selected immutable version. Results are deterministic and reproducible
+			research evidence, not a promise: candles don't show queue position or real fills. This stage
+			does not start paper or live trading. {RESEARCH_FEE_ENGINE_NOTE}
+		</p>
 	{/if}
 </section>
 {#if studyResult}
@@ -807,31 +873,44 @@
 <style>
 	.run-bar {
 		display: grid;
-		gap: 12px;
-		margin-bottom: var(--space-4);
-		padding: 16px;
-	}
-	.run-lede {
-		margin: 0;
-	}
-	.run-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
 		gap: 10px;
-		align-items: end;
+		margin-bottom: var(--space-4);
+		padding: 14px 16px;
 	}
-	.run-grid .launch-grid {
-		display: contents;
+	.bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 10px;
 	}
-	.run-grid label {
+	.f {
 		display: grid;
 		gap: 4px;
+		min-width: 0;
 		color: var(--muted);
 		font-size: var(--fs-sm);
 	}
-	.run-grid select,
-	.run-grid input {
+	.f.dataset {
+		flex: 1 1 200px;
+		max-width: 300px;
+	}
+	.f.period {
+		flex: 0 1 130px;
+	}
+	.f.capital {
+		flex: 0 1 120px;
+	}
+	.f.fees {
+		flex: 0 1 160px;
+	}
+	.f.engine {
+		flex: 0 1 200px;
+	}
+	.f select,
+	.f input,
+	.static {
 		width: 100%;
+		min-width: 0;
 		min-height: 34px;
 		padding: 6px 9px;
 		border: 1px solid var(--line-2);
@@ -840,38 +919,52 @@
 		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-sm);
+		text-overflow: ellipsis;
 	}
-	.run-grid .view-note {
-		grid-column: 1 / -1;
-		order: 99;
+	.static {
+		display: flex;
+		align-items: center;
+		white-space: nowrap;
+		overflow: hidden;
+	}
+	.pair {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 6px;
+	}
+	.actions {
+		display: flex;
+		gap: 8px;
+		margin-left: auto;
+	}
+	.run-lede {
+		margin: 0;
 		font-size: var(--fs-sm);
 	}
-	.run-actions {
+	.advanced summary {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: flex-start;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-	.study {
-		flex: 1;
-		min-width: 260px;
-	}
-	.study summary {
-		display: inline-flex;
 		align-items: center;
-		min-height: 34px;
-		padding: 0 12px;
-		border: 1px solid var(--line-2);
-		border-radius: var(--radius-md);
-		background: var(--surface);
+		gap: 8px;
+		color: var(--muted);
+		font-size: var(--fs-sm);
 		cursor: pointer;
-		font-weight: 500;
+	}
+	.summary-values {
+		color: var(--faint);
+	}
+	.advanced-body {
+		display: grid;
+		gap: 10px;
+		margin-top: 10px;
+		padding: 12px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
 	}
 	.study-body {
 		display: grid;
 		gap: 10px;
-		margin-top: 10px;
 		padding: 12px;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
@@ -898,16 +991,18 @@
 		color: var(--text);
 	}
 	.view-note {
+		margin: 0;
 		color: var(--muted);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 	.view-problem {
+		margin: 0;
 		color: var(--neg);
 		font-size: 13px;
 	}
 	.launch-grid {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 		gap: 10px;
 	}
 	.launch-grid label {
@@ -918,19 +1013,20 @@
 	}
 	.launch-grid input,
 	.launch-grid select {
-		border: 1px solid var(--line-2);
-		border-radius: var(--radius-md);
-		background: var(--surface-2);
-		color: var(--text);
+		width: 100%;
 		min-height: 34px;
 		padding: 6px 9px;
+		border: 1px solid var(--line-2);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-sm);
-		width: 100%;
 	}
 	.field-note,
 	.field-error {
-		font-size: 10px;
+		margin: 0;
+		font-size: var(--fs-xs);
 		line-height: 1.35;
 	}
 	.field-note {
@@ -950,7 +1046,7 @@
 		align-items: center;
 		border: 1px solid var(--line-2);
 		border-radius: 999px;
-		padding: 4px 10px;
+		padding: 3px 10px;
 		font-size: 11px;
 		color: var(--muted);
 		background: var(--surface);
@@ -965,7 +1061,7 @@
 	}
 	.fee-source-action {
 		font-size: 12px;
-		padding: 4px 10px;
+		padding: 3px 10px;
 	}
 	.results-table {
 		width: 100%;
@@ -998,8 +1094,16 @@
 		cursor: pointer;
 	}
 	@media (max-width: 640px) {
-		.launch-grid {
-			grid-template-columns: 1fr;
+		.f.dataset,
+		.f.period,
+		.f.capital,
+		.f.fees,
+		.f.engine {
+			flex-basis: 100%;
+			max-width: none;
+		}
+		.actions {
+			margin-left: 0;
 		}
 	}
 </style>

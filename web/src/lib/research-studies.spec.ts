@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+	defaultLaunchEngine,
 	engineContractLabel,
+	fetchEngineSupport,
 	listStrategyTemplates,
 	parametersForTarget,
 	parseParameterAxisValues,
@@ -29,6 +31,56 @@ describe('engineContractLabel', () => {
 		expect(engineContractLabel('thytrader-bar-backtest-v1')).toBe('V1');
 		expect(engineContractLabel('thytrader-bar-backtest-v2')).toBe('V2');
 		expect(engineContractLabel('thytrader-bar-backtest-v3')).toBe('V3');
+	});
+
+	it('names V4 instead of mislabelling it V1', () => {
+		expect(engineContractLabel('thytrader-bar-backtest-v4')).toBe('V4');
+	});
+});
+
+describe('defaultLaunchEngine', () => {
+	it('picks the newest advertised engine this launcher offers', () => {
+		expect(
+			defaultLaunchEngine([
+				'thytrader-bar-backtest-v1',
+				'thytrader-bar-backtest-v2',
+				'thytrader-bar-backtest-v3',
+				'thytrader-bar-backtest-v4'
+			])
+		).toBe('thytrader-bar-backtest-v3');
+		expect(defaultLaunchEngine(['thytrader-bar-backtest-v1', 'thytrader-bar-backtest-v2'])).toBe(
+			'thytrader-bar-backtest-v2'
+		);
+	});
+
+	it('keeps an explicit choice when support is unknown or nothing matches', () => {
+		expect(defaultLaunchEngine(null)).toBe('');
+		expect(defaultLaunchEngine(['thytrader-bar-backtest-v9'])).toBe('');
+	});
+});
+
+describe('fetchEngineSupport', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('reads the engine list and fails closed on a malformed body', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					contract_version: 'thytrader-engine-support-v2',
+					engines: ['thytrader-bar-backtest-v1']
+				})
+			})
+		);
+		await expect(fetchEngineSupport()).resolves.toEqual({
+			contract_version: 'thytrader-engine-support-v2',
+			engines: ['thytrader-bar-backtest-v1']
+		});
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+		await expect(fetchEngineSupport()).rejects.toThrow(/malformed/);
 	});
 });
 

@@ -98,10 +98,8 @@ describe('workstation chrome', () => {
 		expect(breadcrumbFor('/strategies/[id]/run')).toEqual({ section: 'Strategies', page: 'Run' });
 		expect(breadcrumbFor('/strategies/[id]/why')).toEqual({ section: 'Strategies', page: 'Why' });
 		expect(breadcrumbFor('/research')).toEqual({ section: 'Strategies', page: 'Research' });
-		expect(breadcrumbFor('/deployments/[id]')).toEqual({
-			section: 'Portfolio',
-			page: 'Deployment'
-		});
+		expect(breadcrumbFor('/deployments')).toEqual({ section: null, page: 'Portfolio' });
+		expect(breadcrumbFor('/deployments/[id]')).toEqual({ section: 'Portfolio', page: 'Bot' });
 		expect(breadcrumbFor('/settings')).toEqual({ section: 'System', page: 'Settings' });
 		expect(breadcrumbFor('/chat')).toEqual({ section: 'Agent', page: 'Operator chat' });
 		expect(breadcrumbFor(null)).toEqual({ section: null, page: 'ThyTrader' });

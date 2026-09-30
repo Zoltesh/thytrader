@@ -1,11 +1,40 @@
 <script lang="ts">
-	import PageHead from '$lib/PageHead.svelte';
+	/**
+	 * Portfolio (`/deployments`): every bot on this workstation, one row per
+	 * deployment, grouped Needs attention · Running · Paused · Stopped.
+	 *
+	 * The list is the bounded, offset-paged inventory. Header counts and money
+	 * come from the full inventory (followed page by page) and are never
+	 * invented: money is shown per mode and quote currency, else `—` with the
+	 * reason. Multi-strategy portfolios are not built yet; this page says so.
+	 */
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
-	import { listDeploymentsPage, type Deployment } from '$lib/deployments';
-	import { lifecycleContractNote, lifecycleControlsAvailable } from '$lib/lifecycle-contract';
+	import PageHead from '$lib/PageHead.svelte';
+	import Segmented from '$lib/Segmented.svelte';
+	import {
+		GROUP_ORDER,
+		MODE_FILTERS,
+		filterByMode,
+		groupDeployments,
+		moneyMetricNote,
+		moneyMetricText,
+		portfolioHeaderMetrics,
+		portfolioRow,
+		strategyVersionIndex,
+		type ModeFilter,
+		type StrategyVersionName
+	} from '$lib/deployment-portfolio';
+	import { listAllDeployments, listDeploymentsPage, type Deployment } from '$lib/deployments';
+	import { lifecycleContractNote } from '$lib/lifecycle-contract';
+	import { listStrategies } from '$lib/strategies';
 
 	const PAGE_SIZE = 50;
+	const MONEY_METRICS = [
+		{ label: 'Allocated capital', key: 'allocated' },
+		{ label: 'Performance equity', key: 'equity' },
+		{ label: 'Gross exposure', key: 'exposure' }
+	] as const;
 
 	let pageRows = $state<Deployment[]>([]);
 	let hasMore = $state(false);
@@ -15,21 +44,33 @@
 	let listLoading = $state(true);
 	let listError = $state<string | null>(null);
 
-	// Grouping order: running, paused, needs attention, stopped.
-	const running = $derived(pageRows.filter((deployment) => deployment.status === 'running'));
-	const paused = $derived(pageRows.filter((deployment) => deployment.status === 'paused'));
-	const attention = $derived(
-		pageRows.filter(
-			(deployment) =>
-				deployment.status !== 'running' &&
-				deployment.status !== 'paused' &&
-				deployment.status !== 'stopped'
-		)
-	);
-	const stoppedItems = $derived(pageRows.filter((deployment) => deployment.status === 'stopped'));
+	let filter = $state<ModeFilter>('all');
+	let inventory = $state<Deployment[] | null>(null);
+	let inventoryError = $state<string | null>(null);
+	let names = $state<ReadonlyMap<string, StrategyVersionName>>(new Map());
 
+	const visibleRows = $derived(filterByMode(pageRows, filter));
+	const groups = $derived(groupDeployments(visibleRows));
+	const metrics = $derived(inventory === null ? null : portfolioHeaderMetrics(inventory, filter));
+	/** One reason shown once when every money metric is unavailable for the same cause. */
+	const sharedMoneyNote = $derived.by((): string | null => {
+		if (metrics === null) return null;
+		const notes = MONEY_METRICS.map((item) => moneyMetricNote(metrics[item.key]));
+		return notes.every((note) => note !== null && note === notes[0]) &&
+			MONEY_METRICS.every((item) => metrics[item.key].state === 'unavailable')
+			? notes[0]
+			: null;
+	});
+	const filterOptions = $derived(
+		MODE_FILTERS.map((option) => ({
+			...option,
+			live: option.id === 'live',
+			count: inventory === null ? undefined : filterByMode(inventory, option.id).length
+		}))
+	);
 	/** Whether the current page is full: a Next control would have rows to show. */
 	const canGoNext = $derived(hasMore && pageRows.length > 0);
+	const paged = $derived(offset > 0 || hasMore);
 
 	async function loadPage(targetOffset: number): Promise<void> {
 		listLoading = true;
@@ -51,6 +92,27 @@
 		}
 	}
 
+	/** Full inventory for header metrics; failure leaves every metric as `—`. */
+	async function loadInventory(): Promise<void> {
+		inventoryError = null;
+		try {
+			inventory = await listAllDeployments();
+		} catch (caught) {
+			inventory = null;
+			inventoryError =
+				caught instanceof Error ? caught.message : 'The deployment inventory is unavailable.';
+		}
+	}
+
+	/** Strategy names by exact fingerprint; rows fall back to the fingerprint on failure. */
+	async function loadNames(): Promise<void> {
+		try {
+			names = strategyVersionIndex(await listStrategies());
+		} catch {
+			names = new Map();
+		}
+	}
+
 	function nextPage(): void {
 		if (!canGoNext || listLoading) return;
 		void loadPage(offset + PAGE_SIZE);
@@ -63,21 +125,71 @@
 
 	onMount(() => {
 		void loadPage(0);
+		void loadInventory();
+		void loadNames();
 	});
 </script>
 
-<svelte:head><title>Deployments · ThyTrader</title></svelte:head>
+<svelte:head><title>Portfolio · ThyTrader</title></svelte:head>
 
 <main>
-	<PageHead eyebrow="Runtime status" title="Deployments">
-		{#snippet intro()}
-			<p class="lede">
-				Everything running on this workstation. Open a deployment for exact-version evidence,
-				positions, orders, and fills. Start new deployments from
-				<a href={resolve('/deploy')}>Deploy</a>.
-			</p>
-		{/snippet}
+	<PageHead
+		title="Portfolio"
+		lede="Every bot on this workstation. Each runs one exact strategy version with its own capital; open one for orders, fills, and why it traded."
+	>
+		<Segmented
+			label="Show bots by mode"
+			options={filterOptions}
+			value={filter}
+			onchange={(next) => (filter = next)}
+			testId="portfolio-filter"
+		/>
+		<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
 	</PageHead>
+
+	<section class="card idbar" aria-label="Portfolio summary" data-testid="portfolio-metrics">
+		<div class="counts">
+			<div class="metric">
+				<div class="l">Running</div>
+				<div class="v" data-testid="metric-running">{metrics?.running ?? '—'}</div>
+			</div>
+			<div class="metric">
+				<div class="l">Paused</div>
+				<div class="v" data-testid="metric-paused">{metrics?.paused ?? '—'}</div>
+			</div>
+			<div class="metric">
+				<div class="l">Needs attention</div>
+				<div class="v" class:warn={(metrics?.attention ?? 0) > 0} data-testid="metric-attention">
+					{metrics?.attention ?? '—'}
+				</div>
+			</div>
+		</div>
+		<div class="money">
+			{#each MONEY_METRICS as item (item.key)}
+				{@const metric = metrics?.[item.key] ?? null}
+				<div class="metric">
+					<div class="l">{item.label}</div>
+					<div class="v" data-testid="metric-{item.key}">
+						{metric === null ? '—' : moneyMetricText(metric)}
+					</div>
+					{#if metric !== null && sharedMoneyNote === null && moneyMetricNote(metric) !== null}
+						<div class="n">{moneyMetricNote(metric)}</div>
+					{/if}
+				</div>
+			{/each}
+			{#if sharedMoneyNote !== null}
+				<p class="n shared">{sharedMoneyNote}</p>
+			{/if}
+		</div>
+		{#if inventoryError !== null}
+			<p class="inventory-error" role="status">
+				Summary unavailable ({inventoryError}); the list below still loads page by page.
+			</p>
+		{/if}
+		<p class="coming" data-testid="portfolio-coming">
+			Portfolios with shared capital and a manager agent are coming. Today each bot stands alone.
+		</p>
+	</section>
 
 	{#if listLoading}
 		<section class="loading-card" aria-label="Loading deployments">
@@ -94,12 +206,12 @@
 		</div>
 	{:else if pageRows.length === 0 && !everLoaded}
 		<section class="empty-state">
-			<h2>No deployments yet</h2>
+			<h2>No bots yet</h2>
 			<p>
-				Deploy a published strategy to run it automatically, or place a one-off order on Trade.
-				Deployments started here or by an agent appear here.
+				Pick a strategy and start it from its Run stage, or place a one-off order on Trade. Bots
+				started here or by an agent appear here.
 			</p>
-			<a class="link-button" href={resolve('/deploy')}>Open Deploy</a>
+			<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
 		</section>
 	{:else if pageRows.length === 0}
 		<section class="empty-state" data-testid="trailing-empty-page">
@@ -108,43 +220,43 @@
 				Rows past here were removed from the inventory while you were paging. Go back a page or
 				return to the first page.
 			</p>
-			<button type="button" class="link-button" onclick={() => void loadPage(0)}>
+			<button type="button" class="btn" onclick={() => void loadPage(0)}>
 				Back to first page
 			</button>
 		</section>
 	{:else}
-		{#if running.length > 0}
-			<h2 class="group-heading">Running</h2>
-			<ul class="stack" role="list">
-				{#each running as deployment (deployment.id)}
-					{@render card(deployment)}
-				{/each}
-			</ul>
+		{#if paged && filter !== 'all'}
+			<p class="page-note">The filter applies to the bots on this page.</p>
 		{/if}
-		{#if paused.length > 0}
-			<h2 class="group-heading">Paused</h2>
-			<ul class="stack" role="list">
-				{#each paused as deployment (deployment.id)}
-					{@render card(deployment)}
-				{/each}
-			</ul>
+		{#if visibleRows.length === 0}
+			<p class="empty-filter" data-testid="empty-filter">
+				No {filter === 'live' ? 'live' : 'paper'} bots on this page.
+			</p>
 		{/if}
-		{#if attention.length > 0}
-			<h2 class="group-heading">Needs attention</h2>
-			<ul class="stack" role="list">
-				{#each attention as deployment (deployment.id)}
-					{@render card(deployment)}
-				{/each}
-			</ul>
-		{/if}
-		{#if stoppedItems.length > 0}
-			<h2 class="group-heading">Stopped</h2>
-			<ul class="stack" role="list">
-				{#each stoppedItems as deployment (deployment.id)}
-					{@render card(deployment)}
-				{/each}
-			</ul>
-		{/if}
+		{#each GROUP_ORDER as group (group.key)}
+			{#if groups[group.key].length > 0}
+				<section class="group" aria-labelledby="group-{group.key}" data-group={group.key}>
+					<h2 class="group-heading" id="group-{group.key}">
+						{group.label} <span class="group-count">{groups[group.key].length}</span>
+					</h2>
+					<div class="card rows">
+						<div class="bot-row head" aria-hidden="true">
+							<div>Bot</div>
+							<div>Mode</div>
+							<div>Market</div>
+							<div>Position</div>
+							<div class="num">PnL</div>
+							<div class="right">Status</div>
+						</div>
+						<ul role="list">
+							{#each groups[group.key] as deployment (deployment.id)}
+								{@render row(deployment)}
+							{/each}
+						</ul>
+					</div>
+				</section>
+			{/if}
+		{/each}
 		<nav class="inventory-pager" aria-label="Deployment inventory pagination">
 			<span
 				>Showing {pageRows.length} deployment{pageRows.length === 1 ? '' : 's'} from {offset +
@@ -152,12 +264,14 @@
 			>
 			<button
 				type="button"
+				class="btn"
 				onclick={previousPage}
 				disabled={listLoading || offset === 0}
 				aria-label="Previous deployment page">Previous</button
 			>
 			<button
 				type="button"
+				class="btn"
 				onclick={nextPage}
 				disabled={listLoading || !canGoNext}
 				aria-label="Next deployment page">Next</button
@@ -166,173 +280,199 @@
 	{/if}
 </main>
 
-{#snippet card(deployment: Deployment)}
-	<li class="deploy-card">
-		<header class="card-head">
-			<div class="title">
-				<span class="mode mode-{deployment.mode}">{deployment.mode}</span>
-				<h2>
-					<a href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
-						>{deployment.product_id}</a
+{#snippet row(deployment: Deployment)}
+	{@const item = portfolioRow(deployment, names)}
+	<li data-testid="bot-row" data-mode={item.mode}>
+		<a
+			class="bot-row"
+			href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
+			aria-label="Open {item.name}{item.version ? ` ${item.version}` : ''}, {item.modeLabel ===
+			'LIVE'
+				? 'live'
+				: 'paper'}, {item.market}, {item.status.toLowerCase()}"
+		>
+			<div class="who">
+				<div class="name">
+					{item.name}
+					{#if item.version}<span class="faint">{item.version}</span>{/if}
+				</div>
+				{#if item.note}
+					<div
+						class="note"
+						class:problem={deployment.mismatch_detail !== null ||
+							deployment.daily_loss_latched ||
+							deployment.drawdown_latched}
+						class:warn={item.readOnly}
 					>
-				</h2>
-				<span class="meta">{deployment.timeframe ?? '—'} · {deployment.status}</span>
+						{item.note}
+					</div>
+				{/if}
 			</div>
-		</header>
-		<div class="facts">
-			<div><span>Lifecycle</span><strong>{deployment.lifecycle_command}</strong></div>
-			<div><span>Cash</span><strong>{deployment.cash}</strong></div>
-			{#if deployment.last_signal}
-				<div><span>Last signal</span><strong>{deployment.last_signal}</strong></div>
-			{/if}
-			{#if deployment.last_evaluated_bar}
-				<div><span>Last bar</span><strong>{deployment.last_evaluated_bar}</strong></div>
-			{/if}
-		</div>
-		{#if deployment.mismatch_detail}
-			<p class="problem" role="alert">{deployment.mismatch_detail}</p>
-		{/if}
-		{#if deployment.daily_loss_latched || deployment.drawdown_latched}
-			<p class="problem" role="status">
-				{[
-					deployment.daily_loss_latched ? 'daily loss breaker latched' : null,
-					deployment.drawdown_latched ? 'drawdown breaker latched' : null
-				]
-					.filter(Boolean)
-					.join(' · ')}
-			</p>
-		{/if}
-		{#if !lifecycleControlsAvailable(deployment)}
-			<p class="contract-note">{lifecycleContractNote(deployment)}</p>
-		{/if}
-		<p class="card-actions">
-			<a
-				class="bar-button"
-				href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
-				aria-label="Open {deployment.product_id} deployment detail">Detail →</a
+			<div>
+				<span class="chip" class:paper={item.mode === 'paper'} class:live={item.mode === 'live'}
+					>{item.modeLabel}</span
+				>
+			</div>
+			<div>{item.market} <span class="faint">· {item.clock}</span></div>
+			<div>
+				<div>{item.position}</div>
+				<div class="faint small">{item.protection}</div>
+			</div>
+			<div
+				class="num"
+				class:pos={item.pnlTone === 'pos'}
+				class:neg={item.pnlTone === 'neg'}
+				class:muted={item.pnlTone === 'muted'}
 			>
-		</p>
+				{item.pnl}
+			</div>
+			<div class="right muted">{item.status}</div>
+		</a>
+		{#if item.readOnly}
+			<p class="sr-only">{lifecycleContractNote(deployment)}</p>
+		{/if}
 	</li>
 {/snippet}
 
 <style>
-	.group-heading {
-		margin: 26px 0 12px;
-		font-size: 13px;
-		color: var(--faint);
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
+	.idbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: 16px 36px;
+		margin-bottom: var(--space-2);
+		padding: 16px 18px;
 	}
-	.stack {
-		display: grid;
-		gap: 12px;
+	.counts,
+	.money {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px 28px;
+	}
+	.money {
+		margin-left: auto;
+	}
+	.metric .l {
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.metric .v {
+		margin-top: 2px;
+		font-size: var(--fs-xl);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.shared {
+		flex-basis: 100%;
+		margin: 0;
+	}
+	.n {
+		color: var(--faint);
+		font-size: var(--fs-xs);
+	}
+	.metric .n {
+		max-width: 26ch;
+		margin-top: 2px;
+		color: var(--faint);
+		font-size: var(--fs-xs);
+	}
+	.warn {
+		color: var(--warn);
+	}
+	.coming,
+	.inventory-error {
+		flex-basis: 100%;
+		margin: 0;
+		padding-top: 12px;
+		border-top: 1px solid var(--line);
+		color: var(--faint);
+		font-size: var(--fs-sm);
+	}
+	.inventory-error {
+		color: var(--warn);
+	}
+	.page-note,
+	.empty-filter {
+		margin: 18px 0 0;
+		color: var(--faint);
+		font-size: var(--fs-sm);
+	}
+	.group-heading {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 22px 0 8px;
+		color: var(--faint);
+		font-size: var(--fs-sm);
+		font-weight: 500;
+	}
+	.group-count {
+		color: var(--muted);
+	}
+	.rows ul {
 		margin: 0;
 		padding: 0;
 		list-style: none;
 	}
-	.deploy-card {
-		border: 1px solid var(--line);
-		background: var(--surface);
-		border-radius: 13px;
-		padding: 18px 20px;
+	.bot-row {
 		display: grid;
-		gap: 12px;
-	}
-	.card-head {
-		display: flex;
-		justify-content: space-between;
+		grid-template-columns:
+			minmax(0, 2.2fr) 80px minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, 0.9fr)
+			minmax(0, 0.8fr);
 		align-items: center;
 		gap: 12px;
-	}
-	.title {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		flex-wrap: wrap;
-	}
-	.title h2 {
-		margin: 0;
-		font-size: 18px;
-	}
-	.title h2 a {
+		padding: 12px 16px;
+		border-bottom: 1px solid var(--line);
 		color: var(--text);
 		text-decoration: none;
 	}
-	.title h2 a:hover {
-		color: var(--accent);
+	.rows li:last-child .bot-row {
+		border-bottom: 0;
 	}
-	.meta {
+	a.bot-row:hover {
+		background: var(--hover);
+	}
+	a.bot-row:focus-visible {
+		outline-offset: -2px;
+	}
+	.bot-row.head {
+		padding-top: 10px;
+		padding-bottom: 10px;
 		color: var(--faint);
-		font-size: 12px;
+		font-size: 11.5px;
 	}
-	.mode {
-		font:
-			600 10px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		border-radius: 6px;
-		padding: 3px 7px;
+	.name {
+		font-weight: 500;
 	}
-	.mode-paper {
-		color: var(--info);
-		border: 1px solid var(--info-line);
-		background: var(--info-soft);
-	}
-	.mode-live {
-		color: var(--neg);
-		border: 1px solid var(--danger-line);
-		background: var(--danger-soft);
-	}
-	.facts {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 26px;
-	}
-	.facts span {
-		display: block;
+	.note {
+		margin-top: 2px;
 		color: var(--faint);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
+		font-size: var(--fs-sm);
 	}
-	.facts strong {
-		font:
-			500 13px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-		color: var(--text);
-	}
-	.problem {
-		margin: 0;
+	.note.problem {
 		color: var(--neg);
-		font-size: 13px;
 	}
-	.contract-note {
-		margin: 0;
-		color: var(--warn);
-		font-size: 12px;
+	.small {
+		font-size: var(--fs-sm);
 	}
-	.card-actions {
-		margin: 0;
+	.faint {
+		color: var(--faint);
 	}
-	.bar-button {
-		display: inline-block;
-		border: 1px solid var(--line-2);
-		background: var(--surface-2);
-		color: var(--text);
-		border-radius: 8px;
-		padding: 7px 12px;
-		font: inherit;
-		font-size: 12px;
-		text-decoration: none;
-		cursor: pointer;
+	.muted {
+		color: var(--muted);
 	}
-	.bar-button:hover {
-		border-color: var(--accent);
+	.pos {
+		color: var(--pos);
+	}
+	.neg {
+		color: var(--neg);
+	}
+	.num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.right {
+		text-align: right;
 	}
 	.inventory-pager {
 		display: flex;
@@ -340,29 +480,21 @@
 		gap: 10px;
 		margin-top: 22px;
 		color: var(--faint);
-		font-size: 12px;
+		font-size: var(--fs-sm);
 	}
-	.inventory-pager button {
-		color: var(--text);
-		background: var(--surface-2);
-		border: 1px solid var(--line-2);
-		border-radius: 7px;
-		padding: 7px 11px;
-		cursor: pointer;
-		font-size: 12px;
-	}
-	.inventory-pager button:hover:not(:disabled) {
-		border-color: var(--accent);
-	}
-	.inventory-pager button:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-	.empty-state .link-button {
-		border: none;
-		background: none;
-		font: inherit;
-		cursor: pointer;
-		padding: 0;
+	@media (max-width: 900px) {
+		.money {
+			margin-left: 0;
+		}
+		.bot-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.bot-row.head {
+			display: none;
+		}
+		.bot-row > :nth-child(3),
+		.bot-row > :nth-child(4) {
+			grid-column: 1 / -1;
+		}
 	}
 </style>

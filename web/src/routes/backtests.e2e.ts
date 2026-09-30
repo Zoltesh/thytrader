@@ -256,7 +256,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByTestId('backtest-list-published')).toHaveText('2026-08-03 17:25:34 UTC');
 	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
-	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
 	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
 	await expect(
@@ -412,7 +412,7 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 	await expect(page.getByTestId('backtest-list-engine')).toHaveText('thytrader-bar-backtest-v3');
 	await expect(page.getByTestId('backtest-list-spread')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
-	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(page.getByTestId('modeled-assumptions')).toContainText('post-only limit');
 	await expect(page.getByTestId('modeled-assumptions')).not.toContainText('constant spread');
 	await expect(page.getByTestId('fill-assumptions')).toContainText('rests a post-only buy');
@@ -484,7 +484,7 @@ test('keeps immutable detail visible when the benchmark request fails', async ({
 	});
 	await page.goto('/backtests');
 	await page.getByRole('button', { name: /Inspect/ }).click();
-	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(page.getByTestId('benchmark-unavailable')).toBeVisible();
 	await expect(page.getByText('Backtest benchmark is unavailable.')).toBeVisible();
 });
@@ -558,7 +558,9 @@ test('renders immutable detail before a slow benchmark finishes', async ({ page 
 	});
 	await page.goto('/backtests');
 	await page.getByRole('button', { name: /Inspect/ }).click();
-	await expect(page.getByText('Simulation result')).toBeVisible({ timeout: 1000 });
+	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible({
+		timeout: 1000
+	});
 	await expect(page.getByText('Loading benchmark comparison…')).toBeVisible();
 });
 
@@ -753,7 +755,7 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 		});
 	});
 	await page.goto(`/backtests?result=${encodeURIComponent(fingerprint)}`);
-	await expect(page.getByText('Simulation result')).toBeVisible();
+	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
 	await page.getByRole('button', { name: '← All backtests' }).click();
 	await expect(page.getByText('Published backtests')).toBeVisible();

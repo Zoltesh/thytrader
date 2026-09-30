@@ -39,7 +39,10 @@ In the browser these controls live on each strategy's Run stage (`/strategies/{s
 optionally `?version=<strategy_fingerprint>`; old `/deploy?strategy=` links redirect there,
 [ADR 0080](../../docs/decisions/0080-per-strategy-workspace-build-test-run-why.md)); its live
 arm / resume dialogs send `i_understand_live: true` only after an explicit checkbox, and its live
-preflight list is informational, not a readiness gate. Agents keep using this CLI.
+preflight list is informational, not a readiness gate. Each bot's detail page (`/deployments/{id}`,
+listed on Portfolio at `/deployments`) offers the same pause / resume / stop / flatten / breaker-reset
+dialogs, with the same checkbox on live resume, and the Trade page (`/trade`) sends a live
+`place-order` only after its live dialog's checkbox. Agents keep using this CLI.
 Protection, leases, and live capital follow
 [ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
 (`lifecycle_command=stop_new_entries`) still maintains verified attached-child protection on

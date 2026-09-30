@@ -66,6 +66,10 @@
 			? rows.filter((row) => row.strategy_fingerprint === selected.strategy_fingerprint)
 			: rows
 	);
+	/** The listed row for the open result, when the list already has it (version + time). */
+	const resultRow = $derived(
+		rows.find((row) => row.result_fingerprint === resultFingerprint) ?? null
+	);
 	/** A `?result=` must belong to one of this strategy's published versions. */
 	const foreignResult = $derived(
 		detail !== null &&
@@ -239,10 +243,6 @@
 				</p>
 			</div>
 		{:else}
-			<p class="evidence-note">
-				Simulated result from candle data: research evidence, not a promise. It does not start or
-				qualify a runtime.
-			</p>
 			<BacktestDetail
 				{detail}
 				{benchmark}
@@ -254,8 +254,14 @@
 				loading={detailLoading}
 				error={detailError}
 				backLabel="× Close result"
+				versionLabel={resultRow ? `v${resultRow.version}` : null}
+				publishedAt={resultRow?.published_at ?? null}
 				onBack={closeResult}
 			/>
+			<p class="evidence-note">
+				Simulated result from candle data: research evidence, not a promise. It does not start or
+				qualify a runtime.
+			</p>
 		{/if}
 	</section>
 {/if}
@@ -331,7 +337,7 @@
 		padding: 16px;
 	}
 	.evidence-note {
-		margin: 0 0 10px;
+		margin: 12px 0 0;
 		color: var(--faint);
 		font-size: var(--fs-sm);
 	}

@@ -16,6 +16,7 @@
 	} from '$lib/backtests';
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
+	import { engineContractLabel } from '$lib/research-studies';
 	import { formatUtcTimestamp } from '$lib/time';
 
 	let {
@@ -29,6 +30,8 @@
 		loading = false,
 		error = null,
 		backLabel = '← All backtests',
+		versionLabel = null,
+		publishedAt = null,
 		onBack
 	}: {
 		detail: BacktestDetail | null;
@@ -42,11 +45,26 @@
 		error?: string | null;
 		/** Label of the button that leaves this detail view. */
 		backLabel?: string;
+		/** `v3` when the owning strategy version is known (workspace Test stage). */
+		versionLabel?: string | null;
+		/** Publication time of this result when the caller's list knows it. */
+		publishedAt?: string | null;
 		onBack: () => void;
 	} = $props();
 	const result = $derived(detail?.result ?? null);
 	const equityModel = $derived(backtestEquityChartModel(result?.equity_curve ?? []));
 	const equityPointCount = $derived(result?.equity_curve.length ?? 0);
+	/** `2026-08-01 → 2026-09-29 · 1,400 bars`, read from the result's own equity curve. */
+	const periodText = $derived.by((): string => {
+		if (result === null) return '';
+		const bars = `${result.summary.evaluation_bars} bars`;
+		const curve = result.equity_curve;
+		if (curve.length < 2) return bars;
+		return `${curve[0].candle_starts_at.slice(0, 10)} → ${curve[curve.length - 1].candle_starts_at.slice(0, 10)} · ${bars}`;
+	});
+	const buyAndHold = $derived(
+		benchmark?.total_return_fraction ?? metrics?.buy_and_hold_return_fraction ?? null
+	);
 	const spreadCostNote = $derived(
 		result
 			? formatSpreadCostNote(result.engine_contract_version, result.summary.total_spread_cost)
@@ -55,55 +73,131 @@
 </script>
 
 <section class="detail" aria-label="Backtest result detail">
-	<div class="heading">
-		<div>
-			<button type="button" onclick={onBack}>{backLabel}</button>
-			<h2>Simulation result</h2>
-			<p>
-				Historical evidence only · immutable published result · this page cannot submit orders or
-				regenerate the run.
-			</p>
+	<div class="result-head" data-testid="backtest-result-head">
+		<div class="result-id">
+			<h2>
+				{#if result}{versionLabel ? `${versionLabel} · ` : ''}{periodText} · {engineContractLabel(
+						result.engine_contract_version
+					)}{:else}Backtest result{/if}
+			</h2>
+			{#if publishedAt}<span class="faint">{formatUtcTimestamp(publishedAt)}</span>{/if}
+			<span class="chip">Simulated result (candle-based fills)</span>
 		</div>
+		<button type="button" class="back" onclick={onBack}>{backLabel}</button>
 	</div>
+	<p class="evidence-only">
+		Historical evidence only · immutable published result · this page cannot submit orders or
+		regenerate the run.
+	</p>
 	{#if loading}<div class="empty"><div class="skeleton"></div></div>
 	{:else if error}<div class="empty">
 			<p>Backtest result could not be loaded.</p>
 			<small>{error}</small>
 		</div>
 	{:else if result && detail}
-		<div class="provenance">
-			<span>Result <code>{shortFingerprint(detail.result_fingerprint)}</code></span><span
-				>Strategy <code>{shortFingerprint(result.strategy_fingerprint)}</code></span
-			><span>Dataset <code>{shortFingerprint(result.dataset_fingerprint)}</code></span><span
-				>{result.engine_contract_version}</span
-			>
-		</div>
-		<div class="metrics">
-			<article>
-				<small>Final equity</small><strong>{formatUsd(result.summary.final_equity)}</strong><span
-					>from {formatUsd(result.summary.initial_equity)}</span
-				>
-			</article>
-			<article>
-				<small>Net return</small><strong
+		<div class="metrics-row" data-testid="result-metrics">
+			<div class="metric">
+				<div class="l">Net return</div>
+				<div
+					class="v"
 					class:gain={compareDecimalStrings(result.summary.total_return_fraction, '0') >= 0}
 					class:loss={compareDecimalStrings(result.summary.total_return_fraction, '0') < 0}
-					>{formatPercent(result.summary.total_return_fraction)}</strong
-				><span>{formatUsd(result.summary.total_net_pnl)} net PnL</span>
-			</article>
-			<article>
-				<small>Maximum drawdown</small><strong class="loss"
-					>{formatPercent(result.summary.maximum_drawdown_fraction)}</strong
-				><span
-					>{result.summary.trade_count} trades · {formatPercent(result.summary.win_rate)} wins</span
 				>
-			</article>
-			<article>
-				<small>Profit factor</small><strong>{result.summary.profit_factor ?? 'N/A'}</strong><span
-					>{formatSameBarPolicy(result.engine_contract_version)}</span
-				>
-			</article>
+					{formatPercent(result.summary.total_return_fraction)}
+				</div>
+				<div class="s">
+					{formatUsd(result.summary.total_net_pnl)} net · {formatUsd(result.summary.initial_equity)} →
+					{formatUsd(result.summary.final_equity)}
+				</div>
+			</div>
+			<div class="metric">
+				<div class="l">Buy &amp; hold</div>
+				<div class="v">
+					{buyAndHold !== null ? formatPercent(buyAndHold) : benchmarkLoading ? '…' : '—'}
+				</div>
+				<div class="s">Same window and modeled costs</div>
+			</div>
+			<div class="metric">
+				<div class="l">Max drawdown</div>
+				<div class="v loss">{formatPercent(result.summary.maximum_drawdown_fraction)}</div>
+				<div class="s">{formatUsd(result.summary.maximum_drawdown)}</div>
+			</div>
+			<div class="metric">
+				<div class="l">Trades</div>
+				<div class="v">{result.summary.trade_count}</div>
+				<div class="s">{result.summary.winning_trade_count} winning</div>
+			</div>
+			<div class="metric">
+				<div class="l">Win rate</div>
+				<div class="v">{formatPercent(result.summary.win_rate)}</div>
+				<div class="s">Closed trades</div>
+			</div>
+			<div class="metric">
+				<div class="l">Profit factor</div>
+				<div class="v">{result.summary.profit_factor ?? 'N/A'}</div>
+				<div class="s">{formatSameBarPolicy(result.engine_contract_version)}</div>
+			</div>
 		</div>
+		<div class="equity-panel">
+			<div class="panel-heading">
+				<div>
+					<h3>Equity curve</h3>
+					<p>
+						Mark-to-model research equity at each evaluation boundary — not live prices or profit
+						theater.
+					</p>
+				</div>
+				<span>{equityPointCount} {equityPointCount === 1 ? 'point' : 'points'}</span>
+			</div>
+			{#if equityPointCount === 0}
+				<div class="empty">
+					<p>No equity observations were recorded for this result.</p>
+					<small>The trade ledger remains the fill audit; this chart does not invent a path.</small>
+				</div>
+			{:else if equityPointCount === 1}
+				<div class="empty">
+					<p>One equity observation is available.</p>
+					<small>A curve appears when the result includes at least two evaluation boundaries.</small
+					>
+				</div>
+			{:else}
+				<div class="equity-chart">
+					<LightweightLineChart
+						series={equityModel.series}
+						samples={equityModel.samples}
+						height={180}
+						pointMarkers={false}
+						ariaLabel="Backtest mark-to-model equity curve"
+						testId="backtest-equity-chart"
+					/>
+				</div>
+			{/if}
+		</div>
+		<div class="assumptions" data-testid="modeled-assumptions">
+			<strong>Modeled assumptions</strong>
+			<span>{formatBrokerAssumptions(result.broker, result.engine_contract_version)}</span>
+			<span data-testid="published-costs"
+				>{formatPublishedCosts(detail.costs, result.engine_contract_version)}</span
+			>
+			<small data-testid="fill-assumptions"
+				>{formatEngineFillAssumptions(result.engine_contract_version)}</small
+			>
+			{#if spreadCostNote}<small>{spreadCostNote}</small>{/if}
+		</div>
+		<details class="evidence" data-testid="result-evidence">
+			<summary>Evidence <span class="faint">fingerprints and engine contract</span></summary>
+			<div class="provenance">
+				<span title={detail.result_fingerprint}
+					>Result <code>{shortFingerprint(detail.result_fingerprint)}</code></span
+				><span title={result.strategy_fingerprint}
+					>Strategy <code>{shortFingerprint(result.strategy_fingerprint)}</code></span
+				><span title={result.dataset_fingerprint}
+					>Dataset <code>{shortFingerprint(result.dataset_fingerprint)}</code></span
+				><span title={result.run_fingerprint}
+					>Run <code>{shortFingerprint(result.run_fingerprint)}</code></span
+				><span>{result.engine_contract_version}</span>
+			</div>
+		</details>
 		<div
 			class="metrics-panel"
 			data-testid="performance-metrics"
@@ -205,52 +299,6 @@
 					>
 				</div>{/if}
 		</div>
-		<div class="assumptions" data-testid="modeled-assumptions">
-			<strong>Modeled assumptions</strong>
-			<span>{formatBrokerAssumptions(result.broker, result.engine_contract_version)}</span>
-			<span data-testid="published-costs"
-				>{formatPublishedCosts(detail.costs, result.engine_contract_version)}</span
-			>
-			<small data-testid="fill-assumptions"
-				>{formatEngineFillAssumptions(result.engine_contract_version)}</small
-			>
-			{#if spreadCostNote}<small>{spreadCostNote}</small>{/if}
-		</div>
-		<div class="equity-panel">
-			<div class="panel-heading">
-				<div>
-					<h3>Equity curve</h3>
-					<p>
-						Mark-to-model research equity at each evaluation boundary — not live prices or profit
-						theater.
-					</p>
-				</div>
-				<span>{equityPointCount} {equityPointCount === 1 ? 'point' : 'points'}</span>
-			</div>
-			{#if equityPointCount === 0}
-				<div class="empty">
-					<p>No equity observations were recorded for this result.</p>
-					<small>The trade ledger remains the fill audit; this chart does not invent a path.</small>
-				</div>
-			{:else if equityPointCount === 1}
-				<div class="empty">
-					<p>One equity observation is available.</p>
-					<small>A curve appears when the result includes at least two evaluation boundaries.</small
-					>
-				</div>
-			{:else}
-				<div class="equity-chart">
-					<LightweightLineChart
-						series={equityModel.series}
-						samples={equityModel.samples}
-						height={180}
-						pointMarkers={false}
-						ariaLabel="Backtest mark-to-model equity curve"
-						testId="backtest-equity-chart"
-					/>
-				</div>
-			{/if}
-		</div>
 		<div class="ledger">
 			<div class="panel-heading">
 				<div>
@@ -306,11 +354,28 @@
 		display: grid;
 		gap: 16px;
 	}
-	.heading {
+	.result-head {
 		display: flex;
-		justify-content: space-between;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px 16px;
 	}
-	.heading button {
+	.result-id {
+		display: flex;
+		flex: 1;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px 12px;
+		min-width: 0;
+	}
+	.result-id h2 {
+		margin: 0;
+		font-size: var(--fs-md);
+	}
+	.result-id .chip {
+		margin-left: auto;
+	}
+	.back {
 		padding: 0;
 		border: 0;
 		background: transparent;
@@ -318,16 +383,57 @@
 		cursor: pointer;
 		font-size: 13px;
 	}
-	h2 {
-		margin: 12px 0 6px;
-		font-size: 28px;
+	.evidence-only {
+		margin-top: -8px;
+	}
+	.faint {
+		color: var(--faint);
+	}
+	.metrics-row {
+		display: grid;
+		grid-template-columns: repeat(6, minmax(0, 1fr));
+		gap: 12px;
+	}
+	.metric .l {
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.metric .v {
+		margin-top: 2px;
+		font-size: var(--fs-xl);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.metric .s {
+		margin-top: 2px;
+		color: var(--faint);
+		font-size: var(--fs-xs);
+	}
+	.evidence {
+		border: 1px solid var(--line);
+		border-radius: 13px;
+		background: var(--surface);
+	}
+	.evidence summary {
+		padding: 12px 18px;
+		cursor: pointer;
+		font-weight: 600;
+	}
+	.evidence summary .faint {
+		margin-left: 6px;
+		font-weight: 400;
+		font-size: var(--fs-sm);
+	}
+	.evidence .provenance {
+		border: 0;
+		border-top: 1px solid var(--line);
+		border-radius: 0;
 	}
 	h3 {
 		margin: 0;
-		font-size: 18px;
+		font-size: var(--fs-md);
 	}
-	p,
-	.heading p {
+	p {
 		margin: 0;
 		color: var(--faint);
 		font-size: 12px;
@@ -437,7 +543,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 20px 22px;
+		padding: 14px 18px;
 		border-bottom: 1px solid var(--line);
 	}
 	.panel-heading > span {
@@ -511,6 +617,11 @@
 			background-position: -200% 0;
 		}
 	}
+	@media (max-width: 1100px) {
+		.metrics-row {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+	}
 	@media (max-width: 800px) {
 		.metrics {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -520,6 +631,9 @@
 		}
 	}
 	@media (max-width: 520px) {
+		.metrics-row {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 		.metrics {
 			grid-template-columns: 1fr;
 		}

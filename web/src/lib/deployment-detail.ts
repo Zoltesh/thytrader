@@ -404,3 +404,87 @@ export function exactVersionEvidenceLinks(deployment: Deployment): EvidenceLink[
  */
 export const EVIDENCE_BOUNDED_NOTE =
 	'Evidence shown is bounded (recent history and persisted studies only); it is not a comprehensive record.';
+
+/**
+ * Bot detail heading: the published strategy name when its immutable source
+ * loaded, `Discretionary order` for tickets, else the market (never a guess).
+ */
+export function botTitle(deployment: Deployment, strategyName: string | null): string {
+	if (deployment.kind === 'discretionary' || deployment.strategy_fingerprint === null) {
+		return `Discretionary order · ${marketLabel(deployment.product_id)}`;
+	}
+	return strategyName ?? marketLabel(deployment.product_id);
+}
+
+/** Worker lease line; a held lease is coordination state, not proof of worker health. */
+export function leaseText(deployment: Deployment): string {
+	return deployment.worker_lease_held ? 'worker lease held' : 'no worker lease held';
+}
+
+/** Short value for the "Latest bar" KPI; the full sentence stays in `lastEvaluatedText`. */
+export function latestBarHeadline(deployment: Deployment): string {
+	if (deployment.last_evaluated_bar === null || deployment.last_evaluated_bar === undefined) {
+		return 'Not evaluated yet';
+	}
+	switch (deployment.last_signal) {
+		case 'not_matched':
+			return 'No trade';
+		case 'undefined':
+			return 'Could not evaluate';
+		case 'matched':
+			return 'Entry matched';
+		case null:
+		case undefined:
+			return 'Signal unknown';
+		default:
+			return `Signal: ${deployment.last_signal}`;
+	}
+}
+
+/**
+ * Headline amount for the PnL KPI from the operator performance report.
+ *
+ * A null currency stays `unknown quote`; an incomplete mark is marked `(not final)`.
+ */
+export function performanceHeadline(performance: {
+	currency: 'USD' | 'USDC' | 'USDT' | null;
+	total_net_pnl: string | null;
+	mark_complete: boolean | null;
+}): string {
+	const net = performance.total_net_pnl;
+	if (net === null || !/^-?\d+(?:\.\d+)?$/.test(net)) return '—';
+	const signed = net.startsWith('-') || /^0(?:\.0+)?$/.test(net) ? net : `+${net}`;
+	const currency = performance.currency ?? 'unknown quote';
+	const final = performance.mark_complete === false ? ' (not final)' : '';
+	return `${signed} ${currency}${final}`;
+}
+
+export type CapitalRow = { label: string; value: string };
+
+/**
+ * Every capital field on the snapshot, quote-labelled, for the breakdown
+ * disclosure. Absent fields read `unknown`; live adds venue availability.
+ */
+export function capitalBreakdown(deployment: Deployment): CapitalRow[] | null {
+	const capital = deployment.capital;
+	if (!capital) return null;
+	const label = (value: string | null | undefined): string =>
+		quoteAmountLabel(value, deployment.product_id);
+	const rows: CapitalRow[] = [
+		{ label: 'Allocated capital', value: label(capital.allocated_capital) },
+		{ label: 'Performance equity', value: label(capital.performance_equity) },
+		{ label: 'Reserved buying power', value: label(capital.reserved_buying_power) },
+		{ label: 'Inventory cost', value: label(capital.inventory_cost) },
+		{ label: 'Initial equity', value: label(capital.initial_equity) },
+		{ label: 'Breaker baseline equity', value: label(capital.baseline_equity) },
+		{ label: 'High-water mark equity', value: label(capital.high_water_mark_equity) },
+		{ label: 'UTC day-open equity', value: label(capital.utc_day_open_equity) }
+	];
+	if (deployment.mode === 'live') {
+		rows.splice(1, 0, {
+			label: 'Venue available quote',
+			value: label(capital.venue_available_quote)
+		});
+	}
+	return rows;
+}

@@ -94,8 +94,11 @@ test('runs a backtest for the selected version and inspects the result inline', 
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0040');
 	await expect(page.getByLabel('Initial capital (USDC)')).toHaveValue('10000');
-	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
 	await expect(page.getByRole('option', { name: 'V3 — resting maker limit' })).toBeAttached();
+	// Custom dates, slippage, and spread stress live behind the Advanced disclosure.
+	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeHidden();
+	await page.getByTestId('run-advanced').locator('summary').click();
+	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
 
 	// Results list covers every published version of this strategy.
 	const results = page.getByRole('table', { name: 'Backtest results for this strategy' });
@@ -120,9 +123,28 @@ test('runs a backtest for the selected version and inspects the result inline', 
 	// The new result opens inline, deep-linked by ?result=.
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(v2Result);
 	const result = page.getByTestId('workspace-result');
-	await expect(result.getByText('Simulation result')).toBeVisible();
+	await expect(result.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(result.getByTestId('modeled-assumptions')).toBeVisible();
 	await expect(result.getByText(/research\s+evidence, not a promise/)).toBeVisible();
+	// Compact result header: version · period · engine, plus the simulated-result chip.
+	const head = result.getByTestId('backtest-result-head');
+	await expect(head).toContainText(/v2 · \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2} · \d+ bars · V1/);
+	await expect(head.getByText('Simulated result (candle-based fills)')).toBeVisible();
+	const metrics = result.getByTestId('result-metrics');
+	for (const label of [
+		'Net return',
+		'Buy & hold',
+		'Max drawdown',
+		'Trades',
+		'Win rate',
+		'Profit factor'
+	])
+		await expect(metrics).toContainText(label);
+	// Fingerprints sit in the collapsed Evidence row.
+	const evidence = result.getByTestId('result-evidence');
+	await expect(evidence).not.toHaveAttribute('open', '');
+	await evidence.locator('summary').click();
+	await expect(evidence).toContainText('Dataset');
 	await expect(result.getByTestId('backtest-equity-chart')).toBeVisible();
 	// No promotion path from a backtest result to a runtime.
 	await expect(page.getByRole('button', { name: /Deploy|Start paper/ })).toHaveCount(0);
@@ -139,7 +161,9 @@ test('a ?result= deep link opens inline, and a foreign result is refused', async
 	await mockDatasets(page);
 	await mockBacktestDetail(page, resultFingerprint, fingerprint);
 	await page.goto(`${testStage}?version=${fingerprint}&result=${resultFingerprint}`);
-	await expect(page.getByTestId('workspace-result').getByText('Simulation result')).toBeVisible();
+	await expect(
+		page.getByTestId('workspace-result').getByText('Simulated result (candle-based fills)')
+	).toBeVisible();
 	await expect(page.getByRole('link', { name: /Inspect v1 result/ })).toHaveAttribute(
 		'aria-current',
 		'true'
@@ -151,7 +175,7 @@ test('a ?result= deep link opens inline, and a foreign result is refused', async
 	await expect(page.getByTestId('workspace-result')).toContainText(
 		'This result does not belong to this strategy.'
 	);
-	await expect(page.getByText('Simulation result')).toHaveCount(0);
+	await expect(page.getByText('Simulated result (candle-based fills)')).toHaveCount(0);
 });
 
 test('a composed study runs from the Run a study disclosure against the exact version', async ({
@@ -300,6 +324,7 @@ test('the window hint names the strategy clock, not UTC hours', async ({ page })
 	await mockDatasets(page, '5m');
 	await mockBacktestList(page);
 	await page.goto(testStage);
+	await page.getByTestId('run-advanced').locator('summary').click();
 	await expect(page.getByText(/\(UTC, 5m bars\)/)).toBeVisible();
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 });
@@ -309,4 +334,84 @@ test('a draft-only strategy has nothing to test yet', async ({ page }) => {
 	await page.goto(testStage);
 	await expect(page.getByRole('heading', { name: 'No published version yet' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Run backtest' })).toHaveCount(0);
+});
+
+test('the run bar is one compact row with Advanced options and a defaulted engine', async ({
+	page
+}) => {
+	await mockStrategy(page);
+	await mockFees(page, suggestedFeeProfile());
+	await mockDatasets(page);
+	await mockBacktestList(page);
+	await page.route('**/api/v1/research/engine-support', (route) =>
+		route.fulfill({
+			json: {
+				contract_version: 'thytrader-engine-support-v2',
+				engines: [
+					'thytrader-bar-backtest-v1',
+					'thytrader-bar-backtest-v2',
+					'thytrader-bar-backtest-v3',
+					'thytrader-bar-backtest-v4'
+				],
+				rows: []
+			}
+		})
+	);
+	let launchBody: Record<string, unknown> | null = null;
+	await page.route(
+		(url) => url.pathname === '/api/v1/backtests',
+		async (route) => {
+			if (route.request().method() !== 'POST') return route.fallback();
+			launchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
+			await route.fulfill({ status: 422, json: { detail: 'stop here in test' } });
+		}
+	);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(testStage);
+	const bar = page.getByTestId('run-bar');
+	// Newest engine this launcher offers (V4 stays CLI-only here), not an empty select.
+	await expect(page.getByLabel('Engine')).toHaveValue('thytrader-bar-backtest-v3');
+	// Compact fields: dataset, period, capital, fees, engine, then the actions on the right.
+	await expect(bar.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
+	await expect(bar.getByTestId('run-period')).toHaveText('Full coverage');
+	await expect(bar.getByLabel('Initial capital (USDC)')).toBeVisible();
+	await expect(bar.getByLabel('Maker fee rate')).toBeVisible();
+	await expect(bar.getByRole('button', { name: 'Run backtest' })).toBeEnabled();
+	const barBox = await bar.boundingBox();
+	expect(barBox?.height ?? 999).toBeLessThan(90);
+
+	// Advanced: slippage and custom dates hidden until opened; the summary keeps them visible.
+	const advanced = page.getByTestId('run-advanced');
+	await expect(advanced.locator('summary')).toContainText('slippage 10 bps');
+	await expect(page.getByLabel('Fixed slippage (bps)')).toBeHidden();
+	await advanced.locator('summary').click();
+	await expect(page.getByLabel('Fixed slippage (bps)')).toBeVisible();
+	await expect(page.getByLabel('Evaluation start')).toBeVisible();
+	await page.getByLabel('Evaluation start').fill('2026-08-10T00:00');
+	await expect(bar.getByTestId('run-period')).toContainText('2026-08-10 →');
+
+	// Run a study is a disclosure button beside Run backtest.
+	const study = page.getByRole('button', { name: /Run a study/ });
+	await expect(study).toHaveAttribute('aria-expanded', 'false');
+	await study.click();
+	await expect(study).toHaveAttribute('aria-expanded', 'true');
+	await expect(page.getByLabel('Study')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Run backtest' }).click();
+	await expect.poll(() => launchBody).not.toBeNull();
+	expect(launchBody).toMatchObject({ engine_contract_version: 'thytrader-bar-backtest-v3' });
+});
+
+test('an unreadable engine-support matrix keeps the explicit engine choice', async ({ page }) => {
+	await mockStrategy(page);
+	await mockFees(page, suggestedFeeProfile());
+	await mockDatasets(page);
+	await mockBacktestList(page);
+	await page.route('**/api/v1/research/engine-support', (route) =>
+		route.fulfill({ status: 503, json: { detail: 'unavailable' } })
+	);
+	await page.goto(testStage);
+	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
+	await expect(page.getByLabel('Engine')).toHaveValue('');
+	await expect(page.getByRole('button', { name: 'Run backtest' })).toBeDisabled();
 });

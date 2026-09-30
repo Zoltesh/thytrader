@@ -26,7 +26,14 @@ export type StrategyConfigSummary = {
 
 /** Response codes the source route returns for a missing publication. */
 export type StrategySourceState =
-	| { kind: 'loaded'; fingerprint: string; summary: StrategyConfigSummary }
+	| {
+			kind: 'loaded';
+			fingerprint: string;
+			/** Name and published version recorded in the immutable definition. */
+			name: string;
+			version: number | null;
+			summary: StrategyConfigSummary;
+	  }
 	| { kind: 'unavailable'; fingerprint: string; reason: string };
 
 async function fetchStrategySourceResponse(fingerprint: string): Promise<StrategySourceResponse> {
@@ -116,6 +123,8 @@ export async function loadStrategyConfig(fingerprint: string): Promise<StrategyS
 		return {
 			kind: 'loaded',
 			fingerprint,
+			name: body.strategy.name,
+			version: typeof body.strategy.version === 'number' ? body.strategy.version : null,
 			summary: summarizeStrategySource(fingerprint, body.strategy)
 		};
 	} catch (caught) {

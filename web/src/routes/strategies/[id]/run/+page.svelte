@@ -14,6 +14,7 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
 	import { fetchCoinbaseCredentialsStatus } from '$lib/credentials';
+	import { declareLiveContext } from '$lib/live-context.svelte';
 	import {
 		lifecycleAcceptedMessage,
 		marketLabel,
@@ -99,6 +100,12 @@
 	});
 
 	$effect(() => {
+		// Live chrome while the arm-live confirmation is on screen.
+		if (!liveOpen) return;
+		return declareLiveContext({ kind: 'arm', productId: model?.product_id ?? null, cap: null });
+	});
+
+	$effect(() => {
 		const current = model;
 		if (current === null) return;
 		untrack(() => void loadPreflight(current.product_id, current.timeframe));
@@ -165,7 +172,7 @@
 		dialogTarget = null;
 	}
 
-	async function confirmLifecycle(): Promise<void> {
+	async function confirmLifecycle(options: { liveAcknowledged: boolean }): Promise<void> {
 		const action = dialogAction;
 		const target = dialogTarget;
 		if (action === null || target === null || mutating) return;
@@ -176,8 +183,10 @@
 			let updated: Deployment;
 			if (action === 'pause') updated = await pauseDeployment(target.id);
 			else if (action === 'resume')
-				// Live resume reaches here only after the dialog's explicit acknowledgement.
-				updated = await resumeDeployment(target.id, { liveAcknowledged: target.mode === 'live' });
+				// The flag comes from the dialog's ticked "real orders" checkbox, never from mode alone.
+				updated = await resumeDeployment(target.id, {
+					liveAcknowledged: target.mode === 'live' && options.liveAcknowledged
+				});
 			else if (action === 'flatten') updated = await stopDeployment(target.id, true);
 			else updated = await stopDeployment(target.id, stopWithFlatten);
 			// Merge the mutation response first, then refresh.
@@ -408,18 +417,16 @@
 		</section>
 	{/if}
 
-	{#if dialogAction !== null && dialogTarget !== null}
-		<DeploymentLifecycleDialog
-			deployment={dialogTarget}
-			action={dialogAction}
-			bind:stopWithFlatten
-			{mutating}
-			{actionError}
-			requireLiveAcknowledgement
-			oncancel={closeLifecycle}
-			onconfirm={() => void confirmLifecycle()}
-		/>
-	{/if}
+	<DeploymentLifecycleDialog
+		deployment={dialogTarget}
+		action={dialogAction}
+		bind:stopWithFlatten
+		{mutating}
+		{actionError}
+		requireLiveAcknowledgement
+		oncancel={closeLifecycle}
+		onconfirm={(options) => void confirmLifecycle(options)}
+	/>
 
 	<ConfirmDialog
 		open={liveOpen}

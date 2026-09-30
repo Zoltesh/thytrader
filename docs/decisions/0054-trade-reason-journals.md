@@ -82,6 +82,9 @@ The same `TradeReasonRecord` payload is returned by:
 - amended by [ADR 0080](0080-per-strategy-workspace-build-test-run-why.md): the strategy workspace's
   Why stage (`/strategies/{id}/why`) shows the same payload filtered by deployment of the selected
   version; no contract change
+- amended by [ADR 0081](0081-live-chrome-portfolio-bot-detail-trade.md): bot detail
+  (`/deployments/{id}`) shows the same payload for that one deployment as a "Why it traded"
+  timeline; no contract change
 
 ### Persistence and ops contract
 

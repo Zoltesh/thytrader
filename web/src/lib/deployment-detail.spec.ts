@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	botTitle,
 	canOfferFlatten,
+	capitalBreakdown,
 	drawdownIsCaveated,
 	eligibility,
 	exactVersionEvidenceLinks,
@@ -9,10 +11,13 @@ import {
 	lifecycleAcceptedMessage,
 	lifecycleDialog,
 	lastEvaluatedText,
+	latestBarHeadline,
+	leaseText,
 	ledgerPerformanceText,
 	marketLabel,
 	otherVersionDeployments,
 	performanceCurrencySuffix,
+	performanceHeadline,
 	performanceReportText,
 	productIdQuote,
 	quoteAmountLabel,
@@ -619,5 +624,58 @@ describe('complete inventory fetch', () => {
 		} finally {
 			globalThis.fetch = original;
 		}
+	});
+});
+
+describe('bot detail KPIs', () => {
+	it('titles by published name, discretionary label, or market', () => {
+		expect(botTitle(deployment(), 'EMA Trend Pullback')).toBe('EMA Trend Pullback');
+		expect(botTitle(deployment(), null)).toBe('UNI / USDC');
+		expect(
+			botTitle(deployment({ kind: 'discretionary', strategy_fingerprint: null }), 'ignored')
+		).toBe('Discretionary order · UNI / USDC');
+	});
+
+	it('states the lease without claiming worker health', () => {
+		expect(leaseText(deployment({ worker_lease_held: true }))).toBe('worker lease held');
+		expect(leaseText(deployment())).toBe('no worker lease held');
+	});
+
+	it('reads the latest bar honestly', () => {
+		expect(latestBarHeadline(deployment())).toBe('Not evaluated yet');
+		const bar = '2026-09-21T20:00:00+00:00';
+		expect(
+			latestBarHeadline(deployment({ last_evaluated_bar: bar, last_signal: 'not_matched' }))
+		).toBe('No trade');
+		expect(
+			latestBarHeadline(deployment({ last_evaluated_bar: bar, last_signal: 'undefined' }))
+		).toBe('Could not evaluate');
+		expect(latestBarHeadline(deployment({ last_evaluated_bar: bar, last_signal: null }))).toBe(
+			'Signal unknown'
+		);
+	});
+
+	it('never relabels an unknown performance currency', () => {
+		expect(
+			performanceHeadline({ currency: 'USDC', total_net_pnl: '18.4', mark_complete: true })
+		).toBe('+18.4 USDC');
+		expect(performanceHeadline({ currency: null, total_net_pnl: '-2', mark_complete: false })).toBe(
+			'-2 unknown quote (not final)'
+		);
+		expect(performanceHeadline({ currency: 'USD', total_net_pnl: null, mark_complete: null })).toBe(
+			'—'
+		);
+	});
+
+	it('breaks capital down with the product quote and venue availability for live', () => {
+		expect(capitalBreakdown(deployment())).toBeNull();
+		const rows = capitalBreakdown(
+			deployment({
+				mode: 'live',
+				capital: { allocated_capital: '100', venue_available_quote: null }
+			})
+		);
+		expect(rows?.[0]).toEqual({ label: 'Allocated capital', value: '100 USDC' });
+		expect(rows?.[1]).toEqual({ label: 'Venue available quote', value: 'unknown' });
 	});
 });
