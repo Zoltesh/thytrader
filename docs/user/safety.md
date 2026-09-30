@@ -35,7 +35,8 @@ theme.
   `THYTRADER_YOLO_TIERS=paper` is valid.
 - Live start, live resume, and live on-demand place-order also require `--i-understand-live`
   (HTTP `i_understand_live: true`; the API answers 428 without it). The web UI sends it only after
-  its live confirmation dialog; the Agent panel and `/chat` only after the understand-live box
+  its live confirmation dialog's "I understand this places real orders" checkbox is ticked (Run
+  stage arm and resume, bot detail resume, and Trade); the Agent panel and `/chat` only after the understand-live box
   ([ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). YOLO never skips that flag. Live place-order, risk-policy publication, Coinbase credential set/clear, `--local`
   research, and memory stay confirmation-hard-gated even when YOLO advertises `live`.
 - The playbook never starts live. Memory mutations never inherit YOLO.

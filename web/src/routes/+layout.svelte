@@ -11,6 +11,8 @@
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import CommandPalette from '$lib/CommandPalette.svelte';
+	import { liveStripText } from '$lib/live-context';
+	import { liveChrome } from '$lib/live-context.svelte';
 	import OperatorChatPanel from '$lib/OperatorChatPanel.svelte';
 	import {
 		AGENT_PANEL_STORAGE_KEY,
@@ -52,6 +54,8 @@
 	let agentPanel: HTMLElement | undefined = $state();
 
 	const systemOpen = $derived(systemStored || isSystemRoute(routeId));
+	/** Declared by routes showing live exposure or composing a live order. */
+	const live = $derived(liveChrome.current);
 	const agentVisible = $derived(agentOpen && !onChatPage);
 
 	onMount(() => {
@@ -219,98 +223,122 @@
 		</nav>
 	</aside>
 
-	<div class="main-col">
-		<header class="top">
-			<p class="crumb" data-testid="breadcrumb">
-				{#if crumb.section}<span class="crumb-section">{crumb.section}</span><span
-						class="crumb-sep"
-						aria-hidden="true">/</span
-					>{/if}<b>{crumb.page}</b>
-			</p>
-			<button
-				type="button"
-				class="search"
-				aria-haspopup="dialog"
-				aria-label="Search pages and actions"
-				aria-keyshortcuts="Meta+K Control+K"
-				onclick={() => (paletteOpen = true)}
-			>
-				<svg
-					width="14"
-					height="14"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					aria-hidden="true"
-					><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg
+	<div class="main-col" class:live-frame={live !== null} data-live-frame={live !== null}>
+		<div class="top-stack">
+			<header class="top">
+				<p class="crumb" data-testid="breadcrumb">
+					{#if crumb.section}<span class="crumb-section">{crumb.section}</span><span
+							class="crumb-sep"
+							aria-hidden="true">/</span
+						>{/if}<b>{crumb.page}</b>
+				</p>
+				<button
+					type="button"
+					class="search"
+					aria-haspopup="dialog"
+					aria-label="Search pages and actions"
+					aria-keyshortcuts="Meta+K Control+K"
+					onclick={() => (paletteOpen = true)}
 				>
-				<span class="search-text">Jump to a page or action</span>
-				<span class="kbd" aria-hidden="true">⌘K</span>
-			</button>
-			<button
-				bind:this={agentToggle}
-				type="button"
-				class="btn"
-				class:on={agentVisible}
-				aria-pressed={agentVisible}
-				aria-controls="agent-panel"
-				disabled={onChatPage}
-				title={onChatPage ? 'The agent is open full-page here' : undefined}
-				onclick={() => (agentOpen ? closeAgent() : void openAgent())}
-			>
-				<svg
-					width="15"
-					height="15"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.8"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-					><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"></path><path
-						d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"
-					></path></svg
-				>
-				Agent
-			</button>
-			<button
-				type="button"
-				class="btn ghost icon"
-				aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-				data-testid="theme-toggle"
-				onclick={toggleTheme}
-			>
-				{#if theme === 'dark'}
 					<svg
-						width="15"
-						height="15"
+						width="14"
+						height="14"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
-						stroke-width="1.8"
-						stroke-linecap="round"
-						aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg
-					>
-				{:else}
-					<svg
-						width="15"
-						height="15"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.8"
+						stroke-width="2"
 						stroke-linecap="round"
 						aria-hidden="true"
-						><circle cx="12" cy="12" r="4"></circle><path
-							d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+						><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg
+					>
+					<span class="search-text">Jump to a page or action</span>
+					<span class="kbd" aria-hidden="true">⌘K</span>
+				</button>
+				<button
+					bind:this={agentToggle}
+					type="button"
+					class="btn"
+					class:on={agentVisible}
+					aria-pressed={agentVisible}
+					aria-controls="agent-panel"
+					disabled={onChatPage}
+					title={onChatPage ? 'The agent is open full-page here' : undefined}
+					onclick={() => (agentOpen ? closeAgent() : void openAgent())}
+				>
+					<svg
+						width="15"
+						height="15"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+						><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"></path><path
+							d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"
 						></path></svg
 					>
+					Agent
+				</button>
+				<button
+					type="button"
+					class="btn ghost icon"
+					aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+					data-testid="theme-toggle"
+					onclick={toggleTheme}
+				>
+					{#if theme === 'dark'}
+						<svg
+							width="15"
+							height="15"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linecap="round"
+							aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg
+						>
+					{:else}
+						<svg
+							width="15"
+							height="15"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linecap="round"
+							aria-hidden="true"
+							><circle cx="12" cy="12" r="4"></circle><path
+								d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+							></path></svg
+						>
+					{/if}
+				</button>
+			</header>
+			<!-- A mounted polite live region, so screen readers announce the strip appearing. -->
+			<div aria-live="polite">
+				{#if live !== null}
+					<div class="live-strip" data-testid="live-strip">
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+							><path d="M12 9v4"></path><path d="M12 17h.01"></path><path
+								d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"
+							></path></svg
+						>
+						<span><b>LIVE:</b> {liveStripText(live)}</span>
+					</div>
 				{/if}
-			</button>
-		</header>
+			</div>
+		</div>
 		<div class="content">
 			{@render children()}
 		</div>
@@ -443,15 +471,45 @@
 
 	/* Main column and top bar */
 	.main-col {
+		position: relative;
 		display: flex;
 		flex: 1;
 		flex-direction: column;
 		min-width: 0;
 	}
-	.top {
+	/* Inset live frame: an overlay so sticky chrome and cards cannot cover it. */
+	.main-col.live-frame::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 25;
+		box-shadow: inset 0 0 0 2px var(--live);
+		pointer-events: none;
+	}
+	.top-stack {
 		position: sticky;
 		top: 0;
 		z-index: 20;
+	}
+	.live-strip {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 34px;
+		padding: 6px var(--space-5);
+		background: var(--live);
+		color: var(--live-ink);
+		font-size: 12.5px;
+		font-weight: 600;
+	}
+	.live-strip svg {
+		flex: none;
+	}
+	.live-strip b {
+		font-weight: 700;
+		letter-spacing: 0.03em;
+	}
+	.top {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
@@ -568,6 +626,14 @@
 				background 0.12s,
 				color 0.12s;
 		}
+		.live-strip {
+			animation: live-strip-in 0.16s ease-out;
+		}
+	}
+	@keyframes live-strip-in {
+		from {
+			opacity: 0;
+		}
 	}
 
 	/* Narrow desktop: icon rail, compact search, agent as an overlay. */
@@ -627,6 +693,9 @@
 		}
 		.top {
 			padding: 0 var(--space-3);
+		}
+		.live-strip {
+			padding: 6px var(--space-3);
 		}
 		.content :global(main) {
 			padding: var(--space-5) var(--space-4) var(--space-8);

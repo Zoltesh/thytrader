@@ -143,7 +143,20 @@ version through the draft endpoint. The browser uses only existing HTTP routes; 
 CLI lanes. This read requires no confirmation and does not scan the full
 strategy library. The browser library displays page one immediately while the remaining cursor
 pages load, and marks a later-page failure as incomplete rather than calling the partial result
-empty. The CLI still follows its bounded `--limit` / `--cursor` contract.
+empty. The CLI still follows its bounded `--limit` / `--cursor` contract. The Test stage's run bar
+defaults its engine to the newest engine that `GET /api/v1/research/engine-support` advertises and
+the browser launcher offers (V3 today); agents name the engine explicitly (prefer V4 per the
+research skill).
+
+The browser runtime surfaces compose the same runtime routes the `thytrader-runtime` lane uses and
+add no endpoints: **Portfolio** (`/deployments`, paged `GET /api/v1/deployments`, with header
+counts and per-mode, per-quote capital totals derived from the `capital` and `ledger` fields),
+**bot detail** (`/deployments/{id}`: pause, resume, managed stop or `?flatten=true`, breaker latch
+reset, cursor-paged orders/fills, and trade reasons by `deployment_id`), and **Trade** (`/trade`,
+`POST /api/v1/discretionary-orders`). Every live mutation in the browser (arm, resume, place-order)
+sends `i_understand_live: true` only after its dialog's explicit "real orders" checkbox. Pages that
+show live exposure or compose a live order display an amber `LIVE:` strip and frame. Agents keep
+using the CLI lanes; nothing here is an agent-only contract.
 
 The earliest permitted mutation surface is limited to research artifacts:
 

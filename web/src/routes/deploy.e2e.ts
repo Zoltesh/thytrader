@@ -175,8 +175,14 @@ test('arming live needs the real-orders checkbox before i_understand_live is sen
 	await page.goto(runStage);
 	const liveCard = page.getByTestId('live-card');
 	await expect(liveCard.getByRole('heading', { name: 'Not running' })).toBeVisible();
+	// The Run stage is not live context until the arm dialog is on screen.
+	await expect(page.getByTestId('live-strip')).toHaveCount(0);
 	await liveCard.getByRole('button', { name: 'Arm live trading…' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Arm live trading?' });
+	await expect(page.getByTestId('live-strip')).toHaveText(
+		'LIVE: arming this version places real Coinbase orders · BTC / USDC'
+	);
+	await expect(page.locator('[data-live-frame="true"]')).toHaveCount(1);
 	await expect(dialog).toContainText('places real spot orders on Coinbase');
 	await expect(dialog).toContainText('BTC / USDC · 1h');
 	await expect(dialog).toContainText('BTC-USDC');
@@ -187,6 +193,7 @@ test('arming live needs the real-orders checkbox before i_understand_live is sen
 	await page.keyboard.press('Escape');
 	await expect(dialog).toBeHidden();
 	expect(body).toBeNull();
+	await expect(page.getByTestId('live-strip')).toHaveCount(0);
 
 	await liveCard.getByRole('button', { name: 'Arm live trading…' }).click();
 	await expect(confirm).toBeDisabled();

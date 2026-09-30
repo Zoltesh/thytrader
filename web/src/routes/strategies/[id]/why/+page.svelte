@@ -11,26 +11,18 @@
 	import { resolve } from '$app/paths';
 	import { untrack } from 'svelte';
 	import { listAllDeployments, type Deployment } from '$lib/deployments';
-	import { fetchTradeReasons, type TradeReasonRecord } from '$lib/memory';
-	import {
-		DECISION_HISTORY_NOTE,
-		latestSignalExplanation,
-		workspaceHref
-	} from '$lib/strategy-workspace';
-	import { formatUtcTimestamp } from '$lib/time';
+	import { fetchTradeReasons } from '$lib/memory';
+	import { DECISION_HISTORY_NOTE, workspaceHref } from '$lib/strategy-workspace';
+	import { sortTradeReasons } from '$lib/trade-reasons';
+	import TradeReasonTimeline, { type TradeReasonState } from '$lib/TradeReasonTimeline.svelte';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
 
 	const workspace = useWorkspace();
 
-	type ReasonState =
-		| { status: 'loading' }
-		| { status: 'error'; message: string }
-		| { status: 'ready'; records: TradeReasonRecord[] };
-
 	let deployments = $state<Deployment[]>([]);
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
-	let reasons = $state<Record<string, ReasonState>>({});
+	let reasons = $state<Record<string, TradeReasonState>>({});
 	let request = 0;
 
 	const selected = $derived(workspace.version.entry);
@@ -71,7 +63,7 @@
 		try {
 			const records = await fetchTradeReasons({ deploymentId });
 			if (requestId !== request) return;
-			const sorted = [...records].sort((a, b) => b.created_at.localeCompare(a.created_at));
+			const sorted = sortTradeReasons(records);
 			reasons = { ...reasons, [deploymentId]: { status: 'ready', records: sorted } };
 		} catch (caught) {
 			if (requestId !== request) return;
@@ -82,33 +74,6 @@
 					message: caught instanceof Error ? caught.message : 'Why-trade records are unavailable.'
 				}
 			};
-		}
-	}
-
-	function reconcileText(record: TradeReasonRecord): string {
-		const { reconcile } = record;
-		if (!reconcile.ledger_available)
-			return 'Execution ledger unavailable; order outcome cannot be reconciled.';
-		if (reconcile.unknown_timeout)
-			return 'Submission timed out; order outcome unknown until reconciled.';
-		if (reconcile.order_id === null || reconcile.order_status === null)
-			return 'Intent recorded; no venue-visible order found.';
-		const fills = reconcile.fills.length;
-		return `Order ${reconcile.order_id.slice(0, 8)} · ${reconcile.order_status} · ${fills} fill${fills === 1 ? '' : 's'}${reconcile.reject_reason ? ` · rejected: ${reconcile.reject_reason}` : ''}`;
-	}
-
-	function kindLabel(record: TradeReasonRecord): string {
-		switch (record.signal.kind) {
-			case 'strategy_entry':
-				return 'Entry';
-			case 'take_profit':
-				return 'Take profit';
-			case 'stop':
-				return 'Stop';
-			case 'time_exit':
-				return 'Time exit';
-			default:
-				return record.signal.kind.replace('_', ' ');
 		}
 	}
 </script>
@@ -145,8 +110,6 @@
 	</div>
 {:else}
 	{#each deployments as deployment (deployment.id)}
-		{@const signal = latestSignalExplanation(deployment)}
-		{@const reason = reasons[deployment.id]}
 		<section
 			class="card decisions"
 			aria-label="Decisions for {deployment.mode} deployment {deployment.id}"
@@ -163,60 +126,7 @@
 					>Open bot →</a
 				>
 			</div>
-			<div class="tl latest" data-testid="latest-signal" data-kind={signal.kind}>
-				<div class="t mono">
-					{deployment.last_evaluated_bar ? formatUtcTimestamp(deployment.last_evaluated_bar) : '—'}
-				</div>
-				<div>
-					<div class="title">{signal.title}</div>
-					<div class="muted">{signal.detail}</div>
-				</div>
-			</div>
-			{#if reason === undefined || reason.status === 'loading'}
-				<div class="tl">
-					<div class="t"></div>
-					<div class="muted">Loading trade reasons…</div>
-				</div>
-			{:else if reason.status === 'error'}
-				<div class="tl" role="alert">
-					<div class="t"></div>
-					<div class="problem">{reason.message}</div>
-				</div>
-			{:else if reason.records.length === 0}
-				<div class="tl" data-testid="no-trade-reasons">
-					<div class="t"></div>
-					<div>
-						<div class="title">No recorded trade rationale for this deployment</div>
-						<div class="muted">
-							This can mean no intent was persisted, or rationale recording was unavailable. Orders
-							cannot be matched to intents from the deployment response.
-						</div>
-					</div>
-				</div>
-			{:else}
-				{#each reason.records as record (record.id)}
-					<div class="tl" data-testid="trade-reason">
-						<div class="t mono">{formatUtcTimestamp(record.signal.candle_starts_at)}</div>
-						<div>
-							<div class="title">
-								<span class:pos={record.signal.kind === 'strategy_entry'}>{kindLabel(record)}</span>
-								· {record.side}
-								{record.product_id} · risk {record.risk.decision} ({record.risk.reason_code})
-							</div>
-							<div class="muted">
-								Why this intent was persisted: signal {record.signal.last_signal ??
-									record.signal.kind}
-								on the completed bar · {record.origin} · {reconcileText(record)}
-							</div>
-							<div class="faint">
-								{record.notes.length === 0
-									? 'No operator note.'
-									: record.notes.map((note) => `${note.origin}: ${note.body}`).join(' · ')}
-							</div>
-						</div>
-					</div>
-				{/each}
-			{/if}
+			<TradeReasonTimeline {deployment} reasons={reasons[deployment.id]} />
 		</section>
 	{/each}
 {/if}
@@ -242,39 +152,5 @@
 	.card-head h2 {
 		margin-right: auto;
 		text-transform: capitalize;
-	}
-	.tl {
-		display: flex;
-		gap: 14px;
-		padding: 12px 16px;
-		border-bottom: 1px solid var(--line);
-	}
-	.tl:last-child {
-		border-bottom: 0;
-	}
-	.t {
-		flex: none;
-		width: 150px;
-		color: var(--faint);
-		font-size: var(--fs-sm);
-	}
-	.title {
-		font-weight: 500;
-	}
-	.muted {
-		color: var(--muted);
-	}
-	.faint {
-		color: var(--faint);
-		font-size: var(--fs-sm);
-	}
-	.pos {
-		color: var(--pos);
-	}
-	.problem {
-		color: var(--neg);
-	}
-	.latest {
-		background: var(--surface-2);
 	}
 </style>

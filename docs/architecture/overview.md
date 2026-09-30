@@ -56,6 +56,20 @@ Execution worker ------------------------+
     `web/src/lib/strategy-workspace.ts` and composes existing endpoints only.
   - A top bar with a breadcrumb, a ⌘K / Ctrl+K command palette (navigation only), an Agent toggle,
     and a theme toggle.
+  - Global live chrome: a route that shows live exposure or composes a live order declares a live
+    context (`declareLiveContext()` in `web/src/lib/live-context.svelte.ts`, released from its
+    `$effect` cleanup). The shell then renders an amber `LIVE:` strip (icon plus text, in a polite
+    live region) under the top bar and an inset frame around the main column. Used by live bot
+    detail, Trade in Live mode, and the Run stage while the live-arm dialog is open.
+  - Portfolio (`/deployments`) and bot detail (`/deployments/[id]`): paged inventory rows grouped
+    Needs attention / Running / Paused / Stopped with an All / Paper / Live filter; header metrics
+    from `web/src/lib/deployment-portfolio.ts` (never totalled across paper and live or across
+    quote currencies; `—` when not computable). Bot detail composes header controls, four KPI cards,
+    an Orders / Fills switch over the cursor-paged ledgers, and a shared `TradeReasonTimeline`
+    (also used by the Why stage). Lifecycle dialogs share the native `ConfirmDialog` shell.
+  - Trade (`/trade`): ticket plus a Review aside whose entry, loss-at-stop, and reward:risk use exact
+    rational arithmetic (`web/src/lib/trade-review.ts`); live submits go through a `ConfirmDialog`
+    with the real-orders checkbox.
   - An Agent side panel hosting `OperatorChatPanel`, the same component as `/chat`, on every route.
   - Design tokens: CSS custom properties in `web/src/app.css` for `:root` (dark) and
     `[data-theme='light']`. An inline boot script in `app.html` sets the theme before first paint.

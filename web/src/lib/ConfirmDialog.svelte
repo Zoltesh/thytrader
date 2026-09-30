@@ -20,6 +20,7 @@
 		confirmDisabledReason = null,
 		error = null,
 		testId,
+		liveChip = false,
 		oncancel,
 		onconfirm,
 		children
@@ -36,6 +37,8 @@
 		confirmDisabledReason?: string | null;
 		error?: string | null;
 		testId?: string;
+		/** Show the LIVE chip for a real-money action even when the tone is `danger`. */
+		liveChip?: boolean;
 		oncancel: () => void;
 		onconfirm: () => void;
 		children: Snippet;
@@ -75,7 +78,7 @@
 <dialog
 	bind:this={dialog}
 	class="confirm-dialog"
-	class:live={tone === 'live'}
+	class:live={tone === 'live' || liveChip}
 	aria-labelledby={titleId}
 	aria-describedby={bodyId}
 	data-testid={testId}
@@ -83,7 +86,7 @@
 >
 	{#if open}
 		<div class="head">
-			{#if tone === 'live'}<span class="chip live">LIVE</span>{/if}
+			{#if tone === 'live' || liveChip}<span class="chip live">LIVE</span>{/if}
 			<h2 id={titleId}>{title}</h2>
 		</div>
 		<div class="body" id={bodyId}>

@@ -85,6 +85,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md) | HTTP `i_understand_live` on live start/resume/place-order, execution-worker credential hot reload, definite create rejects vs ambiguous lookup, feed-only pause auto-clear; ops contract v40 | Accepted |
 | [0079](0079-four-destination-shell-agent-panel-palette-tokens.md) | Four-destination rail (Home, Strategies, Portfolio, Trade) plus System group, Agent side panel, ⌘K command palette, design tokens with light/dark theme; supersedes 0053 in part | Accepted |
 | [0080](0080-per-strategy-workspace-build-test-run-why.md) | Per-strategy workspace (Build · Test · Run · Why) with exact `?version=` context, library pipeline, live preflight from existing endpoints, and redirects from /research, /deploy, /backtests; amends 0054 surfaces | Accepted |
+| [0081](0081-live-chrome-portfolio-bot-detail-trade.md) | Route-declared global live chrome (amber `LIVE:` strip and frame), Portfolio groups/filter with truthful per-mode capital totals, recomposed bot detail with checkbox-gated live resume, Trade Review aside and live dialog, compact Test run bar with engine default from engine-support | Accepted |
 
 ## Status values
 

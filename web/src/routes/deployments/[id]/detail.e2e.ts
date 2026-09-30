@@ -197,12 +197,36 @@ test.describe('deployment detail', () => {
 		});
 		await page.goto(`/deployments/${deploymentId}`);
 
-		await expect(page.getByRole('heading', { level: 1, name: 'UNI / USDC' })).toBeVisible();
+		// Header: published name, mode chip, version pill pinned to the exact fingerprint.
+		await expect(page.getByRole('heading', { level: 1, name: 'UNI trend config' })).toBeVisible();
+		await expect(page.getByTestId('breadcrumb')).toHaveText(/Portfolio\s*\/\s*Bot/);
+		await expect(page.getByRole('link', { name: '← Portfolio' })).toHaveAttribute(
+			'href',
+			'/deployments'
+		);
+		await expect(page.getByTestId('mode-chip')).toHaveText('Paper');
+		const pill = page.getByTestId('version-pill');
+		await expect(pill).toHaveText('v2 →');
+		await expect(pill).toHaveAttribute(
+			'href',
+			`/strategies/${strategyDraft.strategy_id}/run?version=${encodeURIComponent(fingerprintA)}`
+		);
+		await expect(page.getByTestId('bot-lede')).toContainText('UNI / USDC · 2h · running');
+		await expect(page.getByTestId('bot-lede')).toContainText('worker lease held');
 		await expect(page.getByTestId('deployment-fingerprint')).toHaveText(fingerprintA);
 		await expect(page.getByTestId('deployment-status')).toHaveText('running');
 		await expect(page.getByTestId('deployment-eligibility')).toHaveText('Eligible');
+		// Four KPI cards from existing data only.
+		await expect(page.getByTestId('kpi-capital')).toContainText('No capital accounting');
+		await expect(page.getByTestId('kpi-pnl')).toContainText('+18.4 USDC');
+		await expect(page.getByTestId('kpi-position')).toContainText('Flat');
+		await expect(page.getByTestId('kpi-latest-bar')).toContainText('No trade');
 		await expect(page.getByText(/signal: not_matched/)).toBeVisible();
-		// The immutable rule/config from the source API, not just the fingerprint.
+		// Paper is not live exposure: no live strip or frame.
+		await expect(page.getByTestId('live-strip')).toHaveCount(0);
+		await expect(page.locator('[data-live-frame="true"]')).toHaveCount(0);
+		// The immutable rule/config from the source API sits behind a disclosure.
+		await page.getByTestId('config-disclosure').locator('summary').click();
 		const config = page.getByTestId('strategy-config-summary');
 		await expect(config).toBeVisible();
 		await expect(config).toContainText('UNI trend config: when ema_fast crosses above ema_slow');
@@ -217,6 +241,9 @@ test.describe('deployment detail', () => {
 			strategySource: { status: 404, body: { detail: 'Published strategy was not found.' } }
 		});
 		await page.goto(`/deployments/${deploymentId}`);
+		// Without the source the heading falls back to the market, never another version's name.
+		await expect(page.getByRole('heading', { level: 1, name: 'UNI / USDC' })).toBeVisible();
+		await page.getByTestId('config-disclosure').locator('summary').click();
 		const unavailable = page.getByTestId('strategy-config-unavailable');
 		await expect(unavailable).toBeVisible();
 		await expect(unavailable).toContainText('Immutable configuration unavailable');
@@ -344,11 +371,20 @@ test.describe('deployment detail', () => {
 		);
 		await page.goto(`/deployments/${deploymentId}`);
 
-		// First page renders with a working Next; fills shows its distinct empty state.
+		// Orders & fills share one card; Orders is selected first.
+		const ledgerSwitch = page.getByTestId('ledger-switch');
+		await expect(ledgerSwitch.getByRole('button', { name: 'Orders' })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
 		await expect(page.getByTestId('orders-pager').getByText('50 orders')).toBeVisible();
+		// Fills shows its distinct empty state, then Orders keeps its own paging.
+		await ledgerSwitch.getByRole('button', { name: 'Fills' }).click();
 		await expect(page.getByTestId('fills-empty')).toHaveText(
 			'No fills recorded for this deployment.'
 		);
+		await expect(page.getByTestId('orders-pager')).toHaveCount(0);
+		await ledgerSwitch.getByRole('button', { name: 'Orders' }).click();
 		await page.getByTestId('orders-pager').getByRole('button', { name: 'Next' }).click();
 		await expect(page.getByTestId('orders-pager').getByText('3 orders')).toBeVisible();
 		await expect(
@@ -393,7 +429,9 @@ test.describe('deployment detail', () => {
 		const error = page.getByTestId('orders-error');
 		await expect(error).toBeVisible();
 		await expect(error).toContainText('Store unavailable');
+		await page.getByTestId('ledger-switch').getByRole('button', { name: 'Fills' }).click();
 		await expect(page.getByTestId('fills-empty')).toBeVisible();
+		await page.getByTestId('ledger-switch').getByRole('button', { name: 'Orders' }).click();
 
 		// Retry succeeds into the true-empty state, distinct from the failure.
 		ordersFail = false;
@@ -779,5 +817,163 @@ test.describe('deployment detail', () => {
 			() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
 		);
 		expect(overflow).toBe(false);
+	});
+
+	test('a live bot turns on the live chrome and live resume needs the real-orders checkbox', async ({
+		page
+	}) => {
+		const live = detailDeployment({
+			mode: 'live',
+			status: 'paused',
+			lifecycle_command: 'stop_new_entries',
+			product_id: 'ETH-USDC',
+			capital: {
+				allocated_capital: '100.00',
+				venue_available_quote: '1240.18',
+				performance_equity: '100.42'
+			}
+		});
+		await mockDetailRoutes(page, {
+			deployment: live,
+			performance: {
+				payload: { ...performanceReport.payload, mode: 'live', total_net_pnl: '0.42' }
+			}
+		});
+		let resumeBody: unknown = 'not called';
+		await page.route(`**/api/v1/deployments/${deploymentId}/resume`, async (route) => {
+			resumeBody = route.request().postDataJSON();
+			await route.fulfill({ json: { ...live, status: 'running', lifecycle_command: 'none' } });
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+
+		// Live exposure on screen: amber strip with an icon and a LIVE label, plus the inset frame.
+		const strip = page.getByTestId('live-strip');
+		await expect(strip).toHaveText(
+			'LIVE: this bot places real Coinbase orders · ETH / USDC · allocated 100.00 USDC'
+		);
+		await expect(strip.locator('svg')).toHaveCount(1);
+		await expect(page.locator('[data-live-frame="true"]')).toHaveCount(1);
+		await expect(page.getByTestId('mode-chip')).toHaveText('LIVE');
+		await expect(page.getByTestId('kpi-capital')).toContainText('100.00 USDC');
+		await expect(page.getByTestId('kpi-capital')).toContainText('venue 1240.18 USDC');
+		await expect(page.getByTestId('kpi-pnl')).toContainText('+0.42 USDC');
+
+		// Resume opens the live dialog; confirm stays disabled until the checkbox is ticked.
+		await page.getByRole('button', { name: 'Resume entries…' }).click();
+		let dialog = page.getByRole('dialog', { name: 'Resume live deployment?' });
+		await expect(dialog).toContainText('re-arms REAL Coinbase spot order submission');
+		await expect(dialog.getByText('LIVE', { exact: true })).toBeVisible();
+		const confirm = dialog.getByRole('button', { name: 'Resume entries' });
+		await expect(confirm).toBeDisabled();
+		await dialog.getByRole('button', { name: 'Cancel' }).click();
+		await expect(dialog).toHaveCount(0);
+		expect(resumeBody).toBe('not called');
+
+		// Reopening starts unacknowledged; ticking the box is the only path to the POST.
+		await page.getByRole('button', { name: 'Resume entries…' }).click();
+		dialog = page.getByRole('dialog', { name: 'Resume live deployment?' });
+		await expect(dialog.getByRole('button', { name: 'Resume entries' })).toBeDisabled();
+		await dialog
+			.getByLabel('I understand this places real orders on Coinbase with real money.')
+			.check();
+		await dialog.getByRole('button', { name: 'Resume entries' }).click();
+		await expect.poll(() => resumeBody).toEqual({ i_understand_live: true });
+
+		// Leaving the live bot clears the live chrome.
+		await page.getByRole('link', { name: '← Portfolio' }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Portfolio' })).toBeVisible();
+		await expect(page.getByTestId('live-strip')).toHaveCount(0);
+		await expect(page.locator('[data-live-frame="true"]')).toHaveCount(0);
+	});
+
+	test('paper resume never sends the live acknowledgement', async ({ page }) => {
+		await mockDetailRoutes(page, { deployment: detailDeployment({ status: 'paused' }) });
+		let resumeBody: unknown = 'not called';
+		await page.route(`**/api/v1/deployments/${deploymentId}/resume`, async (route) => {
+			resumeBody = route.request().postData();
+			await route.fulfill({ json: detailDeployment({ status: 'running' }) });
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await page.getByRole('button', { name: 'Resume entries…' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Resume paper deployment?' });
+		await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+		await dialog.getByRole('button', { name: 'Resume entries' }).click();
+		await expect.poll(() => resumeBody).toBeNull();
+	});
+
+	test('an unknown lifecycle value keeps the bot read-only', async ({ page }) => {
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({ lifecycle_command: 'teleport', daily_loss_latched: true })
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('controls-blocked-note')).toContainText(
+			'did not return the current lifecycle contract'
+		);
+		await expect(page.getByRole('button', { name: /Pause|Resume|Stop…|Flatten/ })).toHaveCount(0);
+		await expect(page.getByTestId('breaker-row')).toBeVisible();
+		await expect(page.getByTestId('reset-breakers-button')).toHaveCount(0);
+	});
+
+	test('why it traded shows this bot trade reasons as a timeline with the history caveat', async ({
+		page
+	}) => {
+		await mockDetailRoutes(page);
+		const requested: string[] = [];
+		await page.route('**/api/v1/memory/trade-reasons**', (route) => {
+			requested.push(new URL(route.request().url()).searchParams.get('deployment_id') ?? '');
+			return route.fulfill({
+				json: {
+					trade_reasons: [
+						{
+							schema_version: 'thytrader-trade-reason-v1',
+							id: 'r-1',
+							created_at: '2026-09-21T20:00:05Z',
+							origin: 'runtime',
+							intent_id: 'i-1',
+							deployment_id: deploymentId,
+							deployment_kind: 'strategy',
+							mode: 'paper',
+							product_id: 'UNI-USDC',
+							purpose: 'entry',
+							side: 'buy',
+							strategy: null,
+							signal: {
+								kind: 'strategy_entry',
+								last_signal: 'matched',
+								candle_starts_at: '2026-09-21T18:00:00Z',
+								timeframe: '2h'
+							},
+							risk: {
+								decision: 'allow',
+								reason_code: 'within_limits',
+								detail: '',
+								policy_fingerprint: `sha256:${'7'.repeat(64)}`,
+								policy_source: 'published'
+							},
+							notes: [],
+							reconcile: {
+								order_id: 'o-1234567890',
+								order_status: 'filled',
+								filled_quantity: '5',
+								reject_reason: null,
+								unknown_timeout: false,
+								ledger_available: true,
+								fills: []
+							}
+						}
+					]
+				}
+			});
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const why = page.getByTestId('why-it-traded');
+		await expect(why.getByTestId('latest-signal')).toContainText(
+			'No trade — conditions did not match'
+		);
+		await expect(why.getByTestId('trade-reason')).toContainText('Entry');
+		await expect(why.getByTestId('trade-reason')).toContainText('risk allow (within_limits)');
+		await expect(why.getByTestId('trade-reason')).toContainText('filled · 0 fills');
+		await expect(why).toContainText('Full per-bar decision history is not recorded yet');
+		expect(requested).toContain(deploymentId);
 	});
 });

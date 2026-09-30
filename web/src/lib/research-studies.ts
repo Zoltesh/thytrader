@@ -134,6 +134,7 @@ export type ResearchStudy = {
 export type StrategyTemplate = { id: string; name: string; description: string };
 
 export function engineContractLabel(version: string): string {
+	if (version.endsWith('-v4')) return 'V4';
 	if (version.endsWith('-v3')) return 'V3';
 	if (version.endsWith('-v2')) return 'V2';
 	return 'V1';
@@ -152,6 +153,51 @@ export function parametersForTarget(target: SweepAxisTarget): SweepParameter[] {
 
 export function axisNeedsIndicator(target: SweepAxisTarget): boolean {
 	return target === 'indicator' || target === 'entry_literal' || target === 'htf_literal';
+}
+
+/**
+ * Engines this browser launcher offers, oldest first. Each has its fill and
+ * cost assumptions disclosed on result detail; an engine the server
+ * advertises beyond this list stays CLI/agent-only here.
+ */
+export const LAUNCHER_ENGINES = [
+	'thytrader-bar-backtest-v1',
+	'thytrader-bar-backtest-v2',
+	'thytrader-bar-backtest-v3'
+] as const;
+
+export type LauncherEngine = (typeof LAUNCHER_ENGINES)[number];
+
+/** `GET /api/v1/research/engine-support`: the canonical engine matrix. */
+export type EngineSupport = { contract_version: string; engines: string[] };
+
+export async function fetchEngineSupport(): Promise<EngineSupport> {
+	const response = await fetch('/api/v1/research/engine-support', {
+		headers: { Accept: 'application/json' }
+	});
+	if (!response.ok) {
+		throw new Error(`Engine support is unavailable (HTTP ${response.status}).`);
+	}
+	const body = (await response.json()) as Partial<EngineSupport>;
+	if (!Array.isArray(body.engines) || typeof body.contract_version !== 'string') {
+		throw new Error('Engine support response is malformed.');
+	}
+	return { contract_version: body.contract_version, engines: body.engines.map(String) };
+}
+
+/**
+ * Default launch engine: the newest engine the server's engine-support
+ * matrix advertises that this launcher also offers. Unknown support (the
+ * endpoint failed) keeps the explicit "Select an engine" choice instead of
+ * guessing.
+ */
+export function defaultLaunchEngine(advertised: readonly string[] | null): LauncherEngine | '' {
+	if (advertised === null) return '';
+	for (let index = LAUNCHER_ENGINES.length - 1; index >= 0; index -= 1) {
+		const engine = LAUNCHER_ENGINES[index];
+		if (advertised.includes(engine)) return engine;
+	}
+	return '';
 }
 
 export async function listStrategyTemplates(): Promise<StrategyTemplate[]> {

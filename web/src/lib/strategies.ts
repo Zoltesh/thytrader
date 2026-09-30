@@ -1062,7 +1062,8 @@ export type BacktestLaunchInput = {
 	maker_fee_rate: string;
 	taker_fee_rate: string;
 	fixed_slippage_bps: string;
-	engine_contract_version: 'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2';
+	engine_contract_version:
+		'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2' | 'thytrader-bar-backtest-v3';
 	spread_bps: string | null;
 };
 

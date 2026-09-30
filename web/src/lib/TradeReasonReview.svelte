@@ -88,6 +88,12 @@
 	.panel {
 		margin-top: 1.5rem;
 	}
+	/* Local layout: the global .panel-heading is a split header row. */
+	.panel-heading {
+		display: block;
+		padding: 0;
+		border: 0;
+	}
 	.panel-heading h2 {
 		margin: 0 0 0.35rem 0;
 		color: var(--text);

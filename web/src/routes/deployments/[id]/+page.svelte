@@ -1,24 +1,56 @@
 <script lang="ts">
+	/**
+	 * Bot detail (`/deployments/[id]`): one deployment of one exact strategy
+	 * version. Header (mode chip, version pill, lifecycle controls), four KPI
+	 * cards, orders & fills, why it traded, then progressively disclosed
+	 * capital, configuration, and evidence.
+	 *
+	 * Lifecycle controls render only for a complete lifecycle contract and a
+	 * fresh snapshot; an unknown outcome or stale refresh disables them until a
+	 * reload succeeds. Live resume needs the explicit "real orders" checkbox
+	 * before `i_understand_live: true` is sent. Live deployments turn on the
+	 * shell's live chrome.
+	 */
 	import { resolve } from '$app/paths';
 	import { page as pageState } from '$app/state';
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
+	import Segmented from '$lib/Segmented.svelte';
+	import TradeReasonTimeline, { type TradeReasonState } from '$lib/TradeReasonTimeline.svelte';
 	import {
+		botTitle,
 		canOfferFlatten,
+		capitalBreakdown,
 		drawdownIsCaveated,
 		EVIDENCE_BOUNDED_NOTE,
 		eligibility,
 		exactVersionEvidenceLinks,
 		fingerprintText,
-		lifecycleAcceptedMessage,
 		lastEvaluatedText,
+		latestBarHeadline,
+		leaseText,
 		ledgerPerformanceText,
+		lifecycleAcceptedMessage,
 		marketLabel,
 		otherVersionDeployments,
+		performanceHeadline,
 		performanceReportText,
 		performanceCurrencySuffix,
+		quoteAmountLabel,
+		strategyVersionLink,
 		type LifecycleAction
 	} from '$lib/deployment-detail';
+	import { pnlOf, positionText, protectionText } from '$lib/deployment-portfolio';
+	import { declareLiveContext } from '$lib/live-context.svelte';
+	import { fetchTradeReasons } from '$lib/memory';
 	import {
+		DECISION_HISTORY_NOTE,
+		shortStrategyFingerprint,
+		workspaceHref
+	} from '$lib/strategy-workspace';
+	import { formatUtcTimestamp } from '$lib/time';
+	import { sortTradeReasons } from '$lib/trade-reasons';
+	import {
+		canonicalPositions,
 		fetchDeployment,
 		fetchDeploymentPerformance,
 		listAllDeployments,
@@ -90,6 +122,54 @@
 	const controlsBlocked = $derived(outcomeUnknown || stale || current === null);
 	const evidenceLinks = $derived(current === null ? [] : exactVersionEvidenceLinks(current));
 	const performancePayload = $derived(performanceReport?.payload ?? null);
+	const positions = $derived(current === null ? [] : canonicalPositions(current));
+	/** Run stage of the strategy workspace pinned to this deployment's exact fingerprint. */
+	const versionLink = $derived.by(() => {
+		if (current === null || current.strategy_id === null) return null;
+		const link = strategyVersionLink(current);
+		return link === null
+			? null
+			: {
+					fingerprint: link.fingerprint,
+					href: workspaceHref(current.strategy_id, 'run', { version: link.fingerprint })
+				};
+	});
+	const loadedConfig = $derived(strategyConfig?.kind === 'loaded' ? strategyConfig : null);
+	const capitalRows = $derived(current === null ? null : capitalBreakdown(current));
+
+	// Orders & fills share one card; the switch keeps each list's own paging.
+	let ledgerView = $state<'orders' | 'fills'>('orders');
+
+	// "Why it traded": persisted trade reasons for this deployment only.
+	let reasons = $state<TradeReasonState | undefined>(undefined);
+	let reasonsRequest = 0;
+
+	async function loadReasons(): Promise<void> {
+		const requestId = ++reasonsRequest;
+		reasons = { status: 'loading' };
+		try {
+			const records = await fetchTradeReasons({ deploymentId: id });
+			if (requestId !== reasonsRequest) return;
+			reasons = { status: 'ready', records: sortTradeReasons(records) };
+		} catch (caught) {
+			if (requestId !== reasonsRequest) return;
+			reasons = {
+				status: 'error',
+				message: caught instanceof Error ? caught.message : 'Why-trade records are unavailable.'
+			};
+		}
+	}
+
+	$effect(() => {
+		// Live exposure on screen: the shell shows the amber strip and inset frame.
+		if (current === null || current.mode !== 'live') return;
+		const allocated = current.capital?.allocated_capital ?? null;
+		return declareLiveContext({
+			kind: 'bot',
+			productId: current.product_id,
+			cap: allocated === null ? null : quoteAmountLabel(allocated, current.product_id)
+		});
+	});
 
 	async function loadDetail(): Promise<void> {
 		loading = true;
@@ -209,7 +289,7 @@
 		dialogAction = null;
 	}
 
-	async function confirmDialog(): Promise<void> {
+	async function confirmDialog(options: { liveAcknowledged: boolean }): Promise<void> {
 		const action = dialogAction;
 		if (action === null || current === null || mutating) return;
 		mutating = true;
@@ -221,9 +301,9 @@
 			let updated: Deployment;
 			if (action === 'pause') updated = await pauseDeployment(targetId);
 			else if (action === 'resume')
-				// The lifecycle dialog is the live resume confirmation; only its Confirm reaches here.
+				// Live resume sends i_understand_live only after the dialog's ticked checkbox.
 				updated = await resumeDeployment(targetId, {
-					liveAcknowledged: current.mode === 'live'
+					liveAcknowledged: current.mode === 'live' && options.liveAcknowledged
 				});
 			else if (action === 'flatten') updated = await stopDeployment(targetId, true);
 			else if (action === 'reset-breakers') updated = await resetBreakerLatches(targetId);
@@ -240,6 +320,7 @@
 				void loadPerformance();
 				void loadOrdersPage(undefined, 0);
 				void loadFillsPage(undefined, 0);
+				void loadReasons();
 			}
 		} catch (caught) {
 			const message = caught instanceof Error ? caught.message : 'The action could not be sent.';
@@ -265,6 +346,7 @@
 		void loadPerformance();
 		void loadOrdersPage(undefined, 0);
 		void loadFillsPage(undefined, 0);
+		void loadReasons();
 	});
 
 	$effect(() => {
@@ -278,10 +360,13 @@
 	});
 </script>
 
-<svelte:head><title>Deployment · ThyTrader</title></svelte:head>
+<svelte:head
+	><title>{current ? botTitle(current, loadedConfig?.name ?? null) : 'Bot'} · ThyTrader</title
+	></svelte:head
+>
 
 <main>
-	<a class="back-link" href={resolve('/deployments')}>← Deployments</a>
+	<a class="back-link" href={resolve('/deployments')}>← Portfolio</a>
 	{#if loading}
 		<section class="loading-card" aria-label="Loading deployment">
 			<div class="skeleton wide"></div>
@@ -298,26 +383,516 @@
 	{:else if current}
 		{@const identity = eligibility(current)}
 		{@const controlsAvailable = lifecycleControlsAvailable(current) && !controlsBlocked}
-		<section class="detail-head">
-			<p class="eyebrow">Deployment detail</p>
-			<h1>{marketLabel(current.product_id)}</h1>
-			<div class="identity-facts">
-				<div><span>Mode</span><strong>{current.mode}</strong></div>
-				<div>
-					<span>Status</span><strong data-testid="deployment-status">{identity.status}</strong>
+		{@const isLive = current.mode === 'live'}
+		<header class="bot-head">
+			<div class="bot-id">
+				<div class="title-row">
+					<h1>{botTitle(current, loadedConfig?.name ?? null)}</h1>
+					<span class="chip" class:paper={!isLive} class:live={isLive} data-testid="mode-chip"
+						>{isLive ? 'LIVE' : 'Paper'}</span
+					>
+					{#if versionLink}
+						<a
+							class="pill"
+							href={resolve(versionLink.href)}
+							data-testid="version-pill"
+							title="Open this exact version ({versionLink.fingerprint}) in the strategy workspace"
+							>{loadedConfig?.version !== null && loadedConfig?.version !== undefined
+								? `v${loadedConfig.version}`
+								: shortStrategyFingerprint(versionLink.fingerprint)} →</a
+						>
+					{/if}
 				</div>
-				<div><span>Instruction</span><strong>{identity.instruction}</strong></div>
-				<div>
-					<span>Entry eligibility</span>
-					<strong data-testid="deployment-eligibility">{identity.eligibility}</strong>
-				</div>
-				<div><span>Timeframe</span><strong>{current.timeframe ?? 'unknown'}</strong></div>
-				<div><span>Revision</span><strong>{current.revision}</strong></div>
+				<p class="lede" data-testid="bot-lede">
+					{marketLabel(current.product_id)} · {current.timeframe ?? 'clock unknown'} ·
+					<span data-testid="deployment-status">{identity.status}</span> ·
+					<span title="A held lease is coordination state, not proof that the worker is healthy"
+						>{leaseText(current)}</span
+					>
+				</p>
+				<p class="facts">
+					<span>Instruction <b>{identity.instruction}</b></span>
+					<span>Entries <b data-testid="deployment-eligibility">{identity.eligibility}</b></span>
+					<span>Revision <b>{current.revision}</b></span>
+				</p>
 			</div>
-			<div class="version-evidence">
-				<span>Exact published configuration</span>
+			<div class="controls">
+				{#if controlsAvailable}
+					{#if current.status === 'running'}
+						<button
+							type="button"
+							class="btn"
+							disabled={mutating}
+							onclick={() => openDialog('pause')}>Pause entries…</button
+						>
+					{/if}
+					{#if current.status === 'paused'}
+						<button
+							type="button"
+							class="btn"
+							class:live={isLive}
+							disabled={mutating}
+							onclick={() => openDialog('resume')}>Resume entries…</button
+						>
+					{/if}
+					{#if current.status !== 'stopped'}
+						<button
+							type="button"
+							class="btn danger"
+							disabled={mutating}
+							onclick={() => openDialog('stop')}>Stop…</button
+						>
+					{/if}
+					{#if canOfferFlatten(current)}
+						<button
+							type="button"
+							class="btn danger"
+							disabled={mutating}
+							onclick={() => openDialog('flatten')}>Flatten remaining exposure…</button
+						>
+					{/if}
+				{/if}
+			</div>
+		</header>
+
+		{#if !controlsAvailable}
+			<p class="contract-note" data-testid="controls-blocked-note" role="status">
+				{controlsBlocked
+					? 'Lifecycle controls are disabled until this deployment is refreshed successfully. An earlier action had an unknown outcome or the snapshot is stale; refresh to re-enable.'
+					: 'Lifecycle controls are unavailable because this server did not return the current lifecycle contract. Values are shown read-only; nothing is inferred.'}
+			</p>
+		{/if}
+
+		{#if stale}
+			<div class="warn-banner" role="status" data-testid="stale-banner">
+				<div>
+					<strong>Stale snapshot</strong>
+					<p>{refreshError}</p>
+					{#if acceptedRevision !== null}
+						<p>Showing response revision {acceptedRevision}.</p>
+					{/if}
+				</div>
+				<button type="button" onclick={() => void refreshAfterMutation()}>Retry refresh</button>
+			</div>
+		{/if}
+		{#if outcomeUnknown}
+			<div class="warn-banner" role="alert" data-testid="outcome-unknown-banner">
+				<div>
+					<strong>Outcome unknown</strong>
+					<p>{actionError}</p>
+				</div>
+				<!-- Refresh first; controls stay disabled until this load succeeds. -->
+				<button
+					type="button"
+					data-testid="outcome-unknown-refresh"
+					onclick={() => {
+						void loadDetail();
+					}}>Refresh now</button
+				>
+			</div>
+		{:else if actionError && dialogAction === null}
+			<div class="error-banner" role="alert">
+				<div>
+					<strong>Action failed</strong>
+					<p>{actionError}</p>
+				</div>
+			</div>
+		{/if}
+		{#if acceptedMessage && !stale}
+			<div class="ok-banner" role="status">
+				<p>{acceptedMessage}</p>
+			</div>
+		{/if}
+		{#if current.mismatch_detail}
+			<p class="problem-banner" role="alert">{current.mismatch_detail}</p>
+		{/if}
+		{#if current.daily_loss_latched || current.drawdown_latched}
+			<div class="breaker-row" data-testid="breaker-row">
+				<p class="problem" role="status">
+					{[
+						current.daily_loss_latched ? 'Daily-loss breaker latched' : null,
+						current.drawdown_latched ? 'Drawdown breaker latched' : null
+					]
+						.filter(Boolean)
+						.join(' · ')} — new entries are blocked until you reset it.
+				</p>
+				<!-- Confirmation required: the reset dialog names the consequence
+				     before any POST is sent. Hidden while controls are unavailable. -->
+				{#if controlsAvailable}
+					<button
+						type="button"
+						class="btn"
+						disabled={mutating}
+						data-testid="reset-breakers-button"
+						onclick={() => openDialog('reset-breakers')}>Reset breaker latches…</button
+					>
+				{/if}
+			</div>
+		{/if}
+
+		<section class="kpis" aria-label="Key figures">
+			<article class="card kpi" data-testid="kpi-capital">
+				<h2 class="label">{isLive ? 'Allocated capital' : 'Allocated capital (paper)'}</h2>
+				{#if current.capital && (current.capital.allocated_capital || current.capital.performance_equity)}
+					<p class="value">
+						{quoteAmountLabel(current.capital.allocated_capital, current.product_id)}
+					</p>
+					<p class="delta">
+						Performance equity {quoteAmountLabel(
+							current.capital.performance_equity,
+							current.product_id
+						)}{isLive
+							? ` · venue ${quoteAmountLabel(current.capital.venue_available_quote, current.product_id)}`
+							: ' · simulated'}
+					</p>
+				{:else}
+					<p class="value">—</p>
+					<p class="delta">No capital accounting on this snapshot.</p>
+				{/if}
+			</article>
+			<article class="card kpi" data-testid="kpi-pnl">
+				<h2 class="label">PnL</h2>
+				{#if performanceLoading && performanceReport === null}
+					<p class="value">—</p>
+					<p class="delta" data-testid="performance-loading">Loading operator performance…</p>
+				{:else if performanceError !== null}
+					{@const fallback = pnlOf(current)}
+					<p class="value" class:pos={fallback.tone === 'pos'} class:neg={fallback.tone === 'neg'}>
+						{fallback.text}
+					</p>
+					<p class="delta problem" data-testid="performance-error" role="status">
+						Operator performance report unavailable ({performanceError}). Ledger summary:
+						{ledgerPerformanceText(current)}
+					</p>
+				{:else if performancePayload}
+					{@const headline = performanceHeadline(performancePayload)}
+					<p
+						class="value"
+						class:pos={headline.startsWith('+')}
+						class:neg={headline.startsWith('-')}
+					>
+						{headline}
+					</p>
+					<p class="delta" data-testid="deployment-performance">
+						{performanceReportText(performancePayload)}
+					</p>
+					<p class="delta">
+						Fill ledger{performanceCurrencySuffix(performancePayload.currency).trim() === ''
+							? ' · quote currency unknown'
+							: ''} · {isLive ? 'after Coinbase fees' : 'assumed paper fees'}
+					</p>
+					{#if drawdownIsCaveated(performancePayload)}
+						<p class="delta" data-testid="performance-drawdown-caveat">
+							Drawdown {(Number(performancePayload.maximum_drawdown_fraction) * 100).toFixed(2)}%
+							from fill-event marks, not a bar equity curve; it understates intra-bar drawdown.
+						</p>
+					{/if}
+					{#each performanceReport?.partial_result_warnings ?? [] as warning (warning)}
+						<p class="delta contract-note" role="status">{warning}</p>
+					{/each}
+				{:else}
+					<p class="value">—</p>
+					<p class="delta">{ledgerPerformanceText(current)}</p>
+				{/if}
+			</article>
+			<article class="card kpi" data-testid="kpi-position">
+				<h2 class="label">Position</h2>
+				<p class="value small">{positionText(positions)}</p>
+				<p class="delta">{protectionText(current, positions)}</p>
+			</article>
+			<article class="card kpi" data-testid="kpi-latest-bar">
+				<h2 class="label">Latest bar</h2>
+				<p class="value small">{latestBarHeadline(current)}</p>
+				<p class="delta">{lastEvaluatedText(current)}</p>
+			</article>
+		</section>
+
+		<div class="grid2">
+			<section class="card ledger" aria-labelledby="ledger-title">
+				<div class="card-head">
+					<h2 id="ledger-title">Orders &amp; fills</h2>
+					<Segmented
+						label="Show orders or fills"
+						options={[
+							{ id: 'orders', label: 'Orders' },
+							{ id: 'fills', label: 'Fills' }
+						]}
+						value={ledgerView}
+						onchange={(next) => (ledgerView = next)}
+						testId="ledger-switch"
+					/>
+				</div>
+				{#if ledgerView === 'orders'}
+					{#if orderError}
+						<p class="pad problem" role="status" data-testid="orders-error">
+							Order history could not be loaded ({orderError})
+							<button
+								type="button"
+								class="btn"
+								onclick={() => void loadOrdersPage(orderCursors[orderPageIndex], orderPageIndex)}
+							>
+								Retry
+							</button>
+						</p>
+					{:else if orderLoading && orderPage.rows.length === 0}
+						<p class="pad quiet" data-testid="orders-loading">Loading orders…</p>
+					{:else if orderPage.rows.length === 0}
+						<p class="pad quiet" data-testid="orders-empty">
+							No orders recorded for this deployment.
+						</p>
+					{:else}
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<div class="table-scroll" tabindex="0" role="region" aria-label="Order history">
+							<table>
+								<caption class="sr-only">Order history</caption>
+								<thead>
+									<tr>
+										<th scope="col">Time (UTC)</th>
+										<th scope="col">Product</th>
+										<th scope="col">Side</th>
+										<th scope="col">Type</th>
+										<th scope="col" class="num">Size</th>
+										<th scope="col" class="num">Price</th>
+										<th scope="col">Status</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each orderPage.rows as order (order.id)}
+										<tr>
+											<td class="mono muted">{formatUtcTimestamp(order.created_at).slice(5, 16)}</td
+											>
+											<td>{order.product_id || current.product_id}</td>
+											<td>{order.side}</td>
+											<td class="muted">{order.kind}</td>
+											<td class="num">{order.quantity}</td>
+											<td class="num">{order.price ?? '—'}</td>
+											<td class="muted"
+												>{order.status}{order.reject_reason ? ` · ${order.reject_reason}` : ''}</td
+											>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<div class="pager" data-testid="orders-pager">
+							<span>
+								Showing {orderPage.rows.length} order{orderPage.rows.length === 1 ? '' : 's'}
+								{orderPage.nextCursor !== null ? ' · more available' : ''}
+							</span>
+							<button
+								type="button"
+								disabled={orderLoading || orderPageIndex === 0}
+								onclick={() =>
+									void loadOrdersPage(orderCursors[orderPageIndex - 1], orderPageIndex - 1)}
+								>Previous</button
+							>
+							<button
+								type="button"
+								disabled={orderLoading || orderPage.nextCursor === null}
+								onclick={() =>
+									void loadOrdersPage(orderPage.nextCursor ?? undefined, orderPageIndex + 1)}
+							>
+								Next
+							</button>
+						</div>
+					{/if}
+				{:else if fillError}
+					<p class="pad problem" role="status" data-testid="fills-error">
+						Fill history could not be loaded ({fillError})
+						<button
+							type="button"
+							class="btn"
+							onclick={() => void loadFillsPage(fillCursors[fillPageIndex], fillPageIndex)}
+						>
+							Retry
+						</button>
+					</p>
+				{:else if fillLoading && fillPage.rows.length === 0}
+					<p class="pad quiet" data-testid="fills-loading">Loading fills…</p>
+				{:else if fillPage.rows.length === 0}
+					<p class="pad quiet" data-testid="fills-empty">No fills recorded for this deployment.</p>
+				{:else}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div class="table-scroll" tabindex="0" role="region" aria-label="Fill history">
+						<table>
+							<caption class="sr-only">Fill history</caption>
+							<thead>
+								<tr>
+									<th scope="col">Time (UTC)</th>
+									<th scope="col">Product</th>
+									<th scope="col" class="num">Size</th>
+									<th scope="col" class="num">Price</th>
+									<th scope="col" class="num">Fee</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each fillPage.rows as fill (fill.id)}
+									<tr>
+										<td class="mono muted">{formatUtcTimestamp(fill.filled_at).slice(5, 16)}</td>
+										<td>{fill.product_id || current.product_id}</td>
+										<td class="num">{fill.quantity}</td>
+										<td class="num">{fill.price}</td>
+										<td class="num">{fill.fee}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					<div class="pager" data-testid="fills-pager">
+						<span>
+							Showing {fillPage.rows.length} fill{fillPage.rows.length === 1 ? '' : 's'}
+							{fillPage.nextCursor !== null ? ' · more available' : ''}
+						</span>
+						<button
+							type="button"
+							disabled={fillLoading || fillPageIndex === 0}
+							onclick={() => void loadFillsPage(fillCursors[fillPageIndex - 1], fillPageIndex - 1)}
+							>Previous</button
+						>
+						<button
+							type="button"
+							disabled={fillLoading || fillPage.nextCursor === null}
+							onclick={() =>
+								void loadFillsPage(fillPage.nextCursor ?? undefined, fillPageIndex + 1)}
+						>
+							Next
+						</button>
+					</div>
+				{/if}
+			</section>
+
+			<section class="card why" aria-labelledby="why-title" data-testid="why-it-traded">
+				<div class="card-head"><h2 id="why-title">Why it traded</h2></div>
+				<TradeReasonTimeline deployment={current} {reasons} />
+				<p class="history-note">{DECISION_HISTORY_NOTE}</p>
+			</section>
+		</div>
+
+		{#if positions.length > 0}
+			<section class="card" aria-labelledby="positions-title">
+				<div class="card-head"><h2 id="positions-title">Positions &amp; protection</h2></div>
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+				<div class="table-scroll" tabindex="0" role="region" aria-label="Open positions">
+					<table>
+						<caption class="sr-only">Open positions with protection status</caption>
+						<thead>
+							<tr>
+								<th scope="col">Product</th>
+								<th scope="col">Side</th>
+								<th scope="col" class="num">Quantity</th>
+								<th scope="col" class="num">Entry</th>
+								<th scope="col" class="num">Stop</th>
+								<th scope="col" class="num">Target</th>
+								<th scope="col">Protection</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each positions as position (position.product_id)}
+								<tr>
+									<td>{position.product_id}</td>
+									<td>{position.side ?? 'long'}</td>
+									<td class="num">{position.quantity}</td>
+									<td class="num">{position.entry_price}</td>
+									<td class="num">{position.stop_price}</td>
+									<td class="num">{position.target_price}</td>
+									<td>{position.protection_status ?? 'unknown'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
+
+		<div class="grid2 even">
+			<section class="card" aria-labelledby="evidence-title">
+				<div class="card-head"><h2 id="evidence-title">Evidence for this version</h2></div>
+				<div class="pad">
+					<p class="evidence-links">
+						{#if evidenceLinks.length === 0}
+							<span class="quiet">No version-scoped evidence for a discretionary deployment.</span>
+						{:else}
+							{#each evidenceLinks as link (link.href)}
+								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- dynamic cross-route link with query -->
+								<a data-testid="evidence-link" href={link.href}>{link.label}</a>
+							{/each}
+						{/if}
+						<a href={resolve('/journals')}>Trade journals</a>
+						<a href={resolve('/audit')}>Audit log</a>
+					</p>
+					<p class="quiet small">{EVIDENCE_BOUNDED_NOTE}</p>
+				</div>
+			</section>
+			<section class="card" aria-label="Other deployments for this strategy">
+				<div class="card-head"><h2>Other deployments for this strategy</h2></div>
+				<div class="pad">
+					{#if otherVersions.length === 0}
+						<p class="quiet">None on this workstation.</p>
+					{:else}
+						<ul class="other-list" role="list">
+							{#each otherVersions as other (other.id)}
+								<li>
+									<a href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}>
+										{other.mode} · {other.status} · {marketLabel(other.product_id)} · fingerprint
+										{other.strategy_fingerprint?.slice(0, 18) ?? 'unknown'}…
+									</a>
+								</li>
+							{/each}
+						</ul>
+						<p class="quiet small">
+							Different published versions; their evidence is not mixed into this page.
+						</p>
+					{/if}
+				</div>
+			</section>
+		</div>
+
+		<details class="card disclosure" data-testid="capital-disclosure">
+			<summary>Capital breakdown</summary>
+			<div class="pad">
+				{#if capitalRows === null}
+					<p class="quiet">No capital accounting on this snapshot.</p>
+				{:else}
+					<dl class="kv">
+						{#each capitalRows as item (item.label)}
+							<div>
+								<dt>{item.label}</dt>
+								<dd>{item.value}</dd>
+							</div>
+						{/each}
+					</dl>
+				{/if}
+				<dl class="kv">
+					<div>
+						<dt>Ledger cash</dt>
+						<dd>{quoteAmountLabel(current.cash, current.product_id)}</dd>
+					</div>
+					{#if !isLive}
+						<div>
+							<dt>Paper starting cash</dt>
+							<dd>{quoteAmountLabel(current.paper_starting_cash, current.product_id)}</dd>
+						</div>
+						<div>
+							<dt>Assumed maker / taker fee</dt>
+							<dd>{current.maker_fee_rate ?? 'default'} / {current.taker_fee_rate ?? 'default'}</dd>
+						</div>
+					{/if}
+				</dl>
+				<p class="quiet small">
+					Live books size from allocated capital or venue available quote, not ledger cash.
+				</p>
+			</div>
+		</details>
+
+		<details class="card disclosure" data-testid="config-disclosure">
+			<summary>
+				Exact published configuration
 				<code data-testid="deployment-fingerprint">{fingerprintText(current)}</code>
-				{#if strategyConfig === null}
+			</summary>
+			<div class="pad">
+				{#if current.strategy_fingerprint === null}
+					<p class="quiet">Discretionary deployments have no published strategy source.</p>
+				{:else if strategyConfig === null}
 					<p class="quiet" data-testid="strategy-config-loading">Loading configuration…</p>
 				{:else if strategyConfig.kind === 'unavailable'}
 					<p class="contract-note" data-testid="strategy-config-unavailable" role="status">
@@ -327,7 +902,7 @@
 				{:else}
 					<div class="config-summary" data-testid="strategy-config-summary">
 						<p class="config-rule">{strategyConfig.summary.rule}</p>
-						<dl class="config-facts">
+						<dl class="kv">
 							{#each strategyConfig.summary.identity as fact (fact.label)}
 								<div>
 									<dt>{fact.label}</dt>
@@ -362,564 +937,237 @@
 					</div>
 				{/if}
 			</div>
-		</section>
-
-		{#if stale}
-			<div class="warn-banner" role="status" data-testid="stale-banner">
-				<div>
-					<strong>Stale snapshot</strong>
-					<p>{refreshError}</p>
-					{#if acceptedRevision !== null}
-						<p>Showing response revision {acceptedRevision}.</p>
-					{/if}
-				</div>
-				<button type="button" onclick={() => void refreshAfterMutation()}>Retry refresh</button>
-			</div>
-		{/if}
-		{#if outcomeUnknown}
-			<div class="warn-banner" role="alert" data-testid="outcome-unknown-banner">
-				<div>
-					<strong>Outcome unknown</strong>
-					<p>{actionError}</p>
-				</div>
-				<!-- Refresh first; controls stay disabled until this load succeeds. -->
-				<button
-					type="button"
-					data-testid="outcome-unknown-refresh"
-					onclick={() => {
-						void loadDetail();
-					}}>Refresh now</button
-				>
-			</div>
-		{:else if actionError}
-			<div class="error-banner" role="alert">
-				<div>
-					<strong>Action failed</strong>
-					<p>{actionError}</p>
-				</div>
-			</div>
-		{/if}
-		{#if acceptedMessage && !stale}
-			<div class="ok-banner" role="status">
-				<p>{acceptedMessage}</p>
-			</div>
-		{/if}
-
-		<section class="evidence-grid">
-			<div class="panel">
-				<h2>Last evaluated bar</h2>
-				<p>{lastEvaluatedText(current)}</p>
-			</div>
-			<div class="panel">
-				<h2>Performance</h2>
-				{#if performanceLoading && performanceReport === null}
-					<p class="quiet" data-testid="performance-loading">Loading operator performance…</p>
-				{:else if performanceError !== null}
-					<p class="problem" data-testid="performance-error" role="status">
-						Operator performance report unavailable ({performanceError}). Ledger summary:
-						{ledgerPerformanceText(current)}
-					</p>
-				{:else if performancePayload}
-					<p data-testid="deployment-performance">
-						{performanceReportText(performancePayload)}
-					</p>
-					<p class="quiet provenance-note">
-						Mode {performancePayload.mode} ·{performanceCurrencySuffix(
-							performancePayload.currency
-						).trim() === ''
-							? ' quote currency unknown'
-							: ` quoted in ${performancePayload.currency}`}
-					</p>
-					{#if drawdownIsCaveated(performancePayload)}
-						<p class="quiet provenance-note" data-testid="performance-drawdown-caveat">
-							Drawdown {(Number(performancePayload.maximum_drawdown_fraction) * 100).toFixed(2)}% is
-							from fill-event marks, not a bar equity curve; it understates intra-bar drawdown.
-						</p>
-					{/if}
-					{#each performanceReport?.partial_result_warnings ?? [] as warning (warning)}
-						<p class="contract-note" role="status">{warning}</p>
-					{/each}
-				{:else}
-					<p class="quiet">{ledgerPerformanceText(current)}</p>
-				{/if}
-			</div>
-			<div class="panel">
-				<h2>Capital</h2>
-				<p>
-					{#if current.capital && (current.capital.allocated_capital || current.capital.performance_equity)}
-						allocated {current.capital.allocated_capital ?? 'unknown'} · equity {current.capital
-							.performance_equity ?? 'unknown'}
-						{#if current.mode === 'live'}
-							· venue {current.capital.venue_available_quote ?? 'unknown'}
-						{/if}
-					{:else}
-						No capital accounting on this snapshot.
-					{/if}
-				</p>
-			</div>
-			<div class="panel">
-				<h2>Evidence links</h2>
-				<p class="evidence-links">
-					{#if evidenceLinks.length === 0}
-						<span class="quiet">No version-scoped evidence for a discretionary deployment.</span>
-					{:else}
-						{#each evidenceLinks as link (link.href)}
-							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- dynamic cross-route link with query -->
-							<a data-testid="evidence-link" href={link.href}>{link.label}</a>
-						{/each}
-					{/if}
-					<a href={resolve('/journals')}>Trade journals</a>
-					<a href={resolve('/audit')}>Audit log</a>
-				</p>
-				<p class="quiet bounded-note">{EVIDENCE_BOUNDED_NOTE}</p>
-			</div>
-		</section>
-
-		<section class="panel">
-			<h2>Positions &amp; protection</h2>
-			{#if (current.positions ?? []).length === 0 && current.position === null}
-				<p class="quiet">No open product books on this snapshot.</p>
-			{:else}
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div class="table-scroll" tabindex="0" role="region" aria-label="Open positions">
-					<table>
-						<caption class="visually-hidden">Open positions with protection status</caption>
-						<thead>
-							<tr>
-								<th scope="col">Product</th>
-								<th scope="col">Side</th>
-								<th scope="col">Quantity</th>
-								<th scope="col">Entry</th>
-								<th scope="col">Stop</th>
-								<th scope="col">Target</th>
-								<th scope="col">Protection</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each current.positions ?? [] as position (position.product_id)}
-								<tr>
-									<td>{position.product_id}</td>
-									<td>{position.side ?? 'long'}</td>
-									<td>{position.quantity}</td>
-									<td>{position.entry_price}</td>
-									<td>{position.stop_price}</td>
-									<td>{position.target_price}</td>
-									<td>{position.protection_status ?? 'unknown'}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</section>
-
-		<section class="panel">
-			<h2>Orders</h2>
-			{#if orderError}
-				<p class="problem" role="status" data-testid="orders-error">
-					Order history could not be loaded ({orderError})
-					<button
-						type="button"
-						class="bar-button"
-						onclick={() => void loadOrdersPage(orderCursors[orderPageIndex], orderPageIndex)}
-					>
-						Retry
-					</button>
-				</p>
-			{:else if orderLoading && orderPage.rows.length === 0}
-				<p class="quiet" data-testid="orders-loading">Loading orders…</p>
-			{:else if orderPage.rows.length === 0}
-				<p class="quiet" data-testid="orders-empty">No orders recorded for this deployment.</p>
-			{:else}
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div class="table-scroll" tabindex="0" role="region" aria-label="Order history">
-					<table>
-						<caption class="visually-hidden">Order history</caption>
-						<thead>
-							<tr>
-								<th scope="col">Product</th>
-								<th scope="col">Side</th>
-								<th scope="col">Kind</th>
-								<th scope="col">Quantity</th>
-								<th scope="col">Status</th>
-								<th scope="col">Reject reason</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each orderPage.rows as order (order.id)}
-								<tr>
-									<td>{order.product_id || current.product_id}</td>
-									<td>{order.side}</td>
-									<td>{order.kind}</td>
-									<td>{order.quantity}</td>
-									<td>{order.status}</td>
-									<td>{order.reject_reason ?? '—'}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-				<div class="pager" data-testid="orders-pager">
-					<span>
-						Showing {orderPage.rows.length} order{orderPage.rows.length === 1 ? '' : 's'}
-						{orderPage.nextCursor !== null ? ' · more available' : ''}
-					</span>
-					<button
-						type="button"
-						disabled={orderLoading || orderPageIndex === 0}
-						onclick={() =>
-							void loadOrdersPage(orderCursors[orderPageIndex - 1], orderPageIndex - 1)}
-						>Previous</button
-					>
-					<button
-						type="button"
-						disabled={orderLoading || orderPage.nextCursor === null}
-						onclick={() =>
-							void loadOrdersPage(orderPage.nextCursor ?? undefined, orderPageIndex + 1)}
-					>
-						Next
-					</button>
-				</div>
-			{/if}
-		</section>
-
-		<section class="panel">
-			<h2>Fills</h2>
-			{#if fillError}
-				<p class="problem" role="status" data-testid="fills-error">
-					Fill history could not be loaded ({fillError})
-					<button
-						type="button"
-						class="bar-button"
-						onclick={() => void loadFillsPage(fillCursors[fillPageIndex], fillPageIndex)}
-					>
-						Retry
-					</button>
-				</p>
-			{:else if fillLoading && fillPage.rows.length === 0}
-				<p class="quiet" data-testid="fills-loading">Loading fills…</p>
-			{:else if fillPage.rows.length === 0}
-				<p class="quiet" data-testid="fills-empty">No fills recorded for this deployment.</p>
-			{:else}
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div class="table-scroll" tabindex="0" role="region" aria-label="Fill history">
-					<table>
-						<caption class="visually-hidden">Fill history</caption>
-						<thead>
-							<tr>
-								<th scope="col">Product</th>
-								<th scope="col">Time</th>
-								<th scope="col">Quantity</th>
-								<th scope="col">Price</th>
-								<th scope="col">Fee</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each fillPage.rows as fill (fill.id)}
-								<tr>
-									<td>{fill.product_id || current.product_id}</td>
-									<td>{fill.filled_at}</td>
-									<td>{fill.quantity}</td>
-									<td>{fill.price}</td>
-									<td>{fill.fee}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-				<div class="pager" data-testid="fills-pager">
-					<span>
-						Showing {fillPage.rows.length} fill{fillPage.rows.length === 1 ? '' : 's'}
-						{fillPage.nextCursor !== null ? ' · more available' : ''}
-					</span>
-					<button
-						type="button"
-						disabled={fillLoading || fillPageIndex === 0}
-						onclick={() => void loadFillsPage(fillCursors[fillPageIndex - 1], fillPageIndex - 1)}
-						>Previous</button
-					>
-					<button
-						type="button"
-						disabled={fillLoading || fillPage.nextCursor === null}
-						onclick={() => void loadFillsPage(fillPage.nextCursor ?? undefined, fillPageIndex + 1)}
-					>
-						Next
-					</button>
-				</div>
-			{/if}
-		</section>
-
-		<section class="panel lifecycle-panel">
-			<h2>Lifecycle</h2>
-			{#if controlsAvailable}
-				<div class="actions">
-					{#if current.status === 'running'}
-						<button
-							type="button"
-							class="bar-button"
-							disabled={mutating}
-							onclick={() => openDialog('pause')}>Pause entries…</button
-						>
-					{/if}
-					{#if current.status === 'paused'}
-						<button
-							type="button"
-							class="bar-button"
-							disabled={mutating}
-							onclick={() => openDialog('resume')}>Resume entries…</button
-						>
-					{/if}
-					{#if current.status !== 'stopped'}
-						<button
-							type="button"
-							class="bar-button bar-danger"
-							disabled={mutating}
-							onclick={() => openDialog('stop')}>Stop…</button
-						>
-					{/if}
-					{#if canOfferFlatten(current)}
-						<button
-							type="button"
-							class="bar-button bar-danger"
-							disabled={mutating}
-							onclick={() => openDialog('flatten')}>Flatten remaining exposure…</button
-						>
-					{/if}
-				</div>
-				<p class="quiet">Confirmations name the exact consequence before any command is sent.</p>
-			{:else}
-				<p class="contract-note" data-testid="controls-blocked-note">
-					{controlsBlocked
-						? 'Lifecycle controls are disabled until this deployment is refreshed successfully. An earlier action had an unknown outcome or the snapshot is stale; refresh to re-enable.'
-						: 'Lifecycle controls are unavailable because this server did not return the current lifecycle contract. Values are shown read-only; nothing is inferred.'}
-				</p>
-			{/if}
-			{#if current.mismatch_detail}
-				<p class="problem" role="alert">{current.mismatch_detail}</p>
-			{/if}
-			{#if current.daily_loss_latched || current.drawdown_latched}
-				<div class="breaker-row">
-					<p class="problem" role="status">
-						{[
-							current.daily_loss_latched ? 'Daily-loss breaker latched' : null,
-							current.drawdown_latched ? 'Drawdown breaker latched' : null
-						]
-							.filter(Boolean)
-							.join(' · ')}
-					</p>
-					<!-- Confirmation required: the reset dialog names the consequence
-					     before any POST is sent. -->
-					<button
-						type="button"
-						class="bar-button"
-						disabled={mutating || controlsBlocked}
-						data-testid="reset-breakers-button"
-						onclick={() => openDialog('reset-breakers')}>Reset breaker latches…</button
-					>
-				</div>
-			{/if}
-		</section>
-
-		<section class="panel" aria-label="Other deployments for this strategy">
-			<h2>Other deployments for this strategy</h2>
-			{#if otherVersions.length === 0}
-				<p class="quiet">None on this workstation.</p>
-			{:else}
-				<ul class="other-list" role="list">
-					{#each otherVersions as other (other.id)}
-						<li>
-							<a href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}>
-								{other.mode} · {other.status} · {marketLabel(other.product_id)} · fingerprint
-								{other.strategy_fingerprint?.slice(0, 18) ?? 'unknown'}…
-							</a>
-						</li>
-					{/each}
-				</ul>
-				<p class="quiet">
-					Different published versions; their evidence is not mixed into this page.
-				</p>
-			{/if}
-		</section>
+		</details>
 	{/if}
 </main>
 
-{#if dialogAction !== null && current}
-	<DeploymentLifecycleDialog
-		deployment={current}
-		action={dialogAction}
-		bind:stopWithFlatten
-		{mutating}
-		{actionError}
-		oncancel={closeDialog}
-		onconfirm={() => void confirmDialog()}
-	/>
-{/if}
+<DeploymentLifecycleDialog
+	deployment={dialogAction === null ? null : current}
+	action={dialogAction}
+	bind:stopWithFlatten
+	{mutating}
+	{actionError}
+	requireLiveAcknowledgement
+	oncancel={closeDialog}
+	onconfirm={(options) => void confirmDialog(options)}
+/>
 
 <style>
 	.back-link {
 		display: inline-block;
-		margin-bottom: 18px;
-		color: var(--info);
-		font-size: 13px;
+		margin-bottom: 14px;
+		color: var(--muted);
 		text-decoration: none;
 	}
 	.back-link:hover {
+		color: var(--text);
 		text-decoration: underline;
 	}
-	.detail-head {
-		margin-bottom: 24px;
-	}
-	.identity-facts {
+	.bot-head {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 10px 30px;
-		margin: 16px 0;
+		align-items: flex-start;
+		gap: 12px 16px;
+		margin-bottom: 14px;
 	}
-	.identity-facts span {
-		display: block;
-		color: var(--faint);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
+	.bot-id {
+		min-width: 0;
+		flex: 1;
 	}
-	.identity-facts strong {
-		font:
-			500 13px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-		color: var(--text);
-	}
-	.version-evidence {
+	.title-row {
 		display: flex;
-		align-items: baseline;
 		flex-wrap: wrap;
-		gap: 10px 14px;
+		align-items: center;
+		gap: 10px;
+	}
+	.title-row h1 {
+		margin: 0;
+	}
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		height: 24px;
+		padding: 0 9px;
 		border: 1px solid var(--line);
-		border-radius: 8px;
-		background: var(--surface);
-		padding: 12px 14px;
-	}
-	.version-evidence > span {
-		color: var(--faint);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
-	}
-	.version-evidence code {
-		font-size: 12px;
-		word-break: break-all;
-	}
-	.config-summary {
-		flex-basis: 100%;
-		display: grid;
-		gap: 6px;
-		font-size: 13px;
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
 		color: var(--text);
+		font-size: var(--fs-sm);
+		text-decoration: none;
 	}
-	.config-summary p {
-		margin: 0;
+	.pill:hover {
+		border-color: var(--line-2);
 	}
-	.config-rule {
-		color: var(--text);
-	}
-	.config-facts {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 26px;
-		margin: 4px 0;
-	}
-	.config-facts div {
-		display: grid;
-	}
-	.config-facts dt {
-		color: var(--faint);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
-	}
-	.config-facts dd {
-		margin: 0;
-		font:
-			500 12px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-		color: var(--text);
-	}
-	.config-section {
-		color: var(--muted);
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
+	.lede {
 		margin-top: 4px;
 	}
-	.config-list {
-		margin: 0;
-		padding-left: 18px;
-		display: grid;
-		gap: 2px;
+	.facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 18px;
+		margin: 6px 0 0;
+		color: var(--faint);
+		font-size: var(--fs-sm);
 	}
-	.evidence-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 12px;
-		margin-bottom: 12px;
-	}
-	.panel {
-		border: 1px solid var(--line);
-		background: var(--surface);
-		border-radius: 13px;
-		padding: 18px 20px;
-		margin-bottom: 12px;
-	}
-	.panel h2 {
-		margin: 0 0 10px;
-		font-size: 12px;
-		color: var(--muted);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-	.panel p {
-		margin: 0;
-		font-size: 13px;
+	.facts b {
 		color: var(--text);
+		font-weight: 500;
+	}
+	.controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.btn.danger {
+		border-color: var(--danger-line);
+		color: var(--neg);
+	}
+	.kpis {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 12px;
+		margin-bottom: 16px;
+	}
+	.kpi {
+		min-width: 0;
+		padding: 14px 16px;
+	}
+	.kpi .label {
+		color: var(--muted);
+		font-size: var(--fs-sm);
+		font-weight: 400;
+	}
+	.kpi .value {
+		margin: 4px 0 0;
+		color: var(--text);
+		font-size: var(--fs-2xl);
+		font-weight: 600;
+		letter-spacing: -0.02em;
+		overflow-wrap: anywhere;
+	}
+	.kpi .value.pos {
+		color: var(--pos);
+	}
+	.kpi .value.neg {
+		color: var(--neg);
+	}
+	.kpi .value.small {
+		font-size: var(--fs-xl);
+	}
+	.kpi .delta {
+		margin: 2px 0 0;
+		color: var(--faint);
+		font-size: var(--fs-sm);
+	}
+	.grid2 {
+		display: grid;
+		grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+		gap: 16px;
+		margin-bottom: 16px;
+	}
+	.grid2.even {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.card {
+		margin-bottom: 16px;
+	}
+	.grid2 > .card,
+	.kpis > .card {
+		margin-bottom: 0;
+	}
+	.card-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 12px 16px;
+		border-bottom: 1px solid var(--line);
+	}
+	.card-head h2 {
+		margin-right: auto;
+	}
+	.pad {
+		margin: 0;
+		padding: 14px 16px;
+	}
+	.history-note {
+		margin: 0;
+		padding: 10px 16px;
+		border-top: 1px dashed var(--line-2);
+		color: var(--faint);
+		font-size: var(--fs-sm);
 	}
 	.quiet {
 		color: var(--muted);
 	}
+	.small {
+		font-size: var(--fs-sm);
+	}
+	.muted {
+		color: var(--muted);
+	}
+	.pos {
+		color: var(--pos);
+	}
+	.neg,
 	.problem {
 		color: var(--neg);
-		font-size: 13px;
 	}
 	.contract-note {
+		margin: 0 0 12px;
 		color: var(--warn);
-		font-size: 12px;
+		font-size: var(--fs-sm);
 	}
-	.provenance-note,
-	.bounded-note {
-		margin-top: 6px;
-		font-size: 12px;
+	.kpi .contract-note {
+		margin: 2px 0 0;
+	}
+	.problem-banner {
+		margin: 0 0 12px;
+		padding: 10px 14px;
+		border: 1px solid var(--danger-line);
+		border-radius: var(--radius-md);
+		background: var(--danger-soft);
+		color: var(--neg);
+	}
+	.breaker-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px 14px;
+		margin-bottom: 14px;
+		padding: 10px 14px;
+		border: 1px solid var(--danger-line);
+		border-radius: var(--radius-md);
+		background: var(--danger-soft);
+	}
+	.breaker-row p {
+		margin: 0;
 	}
 	.evidence-links {
 		display: flex;
-		gap: 16px;
 		flex-wrap: wrap;
-	}
-	.evidence-links a {
-		color: var(--info);
-		text-decoration: none;
-	}
-	.evidence-links a:hover {
-		text-decoration: underline;
+		gap: 8px 16px;
+		margin: 0 0 8px;
 	}
 	.pager {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		margin-top: 10px;
+		padding: 10px 16px;
+		border-top: 1px solid var(--line);
 		color: var(--faint);
-		font-size: 12px;
+		font-size: var(--fs-sm);
+	}
+	.pager button {
+		padding: 5px 10px;
+		border: 1px solid var(--line-2);
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+		color: var(--text);
+		cursor: pointer;
+	}
+	.pager button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 	.table-scroll {
 		overflow-x: auto;
@@ -927,104 +1175,119 @@
 	table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 12px;
 	}
 	th,
 	td {
+		padding: 9px 16px;
 		text-align: left;
-		padding: 6px 10px 6px 0;
-		border-bottom: 1px solid var(--line);
+		font-size: var(--fs-sm);
 	}
-	th {
-		color: var(--muted);
-		font-weight: 500;
-		font-size: 11px;
+	th.num,
+	td.num {
+		text-align: right;
 	}
-	.actions {
-		display: flex;
-		gap: 8px;
-		flex-wrap: wrap;
+	td {
+		border-top: 1px solid var(--line);
 	}
-	.breaker-row {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-		flex-wrap: wrap;
+	.mono {
+		font-family: var(--font-mono);
 	}
 	.other-list {
-		margin: 0;
-		padding: 0;
-		list-style: none;
 		display: grid;
 		gap: 8px;
+		margin: 0 0 8px;
+		padding: 0;
+		list-style: none;
 	}
-	.other-list a {
-		color: var(--info);
-		font-size: 13px;
-		text-decoration: none;
+	.disclosure summary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px 12px;
+		padding: 12px 16px;
+		cursor: pointer;
+		font-weight: 600;
 	}
-	.other-list a:hover {
-		text-decoration: underline;
+	.disclosure summary code {
+		font-weight: 400;
+		font-size: var(--fs-xs);
+		word-break: break-all;
+	}
+	.disclosure[open] summary {
+		border-bottom: 1px solid var(--line);
+	}
+	.kv {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 28px;
+		margin: 0 0 12px;
+	}
+	.kv dt {
+		color: var(--faint);
+		font-size: var(--fs-xs);
+	}
+	.kv dd {
+		margin: 2px 0 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+	}
+	.config-summary {
+		display: grid;
+		gap: 6px;
+	}
+	.config-summary p {
+		margin: 0;
+	}
+	.config-section {
+		margin-top: 4px;
+		color: var(--muted);
+		font-size: var(--fs-xs);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.config-list {
+		display: grid;
+		gap: 2px;
+		margin: 0;
+		padding-left: 18px;
 	}
 	.warn-banner {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		margin-bottom: 14px;
 		padding: 14px 17px;
-		border-radius: 10px;
 		border: 1px solid var(--warn-line);
+		border-radius: var(--radius-md);
 		background: var(--warn-soft);
-		margin-bottom: 18px;
 	}
 	.warn-banner p {
 		margin: 4px 0 0;
 		color: var(--warn);
-		font-size: 13px;
 	}
 	.ok-banner {
+		margin-bottom: 14px;
 		padding: 12px 17px;
-		border-radius: 10px;
 		border: 1px solid var(--accent-line);
+		border-radius: var(--radius-md);
 		background: var(--accent-soft);
-		margin-bottom: 18px;
 	}
 	.ok-banner p {
 		margin: 0;
 		color: var(--muted);
-		font-size: 13px;
 	}
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
+	@media (max-width: 1100px) {
+		.kpis {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+		.grid2,
+		.grid2.even {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
-	.bar-button {
-		border: 1px solid var(--line-2);
-		background: var(--surface-2);
-		color: var(--text);
-		border-radius: 8px;
-		padding: 7px 12px;
-		font: inherit;
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.bar-button:hover:not(:disabled) {
-		border-color: var(--accent);
-	}
-	.bar-danger {
-		color: var(--neg);
-		border-color: var(--danger-line);
-	}
-	.bar-button:disabled {
-		opacity: 0.5;
-		cursor: wait;
-	}
-	@media (max-width: 800px) {
-		.evidence-grid {
-			grid-template-columns: 1fr;
+	@media (max-width: 560px) {
+		.kpis {
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>
