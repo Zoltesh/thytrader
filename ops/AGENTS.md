@@ -14,10 +14,10 @@ Use only the shipped skills:
 Run every `uv run thytrader-*` command from the **repository root** (the parent of this `ops/`
 folder). JSON is the default CLI output.
 
-Backtest engines `thytrader-bar-backtest-v1` / `v2` / `v3` / `v4` are parallel research contracts
-(not "newer app versions"). Prefer **v4** for new bar research. Pick per
-`skills/thytrader-research/SKILL.md` (when-to-pick table). Do not confuse them with Coinbase Advanced
-Trade REST v3.
+Backtests use one model, `engine: "thytrader-backtest"`; there is no engine to pick. Read its
+fill, fee, slippage, and spread-stress assumptions with `uv run thytrader-research backtest-model`
+and follow `skills/thytrader-research/SKILL.md`. Requests name no engine version (sending
+one is rejected with HTTP 422); `spread_bps` is an optional disclosed spread stress.
 
 ## Hard stop
 

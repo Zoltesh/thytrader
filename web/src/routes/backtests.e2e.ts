@@ -1,4 +1,5 @@
 import { expect, test } from '../e2e/harness';
+import { RETIRED_ENGINE_PREFIX } from '../e2e/workspace-fixtures';
 
 const fingerprint = `sha256:${'a'.repeat(64)}`;
 const strategyFingerprint = `sha256:${'b'.repeat(64)}`;
@@ -23,7 +24,8 @@ const summary = {
 	maximum_drawdown_fraction: '0',
 	exposure_bars: 1,
 	evaluation_bars: 2,
-	total_spread_cost: '0.10'
+	total_spread_cost: '0.10',
+	validity_limits: ['maker_touch_full_fill', 'tp_before_stop_same_bar']
 };
 
 test('requests bounded backtest pages with configurable size', async ({ page }) => {
@@ -43,7 +45,6 @@ test('requests bounded backtest pages with configurable size', async ({ page }) 
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -58,7 +59,7 @@ test('requests bounded backtest pages with configurable size', async ({ page }) 
 	);
 	await page.goto('/backtests');
 	await expect(page.getByTestId('backtest-page-size')).toHaveValue('10');
-	await expect(page.getByTestId('backtest-list-engine')).toBeVisible();
+	await expect(page.getByTestId('backtest-list-spread')).toBeVisible();
 	await expect.poll(() => requested).toEqual(['?limit=10&offset=0']);
 	await page.getByRole('button', { name: 'Older' }).click();
 	await expect.poll(() => requested.at(-1)).toBe('?limit=10&offset=10');
@@ -86,7 +87,6 @@ test('deployment evidence filters backtest pages to the exact strategy version',
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -126,7 +126,6 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -148,14 +147,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 						result_fingerprint: fingerprint,
 						run_fingerprint: runFingerprint,
 						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v2',
-						broker: {
-							price_model: 'constant_spread_bps',
-							spread_bps: '10',
-							fill_policy: 'full',
-							trigger_evaluation: 'bid_side',
-							equity_marking: 'bid_close'
-						},
+						engine: 'thytrader-backtest',
 						entry_candle_starts_at: '2026-08-01T02:00:00Z',
 						exit_candle_starts_at: '2026-08-01T04:00:00Z',
 						entry_price: '14.01',
@@ -179,14 +171,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '10',
-						fill_policy: 'full',
-						trigger_evaluation: 'bid_side',
-						equity_marking: 'bid_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -216,10 +201,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 								quantity: '1',
 								notional: '15',
 								fee: '0.03',
-								fee_rate: '0.002',
-								reference_price: '15',
-								executable_side: 'ask',
-								spread_cost: '0.05'
+								fee_rate: '0.002'
 							},
 							exit: {
 								candle_starts_at: '2026-08-01T04:00:00Z',
@@ -242,7 +224,8 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 				costs: {
 					maker_fee_rate: '0.001',
 					taker_fee_rate: '0.002',
-					fixed_slippage_bps: '10'
+					fixed_slippage_bps: '10',
+					spread_bps: '10'
 				}
 			}
 		});
@@ -251,8 +234,11 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByRole('heading', { name: 'Backtests', exact: true })).toBeVisible();
 	await expect(page.getByText('Published backtests')).toBeVisible();
 	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 1 (newest)');
-	await expect(page.getByTestId('backtest-list-engine')).toHaveText('thytrader-bar-backtest-v2');
+	await expect(page.getByRole('columnheader', { name: 'Engine' })).toHaveCount(0);
 	await expect(page.getByTestId('backtest-list-spread')).toHaveText('spread $0.10 recorded');
+	const listText = await page.locator('main').innerText();
+	expect(listText).not.toMatch(/\bV[1-4]\b/);
+	expect(listText).not.toContain(RETIRED_ENGINE_PREFIX);
 	await expect(page.getByTestId('backtest-list-published')).toHaveText('2026-08-03 17:25:34 UTC');
 	await expect(page.getByTestId('backtest-list-truncated')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
@@ -270,14 +256,28 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByText('2026-08-01 03:00:00 UTC')).toBeVisible();
 	await expect(page.getByText('2026-08-01 04:00:00 UTC')).toBeVisible();
 	await expect(page.getByText('Modeled assumptions')).toBeVisible();
-	await expect(page.getByText('10 bps constant spread')).toBeVisible();
 	await expect(page.getByTestId('published-costs')).toContainText('maker 0.10%');
 	await expect(page.getByTestId('published-costs')).toContainText('taker 0.20%');
-	await expect(page.getByTestId('published-costs')).toContainText('fixed slippage 10 bps');
-	await expect(page.getByTestId('fill-assumptions')).toContainText('next-open taker fill');
-	await expect(page.getByText('Total modeled spread cost: $0.10.')).toBeVisible();
+	await expect(page.getByTestId('published-costs')).toContainText(
+		'fixed slippage 10 bps on taker exits'
+	);
+	const spread = page.getByTestId('spread-stress');
+	await expect(spread).toContainText('Spread stress 10 bps (total bid-ask)');
+	await expect(spread).toContainText('total modeled spread cost $0.10');
+	await expect(spread).toContainText('not observed bid/ask data');
+	await expect(page.getByTestId('validity-limits')).toContainText('fill completely');
+	const disclosure = page.getByTestId('backtest-model-disclosure');
+	await disclosure.locator('summary').click();
+	await expect(disclosure).toContainText('Optional spread stress');
 	await expect(page.getByRole('cell', { name: '$0.03 (0.20%) / $0.05 (0.20%)' })).toBeVisible();
-	await expect(page.getByRole('cell', { name: '$0.05 / $0.05' })).toBeVisible();
+	await expect(
+		page.getByRole('columnheader', { name: 'Spread cost (entry / exit)' })
+	).toBeVisible();
+	await expect(page.getByRole('cell', { name: '— / $0.05' })).toBeVisible();
+	const detailText = await page.locator('main').innerText();
+	expect(detailText).not.toMatch(/\bV[1-4]\b/);
+	expect(detailText).not.toContain(RETIRED_ENGINE_PREFIX);
+	expect(detailText).not.toMatch(/engine contract/i);
 	await expect(page.getByText('take profit')).toBeVisible();
 	await expect(page.getByTestId('benchmark-comparison')).toBeVisible();
 	await expect(page.getByText('Buy-and-hold comparison')).toBeVisible();
@@ -293,8 +293,8 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByTestId('backtest-equity-chart').locator('canvas').first()).toBeVisible();
 });
 
-test('describes V3 post-only fills without constant-spread or next-open copy', async ({ page }) => {
-	const v3Summary = {
+test('an unstressed result shows no spread copy or spread column', async ({ page }) => {
+	const unstressedSummary = {
 		...summary,
 		total_spread_cost: null
 	};
@@ -309,9 +309,8 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v3',
 							published_at: '2026-08-03T17:25:34Z',
-							summary: v3Summary
+							summary: unstressedSummary
 						}
 					],
 					limit: 50,
@@ -331,14 +330,7 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 						result_fingerprint: fingerprint,
 						run_fingerprint: runFingerprint,
 						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v3',
-						broker: {
-							price_model: 'post_only_limit',
-							spread_bps: '0',
-							fill_policy: 'resting_limit',
-							trigger_evaluation: 'bar_extreme',
-							equity_marking: 'last_close'
-						},
+						engine: 'thytrader-backtest',
 						entry_candle_starts_at: '2026-08-01T02:00:00Z',
 						exit_candle_starts_at: '2026-08-01T04:00:00Z',
 						entry_price: '14',
@@ -361,19 +353,12 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v3',
-					broker: {
-						price_model: 'post_only_limit',
-						spread_bps: '0',
-						fill_policy: 'resting_limit',
-						trigger_evaluation: 'bar_extreme',
-						equity_marking: 'last_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
 					signal_trace_fingerprint: `sha256:${'e'.repeat(64)}`,
-					summary: v3Summary,
+					summary: unstressedSummary,
 					equity_curve: [],
 					trades: [
 						{
@@ -403,24 +388,20 @@ test('describes V3 post-only fills without constant-spread or next-open copy', a
 				costs: {
 					maker_fee_rate: '0.001',
 					taker_fee_rate: '0.002',
-					fixed_slippage_bps: '10'
+					fixed_slippage_bps: '10',
+					spread_bps: '0'
 				}
 			}
 		});
 	});
 	await page.goto('/backtests');
-	await expect(page.getByTestId('backtest-list-engine')).toHaveText('thytrader-bar-backtest-v3');
 	await expect(page.getByTestId('backtest-list-spread')).toHaveCount(0);
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
-	await expect(page.getByTestId('modeled-assumptions')).toContainText('post-only limit');
-	await expect(page.getByTestId('modeled-assumptions')).not.toContainText('constant spread');
-	await expect(page.getByTestId('fill-assumptions')).toContainText('rests a post-only buy');
-	await expect(page.getByTestId('fill-assumptions')).not.toContainText('next-open taker fill');
+	await expect(page.getByTestId('spread-stress')).toHaveCount(0);
+	await expect(page.getByRole('columnheader', { name: /Spread/ })).toHaveCount(0);
+	await expect(page.getByTestId('backtest-model-disclosure')).toBeVisible();
 	await expect(page.getByTestId('published-costs')).toContainText('maker 0.10%');
-	await expect(page.getByTestId('published-costs')).toContainText(
-		'V3 modeled fills do not apply this slippage'
-	);
 	await expect(page.getByRole('cell', { name: '$0.01 (0.10%) / $0.05 (0.20%)' })).toBeVisible();
 	await expect(page.getByText('Modeled entry and exit fills (not venue fills)')).toBeVisible();
 });
@@ -437,7 +418,6 @@ test('keeps immutable detail visible when the benchmark request fails', async ({
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -463,14 +443,7 @@ test('keeps immutable detail visible when the benchmark request fails', async ({
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '10',
-						fill_policy: 'full',
-						trigger_evaluation: 'bid_side',
-						equity_marking: 'bid_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -510,7 +483,6 @@ test('renders immutable detail before a slow benchmark finishes', async ({ page 
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -537,14 +509,7 @@ test('renders immutable detail before a slow benchmark finishes', async ({ page 
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '10',
-						fill_policy: 'full',
-						trigger_evaluation: 'bid_side',
-						equity_marking: 'bid_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -576,7 +541,6 @@ test('shows distinct empty copy when a result has no equity observations', async
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -602,14 +566,7 @@ test('shows distinct empty copy when a result has no equity observations', async
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '10',
-						fill_policy: 'full',
-						trigger_evaluation: 'bid_side',
-						equity_marking: 'bid_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -642,7 +599,6 @@ test('shows single-point equity copy until a curve can be drawn', async ({ page 
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -668,14 +624,7 @@ test('shows single-point equity copy until a curve can be drawn', async ({ page 
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '10',
-						fill_policy: 'full',
-						trigger_evaluation: 'bid_side',
-						equity_marking: 'bid_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -716,7 +665,6 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 							run_fingerprint: runFingerprint,
 							strategy_fingerprint: strategyFingerprint,
 							dataset_fingerprint: datasetFingerprint,
-							engine_contract_version: 'thytrader-bar-backtest-v2',
 							published_at: '2026-08-03T17:25:34Z',
 							summary
 						}
@@ -742,7 +690,7 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v2',
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -771,7 +719,6 @@ test('discloses a full newest-first page and can load older results', async ({ p
 		run_fingerprint: runFingerprint,
 		strategy_fingerprint: strategyFingerprint,
 		dataset_fingerprint: datasetFingerprint,
-		engine_contract_version: 'thytrader-bar-backtest-v2',
 		published_at: '2026-08-03T17:25:34Z',
 		summary
 	}));
@@ -815,14 +762,7 @@ test('an old ?result= link opens the owning strategy workspace when resolvable',
 				result_fingerprint: fingerprint,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v1',
-					broker: {
-						price_model: 'constant_spread_bps',
-						spread_bps: '0',
-						fill_policy: 'full',
-						trigger_evaluation: 'bar_extreme',
-						equity_marking: 'last_close'
-					},
+					engine: 'thytrader-backtest',
 					run_fingerprint: runFingerprint,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,

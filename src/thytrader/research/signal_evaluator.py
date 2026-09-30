@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal, DecimalException
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
@@ -15,6 +15,8 @@ from thytrader.research.indicators import (
     canonical_decimal,
 )
 from thytrader.research.models import (
+    BACKTEST_ENGINE,
+    BacktestEngine,
     ResearchRunSpecification,
     research_run_fingerprint,
     specification_bar_interval,
@@ -78,7 +80,7 @@ def evaluate_signal_trace(
         )
     except ValidationError as error:
         raise SignalEvaluationError("Signal evaluation inputs are invalid.") from error
-    engine_contract_version = _verify_contract(specification, strategy)
+    engine = _verify_contract(specification, strategy)
     engine_candles = _required_candles(specification, candles)
     extra_candles = dict(indicator_timeframe_candles or {})
     try:
@@ -139,7 +141,7 @@ def evaluate_signal_trace(
         run_fingerprint=research_run_fingerprint(specification),
         strategy_fingerprint=specification.strategy_fingerprint,
         dataset_fingerprint=specification.dataset_fingerprint,
-        engine_contract_version=engine_contract_version,
+        engine=engine,
         indicator_ids=indicator_ids,
         records=tuple(records),
     )
@@ -380,25 +382,10 @@ def _invalid_ohlc_geometry(candle: Candle) -> bool:
 def _verify_contract(
     specification: ResearchRunSpecification,
     strategy: StrategyDefinition,
-) -> Literal[
-    "thytrader-bar-signal-v1",
-    "thytrader-bar-backtest-v1",
-    "thytrader-bar-backtest-v2",
-    "thytrader-bar-backtest-v3",
-    "thytrader-bar-backtest-v4",
-]:
-    """Require an executable engine contract and immutable strategy identity."""
-    engine_contract_version = specification.engine_contract_version
-    if engine_contract_version == "thytrader-bar-v1":
-        raise SignalEvaluationError("Research run does not select the executable signal contract.")
-    if engine_contract_version not in {
-        "thytrader-bar-signal-v1",
-        "thytrader-bar-backtest-v1",
-        "thytrader-bar-backtest-v2",
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    }:
-        raise AssertionError("Research run engine contract literal is invalid.")
+) -> BacktestEngine:
+    """Require the unified engine identity and immutable strategy identity."""
+    if specification.engine != BACKTEST_ENGINE:
+        raise AssertionError("Research run engine literal is invalid.")
     if strategy_fingerprint(strategy) != specification.strategy_fingerprint:
         raise SignalEvaluationError("Research run strategy identity failed verification.")
     if specification.warmup.bars != strategy.data_requirements.warmup_bars:
@@ -419,7 +406,7 @@ def _verify_contract(
         raise SignalEvaluationError(
             "Research run indicator-timeframe datasets do not match the published strategy."
         )
-    return engine_contract_version
+    return specification.engine
 
 
 def _required_candles(

@@ -1,6 +1,7 @@
 # 0019: Ops-contract identity independent of package version
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: the `backtest_engines` list. The ops contract advertises `backtest_engine: "thytrader-backtest"` (v42).
 - Date: 2026-09-11
 - Relates to: [0012](0012-operator-diagnostics.md), [0013](0013-http-first-agent-clients.md),
   [0016](0016-longer-complete-5m-datasets.md), [0017](0017-maker-limit-bar-backtest.md),

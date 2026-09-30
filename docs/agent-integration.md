@@ -148,10 +148,13 @@ changed" diff. The browser uses only these HTTP routes; agents keep the CLI lane
 library pages with a cursor, offers per-row delete and a checkbox bulk delete
 (`POST /api/v1/strategies/bulk-delete`, dry run first, then `confirm: true`), and marks a
 later-page failure as incomplete rather than calling the partial result
-empty. The CLI still follows its bounded `--limit` / `--cursor` contract. The Test stage's run bar
-defaults its engine to the newest engine that `GET /api/v1/research/engine-support` advertises and
-the browser launcher offers (V3 today); agents name the engine explicitly (prefer V4 per the
-research skill).
+empty. The CLI still follows its bounded `--limit` / `--cursor` contract. There is one backtest
+model, `engine: "thytrader-backtest"` ([ADR 0083](decisions/0083-unified-backtest-model.md)), and no
+engine selector: `POST /api/v1/backtests` and study plan/submit bodies reject a
+removed engine-version field with HTTP 422, and take an optional disclosed spread stress
+`spread_bps` (default `"0"`). `GET /api/v1/research/backtest-model` (CLI
+`thytrader-research backtest-model`) returns `{engine, decision_record, honesty, assumptions}`, the
+same assumptions the browser's **How backtests simulate** disclosure renders.
 
 The browser runtime surfaces compose the same runtime routes the `thytrader-runtime` lane uses and
 add no endpoints: **Portfolio** (`/deployments`, paged `GET /api/v1/deployments`, with header
@@ -206,8 +209,10 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v41` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
-[ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md); expected Alembic revision `0048`).
+`thytrader-ops-contract-v42` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+[ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
+[ADR 0083](decisions/0083-unified-backtest-model.md); `backtest_engine: "thytrader-backtest"`;
+expected Alembic revision `0049`).
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

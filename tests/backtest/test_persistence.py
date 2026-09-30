@@ -37,7 +37,7 @@ from thytrader.research.models import (
 from thytrader.research.publication import PublishedResearchRunSpecification
 from thytrader.research.signal_evaluator import evaluate_signal_trace
 
-from .test_kernel import _candles, _run, _strategy, _v2_run
+from .test_kernel import _candles, _run, _strategy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -159,13 +159,13 @@ def test_postgres_store_persists_and_reloads_a_canonical_result() -> None:
     asyncio.run(_assert_postgres_round_trip(database_url, result, strategy, specification))
 
 
-def test_postgres_store_persists_and_reloads_a_v2_canonical_result() -> None:
-    """V2 broker evidence must round-trip with its matching source-run contract."""
+def test_postgres_store_persists_and_reloads_a_spread_stressed_result() -> None:
+    """Spread-stress fill evidence must round-trip with its matching source-run costs."""
     database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
     if database_url is None:
         pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
     strategy = _strategy()
-    specification = _v2_run(strategy, "10")
+    specification = _run(strategy, spread_bps="10")
     result = simulate_backtest(specification, strategy, _candles())
     asyncio.run(_assert_postgres_round_trip(database_url, result, strategy, specification))
 
@@ -181,13 +181,13 @@ def test_postgres_store_lists_summaries_without_trade_ledgers() -> None:
     asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy, specification))
 
 
-def test_postgres_store_lists_v2_contract_from_canonical_result() -> None:
-    """The list projection must expose V2 rather than relabeling it as legacy V1."""
+def test_postgres_store_lists_spread_stressed_summaries() -> None:
+    """The list projection keeps the spread-cost summary from the canonical result."""
     database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
     if database_url is None:
         pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
     strategy = _strategy()
-    specification = _v2_run(strategy, "10")
+    specification = _run(strategy, spread_bps="10")
     result = simulate_backtest(specification, strategy, _candles())
     asyncio.run(_assert_postgres_summary_listing(database_url, result, strategy, specification))
 
@@ -224,7 +224,7 @@ async def _assert_postgres_summary_listing(
         assert [row.result_fingerprint for row in by_dataset] == [fingerprint]
         row = by_run[0]
         assert row.summary == result.summary
-        assert row.engine_contract_version == specification.engine_contract_version
+        assert row.summary.total_spread_cost == result.summary.total_spread_cost
         assert row.published_at.tzinfo is not None
     finally:
         await _cleanup_seeded_sources(engine, result)

@@ -2,21 +2,20 @@
 	import {
 		backtestEquityChartModel,
 		compareDecimalStrings,
-		formatBrokerAssumptions,
-		formatEngineFillAssumptions,
+		SAME_BAR_POLICY_LABEL,
 		formatFillFee,
 		formatPercent,
 		formatPublishedCosts,
-		formatSameBarPolicy,
 		formatSpreadCostNote,
 		shortFingerprint,
 		type BacktestBenchmark,
 		type BacktestDetail,
 		type BacktestPerformanceMetrics
 	} from '$lib/backtests';
+	import { formatValidityLimit } from '$lib/backtest-model';
+	import BacktestModelDisclosure from '$lib/BacktestModelDisclosure.svelte';
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
-	import { engineContractLabel } from '$lib/research-studies';
 	import { formatUtcTimestamp } from '$lib/time';
 
 	let {
@@ -66,19 +65,18 @@
 		benchmark?.total_return_fraction ?? metrics?.buy_and_hold_return_fraction ?? null
 	);
 	const spreadCostNote = $derived(
-		result
-			? formatSpreadCostNote(result.engine_contract_version, result.summary.total_spread_cost)
-			: null
+		result ? formatSpreadCostNote(detail?.costs, result.summary.total_spread_cost) : null
 	);
+	/** Spread columns and notes appear only on spread-stressed runs. */
+	const spreadStressed = $derived(spreadCostNote !== null);
+	const validityLimits = $derived(result?.summary.validity_limits ?? []);
 </script>
 
 <section class="detail" aria-label="Backtest result detail">
 	<div class="result-head" data-testid="backtest-result-head">
 		<div class="result-id">
 			<h2>
-				{#if result}{versionLabel ? `${versionLabel} · ` : ''}{periodText} · {engineContractLabel(
-						result.engine_contract_version
-					)}{:else}Backtest result{/if}
+				{#if result}{versionLabel ? `${versionLabel} · ` : ''}{periodText}{:else}Backtest result{/if}
 			</h2>
 			{#if publishedAt}<span class="faint">{formatUtcTimestamp(publishedAt)}</span>{/if}
 			<span class="chip">Simulated result (candle-based fills)</span>
@@ -135,7 +133,7 @@
 			<div class="metric">
 				<div class="l">Profit factor</div>
 				<div class="v">{result.summary.profit_factor ?? 'N/A'}</div>
-				<div class="s">{formatSameBarPolicy(result.engine_contract_version)}</div>
+				<div class="s">{SAME_BAR_POLICY_LABEL}</div>
 			</div>
 		</div>
 		<div class="equity-panel">
@@ -175,17 +173,19 @@
 		</div>
 		<div class="assumptions" data-testid="modeled-assumptions">
 			<strong>Modeled assumptions</strong>
-			<span>{formatBrokerAssumptions(result.broker, result.engine_contract_version)}</span>
-			<span data-testid="published-costs"
-				>{formatPublishedCosts(detail.costs, result.engine_contract_version)}</span
-			>
-			<small data-testid="fill-assumptions"
-				>{formatEngineFillAssumptions(result.engine_contract_version)}</small
-			>
-			{#if spreadCostNote}<small>{spreadCostNote}</small>{/if}
+			<span data-testid="published-costs">{formatPublishedCosts(detail.costs)}</span>
+			{#if spreadCostNote}<small data-testid="spread-stress">{spreadCostNote}</small>{/if}
+			{#if validityLimits.length > 0}
+				<ul class="limits" data-testid="validity-limits" aria-label="Modeling limits">
+					{#each validityLimits as code (code)}
+						<li>{formatValidityLimit(code)}</li>
+					{/each}
+				</ul>
+			{/if}
+			<BacktestModelDisclosure />
 		</div>
 		<details class="evidence" data-testid="result-evidence">
-			<summary>Evidence <span class="faint">fingerprints and engine contract</span></summary>
+			<summary>Evidence <span class="faint">fingerprints</span></summary>
 			<div class="provenance">
 				<span title={detail.result_fingerprint}
 					>Result <code>{shortFingerprint(detail.result_fingerprint)}</code></span
@@ -195,7 +195,7 @@
 					>Dataset <code>{shortFingerprint(result.dataset_fingerprint)}</code></span
 				><span title={result.run_fingerprint}
 					>Run <code>{shortFingerprint(result.run_fingerprint)}</code></span
-				><span>{result.engine_contract_version}</span>
+				>
 			</div>
 		</details>
 		<div
@@ -315,7 +315,9 @@
 							><tr
 								><th>Entry</th><th>Exit</th><th>Reason</th><th>Quantity</th><th
 									>Fees (entry / exit)</th
-								><th>Spread/unit (entry / exit)</th><th>Net PnL</th><th>Bars</th></tr
+								>{#if spreadStressed}<th>Spread cost (entry / exit)</th>{/if}<th>Net PnL</th><th
+									>Bars</th
+								></tr
 							></thead
 						><tbody
 							>{#each result.trades as trade, index (index)}<tr
@@ -329,14 +331,12 @@
 										></td
 									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td
 										>{formatFillFee(trade.entry)} / {formatFillFee(trade.exit)}</td
-									><td
-										>{trade.entry.executable_side === 'ask' &&
-										trade.exit.executable_side === 'bid' &&
-										trade.entry.spread_cost &&
-										trade.exit.spread_cost
-											? `${formatUsd(trade.entry.spread_cost)} / ${formatUsd(trade.exit.spread_cost)}`
-											: '—'}</td
-									><td
+									>{#if spreadStressed}<td
+											>{trade.entry.spread_cost ? formatUsd(trade.entry.spread_cost) : '—'} / {trade
+												.exit.spread_cost
+												? formatUsd(trade.exit.spread_cost)
+												: '—'}</td
+										>{/if}<td
 										class:gain={compareDecimalStrings(trade.net_pnl, '0') >= 0}
 										class:loss={compareDecimalStrings(trade.net_pnl, '0') < 0}
 										>{formatUsd(trade.net_pnl)}</td
@@ -538,6 +538,12 @@
 	}
 	.assumptions strong {
 		color: var(--text);
+	}
+	.limits {
+		margin: 0;
+		padding-left: 16px;
+		color: var(--faint);
+		font-size: 11px;
 	}
 	.panel-heading {
 		display: flex;

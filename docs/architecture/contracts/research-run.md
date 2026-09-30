@@ -1,6 +1,9 @@
 # Research-run specification
 
 Immutable research **request**, not proof a backtest ran and not order authority.
+There is one backtest model, `engine: "thytrader-backtest"`
+([ADR 0083](../../decisions/0083-unified-backtest-model.md)); the run carries no
+`broker`, `bar_execution`, or engine-version field.
 Field rules: [research-run specification](../research-run-specification.md).
 Model: `thytrader.research.models.ResearchRunSpecification`.
 
@@ -17,7 +20,7 @@ classDiagram
     strategy_fingerprint sha256
     dataset_fingerprint sha256 LTF
     htf_dataset_fingerprint sha256?
-    engine_contract_version
+    engine thytrader-backtest
     random_seed
     additional_instrument_datasets omitted when empty
   }
@@ -37,17 +40,7 @@ classDiagram
     maker_fee_rate
     taker_fee_rate
     fixed_slippage_bps
-  }
-  class BrokerAssumptions {
-    price_model
-    spread_bps
-    fill_policy
-    trigger_evaluation
-    equity_marking
-  }
-  class BarExecutionAssumptions {
-    signal_timing completed_candle_close
-    fill_timing next_candle_open or resting_maker_limit
+    spread_bps default 0 max 1000
   }
   class IndicatorTimeframeDataset {
     timeframe
@@ -63,30 +56,25 @@ classDiagram
   ResearchRunSpecification --> WarmupWindow
   ResearchRunSpecification --> CapitalAssumptions
   ResearchRunSpecification --> CostAssumptions
-  ResearchRunSpecification --> BrokerAssumptions : required for V2/V3
-  ResearchRunSpecification --> BarExecutionAssumptions
   ResearchRunSpecification --> IndicatorTimeframeDataset : unbound extra TFs
   ResearchRunSpecification --> AdditionalInstrumentDataset : extra products lex product_id
 ```
 
 ```mermaid
 flowchart TD
-  Engines["engine_contract_version"]
-  Engines --> V1req["thytrader-bar-v1 request-only"]
-  Engines --> Signal["thytrader-bar-signal-v1 traces"]
-  Engines --> B1["thytrader-bar-backtest-v1 next-open taker"]
-  Engines --> B2["thytrader-bar-backtest-v2 constant spread"]
-  Engines --> B3["thytrader-bar-backtest-v3 resting maker limit"]
-  B2 --> BrokerV2["broker required\nconstant_spread_bps"]
-  B3 --> BrokerV3["broker required\npost_only_limit"]
+  Run["ResearchRunSpecification\nengine thytrader-backtest"] --> Trace["signal trace\ncompleted-candle entry conditions"]
+  Run --> Sim["thytrader-backtest simulator\nresting maker-limit entries"]
+  Trace --> Sim
+  Costs["costs\nmaker/taker fees, fixed_slippage_bps,\noptional spread_bps stress"] --> Sim
+  Sim --> Result["BacktestResult"]
 ```
 
 HTF dataset fingerprint is required iff the strategy declares `htf_filter`, must
 differ from the LTF dataset, and is omitted from canonical JSON when null.
 `indicator_dataset_fingerprints` bind unbound extra indicator clocks. Warmup
 must equal `evaluation.starts_at` minus `warmup.bars` times the LTF duration.
-The LTF dataset must cover one extra decision bar after evaluation end for
-next-open fill data. `dataset_fingerprint` remains the primary instrument.
+The LTF dataset must cover the decision bar that opens at `evaluation.ends_at`,
+whose open prices end-of-window liquidation. `dataset_fingerprint` remains the primary instrument.
 `additional_instrument_datasets` binds extra covered products (omitted when
 empty, lexicographic `product_id`). Each extra product needs a complete
 decision-clock dataset; HTF and extra-TF fingerprints are required iff the

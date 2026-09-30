@@ -53,6 +53,9 @@ addopts = [
     "-ra",
 ]
 testpaths = ["tests"]
+markers = [
+    "allow_network: opt out of the hermetic outbound-network guard (tests/conftest.py); requires a documented reason",
+]
 
 [tool.ruff]
 required-version = ">=0.16.0"

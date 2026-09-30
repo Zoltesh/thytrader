@@ -2,8 +2,9 @@
 
 ## Purpose and boundary
 
-The first executable research engine consumes one exact published research-run specification using
-`thytrader-bar-signal-v1`. It reloads and reverifies the published run, strategy snapshot, immutable
+The signal stage of the single backtest model (`engine: "thytrader-backtest"`,
+[ADR 0083](../decisions/0083-unified-backtest-model.md)) consumes one exact published research-run
+specification. It reloads and reverifies the published run, strategy snapshot, immutable
 dataset manifest, and Parquet candles before calculating indicators or conditions. The evaluator
 reconstructs and revalidates typed run and strategy inputs before use, and both canonical identity
 helpers do the same before hashing, so unchecked model copies cannot enter evaluation identity.
@@ -12,32 +13,20 @@ The output is an in-memory, immutable **entry-condition trace**. A `matched` rec
 declarative entry condition matched after one completed candle close. It is not an order intent,
 cooldown-approved entry, fill, position, trade, or claim that a full backtest ran.
 
-There is no broker, order submission, REST endpoint, dashboard control, paper execution, or live execution in the signal evaluator itself. It evaluates `thytrader-bar-signal-v1` and the signal stage of `thytrader-bar-backtest-v1`; only the latter is eligible for the separate [bar-level backtest simulator](backtest-simulation.md), which owns position state, modeled fees/slippage, PnL, result persistence, and its own documented execution assumptions.
+There is no broker, order submission, REST endpoint, dashboard control, paper execution, or live execution in the signal evaluator itself. It evaluates the signal stage of every `thytrader-backtest` run; the separate [bar-level backtest simulator](backtest-simulation.md) owns position state, modeled fees/slippage, PnL, result persistence, and its own documented execution assumptions.
 
-## Engine contract compatibility
+## Engine identity
 
-Research-run schema `1.0` accepts three explicit engine-contract identifiers:
-
-- `thytrader-bar-v1` remains the historical request-only contract. The evaluator rejects it, so an
-  already-published immutable request never silently acquires executable semantics.
-- `thytrader-bar-signal-v1` selects only the deterministic indicator and entry-condition semantics in
-  this document; it is not executable by the backtest simulator.
-- `thytrader-bar-backtest-v1` selects the same deterministic signal stage plus the separately versioned
-  V1 fill, PnL, and persistence policy in [bar-level backtest simulation](backtest-simulation.md).
-- `thytrader-bar-backtest-v2` selects that same signal stage plus the V2 constant-spread stress model.
-  It requires immutable broker assumptions in the run; signal evaluation still has no broker authority.
-- `thytrader-bar-backtest-v3` selects that same signal stage plus the maker-limit simulator. Signal
-  evaluation still has no broker authority.
-
-The engine identifier is part of canonical run identity. Selecting an executable contract therefore
-creates a different run fingerprint even when every other request field is unchanged.
+Research-run schema `1.0` accepts exactly one engine identifier, `thytrader-backtest`. The evaluator
+rejects any other value, and signal evaluation has no broker or order authority. Signal traces carry
+`engine` so a trace is bound to the model that consumes it.
 
 ## Candle and evaluation rules
 
 The evaluator selects exactly the contiguous decision-timeframe candles in
 `[warmup.starts_at, evaluation.ends_at)`. Warmup candles advance indicator state but emit no trace
 records. Each candle in `[evaluation.starts_at, evaluation.ends_at)` emits exactly one trace record.
-The extra candle required by run publication for a possible next-open fill is never supplied to the
+The extra candle required by run publication for end-of-window liquidation is never supplied to the
 indicator or condition calculation. When `htf_filter` is present, HTF indicators are calculated on
 the required closed HTF bars and held onto each LTF close from the last completed HTF bar (never a
 partial HTF bar). Combined entry is the tri-state AND of HTF `when` and LTF `entry.when`. Paper and
@@ -295,7 +284,7 @@ short-circuiting. Valid published warmup should normally make all evaluation-win
 
 Each trace records:
 
-- schema and executable engine-contract version;
+- schema version and `engine` (`thytrader-backtest`);
 - exact run, strategy, and dataset fingerprints;
 - the identity-bearing exact output-key sequence copied from the strategy snapshot (LTF then HTF
   when a filter is present): `{id}` for single-output kinds, `{id}.{series}` for multi-series kinds;
@@ -318,7 +307,7 @@ typed trace before emitting bytes so unchecked model copies cannot acquire finge
 
 ## Read-only operator command
 
-An operator with an existing published `thytrader-bar-signal-v1` run can evaluate it with:
+An operator with an existing published research run can evaluate its signal trace with:
 
 ```bash
 uv run thytrader-research-evaluate <run_fingerprint> --pretty

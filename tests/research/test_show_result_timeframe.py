@@ -23,7 +23,6 @@ def _summary_payload() -> dict[str, object]:
         "strategy_fingerprint": _STRATEGY_FINGERPRINT,
         "run_fingerprint": _RUN_FINGERPRINT,
         "dataset_fingerprint": _DATASET_FINGERPRINT,
-        "engine_contract_version": "thytrader-bar-backtest-v4",
         "summary": {"trade_count": 13},
         "metrics": {
             "metrics_contract_version": "thytrader-performance-metrics-v1",

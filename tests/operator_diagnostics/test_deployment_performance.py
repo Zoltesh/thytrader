@@ -524,7 +524,6 @@ def test_backtest_performance_carries_published_quote_currency() -> None:
         )
         result = BacktestResult(
             schema_version="1.0",
-            engine_contract_version="thytrader-bar-backtest-v1",
             run_fingerprint=fingerprint,
             strategy_fingerprint="sha256:" + "b" * 64,
             dataset_fingerprint=fingerprint,

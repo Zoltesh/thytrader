@@ -23,7 +23,6 @@ from thytrader.backtest.models import (
 from thytrader.market_data.models import Candle
 from thytrader.persistence.backtest_benchmarks import PostgresBacktestBenchmarkReader
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -32,7 +31,7 @@ from thytrader.research.models import (
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
-from .test_kernel import _candles, _run, _strategy, _v2_run, _v3_run
+from .test_kernel import _candles, _run, _strategy
 
 
 class _SingleResultReader:
@@ -92,7 +91,7 @@ def test_postgres_benchmark_reader_composes_only_verified_boundaries() -> None:
 
 
 def test_buy_and_hold_uses_the_verified_run_window_and_cost_contract() -> None:
-    """The benchmark must use the same source, terminal boundary, and published V1 costs."""
+    """Both legs are unified-model taker fills: taker fee, fixed slippage, no spread stress."""
     strategy = _strategy()
     specification = _run(strategy)
     result = simulate_backtest(specification, strategy, _candles())
@@ -103,7 +102,7 @@ def test_buy_and_hold_uses_the_verified_run_window_and_cost_contract() -> None:
     assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
     assert benchmark.run_fingerprint == result.run_fingerprint
     assert benchmark.dataset_fingerprint == result.dataset_fingerprint
-    assert benchmark.engine_contract_version == "thytrader-bar-backtest-v1"
+    assert benchmark.engine == "thytrader-backtest"
     assert benchmark.entry_candle_starts_at == specification.evaluation.starts_at
     assert benchmark.exit_candle_starts_at == specification.evaluation.ends_at
     assert benchmark.initial_equity == specification.capital.initial_quote_balance
@@ -125,17 +124,16 @@ def test_buy_and_hold_uses_the_verified_run_window_and_cost_contract() -> None:
     assert benchmark.evaluation_bars == 2
 
 
-def test_buy_and_hold_v2_discloses_spread_and_is_not_part_of_result_identity() -> None:
-    """V2 benchmark friction follows its broker while existing result bytes stay untouched."""
+def test_buy_and_hold_discloses_spread_stress_and_is_not_part_of_result_identity() -> None:
+    """Spread stress widens both taker legs and bid marks without touching result bytes."""
     strategy = _strategy()
-    specification = _v2_run(strategy, "10")
+    specification = _run(strategy, spread_bps="10")
     result = simulate_backtest(specification, strategy, _candles())
 
     before = canonical_backtest_result_bytes(result)
     benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
 
-    assert benchmark.engine_contract_version == "thytrader-bar-backtest-v2"
-    assert benchmark.broker == result.broker
+    assert benchmark.engine == result.engine == "thytrader-backtest"
     assert benchmark.entry_price == "14.021007"
     assert benchmark.exit_price == "9.985005"
     assert benchmark.final_equity == (
@@ -153,20 +151,6 @@ def test_buy_and_hold_v2_discloses_spread_and_is_not_part_of_result_identity() -
     assert benchmark.maximum_drawdown_fraction == (
         "0.2906968307911976368594936983967447349956266584351173365477163108"
     )
-    assert canonical_backtest_result_bytes(result) == before
-    assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
-
-
-def test_buy_and_hold_v3_uses_the_maker_fill_model_without_rewriting_result_bytes() -> None:
-    """V3 buy-and-hold follows last-close marks and must not mutate canonical result identity."""
-    strategy = _strategy()
-    specification = _v3_run(strategy)
-    result = simulate_backtest(specification, strategy, _candles())
-    before = canonical_backtest_result_bytes(result)
-    benchmark = calculate_buy_and_hold_benchmark(result, specification, _candles())
-
-    assert benchmark.engine_contract_version == "thytrader-bar-backtest-v3"
-    assert benchmark.broker == result.broker
     assert canonical_backtest_result_bytes(result) == before
     assert benchmark.result_fingerprint == backtest_result_fingerprint(result)
 
@@ -223,11 +207,6 @@ def _five_minute_run(strategy: StrategyDefinition) -> ResearchRunSpecification:
             taker_fee_rate="0.002",
             fixed_slippage_bps="10",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-backtest-v1",
         random_seed=0,
     )
 

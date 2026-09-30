@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import json
 import secrets
-from typing import TYPE_CHECKING, Literal, Protocol, Self, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -20,15 +20,15 @@ from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.models import (
+    BACKTEST_ENGINE,
     AdditionalInstrumentDataset,
-    BarExecutionAssumptions,
-    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     IndicatorTimeframeDataset,
     ResearchRunSpecification,
     WarmupWindow,
+    reject_removed_engine_selection,
     warmup_starts_at,
 )
 from thytrader.research.multi_timeframe import (
@@ -62,7 +62,11 @@ if TYPE_CHECKING:
 
 
 class BacktestAssumptions(BaseModel):
-    """Datasets, window, capital, costs, and engine for one simulation (no strategy)."""
+    """Datasets, window, capital, and costs for one unified-model simulation (no strategy).
+
+    There is no engine selector: every run uses the single ``thytrader-backtest`` model
+    (ADR 0083). ``spread_bps`` is the optional constant spread stress (omitted means 0).
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
@@ -75,16 +79,16 @@ class BacktestAssumptions(BaseModel):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
-    engine_contract_version: Literal[
-        "thytrader-bar-backtest-v1",
-        "thytrader-bar-backtest-v2",
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ] = "thytrader-bar-backtest-v1"
     spread_bps: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_engine_selection(cls, data: object) -> object:
+        """Reject the retired engine selector with an explicit migration message."""
+        return reject_removed_engine_selection(data)
+
     @model_validator(mode="after")
-    def validate_engine_broker_contract(self) -> Self:
+    def validate_assumptions(self) -> Self:
         """Reject assumptions that cannot form one valid immutable research run."""
         _validate_submission_assumptions(self)
         return self
@@ -288,14 +292,7 @@ class PostgresBacktestSubmitter:
                 quote_currency=strategy.definition.instrument.quote_currency,
                 initial_quote_balance=request.initial_quote_balance,
             ),
-            costs=CostAssumptions(
-                maker_fee_rate=request.maker_fee_rate,
-                taker_fee_rate=request.taker_fee_rate,
-                fixed_slippage_bps=request.fixed_slippage_bps,
-            ),
-            broker=_broker_from_request(request),
-            bar_execution=_bar_execution_from_request(request),
-            engine_contract_version=request.engine_contract_version,
+            costs=_cost_assumptions(request),
             random_seed=0,
         )
         try:
@@ -645,7 +642,6 @@ def _validate_submission_assumptions(
     quote_currency: SpotQuoteCurrency = "USD",
 ) -> None:
     """Revalidate every untrusted simulation assumption before source or persistence I/O."""
-    _require_valid_broker_inputs(request)
     if request.evaluation_start is None and request.evaluation_end is None:
         pass
     elif request.evaluation_start is None or request.evaluation_end is None:
@@ -656,66 +652,17 @@ def _validate_submission_assumptions(
         quote_currency=quote_currency,
         initial_quote_balance=request.initial_quote_balance,
     )
-    CostAssumptions(
+    _cost_assumptions(request)
+
+
+def _cost_assumptions(request: BacktestAssumptions) -> CostAssumptions:
+    """Build the published fee, slippage, and optional spread-stress assumptions."""
+    return CostAssumptions(
         maker_fee_rate=request.maker_fee_rate,
         taker_fee_rate=request.taker_fee_rate,
         fixed_slippage_bps=request.fixed_slippage_bps,
+        spread_bps=request.spread_bps if request.spread_bps is not None else "0",
     )
-    _broker_from_request(request)
-
-
-def _broker_from_request(request: BacktestAssumptions) -> BrokerAssumptions | None:
-    """Resolve contract-specific broker inputs, mirroring the CLI contract exactly."""
-    if request.engine_contract_version == "thytrader-bar-backtest-v1":
-        return None
-    if request.engine_contract_version in (
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ):
-        return BrokerAssumptions(
-            price_model="post_only_limit",
-            spread_bps="0",
-            fill_policy="resting_limit",
-            trigger_evaluation="bar_extreme",
-            equity_marking="last_close",
-        )
-    if request.spread_bps is None:
-        message = "spread_bps is required for the thytrader-bar-backtest-v2 contract"
-        raise ValueError(message)
-    return BrokerAssumptions(
-        price_model="constant_spread_bps",
-        spread_bps=request.spread_bps,
-        fill_policy="full",
-        trigger_evaluation="bid_side",
-        equity_marking="bid_close",
-    )
-
-
-def _bar_execution_from_request(request: BacktestSubmissionRequest) -> BarExecutionAssumptions:
-    """Bind fill timing to the selected engine contract."""
-    if request.engine_contract_version in (
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ):
-        return BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="resting_maker_limit",
-            limit_at="completed_close",
-        )
-    return BarExecutionAssumptions(
-        signal_timing="completed_candle_close",
-        fill_timing="next_candle_open",
-    )
-
-
-def _require_valid_broker_inputs(request: BacktestAssumptions) -> None:
-    """Reject mismatched engine and spread combinations before any publication."""
-    if request.engine_contract_version == "thytrader-bar-backtest-v2":
-        if request.spread_bps is None:
-            raise ValueError("spread_bps is required for the thytrader-bar-backtest-v2 contract")
-        return
-    if request.spread_bps is not None:
-        raise ValueError("spread_bps requires the thytrader-bar-backtest-v2 contract")
 
 
 def _execution_fingerprint(
@@ -728,21 +675,12 @@ def _execution_fingerprint(
         quote_currency=quote_currency,
         initial_quote_balance=request.initial_quote_balance,
     )
-    costs = CostAssumptions(
-        maker_fee_rate=request.maker_fee_rate,
-        taker_fee_rate=request.taker_fee_rate,
-        fixed_slippage_bps=request.fixed_slippage_bps,
-    )
-    broker = _broker_from_request(request)
+    costs = _cost_assumptions(request)
     payload = {
-        "bar_execution": _bar_execution_from_request(request).model_dump(
-            mode="json", exclude_none=True
-        ),
-        "broker": None if broker is None else broker.model_dump(mode="json"),
         "capital": capital.model_dump(mode="json"),
         "costs": costs.model_dump(mode="json"),
         "dataset_fingerprint": request.dataset_fingerprint,
-        "engine_contract_version": request.engine_contract_version,
+        "engine": BACKTEST_ENGINE,
         "evaluation_end": evaluation_end.isoformat(),
         "evaluation_start": evaluation_start.isoformat(),
         "random_seed": 0,

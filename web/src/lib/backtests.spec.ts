@@ -2,16 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
 	backtestListPageIsFull,
 	formatBacktestListBound,
-	formatBrokerAssumptions,
-	formatEngineFillAssumptions,
 	formatFillFee,
 	formatListSpreadCue,
 	formatPercent,
 	formatPublishedCosts,
-	formatSameBarPolicy,
 	formatSpreadCostNote,
+	optionalSpreadStress,
 	parseResultFingerprintParam,
 	shortFingerprint,
+	spreadStressBps,
 	type BacktestSummary
 } from './backtests';
 
@@ -54,67 +53,6 @@ describe('backtest presentation', () => {
 		expect(shortFingerprint(fingerprint)).toBe(`sha256:${'a'.repeat(9)}…${'a'.repeat(8)}`);
 	});
 
-	it('renders disclosed V2 broker assumptions instead of inventing a spread', () => {
-		expect(
-			formatBrokerAssumptions(
-				{
-					price_model: 'constant_spread_bps',
-					spread_bps: '10',
-					fill_policy: 'full',
-					trigger_evaluation: 'bid_side',
-					equity_marking: 'bid_close'
-				},
-				'thytrader-bar-backtest-v2'
-			)
-		).toContain('10 bps constant spread');
-	});
-
-	it('does not describe V3 post-only limits as a constant spread', () => {
-		expect(
-			formatBrokerAssumptions(
-				{
-					price_model: 'post_only_limit',
-					spread_bps: '0',
-					fill_policy: 'resting_limit',
-					trigger_evaluation: 'bar_extreme',
-					equity_marking: 'last_close'
-				},
-				'thytrader-bar-backtest-v3'
-			)
-		).toBe('post-only limit · resting-limit fills · bar-extreme triggers · last-close marking');
-	});
-
-	it('fail-closes unknown engine contracts instead of labeling V1/V2 fills', () => {
-		expect(
-			formatBrokerAssumptions(
-				{
-					price_model: 'constant_spread_bps',
-					spread_bps: '10',
-					fill_policy: 'full',
-					trigger_evaluation: 'bid_side',
-					equity_marking: 'bid_close'
-				},
-				'thytrader-bar-backtest-v9'
-			)
-		).toContain('Unknown engine contract thytrader-bar-backtest-v9');
-		expect(formatEngineFillAssumptions('thytrader-bar-backtest-v9')).toContain(
-			'will not invent fill semantics'
-		);
-		expect(formatSameBarPolicy('thytrader-bar-backtest-v9')).toBe('Same-bar policy unlabeled');
-	});
-
-	it('describes V3 fill semantics without next-open taker or entry slippage', () => {
-		expect(formatEngineFillAssumptions('thytrader-bar-backtest-v3')).toContain(
-			'rests a post-only buy'
-		);
-		expect(formatEngineFillAssumptions('thytrader-bar-backtest-v3')).not.toContain(
-			'next-open taker fill'
-		);
-		expect(formatEngineFillAssumptions('thytrader-bar-backtest-v1')).toContain(
-			'next-open taker fill'
-		);
-	});
-
 	it('surfaces published cost assumptions without inventing missing fields', () => {
 		expect(
 			formatPublishedCosts({
@@ -123,22 +61,12 @@ describe('backtest presentation', () => {
 				fixed_slippage_bps: '10'
 			})
 		).toBe(
-			'maker 0.10% · taker 0.20% · fixed slippage 10 bps (published research-run CostAssumptions, not observed Coinbase fees)'
+			'maker 0.10% · taker 0.20% · fixed slippage 10 bps on taker exits (published research-run CostAssumptions, not observed Coinbase fees)'
 		);
 		expect(formatPublishedCosts(null)).toBe(
 			'Published maker/taker fee rates and fixed_slippage_bps are not included in this response.'
 		);
 		expect(formatPublishedCosts({ maker_fee_rate: '0.001' })).toContain('taker fee not recorded');
-		expect(
-			formatPublishedCosts(
-				{
-					maker_fee_rate: '0.001',
-					taker_fee_rate: '0.002',
-					fixed_slippage_bps: '10'
-				},
-				'thytrader-bar-backtest-v3'
-			)
-		).toContain('V3 modeled fills do not apply this slippage');
 	});
 
 	it('shows per-fill fee rates when the ledger recorded them', () => {
@@ -146,14 +74,26 @@ describe('backtest presentation', () => {
 		expect(formatFillFee({ fee: '0.03' })).toBe('$0.03 (fee rate not recorded)');
 	});
 
-	it('keeps V2 spread-cost copy and omits a V3 constant-spread claim', () => {
-		expect(formatSpreadCostNote('thytrader-bar-backtest-v2', '0.10')).toContain(
-			'Total modeled spread cost: $0.10.'
+	it('discloses spread stress only when the run was stressed', () => {
+		expect(spreadStressBps({ spread_bps: '0' })).toBeNull();
+		expect(spreadStressBps({ spread_bps: '0.000' })).toBeNull();
+		expect(spreadStressBps(null)).toBeNull();
+		expect(spreadStressBps({ spread_bps: '12.5' })).toBe('12.5');
+		expect(formatSpreadCostNote({ spread_bps: '0' }, null)).toBeNull();
+		expect(formatSpreadCostNote(null, undefined)).toBeNull();
+		expect(formatSpreadCostNote({ spread_bps: '10' }, '0.10')).toBe(
+			'Spread stress 10 bps (total bid-ask) · total modeled spread cost $0.10. This is a disclosed stress input, not observed bid/ask data.'
 		);
-		expect(formatSpreadCostNote('thytrader-bar-backtest-v3', null)).toBeNull();
-		expect(formatSpreadCostNote('thytrader-bar-backtest-v2', null)).toBe(
-			'Total modeled spread cost was not recorded on this result.'
-		);
+		expect(formatSpreadCostNote(null, '0.10')).toContain('total modeled spread cost $0.10');
+	});
+
+	it('sends spread stress only when it is non-empty and non-zero', () => {
+		expect(optionalSpreadStress('')).toEqual({});
+		expect(optionalSpreadStress('  ')).toEqual({});
+		expect(optionalSpreadStress('0')).toEqual({});
+		expect(optionalSpreadStress('0.0')).toEqual({});
+		expect(optionalSpreadStress(' 8 ')).toEqual({ spread_bps: '8' });
+		expect(optionalSpreadStress('abc')).toEqual({ spread_bps: 'abc' });
 	});
 
 	it('discloses the newest-first list bound without claiming completeness', () => {

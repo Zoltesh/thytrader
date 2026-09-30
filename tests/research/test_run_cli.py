@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from thytrader.research.run_cli import _parser, backtest_execution_fingerprint
+from thytrader.research.run_cli import _parser, backtest_execution_fingerprint, main
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def test_publish_backtest_parser_requires_explicit_identity_assumptions() -> None:
@@ -82,25 +87,42 @@ def test_backtest_execution_identity_normalizes_equivalent_decimal_inputs() -> N
     ) == backtest_execution_fingerprint(canonical, quote_currency="USD")
 
 
-def test_backtest_v2_execution_identity_requires_and_hashes_spread() -> None:
-    """Spread is an explicit immutable V2 input, not ambient simulator configuration."""
-    without_spread = [
-        *_publication_arguments(),
-        "--engine-contract-version",
-        "thytrader-bar-backtest-v2",
-    ]
-    with_spread = [*without_spread, "--spread-bps", "10.00"]
-    equivalent = [*without_spread, "--spread-bps", "10"]
-    different = [*without_spread, "--spread-bps", "25"]
+def test_backtest_execution_identity_hashes_optional_spread_stress() -> None:
+    """Spread stress is an explicit immutable input; omitted means the unstressed default."""
+    base = _publication_arguments()
+    omitted = _parser().parse_args(base)
+    zero = _parser().parse_args([*base, "--spread-bps", "0"])
+    with_spread = _parser().parse_args([*base, "--spread-bps", "10.00"])
+    equivalent = _parser().parse_args([*base, "--spread-bps", "10"])
+    different = _parser().parse_args([*base, "--spread-bps", "25"])
 
-    with pytest.raises(ValueError, match="--spread-bps is required"):
-        backtest_execution_fingerprint(_parser().parse_args(without_spread), quote_currency="USD")
-    assert backtest_execution_fingerprint(
-        _parser().parse_args(with_spread), quote_currency="USD"
-    ) == backtest_execution_fingerprint(_parser().parse_args(equivalent), quote_currency="USD")
-    assert backtest_execution_fingerprint(
-        _parser().parse_args(with_spread), quote_currency="USD"
-    ) != backtest_execution_fingerprint(_parser().parse_args(different), quote_currency="USD")
+    def identity(arguments: argparse.Namespace) -> str:
+        return backtest_execution_fingerprint(arguments, quote_currency="USD")
+
+    assert identity(omitted) == identity(zero)
+    assert identity(with_spread) == identity(equivalent)
+    assert len({identity(omitted), identity(with_spread), identity(different)}) == 3
+
+
+def test_publish_rejects_the_removed_engine_contract_flag() -> None:
+    """The retired engine selector fails with an explicit migration message, not argparse noise."""
+    for flag in (
+        ["--engine-contract-version", "thytrader-backtest"],
+        ["--engine-contract-version=thytrader-backtest"],
+    ):
+        with pytest.raises(SystemExit, match="--engine-contract-version was removed"):
+            main([*_publication_arguments(), *flag])
+
+
+def test_publish_help_describes_the_single_model(capsys: pytest.CaptureFixture[str]) -> None:
+    """--help documents spread stress and names no engine selector."""
+    for argv in (["--help"], ["publish-backtest", "--help"]):
+        with pytest.raises(SystemExit):
+            _parser().parse_args(argv)
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "--spread-bps" in help_text
+    assert "--engine-contract-version" not in help_text
+    assert "no engine selector" in help_text
 
 
 def test_backtest_execution_identity_includes_indicator_datasets() -> None:

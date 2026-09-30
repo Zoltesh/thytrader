@@ -1,8 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-	defaultLaunchEngine,
-	engineContractLabel,
-	fetchEngineSupport,
 	listStrategyTemplates,
 	parametersForTarget,
 	parseParameterAxisValues,
@@ -23,64 +20,6 @@ describe('parametersForTarget', () => {
 			'min_quote_notional',
 			'max_quote_notional'
 		]);
-	});
-});
-
-describe('engineContractLabel', () => {
-	it('names V1, V2, and V3 from engine contract versions', () => {
-		expect(engineContractLabel('thytrader-bar-backtest-v1')).toBe('V1');
-		expect(engineContractLabel('thytrader-bar-backtest-v2')).toBe('V2');
-		expect(engineContractLabel('thytrader-bar-backtest-v3')).toBe('V3');
-	});
-
-	it('names V4 instead of mislabelling it V1', () => {
-		expect(engineContractLabel('thytrader-bar-backtest-v4')).toBe('V4');
-	});
-});
-
-describe('defaultLaunchEngine', () => {
-	it('picks the newest advertised engine this launcher offers', () => {
-		expect(
-			defaultLaunchEngine([
-				'thytrader-bar-backtest-v1',
-				'thytrader-bar-backtest-v2',
-				'thytrader-bar-backtest-v3',
-				'thytrader-bar-backtest-v4'
-			])
-		).toBe('thytrader-bar-backtest-v3');
-		expect(defaultLaunchEngine(['thytrader-bar-backtest-v1', 'thytrader-bar-backtest-v2'])).toBe(
-			'thytrader-bar-backtest-v2'
-		);
-	});
-
-	it('keeps an explicit choice when support is unknown or nothing matches', () => {
-		expect(defaultLaunchEngine(null)).toBe('');
-		expect(defaultLaunchEngine(['thytrader-bar-backtest-v9'])).toBe('');
-	});
-});
-
-describe('fetchEngineSupport', () => {
-	afterEach(() => {
-		vi.unstubAllGlobals();
-	});
-
-	it('reads the engine list and fails closed on a malformed body', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockResolvedValue({
-				ok: true,
-				json: async () => ({
-					contract_version: 'thytrader-engine-support-v2',
-					engines: ['thytrader-bar-backtest-v1']
-				})
-			})
-		);
-		await expect(fetchEngineSupport()).resolves.toEqual({
-			contract_version: 'thytrader-engine-support-v2',
-			engines: ['thytrader-bar-backtest-v1']
-		});
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
-		await expect(fetchEngineSupport()).rejects.toThrow(/malformed/);
 	});
 });
 
@@ -110,7 +49,6 @@ describe('submitResearchStudy', () => {
 				json: async () => ({
 					study_fingerprint: `sha256:${'a'.repeat(64)}`,
 					kind: 'oos_holdout',
-					engine_contract_version: 'thytrader-bar-backtest-v1',
 					windows: [],
 					aggregate: {
 						oos_window_count: 1,
@@ -132,7 +70,6 @@ describe('submitResearchStudy', () => {
 			maker_fee_rate: '0.001',
 			taker_fee_rate: '0.002',
 			fixed_slippage_bps: '10',
-			engine_contract_version: 'thytrader-bar-backtest-v1',
 			strategy_id: '01985cf0-7b60-7000-8000-000000000003',
 			dataset_fingerprint: `sha256:${'c'.repeat(64)}`,
 			oos_fraction: '0.3'
@@ -149,6 +86,8 @@ describe('submitResearchStudy', () => {
 				headers: { 'content-type': 'application/json', 'X-CSRF-Token': 'test-csrf' }
 			})
 		);
+		const [, init] = fetchMock.mock.calls[1] as [string, { body: string }];
+		expect(JSON.parse(init.body)).not.toHaveProperty(['engine', 'contract', 'version'].join('_'));
 		vi.unstubAllGlobals();
 	});
 });

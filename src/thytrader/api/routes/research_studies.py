@@ -1,6 +1,6 @@
-"""Research-study, template, and engine-support HTTP presentation.
+"""Research-study, template, and backtest-model HTTP presentation.
 
-These routes compose existing backtest engines. They cannot mutate published
+These routes compose unified-model backtests. They cannot mutate published
 results or grant paper/live trading authority.
 """
 
@@ -35,6 +35,7 @@ from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.postgres_research_jobs import ResearchJobUnavailableError
+from thytrader.research.backtest_model import BacktestModelDescription, backtest_model_description
 from thytrader.research.catalog import (
     ResearchStudyCatalog,
     StudyCatalogIntegrityError,
@@ -42,7 +43,6 @@ from thytrader.research.catalog import (
     StudyCatalogSummary,
     StudyCatalogUnavailableError,
 )
-from thytrader.research.engine_support import EngineSupportMatrix, engine_support_matrix
 from thytrader.research.jobs import (
     ResearchJobAcceptedResponse,
     ResearchJobListResponse,
@@ -134,10 +134,10 @@ def _study_service(
     )
 
 
-@router.get("/engine-support", response_model=EngineSupportMatrix)
-def get_engine_support() -> EngineSupportMatrix:
-    """Return the V1/V2/V3 engine-support matrix without trading authority."""
-    return engine_support_matrix()
+@router.get("/backtest-model", response_model=BacktestModelDescription)
+def get_backtest_model() -> BacktestModelDescription:
+    """Describe the single unified backtest model's assumptions without trading authority."""
+    return backtest_model_description()
 
 
 @router.get("/templates", response_model=StrategyTemplateListResponse)

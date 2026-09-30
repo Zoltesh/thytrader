@@ -1,6 +1,7 @@
 # 0017: Maker-limit bar backtest as a new engine contract
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: maker-limit fills as a selectable engine (`thytrader-bar-backtest-v3`, code deleted). Resting maker-limit semantics are now the only model.
 - Date: 2026-09-11
 - Relates to: [0009](0009-deterministic-bar-level-backtest-engine.md), [0010](0010-constant-spread-backtest-provenance.md)
 

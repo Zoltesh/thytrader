@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from fastapi.testclient import TestClient
+import pytest
 
 from thytrader.api.app import create_app
 from thytrader.backtest.benchmark import calculate_buy_and_hold_benchmark
@@ -25,8 +26,6 @@ from thytrader.persistence.backtest_results import (
     BacktestResultUnavailableError,
 )
 from thytrader.research.models import (
-    BarExecutionAssumptions,
-    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -39,8 +38,6 @@ from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    import pytest
 
 
 def _strategy() -> StrategyDefinition:
@@ -110,10 +107,6 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
         costs=CostAssumptions(
             maker_fee_rate="0.001", taker_fee_rate="0.002", fixed_slippage_bps="10"
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close", fill_timing="next_candle_open"
-        ),
-        engine_contract_version="thytrader-bar-backtest-v1",
         random_seed=0,
     )
 
@@ -147,24 +140,18 @@ def _result() -> BacktestResult:
     return simulate_backtest(_run(strategy), strategy, _candles())
 
 
-def _v2_result() -> BacktestResult:
-    """Build a V2 result carrying immutable broker and executable-fill evidence."""
+def _spread_result() -> BacktestResult:
+    """Build a spread-stressed result carrying executable-fill evidence."""
     strategy = _strategy()
-    legacy = _run(strategy)
-    specification = ResearchRunSpecification.model_validate(
-        {
-            **legacy.model_dump(),
-            "engine_contract_version": "thytrader-bar-backtest-v2",
-            "broker": BrokerAssumptions(
-                price_model="constant_spread_bps",
-                spread_bps="10",
-                fill_policy="full",
-                trigger_evaluation="bid_side",
-                equity_marking="bid_close",
-            ).model_dump(mode="json"),
-        }
+    base = _run(strategy)
+    specification = base.model_copy(
+        update={"costs": base.costs.model_copy(update={"spread_bps": "10"})}
     )
-    return simulate_backtest(specification, strategy, _candles())
+    return simulate_backtest(
+        ResearchRunSpecification.model_validate(specification.model_dump(mode="python")),
+        strategy,
+        _candles(),
+    )
 
 
 class InMemoryBacktestResultReader:
@@ -206,7 +193,6 @@ class InMemoryBacktestResultReader:
                     run_fingerprint=result.run_fingerprint,
                     strategy_fingerprint=result.strategy_fingerprint,
                     dataset_fingerprint=result.dataset_fingerprint,
-                    engine_contract_version=result.engine_contract_version,
                     published_at=datetime(2026, 8, 2, tzinfo=UTC),
                     summary=result.summary,
                 )
@@ -379,16 +365,16 @@ def test_backtests_list_returns_summary_without_trade_ledger() -> None:
     entry = response.json()["entries"][0]
     assert entry["result_fingerprint"] == backtest_result_fingerprint(result)
     assert entry["run_fingerprint"] == result.run_fingerprint
-    assert entry["engine_contract_version"] == "thytrader-bar-backtest-v1"
+    assert "engine_contract_version" not in entry
     assert entry["published_at"].endswith("Z")
     assert entry["summary"]["trade_count"] == result.summary.trade_count
     assert "trades" not in entry
     assert "equity_curve" not in entry
 
 
-def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
-    """V2 detail exposes canonical broker assumptions and decimal-string spread evidence."""
-    result = _v2_result()
+def test_backtests_detail_serializes_spread_stress_fill_evidence() -> None:
+    """Spread-stressed detail exposes the engine and decimal-string taker spread evidence."""
+    result = _spread_result()
     fingerprint = backtest_result_fingerprint(result)
     app = create_app(
         Settings(_env_file=None),
@@ -401,13 +387,14 @@ def test_backtests_detail_serializes_v2_broker_and_fill_evidence() -> None:
 
     assert list_response.status_code == 200
     entry = list_response.json()["entries"][0]
-    assert entry["engine_contract_version"] == "thytrader-bar-backtest-v2"
+    assert "engine_contract_version" not in entry
     assert detail_response.status_code == 200
     payload = detail_response.json()["result"]
-    assert payload["broker"]["spread_bps"] == "10"
-    assert payload["broker"]["trigger_evaluation"] == "bid_side"
+    assert payload["engine"] == "thytrader-backtest"
+    assert "broker" not in payload
+    assert "engine_contract_version" not in payload
     assert payload["summary"]["total_spread_cost"] == result.summary.total_spread_cost
-    assert payload["trades"][0]["entry"]["executable_side"] == "ask"
+    assert payload["trades"][0]["entry"].get("executable_side") is None
     assert payload["trades"][0]["exit"]["executable_side"] == "bid"
     assert detail_response.json()["costs"] is None
 
@@ -432,6 +419,7 @@ def test_backtests_detail_projects_published_cost_assumptions() -> None:
         "maker_fee_rate": "0.001",
         "taker_fee_rate": "0.002",
         "fixed_slippage_bps": "10",
+        "spread_bps": "0",
     }
     assert "costs" not in payload["result"]
 
@@ -636,7 +624,7 @@ def test_backtests_list_rejects_out_of_range_limit() -> None:
 def test_backtests_list_reports_has_more_and_next_cursor() -> None:
     """A bounded page must advertise whether another cursor page exists."""
     first = _result()
-    second = _v2_result()
+    second = _spread_result()
     app = create_app(
         Settings(_env_file=None),
         backtest_result_store=InMemoryBacktestResultReader((first, second)),
@@ -775,7 +763,6 @@ def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None
         "maker_fee_rate": "0.001",
         "taker_fee_rate": "0.002",
         "fixed_slippage_bps": "10",
-        "engine_contract_version": "thytrader-bar-backtest-v1",
     }
 
     with TestClient(app) as client:
@@ -789,6 +776,34 @@ def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None
         assert body["status"] in {"queued", "running", "completed"}
         if body["status"] == "completed":
             assert body["result_fingerprint"] == "sha256:" + "d" * 64
+
+
+@pytest.mark.parametrize("legacy_engine", ["thytrader-backtest", "anything"])
+def test_backtest_submission_rejects_removed_engine_selector(legacy_engine: str) -> None:
+    """A stale client that still selects an engine gets an explicit 422 migration message."""
+    strategies = InMemoryStrategyStore()
+    snapshot = strategies.seed_definition(create_template_strategy())
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_submitter=_ImmediateSubmitter(),
+        strategy_store=strategies,
+    )
+    payload = {
+        "strategy_id": str(snapshot.definition.strategy_id),
+        "dataset_fingerprint": "sha256:" + "b" * 64,
+        "initial_quote_balance": "10000",
+        "maker_fee_rate": "0.001",
+        "taker_fee_rate": "0.002",
+        "fixed_slippage_bps": "10",
+        "engine_contract_version": legacy_engine,
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/backtests", json=payload)
+
+    assert response.status_code == 422
+    assert "engine_contract_version was removed" in response.text
+    assert "ADR 0083" in response.text
 
 
 def test_backtests_failure_is_redacted() -> None:

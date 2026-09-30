@@ -28,7 +28,6 @@
 		type BacktestPerformanceMetrics,
 		type BacktestSummaryEntry
 	} from '$lib/backtests';
-	import { engineContractLabel } from '$lib/research-studies';
 	import { invalidStartReason, rulesState, workspaceHref } from '$lib/strategy-workspace';
 	import RulesBadge from '$lib/workspace/RulesBadge.svelte';
 	import { formatUtcTimestamp } from '$lib/time';
@@ -270,7 +269,6 @@
 				<thead>
 					<tr>
 						<th scope="col">Rules</th>
-						<th scope="col">Engine</th>
 						<th scope="col" class="num">Net</th>
 						<th scope="col" class="num">Max DD</th>
 						<th scope="col" class="num">Trades</th>
@@ -289,7 +287,6 @@
 									current={currentModel}
 								/></td
 							>
-							<td>{engineContractLabel(row.engine_contract_version)}</td>
 							<td
 								class="num"
 								class:pos={compareDecimalStrings(row.summary.total_return_fraction, '0') > 0}

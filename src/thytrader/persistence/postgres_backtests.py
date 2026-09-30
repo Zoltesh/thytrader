@@ -221,11 +221,6 @@ class PostgresBacktestResultStore:
 
         table = published_backtest_results
         summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
-        engine_contract_version = (
-            sql_cast(table.c.canonical_result, JSON)["engine_contract_version"]
-            .as_string()
-            .label("engine_contract_version")
-        )
         statement = (
             select(
                 table.c.result_fingerprint,
@@ -234,7 +229,6 @@ class PostgresBacktestResultStore:
                 table.c.strategy_id,
                 table.c.dataset_fingerprint,
                 table.c.published_at,
-                engine_contract_version,
                 summary_json,
             )
             .order_by(table.c.published_at.desc(), table.c.result_fingerprint.asc())
@@ -273,11 +267,6 @@ class PostgresBacktestResultStore:
             raise BacktestPublicationError("Summary discovery accepts at most 1000 strategies.")
         table = published_backtest_results
         summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
-        engine_contract_version = (
-            sql_cast(table.c.canonical_result, JSON)["engine_contract_version"]
-            .as_string()
-            .label("engine_contract_version")
-        )
         statement = (
             select(
                 table.c.result_fingerprint,
@@ -286,7 +275,6 @@ class PostgresBacktestResultStore:
                 table.c.strategy_id,
                 table.c.dataset_fingerprint,
                 table.c.published_at,
-                engine_contract_version,
                 summary_json,
             )
             .where(table.c.strategy_id.in_([str(item) for item in strategy_ids]))
@@ -333,8 +321,7 @@ class PostgresBacktestResultStore:
         if (
             specification.strategy_fingerprint != result.strategy_fingerprint
             or specification.dataset_fingerprint != result.dataset_fingerprint
-            or specification.engine_contract_version != result.engine_contract_version
-            or specification.broker != result.broker
+            or specification.engine != result.engine
         ):
             raise BacktestPublicationError("Backtest result source run does not match the result.")
         return specification
@@ -345,13 +332,13 @@ class PostgresBacktestResultStore:
 
 
 def _verify_trace_identity(result: BacktestResult, trace: SignalTrace) -> None:
-    """Require a trace emitted for the exact result source identities and engine contract."""
+    """Require a trace emitted for the exact result source identities and engine."""
     if (
         signal_trace_fingerprint(trace) != result.signal_trace_fingerprint
         or trace.run_fingerprint != result.run_fingerprint
         or trace.strategy_fingerprint != result.strategy_fingerprint
         or trace.dataset_fingerprint != result.dataset_fingerprint
-        or trace.engine_contract_version != result.engine_contract_version
+        or trace.engine != result.engine
     ):
         raise BacktestPublicationError("Backtest result trace does not match verified sources.")
 
@@ -381,7 +368,6 @@ def _to_summary_view(row: object) -> BacktestResultSummaryView:
         run_fingerprint=cast("str", mapping["run_fingerprint"]),
         strategy_fingerprint=cast("str", mapping["strategy_fingerprint"]),
         dataset_fingerprint=cast("str", mapping["dataset_fingerprint"]),
-        engine_contract_version=cast("str", mapping["engine_contract_version"]),
         published_at=published_at,
         summary=summary,
         strategy_id=cast("str | None", mapping.get("strategy_id")),

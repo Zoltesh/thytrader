@@ -12,10 +12,12 @@ from datetime import datetime  # noqa: TC003 - Pydantic field type.
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID  # noqa: TC003 - Pydantic field type.
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from thytrader.backtest.models import BacktestEngineContract  # noqa: TC001 - Pydantic field.
-from thytrader.research.models import IndicatorTimeframeDataset  # noqa: TC001 - Pydantic field.
+from thytrader.research.models import (
+    IndicatorTimeframeDataset,
+    reject_removed_engine_selection,
+)
 from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
     STUDY_CONTRACT_VERSION,
@@ -57,7 +59,6 @@ class ResearchStudyStartRequest(_FrozenStartModel):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
-    engine_contract_version: BacktestEngineContract
     spread_bps: str | None = None
     strategy_id: UUID | None = None
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -73,6 +74,12 @@ class ResearchStudyStartRequest(_FrozenStartModel):
     candidate_strategy_ids: tuple[UUID, ...] = ()
     parameter_axes: tuple[ParameterAxis, ...] = ()
     selection_metric: SelectionMetric = SelectionMetric.TOTAL_RETURN_FRACTION
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_engine_selection(cls, data: object) -> object:
+        """Reject the retired engine selector with an explicit migration message."""
+        return reject_removed_engine_selection(data)
 
     def strategy_ids(self) -> tuple[UUID, ...]:
         """Every strategy the study uses, primary first, without duplicates."""

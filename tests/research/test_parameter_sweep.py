@@ -79,7 +79,6 @@ def _result(equity: tuple[tuple[datetime, str], ...], summary: BacktestSummary) 
     )
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v1",
         run_fingerprint=fingerprint,
         strategy_fingerprint=fingerprint,
         dataset_fingerprint=fingerprint,

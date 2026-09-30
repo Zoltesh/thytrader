@@ -27,7 +27,7 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - every ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`) for research,
   backtests, paper, and live; long or short, one primary instrument plus optional additional USD
   spot products (at most eight total), with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`stdev_sample`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`stochastic`/`adx`/`identity`/`constant` indicators;
-- optional `htf_filter` (ADR 0025, ADR 0041) for research V1/V2/V3, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
+- optional `htf_filter` (ADR 0025, ADR 0041) for research, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
   preferences;
@@ -44,11 +44,11 @@ bounded verify-then-persist TOCTOU window under that assumption. A binding row r
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
 Implemented: optimistic-concurrency strategy persistence (invalid work in progress is saved with
-its validation result), browser authoring API/UI, automatic immutable snapshots, completed reproducible backtest results (including
-`thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed venue bars,
+its validation result), browser authoring API/UI, automatic immutable snapshots, completed reproducible backtest results (the single
+`thytrader-backtest` model's maker-limit fills, [ADR 0083](../decisions/0083-unified-backtest-model.md)), paper and live execution on closed venue bars,
 and optional ATR-multiple trailing stops. Paper and live evaluate `htf_filter` on last-completed
 complete-only HTF bars. Not yet implemented: other sizing/stop/trailing variants or richer human
-summaries. Snapshotted `thytrader-bar-signal-v1` runs support read-only deterministic
+summaries. Published research runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 

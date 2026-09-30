@@ -28,7 +28,6 @@ from thytrader.persistence.schema import (
     strategy_snapshots,
 )
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -117,11 +116,6 @@ def _specification(
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-v1",
         random_seed=42,
     )
 
@@ -287,7 +281,6 @@ def test_postgres_publishes_and_reverifies_exact_research_run_spec(tmp_path: Pat
             executable = specification.model_copy(
                 update={
                     "run_id": UUID("019faf76-6600-7000-8000-000000000070"),
-                    "engine_contract_version": "thytrader-bar-signal-v1",
                 }
             )
             executable_published = await run_store.publish(

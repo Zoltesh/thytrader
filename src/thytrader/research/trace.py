@@ -20,7 +20,9 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.research.models import (  # noqa: TC001 - Pydantic resolves aliases at runtime.
+from thytrader.research.models import (
+    BACKTEST_ENGINE,
+    BacktestEngine,
     FingerprintText,
     UtcDateTime,
 )
@@ -117,13 +119,7 @@ class SignalTrace(_FrozenTraceModel):
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
-    engine_contract_version: Literal[
-        "thytrader-bar-signal-v1",
-        "thytrader-bar-backtest-v1",
-        "thytrader-bar-backtest-v2",
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ]
+    engine: BacktestEngine = BACKTEST_ENGINE
     indicator_ids: tuple[IndicatorId, ...] = Field(min_length=1)
     records: tuple[SignalTraceRecord, ...] = Field(min_length=1)
 

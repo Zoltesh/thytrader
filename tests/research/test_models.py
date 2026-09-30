@@ -12,8 +12,6 @@ import pytest
 
 from thytrader.research.models import (
     AdditionalInstrumentDataset,
-    BarExecutionAssumptions,
-    BrokerAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -53,11 +51,6 @@ def _reference_run() -> ResearchRunSpecification:
             taker_fee_rate="0.0060",
             fixed_slippage_bps="2.50",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-v1",
         random_seed=42,
     )
 
@@ -65,12 +58,12 @@ def _reference_run() -> ResearchRunSpecification:
 def test_reference_run_has_stable_canonical_identity() -> None:
     """The complete run request must match a literal durable golden vector."""
     run = _reference_run()
-    expected = Path("tests/research/golden/reference_run_spec_v1.json").read_bytes().rstrip(b"\n")
+    expected = Path("tests/research/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
 
     assert canonical_research_run_bytes(run) == expected
     assert (
         research_run_fingerprint(run)
-        == "sha256:897c3b058475c508c43d2e8f08f5abcf5e60633036b55cd6543e3cc0cff8d543"
+        == "sha256:6b5b63b1301fbe1a6bf75bcc8a56facc6b070821c4121c07892885010ce82875"
     )
     assert run.capital.initial_quote_balance == "10000"
     assert run.costs.maker_fee_rate == "0.004"
@@ -169,11 +162,6 @@ def test_run_spec_accepts_five_minute_warmup_spacing() -> None:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-v1",
         random_seed=42,
     )
     assert run.warmup.starts_at == datetime(2026, 7, 9, 23, 55, tzinfo=UTC)
@@ -203,11 +191,6 @@ def _venue_clock_run(
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-v1",
         random_seed=42,
     )
 
@@ -254,11 +237,6 @@ def test_run_spec_rejects_hourly_warmup_on_one_minute_boundary() -> None:
                 taker_fee_rate="0.006",
                 fixed_slippage_bps="2.5",
             ),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
-            engine_contract_version="thytrader-bar-v1",
             random_seed=42,
         )
 
@@ -380,122 +358,50 @@ def test_meaningful_assumption_changes_produce_distinct_identity() -> None:
     assert research_run_fingerprint(run) != research_run_fingerprint(changed_end)
 
 
-def test_run_spec_rejects_undefined_engine_contract_versions() -> None:
-    """A future-looking engine label must not imply semantics that are not implemented."""
+def test_run_spec_rejects_undefined_engines() -> None:
+    """Only the single unified engine identity exists; retired labels are not accepted."""
     run = _reference_run()
 
-    with pytest.raises(ValidationError, match="literal_error"):
+    for engine in ("thytrader-bar-backtest-v4", "thytrader-backtest-next"):
+        with pytest.raises(ValidationError, match="literal_error"):
+            ResearchRunSpecification.model_validate(
+                {**run.model_dump(mode="python"), "engine": engine}
+            )
+
+
+@pytest.mark.parametrize("retired_field", ["engine_contract_version", "broker", "bar_execution"])
+def test_run_spec_rejects_retired_engine_selection_blocks(retired_field: str) -> None:
+    """Retired per-engine selectors and broker blocks cannot ride along in canonical runs."""
+    with pytest.raises(ValidationError, match="extra_forbidden"):
         ResearchRunSpecification.model_validate(
-            {**run.model_dump(mode="python"), "engine_contract_version": "thytrader-bar-v2"}
+            {**_reference_run().model_dump(mode="python"), retired_field: "x"}
         )
 
 
-def test_executable_engine_contracts_are_explicit_and_identity_bearing() -> None:
-    """Signal and backtest semantics require identities distinct from request-only V1."""
-    request_only = _reference_run()
+def test_every_run_binds_the_unified_engine_identity() -> None:
+    """The canonical bytes carry the one unversioned engine id."""
+    canonical = canonical_research_run_bytes(_reference_run())
 
-    signal = ResearchRunSpecification.model_validate(
-        {
-            **request_only.model_dump(mode="python"),
-            "engine_contract_version": "thytrader-bar-signal-v1",
-        }
-    )
-    backtest = ResearchRunSpecification.model_validate(
-        {
-            **request_only.model_dump(mode="python"),
-            "engine_contract_version": "thytrader-bar-backtest-v1",
-        }
-    )
-
-    assert signal.engine_contract_version == "thytrader-bar-signal-v1"
-    assert backtest.engine_contract_version == "thytrader-bar-backtest-v1"
-    assert research_run_fingerprint(signal) != research_run_fingerprint(request_only)
-    assert research_run_fingerprint(backtest) != research_run_fingerprint(request_only)
-    assert research_run_fingerprint(backtest) != research_run_fingerprint(signal)
+    assert _reference_run().engine == "thytrader-backtest"
+    assert b'"engine":"thytrader-backtest"' in canonical
 
 
-def test_backtest_v2_requires_immutable_broker_assumptions() -> None:
-    """Spread-aware execution only exists when every broker choice is identity-bearing."""
-    v1 = ResearchRunSpecification.model_validate(
-        {
-            **_reference_run().model_dump(mode="python"),
-            "engine_contract_version": "thytrader-bar-backtest-v1",
-        }
-    )
-    broker = BrokerAssumptions(
-        price_model="constant_spread_bps",
-        spread_bps="10.00",
-        fill_policy="full",
-        trigger_evaluation="bid_side",
-        equity_marking="bid_close",
-    )
-    v2 = ResearchRunSpecification.model_validate(
-        {
-            **v1.model_dump(mode="python"),
-            "broker": broker,
-            "engine_contract_version": "thytrader-bar-backtest-v2",
+def test_spread_stress_is_optional_bounded_and_identity_bearing() -> None:
+    """spread_bps defaults to zero, normalizes lexically, and changes run identity."""
+    run = _reference_run()
+    stressed = run.model_copy(
+        update={
+            "costs": CostAssumptions.model_validate(
+                {**run.costs.model_dump(), "spread_bps": "10.00"}
+            )
         }
     )
 
-    assert v2.broker is not None
-    assert v2.broker.spread_bps == "10"
-    assert research_run_fingerprint(v1) != research_run_fingerprint(v2)
-    with pytest.raises(ValidationError, match="requires broker"):
-        ResearchRunSpecification.model_validate(
-            {**v1.model_dump(mode="python"), "engine_contract_version": "thytrader-bar-backtest-v2"}
-        )
-    with pytest.raises(ValidationError, match="require the backtest V2 contract"):
-        ResearchRunSpecification.model_validate({**v1.model_dump(mode="python"), "broker": broker})
-
-
-def test_backtest_v3_requires_resting_maker_assumptions() -> None:
-    """Maker-limit fills are a new contract; v1/v2 must not accept those literals."""
-    v1 = ResearchRunSpecification.model_validate(
-        {
-            **_reference_run().model_dump(mode="python"),
-            "engine_contract_version": "thytrader-bar-backtest-v1",
-        }
-    )
-    v3_broker = BrokerAssumptions(
-        price_model="post_only_limit",
-        spread_bps="0",
-        fill_policy="resting_limit",
-        trigger_evaluation="bar_extreme",
-        equity_marking="last_close",
-    )
-    v3 = ResearchRunSpecification.model_validate(
-        {
-            **v1.model_dump(mode="python"),
-            "broker": v3_broker,
-            "bar_execution": BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="resting_maker_limit",
-                limit_at="completed_close",
-            ),
-            "engine_contract_version": "thytrader-bar-backtest-v3",
-        }
-    )
-
-    assert v3.bar_execution.fill_timing == "resting_maker_limit"
-    assert v3.bar_execution.limit_at == "completed_close"
-    assert v3.broker is not None
-    assert v3.broker.fill_policy == "resting_limit"
-    assert research_run_fingerprint(v1) != research_run_fingerprint(v3)
-    with pytest.raises(ValidationError, match="requires broker"):
-        ResearchRunSpecification.model_validate(
-            {
-                **v1.model_dump(mode="python"),
-                "bar_execution": v3.bar_execution,
-                "engine_contract_version": "thytrader-bar-backtest-v3",
-            }
-        )
-    with pytest.raises(ValidationError, match="require the backtest V3 or V4 contract"):
-        ResearchRunSpecification.model_validate(
-            {
-                **v1.model_dump(mode="python"),
-                "bar_execution": v3.bar_execution,
-            }
-        )
+    assert run.costs.spread_bps == "0"
+    assert stressed.costs.spread_bps == "10"
+    assert research_run_fingerprint(run) != research_run_fingerprint(stressed)
+    with pytest.raises(ValidationError, match="spread_bps must be at most 1000"):
+        CostAssumptions.model_validate({**run.costs.model_dump(), "spread_bps": "1000.5"})
 
 
 def test_run_spec_rejects_boolean_integers_and_numeric_timestamps() -> None:
@@ -533,7 +439,7 @@ def test_omitted_additional_instrument_datasets_preserve_reference_identity() ->
     assert run.additional_instrument_datasets == ()
     canonical = canonical_research_run_bytes(run)
     assert b"additional_instrument_datasets" not in canonical
-    expected = Path("tests/research/golden/reference_run_spec_v1.json").read_bytes().rstrip(b"\n")
+    expected = Path("tests/research/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
     assert canonical == expected
 
 

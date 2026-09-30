@@ -71,8 +71,10 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v41" in skill
-    assert "0048" in skill
+    assert "thytrader-ops-contract-v42" in skill
+    assert "0049" in skill
+    assert "backtest_engine" in skill
+    assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
     assert "spot_quote_currencies" in skill or "USDC" in skill
     assert "spot_quote_currencies" in schemas
@@ -121,7 +123,11 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     assert "walk_forward_optimization" in skill
     assert "stitched" in skill.lower()
     assert "list-templates" in skill
-    assert "engine-support" in skill
+    assert "backtest-model" in skill
+    assert "engine-support" not in skill
+    assert "spread_bps" in skill
+    assert "validity_limits" in skill
+    assert "engine_contract_version" in skill and "rejected" in skill
     assert "--template" in skill
     assert "macd" in skill.lower()
     assert "bollinger" in skill.lower()

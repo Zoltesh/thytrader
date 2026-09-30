@@ -102,10 +102,14 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
         assert eth_five["watch_complete"] is True
         assert eth_five["sparsity"] == "none"
         assert status.json()["state"]["watch_complete"] is True
-        assert eth_five["expected_candle_count"] == 4_032
+        # 336h of 5m bars is 4032 candles. The worker reads the wall clock while it walks
+        # chunks, so a run that straddles a 5-minute boundary legitimately ingests one more
+        # closed candle; the covered span must still equal the count exactly.
+        expected_count = eth_five["expected_candle_count"]
+        assert expected_count in {4_032, 4_033}
         covered_start = datetime.fromisoformat(eth_five["covered_starts_at"])
         covered_end = datetime.fromisoformat(eth_five["covered_ends_at"])
-        assert covered_end - covered_start == timedelta(hours=336)
+        assert covered_end - covered_start == timedelta(minutes=5) * expected_count
         lengthened = client.put(
             "/api/v1/data/watchlist",
             json={

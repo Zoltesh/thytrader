@@ -1,6 +1,7 @@
 # 0010: Version constant-spread stress assumptions as immutable backtest evidence
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: spread stress as its own engine (`thytrader-bar-backtest-v2`). Constant spread stress survives as the optional `costs.spread_bps` assumption on the unified model, applied to taker legs, stop triggers, and marks.
 - Date: 2026-08-03
 
 ## Context

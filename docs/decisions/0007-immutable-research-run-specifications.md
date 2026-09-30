@@ -1,7 +1,7 @@
 # 0007: Publish immutable research-run specifications before simulation
 
-- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
-- Superseded part: run specs no longer name a *published* strategy version; they name an automatic strategy snapshot fingerprint plus `strategy_id`. Run-spec immutability and fingerprinting are unchanged.
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) and [0083](0083-unified-backtest-model.md)
+- Superseded part: run specs no longer name a *published* strategy version; they name an automatic strategy snapshot fingerprint plus `strategy_id`. Run-spec immutability and fingerprinting are unchanged. ADR 0083 supersedes the `engine_contract_version`, `broker`, and `bar_execution` fields. Runs carry `engine: "thytrader-backtest"` and `costs.spread_bps`.
 - Date: 2026-07-29
 
 ## Context

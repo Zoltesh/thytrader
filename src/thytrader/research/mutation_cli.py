@@ -41,12 +41,12 @@ from thytrader.persistence.postgres_research_runs import PostgresResearchRunStor
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.research import http as research_http
+from thytrader.research.backtest_model import backtest_model_description
 from thytrader.research.catalog import (
     StudyCatalogIntegrityError,
     StudyCatalogNotFoundError,
     StudyCatalogUnavailableError,
 )
-from thytrader.research.engine_support import engine_support_matrix
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
 from thytrader.research.studies import (
     ResearchStudyError,
@@ -114,16 +114,10 @@ def _validation_error_message(error: ValidationError) -> str:
 
 
 def _agent_http_error_message(message: str) -> str:
-    """Hint a rebuild when a stale API rejects the current backtest engine."""
+    """Hint a rebuild when a stale API still demands the retired engine selector."""
     lowered = message.lower()
-    lists_v1_v2 = "thytrader-bar-backtest-v1" in lowered and "thytrader-bar-backtest-v2" in lowered
-    missing_v3 = lists_v1_v2 and "thytrader-bar-backtest-v3" not in lowered
-    missing_v4 = (
-        lists_v1_v2
-        and "thytrader-bar-backtest-v3" in lowered
-        and "thytrader-bar-backtest-v4" not in lowered
-    )
-    if "422" in message and (missing_v3 or missing_v4):
+    stale_engine_demand = "engine_contract_version" in lowered and "was removed" not in lowered
+    if "422" in message and stale_engine_demand:
         return f"{message} {STALE_IMAGE_REBUILD}"
     return message
 
@@ -154,7 +148,8 @@ def _parser() -> argparse.ArgumentParser:
             "Create, save, clone, import, and delete strategies; submit backtests and studies "
             "by strategy_id (the server snapshots the current rules). Mutations require "
             "--confirm. Default transport is the loopback HTTP API. This command has no paper "
-            "or live authority."
+            "or live authority. Every backtest uses the single unified model (see "
+            "backtest-model); there is no engine selector."
         ),
         parents=[shared],
     )
@@ -270,7 +265,12 @@ def _add_backtest_commands(
     submit.add_argument(
         "--file",
         required=True,
-        help="Path to a backtest start JSON document (strategy_id plus assumptions).",
+        help=(
+            "Path to a backtest start JSON document: strategy_id, dataset fingerprint(s), "
+            "optional evaluation window, initial_quote_balance, maker/taker fee rates, "
+            "fixed_slippage_bps, and optional spread_bps stress. engine_contract_version is "
+            "rejected."
+        ),
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     submit.add_argument("--async", action="store_true", help="Queue it (HTTP 202) and poll.")
@@ -324,7 +324,12 @@ def _add_study_commands(
     )
     template.add_argument("--template", required=True)
     subparsers.add_parser(
-        "engine-support", parents=[trailing], help="Show the backtest engine-support matrix."
+        "backtest-model",
+        parents=[trailing],
+        help=(
+            "Describe the single backtest model's fill, fee, slippage, and spread-stress "
+            "assumptions. There is no engine selector."
+        ),
     )
     plan = subparsers.add_parser(
         "plan-study",
@@ -420,7 +425,7 @@ def _dispatch_http(arguments: argparse.Namespace) -> str:
     handler = _HTTP_HANDLERS.get(arguments.command)
     if handler is None:
         raise AssertionError(f"unsupported research command: {arguments.command}")
-    if arguments.command not in {"list-templates", "engine-support"}:
+    if arguments.command not in {"list-templates", "backtest-model"}:
         require_matching_ops_contract(base_url)
     return handler(base_url, arguments)
 
@@ -491,7 +496,7 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
     "show-study": lambda url, args: research_http.show_study(url, args.study_fingerprint),
     "list-templates": lambda url, _args: research_http.list_templates(url),
     "show-template": lambda url, args: research_http.show_template(url, args.template),
-    "engine-support": lambda url, _args: research_http.engine_support(url),
+    "backtest-model": lambda url, _args: research_http.backtest_model(url),
     "plan-study": lambda url, args: research_http.plan_study(
         url, ResearchStudyStartRequest.model_validate(_load_json(args.file))
     ),
@@ -538,8 +543,8 @@ async def _dispatch_local(arguments: argparse.Namespace) -> str:
     _require_confirm(arguments)
     if arguments.command == "list-templates":
         return _encode({"templates": list(template_catalog())})
-    if arguments.command == "engine-support":
-        return _encode(engine_support_matrix().model_dump(mode="json"))
+    if arguments.command == "backtest-model":
+        return _encode(backtest_model_description().model_dump(mode="json"))
     handler = _LOCAL_HANDLERS.get(arguments.command)
     if handler is None:
         raise ResearchCliError(f"{arguments.command} requires HTTP; do not use --local.")
@@ -630,7 +635,6 @@ async def _local_list_results(mutator: ResearchMutator, arguments: argparse.Name
                     "strategy_fingerprint": row.strategy_fingerprint,
                     "strategy_id": row.strategy_id,
                     "dataset_fingerprint": row.dataset_fingerprint,
-                    "engine_contract_version": row.engine_contract_version,
                     "published_at": row.published_at.isoformat(),
                     "trade_count": row.summary.trade_count,
                     "total_net_pnl": row.summary.total_net_pnl,
@@ -657,7 +661,6 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
             "run_fingerprint": result.run_fingerprint,
             "strategy_fingerprint": result.strategy_fingerprint,
             "dataset_fingerprint": result.dataset_fingerprint,
-            "engine_contract_version": result.engine_contract_version,
             "mode": "backtest",
             "timeframe": timeframe,
             "currency": currency,

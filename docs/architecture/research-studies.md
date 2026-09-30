@@ -5,13 +5,16 @@
 `thytrader-research-study-v1` turns one typed study request into several ordinary bar-backtest
 submissions. It is a research-only composition layer: it cannot create an order intent, connect to
 Coinbase, or grant paper/live authority. Child evidence stays the existing immutable run and result
-fingerprints. This contract does not reinterpret V1, V2, or V3 fill semantics.
+fingerprints. Every child uses the single backtest model (`engine: "thytrader-backtest"`,
+[ADR 0083](../decisions/0083-unified-backtest-model.md)); studies do not reinterpret its fill
+semantics. Plan and submit bodies take optional `spread_bps` and no engine-version field (sending
+one returns 422). Study documents, summaries, and catalog rows carry no engine version.
 
 The public commands are:
 
 ```bash
 uv run thytrader-research list-templates
-uv run thytrader-research engine-support
+uv run thytrader-research backtest-model
 uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-research list-studies [--kind parameter_sweep]
@@ -22,7 +25,7 @@ uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR]
 uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm
 ```
 
-`plan-study`, `engine-support`, `list-templates`, `list-studies`, `show-study`, `show-evidence`,
+`plan-study`, `backtest-model`, `list-templates`, `list-studies`, `show-study`, `show-evidence`,
 `list-results`, and `list-strategies` are read-only. Default `show-study` includes `window_pnl`
 headlines without child equity curves. `show-evidence` separates in-sample, genuine out-of-sample,
 parameter-sweep candidates, paper, and live — sweep means are never labeled OOS.
@@ -73,7 +76,7 @@ periods require it, and take a deterministic UUIDv7 `strategy_id`. Indicator-onl
 ADR 0044 fingerprint 3-tuple.
 
 `plan-study` derives in memory and does not persist. It loads dataset manifests and
-rejects windows that fail the same warmup / next-open bound check as child
+rejects windows that fail the same warmup / end-of-window liquidation-candle bound check as child
 backtests (`422 study_window_rejected`, named field plus suggested ISO range).
 `submit-study --confirm` snapshots every named strategy and any
 derived variants, then submits ordinary backtests, then stores the assembled study in the catalog.
@@ -126,7 +129,7 @@ Stitching applies to `walk_forward` validation OOS windows and to **selected** W
 does not apply to parameter sweeps (same window, different fingerprints) or to a single OOS holdout
 window. Summaries stay when the point series exceeds 4096 marks.
 
-This is not a fourth backtest engine and does not claim live fill quality.
+This is not a separate backtest model and does not claim live fill quality.
 
 ### Parameter-sweep aggregate naming
 
@@ -139,7 +142,8 @@ aggregate zeroes every `oos_*` field and populates `candidate_window_count`,
 
 ## HTTP
 
-- `GET /api/v1/research/engine-support` — V1/V2/V3/V4 matrix.
+- `GET /api/v1/research/backtest-model` — the single model's `engine`, `decision_record`,
+  `honesty`, and `assumptions[]` (`key`, `label`, `detail`).
 - `GET /api/v1/research/templates` — draft template ids.
 - `GET /api/v1/research/templates/{template_id}` — one template's `indicator_ids`, shipped
   `defaults`, warmup, and `sweepable_axes` (404 on unknown ids).

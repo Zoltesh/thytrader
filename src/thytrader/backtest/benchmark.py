@@ -7,12 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from thytrader.backtest.broker import (
-    ConstantSpreadFillModel,
-    FillModel,
-    MakerLimitFillModel,
-    MarkFillModel,
-)
+from thytrader.backtest.broker import FillModel
 from thytrader.backtest.kernel import _SIMULATION_CONTEXT
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -49,9 +44,10 @@ def calculate_buy_and_hold_benchmark(
     """Calculate a fully invested buy-and-hold round trip over the published evaluation window.
 
     The benchmark buys at the first evaluation candle's open, marks at each completed
-    evaluation close, and liquidates at the required final next-open boundary. It uses
-    the published taker fee, fixed slippage, and V1/V2 fill model, but remains a derived
-    report and is not included in the immutable backtest-result bytes.
+    evaluation close, and liquidates at the open of the ``evaluation.ends_at`` bar. Both
+    legs are marketable, so they use the unified model's taker semantics: the published
+    taker fee, fixed slippage, and half of the optional ``spread_bps`` stress (marks use
+    the stressed bid). It is a derived report, never part of immutable result bytes.
     """
     try:
         validated_result = BacktestResult.model_validate(result.model_dump(mode="python"))
@@ -65,9 +61,7 @@ def calculate_buy_and_hold_benchmark(
         validated_result.run_fingerprint != research_run_fingerprint(validated_specification)
         or validated_result.strategy_fingerprint != validated_specification.strategy_fingerprint
         or validated_result.dataset_fingerprint != validated_specification.dataset_fingerprint
-        or validated_result.engine_contract_version
-        != validated_specification.engine_contract_version
-        or validated_result.broker != validated_specification.broker
+        or validated_result.engine != validated_specification.engine
     ):
         raise BacktestBenchmarkError("Benchmark source identities do not match.")
 
@@ -84,28 +78,28 @@ def calculate_buy_and_hold_benchmark(
             )
             evaluation_candles = selected[:evaluation_bars]
             terminal_candle = selected[evaluation_bars]
-            fill_model = _fill_model(validated_specification)
+            fill_model = FillModel(Decimal(validated_specification.costs.spread_bps))
             taker_fee_rate = Decimal(validated_specification.costs.taker_fee_rate)
             slippage_bps = Decimal(validated_specification.costs.fixed_slippage_bps)
             initial_cash = Decimal(validated_specification.capital.initial_quote_balance)
-            entry_quote = fill_model.buy(evaluation_candles[0].open, slippage_bps)
+            entry_quote = fill_model.taker_buy(evaluation_candles[0].open, slippage_bps)
             entry_price = entry_quote.price
             entry_notional = initial_cash / (Decimal("1") + taker_fee_rate)
             entry_fee = entry_notional * taker_fee_rate
             quantity = entry_notional / entry_price
-            exit_quote = fill_model.sell(terminal_candle.open, slippage_bps)
+            exit_quote = fill_model.taker_sell(terminal_candle.open, slippage_bps)
             exit_notional = quantity * exit_quote.price
             exit_fee = exit_notional * taker_fee_rate
             final_equity = exit_notional - exit_fee
             mark_equities = tuple(
-                quantity * fill_model.mark_price(candle.close) for candle in evaluation_candles
+                quantity * fill_model.bid(candle.close) for candle in evaluation_candles
             )
             maximum_drawdown, maximum_drawdown_fraction = _drawdown(
                 (initial_cash, *mark_equities, final_equity)
             )
             total_spread_cost = (
                 (entry_quote.spread_cost + exit_quote.spread_cost) * quantity
-                if validated_specification.broker is not None
+                if fill_model.spread_stressed
                 else None
             )
             return BacktestBenchmark(
@@ -113,8 +107,7 @@ def calculate_buy_and_hold_benchmark(
                 result_fingerprint=backtest_result_fingerprint(validated_result),
                 run_fingerprint=validated_result.run_fingerprint,
                 dataset_fingerprint=validated_result.dataset_fingerprint,
-                engine_contract_version=validated_result.engine_contract_version,
-                broker=validated_result.broker,
+                engine=validated_result.engine,
                 entry_candle_starts_at=evaluation_candles[0].starts_at,
                 exit_candle_starts_at=terminal_candle.starts_at,
                 entry_price=canonical_decimal(entry_price),
@@ -180,17 +173,6 @@ def _selected_candles(
         ):
             raise BacktestBenchmarkError("Benchmark candles are not valid contiguous OHLC bars.")
     return selected
-
-
-def _fill_model(specification: ResearchRunSpecification) -> FillModel:
-    """Construct the fill model selected by the verified run contract."""
-    if specification.engine_contract_version == "thytrader-bar-backtest-v1":
-        return MarkFillModel()
-    if specification.broker is None:
-        raise BacktestBenchmarkError("Benchmark broker assumptions are missing.")
-    if specification.engine_contract_version == "thytrader-bar-backtest-v3":
-        return MakerLimitFillModel()
-    return ConstantSpreadFillModel(Decimal(specification.broker.spread_bps))
 
 
 def _drawdown(equities: Sequence[Decimal]) -> tuple[Decimal, Decimal]:

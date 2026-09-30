@@ -465,11 +465,14 @@ _TOOLS: tuple[ChatTool, ...] = (
         required=(),
     ),
     ChatTool(
-        name="research_engine_support",
-        description="V1/V2/V3 engine-support matrix.",
+        name="research_backtest_model",
+        description=(
+            "Describe the single backtest model's fill, fee, slippage, and optional "
+            "spread-stress assumptions (there is no engine selector)."
+        ),
         lane=ChatLane.RESEARCH,
         method="GET",
-        path="/api/v1/research/engine-support",
+        path="/api/v1/research/backtest-model",
         mutation=False,
         yolo="none",
         hard_gate=False,

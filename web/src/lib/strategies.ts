@@ -707,7 +707,7 @@ export function formatUtcInputValue(instant: Date): string {
 /**
  * Compute the inclusive evaluation window one dataset can support for a warmup.
  * The dataset must supply `warmupBars` completed candles before the window and
- * one candle after it for the final next-open fill.
+ * one candle after it, whose open liquidates any inventory still held at the end.
  */
 export function datasetEvaluationWindow(
 	dataset: Dataset,
@@ -1108,9 +1108,8 @@ export type BacktestLaunchInput = {
 	maker_fee_rate: string;
 	taker_fee_rate: string;
 	fixed_slippage_bps: string;
-	engine_contract_version:
-		'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2' | 'thytrader-bar-backtest-v3';
-	spread_bps: string | null;
+	/** Optional constant total bid-ask spread stress (bps); omit for none. */
+	spread_bps?: string;
 };
 
 export async function submitBacktest(input: BacktestLaunchInput): Promise<BacktestSubmission> {

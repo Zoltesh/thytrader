@@ -24,11 +24,10 @@ cursor until exhausted and quarantining unparseable fill evidence
 The first Phase 3 prerequisite is also implemented: an internal immutable
 [research-run specification](research-run-specification.md) binds the exact strategy snapshot and
 verified dataset to evaluation/warmup intervals, exact USD capital, maker/taker fees, fixed slippage,
-completed-close/next-open timing, an explicit seed, and an explicit engine-contract version.
+optional spread stress, an explicit seed, and the single `engine: "thytrader-backtest"` identity.
 PostgreSQL publication is binding-gated and every load reverifies both source artifacts.
 
-The first executable [signal evaluator](signal-evaluation.md) requires
-`thytrader-bar-signal-v1`, calculates the bounded indicator catalog with deterministic Decimal
+The [signal evaluator](signal-evaluation.md) calculates the bounded indicator catalog with deterministic Decimal
 semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.md),
 [ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md),
 [ADR 0028](../decisions/0028-phase-9-identity-constant.md),
@@ -36,21 +35,22 @@ semantics ([ADR 0026](../decisions/0026-phase-9-single-output-indicator-catalog.
 [ADR 0032](../decisions/0032-phase-9-macd-bollinger.md),
 [ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)), and emits a canonical per-candle entry-condition trace without lookahead. Optional
 `htf_filter` is AND-ed using last-completed HTF bars ([ADR 0025](../decisions/0025-multi-timeframe-htf-filter.md)).
-Research V1/V2/V3, paper, and live consume that signal stage on last-completed HTF bars
+Research, paper, and live consume that signal stage on last-completed HTF bars
 ([ADR 0041](../decisions/0041-paper-live-htf-filter-evaluation.md)). Optional per-indicator
 timeframes overlay last-completed extra-TF values onto the LTF row before that AND
-([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). Historical
-`thytrader-bar-v1` requests remain request-only. Separately, the implemented
-[`thytrader-bar-backtest-v1`, `thytrader-bar-backtest-v2`, and `thytrader-bar-backtest-v3` simulator](backtest-simulation.md)
-turns an eligible published run into an immutable single-position trade ledger, equity
-curve, drawdown series, cost evidence, and result summary. V1/V2 stay next-open taker. V3 rests
-maker limits the way paper and live do. The kernel still has no order authority.
+([ADR 0042](../decisions/0042-per-indicator-timeframes.md)). The
+[backtest simulator](backtest-simulation.md) turns an eligible published run into an immutable trade
+ledger, equity curve, drawdown series, cost evidence, and result summary. The kernel has no order
+authority.
 
-**Engine contracts are not product releases.** V1 (next-open baseline), V2 (same as V1 plus constant
-spread stress), and V3 (maker-limit realism aligned with paper/live) remain valid in parallel; V3 does
-not retire V1/V2 evidence. Operator when-to-pick guidance lives in
-[`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md). Do not confuse these
-engine ids with Coinbase Advanced Trade REST v3.
+**One backtest model** ([ADR 0083](../decisions/0083-unified-backtest-model.md)). Every backtest uses
+`engine: "thytrader-backtest"`; there is no engine selector. Signals evaluate on completed candles;
+a matched signal rests a post-only limit at that candle's close and fills on a later candle that
+trades through it (maker fee, no slippage), aligned with the paper and live workers. Stops, time
+exits, and end-of-window liquidation are takers with fixed slippage. Optional `costs.spread_bps` is
+a disclosed constant spread stress, not observed book data. `GET /api/v1/research/backtest-model`
+(CLI `thytrader-research backtest-model`) describes these assumptions; operator guidance lives in
+[`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md).
 
 The browser API can create, save (revision-guarded), clone, import, and hard-delete strategies,
 submit reproducible backtests and studies by `strategy_id` (the server snapshots the current
@@ -73,22 +73,18 @@ Market and data, Indicators, Entry conditions, Exit conditions and protective st
 sizing, Portfolio limits, and Execution preferences. Entry conditions are edited as a nested
 ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
-state, the saved validation state, and an explicit engine-support matrix. That matrix distinguishes settings the current
-`thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engines actually consume. V1 and V2
-consume entry conditions, optional HTF filter, the shipped indicator catalog (EMA, SMA, RSI, ATR,
-volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger,
-identity OHLCV, constant), risk-fraction sizing with notional bounds, ATR initial stop, reward/risk
-take profit, and time exit. V2 alone consumes an explicit constant-spread stress assumption. V3 and
-V4 consume the same HTF signal stage plus maker-only close-limit entries, `max_entry_wait_bars`,
-`on_unfilled_entry`, same-bar stops, resting take-profit, entry cooldown, and enabled ATR trailing,
-matching the paper worker and causal V4 terminal rules. V1 and V2 fill every simulated entry at the
-next bar open unconditionally; V3/V4 do not. Disabled trailing is a no-op on every engine. Walk-forward /
-OOS / cross-market studies compose these engines ([research studies](research-studies.md)).
+state, the saved validation state, and a **How backtests simulate** disclosure
+(`BacktestModelDisclosure`) listing the model's assumptions. The backtest model consumes entry
+conditions, optional HTF filter, per-indicator timeframes, the shipped indicator catalog,
+risk-fraction sizing with notional bounds, maker-only close-limit entries, `max_entry_wait_bars`,
+`on_unfilled_entry`, ATR initial stop, reward/risk resting take profit, time exit, entry cooldown,
+and enabled ATR trailing, matching the paper worker. Disabled trailing is a no-op. Walk-forward /
+OOS / cross-market studies compose this model ([research studies](research-studies.md)).
 Validation kinds freeze one snapshot; parameter sweeps and WFO select among snapshots of named
 candidate strategies or derived variants (which keep the base `strategy_id`) without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).
 Richer axes and persisted catalog rows are [ADR 0052](../decisions/0052-richer-sweep-axes-study-catalog.md).
 MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
-are shipped on V1/V2/V3, paper, and live. Paper and live consume the same LTF catalog, extra-TF
+are shipped in research, paper, and live. Paper and live consume the same LTF catalog, extra-TF
 overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
 `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting strategies, not
@@ -97,14 +93,13 @@ proven edges.
 The per-strategy workspace ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md),
 amended by [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) has Build,
 Test, Run, and Why stages. Test requires a currently valid saved definition, a verified dataset,
-half-open evaluation period, exact initial capital, maker/taker fees, fixed slippage, and engine
-contract; V2 additionally requires an explicit constant total bid-ask spread. It can launch a single
+half-open evaluation period, exact initial capital, maker/taker fees, and fixed slippage, with an
+optional **Spread stress (bps)** under Advanced options (default 0). There is no engine picker. It can launch a single
 window or a composed OOS / walk-forward / parameter-sweep / WFO study (cross-market stays on the
 research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase
 credentials exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or
 missing credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
-observed Coinbase fills. V1/V2 next-open fills still use the taker rate even when the strategy
-prefers maker. Test lists this strategy's results (`GET /api/v1/backtests?strategy_id=`); each row
+observed Coinbase fills. Test lists this strategy's results (`GET /api/v1/backtests?strategy_id=`); each row
 shows **Current rules** when its snapshot `strategy_fingerprint` equals the strategy's
 `current_fingerprint`, otherwise **Earlier edit** with a field-by-field "What changed" diff against
 the snapshot (`GET /api/v1/strategies/snapshots/{strategy_fingerprint}`). Run starts paper or live
@@ -178,7 +173,7 @@ The backtester must not import the live Coinbase client. Both depend on a provid
 - portfolio cash and exposure constraints;
 - SL/TP and trailing lifecycle;
 - gaps and missing-data policy;
-- reproducible strategy, dataset, and engine versions.
+- reproducible strategy, dataset, and engine identity.
 
 ### Fidelity levels
 

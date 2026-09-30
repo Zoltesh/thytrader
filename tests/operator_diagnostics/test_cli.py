@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -45,34 +46,135 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "loopback HTTP" in output or "--local" in output
 
 
+_FAKE_KEY_NAME = "organizations/test-org/apiKeys/test-key-name"
+_FAKE_PRIVATE_KEY = (
+    "-----BEGIN EC PRIVATE KEY-----\\nhermetic-test-only\\n-----END EC PRIVATE KEY-----"
+)
+
+
+class _StubResponse:
+    """Minimal SDK response wrapper for the stubbed Coinbase REST client."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        """Keep one scripted payload."""
+        self._payload = payload
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the scripted payload like the SDK's response objects."""
+        return self._payload
+
+
+class _StubCoinbaseRestClient:
+    """Hermetic stand-in for ``coinbase.rest.RESTClient``; it never opens a socket."""
+
+    instances: ClassVar[list[_StubCoinbaseRestClient]] = []
+
+    def __init__(self, *, api_key: str, api_secret: str, timeout: int) -> None:
+        """Record construction so the test proves the credentialed path ran."""
+        del api_secret, timeout
+        self.api_key = api_key
+        self.calls: list[str] = []
+        _StubCoinbaseRestClient.instances.append(self)
+
+    def get_accounts(self, *, limit: int, cursor: str | None = None) -> _StubResponse:
+        """Return one page with a USD cash balance and a BTC holding."""
+        del limit, cursor
+        self.calls.append("get_accounts")
+        return _StubResponse(
+            {
+                "accounts": [
+                    {
+                        "currency": "USD",
+                        "active": True,
+                        "available_balance": {"value": "1234.5", "currency": "USD"},
+                        "hold": {"value": "0", "currency": "USD"},
+                    },
+                    {
+                        "currency": "BTC",
+                        "active": True,
+                        "available_balance": {"value": "0.5", "currency": "BTC"},
+                        "hold": {"value": "0", "currency": "BTC"},
+                    },
+                ],
+                "has_next": False,
+            }
+        )
+
+    def get_api_key_permissions(self) -> _StubResponse:
+        """Report view and trade permissions."""
+        self.calls.append("get_api_key_permissions")
+        return _StubResponse({"can_view": True, "can_trade": True, "can_transfer": False})
+
+    def get_product(self, product_id: str) -> _StubResponse:
+        """Return a fixed last price for any product."""
+        self.calls.append(f"get_product:{product_id}")
+        return _StubResponse({"product_id": product_id, "price": "60000"})
+
+    def get_transaction_summary(self, **kwargs: object) -> _StubResponse:
+        """Return one fee tier and 30-day volume."""
+        del kwargs
+        self.calls.append("get_transaction_summary")
+        return _StubResponse(
+            {
+                "fee_tier": {
+                    "pricing_tier": "Advanced 1",
+                    "maker_fee_rate": "0.004",
+                    "taker_fee_rate": "0.006",
+                },
+                "total_volume": "1500",
+            }
+        )
+
+
+@pytest.fixture
+def stub_coinbase(monkeypatch: pytest.MonkeyPatch) -> type[_StubCoinbaseRestClient]:
+    """Configure fake credentials and route the operator session to the stubbed client."""
+    _StubCoinbaseRestClient.instances = []
+    monkeypatch.setenv("THYTRADER_COINBASE_API_KEY_NAME", _FAKE_KEY_NAME)
+    monkeypatch.setenv("THYTRADER_COINBASE_API_PRIVATE_KEY", _FAKE_PRIVATE_KEY)
+    monkeypatch.setattr("thytrader.operator.session.RESTClient", _StubCoinbaseRestClient)
+    return _StubCoinbaseRestClient
+
+
 def test_operator_local_portfolio_includes_balances_without_secrets(
     capsys: pytest.CaptureFixture[str],
+    stub_coinbase: type[_StubCoinbaseRestClient],
 ) -> None:
-    """Portfolio is a versioned report that shows cash amounts and omits secrets."""
+    """Portfolio reports stubbed Coinbase balances and never echoes credential material."""
     with pytest.raises(SystemExit) as raised:
         main(["--local", "portfolio"])
     assert raised.value.code in {0, 1, 2}
-    payload = json.loads(capsys.readouterr().out)
+    output = capsys.readouterr().out
+    payload = json.loads(output)
     assert payload["report_kind"] == "portfolio"
     assert payload["redaction"]["secrets_redacted"] is True
     assert payload["redaction"]["balances_omitted"] is False
     total = payload["payload"]["total_value"]
     assert "amount" in total
     assert total["currency"] in {"USD", "USDC", "USDT"}
+    assert stub_coinbase.instances
+    assert "get_accounts" in stub_coinbase.instances[-1].calls
+    assert "1234.5" in output
+    assert _FAKE_KEY_NAME not in output
+    assert "hermetic-test-only" not in output
 
 
 def test_operator_local_fees_include_suggested_research_rates(
     capsys: pytest.CaptureFixture[str],
+    stub_coinbase: type[_StubCoinbaseRestClient],
 ) -> None:
     """Fees is a versioned report matching the HTTP fee-profile contract."""
     with pytest.raises(SystemExit) as raised:
         main(["--local", "fees"])
     assert raised.value.code in {0, 1, 2}
-    payload = json.loads(capsys.readouterr().out)
+    output = capsys.readouterr().out
+    payload = json.loads(output)
     assert payload["report_kind"] == "fees"
     fees = payload["payload"]
     assert "maker_fee_rate" in fees
     assert "taker_fee_rate" in fees
+    assert _FAKE_KEY_NAME not in output
+    assert stub_coinbase.instances
 
 
 def test_operator_local_indicators_and_products_are_healthy(

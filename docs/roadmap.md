@@ -97,7 +97,7 @@ costs.
 ## Phase 8: Multi-timeframe strategy semantics — ✅ Shipped (research HTF filter)
 
 Optional `htf_filter` + LTF entry ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md)). Top-level
-`timeframe` remains the `1h`|`5m` decision clock in this slice. Research engines V1/V2/V3 evaluate last-completed
+`timeframe` remains the `1h`|`5m` decision clock in this slice. Research backtests evaluate last-completed
 HTF bars and fingerprint both datasets. Paper and live rejected HTF-filter strategies in this slice.
 5m live remained Phase 13. [ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md) later
 widened LTF and HTF tokens to every ingested venue clock.
@@ -114,7 +114,7 @@ warmup and no-lookahead rules.
 1. **Single-output rolling extremes and stdev** — ✅ Shipped ([ADR 0026](decisions/0026-phase-9-single-output-indicator-catalog.md)):
    `highest` (high, period 2–500), `lowest` (low, period 2–500), and population `stdev` (close,
    period 2–500). Same `decimal64-half-even-v1` left-fold, inclusive current bar, insufficient
-   warmup → undefined/null (not 0), tri-state conditions. Research V1/V2/V3, paper, and live share
+   warmup → undefined/null (not 0), tri-state conditions. Research, paper, and live share
    the LTF catalog. HTF may declare the same kinds inside `htf_filter`. Paper/live HTF evaluation
    shipped later ([ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)). No MACD/Bollinger.
    No per-indicator timeframes. 5m live remained Phase 13 and later shipped.
@@ -146,7 +146,7 @@ warmup and no-lookahead rules.
 
 **This-slice exit gate met:** the two kinds and the series-id contract are named in the ADR,
 implemented in the registry and evaluator, referenced from conditions/crossovers, and listed
-honestly in the operator catalog and engine-support matrix.
+honestly in the operator catalog and the then-current engine matrix.
 
 ## Phase 10: Portfolio + risk-policy registry — ✅ Shipped
 
@@ -172,16 +172,16 @@ multi-instrument strategy documents, and daily-loss/drawdown circuit breakers re
 
 ## Phase 11: Research rigor tooling — ✅ Shipped
 
-Walk-forward / out-of-sample / cross-market studies compose existing bar-backtest V1/V2/V3 engines
+Walk-forward / out-of-sample / cross-market studies compose the then-current bar-backtest engines
 ([ADR 0035](decisions/0035-phase-11-research-rigor.md)). `ema-trend` remains the default draft
 template; `rsi-mean-reversion`, `macd-trend`, and `bollinger-mean-reversion` are additional starting
-drafts. The engine-support matrix has V1, V2, and V3 columns. Walk-forward is **validation**, not
+drafts. The Build inspector listed per-engine support. Walk-forward is **validation**, not
 parameter optimization. Child backtests remain the append-only evidence; there is no Alembic
 revision. Cross-market still requires one published single-instrument strategy per product.
 
 **Exit gate met:** agents can `plan-study` / `submit-study --confirm` for OOS holdout, rolling or
 anchored walk-forward, and 2–8 product cross-market studies; the UI can launch OOS and walk-forward
-on a published fingerprint; templates are selectable; the matrix names V3 honestly.
+on a published fingerprint; templates are selectable; the engine matrix was honest about support.
 
 Parameter sweeps, walk-forward optimization, and stitched OOS equity shipped later as
 [ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md). Paper/live HTF is
@@ -191,7 +191,7 @@ Parameter sweeps, walk-forward optimization, and stitched OOS equity shipped lat
 
 Research composition can `plan-study` / `submit-study --confirm` for `parameter_sweep` and
 `walk_forward_optimization` without inventing grid math or looking ahead from OOS into selection
-([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). Child evidence stays V1/V2/V3.
+([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)). Child evidence stays ordinary backtest results.
 Derived axis candidates publish on submit through the existing store. Stitched OOS equity compounds
 non-overlapping window **returns**; overlapping OOS and embargo gaps are not interpolated.
 Walk-forward **validation** is unchanged. YOLO and playbook are unchanged by this slice.
@@ -341,7 +341,7 @@ succeeds only when YOLO advertises `live` and the skip audit writes; Safe mode s
 ## Spot shorting and attached entry brackets — ✅ Shipped
 
 Strategy `entry.side` is `long` or `short`. Discretionary HTTP/CLI accept `--side` (default
-`long`). Geometry: longs `stop < entry < take_profit`; shorts invert. Paper and backtest V1/V2/V3
+`long`). Geometry: longs `stop < entry < take_profit`; shorts invert. Paper and backtests
 simulate a cash-and-inventory spot short. Live submits Coinbase Advanced Trade **SPOT** `SELL` and
 fails closed without available base (`INSUFFICIENT_BASE_FOR_SPOT_SHORT`). Never `leverage`,
 `margin_type`, or futures.
@@ -354,7 +354,7 @@ Ops contract is `thytrader-ops-contract-v15` / Alembic `0027`. Live YOLO skip-co
 ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) are unchanged.
 
 **Exit gate met:** paper short + attached live entry + fail-closed live short without base; long
-V1/V2/V3 golden fingerprints unchanged.
+golden backtest fingerprints unchanged.
 
 ## Wider fail-closed indicator catalog — ✅ Shipped
 
@@ -365,7 +365,7 @@ backtest, paper, and live. No TA-library passthrough. No interpolated candles. P
 and Bollinger bands are unchanged.
 
 **Exit gate met:** kinds named in the ADR, implemented in the registry and evaluator, referenced from
-conditions, and listed in operator `indicators` plus the engine-support matrix.
+conditions, and listed in operator `indicators` plus the then-current engine matrix.
 
 ## Paper deploy fee fields — ✅ Shipped
 
@@ -478,7 +478,7 @@ managed shutdown, live capital separate from venue quote, and durable UTC day-op
 baselines ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Default HTTP/CLI stop is
 managed shutdown; `--flatten` marketably exits. Live still needs `--i-understand-live`. Ops contract
 is `thytrader-ops-contract-v26` / Alembic `0039` with deployment `capital` HTTP fields
-([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)), research v4 engines
+([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)), a fourth research engine
 ([ADR 0066](decisions/0066-research-ops-contract-v4.md)), and explicit breaker latch reset
 ([ADR 0064](decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md); fan-out label
 ops v23). Extra exchanges stay out.
@@ -506,8 +506,9 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with strategy snapshot identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
 | Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Loopback `/chat` and `/api/v1/operator-chat`; user-pasted LLM key in the API process; closed catalog of gated skill-lane HTTP tools ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Coinbase keys stay off this surface | Not a substitute for `ops/` skills. Extra exchanges stay waiting |
-| Workstation IA | Four-destination rail (Home, Strategies, Portfolio, Trade) plus a System group (Settings, Audit log, Journal, Memory & why-trade), ⌘K command palette, Agent side panel hosting operator chat on every page (`/chat` kept as full page), and light/dark design tokens ([ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md), superseding [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) in part). Each strategy has one workspace (Build · Test · Run · Why at `/strategies/{id}`, `/test`, `/run`, `/why`) with a library evidence pipeline, and a live preflight from existing endpoints ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md)); `/research`, `/deploy`, `/backtests` links redirect or show a chooser. Portfolio groups and filters bots with truthful per-mode capital totals, bot detail and Trade are recomposed, and a route-declared amber live strip and frame mark every live context ([ADR 0081](decisions/0081-live-chrome-portfolio-bot-detail-trade.md)) | Multi-strategy portfolios (sleeves with shared capital, portfolio backtest, manager agent) are not built. V4 in the browser launcher needs result-detail disclosure first. Keep those surfaces uncluttered. Do not weaken safety copy or confirmation. YAML/YOLO stays the ADR 0055 panel beside Coinbase credentials |
-| Strategy model | One mutable strategy per id with revision-guarded saves (invalid work in progress allowed), automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys on every run and bot, Current rules / Earlier edit with a What-changed diff, guided Update bot, hard delete and bulk delete with a running/paused-bot block and kept live history; ops contract v41 / Alembic 0048 ([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) | One unified backtest engine model (follow-up); V1–V4 unchanged here |
+| Workstation IA | Four-destination rail (Home, Strategies, Portfolio, Trade) plus a System group (Settings, Audit log, Journal, Memory & why-trade), ⌘K command palette, Agent side panel hosting operator chat on every page (`/chat` kept as full page), and light/dark design tokens ([ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md), superseding [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) in part). Each strategy has one workspace (Build · Test · Run · Why at `/strategies/{id}`, `/test`, `/run`, `/why`) with a library evidence pipeline, and a live preflight from existing endpoints ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md)); `/research`, `/deploy`, `/backtests` links redirect or show a chooser. Portfolio groups and filters bots with truthful per-mode capital totals, bot detail and Trade are recomposed, and a route-declared amber live strip and frame mark every live context ([ADR 0081](decisions/0081-live-chrome-portfolio-bot-detail-trade.md)) | Multi-strategy portfolios (sleeves with shared capital, portfolio backtest, manager agent) are not built. Keep those surfaces uncluttered. Do not weaken safety copy or confirmation. YAML/YOLO stays the ADR 0055 panel beside Coinbase credentials |
+| Strategy model | One mutable strategy per id with revision-guarded saves (invalid work in progress allowed), automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys on every run and bot, Current rules / Earlier edit with a What-changed diff, guided Update bot, hard delete and bulk delete with a running/paused-bot block and kept live history; ops contract v41 / Alembic 0048 ([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) | Backtest simulation is the next row ([ADR 0083](decisions/0083-unified-backtest-model.md)) |
+| Backtest model | One unversioned model, `engine: "thytrader-backtest"`, replaced every earlier engine: resting maker-limit entries, taker stops/time exits/end-of-window liquidation with fixed slippage, optional disclosed `spread_bps` stress, and `validity_limits` on every summary. No engine selector; `GET /api/v1/research/backtest-model` / `thytrader-research backtest-model` describe it. Ops contract v42 / Alembic 0049 deletes research runs, results, jobs, and studies written by the retired engines ([ADR 0083](decisions/0083-unified-backtest-model.md)) | Latency, rejection, partial-fill, and queue-position models remain deferred |
 | Coinbase secrets UI | Loopback Settings form beside YAML/YOLO plus `thytrader-runtime` show/set/clear ([ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md)). Keys stay server-side. GET never echoes them. YOLO never covers set/clear. Extra exchanges out | Same write-only contract. LLM keys stay with operator chat ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Non-secret YAML/YOLO stays ADR 0055 |
 | Mermaid schemas and contracts | Contributor [contract diagrams](architecture/contracts/README.md) for strategy, research-run spec, backtest result, ops contract, order-intent → risk → broker, and other durable payloads | Keep diagrams in sync when those contracts change. Link from contributor docs. Do not dump on the landing README |
 
@@ -641,40 +642,43 @@ verified dataset fingerprint. Unsupported sizing/stop variants and a visual node
 
 - ✅ Strict canonical immutable research-run specifications bind exact published strategy and verified
   dataset fingerprints to half-open evaluation/warmup ranges, exact capital/fee/slippage assumptions,
-  completed-close/next-open timing, an explicit seed, and the implemented request-contract version.
+  completed-close signal timing, an explicit seed, and an engine identity (today the single
+  `thytrader-backtest`).
 - ✅ Append-only PostgreSQL publication requires the existing exact strategy/dataset binding and
-  reverifies canonical bytes, denormalized row identity, immutable artifacts, coverage, and final
-  next-open fill data on every load.
-- ✅ Versioned deterministic indicator and entry-condition evaluation for executable
-  `thytrader-bar-signal-v1` publications, with strict no-lookahead candle selection, canonical
+  reverifies canonical bytes, denormalized row identity, immutable artifacts, coverage, and the final
+  fill-lookahead candle on every load.
+- ✅ Versioned deterministic indicator and entry-condition evaluation for published runs, with strict no-lookahead candle selection, canonical
   fingerprinted traces, and a read-only CLI. Traces are ephemeral and are not backtest results.
-- ✅ `thytrader-bar-backtest-v1` event-driven long or short single-position simulation with private Decimal64
+- ✅ First event-driven long or short single-position bar simulation with private Decimal64
   arithmetic, strict no-lookahead signal boundaries, next-open marketable fills, ATR sizing, adverse
   fixed slippage, taker fees, initial-stop/take-profit/time-exit state, conservative same-bar stop-first
-  ordering, forced final next-open liquidation, canonical trade/equity/drawdown/metrics output, append-only
-  PostgreSQL results, and a read-only simulation CLI. See [backtest simulation](architecture/backtest-simulation.md).
+  ordering, canonical trade/equity/drawdown/metrics output, append-only PostgreSQL results, and a
+  read-only simulation CLI. Superseded by the unified model below.
 - ✅ Browser/API research flow creates a durable conservative strategy draft, validates/publishes immutable
   strategy evidence, explicitly selects an exact version, reverified compatible 1h dataset, period,
-  capital, fees, slippage, V1/V2 engine, and V2 spread, submits/reuses deterministic backtests, loads
+  capital, fees, slippage, engine, and spread stress, submits/reuses deterministic backtests, loads
   all results per exact strategy version, compares the newest result across versions, and opens the
   immutable result detail. It cannot mutate results or grant trading authority.
-- ✅ `thytrader-bar-backtest-v2` uses the same deterministic single-position event ordering with a canonical,
-  disclosed constant-basis-point spread stress model: ask-side entries, bid-side exits and triggers,
-  bid-close equity marking, executable-entry sizing, immutable fill-level evidence, and zero-spread
-  economic regression to V1. V1 result bytes remain loadable/reverifiable unchanged; V2 is not
-  observed order-book data or a live-fill prediction.
-- ✅ `thytrader-bar-backtest-v3` maker-limit bar fills. Bar-level latency, rejection, and
-  partial-fill models beyond that V3 contract, and full order-book queue simulation, remain deferred.
+- ✅ Later engines added a disclosed constant spread stress and maker-limit bar fills aligned with
+  paper and live, running in parallel with the first simulator.
+- ✅ One unified backtest model, `engine: "thytrader-backtest"`
+  ([ADR 0083](decisions/0083-unified-backtest-model.md)), replaced every earlier engine: resting
+  post-only entries at the signal close filled on trade-through (maker fee, no slippage), stop-first on
+  the fill candle, resting take-profit before stop on later candles, taker stops/time exits with fixed
+  slippage, liquidation at the open of the `evaluation.ends_at` candle, optional `costs.spread_bps`
+  stress (not observed book data), and `validity_limits` on every summary. There is no engine
+  selector. Latency, rejection, partial-fill, and queue-position models remain deferred. See
+  [backtest simulation](architecture/backtest-simulation.md).
 - ✅ Phase 10 risk-policy registry and concurrent single-instrument paper/live (ADR 0033). Daily-loss / drawdown, order-rate limits, and collars are ADR 0050. Multi-instrument documents and intra-strategy pyramiding are ADR 0056.
 - ✅ ATR-multiple trailing-stop state machine in backtest, paper, and live (Phase 13 / ADR 0036).
 - ✅ Phase 11 OOS holdout, walk-forward validation, and cross-market studies (ADR 0035). Parameter sweeps, WFO, and stitched OOS equity shipped as ADR 0044. Richer sweep axes and persisted study catalog shipped as ADR 0052.
-- ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the same published taker fee, fixed slippage, and V1/V2 fill assumptions, reports return/drawdown/cost evidence, preserves V1/V2 canonical bytes, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
+- ✅ Deterministic versioned `thytrader-buy-and-hold-v1` benchmark comparison derived from the reverified result, source run, and immutable dataset. It uses the backtest model's taker semantics for both legs (taker fee, fixed slippage, half the stressed spread), marks at the stressed bid, carries `engine`, reports return/drawdown/cost evidence, and is exposed as a separate read-only API/dashboard comparison. See [derived buy-and-hold benchmark](decisions/0011-derived-buy-and-hold-benchmark.md).
 
 ### Next delivery increment
 
 The browser/API research loop is implemented: it saves one mutable strategy in place (invalid work in
-progress allowed), presents a bounded semantic summary plus honest V1/V2/V3 support matrix, launches
-V1/V2/V3 research or a composed OOS/walk-forward/sweep/WFO study from the current definition (each
+progress allowed), presents a bounded semantic summary plus a **How backtests simulate** disclosure, launches
+a backtest or a composed OOS/walk-forward/sweep/WFO study from the current definition (each
 start snapshots it), and marks every result Current rules or Earlier edit
 ([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
 

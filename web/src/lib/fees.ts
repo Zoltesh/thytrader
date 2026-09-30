@@ -5,7 +5,7 @@
 import { compareDecimalStrings } from './portfolio';
 
 export const RESEARCH_FEE_ENGINE_NOTE =
-	'These are modeled research assumptions, not observed Coinbase fills. V1 and V2 next-open fills use the taker rate even when the strategy prefers maker.';
+	'These are modeled research assumptions, not observed Coinbase fills. Resting entries and take-profits use the maker rate; stop, time, and end-of-window exits use the taker rate.';
 
 export const PAPER_DEFAULT_MAKER_FEE_RATE = '0.001';
 export const PAPER_DEFAULT_TAKER_FEE_RATE = '0.002';

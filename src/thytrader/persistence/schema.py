@@ -414,7 +414,6 @@ published_research_studies = Table(
     Column("request_fingerprint", String(71), nullable=False),
     Column("plan_fingerprint", String(71), nullable=False),
     Column("kind", String(32), nullable=False),
-    Column("engine_contract_version", String(64), nullable=False),
     Column("product_id", String(32), nullable=False),
     Column("timeframe", String(8), nullable=False),
     Column("window_count", Integer(), nullable=False),

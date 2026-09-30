@@ -15,6 +15,9 @@ import {
 	mockDatasets,
 	mockFees,
 	mockStrategy,
+	REMOVED_ENGINE_FIELD,
+	RETIRED_ENGINE_PREFIX,
+	RETIRED_ENGINE_ROUTE,
 	resultFingerprint,
 	strategyId,
 	strategyRecord,
@@ -59,8 +62,7 @@ test('runs a backtest of the current rules and marks earlier-edit results', asyn
 		listed.push(requested);
 		return [
 			backtestEntry(fingerprintV2, {
-				result_fingerprint: v2Result,
-				engine_contract_version: 'thytrader-bar-backtest-v2'
+				result_fingerprint: v2Result
 			}),
 			backtestEntry(fingerprint, {
 				published_at: '2026-09-22T10:00:00Z',
@@ -94,7 +96,8 @@ test('runs a backtest of the current rules and marks earlier-edit results', asyn
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	await expect(page.getByLabel('Taker fee rate')).toHaveValue('0.0040');
 	await expect(page.getByLabel('Initial capital (USDC)')).toHaveValue('10000');
-	await expect(page.getByRole('option', { name: 'V3 — resting maker limit' })).toBeAttached();
+	// One backtest model: no engine picker anywhere in the run bar or study builder.
+	await expect(page.getByLabel('Engine')).toHaveCount(0);
 	// Custom dates, slippage, and spread stress live behind the Advanced disclosure.
 	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeHidden();
 	await page.getByTestId('run-advanced').locator('summary').click();
@@ -118,14 +121,16 @@ test('runs a backtest of the current rules and marks earlier-edit results', asyn
 	await expect(results.locator('[data-rules="earlier"]')).toHaveCount(0);
 	await page.getByLabel('Only current rules').uncheck();
 
-	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v2');
-	await page.getByLabel('Constant spread (bps, total bid-ask)').fill('8');
+	await page.getByLabel('Spread stress (bps, total bid-ask, optional)').fill('8');
+	await expect(page.getByTestId('run-advanced').locator('summary')).toContainText(
+		'spread stress 8 bps'
+	);
 	await page.getByRole('button', { name: 'Run backtest' }).click();
 	await expect.poll(() => launchBody).not.toBeNull();
 	expect(launchBody).not.toHaveProperty('strategy_fingerprint');
+	expect(launchBody).not.toHaveProperty(REMOVED_ENGINE_FIELD);
 	expect(launchBody).toMatchObject({
 		strategy_id: strategyId,
-		engine_contract_version: 'thytrader-bar-backtest-v2',
 		spread_bps: '8',
 		maker_fee_rate: '0.0025',
 		taker_fee_rate: '0.0040'
@@ -137,10 +142,10 @@ test('runs a backtest of the current rules and marks earlier-edit results', asyn
 	await expect(result.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(result.getByTestId('modeled-assumptions')).toBeVisible();
 	await expect(result.getByText(/research\s+evidence, not a promise/)).toBeVisible();
-	// Compact result header: rules · period · engine, plus the simulated-result chip.
+	// Compact result header: rules · period, plus the simulated-result chip.
 	const head = result.getByTestId('backtest-result-head');
 	await expect(head).toContainText(
-		/Earlier edit · \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2} · \d+ bars · V1/
+		/Earlier edit · \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2} · \d+ bars/
 	);
 	await expect(head.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	const metrics = result.getByTestId('result-metrics');
@@ -211,12 +216,16 @@ test('a composed study runs from the Run a study disclosure against the current 
 	await expect(page.getByRole('option', { name: 'Parameter sweep' })).toBeAttached();
 	await expect(page.getByRole('option', { name: 'Walk-forward optimization' })).toBeAttached();
 	await expect(page.getByRole('option', { name: 'Single window' })).toHaveCount(0);
-	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v1');
+	await expect(page.getByLabel('Engine')).toHaveCount(0);
+	await expect(page.getByRole('combobox', { name: /engine/i })).toHaveCount(0);
 	await page.getByLabel('Study').selectOption('oos_holdout');
 	await page.getByRole('button', { name: 'Run study' }).click();
 	await expect.poll(() => studyBody).not.toBeNull();
 	expect(studyBody).toMatchObject({ kind: 'oos_holdout', strategy_id: strategyId });
 	expect(studyBody).not.toHaveProperty('strategy_fingerprint');
+	expect(studyBody).not.toHaveProperty(REMOVED_ENGINE_FIELD);
+	// Blank spread stress is omitted, not sent as zero or null.
+	expect(studyBody).not.toHaveProperty('spread_bps');
 	await expect(page.getByRole('alert')).toContainText('study rejected in test');
 });
 
@@ -370,33 +379,25 @@ test('a strategy_invalid rejection from the server is explained, not retried', a
 		}
 	);
 	await page.goto(testStage);
-	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v1');
 	await page.getByRole('button', { name: 'Run backtest' }).click();
 	await expect(page.getByRole('alert')).toContainText('The saved definition is not valid');
 	expect(posts).toBe(1);
 });
 
-test('the run bar is one compact row with Advanced options and a defaulted engine', async ({
+test('the run bar is one compact row with Advanced options and no engine picker', async ({
 	page
 }) => {
 	await mockStrategy(page);
 	await mockFees(page, suggestedFeeProfile());
 	await mockDatasets(page);
 	await mockBacktestList(page);
-	await page.route('**/api/v1/research/engine-support', (route) =>
-		route.fulfill({
-			json: {
-				contract_version: 'thytrader-engine-support-v2',
-				engines: [
-					'thytrader-bar-backtest-v1',
-					'thytrader-bar-backtest-v2',
-					'thytrader-bar-backtest-v3',
-					'thytrader-bar-backtest-v4'
-				],
-				rows: []
-			}
-		})
-	);
+	const modelRequests: string[] = [];
+	page.on('request', (request) => {
+		const { pathname } = new URL(request.url());
+		if (!pathname.startsWith('/api/')) return;
+		if (pathname.includes(RETIRED_ENGINE_ROUTE) || pathname.includes('backtest-model'))
+			modelRequests.push(pathname);
+	});
 	let launchBody: Record<string, unknown> | null = null;
 	await page.route(
 		(url) => url.pathname === '/api/v1/backtests',
@@ -409,9 +410,11 @@ test('the run bar is one compact row with Advanced options and a defaulted engin
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto(testStage);
 	const bar = page.getByTestId('run-bar');
-	// Newest engine this launcher offers (V4 stays CLI-only here), not an empty select.
-	await expect(page.getByLabel('Engine')).toHaveValue('thytrader-bar-backtest-v3');
-	// Compact fields: dataset, period, capital, fees, engine, then the actions on the right.
+	// One backtest model: no engine select or combobox in the run bar.
+	await expect(bar.getByLabel('Engine')).toHaveCount(0);
+	await expect(bar.getByRole('combobox', { name: /engine/i })).toHaveCount(0);
+	await expect(bar.getByRole('option', { name: /engine/i })).toHaveCount(0);
+	// Compact fields: dataset, period, capital, fees, then the actions on the right.
 	await expect(bar.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
 	await expect(bar.getByTestId('run-period')).toHaveText('Full coverage');
 	await expect(bar.getByLabel('Initial capital (USDC)')).toBeVisible();
@@ -437,21 +440,46 @@ test('the run bar is one compact row with Advanced options and a defaulted engin
 	await expect(study).toHaveAttribute('aria-expanded', 'true');
 	await expect(page.getByLabel('Study')).toBeVisible();
 
+	await expect(page.getByRole('combobox', { name: /engine/i })).toHaveCount(0);
+
 	await page.getByRole('button', { name: 'Run backtest' }).click();
 	await expect.poll(() => launchBody).not.toBeNull();
-	expect(launchBody).toMatchObject({ engine_contract_version: 'thytrader-bar-backtest-v3' });
+	expect(launchBody).not.toHaveProperty(REMOVED_ENGINE_FIELD);
+	// Blank spread stress is omitted.
+	expect(launchBody).not.toHaveProperty('spread_bps');
+	// The disclosure is static copy: the page never asks for a model description.
+	expect(modelRequests).toEqual([]);
 });
 
-test('an unreadable engine-support matrix keeps the explicit engine choice', async ({ page }) => {
+test('the Test stage explains how backtests simulate and never names engine variants', async ({
+	page
+}) => {
 	await mockStrategy(page);
 	await mockFees(page, suggestedFeeProfile());
 	await mockDatasets(page);
-	await mockBacktestList(page);
-	await page.route('**/api/v1/research/engine-support', (route) =>
-		route.fulfill({ status: 503, json: { detail: 'unavailable' } })
-	);
-	await page.goto(testStage);
-	await expect(page.getByLabel('Verified 1h dataset')).toHaveValue(datasetFingerprint);
-	await expect(page.getByLabel('Engine')).toHaveValue('');
-	await expect(page.getByRole('button', { name: 'Run backtest' })).toBeDisabled();
+	await mockBacktestList(page, () => [backtestEntry(fingerprint)]);
+	await mockBacktestDetail(page, resultFingerprint, fingerprint);
+	await page.goto(`${testStage}?result=${resultFingerprint}`);
+	const result = page.getByTestId('workspace-result');
+	await expect(result.getByText('Simulated result (candle-based fills)')).toBeVisible();
+
+	const runBar = page.getByRole('region', { name: 'Run a backtest' });
+	const disclosure = runBar.getByTestId('backtest-model-disclosure');
+	await disclosure.locator('summary').click();
+	await expect(disclosure).toContainText('Maker-limit entries rest');
+	await expect(disclosure).toContainText('Unfilled entries expire');
+	await expect(disclosure).toContainText('Time exit at close');
+	await expect(disclosure).toContainText('Liquidation at the window end');
+	await expect(disclosure).toContainText("Candles don't show queue position");
+	await expect(disclosure).toContainText('(max_entry_wait_bars)');
+
+	// Result detail discloses modeling limits; an unstressed run shows no spread copy.
+	await expect(result.getByTestId('validity-limits')).toContainText('fill completely');
+	await expect(result.getByTestId('spread-stress')).toHaveCount(0);
+	await expect(result.getByTestId('backtest-model-disclosure')).toHaveCount(1);
+
+	const text = await page.locator('main').innerText();
+	expect(text).not.toMatch(/\bV[1-4]\b/);
+	expect(text).not.toContain(RETIRED_ENGINE_PREFIX);
+	expect(text).not.toMatch(/engine contract/i);
 });
