@@ -1,165 +1,111 @@
-"""Tests for confirmation-gated research mutations."""
+"""Tests for confirmation-gated research mutations over the mutable strategy store."""
 
 from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
 
+from thytrader.backtest.submission import BacktestStartRequest, BacktestSubmissionResult
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.research.mutation import ResearchMutator
-from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
+from thytrader.strategies.library import StrategyInvalidError
+from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.strategies.models import strategy_fingerprint
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
-    from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
+    from thytrader.backtest.submission import BacktestSubmissionRequest
 
 
-class _DraftStore:
-    """Minimal in-memory draft store for mutation tests."""
+class _RecordingSubmitter:
+    """Record submitted fingerprints and return fixed identities."""
 
     def __init__(self) -> None:
-        """Start empty."""
-        self.drafts: dict[tuple[str, int], StrategyDraft] = {}
-        self.create_calls = 0
-
-    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
-        """Store one draft."""
-        self.create_calls += 1
-        draft = StrategyDraft(definition=definition, revision=1)
-        self.drafts[(str(definition.strategy_id), definition.version)] = draft
-        return draft
-
-    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
-        """Return saved drafts."""
-        return tuple(self.drafts.values())
-
-    async def save_draft(
-        self,
-        definition: StrategyDefinition,
-        *,
-        expected_revision: int,
-    ) -> StrategyDraft:
-        """Replace a matching draft."""
-        key = (str(definition.strategy_id), definition.version)
-        existing = self.drafts[key]
-        if existing.revision != expected_revision:
-            raise RuntimeError("Strategy draft revision conflict.")
-        saved = StrategyDraft(definition=definition, revision=expected_revision + 1)
-        self.drafts[key] = saved
-        return saved
-
-    async def delete_draft(self, strategy_id: UUID, version: int) -> None:
-        """Drop a draft."""
-        self.drafts.pop((str(strategy_id), version), None)
-
-
-class _PublicationStore:
-    """Publish drafts by consuming the matching in-memory row."""
-
-    def __init__(self, drafts: _DraftStore) -> None:
-        """Bind to the draft double."""
-        self._drafts = drafts
-        self.published: PublishedStrategy | None = None
-
-    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
-        """Unused in this test."""
-        del definition
-        raise StrategyPublicationError("unused")
-
-    async def publish_draft(
-        self,
-        definition: StrategyDefinition,
-        *,
-        expected_revision: int,
-    ) -> PublishedStrategy:
-        """Consume the draft and return a published fingerprint."""
-        key = (str(definition.strategy_id), definition.version)
-        current = self._drafts.drafts.get(key)
-        if current is None or current.revision != expected_revision:
-            raise StrategyPublicationError("Strategy draft was not found.")
-        published_definition = StrategyDefinition.model_validate(
-            {**definition.model_dump(mode="python"), "status": "published"}
-        )
-        result = PublishedStrategy(
-            strategy_fingerprint=strategy_fingerprint(published_definition),
-            definition=published_definition,
-        )
-        self.published = result
-        self._drafts.drafts.pop(key)
-        return result
-
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
-        """Unused in this test."""
-        del strategy_fingerprint_value
-        raise StrategyPublicationError("unused")
-
-
-class _UnusedSubmitter:
-    """Refuse accidental backtest submission in draft tests."""
+        """Start with no submissions."""
+        self.fingerprints: list[str] = []
 
     async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
-        """Fail if called."""
-        del request
-        raise RuntimeError("submit should not run")
+        """Record the snapshot the mutator bound."""
+        self.fingerprints.append(request.strategy_fingerprint)
+        return BacktestSubmissionResult(
+            run_fingerprint="sha256:" + "a" * 64,
+            result_fingerprint="sha256:" + "b" * 64,
+        )
 
 
-def test_create_reference_draft_records_research_audit() -> None:
-    """Creating a draft must append a research audit event."""
-    drafts = _DraftStore()
+def _mutator() -> tuple[ResearchMutator, InMemoryStrategyStore, InMemoryAuditEventStore]:
+    """Build one mutator over in-memory stores."""
+    store = InMemoryStrategyStore()
     audit = InMemoryAuditEventStore()
     mutator = ResearchMutator(
-        drafts=drafts,
-        publications=_PublicationStore(drafts),
-        submitter=_UnusedSubmitter(),
+        strategies=store,
+        publications=store,
+        submitter=_RecordingSubmitter(),
         results=DisabledBacktestResultStore(),
         audit=audit,
     )
-    draft = asyncio.run(mutator.create_reference_draft())
-    events = asyncio.run(audit.list_recent(limit=5))
-    assert draft.revision == 1
-    assert drafts.create_calls == 1
-    assert events[0].category is AuditEventCategory.RESEARCH
-    assert events[0].action == "create_draft"
+    return mutator, store, audit
 
 
-def test_import_draft_records_research_audit() -> None:
-    """Importing a custom draft must append a research audit event."""
-    drafts = _DraftStore()
-    audit = InMemoryAuditEventStore()
-    mutator = ResearchMutator(
-        drafts=drafts,
-        publications=_PublicationStore(drafts),
-        submitter=_UnusedSubmitter(),
-        results=DisabledBacktestResultStore(),
-        audit=audit,
-    )
-    definition = create_reference_draft()
-    imported = asyncio.run(mutator.import_draft(definition))
-    events = asyncio.run(audit.list_recent(limit=5))
-    assert imported.revision == 1
-    assert drafts.create_calls == 1
-    assert any(event.action == "import_draft" for event in events)
+def test_create_save_import_clone_and_delete_record_research_audit() -> None:
+    """Every strategy mutation lands in the research audit trail."""
+
+    async def exercise() -> None:
+        mutator, store, audit = _mutator()
+        created = await mutator.create_strategy(product_id="ETH-USD", timeframe="4h")
+        assert created.validation.valid
+        assert created.product_id == "ETH-USD"
+        document = dict(created.document)
+        document["name"] = "Renamed"
+        saved = await mutator.save_strategy(created.strategy_id, document, expected_revision=1)
+        assert saved.revision == 2
+        imported = await mutator.import_strategy(created.document)
+        assert imported.strategy_id != created.strategy_id
+        cloned = await mutator.clone_strategy(created.strategy_id)
+        assert cloned.name == "Renamed (copy)"
+        report = await mutator.delete_strategies(
+            (created.strategy_id, imported.strategy_id), dry_run=False
+        )
+        assert [item.outcome for item in report.items] == ["deleted", "deleted"]
+        assert (await store.list_page(limit=10, offset=0)).total == 1
+        events = await audit.list_recent(limit=20)
+        actions = [event.action for event in events]
+        assert {"create_strategy", "save_strategy", "import_strategy", "clone_strategy"} <= set(
+            actions
+        )
+        assert actions.count("delete_strategy") == 2
+        assert all(event.category is AuditEventCategory.RESEARCH for event in events)
+
+    asyncio.run(exercise())
 
 
-def test_publish_consumes_draft_and_returns_fingerprint() -> None:
-    """Publishing uses the stored draft revision and removes the mutable row."""
-    drafts = _DraftStore()
-    publications = _PublicationStore(drafts)
-    audit = InMemoryAuditEventStore()
-    mutator = ResearchMutator(
-        drafts=drafts,
-        publications=publications,
-        submitter=_UnusedSubmitter(),
-        results=DisabledBacktestResultStore(),
-        audit=audit,
-    )
-    draft = asyncio.run(mutator.create_reference_draft())
-    published = asyncio.run(mutator.publish(draft.definition.strategy_id))
-    assert published.strategy_fingerprint.startswith("sha256:")
-    assert drafts.drafts == {}
-    events = asyncio.run(audit.list_recent(limit=5))
-    assert any(event.action == "publish_strategy" for event in events)
+def test_start_backtest_snapshots_the_current_definition() -> None:
+    """Local backtests bind the current snapshot; an invalid document fails closed."""
+
+    async def exercise() -> None:
+        mutator, store, _audit = _mutator()
+        created = await mutator.create_strategy()
+        assert created.definition is not None
+        start = BacktestStartRequest.model_validate(
+            {
+                "strategy_id": str(created.strategy_id),
+                "dataset_fingerprint": "sha256:" + "d" * 64,
+                "initial_quote_balance": "10000",
+                "maker_fee_rate": "0.001",
+                "taker_fee_rate": "0.002",
+                "fixed_slippage_bps": "1",
+            }
+        )
+        _run, _result, fingerprint = await mutator.start_backtest(start)
+        assert fingerprint == strategy_fingerprint(created.definition)
+        broken = dict(created.document)
+        broken["indicators"] = []
+        await store.save(created.strategy_id, broken, expected_revision=1)
+        try:
+            await mutator.start_backtest(start)
+        except StrategyInvalidError:
+            pass
+        else:
+            raise AssertionError("an invalid definition must not start a backtest")
+
+    asyncio.run(exercise())

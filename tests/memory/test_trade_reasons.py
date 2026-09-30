@@ -37,7 +37,6 @@ def _record(**overrides: object) -> TradeReasonRecord:
             strategy_id=uuid4(),
             strategy_fingerprint=_FP,
             name="ref",
-            version=1,
         ),
         "signal": TradeReasonSignal(
             kind=TradeReasonSignalKind.STRATEGY_ENTRY,
@@ -58,10 +57,10 @@ def _record(**overrides: object) -> TradeReasonRecord:
 
 
 def test_strategy_books_require_full_published_identity() -> None:
-    """Strategy deployments freeze id, fingerprint, name, and version together."""
+    """Strategy deployments freeze id, snapshot fingerprint, and name together."""
     _record()
-    with pytest.raises(ValidationError, match="published strategy identity"):
-        TradeReasonStrategy(strategy_id=uuid4(), name="ref", version=1)
+    with pytest.raises(ValidationError, match="strategy identity must include"):
+        TradeReasonStrategy(strategy_id=uuid4(), name="ref")
     with pytest.raises(ValidationError, match="strategy deployments require"):
         _record(strategy=None)
 

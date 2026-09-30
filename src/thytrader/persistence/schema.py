@@ -123,86 +123,95 @@ worker_heartbeats = Table(
     ),
 )
 
-strategy_drafts = Table(
-    "strategy_drafts",
+_FINGERPRINT_REGEX = "'^sha256:[0-9a-f]{64}$'"
+
+strategies = Table(
+    "strategies",
     metadata,
-    Column("strategy_id", String(36), primary_key=True),
-    Column("version", Integer(), primary_key=True),
+    Column("strategy_id", String(36), primary_key=True, comment="UUIDv7 strategy identity."),
+    Column("name", String(120), nullable=False),
+    Column("product_id", String(32), nullable=True, comment="Primary product when parseable."),
+    Column("timeframe", String(8), nullable=True, comment="Decision clock when parseable."),
+    Column("document", Text(), nullable=False, comment="Canonical JSON when valid, else sorted."),
+    Column("is_valid", Boolean(), nullable=False),
+    Column("validation_issues", Text(), nullable=False, server_default="[]"),
+    Column("current_fingerprint", String(71), nullable=True),
+    Column("revision", BigInteger(), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
-    Column("revision", BigInteger, nullable=False),
-    Column("canonical_definition", Text, nullable=False),
-    CheckConstraint("version > 0", name="ck_strategy_draft_version_positive"),
-    CheckConstraint("revision > 0", name="ck_strategy_draft_revision_positive"),
+    CheckConstraint("revision > 0", name="ck_strategies_revision_positive"),
+    CheckConstraint(
+        "(is_valid AND current_fingerprint IS NOT NULL) "
+        "OR (NOT is_valid AND current_fingerprint IS NULL)",
+        name="ck_strategies_validity_fingerprint",
+    ),
+    CheckConstraint(
+        f"current_fingerprint IS NULL OR current_fingerprint ~ {_FINGERPRINT_REGEX}",
+        name="ck_strategies_current_fingerprint_format",
+    ),
 )
 
+Index(
+    "ix_strategies_updated",
+    strategies.c.updated_at.desc(),
+    strategies.c.strategy_id.asc(),
+)
 
-published_strategy_versions = Table(
-    "published_strategy_versions",
+strategy_snapshots = Table(
+    "strategy_snapshots",
     metadata,
     Column("strategy_fingerprint", String(71), primary_key=True),
-    Column("strategy_id", String(36), nullable=False),
-    Column("version", Integer(), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("canonical_definition", Text(), nullable=False),
-    Column("published_at", DateTime(timezone=True), nullable=False),
-    Column("source_draft_revision", BigInteger, nullable=True),
-    UniqueConstraint(
+    Column(
         "strategy_id",
-        "version",
-        name="ux_published_strategy_identity_version",
+        String(36),
+        nullable=True,
+        comment="Owning strategy; NULL only for snapshots a kept live deployment ran.",
     ),
-    CheckConstraint(
-        "version > 0",
-        name="ck_published_strategy_version_positive",
-    ),
-    CheckConstraint(
-        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
-        name="ck_published_strategy_fingerprint_format",
-    ),
-    CheckConstraint(
-        "source_draft_revision IS NULL OR source_draft_revision > 0",
-        name="ck_published_strategy_source_draft_revision_positive",
-    ),
-)
-
-archived_strategy_versions = Table(
-    "archived_strategy_versions",
-    metadata,
-    Column("strategy_fingerprint", String(71), primary_key=True),
-    Column("archived_at", DateTime(timezone=True), nullable=False),
+    Column("canonical_definition", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
-        ["strategy_fingerprint"],
-        ["published_strategy_versions.strategy_fingerprint"],
-        ondelete="RESTRICT",
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="SET NULL",
+        name="fk_strategy_snapshots_strategy_id",
     ),
     CheckConstraint(
-        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
-        name="ck_archived_strategy_fingerprint_format",
+        f"strategy_fingerprint ~ {_FINGERPRINT_REGEX}",
+        name="ck_strategy_snapshots_fingerprint_format",
     ),
 )
 
+Index("ix_strategy_snapshots_strategy_id", strategy_snapshots.c.strategy_id)
 
 strategy_dataset_bindings = Table(
     "strategy_dataset_bindings",
     metadata,
     Column("strategy_fingerprint", String(71), primary_key=True),
     Column("dataset_fingerprint", String(71), primary_key=True),
+    Column("strategy_id", String(36), nullable=False),
     Column("bound_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["strategy_fingerprint"],
-        ["published_strategy_versions.strategy_fingerprint"],
-        ondelete="RESTRICT",
+        ["strategy_snapshots.strategy_fingerprint"],
+        name="fk_strategy_dataset_bindings_snapshot",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_strategy_dataset_bindings_strategy_id",
     ),
     CheckConstraint(
-        "strategy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        f"strategy_fingerprint ~ {_FINGERPRINT_REGEX}",
         name="ck_strategy_dataset_binding_strategy_fingerprint_format",
     ),
     CheckConstraint(
-        "dataset_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
+        f"dataset_fingerprint ~ {_FINGERPRINT_REGEX}",
         name="ck_strategy_dataset_binding_dataset_fingerprint_format",
     ),
 )
+
+Index("ix_strategy_dataset_bindings_strategy_id", strategy_dataset_bindings.c.strategy_id)
 
 published_research_run_specs = Table(
     "published_research_run_specs",
@@ -211,6 +220,7 @@ published_research_run_specs = Table(
     Column("run_id", String(36), nullable=False, unique=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("strategy_fingerprint", String(71), nullable=False),
+    Column("strategy_id", String(36), nullable=False),
     Column("dataset_fingerprint", String(71), nullable=False),
     Column("execution_fingerprint", String(71), nullable=True),
     Column("canonical_specification", Text(), nullable=False),
@@ -221,7 +231,13 @@ published_research_run_specs = Table(
             "strategy_dataset_bindings.strategy_fingerprint",
             "strategy_dataset_bindings.dataset_fingerprint",
         ],
-        ondelete="RESTRICT",
+        name="fk_research_run_specs_binding",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_research_run_specs_strategy_id",
     ),
     CheckConstraint(
         "run_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
@@ -254,6 +270,7 @@ published_backtest_results = Table(
     Column("result_fingerprint", String(71), primary_key=True),
     Column("run_fingerprint", String(71), nullable=False),
     Column("strategy_fingerprint", String(71), nullable=False),
+    Column("strategy_id", String(36), nullable=False),
     Column("dataset_fingerprint", String(71), nullable=False),
     Column("signal_trace_fingerprint", String(71), nullable=False),
     Column("canonical_result", Text(), nullable=False),
@@ -261,7 +278,13 @@ published_backtest_results = Table(
     ForeignKeyConstraint(
         ["run_fingerprint"],
         ["published_research_run_specs.run_fingerprint"],
-        ondelete="RESTRICT",
+        name="fk_backtest_results_run",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_backtest_results_strategy_id",
     ),
     CheckConstraint(
         "result_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
@@ -283,6 +306,11 @@ published_backtest_results = Table(
         "signal_trace_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_backtest_result_signal_trace_fingerprint_format",
     ),
+)
+
+Index(
+    "ix_published_research_run_specs_strategy_id",
+    published_research_run_specs.c.strategy_id,
 )
 
 Index(
@@ -312,6 +340,13 @@ Index(
 )
 
 Index(
+    "ix_published_backtest_results_strategy_id_published",
+    published_backtest_results.c.strategy_id,
+    published_backtest_results.c.published_at.desc(),
+    published_backtest_results.c.result_fingerprint.asc(),
+)
+
+Index(
     "ix_published_backtest_results_dataset_fingerprint",
     published_backtest_results.c.dataset_fingerprint,
 )
@@ -328,6 +363,8 @@ research_jobs = Table(
     Column("job_id", UUID(), primary_key=True),
     Column("kind", String(16), nullable=False),
     Column("status", String(16), nullable=False),
+    Column("strategy_id", String(36), nullable=False),
+    Column("strategy_fingerprint", String(71), nullable=False),
     Column("payload", Text(), nullable=False),
     Column("progress_current", Integer(), nullable=False, server_default="0"),
     Column("progress_total", Integer(), nullable=False, server_default="0"),
@@ -342,6 +379,12 @@ research_jobs = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("cancel_requested", Boolean(), nullable=False, server_default="false"),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_research_jobs_strategy_id",
+    ),
     CheckConstraint("kind IN ('backtest', 'study')", name="ck_research_jobs_kind"),
     CheckConstraint(
         "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
@@ -357,10 +400,17 @@ Index(
     research_jobs.c.created_at.asc(),
 )
 
+Index(
+    "ix_research_jobs_strategy_created",
+    research_jobs.c.strategy_id,
+    research_jobs.c.created_at.desc(),
+)
+
 published_research_studies = Table(
     "published_research_studies",
     metadata,
     Column("study_fingerprint", String(71), primary_key=True),
+    Column("strategy_id", String(36), nullable=False, comment="Primary (first) strategy."),
     Column("request_fingerprint", String(71), nullable=False),
     Column("plan_fingerprint", String(71), nullable=False),
     Column("kind", String(32), nullable=False),
@@ -374,6 +424,12 @@ published_research_studies = Table(
     Column("selection_metric", String(64), nullable=True),
     Column("canonical_study", Text(), nullable=False),
     Column("published_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_research_studies_strategy_id",
+    ),
     CheckConstraint(
         "study_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_research_study_fingerprint_format",
@@ -423,6 +479,33 @@ Index(
     published_research_studies.c.plan_fingerprint,
     unique=True,
 )
+
+Index(
+    "ix_published_research_studies_strategy_published",
+    published_research_studies.c.strategy_id,
+    published_research_studies.c.published_at.desc(),
+)
+
+research_study_strategies = Table(
+    "research_study_strategies",
+    metadata,
+    Column("study_fingerprint", String(71), primary_key=True),
+    Column("strategy_id", String(36), primary_key=True),
+    ForeignKeyConstraint(
+        ["study_fingerprint"],
+        ["published_research_studies.study_fingerprint"],
+        ondelete="CASCADE",
+        name="fk_research_study_strategies_study",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_research_study_strategies_strategy_id",
+    ),
+)
+
+Index("ix_research_study_strategies_strategy_id", research_study_strategies.c.strategy_id)
 
 audit_events = Table(
     "audit_events",
@@ -514,6 +597,12 @@ deployments = Table(
     Column("id", UUID(), primary_key=True),
     Column("strategy_fingerprint", String(71), nullable=True),
     Column("strategy_id", String(36), nullable=True),
+    Column(
+        "strategy_name",
+        String(120),
+        nullable=True,
+        comment="Strategy name captured at start; survives strategy deletion.",
+    ),
     Column("product_id", String(32), nullable=False),
     Column("mode", String(8), nullable=False),
     Column("status", String(16), nullable=False),
@@ -554,8 +643,15 @@ deployments = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["strategy_fingerprint"],
-        ["published_strategy_versions.strategy_fingerprint"],
+        ["strategy_snapshots.strategy_fingerprint"],
         ondelete="RESTRICT",
+        name="fk_deployments_strategy_snapshot",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="SET NULL",
+        name="fk_deployments_strategy_id",
     ),
     CheckConstraint("mode IN ('paper', 'live')", name="ck_deployments_mode"),
     CheckConstraint("status IN ('running', 'paused', 'stopped')", name="ck_deployments_status"),
@@ -575,7 +671,8 @@ deployments = Table(
     ),
     CheckConstraint(
         "("
-        "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND strategy_id IS NOT NULL"
+        "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND ("
+        "strategy_id IS NOT NULL OR (mode = 'live' AND status = 'stopped'))"
         ") OR ("
         "kind = 'discretionary' AND strategy_fingerprint IS NULL AND strategy_id IS NULL "
         "AND timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
@@ -954,7 +1051,6 @@ trade_reason_records = Table(
     Column("strategy_id", UUID(), nullable=True),
     Column("strategy_fingerprint", String(71), nullable=True),
     Column("strategy_name", String(120), nullable=True),
-    Column("strategy_version", Integer(), nullable=True),
     Column("signal_kind", String(32), nullable=False),
     Column("last_signal", String(32), nullable=True),
     Column("candle_starts_at", DateTime(timezone=True), nullable=False),
@@ -1015,7 +1111,6 @@ Index(
 
 __all__ = [
     "active_risk_policy",
-    "archived_strategy_versions",
     "audit_events",
     "deployments",
     "execution_fills",
@@ -1037,10 +1132,11 @@ __all__ = [
     "published_research_run_specs",
     "published_research_studies",
     "published_risk_policies",
-    "published_strategy_versions",
     "research_jobs",
+    "research_study_strategies",
+    "strategies",
     "strategy_dataset_bindings",
-    "strategy_drafts",
+    "strategy_snapshots",
     "trade_reason_records",
     "user_order_feed_state",
 ]

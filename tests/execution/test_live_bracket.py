@@ -27,8 +27,8 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.models import Candle, MarketProduct
-from thytrader.strategies.authoring import create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
     from thytrader.execution.models import DeploymentSnapshot
@@ -51,9 +51,8 @@ def _product() -> MarketProduct:
 
 def _strategy() -> StrategyDefinition:
     """Published reference strategy used only for exit configuration."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     return StrategyDefinition.model_validate(payload)
 
 

@@ -30,24 +30,26 @@ from thytrader.research.studies import (
     window_submission_request,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import (
         BacktestResultReader,
         BacktestResultSummaryView,
     )
-    from thytrader.strategies.publication import StrategyPublicationStore
+    from thytrader.strategies.snapshots import StrategySnapshotStore
 
 
-def _published(product_id: str, timeframe: str = "1h") -> PublishedStrategy:
+def _published(product_id: str, timeframe: str = "1h") -> StrategySnapshot:
     """Build a minimal published strategy stand-in for window planning."""
     definition = SimpleNamespace(
         instrument=SimpleNamespace(product_id=product_id),
         timeframe=timeframe,
     )
-    return cast("PublishedStrategy", SimpleNamespace(definition=definition))
+    return cast("StrategySnapshot", SimpleNamespace(definition=definition))
 
 
 def _result_with_summary(summary: BacktestSummary) -> BacktestResult:
@@ -390,21 +392,14 @@ def test_submit_reuses_child_identities_and_does_not_count_is_as_oos() -> None:
     class _Publications:
         """Return the planning stand-in for the requested fingerprint."""
 
-        async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
             """Load the BTC hourly stand-in."""
             del strategy_fingerprint_value
             return _published("BTC-USD")
 
-        async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+        async def record_snapshot(self, definition: StrategyDefinition) -> StrategySnapshot:
             """Unused in this test."""
             del definition
-            raise RuntimeError("unused")
-
-        async def publish_draft(
-            self, definition: StrategyDefinition, *, expected_revision: int
-        ) -> PublishedStrategy:
-            """Unused in this test."""
-            del definition, expected_revision
             raise RuntimeError("unused")
 
     class _Submitter:
@@ -433,10 +428,12 @@ def test_submit_reuses_child_identities_and_does_not_count_is_as_oos() -> None:
             run_fingerprint: str | None = None,
             strategy_fingerprint: str | None = None,
             dataset_fingerprint: str | None = None,
+            strategy_id: UUID | None = None,
             limit: int,
             offset: int,
         ) -> tuple[BacktestResultSummaryView, ...]:
             """Unused by submit."""
+            del strategy_id
             del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
             return ()
 
@@ -464,11 +461,11 @@ def test_submit_reuses_child_identities_and_does_not_count_is_as_oos() -> None:
 _REFERENCE = Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 
 
-def _reference_publication() -> PublishedStrategy:
+def _reference_publication() -> StrategySnapshot:
     """Load the golden reference as a published strategy."""
     definition = StrategyDefinition.model_validate_json(_REFERENCE.read_text(encoding="utf-8"))
     fingerprint = strategy_fingerprint(definition)
-    return PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
+    return StrategySnapshot(strategy_fingerprint=fingerprint, definition=definition)
 
 
 def test_parameter_sweep_emits_one_window_per_axis_cell() -> None:
@@ -538,23 +535,16 @@ def test_walk_forward_optimization_selects_on_in_sample_only() -> None:
     class _Publications:
         """Serve the base plus two candidate stand-ins on BTC-USD 1h."""
 
-        async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+        async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
             """Return the golden document for identity and BTC stand-ins for candidates."""
             loaded = publications.get(strategy_fingerprint_value)
             if loaded is None:
                 raise RuntimeError("unexpected fingerprint")
             return loaded
 
-        async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
+        async def record_snapshot(self, definition: StrategyDefinition) -> StrategySnapshot:
             """Unused in the candidate-fingerprint path."""
             del definition
-            raise RuntimeError("unused")
-
-        async def publish_draft(
-            self, definition: StrategyDefinition, *, expected_revision: int
-        ) -> PublishedStrategy:
-            """Unused in this test."""
-            del definition, expected_revision
             raise RuntimeError("unused")
 
     class _Submitter:
@@ -583,10 +573,12 @@ def test_walk_forward_optimization_selects_on_in_sample_only() -> None:
             run_fingerprint: str | None = None,
             strategy_fingerprint: str | None = None,
             dataset_fingerprint: str | None = None,
+            strategy_id: UUID | None = None,
             limit: int,
             offset: int,
         ) -> tuple[BacktestResultSummaryView, ...]:
             """Unused by submit."""
+            del strategy_id
             del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
             return ()
 
@@ -646,7 +638,7 @@ def test_plan_service_rejects_warmup_infeasible_evaluation_start() -> None:
     )
 
     class _Publications:
-        async def load(self, fingerprint: str) -> PublishedStrategy:
+        async def load(self, fingerprint: str) -> StrategySnapshot:
             del fingerprint
             return published
 
@@ -684,7 +676,7 @@ def test_plan_service_rejects_warmup_infeasible_evaluation_start() -> None:
             raise AssertionError("planning must not load results")
 
     service = ResearchStudyService(
-        publications=cast("StrategyPublicationStore", _Publications()),
+        publications=cast("StrategySnapshotStore", _Publications()),
         submitter=_Submitter(),
         results=cast("BacktestResultReader", _Results()),
         datasets=cast("DatasetStore", _Datasets()),

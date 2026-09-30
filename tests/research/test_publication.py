@@ -28,24 +28,24 @@ from thytrader.research.publication import (
     verify_research_run_eligibility,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 _DATASET_FINGERPRINT = "sha256:" + "2" * 64
 
 
-def _published_strategy() -> PublishedStrategy:
+def _published_strategy() -> StrategySnapshot:
     """Load the immutable reference strategy used by publication tests."""
     definition = StrategyDefinition.model_validate_json(
         Path("tests/strategies/golden/reference_strategy_v1.json").read_text(encoding="utf-8")
     )
-    return PublishedStrategy(
+    return StrategySnapshot(
         strategy_fingerprint=strategy_fingerprint(definition),
         definition=definition,
     )
 
 
 def _run(
-    published: PublishedStrategy,
+    published: StrategySnapshot,
     *,
     evaluation: EvaluationWindow | None = None,
 ) -> ResearchRunSpecification:
@@ -103,7 +103,7 @@ def test_eligibility_accepts_five_minute_fill_lookahead() -> None:
     """5m research runs require one extra 5m bar after evaluation, not an extra hour."""
     published = _published_strategy()
     definition = published.definition.model_copy(update={"timeframe": "5m"})
-    five_minute = PublishedStrategy(
+    five_minute = StrategySnapshot(
         strategy_fingerprint=strategy_fingerprint(definition),
         definition=definition,
     )

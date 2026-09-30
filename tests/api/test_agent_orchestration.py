@@ -27,7 +27,7 @@ def test_get_orchestration_defaults_to_safe() -> None:
     assert payload["live_authority"] is False
     assert payload["playbook_sequence"] == [
         "data_healthy",
-        "draft_publish",
+        "strategy",
         "backtest",
         "optional_paper",
     ]

@@ -1,6 +1,7 @@
 # 0080: Per-strategy workspace (Build · Test · Run · Why)
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: the `?version=` context, Draft/Published vN pills, version picker, Versions dialog, publish, revise, and archive. Build saves in place; Test/Run start from the current definition; rows show Current rules / Earlier edit; the library gains bulk delete.
 - Date: 2026-09-29
 - Relates to: [0079](0079-four-destination-shell-agent-panel-palette-tokens.md),
   [0054](0054-trade-reason-journals.md), [0053](0053-workstation-ia-write-only-coinbase-credentials.md),

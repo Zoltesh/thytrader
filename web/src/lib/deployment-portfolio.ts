@@ -13,7 +13,7 @@ import { lifecycleControlsAvailable } from './lifecycle-contract';
 import { sumDecimalStrings } from './money';
 import { compareDecimalStrings, formatUsd } from './portfolio';
 import type { StrategyLibraryEntry } from './strategies';
-import { shortStrategyFingerprint } from './strategy-workspace';
+import { rulesLabel, rulesState, shortStrategyFingerprint } from './strategy-workspace';
 
 export type ModeFilter = 'all' | 'paper' | 'live';
 
@@ -58,20 +58,18 @@ export function groupDeployments(rows: readonly Deployment[]): Record<GroupKey, 
 	return groups;
 }
 
-export type StrategyVersionName = { name: string; version: number };
+export type StrategyIdentity = { name: string; currentFingerprint: string | null };
 
-/** Exact fingerprint → strategy name and published version, from the library. */
-export function strategyVersionIndex(
+/** Strategy id → current name and current rules fingerprint, from the library. */
+export function strategyIdentityIndex(
 	entries: readonly StrategyLibraryEntry[]
-): Map<string, StrategyVersionName> {
-	const index = new Map<string, StrategyVersionName>();
+): Map<string, StrategyIdentity> {
+	const index = new Map<string, StrategyIdentity>();
 	for (const entry of entries) {
-		for (const published of entry.published_versions) {
-			index.set(published.strategy_fingerprint, {
-				name: entry.name,
-				version: published.version
-			});
-		}
+		index.set(entry.strategy_id, {
+			name: entry.name,
+			currentFingerprint: entry.current_fingerprint
+		});
 	}
 	return index;
 }
@@ -223,8 +221,8 @@ export function moneyMetricNote(metric: MoneyMetric): string | null {
 export type PortfolioRow = {
 	id: string;
 	name: string;
-	/** `v2`, or null when the version cannot be resolved. */
-	version: string | null;
+	/** `Current rules` / `Earlier edit`, or null when it cannot be resolved. */
+	rules: string | null;
 	mode: 'paper' | 'live';
 	modeLabel: 'Paper' | 'LIVE';
 	market: string;
@@ -296,25 +294,40 @@ function noteOf(deployment: Deployment, readOnly: boolean): string | null {
 	return null;
 }
 
-/** Name and version for a row: library lookup by exact fingerprint, else honest fallbacks. */
+/**
+ * Name and rules state for a row: library lookup by strategy id, else the name
+ * captured at start, else honest fallbacks. A kept live book of a deleted
+ * strategy is labelled "(deleted strategy)".
+ */
 export function rowIdentity(
 	deployment: Deployment,
-	index: ReadonlyMap<string, StrategyVersionName>
-): { name: string; version: string | null } {
+	index: ReadonlyMap<string, StrategyIdentity>
+): { name: string; rules: string | null } {
 	if (deployment.kind === 'discretionary' || deployment.strategy_fingerprint === null) {
-		return { name: 'Discretionary order', version: null };
+		return { name: 'Discretionary order', rules: null };
 	}
-	const known = index.get(deployment.strategy_fingerprint);
-	if (known !== undefined) return { name: known.name, version: `v${known.version}` };
-	return {
-		name: `Strategy ${shortStrategyFingerprint(deployment.strategy_fingerprint)}`,
-		version: null
-	};
+	if (deployment.strategy_deleted === true || deployment.strategy_id === null) {
+		const name = deployment.strategy_name ?? null;
+		return {
+			name:
+				deployment.strategy_deleted === true
+					? `${name ?? 'Strategy'} (deleted strategy)`
+					: (name ?? `Strategy ${shortStrategyFingerprint(deployment.strategy_fingerprint)}`),
+			rules: null
+		};
+	}
+	const known = index.get(deployment.strategy_id);
+	const name =
+		known?.name ??
+		deployment.strategy_name ??
+		`Strategy ${shortStrategyFingerprint(deployment.strategy_fingerprint)}`;
+	const state = rulesState(deployment.strategy_fingerprint, known?.currentFingerprint ?? null);
+	return { name, rules: state === 'unknown' ? null : rulesLabel(state) };
 }
 
 export function portfolioRow(
 	deployment: Deployment,
-	index: ReadonlyMap<string, StrategyVersionName>
+	index: ReadonlyMap<string, StrategyIdentity>
 ): PortfolioRow {
 	const positions = canonicalPositions(deployment);
 	const readOnly = !lifecycleControlsAvailable(deployment);
@@ -323,7 +336,7 @@ export function portfolioRow(
 	return {
 		id: deployment.id,
 		name: identity.name,
-		version: identity.version,
+		rules: identity.rules,
 		mode: deployment.mode,
 		modeLabel: deployment.mode === 'live' ? 'LIVE' : 'Paper',
 		market: marketLabel(deployment.product_id),

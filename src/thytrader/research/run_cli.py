@@ -18,7 +18,7 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.models import (
     BarExecutionAssumptions,
     BrokerAssumptions,
@@ -236,7 +236,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
         raise RuntimeError("THYTRADER_DATABASE_URL is required.")
     engine = create_engine(settings.database_url)
     try:
-        strategy_store = PostgresStrategyPublicationStore(engine)
+        strategy_store = PostgresStrategyStore(engine)
         strategy = await strategy_store.load(arguments.strategy_fingerprint)
         htf_dataset_fingerprint = _htf_dataset_fingerprint(arguments, strategy.definition)
         indicator_dataset_fingerprints = _indicator_dataset_fingerprints(

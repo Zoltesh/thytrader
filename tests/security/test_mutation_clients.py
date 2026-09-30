@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 from pydantic import SecretStr
 
@@ -13,7 +14,7 @@ from thytrader.agent_orchestration.models import YoloTier
 from thytrader.config import Environment, Settings
 from thytrader.data_control.client import add_watch, fill_gaps
 from thytrader.memory.client import add_journal
-from thytrader.research.http import create_draft
+from thytrader.research.http import create_strategy, delete_strategy
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 
 
@@ -129,7 +130,7 @@ def test_memory_client_add_journal_sends_installation_bearer() -> None:
     assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"
 
 
-def test_research_client_create_draft_sends_installation_bearer() -> None:
+def test_research_client_create_strategy_sends_installation_bearer() -> None:
     """Research mutations use the shared installation-auth helper."""
     patcher, captured = _capture_auth_header()
     settings = _boundary_settings()
@@ -152,7 +153,24 @@ def test_research_client_create_draft_sends_installation_bearer() -> None:
             return_value="{}",
         ),
     ):
-        create_draft("http://127.0.0.1:8200")
+        create_strategy("http://127.0.0.1:8200")
+    assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"
+
+
+def test_research_client_delete_strategy_sends_installation_bearer() -> None:
+    """Strategy deletion is an authenticated research mutation."""
+    patcher, captured = _capture_auth_header()
+    settings = _boundary_settings()
+    with (
+        patcher,
+        patch("thytrader.agent_http.Settings", return_value=settings),
+        patch(
+            "thytrader.research.http._as_object",
+            side_effect=lambda value, _: value if isinstance(value, dict) else {},
+        ),
+        patch("thytrader.research.http._encode", return_value="{}"),
+    ):
+        delete_strategy("http://127.0.0.1:8200", UUID("01985cf0-7b60-7000-8000-000000000001"))
     assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"
 
 

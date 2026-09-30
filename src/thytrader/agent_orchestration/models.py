@@ -14,7 +14,7 @@ ORCHESTRATION_SCHEMA_VERSION: Literal["thytrader-agent-orchestration-v1"] = (
 PLAYBOOK_RUN_SCHEMA_VERSION: Literal["thytrader-playbook-run-v1"] = "thytrader-playbook-run-v1"
 PLAYBOOK_SEQUENCE: tuple[str, ...] = (
     "data_healthy",
-    "draft_publish",
+    "strategy",
     "backtest",
     "optional_paper",
 )

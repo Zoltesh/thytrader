@@ -25,8 +25,9 @@ status (a failed fill ingest leaves the order OPEN), split-state fail-closed
 pending-entry semantics, selectable USD/USDC/USDT spot quotes, operator
 portfolio/fees reports, derived backtest performance metrics, paginated
 strategy/result listings, batched strategy-library enrichment reads,
-promotion evidence, the explicit `i_understand_live` HTTP acknowledgement on live
-start/resume/place-order, or supported
+promotion evidence, the strategy model (mutable root strategies,
+automatic snapshots, hard delete; ADR 0082), the explicit
+`i_understand_live` HTTP acknowledgement on live start/resume/place-order, or supported
 spot quote currencies change.
 """
 
@@ -40,8 +41,9 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v40"
-EXPECTED_SCHEMA_REVISION = "0047"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v41"
+EXPECTED_SCHEMA_REVISION = "0048"
+STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
 MULTI_BOOK_LEDGER: tuple[str, ...] = ("paper", "live")
@@ -129,6 +131,7 @@ def expected_ops_contract() -> dict[str, object]:
         "bounded_deployment_reads": list(BOUNDED_DEPLOYMENT_READS),
         "deployment_ledger_pagination": list(DEPLOYMENT_LEDGER_PAGINATION),
         "multi_book_ledger": list(MULTI_BOOK_LEDGER),
+        "strategy_model": list(STRATEGY_MODEL),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

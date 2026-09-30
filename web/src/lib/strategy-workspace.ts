@@ -1,11 +1,11 @@
 /**
- * Strategy workspace view model (slice 2 of ADR 0079; see ADR 0080).
+ * Strategy workspace view model (slice 2 of ADR 0079; see ADR 0080 and ADR 0082).
  *
  * One workspace per strategy: `/strategies/[id]` (Build), `/test`, `/run`, and
- * `/why`. A `?version=<strategy_fingerprint>` query selects the exact
- * published version for Test, Run, and Why; without it the latest published
- * version is the default. A fingerprint that does not belong to the strategy
- * fails closed: nothing is selected and mutations stay disabled.
+ * `/why`. A strategy is one mutable object (ADR 0082): Build saves it in place,
+ * and every backtest, study, and bot snapshots the definition when it starts.
+ * Rows compare their snapshot `strategy_fingerprint` with the strategy's
+ * `current_fingerprint` to say "Current rules" or "Earlier edit".
  *
  * Everything here is a pure function over existing API payloads. There is no
  * readiness state: pipeline chips report evidence that exists, and preflight
@@ -16,7 +16,7 @@ import type { CoinbaseCredentialsStatus } from './credentials';
 import { productIdQuote } from './deployment-detail';
 import type { Deployment } from './deployments';
 import type { Portfolio } from './portfolio';
-import type { StrategyLibraryEntry, StrategyVersionHistoryEntry } from './strategies';
+import type { StrategyLibraryEntry } from './strategies';
 
 export type WorkspaceStage = 'build' | 'test' | 'run' | 'why';
 
@@ -27,18 +27,14 @@ export const WORKSPACE_STAGES: readonly { id: WorkspaceStage; label: string }[] 
 	{ id: 'why', label: 'Why' }
 ];
 
-/**
- * Workspace URL for one stage. `version` and `result` are only emitted when
- * given; Build never carries a result.
- */
+/** Workspace URL for one stage. `result` is only emitted on Test. */
 export function workspaceHref(
 	strategyId: string,
 	stage: WorkspaceStage,
-	options: { version?: string | null; result?: string | null } = {}
+	options: { result?: string | null } = {}
 ): `/strategies/${string}` {
 	const base = `/strategies/${encodeURIComponent(strategyId)}${stage === 'build' ? '' : `/${stage}`}`;
 	const params = new URLSearchParams();
-	if (options.version) params.set('version', options.version);
 	if (options.result && stage === 'test') params.set('result', options.result);
 	const query = params.toString();
 	return `${base}${query === '' ? '' : `?${query}`}` as `/strategies/${string}`;
@@ -60,42 +56,42 @@ export function stageFromRouteId(routeId: string | null): WorkspaceStage | null 
 	}
 }
 
-export type WorkspaceVersion =
-	/** No `?version=`: the latest published version is selected. */
-	| { status: 'default'; entry: StrategyVersionHistoryEntry }
-	/** `?version=` matched one of this strategy's published versions. */
-	| { status: 'exact'; entry: StrategyVersionHistoryEntry }
-	/** Nothing is published yet (draft only). */
-	| { status: 'none'; entry: null }
-	/** `?version=` does not belong to this strategy: fail closed. */
-	| { status: 'invalid'; entry: null; requested: string };
+const FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
-/**
- * Resolve the workspace version context.
- *
- * An explicit fingerprint is honored only when it is one of this strategy's
- * published versions. Anything else is `invalid` — never silently replaced
- * by the latest version, so a mistyped or foreign link cannot start or test a
- * different immutable version.
- */
-export function resolveWorkspaceVersion(
-	requested: string | null,
-	versions: readonly StrategyVersionHistoryEntry[]
-): WorkspaceVersion {
-	if (requested !== null && requested !== '') {
-		const match = versions.find((version) => version.strategy_fingerprint === requested);
-		return match === undefined
-			? { status: 'invalid', entry: null, requested }
-			: { status: 'exact', entry: match };
-	}
-	const latest = versions[versions.length - 1];
-	return latest === undefined
-		? { status: 'none', entry: null }
-		: { status: 'default', entry: latest };
+/** True for a canonical `sha256:<64 hex>` snapshot fingerprint (old deep links used these). */
+export function isStrategyFingerprint(value: string | null | undefined): value is string {
+	return typeof value === 'string' && FINGERPRINT_PATTERN.test(value);
 }
 
-export const INVALID_VERSION_MESSAGE =
-	'This version does not belong to this strategy. Nothing is selected and every action on this stage is disabled, so a different immutable version cannot be tested or started by mistake. Pick a published version from the version picker.';
+export type RulesState = 'current' | 'earlier' | 'unknown';
+
+/**
+ * Whether a run or bot used the strategy's current rules.
+ *
+ * `unknown` when either side is missing (for example the strategy is invalid
+ * right now, so it has no current fingerprint); it is never shown as current.
+ */
+export function rulesState(
+	rowFingerprint: string | null | undefined,
+	currentFingerprint: string | null | undefined
+): RulesState {
+	if (!rowFingerprint || !currentFingerprint) return 'unknown';
+	return rowFingerprint === currentFingerprint ? 'current' : 'earlier';
+}
+
+export function rulesLabel(state: RulesState): string {
+	return state === 'current'
+		? 'Current rules'
+		: state === 'earlier'
+			? 'Earlier edit'
+			: 'Rules unknown';
+}
+
+/** Why Test / Run starts are disabled while the saved definition is invalid. */
+export function invalidStartReason(issueCount: number): string {
+	const count = Math.max(issueCount, 1);
+	return `The saved definition has ${count} problem${count === 1 ? '' : 's'}. Fix ${count === 1 ? 'it' : 'them'} in Build and save before starting a backtest, study, or bot.`;
+}
 
 /** `sha256:9f3a…c21e` style short fingerprint for labels; full value stays copyable. */
 export function shortStrategyFingerprint(fingerprint: string): string {
@@ -127,22 +123,14 @@ export type PipelineStep = {
 /**
  * Library progress chips derived only from the library row payload.
  *
- * Build: an open draft is `active`; published history without a draft is
- * `done`. Test: `done` only when a backtest result is attached. Paper / Live:
+ * Build: `done` when the saved definition is valid, `active` while it has
+ * problems. Test: `done` only when a backtest result is attached. Paper / Live:
  * the newest deployment status per mode. This is evidence, not readiness.
  */
 export function libraryPipeline(entry: StrategyLibraryEntry): PipelineStep[] {
-	const published = entry.published_versions.length > 0 || entry.latest_fingerprint !== null;
-	const build: PipelineStep =
-		entry.status === 'draft'
-			? {
-					stage: 'Build',
-					state: 'active',
-					detail: published ? 'draft open · published earlier' : 'draft, not published'
-				}
-			: entry.status === 'archived'
-				? { stage: 'Build', state: 'done', detail: 'archived' }
-				: { stage: 'Build', state: 'done', detail: 'published' };
+	const build: PipelineStep = entry.valid
+		? { stage: 'Build', state: 'done', detail: 'rules valid' }
+		: { stage: 'Build', state: 'active', detail: 'definition has problems' };
 	const test: PipelineStep =
 		entry.backtest === null
 			? { stage: 'Test', state: 'none', detail: 'no backtest' }
@@ -165,6 +153,7 @@ function runtimeStep(stage: 'Paper' | 'Live', status: string): PipelineStep {
 		case 'stopped':
 			return { stage, state: 'done', detail: 'stopped' };
 		case 'unavailable':
+		case 'none':
 			return { stage, state: 'none', detail: 'not deployed' };
 		default:
 			return { stage, state: 'none', detail: status === '' ? 'unknown' : status };
@@ -360,14 +349,14 @@ export const PAPER_NOT_QUALIFYING_NOTE =
 /** Informational paper evidence line for the Live card (never a gate). */
 export function paperEvidenceText(paperDeployments: readonly Deployment[]): string {
 	if (paperDeployments.length === 0) {
-		return `No paper deployment of this version. ${PAPER_NOT_QUALIFYING_NOTE}`;
+		return `No paper deployment of this strategy. ${PAPER_NOT_QUALIFYING_NOTE}`;
 	}
 	const trades = paperDeployments.reduce(
 		(sum, deployment) => sum + (deployment.ledger?.trade_count ?? 0),
 		0
 	);
 	const count = paperDeployments.length;
-	return `Paper: ${count} deployment${count === 1 ? '' : 's'} of this version, ${trades} closed trade${trades === 1 ? '' : 's'}. ${PAPER_NOT_QUALIFYING_NOTE}`;
+	return `Paper: ${count} deployment${count === 1 ? '' : 's'} of this strategy, ${trades} closed trade${trades === 1 ? '' : 's'}. ${PAPER_NOT_QUALIFYING_NOTE}`;
 }
 
 export type SignalExplanation = {
@@ -422,21 +411,3 @@ export function latestSignalExplanation(deployment: Deployment): SignalExplanati
 
 export const DECISION_HISTORY_NOTE =
 	'Only the latest completed-bar signal is kept per deployment. Full per-bar decision history is not recorded yet; trade reasons exist only for bars that persisted an order intent.';
-
-/**
- * Library "Latest" pill: an open draft and published history are shown
- * together (`v3 · draft v4`), never collapsed into one status.
- */
-export function libraryVersionLabel(entry: StrategyLibraryEntry): string {
-	const latest = entry.latest_version;
-	const publishedMax = entry.published_versions.reduce(
-		(max, version) => Math.max(max, version.version),
-		0
-	);
-	if (entry.status === 'draft') {
-		const draft = `draft v${latest ?? 1}`;
-		return publishedMax > 0 ? `v${publishedMax} · ${draft}` : `Draft v${latest ?? 1}`;
-	}
-	if (entry.status === 'archived') return `Archived v${latest ?? publishedMax}`;
-	return `v${latest ?? publishedMax}`;
-}

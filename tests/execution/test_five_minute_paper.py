@@ -13,35 +13,23 @@ from thytrader.execution.service import create_deployment
 from thytrader.market_data.models import Candle, MarketProduct
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
-from thytrader.strategies.authoring import create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
 
 
 class _Catalog:
-    """Load-only StrategyPublicationStore double for one published strategy."""
+    """Load-only StrategySnapshotStore double for one published strategy."""
 
     def __init__(self, definition: StrategyDefinition) -> None:
         """Bind one immutable publication."""
         fingerprint = strategy_fingerprint(definition)
-        self._published = PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
+        self._published = StrategySnapshot(strategy_fingerprint=fingerprint, definition=definition)
 
-    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
-        """Refuse extra publications; this fixture only serves load()."""
-        del definition
-        raise StrategyPublicationError("Catalog fixture is load-only.")
-
-    async def publish_draft(
-        self, definition: StrategyDefinition, *, expected_revision: int
-    ) -> PublishedStrategy:
-        """Refuse draft publication; this fixture only serves load()."""
-        del definition, expected_revision
-        raise StrategyPublicationError("Catalog fixture is load-only.")
-
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Return the bound publication or fail closed."""
         if strategy_fingerprint_value != self._published.strategy_fingerprint:
-            raise StrategyPublicationError("Published strategy was not found.")
+            raise StrategySnapshotError("Published strategy was not found.")
         return self._published
 
 
@@ -62,9 +50,8 @@ def _product() -> MarketProduct:
 
 def _always_entry_five_minute() -> StrategyDefinition:
     """Published 5m reference strategy whose entry condition is always true."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     payload["timeframe"] = "5m"
     payload["entry"]["when"] = {
         "all": [

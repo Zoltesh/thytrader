@@ -21,9 +21,9 @@
 		moneyMetricText,
 		portfolioHeaderMetrics,
 		portfolioRow,
-		strategyVersionIndex,
+		strategyIdentityIndex,
 		type ModeFilter,
-		type StrategyVersionName
+		type StrategyIdentity
 	} from '$lib/deployment-portfolio';
 	import { listAllDeployments, listDeploymentsPage, type Deployment } from '$lib/deployments';
 	import { lifecycleContractNote } from '$lib/lifecycle-contract';
@@ -47,7 +47,7 @@
 	let filter = $state<ModeFilter>('all');
 	let inventory = $state<Deployment[] | null>(null);
 	let inventoryError = $state<string | null>(null);
-	let names = $state<ReadonlyMap<string, StrategyVersionName>>(new Map());
+	let names = $state<ReadonlyMap<string, StrategyIdentity>>(new Map());
 
 	const visibleRows = $derived(filterByMode(pageRows, filter));
 	const groups = $derived(groupDeployments(visibleRows));
@@ -104,10 +104,10 @@
 		}
 	}
 
-	/** Strategy names by exact fingerprint; rows fall back to the fingerprint on failure. */
+	/** Strategy names by id; rows fall back to the captured name on failure. */
 	async function loadNames(): Promise<void> {
 		try {
-			names = strategyVersionIndex(await listStrategies());
+			names = strategyIdentityIndex(await listStrategies());
 		} catch {
 			names = new Map();
 		}
@@ -135,7 +135,7 @@
 <main>
 	<PageHead
 		title="Portfolio"
-		lede="Every bot on this workstation. Each runs one exact strategy version with its own capital; open one for orders, fills, and why it traded."
+		lede="Every bot on this workstation. Each runs the rules its strategy had when it started, with its own capital; open one for orders, fills, and why it traded."
 	>
 		<Segmented
 			label="Show bots by mode"
@@ -286,15 +286,14 @@
 		<a
 			class="bot-row"
 			href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
-			aria-label="Open {item.name}{item.version ? ` ${item.version}` : ''}, {item.modeLabel ===
-			'LIVE'
+			aria-label="Open {item.name}{item.rules ? ` (${item.rules})` : ''}, {item.modeLabel === 'LIVE'
 				? 'live'
 				: 'paper'}, {item.market}, {item.status.toLowerCase()}"
 		>
 			<div class="who">
 				<div class="name">
 					{item.name}
-					{#if item.version}<span class="faint">{item.version}</span>{/if}
+					{#if item.rules}<span class="faint">{item.rules}</span>{/if}
 				</div>
 				{#if item.note}
 					<div

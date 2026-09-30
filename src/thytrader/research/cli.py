@@ -13,7 +13,7 @@ from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.signal_service import evaluate_published_signal_run
 from thytrader.research.trace import (
     canonical_signal_trace_bytes,
@@ -71,7 +71,7 @@ async def _evaluate(run_fingerprint: str) -> SignalTrace:
         return await evaluate_published_signal_run(
             run_fingerprint,
             run_store=PostgresResearchRunStore(engine),
-            strategy_store=PostgresStrategyPublicationStore(engine),
+            strategy_store=PostgresStrategyStore(engine),
             dataset_store=DatasetStore(settings.market_data_dataset_root),
         )
     finally:

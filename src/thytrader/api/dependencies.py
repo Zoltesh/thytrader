@@ -29,10 +29,8 @@ from thytrader.research.catalog import ResearchStudyCatalog
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
-from thytrader.strategies.authoring import (
-    StrategyDraftStore,
-)
-from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationStore
+from thytrader.strategies.library import StrategyStore
+from thytrader.strategies.snapshots import StrategySnapshotStore
 
 if TYPE_CHECKING:
     from thytrader.research.jobs import ResearchJobStore
@@ -160,29 +158,20 @@ def get_audit_event_store(request: Request) -> AuditEventStore:
     return store
 
 
-def get_strategy_draft_store(request: Request) -> StrategyDraftStore:
-    """Return the durable draft boundary attached during app startup."""
-    store = getattr(request.app.state, "strategy_draft_store", None)
-    if not isinstance(store, StrategyDraftStore):
-        message = "Strategy draft storage is unavailable."
+def get_strategy_store(request: Request) -> StrategyStore:
+    """Return the mutable strategy boundary attached during app startup."""
+    store = getattr(request.app.state, "strategy_store", None)
+    if not isinstance(store, StrategyStore):
+        message = "Strategy storage is unavailable."
         raise TypeError(message)
     return store
 
 
-def get_strategy_publication_catalog(request: Request) -> StrategyPublicationCatalog:
-    """Return immutable strategy discovery and archive operations from application state."""
-    store = getattr(request.app.state, "strategy_publication_store", None)
-    if not isinstance(store, StrategyPublicationCatalog):
-        message = "Strategy publication catalog is unavailable."
-        raise TypeError(message)
-    return store
-
-
-def get_strategy_publication_store(request: Request) -> StrategyPublicationStore:
-    """Return the immutable strategy publication boundary attached during app startup."""
-    store = getattr(request.app.state, "strategy_publication_store", None)
-    if not isinstance(store, StrategyPublicationStore):
-        message = "Strategy publication store is unavailable."
+def get_strategy_snapshot_store(request: Request) -> StrategySnapshotStore:
+    """Return the verified strategy snapshot boundary attached during app startup."""
+    store = getattr(request.app.state, "strategy_snapshot_store", None)
+    if not isinstance(store, StrategySnapshotStore):
+        message = "Strategy snapshot storage is unavailable."
         raise TypeError(message)
     return store
 

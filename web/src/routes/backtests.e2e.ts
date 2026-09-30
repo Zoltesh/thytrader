@@ -835,71 +835,44 @@ test('an old ?result= link opens the owning strategy workspace when resolvable',
 			}
 		})
 	);
-	await page.route('**/api/v1/strategies/source/*', (route) =>
+	await page.route('**/api/v1/strategies/snapshots/*', (route) =>
 		route.fulfill({
 			json: {
-				strategy: {
-					strategy_id: ownerId,
-					version: 1,
-					name: 'Owner strategy',
-					description: null,
-					status: 'published',
-					created_at: '2026-08-01T00:00:00Z',
-					instrument: { product_id: 'BTC-USDC', base_currency: 'BTC', quote_currency: 'USDC' },
-					timeframe: '1h',
-					data_requirements: { warmup_bars: 50, required_fields: [] },
-					indicators: [],
-					entry: { side: 'long', when: { all: [] }, cooldown_bars: 0 },
-					sizing: { risk_fraction: '0.01', min_quote_notional: '10', max_quote_notional: '100' },
-					portfolio_limits: { max_strategy_exposure_fraction: '0.1' },
-					exits: {
-						initial_stop: { kind: 'atr_multiple', atr_indicator: '', multiple: '2' },
-						take_profit: { kind: 'reward_risk', multiple: '2' },
-						trailing_stop: { enabled: false },
-						time_exit: { max_bars_held: 10 }
-					},
-					execution: {
-						entry_preference: 'maker_only',
-						max_entry_wait_bars: 1,
-						on_unfilled_entry: 'cancel'
-					},
-					metadata: { tags: [], notes: [] }
-				}
+				strategy_fingerprint: strategyFingerprint,
+				strategy_id: ownerId,
+				strategy_name: 'Owner strategy',
+				strategy: { strategy_id: ownerId, name: 'Owner strategy' },
+				created_at: '2026-08-01T00:00:00Z',
+				is_current: true
 			}
 		})
 	);
-	await page.route(`**/api/v1/strategies/${ownerId}/history`, (route) =>
+	await page.route(`**/api/v1/strategies/${ownerId}`, (route) =>
 		route.fulfill({
 			json: {
 				strategy_id: ownerId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [
-					{
-						version: 1,
-						strategy_fingerprint: strategyFingerprint,
-						published: true,
-						archived: false,
-						archived_at: null,
-						backtest: null
-					}
-				],
-				draft: null
+				name: 'Owner strategy',
+				revision: 1,
+				created_at: '2026-08-01T00:00:00Z',
+				updated_at: '2026-08-01T00:00:00Z',
+				document: { strategy_id: ownerId, name: 'Owner strategy' },
+				strategy: null,
+				validation: { valid: false, issues: [{ loc: 'instrument', message: 'Field required' }] },
+				current_fingerprint: null,
+				summary: null,
+				product_id: null,
+				timeframe: null
 			}
 		})
 	);
 	await page.goto(`/backtests?result=${fingerprint}`);
 	await expect(page).toHaveURL(
-		new RegExp(
-			`/strategies/${ownerId}/test\\?version=${encodeURIComponent(strategyFingerprint)}&result=${encodeURIComponent(fingerprint)}`
-		)
+		new RegExp(`/strategies/${ownerId}/test\\?result=${encodeURIComponent(fingerprint)}$`)
 	);
 	await expect(page.getByTestId('workspace-name')).toHaveText('Owner strategy');
 
 	await page.goto(`/backtests?strategy_fingerprint=${strategyFingerprint}`);
-	await expect(page).toHaveURL(
-		new RegExp(`/strategies/${ownerId}/test\\?version=${encodeURIComponent(strategyFingerprint)}$`)
-	);
+	await expect(page).toHaveURL(new RegExp(`/strategies/${ownerId}/test$`));
 });
 
 test('the standalone list points at the strategy workspaces', async ({ page }) => {

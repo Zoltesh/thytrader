@@ -6,10 +6,8 @@ const fingerprint = `sha256:${'a'.repeat(64)}`;
 const draft = {
 	schema_version: '1.0',
 	strategy_id: strategyId,
-	version: 1,
 	name: 'Recovered BTC trend draft',
 	description: 'Reference research strategy; not trading authority.',
-	status: 'draft',
 	created_at: '2026-08-14T12:00:00Z',
 	instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
 	timeframe: '1h',
@@ -64,34 +62,65 @@ const libraryEntry = {
 	name: 'Recovered BTC trend draft',
 	product_id: 'BTC-USD',
 	timeframe: '1h',
-	latest_version: 1,
-	status: 'draft',
-	latest_fingerprint: null,
-	published_versions: [],
-	archived: false,
+	revision: 1,
+	valid: false,
+	current_fingerprint: null,
 	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) AND RSI(14) ≥ 50 · 0.5% risk · $10-$100',
 	backtest: null,
-	paper_live: { paper: 'unavailable', live: 'unavailable' },
+	paper_live: { paper: 'none', live: 'none' },
+	active_deployment_count: 0,
 	created_at: '2026-08-14T12:00:00Z',
 	updated_at: '2026-08-14T12:00:00Z'
 };
 
 const secondStrategyEntry = {
 	...libraryEntry,
-	strategy_id: '01985cf0-7b60-7000-8000-000000000009'
+	strategy_id: '01985cf0-7b60-7000-8000-000000000009',
+	name: 'Second strategy'
 };
 
 const publishedEntry = {
 	...libraryEntry,
-	status: 'published',
-	latest_fingerprint: fingerprint,
-	published_versions: [{ version: 1, strategy_fingerprint: fingerprint }],
+	valid: true,
+	current_fingerprint: fingerprint,
 	backtest: {
 		result_fingerprint: `sha256:${'b'.repeat(64)}`,
+		strategy_fingerprint: fingerprint,
 		published_at: '2026-08-20T09:30:00Z',
 		summary: backtestSummary
 	}
 };
+
+function record(strategy: typeof draft = draft) {
+	return {
+		strategy_id: strategy.strategy_id,
+		name: strategy.name,
+		revision: 1,
+		created_at: strategy.created_at,
+		updated_at: strategy.created_at,
+		document: strategy,
+		strategy: null,
+		validation: { valid: false, issues: [{ loc: 'indicators', message: 'too short' }] },
+		current_fingerprint: null,
+		summary: null,
+		product_id: 'BTC-USD',
+		timeframe: '1h'
+	};
+}
+
+const zeroCounts = {
+	snapshots: 0,
+	backtests: 0,
+	research_runs: 0,
+	studies: 0,
+	research_jobs: 0,
+	dataset_bindings: 0,
+	paper_deployments: 0,
+	live_deployments_kept: 0,
+	allocations_removed: 0
+};
+
+type BulkBody = { strategy_ids: string[]; confirm: boolean; dry_run: boolean };
 
 async function mockLibrary(
 	page: import('@playwright/test').Page,
@@ -102,7 +131,7 @@ async function mockLibrary(
 			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
 			return;
 		}
-		await route.fulfill({ json: { strategies: entries } });
+		await route.fulfill({ json: { strategies: entries, has_more: false, next_cursor: null } });
 	});
 }
 
@@ -224,72 +253,54 @@ test('does not label an unavailable first page as an empty library', async ({ pa
 	await expect(page.getByText('No strategies yet.')).toHaveCount(0);
 });
 
-test('rows show market, latest version, an evidence pipeline, and the latest backtest', async ({
+test('rows show market, validity, an evidence pipeline, and the latest backtest', async ({
 	page
 }) => {
-	const draftOverPublished = {
+	const invalidRunning = {
 		...secondStrategyEntry,
-		name: 'Draft over published',
-		status: 'draft',
-		latest_version: 2,
-		published_versions: [{ version: 1, strategy_fingerprint: fingerprint }],
-		latest_fingerprint: fingerprint,
-		paper_live: { paper: 'running', live: 'unavailable' }
+		name: 'Work in progress',
+		paper_live: { paper: 'running', live: 'none' }
 	};
-	await mockLibrary(page, [publishedEntry, draftOverPublished]);
+	await mockLibrary(page, [publishedEntry, invalidRunning]);
 	await page.goto('/strategies');
 	const table = page.getByRole('table', { name: 'Strategies' });
-	for (const header of ['Strategy', 'Market', 'Latest', 'Progress', 'Latest backtest', 'Updated']) {
+	for (const header of ['Strategy', 'Market', 'Progress', 'Latest backtest', 'Updated']) {
 		await expect(table.getByRole('columnheader', { name: header, exact: true })).toBeVisible();
 	}
-	// The clipped "Paper / live" column is replaced by the pipeline.
+	await expect(table.getByRole('columnheader', { name: 'Latest', exact: true })).toHaveCount(0);
 	await expect(table.getByRole('columnheader', { name: /Paper \/ live/ })).toHaveCount(0);
 	const first = page.locator(`tr[data-strategy-id="${strategyId}"]`);
 	await expect(first).toContainText('BTC / USD · 1h');
 	await expect(first).toContainText('sha256:aaaa…aaaa');
-	await expect(first.locator('.pill')).toHaveText('v1');
+	await expect(first).not.toContainText(/\bv\d/);
 	await expect(first).toContainText(
-		'Build: published; Test: has a backtest; Paper: not deployed; Live: not deployed'
+		'Build: rules valid; Test: has a backtest; Paper: not deployed; Live: not deployed'
 	);
 	await expect(first.getByRole('link', { name: /Latest backtest 8\.50%, 5 trades/ })).toBeVisible();
 	const second = page.locator(`tr[data-strategy-id="${secondStrategyEntry.strategy_id}"]`);
-	await expect(second.locator('.pill')).toHaveText('v1 · draft v2');
-	await expect(second).toContainText('Build: draft open · published earlier');
+	await expect(second).toContainText('definition has problems');
+	await expect(second).toContainText('Build: definition has problems');
 	await expect(second).toContainText('Paper: running');
+	await expect(second.getByTestId('library-pipeline').locator('.step')).toHaveText([
+		'Build',
+		'Test',
+		'Paper',
+		'Live'
+	]);
 	await expect(second.getByTestId('library-pipeline').locator('.step.paper')).toHaveText('Paper');
 });
 
 test('a row opens the strategy workspace', async ({ page }) => {
 	await mockLibrary(page, [publishedEntry]);
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, (route) =>
-		route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [
-					{
-						version: 1,
-						strategy_fingerprint: fingerprint,
-						published: true,
-						archived: false,
-						archived_at: null,
-						backtest: null
-					}
-				],
-				draft: null
-			}
-		})
-	);
-	await page.route('**/api/v1/strategies/source/*', (route) =>
-		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
+	await page.route(`**/api/v1/strategies/${strategyId}`, (route) =>
+		route.fulfill({ json: record() })
 	);
 	await page.goto('/strategies');
 	await expect(page.getByRole('link', { name: 'Recovered BTC trend draft' })).toHaveAttribute(
 		'href',
 		`/strategies/${strategyId}`
 	);
-	await page.locator(`tr[data-strategy-id="${strategyId}"] td`).nth(1).click();
+	await page.locator(`tr[data-strategy-id="${strategyId}"] td`).nth(2).click();
 	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}$`));
 	await expect(page.getByTestId('workspace-name')).toHaveText('Recovered BTC trend draft');
 	await expect(
@@ -302,7 +313,7 @@ test('the latest backtest links to that result on the Test stage', async ({ page
 	await page.goto('/strategies');
 	await expect(page.getByRole('link', { name: /Latest backtest 8\.50%/ })).toHaveAttribute(
 		'href',
-		`/strategies/${strategyId}/test?version=${encodeURIComponent(fingerprint)}&result=${encodeURIComponent(`sha256:${'b'.repeat(64)}`)}`
+		`/strategies/${strategyId}/test?result=${encodeURIComponent(`sha256:${'b'.repeat(64)}`)}`
 	);
 });
 
@@ -311,7 +322,7 @@ test('creates a reference strategy from the chosen template and clock', async ({
 	await page.route(isStrategyLibraryRequest, async (route) => {
 		if (route.request().method() === 'POST') {
 			createUrl = route.request().url();
-			await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
+			await route.fulfill({ status: 201, json: record() });
 			return;
 		}
 		await route.fulfill({ json: { strategies: [libraryEntry] } });
@@ -326,134 +337,319 @@ test('creates a reference strategy from the chosen template and clock', async ({
 	await expect(page.getByRole('link', { name: 'Recovered BTC trend draft' })).toBeVisible();
 });
 
-test('clones a published strategy by fingerprint and refreshes the library', async ({ page }) => {
+test('clones a strategy by id and refreshes the library', async ({ page }) => {
 	await mockLibrary(page, [publishedEntry]);
-	let cloneFingerprint = '';
-	await page.route('**/api/v1/strategies/clone', async (route) => {
-		const body = (await route.request().postDataJSON()) as { strategy_fingerprint: string };
-		cloneFingerprint = body.strategy_fingerprint;
-		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
+	let cloned = false;
+	await page.route(`**/api/v1/strategies/${strategyId}/clone`, async (route) => {
+		cloned = route.request().method() === 'POST';
+		await route.fulfill({ status: 201, json: record() });
 	});
 	await page.goto('/strategies');
 	await page.getByRole('button', { name: 'Clone Recovered BTC trend draft' }).click();
-	await expect.poll(() => cloneFingerprint).toBe(fingerprint);
+	await expect.poll(() => cloned).toBe(true);
 	await expect(page).toHaveURL(/\/strategies$/);
 });
 
-test('draft-only rows offer no clone or archive', async ({ page }) => {
+test('every row offers clone and delete, including invalid work in progress', async ({ page }) => {
 	await mockLibrary(page, [libraryEntry]);
 	await page.goto('/strategies');
 	const row = page.locator(`tr[data-strategy-id="${strategyId}"]`);
-	await expect(row.locator('.pill')).toHaveText('Draft v1');
-	await expect(row.getByRole('button')).toHaveCount(0);
+	await expect(row.getByRole('button', { name: 'Clone Recovered BTC trend draft' })).toBeVisible();
+	await expect(
+		row.getByRole('button', { name: 'Delete Recovered BTC trend draft…' })
+	).toBeVisible();
+	await expect(row.getByRole('button', { name: /Archive/ })).toHaveCount(0);
 });
 
-test('archive confirms in an accessible dialog, then refreshes the library', async ({ page }) => {
-	const archivedEntry = { ...publishedEntry, status: 'archived', archived: true };
-	let archived = false;
+test('single delete previews what goes, keeps live history, then deletes', async ({ page }) => {
+	let deleted = false;
+	const dryRuns: BulkBody[] = [];
 	await page.route(isStrategyLibraryRequest, (route) =>
-		route.fulfill({ json: { strategies: [archived ? archivedEntry : publishedEntry] } })
+		route.fulfill({ json: { strategies: deleted ? [] : [publishedEntry] } })
 	);
-	await page.route('**/api/v1/strategies/*/archive', async (route) => {
-		archived = true;
+	await page.route('**/api/v1/strategies/bulk-delete', async (route) => {
+		const body = (await route.request().postDataJSON()) as BulkBody;
+		dryRuns.push(body);
 		await route.fulfill({
-			json: { strategy_fingerprint: fingerprint, archived_at: '2026-08-28T12:00:00Z' }
+			json: {
+				dry_run: true,
+				results: [
+					{
+						strategy_id: strategyId,
+						name: 'Recovered BTC trend draft',
+						outcome: 'would_delete',
+						code: null,
+						message: null,
+						deployment_ids: [],
+						counts: {
+							...zeroCounts,
+							backtests: 4,
+							snapshots: 2,
+							paper_deployments: 1,
+							live_deployments_kept: 1
+						}
+					}
+				],
+				deleted: 0,
+				blocked: 0,
+				not_found: 0,
+				failed: 0
+			}
+		});
+	});
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		expect(route.request().method()).toBe('DELETE');
+		deleted = true;
+		await route.fulfill({
+			json: {
+				strategy_id: strategyId,
+				name: 'Recovered BTC trend draft',
+				outcome: 'deleted',
+				counts: zeroCounts,
+				risk_policy_republished: false
+			}
 		});
 	});
 	page.on('dialog', () => {
 		throw new Error('window.confirm must not be used');
 	});
 	await page.goto('/strategies');
-	const trigger = page.getByRole('button', { name: 'Archive Recovered BTC trend draft…' });
-	await trigger.click();
-	const dialog = page.getByRole('dialog', { name: 'Archive Recovered BTC trend draft?' });
-	await expect(dialog).toContainText('v1');
-	await expect(dialog).toContainText(fingerprint);
-	await expect(dialog).toContainText(
-		'hides the latest published fingerprint from active selection'
+	await page.getByRole('button', { name: 'Delete Recovered BTC trend draft…' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Delete Recovered BTC trend draft?' });
+	await expect(dialog.getByTestId('delete-preview')).toContainText('4 backtests');
+	await expect(dialog.getByTestId('delete-preview')).toContainText(
+		'1 stopped live bot kept with full history'
 	);
+	await expect(dialog).toContainText('Live history is kept');
 	await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
-	await dialog.getByRole('button', { name: 'Archive version' }).click();
-	await expect(page.locator('.pill[data-status="archived"]')).toHaveText('Archived v1');
+	expect(dryRuns).toEqual([{ strategy_ids: [strategyId], confirm: false, dry_run: true }]);
+	await dialog.getByRole('button', { name: 'Delete 1 strategy' }).click();
+	await expect.poll(() => deleted).toBe(true);
 	await expect(dialog).toBeHidden();
+	await expect(page.getByTestId('delete-results')).toContainText('1 deleted');
+	await expect(page.getByText('No strategies yet.')).toBeVisible();
 });
 
-test('archive on a later page refreshes that page, falling back if it becomes empty', async ({
+test('bulk delete selects the page, blocks running bots, and reports partial results', async ({
 	page
 }) => {
-	let archived = false;
-	const cursors: (string | null)[] = [];
-	await page.route(isStrategyLibraryRequest, async (route) => {
-		const cursor = new URL(route.request().url()).searchParams.get('cursor');
-		cursors.push(cursor);
-		await route.fulfill({
-			json:
-				cursor === null
-					? {
-							strategies: [libraryEntry],
-							has_more: !archived,
-							next_cursor: archived ? null : 'next'
+	const third = {
+		...libraryEntry,
+		strategy_id: '01985cf0-7b60-7000-8000-00000000000a',
+		name: 'Third'
+	};
+	const confirmed: BulkBody[] = [];
+	await mockLibrary(page, [publishedEntry, secondStrategyEntry, third]);
+	await page.route('**/api/v1/strategies/bulk-delete', async (route) => {
+		const body = (await route.request().postDataJSON()) as BulkBody;
+		if (body.dry_run) {
+			await route.fulfill({
+				json: {
+					dry_run: true,
+					results: [
+						{
+							strategy_id: strategyId,
+							name: publishedEntry.name,
+							outcome: 'would_delete',
+							code: null,
+							message: null,
+							deployment_ids: [],
+							counts: { ...zeroCounts, backtests: 1 }
+						},
+						{
+							strategy_id: secondStrategyEntry.strategy_id,
+							name: 'Second strategy',
+							outcome: 'blocked',
+							code: 'strategy_has_active_deployments',
+							message: 'Stop running bots first.',
+							deployment_ids: ['01985cf0-7b60-7000-8000-000000000222'],
+							counts: null
+						},
+						{
+							strategy_id: third.strategy_id,
+							name: 'Third',
+							outcome: 'would_delete',
+							code: null,
+							message: null,
+							deployment_ids: [],
+							counts: zeroCounts
 						}
-					: { strategies: archived ? [] : [publishedEntry], has_more: false }
-		});
-	});
-	await page.route('**/api/v1/strategies/*/archive', async (route) => {
-		archived = true;
+					],
+					deleted: 0,
+					blocked: 1,
+					not_found: 0,
+					failed: 0
+				}
+			});
+			return;
+		}
+		confirmed.push(body);
 		await route.fulfill({
-			json: { strategy_fingerprint: fingerprint, archived_at: '2026-08-28T12:00:00Z' }
+			json: {
+				dry_run: false,
+				results: [
+					{
+						strategy_id: strategyId,
+						name: publishedEntry.name,
+						outcome: 'deleted',
+						code: null,
+						message: null,
+						deployment_ids: [],
+						counts: zeroCounts
+					},
+					{
+						strategy_id: third.strategy_id,
+						name: 'Third',
+						outcome: 'failed',
+						code: 'strategy_delete_failed',
+						message: 'Strategy storage is unavailable.',
+						deployment_ids: [],
+						counts: null
+					}
+				],
+				deleted: 1,
+				blocked: 0,
+				not_found: 0,
+				failed: 1
+			}
 		});
 	});
 	await page.goto('/strategies');
-	await expect(page.locator('tbody tr')).toHaveCount(1);
-	await page.getByRole('button', { name: 'Next strategy page' }).click();
-	await expect(page.getByTestId('strategy-page-range')).toHaveText('Page 2');
-	await page.getByRole('button', { name: /^Archive .*…$/ }).click();
-	await page.getByRole('button', { name: 'Archive version' }).click();
-	await expect(page.getByTestId('strategy-page-range')).toHaveText('Page 1');
-	await expect(page.locator(`tr[data-strategy-id="${strategyId}"]`)).toBeVisible();
-	expect(cursors).toEqual([null, 'next', 'next', null]);
+	await expect(page.getByTestId('bulk-bar')).toHaveCount(0);
+	await page.getByTestId('select-all').check();
+	await expect(page.getByTestId('bulk-bar')).toContainText('3 selected');
+	await page.getByLabel('Select Third').uncheck();
+	await expect(page.getByTestId('select-all')).not.toBeChecked();
+	await page.getByLabel('Select Third').check();
+	await expect(page.getByTestId('select-all')).toBeChecked();
+	await page.getByRole('button', { name: 'Delete 3 strategies…' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Delete 3 strategies?' });
+	const preview = dialog.getByTestId('delete-preview');
+	await expect(preview.locator('[data-outcome="blocked"]')).toContainText(
+		'Blocked: 1 running or paused bot. Stop it first.'
+	);
+	await expect(preview.getByRole('link', { name: 'Open bot' })).toHaveAttribute(
+		'href',
+		'/deployments/01985cf0-7b60-7000-8000-000000000222'
+	);
+	await expect(dialog).toContainText('1 of 3 will be skipped');
+	await dialog.getByRole('button', { name: 'Delete 2 strategies' }).click();
+	await expect.poll(() => confirmed.length).toBe(1);
+	expect(confirmed[0]).toEqual({
+		strategy_ids: [strategyId, third.strategy_id],
+		confirm: true,
+		dry_run: false
+	});
+	const results = page.getByTestId('delete-results');
+	await expect(results).toContainText('1 deleted · 2 not deleted');
+	await expect(results.locator('[data-outcome="failed"]')).toContainText(
+		'Failed: Strategy storage is unavailable.'
+	);
+	await expect(results.locator('[data-outcome="blocked"]')).toContainText('Second strategy');
 });
 
-test('cancelling or escaping the archive dialog archives nothing', async ({ page }) => {
-	let archiveCalls = 0;
+test('nothing deletable disables confirm and explains why', async ({ page }) => {
 	await mockLibrary(page, [publishedEntry]);
-	await page.route('**/api/v1/strategies/*/archive', async (route) => {
-		archiveCalls += 1;
-		await route.fulfill({ json: { strategy_fingerprint: fingerprint, archived_at: null } });
+	await page.route('**/api/v1/strategies/bulk-delete', (route) =>
+		route.fulfill({
+			json: {
+				dry_run: true,
+				results: [
+					{
+						strategy_id: strategyId,
+						name: publishedEntry.name,
+						outcome: 'blocked',
+						code: 'strategy_has_active_deployments',
+						message: null,
+						deployment_ids: ['a', 'b'],
+						counts: null
+					}
+				],
+				deleted: 0,
+				blocked: 1,
+				not_found: 0,
+				failed: 0
+			}
+		})
+	);
+	await page.goto('/strategies');
+	await page.getByRole('button', { name: 'Delete Recovered BTC trend draft…' }).click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toContainText('Blocked: 2 running or paused bots. Stop them first.');
+	await expect(dialog.getByRole('button', { name: 'Delete 0 strategies' })).toBeDisabled();
+	await expect(dialog).toContainText('Nothing selected can be deleted right now.');
+});
+
+test('cancelling or escaping the delete dialog deletes nothing', async ({ page }) => {
+	let confirmCalls = 0;
+	await mockLibrary(page, [publishedEntry]);
+	await page.route('**/api/v1/strategies/bulk-delete', async (route) => {
+		const body = (await route.request().postDataJSON()) as BulkBody;
+		if (!body.dry_run) confirmCalls += 1;
+		await route.fulfill({
+			json: {
+				dry_run: true,
+				results: [
+					{
+						strategy_id: strategyId,
+						name: publishedEntry.name,
+						outcome: 'would_delete',
+						code: null,
+						message: null,
+						deployment_ids: [],
+						counts: zeroCounts
+					}
+				],
+				deleted: 0,
+				blocked: 0,
+				not_found: 0,
+				failed: 0
+			}
+		});
+	});
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		confirmCalls += 1;
+		await route.fulfill({ status: 500, json: {} });
 	});
 	await page.goto('/strategies');
-	const trigger = page.getByRole('button', { name: 'Archive Recovered BTC trend draft…' });
+	const trigger = page.getByRole('button', { name: 'Delete Recovered BTC trend draft…' });
 	await trigger.click();
 	await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
 	await expect(page.getByRole('dialog')).toBeHidden();
 	await expect(trigger).toBeFocused();
 	await trigger.click();
+	await expect(page.getByRole('dialog').getByTestId('delete-preview')).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog')).toBeHidden();
-	expect(archiveCalls).toBe(0);
-	await expect(page.locator('.pill[data-status="published"]')).toBeVisible();
+	expect(confirmCalls).toBe(0);
+	await expect(page.locator(`tr[data-strategy-id="${strategyId}"]`)).toBeVisible();
 });
 
-test('imports a pasted strategy definition as a new draft', async ({ page }) => {
+test('imports a pasted strategy definition as a new strategy and opens it', async ({ page }) => {
 	await mockLibrary(page, [libraryEntry]);
 	let importedBody: unknown = null;
+	const importedId = '01985cf0-7b60-7000-8000-0000000000ff';
+	const imported = record({ ...draft, strategy_id: importedId });
 	await page.route('**/api/v1/strategies/import', async (route) => {
 		importedBody = await route.request().postDataJSON();
-		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
+		await route.fulfill({ status: 201, json: imported });
 	});
+	await page.route(`**/api/v1/strategies/${importedId}`, (route) =>
+		route.fulfill({ json: imported })
+	);
 	await page.goto('/strategies');
 	await page.waitForSelector('table tbody tr');
 	await page.getByRole('button', { name: 'Import JSON…' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Import strategy JSON' });
 	await expect(dialog).toBeVisible();
-	await expect(dialog.getByRole('button', { name: 'Import draft' })).toBeDisabled();
+	await expect(dialog.getByRole('button', { name: 'Import strategy' })).toBeDisabled();
 	await page.getByLabel('Strategy definition JSON').fill(JSON.stringify(draft));
-	await dialog.getByRole('button', { name: 'Import draft' }).click();
+	await dialog.getByRole('button', { name: 'Import strategy' }).click();
 	await expect.poll(() => importedBody).not.toBeNull();
-	expect((importedBody as { strategy: { strategy_id: string } }).strategy.strategy_id).toBe(
+	expect((importedBody as { document: { strategy_id: string } }).document.strategy_id).toBe(
 		strategyId
 	);
-	await expect(dialog).toBeHidden();
+	await expect(page).toHaveURL(new RegExp(`/strategies/${importedId}$`));
 });
 
 test('rejects invalid import JSON without leaving the dialog or sending a request', async ({
@@ -463,13 +659,13 @@ test('rejects invalid import JSON without leaving the dialog or sending a reques
 	let importCalls = 0;
 	await page.route('**/api/v1/strategies/import', async (route) => {
 		importCalls += 1;
-		await route.fulfill({ status: 201, json: { strategy: draft, revision: 1 } });
+		await route.fulfill({ status: 201, json: record() });
 	});
 	await page.goto('/strategies');
 	await expect(page.getByText('No strategies yet.')).toBeVisible();
 	await page.getByRole('button', { name: 'Import JSON…' }).click();
 	await page.getByLabel('Strategy definition JSON').fill('{not json');
-	await page.getByRole('button', { name: 'Import draft' }).click();
+	await page.getByRole('button', { name: 'Import strategy' }).click();
 	await expect(page.getByRole('dialog').getByRole('alert')).toContainText('not valid JSON');
 	await expect(page.getByLabel('Strategy definition JSON')).toBeVisible();
 	expect(importCalls).toBe(0);

@@ -198,7 +198,7 @@ class Position:
 
 @dataclass(frozen=True, slots=True)
 class Deployment:
-    """One paper or live runtime bound to a published strategy or a discretionary book."""
+    """One paper or live runtime bound to a strategy snapshot or a discretionary book."""
 
     id: UUID
     strategy_fingerprint: str | None
@@ -241,6 +241,12 @@ class Deployment:
     drawdown_latched: bool = False
     last_signal_event_at: datetime | None = None
     last_signal_processed_at: datetime | None = None
+    strategy_name: str | None = None
+
+    @property
+    def strategy_deleted(self) -> bool:
+        """True for a kept live strategy book whose strategy was deleted (ADR 0082)."""
+        return self.kind is DeploymentKind.STRATEGY and self.strategy_id is None
 
 
 @dataclass(frozen=True, slots=True)

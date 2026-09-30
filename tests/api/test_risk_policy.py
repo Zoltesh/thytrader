@@ -11,8 +11,7 @@ from thytrader.config import Settings
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.risk.models import compiled_default_active_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
-from thytrader.strategies.authoring import DisabledStrategyDraftStore
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.library import DisabledStrategyStore
 
 
 def test_get_risk_policy_returns_compiled_default_without_postgres() -> None:
@@ -58,8 +57,7 @@ def test_put_risk_policy_publishes_an_immutable_version() -> None:
         Settings(_env_file=None),
         risk_policy_store=store,
         audit_event_store=audit,
-        strategy_draft_store=DisabledStrategyDraftStore(),
-        strategy_store=DisabledStrategyPublicationStore(),
+        strategy_store=DisabledStrategyStore(),
     )
     payload = {
         "product_allowlist": ["BTC-USD", "ETH-USD"],

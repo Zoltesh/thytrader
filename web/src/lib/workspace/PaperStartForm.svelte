@@ -4,8 +4,8 @@
 	 * DeployWorkstation). Paper starting cash plus maker/taker fee
 	 * assumptions, prefilled from the Coinbase fee-tier suggestion unless the
 	 * operator edited them. Starting is a mutation behind a confirmation, and
-	 * it starts a new deployment of this version: it is not a promotion of any
-	 * backtest.
+	 * it starts a new deployment of the strategy's current rules (the server
+	 * snapshots them): it is not a promotion of any backtest.
 	 */
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { marketLabel, productIdQuote } from '$lib/deployment-detail';
@@ -21,16 +21,16 @@
 	import { extraIndicatorTimeframes, type BuilderModel } from '$lib/strategies';
 
 	let {
-		fingerprint,
-		version,
+		strategyId,
+		currentFingerprint,
 		name,
 		model,
 		disabled = false,
 		onStarted
 	}: {
-		/** Exact published fingerprint from the workspace version context. */
-		fingerprint: string;
-		version: number;
+		strategyId: string;
+		/** Fingerprint the start snapshot gets (the current valid definition). */
+		currentFingerprint: string;
 		name: string;
 		model: BuilderModel;
 		/** Blocks starting (for example while a lifecycle outcome is unknown). */
@@ -51,7 +51,7 @@
 	const extraTimeframes = $derived(extraIndicatorTimeframes(model.indicators, model.timeframe));
 
 	$effect(() => {
-		void fingerprint;
+		void strategyId;
 		void loadFeeSuggestion();
 	});
 
@@ -84,7 +84,7 @@
 		error = null;
 		try {
 			const deployment = await createDeployment({
-				strategy_fingerprint: fingerprint,
+				strategy_id: strategyId,
 				mode: 'paper',
 				paper_starting_cash: cash,
 				maker_fee_rate: makerFee,
@@ -126,20 +126,20 @@
 	<p class="note">{PAPER_FEE_ENGINE_NOTE}</p>
 	{#if model.htf_filter}
 		<p class="note">
-			This version ANDs last-completed {model.htf_filter.timeframe} HTF bars with LTF entry. Paper and
-			live load live complete-only HTF candles; missing coverage pauses.
+			These rules AND last-completed {model.htf_filter.timeframe} HTF bars with LTF entry. Paper and live
+			load live complete-only HTF candles; missing coverage pauses.
 		</p>
 	{/if}
 	{#if extraTimeframes.length > 0}
 		<p class="note">
-			This version also evaluates last-completed {extraTimeframes.join(', ')} indicator bars. Paper and
+			These rules also evaluate last-completed {extraTimeframes.join(', ')} indicator bars. Paper and
 			live load those complete-only candles; missing coverage pauses.
 		</p>
 	{/if}
 	<button
 		class="btn primary"
 		type="button"
-		disabled={disabled || fingerprint === ''}
+		disabled={disabled || currentFingerprint === ''}
 		onclick={() => (confirmOpen = true)}>Start paper deployment…</button
 	>
 </div>
@@ -155,7 +155,7 @@
 	oncancel={() => (confirmOpen = false)}
 	onconfirm={() => void start()}
 >
-	<p><strong>{name}</strong> · v{version} · Paper</p>
+	<p><strong>{name}</strong> · current rules · Paper</p>
 	<div class="row">
 		<span>Market</span><span>{marketLabel(model.product_id)} · {model.timeframe}</span>
 	</div>
@@ -163,10 +163,10 @@
 	<div class="row">
 		<span>Fee assumptions</span><span>maker {makerFee} · taker {takerFee}</span>
 	</div>
-	<div class="row"><span>Fingerprint</span><code class="fp">{fingerprint}</code></div>
+	<div class="row"><span>Rules snapshot</span><code class="fp">{currentFingerprint}</code></div>
 	<p>
-		This starts a new simulated deployment of this exact version. It is not a promotion of any
-		backtest, and it places no Coinbase orders.
+		This starts a new simulated deployment of the current saved rules. Later edits do not change it.
+		It is not a promotion of any backtest, and it places no Coinbase orders.
 	</p>
 </ConfirmDialog>
 

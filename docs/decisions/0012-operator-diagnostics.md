@@ -1,6 +1,7 @@
 # 0012: Versioned operator diagnostics and confirmation-gated research CLI
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: the research lane's "create drafts, publish immutable versions" wording and the operator `strategies` drafts/publications payload.
 - Date: 2026-09-08
 - Related: [0030](0030-agent-e2e-primary-surface.md) raises agent E2E to the primary product
   surface. This ADR's lane split and confirmation-gated research CLI remain.

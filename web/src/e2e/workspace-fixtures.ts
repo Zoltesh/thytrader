@@ -11,13 +11,12 @@ export const fingerprintV2 = `sha256:${'c'.repeat(64)}`;
 export const resultFingerprint = `sha256:${'b'.repeat(64)}`;
 export const datasetFingerprint = `sha256:${'f'.repeat(64)}`;
 
-export const draft = {
+/** The strategy's current valid definition (no version or status: ADR 0082). */
+export const definition = {
 	schema_version: '1.0',
 	strategy_id: strategyId,
-	version: 1,
 	name: 'Recovered BTC trend draft',
 	description: 'Reference research strategy; not trading authority.',
-	status: 'draft',
 	created_at: '2026-08-14T12:00:00Z',
 	instrument: { product_id: 'BTC-USDC', base_currency: 'BTC', quote_currency: 'USDC' },
 	timeframe: '1h',
@@ -63,8 +62,6 @@ export const draft = {
 	metadata: { tags: ['reference'], notes: [] }
 };
 
-export const published = { ...draft, status: 'published' };
-
 export const backtestSummary = {
 	initial_equity: '10000',
 	final_equity: '11840',
@@ -84,45 +81,100 @@ export const backtestSummary = {
 	evaluation_bars: 1680
 };
 
-export function historyVersion(version: number, strategyFingerprint: string) {
+/** An earlier edit of the same strategy (the rules an older run or bot used). */
+export const earlierDefinition = {
+	...definition,
+	indicators: [
+		{ id: 'fast', kind: 'ema', input: 'close', parameters: { period: 12 } },
+		...definition.indicators.slice(1)
+	]
+};
+
+export type RecordOverrides = Record<string, unknown>;
+
+/** `GET /api/v1/strategies/{id}` payload for a valid strategy on its current rules. */
+export function strategyRecord(overrides: RecordOverrides = {}) {
 	return {
-		version,
-		strategy_fingerprint: strategyFingerprint,
-		published: true,
-		archived: false,
-		archived_at: null,
-		backtest: null
+		strategy_id: strategyId,
+		name: definition.name,
+		revision: 1,
+		created_at: definition.created_at,
+		updated_at: '2026-09-29T12:00:00Z',
+		document: definition,
+		strategy: definition,
+		validation: { valid: true, issues: [] },
+		current_fingerprint: fingerprint,
+		summary: 'Long when fast EMA crosses above slow EMA and RSI < 65.',
+		product_id: 'BTC-USDC',
+		timeframe: '1h',
+		...overrides
 	};
 }
 
-export type HistoryOptions = {
-	versions?: ReturnType<typeof historyVersion>[];
-	draft?: typeof draft | null;
+/** The same strategy saved as an invalid work in progress. */
+export function invalidRecord(overrides: RecordOverrides = {}) {
+	return strategyRecord({
+		strategy: null,
+		current_fingerprint: null,
+		validation: {
+			valid: false,
+			issues: [{ loc: 'entry.when', message: 'unknown indicator references: missing' }]
+		},
+		...overrides
+	});
+}
+
+export type StrategyMockOptions = {
+	record?: ReturnType<typeof strategyRecord>;
+	/** Snapshot definitions by fingerprint; defaults to the current rules and one earlier edit. */
+	snapshots?: Record<string, unknown>;
+	/** Called for PUT saves; return a response to fulfill with (default: accept at revision+1). */
+	onSave?: (body: { document: unknown; revision: number }, route: Route) => Promise<void>;
 };
 
-/** `/history` plus `/source/*` for a strategy. */
-export async function mockStrategy(page: Page, options: HistoryOptions = {}): Promise<void> {
-	const versions = options.versions ?? [historyVersion(1, fingerprint)];
-	const openDraft = options.draft === undefined ? null : options.draft;
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, (route) =>
-		route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: versions.length,
-				next_version: versions.length + 1,
-				versions,
-				draft: openDraft === null ? null : { strategy: openDraft, revision: 1, summary: '' }
+/** `GET/PUT /api/v1/strategies/{id}` plus `GET /api/v1/strategies/snapshots/*`. */
+export async function mockStrategy(page: Page, options: StrategyMockOptions = {}): Promise<void> {
+	let record = options.record ?? strategyRecord();
+	const snapshots = options.snapshots ?? {
+		[fingerprint]: definition,
+		[fingerprintV2]: earlierDefinition
+	};
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		const method = route.request().method();
+		if (method === 'PUT') {
+			const body = route.request().postDataJSON() as { document: unknown; revision: number };
+			if (options.onSave) {
+				await options.onSave(body, route);
+				return;
 			}
-		})
-	);
-	await page.route('**/api/v1/strategies/source/*', (route) => {
-		const requested = decodeURIComponent(route.request().url().split('/source/')[1] ?? '');
-		const index = versions.findIndex((version) => version.strategy_fingerprint === requested);
-		if (index === -1) {
-			return route.fulfill({ status: 404, json: { detail: 'unknown fingerprint' } });
+			record = {
+				...record,
+				document: body.document as typeof definition,
+				revision: record.revision + 1
+			};
+			await route.fulfill({ json: record });
+			return;
+		}
+		await route.fulfill({ json: record });
+	});
+	await page.route('**/api/v1/strategies/snapshots/*', (route) => {
+		const requested = decodeURIComponent(route.request().url().split('/snapshots/')[1] ?? '');
+		const snapshot = snapshots[requested];
+		if (snapshot === undefined) {
+			return route.fulfill({
+				status: 404,
+				json: { detail: { code: 'strategy_snapshot_not_found', message: 'unknown fingerprint' } }
+			});
 		}
 		return route.fulfill({
-			json: { strategy: { ...published, version: versions[index]!.version } }
+			json: {
+				strategy_fingerprint: requested,
+				strategy_id: strategyId,
+				strategy_name: definition.name,
+				strategy: snapshot,
+				created_at: '2026-09-20T00:00:00Z',
+				is_current: requested === record.current_fingerprint
+			}
 		});
 	});
 }
@@ -135,6 +187,7 @@ export function backtestEntry(
 		result_fingerprint: resultFingerprint,
 		run_fingerprint: `sha256:${'e'.repeat(64)}`,
 		strategy_fingerprint: strategyFingerprint,
+		strategy_id: strategyId,
 		dataset_fingerprint: datasetFingerprint,
 		engine_contract_version: 'thytrader-bar-backtest-v1',
 		published_at: '2026-09-29T13:41:00Z',
@@ -143,16 +196,21 @@ export function backtestEntry(
 	};
 }
 
-/** GET `/api/v1/backtests?strategy_fingerprint=` with per-fingerprint entries. */
+/**
+ * GET `/api/v1/backtests?strategy_id=` (workspace) or `?strategy_fingerprint=`
+ * (standalone snapshot filter); the callback receives the requested value.
+ */
 export async function mockBacktestList(
 	page: Page,
-	entriesFor: (strategyFingerprint: string) => unknown[] = () => []
+	entriesFor: (requested: string) => unknown[] = () => []
 ): Promise<void> {
 	await page.route(
-		(url) => url.pathname === '/api/v1/backtests' && url.searchParams.has('strategy_fingerprint'),
+		(url) =>
+			url.pathname === '/api/v1/backtests' &&
+			(url.searchParams.has('strategy_id') || url.searchParams.has('strategy_fingerprint')),
 		(route) => {
-			const requested =
-				new URL(route.request().url()).searchParams.get('strategy_fingerprint') ?? '';
+			const params = new URL(route.request().url()).searchParams;
+			const requested = params.get('strategy_id') ?? params.get('strategy_fingerprint') ?? '';
 			const entries = entriesFor(requested);
 			return route.fulfill({
 				json: { entries, limit: 50, offset: 0, returned: entries.length, has_more: false }
@@ -223,6 +281,8 @@ export function deployment(overrides: Record<string, unknown> = {}) {
 		id: '01985cf0-7b60-7000-8000-000000000222',
 		strategy_fingerprint: fingerprint,
 		strategy_id: strategyId,
+		strategy_name: 'Recovered BTC trend draft',
+		strategy_deleted: false,
 		kind: 'strategy',
 		timeframe: '1h',
 		product_id: 'BTC-USDC',
@@ -344,14 +404,13 @@ export function libraryEntry(overrides: Record<string, unknown> = {}) {
 		name: 'Recovered BTC trend draft',
 		product_id: 'BTC-USDC',
 		timeframe: '1h',
-		latest_version: 1,
-		status: 'published',
-		latest_fingerprint: fingerprint,
-		published_versions: [{ version: 1, strategy_fingerprint: fingerprint }],
-		archived: false,
+		revision: 1,
+		valid: true,
+		current_fingerprint: fingerprint,
 		summary: '',
 		backtest: null,
-		paper_live: { paper: 'unavailable', live: 'unavailable' },
+		paper_live: { paper: 'none', live: 'none' },
+		active_deployment_count: 0,
 		created_at: '2026-08-14T12:00:00Z',
 		updated_at: '2026-09-29T12:00:00Z',
 		...overrides
@@ -361,12 +420,21 @@ export function libraryEntry(overrides: Record<string, unknown> = {}) {
 export async function mockLibrary(page: Page, entries: unknown[]): Promise<void> {
 	await page.route(isStrategyLibraryRequest, (route) =>
 		route.request().method() === 'GET'
-			? route.fulfill({ json: { strategies: entries } })
+			? route.fulfill({
+					json: {
+						strategies: entries,
+						limit: 100,
+						returned: entries.length,
+						total: entries.length,
+						has_more: false,
+						next_cursor: null
+					}
+				})
 			: route.fulfill({ status: 405, json: { detail: 'method not allowed' } })
 	);
 }
 
-/** Detail, benchmark, and metrics for one published result. */
+/** Detail, benchmark, and metrics for one result. */
 export async function mockBacktestDetail(
 	page: Page,
 	result: string,

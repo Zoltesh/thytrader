@@ -14,8 +14,8 @@
 	<p>
 		{title} now lives inside each strategy's workspace, on its <strong>{stage}</strong> stage. Open
 		a strategy to {stage === 'Test'
-			? 'run backtests and studies against an exact published version'
-			: 'start, pause, or stop paper and live deployments of an exact published version'}.
+			? 'run backtests and studies against the current rules'
+			: 'start, pause, or stop paper and live deployments of its current rules'}.
 	</p>
 	<a class="btn primary" href={resolve('/strategies')}>Open a strategy</a>
 </section>

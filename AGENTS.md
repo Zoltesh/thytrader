@@ -25,7 +25,9 @@ behavior. User-facing docs start at [docs/README.md](docs/README.md).
 - Agent surface: primary product (HTTP-first skills/CLIs); SvelteKit UI remains required.
 - Storage: PostgreSQL for operational state; Parquet with Polars/DuckDB for analytics.
 - Deployment: Docker Compose for supported installs; native processes for development.
-- Strategy model: immutable, versioned declarative schema shared by backtest, paper, and live runtimes.
+- Strategy model: one mutable declarative strategy per id (revision-guarded saves); backtests, studies,
+  and paper/live runs bind an automatic content-addressed snapshot of the exact rules
+  ([ADR 0082](docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
 - Access: loopback-only by default; remote exposure must be explicit and protected.
 
 Accepted decisions live in `docs/decisions/`. Do not silently contradict an accepted ADR. Add a superseding ADR and update related docs when direction changes.
@@ -125,7 +127,7 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 
 ## Trading-system invariants
 
-- Backtest, paper, and live execution must consume the same published strategy semantics.
+- Backtest, paper, and live execution must consume the same snapshotted strategy semantics.
 - A signal or discretionary action creates an order intent; it does not bypass risk checks to call Coinbase directly.
 - Persist order intent before submission and use unique client order IDs.
 - A network timeout is ambiguous, not proof of order failure. Reconcile before retrying.
@@ -196,7 +198,7 @@ meaningful alternatives. Supersede old ADRs rather than deleting their history.
 
 ## Operating a running instance
 
-When the user asks to diagnose ThyTrader, inspect paper/live *status*, create a strategy, publish,
+When the user asks to diagnose ThyTrader, inspect paper/live *status*, create, edit, or delete a strategy,
 run a backtest, or deploy/pause/resume/stop paper or live, **open the [`ops/`](ops/README.md)
 workspace** and use the shipped skills instead of scraping logs, querying PostgreSQL, or editing
 source:
@@ -206,8 +208,8 @@ source:
 - [`skills/thytrader-data/SKILL.md`](skills/thytrader-data/SKILL.md) — watchlist, ingest, and
   gap-fill only, with `--confirm` on every mutation. Ingest is a worker job (HTTP 202); the API
   dataset volume stays read-only.
-- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — drafts, publish,
-  backtests, and composed studies (OOS / walk-forward / sweep / WFO), with `--confirm` on every
+- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — strategy create/save/
+  import/clone/delete, backtests, and composed studies (OOS / walk-forward / sweep / WFO), with `--confirm` on every
   mutation.
 - [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
   resume, stop, on-demand `place-order`, risk-policy publication, YAML `set-settings`, and write-only

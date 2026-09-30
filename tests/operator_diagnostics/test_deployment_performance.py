@@ -38,13 +38,14 @@ from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStor
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.indicators import canonical_decimal
-from thytrader.strategies.authoring import DisabledStrategyDraftStore, create_reference_draft
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.models import StrategyDefinition
-from thytrader.strategies.publication import DisabledStrategyPublicationStore, PublishedStrategy
+from thytrader.strategies.snapshots import DisabledStrategySnapshotStore, StrategySnapshot
 
 if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
-    from thytrader.strategies.publication import StrategyPublicationCatalog
+    from thytrader.strategies.snapshots import StrategySnapshotStore
 
 
 class _CloseProvider:
@@ -97,22 +98,22 @@ class _SingleResultBacktestStore(DisabledBacktestResultStore):
         return self._result
 
 
-class _TimeframeCatalog(DisabledStrategyPublicationStore):
+class _TimeframeCatalog(DisabledStrategySnapshotStore):
     """Return one published strategy whose timeframe and instrument are fixed."""
 
     def __init__(self, timeframe: str, product_id: str = "BTC-USD") -> None:
         """Build an in-memory published definition at the requested clock and product."""
-        payload = create_reference_draft(
+        payload = create_template_strategy(
             now=datetime(2026, 1, 1, tzinfo=UTC),
             product_id=product_id,
         ).model_dump(mode="python")
         payload["timeframe"] = timeframe
-        self._published = PublishedStrategy(
+        self._published = StrategySnapshot(
             strategy_fingerprint="sha256:" + ("b" * 64),
             definition=StrategyDefinition.model_validate(payload),
         )
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Ignore the fingerprint and return the fixed published strategy."""
         del strategy_fingerprint_value
         return self._published
@@ -121,7 +122,7 @@ class _TimeframeCatalog(DisabledStrategyPublicationStore):
 def _diagnostics(
     *,
     execution: ExecutionStore,
-    publications: StrategyPublicationCatalog | None = None,
+    publications: StrategySnapshotStore | None = None,
     market_data: MarketDataService | None = None,
     backtests: DisabledBacktestResultStore | None = None,
 ) -> OperatorDiagnostics:
@@ -131,8 +132,8 @@ def _diagnostics(
         portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
-        publications=publications or DisabledStrategyPublicationStore(),
-        drafts=DisabledStrategyDraftStore(),
+        publications=publications or DisabledStrategySnapshotStore(),
+        strategies_store=DisabledStrategyStore(),
         backtests=backtests or DisabledBacktestResultStore(),
         execution=execution,
         audit=InMemoryAuditEventStore(),
@@ -486,7 +487,7 @@ def test_discretionary_performance_derives_currency_from_product_id() -> None:
             )
         )
         report = await _diagnostics(
-            execution=store, publications=DisabledStrategyPublicationStore()
+            execution=store, publications=DisabledStrategySnapshotStore()
         ).performance(deployment_id=deployment_id)
         assert report.payload.currency == "USDT"
         assert report.payload.timeframe == "1h"
@@ -500,7 +501,7 @@ def test_paper_performance_with_unloadable_publication_reports_unknown_currency(
     async def _scenario() -> None:
         store, deployment_id = await _round_trip_store(fee=Decimal("0.1"))
         report = await _diagnostics(
-            execution=store, publications=DisabledStrategyPublicationStore()
+            execution=store, publications=DisabledStrategySnapshotStore()
         ).performance(deployment_id=deployment_id)
         assert report.payload.currency is None
         assert report.payload.total_net_pnl == canonical_decimal(Decimal("9.8"))

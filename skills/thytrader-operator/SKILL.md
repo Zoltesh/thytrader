@@ -63,6 +63,13 @@ Prefer the CLI. HTTP is the same contract on loopback.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
+`strategies` lists every strategy (`strategy_id`, `name`, `revision`, `valid`,
+`current_fingerprint` or `null` when the saved definition is invalid, `product_id`, `timeframe`,
+`updated_at`) plus deployment rows; there are no drafts, publications, or versions. Deployment rows
+carry `strategy_id` (null for a stopped live book of a deleted strategy), the snapshot
+`strategy_fingerprint`, `strategy_name`, and `strategy_deleted`. A deployment whose
+`strategy_fingerprint` differs from its strategy's `current_fingerprint` runs an earlier edit.
+
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
 `side`, `protection_status`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
 `protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
@@ -112,8 +119,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v40`,
-   Alembic revision `0047`, `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v41`,
+   Alembic revision `0048`, `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
+   [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
    deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
    multi-book ledger on a current image ([ADR 0074](../../docs/decisions/0074-multi-book-ledger-bounded-reads.md),
    [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
@@ -140,9 +148,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    Cover HTF-filter and per-indicator extra clocks the same way. Never interpolate.
 5. Keep `mode` (`backtest` / `paper` / `live`), timeframe (any ingested venue clock: `1m`, `5m`,
    `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`), strategy fingerprint, and dataset fingerprint in
-   any answer. Performance `currency` is the published instrument quote for strategy books or
+   any answer. Performance `currency` is the strategy snapshot's instrument quote for strategy books or
    the product quote for discretionary books; `null` means provenance could not be established
-   and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the published strategy's clock, or the discretionary book
+   and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the strategy snapshot's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
    at last close; `MISSING_MARK` means open inventory was not marked. Live REST fill ingest uses
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
@@ -150,7 +158,7 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    do not treat a truncated or failed fill page as a complete ledger.
 6. Treat `partial_result_warnings` as incomplete evidence, not as health.
 7. Separate verified report fields from hypotheses.
-8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Draft/publish/backtest require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
+8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Strategy create/save/import/clone/delete and backtests/studies require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
 
 ## Forbidden
 

@@ -33,6 +33,7 @@
 		listDatasets,
 		parseUtcInputValue,
 		researchWindowHint,
+		strategyErrorCode,
 		submitBacktest,
 		unboundIndicatorTimeframes,
 		type BacktestLaunchInput,
@@ -44,15 +45,15 @@
 		strategyId,
 		productId,
 		model,
-		fingerprint,
+		currentFingerprint,
 		onBacktestLaunched
 	}: {
 		strategyId: string;
 		productId: string;
-		/** Definition of the exact published version being tested. */
+		/** The strategy's current valid definition (the server snapshots it on launch). */
 		model: BuilderModel;
-		/** Exact published fingerprint from the workspace version context ('' blocks launch). */
-		fingerprint: string;
+		/** Fingerprint the launch snapshot gets ('' blocks launch). */
+		currentFingerprint: string;
 		/** Called with the new result fingerprint after a single backtest is published. */
 		onBacktestLaunched: (resultFingerprint: string) => void;
 	} = $props();
@@ -124,11 +125,11 @@
 
 	let loadedKey = $state('');
 	$effect(() => {
-		const key = `${strategyId}:${fingerprint}`;
+		const key = `${strategyId}:${currentFingerprint}`;
 		if (loadedKey === key) return;
 		const strategyChanged = loadedKey.split(':')[0] !== strategyId;
 		loadedKey = key;
-		selectedStrategyFingerprint = fingerprint;
+		selectedStrategyFingerprint = currentFingerprint;
 		launchError = null;
 		studyResult = null;
 		void loadLaunchDatasets();
@@ -297,7 +298,7 @@
 				const study = await submitResearchStudy({
 					schema_version: 'thytrader-research-study-v1',
 					kind: studyKind,
-					strategy_fingerprint: selectedStrategyFingerprint,
+					strategy_id: strategyId,
 					dataset_fingerprint: launchForm.dataset_fingerprint,
 					...(launchForm.htf_dataset_fingerprint === ''
 						? {}
@@ -321,7 +322,7 @@
 				return;
 			}
 			const input: BacktestLaunchInput = {
-				strategy_fingerprint: selectedStrategyFingerprint,
+				strategy_id: strategyId,
 				dataset_fingerprint: launchForm.dataset_fingerprint,
 				...(launchForm.htf_dataset_fingerprint === ''
 					? {}
@@ -341,7 +342,12 @@
 			const result = await submitBacktest(input);
 			onBacktestLaunched(result.result_fingerprint);
 		} catch (caught) {
-			launchError = caught instanceof Error ? caught.message : 'Backtest submission failed.';
+			launchError =
+				strategyErrorCode(caught) === 'strategy_invalid'
+					? 'The saved definition is not valid, so nothing was started. Fix it in Build and save first.'
+					: caught instanceof Error
+						? caught.message
+						: 'Backtest submission failed.';
 		} finally {
 			launching = false;
 		}
@@ -479,8 +485,8 @@
 </script>
 
 <section class="card run-bar" aria-label="Run a backtest">
-	{#if fingerprint === ''}
-		<p class="view-note">Select a published version to run a backtest.</p>
+	{#if currentFingerprint === ''}
+		<p class="view-note">Save a valid definition to run a backtest.</p>
 	{:else}
 		<div class="bar" data-testid="run-bar">
 			<label class="f dataset"
@@ -716,8 +722,8 @@
 						>
 					</div>
 					<p class="view-note">
-						The same published fingerprint is simulated on in-sample then out-of-sample. OOS is the
-						honest claim; this does not retune parameters.
+						The same rules snapshot is simulated on in-sample then out-of-sample. OOS is the honest
+						claim; this does not retune parameters.
 					</p>
 				{/if}
 				{#if studyKind === 'walk_forward' || studyKind === 'walk_forward_optimization'}
@@ -735,9 +741,9 @@
 					</div>
 					<p class="view-note">
 						{#if studyKind === 'walk_forward'}
-							Walk-forward validation uses the same published fingerprint on each fold.
-							Non-overlapping OOS windows may include a derived stitched equity curve. Cross-market
-							studies stay on the research CLI.
+							Walk-forward validation uses the same rules snapshot on each fold. Non-overlapping OOS
+							windows may include a derived stitched equity curve. Cross-market studies stay on the
+							research CLI.
 						{:else}
 							WFO simulates every candidate on every fold and selects only on in-sample
 							{selectionMetric}. The matching OOS window is the claim. Stitched equity compounds
@@ -787,8 +793,8 @@
 					</div>
 					{#if studyKind === 'parameter_sweep'}
 						<p class="view-note">
-							Each axis cell is one published-shaped candidate on the same window. The aggregate is
-							not an out-of-sample claim. Submit publishes missing derived fingerprints. Product and
+							Each axis cell is one derived candidate on the same window. The aggregate is not an
+							out-of-sample claim. Submit records a snapshot of each derived candidate. Product and
 							timeframe are not sweepable.
 						</p>
 					{/if}
@@ -803,7 +809,7 @@
 		{/if}
 		{#if launchError}<p class="view-problem" role="alert">{launchError}</p>{/if}
 		<p class="view-note run-lede">
-			Runs against the selected immutable version. Results are deterministic and reproducible
+			Runs against a snapshot of the current saved rules. Results are deterministic and reproducible
 			research evidence, not a promise: candles don't show queue position or real fills. This stage
 			does not start paper or live trading. {RESEARCH_FEE_ENGINE_NOTE}
 		</p>

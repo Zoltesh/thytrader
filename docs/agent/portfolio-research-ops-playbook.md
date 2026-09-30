@@ -5,7 +5,7 @@ Open [`ops/`](../../ops/README.md) when driving a running instance; run every
 `uv run thytrader-*` command from the repository root.
 
 This path answers: *"What do I hold, is the stack healthy, is data complete, and can I backtest a
-published strategy?"* It does **not** deploy paper or live unless the operator explicitly asks for
+strategy?"* It does **not** deploy paper or live unless the operator explicitly asks for
 that later step ([`skills/thytrader-playbook/SKILL.md`](../../skills/thytrader-playbook/SKILL.md) or
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md)).
 
@@ -58,20 +58,25 @@ book from the deployment primary `product_id`. Read `positions[]` and `book_tota
 before backtest or deploy. The bundled `thytrader-playbook run` watches only its `--timeframe`
 decision clock — ingest extras explicitly with `thytrader-data`.
 
-### 3. Research (draft → publish → backtest)
+### 3. Research (strategy → backtest)
 
 10. Prefer **`thytrader-bar-backtest-v4`** for new bar backtests (default in
     [`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md)). v1/v2-only
     images return 422 on v3/v4 requests.
 11. Build `request.json` for `submit-backtest`:
+    - Name the strategy with `strategy_id` (no fingerprint; the server snapshots the current saved
+      definition and returns `strategy_fingerprint`).
     - Copy `dataset_fingerprint` (and `htf_filter.dataset_fingerprint` / `indicator_dataset_fingerprints`
       / `additional_instrument_datasets` when present) from `data-catalog` rows — do not invent windows.
     - Optional fee prefill: `GET /api/v1/fees` when credentials exist; demo mode leaves fees blank.
-12. Draft path:
-    - Quick template: `uv run thytrader-research create-draft --template rsi-mean-reversion --confirm`
-    - Full JSON (HTF, multi-instrument, per-indicator TF): `save-draft --file draft.json --confirm`
-      — `create-draft` alone does not emit those fields.
-13. `uv run thytrader-research publish --strategy-id UUID --confirm`
+12. Strategy path (no publish step; [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)):
+    - Quick template: `uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm`
+    - Full JSON (HTF, multi-instrument, per-indicator TF):
+      `save-strategy --strategy-id UUID --file document.json --revision N --confirm` (or
+      `import-strategy --file document.json --confirm` for a new one) — `create-strategy` alone does
+      not emit those fields.
+13. Confirm `validation.valid` is true with `uv run thytrader-research show-strategy --strategy-id UUID`;
+    an invalid saved definition makes the backtest fail with HTTP 422 `strategy_invalid`.
 14. `uv run thytrader-research submit-backtest --file request.json --confirm`
 15. Read `validity_limits` on v4 summaries before claiming paper/live parity
     ([ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)).
@@ -91,8 +96,12 @@ playbook does not sequence them automatically.
 When the operator wants one decision clock only and no portfolio prelude:
 
 ```bash
-uv run thytrader-playbook run --product-id BTC-USD --timeframe 1h --ingest --create-draft --publish --backtest-file request.json --confirm
+uv run thytrader-playbook run --product-id BTC-USD --timeframe 1h --ingest --create-strategy --confirm
+uv run thytrader-playbook run --product-id BTC-USD --timeframe 1h --strategy-id UUID --backtest-file request.json --confirm
 ```
+
+`request.json` must already carry the `strategy_id`, so create the strategy in one run and backtest
+in the next.
 
 See [`skills/thytrader-playbook/SKILL.md`](../../skills/thytrader-playbook/SKILL.md) for flags and
 YOLO rules. The playbook never starts live.

@@ -10,12 +10,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
-from hashlib import sha256
 from itertools import product
-import json
 import re
 from typing import TYPE_CHECKING, Self, cast
-from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -30,13 +27,12 @@ from pydantic import (
 from thytrader.strategies.models import (
     StrategyDefinition,
     StrategyMetadata,
-    StrategyStatus,
     decision_clock_indicators,
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
     strategy_fingerprint,
 )
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestResult, BacktestSummary
@@ -279,10 +275,10 @@ def derive_parameter_candidates(
     axes: tuple[ParameterAxis, ...],
     *,
     base_fingerprint: str,
-) -> tuple[PublishedStrategy, ...]:
+) -> tuple[StrategySnapshot, ...]:
     """Build deterministic published-shaped variants for one parameter grid."""
     cells = expand_parameter_grid(axes)
-    derived: list[PublishedStrategy] = []
+    derived: list[StrategySnapshot] = []
     fingerprints: set[str] = set()
     for cell in cells:
         definition = apply_parameter_cell(base, cell, base_fingerprint=base_fingerprint)
@@ -290,7 +286,7 @@ def derive_parameter_candidates(
         if fingerprint in fingerprints:
             raise ValueError("parameter_axes produced duplicate strategy fingerprints")
         fingerprints.add(fingerprint)
-        derived.append(PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition))
+        derived.append(StrategySnapshot(strategy_fingerprint=fingerprint, definition=definition))
     return tuple(derived)
 
 
@@ -305,13 +301,11 @@ def apply_parameter_cell(
     payload = base.model_dump(mode="python")
     for assignment in assignments:
         _assign_axis_cell(payload, assignment)
-    identity = tuple(item.identity_tuple() for item in assignments)
-    payload["strategy_id"] = _deterministic_uuid7(base.created_at, base_fingerprint, identity)
-    payload["version"] = 1
-    payload["status"] = StrategyStatus.PUBLISHED
+    # Variants keep the base strategy_id so their snapshots belong to (and are
+    # deleted with) the strategy they were swept from (ADR 0082).
     payload["name"] = _derived_name(base.name, assignments)
     payload["description"] = (
-        f"Derived sweep candidate from {base_fingerprint}. Not a human-authored version."
+        f"Derived sweep candidate from {base_fingerprint}. Not a human-authored edit."
     )[:500]
     payload["metadata"] = _derived_metadata(base.metadata)
     _ensure_payload_warmup_covers_periods(payload)
@@ -832,26 +826,6 @@ def _derived_metadata(metadata: StrategyMetadata) -> dict[str, object]:
     if _SWEEP_TAG not in tags and len(tags) < 20:
         tags.append(_SWEEP_TAG)
     return {"tags": tuple(tags), "notes": metadata.notes}
-
-
-def _deterministic_uuid7(
-    created_at: datetime,
-    base_fingerprint: str,
-    cell: tuple[tuple[str, str, str], ...],
-) -> UUID:
-    """Mint a UUIDv7 whose timestamp is the base created_at and whose random bits are the cell."""
-    payload = json.dumps(
-        {"base": base_fingerprint, "cell": cell},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    digest = sha256(payload.encode()).digest()
-    milliseconds = int(created_at.timestamp() * 1_000)
-    rand_a = int.from_bytes(digest[:2], "big") & 0x0FFF
-    rand_b = int.from_bytes(digest[2:10], "big") & ((1 << 62) - 1)
-    value = (milliseconds << 80) | (0x7 << 76) | (rand_a << 64) | (0b10 << 62) | rand_b
-    return UUID(int=value)
 
 
 def _canonical_decimal(value: Decimal) -> str:

@@ -88,14 +88,6 @@ class _FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class StrategyStatus(StrEnum):
-    """Lifecycle states defined by the canonical strategy contract."""
-
-    DRAFT = "draft"
-    PUBLISHED = "published"
-    ARCHIVED = "archived"
-
-
 class Instrument(_FrozenModel):
     """One conservative Coinbase USD or USDC spot instrument."""
 
@@ -920,15 +912,23 @@ class StrategyMetadata(_FrozenModel):
         return value
 
 
+LEGACY_LIFECYCLE_KEYS: tuple[str, ...] = ("version", "status")
+"""Retired draft/publish keys accepted on input and discarded (ADR 0082)."""
+
+
 class StrategyDefinition(_FrozenModel):
-    """Implemented immutable subset of ThyTrader's proposed canonical V1 contract."""
+    """One validated canonical strategy document (schema 1.0).
+
+    The document carries no lifecycle state: a strategy is one mutable object and
+    each backtest, study, or deployment snapshots this definition by content
+    fingerprint. Legacy ``version``/``status`` keys from pre-ADR-0082 exports are
+    accepted and dropped so they never reach canonical bytes or the fingerprint.
+    """
 
     schema_version: Literal["1.0"]
     strategy_id: Uuid7
-    version: int = Field(ge=1)
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, min_length=1, max_length=500)
-    status: StrategyStatus
     created_at: datetime
     instrument: Instrument
     additional_instruments: tuple[Instrument, ...] = Field(
@@ -946,6 +946,14 @@ class StrategyDefinition(_FrozenModel):
     exits: ExitDefinition
     execution: ExecutionPreferences
     metadata: StrategyMetadata
+
+    @model_validator(mode="before")
+    @classmethod
+    def drop_legacy_lifecycle_keys(cls, data: object) -> object:
+        """Discard retired draft/publish lifecycle keys from mapping input."""
+        if isinstance(data, dict) and any(key in data for key in LEGACY_LIFECYCLE_KEYS):
+            return {key: value for key, value in data.items() if key not in LEGACY_LIFECYCLE_KEYS}
+        return data
 
     @field_validator("created_at")
     @classmethod

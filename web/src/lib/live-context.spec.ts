@@ -19,7 +19,7 @@ describe('liveStripText', () => {
 			'this order will be sent to Coinbase with real money · BTC / USDC'
 		);
 		expect(liveStripText({ kind: 'arm', productId: null, cap: null })).toBe(
-			'arming this version places real Coinbase orders'
+			'arming this strategy places real Coinbase orders'
 		);
 	});
 });

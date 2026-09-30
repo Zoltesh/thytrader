@@ -10,7 +10,6 @@ from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.models import warmup_starts_at
 from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
 from thytrader.strategies.models import (
-    StrategyStatus,
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
     lockstep_product_ids,
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetManifest
     from thytrader.research.models import AdditionalInstrumentDataset, ResearchRunSpecification
     from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
-    from thytrader.strategies.publication import PublishedStrategy
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 
 class ResearchRunPublicationError(RuntimeError):
@@ -40,7 +39,7 @@ class PublishedResearchRunSpecification:
 
 def verify_research_run_eligibility(
     specification: ResearchRunSpecification,
-    published_strategy: PublishedStrategy,
+    published_strategy: StrategySnapshot,
     manifest: DatasetManifest,
     htf_manifest: DatasetManifest | None = None,
     indicator_manifests: dict[str, DatasetManifest] | None = None,
@@ -50,12 +49,9 @@ def verify_research_run_eligibility(
 ) -> None:
     """Fail closed unless exact verified artifacts cover the complete run contract."""
     definition = published_strategy.definition
-    if (
-        specification.strategy_fingerprint != published_strategy.strategy_fingerprint
-        or definition.status is not StrategyStatus.PUBLISHED
-    ):
+    if specification.strategy_fingerprint != published_strategy.strategy_fingerprint:
         raise ResearchRunPublicationError(
-            "Research run strategy identity does not match the verified published strategy."
+            "Research run strategy identity does not match the verified strategy snapshot."
         )
     _require_decision_dataset(specification, definition, manifest)
     if specification.warmup.bars != definition.data_requirements.warmup_bars:

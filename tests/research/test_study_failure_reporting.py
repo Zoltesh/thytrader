@@ -14,6 +14,7 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 import pytest
 
@@ -31,23 +32,25 @@ from thytrader.research.studies import (
     StudyKind,
 )
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import (
-    PublishedStrategy,
-    StrategyPublicationError,
+from thytrader.strategies.snapshots import (
+    StrategySnapshot,
+    StrategySnapshotError,
 )
 
 if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.persistence.backtest_results import BacktestResultReader
-    from thytrader.strategies.publication import StrategyPublicationStore
+    from thytrader.strategies.snapshots import StrategySnapshotStore
 
 _REFERENCE = Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 
+_STRATEGY_ID = UUID("01985cf0-7b60-7000-8000-00000000abcd")
 
-def _published() -> PublishedStrategy:
+
+def _published() -> StrategySnapshot:
     """Load the golden reference as a published strategy."""
     definition = StrategyDefinition.model_validate_json(_REFERENCE.read_text(encoding="utf-8"))
-    return PublishedStrategy(
+    return StrategySnapshot(
         strategy_fingerprint=strategy_fingerprint(definition), definition=definition
     )
 
@@ -114,53 +117,39 @@ class _UnexpectedSubmitter:
 class _StaticPublications:
     """Return one fixed publication for every fingerprint load."""
 
-    def __init__(self, published: PublishedStrategy) -> None:
+    def __init__(self, published: StrategySnapshot) -> None:
         """Store the stand-in publication."""
         self._published = published
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Return the fixed publication regardless of the requested fingerprint."""
         del strategy_fingerprint_value
         return self._published
 
-    async def publish(self, definition: object) -> PublishedStrategy:
-        """Refuse publication; these tests never expect a write."""
+    async def record_snapshot(self, definition: object) -> StrategySnapshot:
+        """Refuse snapshot writes; these tests never expect a write."""
         del definition
-        raise AssertionError("unexpected publish")
-
-    async def publish_draft(
-        self, definition: object, *, expected_revision: int
-    ) -> PublishedStrategy:
-        """Refuse draft publication; these tests never expect a write."""
-        del definition, expected_revision
-        raise AssertionError("unexpected publish_draft")
+        raise AssertionError("unexpected snapshot write")
 
 
 class _DerivedPublishFails:
     """Base publication loads; derived fingerprint load misses, publish crashes."""
 
-    def __init__(self, published: PublishedStrategy, base_fingerprint: str) -> None:
+    def __init__(self, published: StrategySnapshot, base_fingerprint: str) -> None:
         """Store the base publication and its fingerprint."""
         self._published = published
         self._base = base_fingerprint
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Serve the base publication; report derived fingerprints as missing."""
         if strategy_fingerprint_value == self._base:
             return self._published
-        raise StrategyPublicationError("Published strategy was not found.")
+        raise StrategySnapshotError("Published strategy was not found.")
 
-    async def publish(self, definition: object) -> PublishedStrategy:
-        """Crash the publication write like a storage failure would."""
+    async def record_snapshot(self, definition: object) -> StrategySnapshot:
+        """Crash the snapshot write like a storage failure would."""
         del definition
         raise RuntimeError("storage write failed")
-
-    async def publish_draft(
-        self, definition: object, *, expected_revision: int
-    ) -> PublishedStrategy:
-        """Unused by the service submit path."""
-        del definition, expected_revision
-        raise AssertionError("unexpected publish_draft")
 
 
 class _ResultsUnavailable:
@@ -178,7 +167,7 @@ def _service(
 ) -> ResearchStudyService:
     """Build the study service with failing-test doubles."""
     return ResearchStudyService(
-        publications=cast("StrategyPublicationStore", publications),
+        publications=cast("StrategySnapshotStore", publications),
         submitter=cast("BacktestSubmitter", submitter),
         results=cast("BacktestResultReader", _ResultsUnavailable()),
     )
@@ -252,7 +241,7 @@ def test_run_study_job_records_phase_from_service_error() -> None:
     """A failed study job must keep the service phase and the real message."""
     request = _holdout_request()
     store = InMemoryResearchJobStore()
-    job_id = asyncio.run(store.create_study(request)).job_id
+    job_id = asyncio.run(store.create_study(request, strategy_id=_STRATEGY_ID)).job_id
     service = _FailingStudyService(
         ResearchStudyError("Child backtest failed: HTTP 422: window does not fit dataset."),
         failed_phase="submit_children",
@@ -270,7 +259,7 @@ def test_run_study_job_unexpected_failure_keeps_detail() -> None:
     """An unexpected job failure must keep the redacted message plus detail."""
     request = _holdout_request()
     store = InMemoryResearchJobStore()
-    job_id = asyncio.run(store.create_study(request)).job_id
+    job_id = asyncio.run(store.create_study(request, strategy_id=_STRATEGY_ID)).job_id
     service = _FailingStudyService(RuntimeError("queue backend exploded"))
     asyncio.run(run_study_job(store, cast("ResearchStudyService", service), job_id, request))
     record = asyncio.run(store.get(job_id))
@@ -285,7 +274,7 @@ def test_run_study_job_rejected_child_records_phase_and_reason() -> None:
     """A rejected child window must fail the job with its real 422 reason."""
     request = _holdout_request()
     store = InMemoryResearchJobStore()
-    job_id = asyncio.run(store.create_study(request)).job_id
+    job_id = asyncio.run(store.create_study(request, strategy_id=_STRATEGY_ID)).job_id
     service = _FailingStudyService(
         BacktestSubmissionRejectedError(
             "HTTP 422: The evaluation window does not fit the selected dataset."

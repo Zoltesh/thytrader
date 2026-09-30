@@ -1,11 +1,12 @@
 <script lang="ts">
 	/**
-	 * Test stage: run backtests and composed studies against the selected
-	 * exact version, list every published result for this strategy's
-	 * versions, and inspect one inline (`?result=` deep link).
+	 * Test stage: run backtests and composed studies against the strategy's
+	 * current definition (the server snapshots it), list every result for this
+	 * strategy (`?strategy_id=`), and inspect one inline (`?result=` deep link).
+	 * Each row says whether it ran the current rules or an earlier edit.
 	 *
 	 * Results are research evidence. There is deliberately no Deploy or Start
-	 * paper action here: running a version starts from the Run stage, never
+	 * paper action here: running a strategy starts from the Run stage, never
 	 * from a backtest result.
 	 */
 	import { goto } from '$app/navigation';
@@ -16,7 +17,7 @@
 	import ResearchLaunchPanel from '$lib/ResearchLaunchPanel.svelte';
 	import {
 		compareDecimalStrings,
-		fetchAllBacktestsForFingerprint,
+		fetchAllBacktestsForStrategy,
 		fetchBacktest,
 		fetchBacktestBenchmark,
 		fetchBacktestMetrics,
@@ -28,18 +29,19 @@
 		type BacktestSummaryEntry
 	} from '$lib/backtests';
 	import { engineContractLabel } from '$lib/research-studies';
-	import { workspaceHref } from '$lib/strategy-workspace';
+	import { invalidStartReason, rulesState, workspaceHref } from '$lib/strategy-workspace';
+	import RulesBadge from '$lib/workspace/RulesBadge.svelte';
 	import { formatUtcTimestamp } from '$lib/time';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
 
 	const workspace = useWorkspace();
 
-	type ResultRow = BacktestSummaryEntry & { version: number };
+	type ResultRow = BacktestSummaryEntry;
 
 	let rows = $state<ResultRow[]>([]);
 	let rowsLoading = $state(false);
 	let rowsError = $state<string | null>(null);
-	let thisVersionOnly = $state(false);
+	let currentOnly = $state(false);
 	let rowsRequest = 0;
 
 	let detail = $state<BacktestDetailData | null>(null);
@@ -53,33 +55,25 @@
 	let metricsError = $state<string | null>(null);
 	let detailRequest = 0;
 
-	const selected = $derived(workspace.version.entry);
-	const selectedModel = $derived(workspace.selectedModel);
+	const currentModel = $derived(workspace.validModel);
+	const currentFingerprint = $derived(workspace.currentFingerprint);
 	const resultFingerprint = $derived(
 		parseResultFingerprintParam(page.url.searchParams.get('result'))
 	);
-	const versionsKey = $derived(
-		(workspace.history?.versions ?? []).map((version) => version.strategy_fingerprint).join(',')
-	);
 	const visibleRows = $derived(
-		thisVersionOnly && selected
-			? rows.filter((row) => row.strategy_fingerprint === selected.strategy_fingerprint)
+		currentOnly
+			? rows.filter((row) => rulesState(row.strategy_fingerprint, currentFingerprint) === 'current')
 			: rows
 	);
-	/** The listed row for the open result, when the list already has it (version + time). */
+	/** The listed row for the open result, when the list already has it. */
 	const resultRow = $derived(
 		rows.find((row) => row.result_fingerprint === resultFingerprint) ?? null
 	);
-	/** A `?result=` must belong to one of this strategy's published versions. */
-	const foreignResult = $derived(
-		detail !== null &&
-			!(workspace.history?.versions ?? []).some(
-				(version) => version.strategy_fingerprint === detail?.result.strategy_fingerprint
-			)
-	);
+	/** A `?result=` must belong to this strategy (it is listed under `?strategy_id=`). */
+	const foreignResult = $derived(detail !== null && !rowsLoading && resultRow === null);
 
 	$effect(() => {
-		void versionsKey;
+		void workspace.strategyId;
 		untrack(() => void loadRows());
 	});
 
@@ -93,19 +87,14 @@
 
 	async function loadRows(): Promise<void> {
 		const requestId = ++rowsRequest;
-		const versions = workspace.history?.versions ?? [];
+		const strategyId = workspace.strategyId;
+		if (strategyId === '') return;
 		rowsLoading = true;
 		rowsError = null;
 		try {
-			const groups = await Promise.all(
-				versions.map(async (version) =>
-					(await fetchAllBacktestsForFingerprint(version.strategy_fingerprint)).map(
-						(row): ResultRow => ({ ...row, version: version.version })
-					)
-				)
-			);
+			const listed = await fetchAllBacktestsForStrategy(strategyId);
 			if (requestId !== rowsRequest) return;
-			rows = groups.flat().sort((a, b) => b.published_at.localeCompare(a.published_at));
+			rows = [...listed].sort((a, b) => b.published_at.localeCompare(a.published_at));
 		} catch (caught) {
 			if (requestId !== rowsRequest) return;
 			rowsError = caught instanceof Error ? caught.message : 'Backtest results are unavailable.';
@@ -177,54 +166,39 @@
 	}
 
 	function resultHref(row: ResultRow): `/strategies/${string}` {
-		return workspaceHref(workspace.strategyId, 'test', {
-			version: row.strategy_fingerprint,
-			result: row.result_fingerprint
-		});
+		return workspaceHref(workspace.strategyId, 'test', { result: row.result_fingerprint });
 	}
 
 	function closeResult(): void {
-		void goto(
-			resolve(workspaceHref(workspace.strategyId, 'test', { version: workspace.requestedVersion })),
-			{ keepFocus: true, noScroll: true }
-		);
+		void goto(resolve(workspaceHref(workspace.strategyId, 'test')), {
+			keepFocus: true,
+			noScroll: true
+		});
 	}
 
 	async function onBacktestLaunched(result: string): Promise<void> {
-		await goto(
-			resolve(
-				workspaceHref(workspace.strategyId, 'test', {
-					version: selected?.strategy_fingerprint ?? null,
-					result
-				})
-			)
-		);
+		await goto(resolve(workspaceHref(workspace.strategyId, 'test', { result })));
 		void loadRows();
 	}
 </script>
 
 <svelte:head><title>Test · {workspace.name ?? 'Strategy'} · ThyTrader</title></svelte:head>
 
-{#if workspace.version.status === 'none'}
-	<div class="empty-state">
-		<h2>No published version yet</h2>
-		<p>Validate and publish this draft first. Backtests run against an immutable version.</p>
-		<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'build'))}>Go to Build</a>
-	</div>
-{:else if selected && selectedModel}
+{#if currentModel && currentFingerprint}
 	<ResearchLaunchPanel
 		strategyId={workspace.strategyId}
-		productId={selectedModel.product_id}
-		model={selectedModel}
-		fingerprint={selected.strategy_fingerprint}
+		productId={currentModel.product_id}
+		model={currentModel}
+		{currentFingerprint}
 		onBacktestLaunched={(result) => void onBacktestLaunched(result)}
 	/>
-{:else if selected && workspace.modelErrors[selected.strategy_fingerprint]}
-	<div class="error-banner" role="alert">
+{:else if workspace.record}
+	<div class="blocked" role="status" data-testid="test-blocked-invalid">
 		<div>
-			<strong>Published definition unavailable</strong>
-			<p>{workspace.modelErrors[selected.strategy_fingerprint]}</p>
+			<strong>Backtests and studies are blocked</strong>
+			<p>{invalidStartReason(workspace.issues.length)}</p>
 		</div>
+		<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'build'))}>Go to Build</a>
 	</div>
 {:else}
 	<div class="loading-card" aria-busy="true"><div class="skeleton"></div></div>
@@ -236,7 +210,7 @@
 			<div class="problem" role="alert">
 				<strong>This result does not belong to this strategy.</strong>
 				<p>
-					Its strategy fingerprint is not one of this strategy's published versions.
+					It is not listed among this strategy's results.
 					<a href={resolve(`/backtests?result=${encodeURIComponent(resultFingerprint)}`)}
 						>Open it on its own</a
 					>.
@@ -254,7 +228,11 @@
 				loading={detailLoading}
 				error={detailError}
 				backLabel="× Close result"
-				versionLabel={resultRow ? `v${resultRow.version}` : null}
+				versionLabel={resultRow
+					? rulesState(resultRow.strategy_fingerprint, currentFingerprint) === 'current'
+						? 'Current rules'
+						: 'Earlier edit'
+					: null}
 				publishedAt={resultRow?.published_at ?? null}
 				onBack={closeResult}
 			/>
@@ -269,11 +247,9 @@
 <section class="card results" aria-labelledby="results-title">
 	<div class="card-head">
 		<h2 id="results-title">Results for this strategy</h2>
-		{#if selected}
-			<label class="only">
-				<input type="checkbox" bind:checked={thisVersionOnly} /> Only v{selected.version}
-			</label>
-		{/if}
+		<label class="only">
+			<input type="checkbox" bind:checked={currentOnly} /> Only current rules
+		</label>
 		<button class="btn ghost" type="button" onclick={() => void loadRows()} disabled={rowsLoading}
 			>{rowsLoading ? 'Loading…' : 'Reload'}</button
 		>
@@ -283,13 +259,17 @@
 	{:else if rowsError}
 		<p class="pad problem" role="alert">Backtest results could not be loaded: {rowsError}</p>
 	{:else if visibleRows.length === 0}
-		<p class="pad muted">No backtest evidence for this version yet.</p>
+		<p class="pad muted">
+			{currentOnly
+				? 'No backtest of the current rules yet.'
+				: 'No backtest evidence for this strategy yet.'}
+		</p>
 	{:else}
 		<div class="table-wrap">
 			<table aria-label="Backtest results for this strategy">
 				<thead>
 					<tr>
-						<th scope="col">Version</th>
+						<th scope="col">Rules</th>
 						<th scope="col">Engine</th>
 						<th scope="col" class="num">Net</th>
 						<th scope="col" class="num">Max DD</th>
@@ -302,7 +282,13 @@
 				<tbody>
 					{#each visibleRows as row (row.result_fingerprint)}
 						<tr class:current={row.result_fingerprint === resultFingerprint}>
-							<td>v{row.version}</td>
+							<td
+								><RulesBadge
+									fingerprint={row.strategy_fingerprint}
+									{currentFingerprint}
+									current={currentModel}
+								/></td
+							>
 							<td>{engineContractLabel(row.engine_contract_version)}</td>
 							<td
 								class="num"
@@ -318,9 +304,8 @@
 								><a
 									href={resolve(resultHref(row))}
 									aria-current={row.result_fingerprint === resultFingerprint ? 'true' : undefined}
-									aria-label="Inspect v{row.version} result published {formatUtcTimestamp(
-										row.published_at
-									)}">Inspect</a
+									aria-label="Inspect result published {formatUtcTimestamp(row.published_at)}"
+									>Inspect</a
 								></td
 							>
 						</tr>
@@ -332,6 +317,21 @@
 </section>
 
 <style>
+	.blocked {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: var(--space-4);
+		padding: 14px 17px;
+		border: 1px solid var(--warn-line);
+		border-radius: var(--radius-lg);
+		background: var(--surface-2);
+	}
+	.blocked p {
+		margin: 4px 0 0;
+		color: var(--muted);
+	}
 	.result {
 		margin-bottom: var(--space-4);
 		padding: 16px;

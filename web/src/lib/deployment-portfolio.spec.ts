@@ -8,7 +8,7 @@ import {
 	portfolioHeaderMetrics,
 	portfolioRow,
 	rowIdentity,
-	strategyVersionIndex
+	strategyIdentityIndex
 } from './deployment-portfolio';
 import type { StrategyLibraryEntry } from './strategies';
 
@@ -189,26 +189,44 @@ describe('portfolio rows', () => {
 		{
 			strategy_id: 'strategy-1',
 			name: 'EMA Trend Pullback',
-			published_versions: [
-				{ version: 1, strategy_fingerprint: fp('a') },
-				{ version: 2, strategy_fingerprint: fp('b') }
-			]
+			current_fingerprint: fp('b')
 		}
 	] as unknown as StrategyLibraryEntry[];
-	const index = strategyVersionIndex(library);
+	const index = strategyIdentityIndex(library);
 
-	it('resolves name and version by exact fingerprint only', () => {
+	it('resolves the name by strategy id and says whether the bot runs the current rules', () => {
 		expect(rowIdentity(deployment({ strategy_fingerprint: fp('b') }), index)).toEqual({
 			name: 'EMA Trend Pullback',
-			version: 'v2'
+			rules: 'Current rules'
 		});
-		expect(rowIdentity(deployment({ strategy_fingerprint: fp('c') }), index)).toEqual({
-			name: 'Strategy sha256:cccc…cccc',
-			version: null
+		expect(rowIdentity(deployment({ strategy_fingerprint: fp('a') }), index)).toEqual({
+			name: 'EMA Trend Pullback',
+			rules: 'Earlier edit'
 		});
 		expect(
+			rowIdentity(
+				deployment({ strategy_id: 'unknown', strategy_name: null, strategy_fingerprint: fp('c') }),
+				index
+			)
+		).toEqual({ name: 'Strategy sha256:cccc…cccc', rules: null });
+		expect(
 			rowIdentity(deployment({ kind: 'discretionary', strategy_fingerprint: null }), index)
-		).toEqual({ name: 'Discretionary order', version: null });
+		).toEqual({ name: 'Discretionary order', rules: null });
+	});
+
+	it('labels a kept live book of a deleted strategy', () => {
+		expect(
+			rowIdentity(
+				deployment({
+					mode: 'live',
+					strategy_id: null,
+					strategy_deleted: true,
+					strategy_name: 'Old breakout',
+					status: 'stopped'
+				}),
+				index
+			)
+		).toEqual({ name: 'Old breakout (deleted strategy)', rules: null });
 	});
 
 	it('summarises mode, market with its own quote, position, protection, and PnL', () => {

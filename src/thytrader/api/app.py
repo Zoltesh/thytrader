@@ -112,7 +112,7 @@ from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStor
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
@@ -130,10 +130,10 @@ from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
 from thytrader.security.middleware import TrustBoundaryMiddleware
 from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
-from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraftStore
-from thytrader.strategies.publication import (
-    DisabledStrategyPublicationStore,
-    StrategyPublicationStore,
+from thytrader.strategies.library import DisabledStrategyStore, StrategyStore
+from thytrader.strategies.snapshots import (
+    DisabledStrategySnapshotStore,
+    StrategySnapshotStore,
 )
 
 if TYPE_CHECKING:
@@ -159,8 +159,8 @@ def create_app(
     market_feed_state_store: MarketFeedStateStore | None = None,
     backtest_result_store: BacktestResultReader | None = None,
     backtest_benchmark_reader: BacktestBenchmarkReader | None = None,
-    strategy_store: StrategyPublicationStore | None = None,
-    strategy_draft_store: StrategyDraftStore | None = None,
+    strategy_store: StrategyStore | None = None,
+    strategy_snapshot_store: StrategySnapshotStore | None = None,
     backtest_submitter: BacktestSubmitter | None = None,
     execution_store: ExecutionStore | None = None,
     paper_broker: Broker | None = None,
@@ -194,7 +194,7 @@ def create_app(
     external_backtest_result_store = backtest_result_store
     external_backtest_benchmark_reader = backtest_benchmark_reader
     external_strategy_store = strategy_store
-    external_strategy_draft_store = strategy_draft_store
+    external_strategy_snapshot_store = strategy_snapshot_store
     external_backtest_submitter = backtest_submitter
     external_execution_store = execution_store
     external_risk_policy_store = risk_policy_store
@@ -217,8 +217,8 @@ def create_app(
         feed_state_store = external_market_feed_state_store
         backtest_store = external_backtest_result_store
         benchmark_reader = external_backtest_benchmark_reader
-        publication_store = external_strategy_store
-        draft_store = external_strategy_draft_store
+        strategy_rows = external_strategy_store
+        publication_store = _snapshot_store_for(strategy_rows, external_strategy_snapshot_store)
         submitter = external_backtest_submitter
         execution = external_execution_store
         risk_policies = external_risk_policy_store
@@ -238,7 +238,7 @@ def create_app(
             or feed_state_store is None
             or backtest_store is None
             or publication_store is None
-            or draft_store is None
+            or strategy_rows is None
         )
         if needs_database and resolved_settings.database_url is not None:
             engine = create_engine(resolved_settings.database_url)
@@ -254,7 +254,7 @@ def create_app(
                 worker_state_store,
                 feed_state_store,
                 publication_store,
-                draft_store,
+                strategy_rows,
                 backtest_store,
             ) = _init_db_stores(
                 engine=engine,
@@ -264,7 +264,7 @@ def create_app(
                 worker_state_store=worker_state_store,
                 feed_state_store=feed_state_store,
                 publication_store=publication_store,
-                draft_store=draft_store,
+                strategy_rows=strategy_rows,
                 backtest_store=backtest_store,
             )
             submitter = _submission_service(submitter, engine, dataset_store)
@@ -308,10 +308,8 @@ def create_app(
         )
         _app.state.research_job_store = job_store
         _app.state.backtest_job_store = job_store
-        _app.state.strategy_draft_store = draft_store or DisabledStrategyDraftStore()
-        _app.state.strategy_publication_store = (
-            publication_store or DisabledStrategyPublicationStore()
-        )
+        _app.state.strategy_store = strategy_rows or DisabledStrategyStore()
+        _app.state.strategy_snapshot_store = publication_store or DisabledStrategySnapshotStore()
         _app.state.execution_store = execution or DisabledExecutionStore()
         _attach_execution_brokers(
             _app,
@@ -334,7 +332,7 @@ def create_app(
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
 
         study_service = ResearchStudyService(
-            publications=_app.state.strategy_publication_store,
+            publications=_app.state.strategy_snapshot_store,
             submitter=_app.state.backtest_submitter,
             results=_app.state.backtest_result_store,
             catalog=_app.state.research_study_catalog,
@@ -459,16 +457,16 @@ def _init_db_stores(
     audit_store: AuditEventStore | None,
     worker_state_store: MarketDataWorkerStateStore | None,
     feed_state_store: MarketFeedStateStore | None,
-    publication_store: StrategyPublicationStore | None,
-    draft_store: StrategyDraftStore | None,
+    publication_store: StrategySnapshotStore | None,
+    strategy_rows: StrategyStore | None,
     backtest_store: BacktestResultReader | None,
 ) -> tuple[
     PortfolioHistoryStore,
     AuditEventStore,
     MarketDataWorkerStateStore,
     MarketFeedStateStore,
-    StrategyPublicationStore,
-    StrategyDraftStore,
+    StrategySnapshotStore,
+    StrategyStore,
     BacktestResultReader,
 ]:
     """Instantiate database-backed persistence stores when missing."""
@@ -476,8 +474,9 @@ def _init_db_stores(
     resolved_audit = audit_store or PostgresAuditEventStore(engine)
     resolved_worker = worker_state_store or PostgresMarketDataWorkerStateStore(engine)
     resolved_feed = feed_state_store or PostgresMarketFeedStateStore(engine)
-    resolved_publication = publication_store or PostgresStrategyPublicationStore(engine)
-    resolved_draft = draft_store or PostgresStrategyPublicationStore(engine)
+    postgres_strategies = PostgresStrategyStore(engine)
+    resolved_publication = publication_store or postgres_strategies
+    resolved_draft = strategy_rows or postgres_strategies
     resolved_backtest = backtest_store or PostgresBacktestResultStore(
         engine,
         research_run_store=PostgresResearchRunStore(engine),
@@ -492,6 +491,15 @@ def _init_db_stores(
         resolved_draft,
         resolved_backtest,
     )
+
+
+def _snapshot_store_for(
+    strategy_rows: StrategyStore | None, snapshot_store: StrategySnapshotStore | None
+) -> StrategySnapshotStore | None:
+    """Use an explicit snapshot store, else a strategy store that also serves snapshots."""
+    if snapshot_store is None and isinstance(strategy_rows, StrategySnapshotStore):
+        return strategy_rows
+    return snapshot_store
 
 
 async def _seed_default_watchlist(

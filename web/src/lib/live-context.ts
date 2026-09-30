@@ -26,7 +26,7 @@ export type LiveContext = {
 const LEADS: Record<LiveContextKind, string> = {
 	bot: 'this bot places real Coinbase orders',
 	order: 'this order will be sent to Coinbase with real money',
-	arm: 'arming this version places real Coinbase orders'
+	arm: 'arming this strategy places real Coinbase orders'
 };
 
 /**

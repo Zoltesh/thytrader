@@ -48,6 +48,7 @@ class HealthOpsContract(BaseModel):
     bounded_deployment_reads: list[str]
     deployment_ledger_pagination: list[str]
     multi_book_ledger: list[str]
+    strategy_model: list[str]
     expected_schema_revision: str
 
 

@@ -6,10 +6,8 @@ const fingerprint = `sha256:${'c'.repeat(64)}`;
 const draft = {
 	schema_version: '1.0',
 	strategy_id: strategyId,
-	version: 1,
 	name: 'Builder test trend',
 	description: 'Reference research strategy; not trading authority.',
-	status: 'draft',
 	created_at: '2026-08-14T12:00:00Z',
 	instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
 	timeframe: '1h',
@@ -63,43 +61,33 @@ const draft = {
 	metadata: { tags: ['reference'], notes: [] }
 };
 
-const libraryEntry = {
-	strategy_id: strategyId,
-	name: 'Builder test trend',
-	product_id: 'BTC-USD',
-	timeframe: '1h',
-	latest_version: 1,
-	status: 'draft',
-	latest_fingerprint: null,
-	archived: false,
-	summary: 'BTC-USD · 1h · EMA(20) crosses above EMA(50) AND RSI(14) ≥ 50 · 0.5% risk · $10-$100',
-	backtest: null,
-	paper_live: { paper: 'unavailable', live: 'unavailable' },
-	created_at: draft.created_at,
-	updated_at: draft.created_at
-};
+function record(strategy: typeof draft = draft, revision = 1, overrides: object = {}) {
+	return {
+		strategy_id: strategyId,
+		name: strategy.name,
+		revision,
+		created_at: strategy.created_at,
+		updated_at: strategy.created_at,
+		document: strategy,
+		strategy,
+		validation: { valid: true, issues: [] },
+		current_fingerprint: fingerprint,
+		summary: null,
+		product_id: strategy.instrument.product_id,
+		timeframe: strategy.timeframe,
+		...overrides
+	};
+}
 
-async function mockDraftStorage(page: import('@playwright/test').Page): Promise<void> {
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
-		await route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [],
-				draft: { strategy: draft, revision: 1 }
-			}
-		});
-	});
-	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
-		await route.fulfill({ json: { strategy: draft, revision: 1 } });
+async function mockDraftStorage(
+	page: import('@playwright/test').Page,
+	current: ReturnType<typeof record> = record()
+): Promise<void> {
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		await route.fulfill({ json: current });
 	});
 	await page.route(isStrategyLibraryRequest, async (route) => {
-		if (route.request().method() !== 'GET') {
-			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
-			return;
-		}
-		await route.fulfill({ json: { strategies: [libraryEntry] } });
+		await route.fulfill({ status: 503, json: { detail: 'Library must not be needed here' } });
 	});
 }
 
@@ -118,16 +106,126 @@ test('loads a draft into the builder with sections, rule tree, and inspector sum
 	await expect(
 		page.getByText('50 completed 1h bars (OHLCV) before the first signal.')
 	).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: /Publish/ })).toHaveCount(0);
+	await expect(page.getByTestId('saved-validation')).toContainText('Saved definition is valid');
 });
 
-test('marks unsaved changes and blocks saving when validation fails', async ({ page }) => {
+test('marks unsaved changes and still allows saving work in progress with problems', async ({
+	page
+}) => {
 	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	await page.getByLabel('Strategy name').fill('');
 	await expect(page.locator('.dirty-pill')).toBeVisible();
 	await expect(page.locator('.problems')).toContainText('Name is required.');
-	await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+	await expect(page.getByText('You can save work in progress with problems')).toBeVisible();
+});
+
+test('saving an invalid definition keeps it and shows the saved validation result', async ({
+	page
+}) => {
+	let saved = false;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			const body = (await route.request().postDataJSON()) as { document: typeof draft };
+			saved = true;
+			await route.fulfill({
+				json: record(body.document, 2, {
+					strategy: null,
+					current_fingerprint: null,
+					validation: {
+						valid: false,
+						issues: [{ loc: 'name', message: 'String should have at least 1 character' }]
+					}
+				})
+			});
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByLabel('Strategy name').fill('');
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => saved).toBe(true);
+	const validation = page.getByTestId('saved-validation');
+	await expect(validation).toContainText('Saved definition has 1 problem');
+	await expect(validation).toContainText('String should have at least 1 character');
+	await expect(page.getByTestId('workspace-validity')).toHaveText(/1 problem/);
+	await expect(page.getByTestId('workspace-save-state')).toContainText('Revision 2');
+});
+
+test('a stale save is rejected and never overwrites', async ({ page }) => {
+	let puts = 0;
+	let reloaded = false;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			puts += 1;
+			await route.fulfill({
+				status: 409,
+				json: {
+					detail: {
+						code: 'strategy_revision_conflict',
+						message: 'Strategy revision conflict.',
+						current_revision: 5
+					}
+				}
+			});
+			return;
+		}
+		if (puts > 0) reloaded = true;
+		await route.fulfill({
+			json: puts > 0 ? record({ ...draft, name: 'Saved elsewhere' }, 5) : record()
+		});
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByLabel('Strategy name').fill('My local edit');
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	const conflict = page.getByTestId('save-conflict');
+	await expect(conflict).toContainText('Not saved: this strategy changed elsewhere');
+	await expect(conflict).toContainText('revision 5');
+	await expect(conflict).toContainText('Nothing was overwritten');
+	await expect(page.getByLabel('Strategy name')).toHaveValue('My local edit');
+	await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+	expect(puts).toBe(1);
+	await conflict.getByRole('button', { name: 'Reload latest' }).click();
+	await expect.poll(() => reloaded).toBe(true);
+	await expect(page.getByLabel('Strategy name')).toHaveValue('Saved elsewhere');
+	await expect(page.getByTestId('save-conflict')).toHaveCount(0);
+});
+
+test('a saved document the form cannot show opens as JSON with its problems', async ({ page }) => {
+	const wip = { schema_version: '1.0', strategy_id: strategyId, name: 'Half-built idea' };
+	let savedDocument: unknown = null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			savedDocument = ((await route.request().postDataJSON()) as { document: unknown }).document;
+			await route.fulfill({ json: record(draft, 3) });
+			return;
+		}
+		await route.fulfill({
+			json: {
+				...record(),
+				name: 'Half-built idea',
+				document: wip,
+				strategy: null,
+				current_fingerprint: null,
+				product_id: null,
+				timeframe: null,
+				validation: { valid: false, issues: [{ loc: 'instrument', message: 'Field required' }] }
+			}
+		});
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	const editor = page.getByTestId('raw-definition');
+	await expect(editor).toBeVisible();
+	await expect(page.getByTestId('saved-validation')).toContainText('Field required');
+	await editor.fill(JSON.stringify(draft));
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect
+		.poll(() => (savedDocument as { name?: string } | null)?.name)
+		.toBe('Builder test trend');
 });
 
 test('flags engine settings the current backtester does not model', async ({ page }) => {
@@ -146,68 +244,38 @@ test('flags engine settings the current backtester does not model', async ({ pag
 	await expect(makerEntry.getByText('Supported', { exact: true })).toHaveCount(2);
 });
 
-test('saves edited builder state through the durable draft boundary', async ({ page }) => {
-	type SavedPayload = { strategy: { name: string }; revision: number };
+test('saves the document in place with the loaded revision', async ({ page }) => {
+	type SavedPayload = {
+		document: { name: string; version?: number; status?: string };
+		revision: number;
+	};
 	let savedBody = null as SavedPayload | null;
-	let savedOnce = false;
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
-		await route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [],
-				draft: { strategy: draft, revision: 1 }
-			}
-		});
-	});
-	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
 		if (route.request().method() === 'PUT') {
 			savedBody = (await route.request().postDataJSON()) as SavedPayload;
-			savedOnce = true;
-			const strategy = { ...(draft as object), name: savedBody.strategy.name } as typeof draft;
-			await route.fulfill({ json: { strategy, revision: 2 } });
+			await route.fulfill({
+				json: record({ ...draft, name: savedBody.document.name }, 2)
+			});
 			return;
 		}
-		await route.fulfill({ json: { strategy: draft, revision: 1 } });
+		await route.fulfill({ json: record() });
 	});
-	await page.route(isStrategyLibraryRequest, async (route) =>
-		route.fulfill({ json: { strategies: [libraryEntry] } })
-	);
 	await page.goto(`/strategies/${strategyId}`);
 	await page.getByLabel('Strategy name').fill('Renamed in builder');
-	await page.getByRole('button', { name: 'Save draft' }).click();
-	await expect.poll(() => savedOnce).toBe(true);
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => savedBody?.revision).toBe(1);
 	const saved = savedBody as SavedPayload;
-	expect(saved.strategy.name).toBe('Renamed in builder');
-	expect(saved.revision).toBe(1);
+	expect(saved.document.name).toBe('Renamed in builder');
+	expect(saved.document.version).toBeUndefined();
+	expect(saved.document.status).toBeUndefined();
 	await expect(page.getByText(`Saved ${new Date().toLocaleTimeString()}`)).toBeVisible();
+	await expect(page.getByTestId('workspace-save-state')).toContainText('Revision 2');
+	await expect(page.getByTestId('workspace-save-state')).toContainText('all edits saved');
 });
 
 test('required data and market hint follow the draft timeframe', async ({ page }) => {
 	const fiveMinuteDraft = { ...draft, timeframe: '5m' };
-	const fiveMinuteEntry = { ...libraryEntry, timeframe: '5m' };
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
-		await route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [],
-				draft: { strategy: fiveMinuteDraft, revision: 1 }
-			}
-		});
-	});
-	await page.route(`**/api/v1/strategies/${strategyId}/versions/1`, async (route) => {
-		await route.fulfill({ json: { strategy: fiveMinuteDraft, revision: 1 } });
-	});
-	await page.route(isStrategyLibraryRequest, async (route) => {
-		if (route.request().method() !== 'GET') {
-			await route.fulfill({ status: 405, json: { detail: 'method not allowed' } });
-			return;
-		}
-		await route.fulfill({ json: { strategies: [fiveMinuteEntry] } });
-	});
+	await mockDraftStorage(page, record(fiveMinuteDraft));
 	await page.goto(`/strategies/${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
 	await expect(
@@ -217,7 +285,7 @@ test('required data and market hint follow the draft timeframe', async ({ page }
 	await page.getByRole('button', { name: 'Market and data' }).click();
 	await expect(page.getByRole('heading', { name: 'Market and data' })).toBeVisible();
 	await expect(page.getByRole('main')).toContainText('any ingested venue clock');
-	await expect(page.getByRole('main')).toContainText('this draft uses 5m candles');
+	await expect(page.getByRole('main')).toContainText('this strategy uses 5m candles');
 	await expect(page.getByRole('main')).toContainText(
 		'Sub-hour live requires a connected user-order feed'
 	);
@@ -240,110 +308,26 @@ test('shows a literal editor when the left operand is a literal value', async ({
 	await expect(page.getByLabel('Left literal value')).toHaveCount(0);
 });
 
-test('loads the current draft from identity history without scanning the library', async ({
-	page
-}) => {
+test('loads the strategy record without scanning the library', async ({ page }) => {
 	let libraryRequests = 0;
 	await page.route(isStrategyLibraryRequest, async (route) => {
 		libraryRequests += 1;
 		await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
 	});
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
-		await route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 2,
-				next_version: 3,
-				versions: [],
-				draft: { strategy: { ...draft, version: 2 }, revision: 7 }
-			}
-		});
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		await route.fulfill({ json: record(draft, 7) });
 	});
 	await page.goto(`/strategies/${strategyId}`);
 	await expect(page.getByRole('heading', { name: 'Builder test trend' })).toBeVisible();
-	await expect(page.getByTestId('workspace-version-pill')).toHaveText(/Draft v2/);
+	await expect(page.getByTestId('workspace-save-state')).toContainText('Revision 7');
 	expect(libraryRequests).toBe(0);
-});
-
-test('a published-only identity shows its definition read-only in the same layout', async ({
-	page
-}) => {
-	await page.route(isStrategyLibraryRequest, async (route) => {
-		await route.fulfill({ status: 503, json: { detail: 'Catalog unavailable' } });
-	});
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, async (route) => {
-		await route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [{ version: 1, strategy_fingerprint: fingerprint, published: true }],
-				draft: null
-			}
-		});
-	});
-	await page.route('**/api/v1/strategies/source/*', (route) =>
-		route.fulfill({ json: { strategy: { ...draft, status: 'published' } } })
-	);
-	await page.goto(`/strategies/${strategyId}`);
-	const banner = page.getByRole('status').filter({ hasText: 'No editable draft' });
-	await expect(banner).toContainText('immutable');
-	await expect(page.getByText('Builder unavailable')).toHaveCount(0);
-	await expect(page.getByText('HTTP 404')).toHaveCount(0);
-	await expect(page.getByLabel('Strategy name')).toHaveValue('Builder test trend');
-	await expect(page.getByLabel('Strategy name')).toBeDisabled();
-	await expect(page.getByTestId('plain-english')).toContainText('fast crosses above slow');
-	await page.getByRole('button', { name: 'Entry conditions' }).click();
-	await expect(page.getByLabel('Left operand').first()).toBeDisabled();
-	await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: /Publish/ })).toHaveCount(0);
-	await expect(page.getByTestId('workspace-draft-state')).toContainText('No editable draft');
-	await expect(page.getByRole('button', { name: 'Revise into new draft' })).toBeEnabled();
-});
-
-test('publishing needs the immutable-version confirmation and never offers paper', async ({
-	page
-}) => {
-	await mockDraftStorage(page);
-	let publishBody: { revision: number } | null = null;
-	await page.route(`**/api/v1/strategies/${strategyId}/publish`, async (route) => {
-		publishBody = (await route.request().postDataJSON()) as { revision: number };
-		await route.fulfill({
-			json: { strategy_fingerprint: fingerprint, strategy: { ...draft, status: 'published' } }
-		});
-	});
-	await page.goto(`/strategies/${strategyId}`);
-	await expect(page.getByText("It doesn't start trading.")).toBeVisible();
-	await page.getByRole('button', { name: 'Publish v1…' }).click();
-	const dialog = page.getByRole('dialog', { name: 'Publish immutable strategy version?' });
-	await expect(dialog).toContainText('Builder test trend · Version 1');
-	await expect(dialog).toContainText('BTC / USD · 1h');
-	await expect(dialog).toContainText('This version cannot be edited');
-	await expect(dialog).toContainText('No blocking definition errors');
-	await expect(dialog).toContainText('Created after publication');
-	await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
-	await page.keyboard.press('Escape');
-	await expect(dialog).toBeHidden();
-	expect(publishBody).toBeNull();
-	await page.getByRole('button', { name: 'Publish v1…' }).click();
-	await dialog.getByRole('button', { name: 'Publish version' }).click();
-	await expect.poll(() => publishBody?.revision).toBe(1);
-	const success = page.getByTestId('publish-success');
-	await expect(success).toContainText('Published v1');
-	await expect(success).toContainText(fingerprint);
-	await expect(success.getByRole('link', { name: 'Set up a backtest' })).toHaveAttribute(
-		'href',
-		`/strategies/${strategyId}/test?version=${encodeURIComponent(fingerprint)}`
-	);
-	await expect(success.getByRole('link', { name: 'View published version' })).toBeVisible();
-	await expect(success.getByRole('link', { name: /paper|deploy|run/i })).toHaveCount(0);
 });
 
 test('leaving with unsaved edits asks first and keeps the draft on cancel', async ({ page }) => {
 	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
 	await page.getByLabel('Strategy name').fill('Edited but unsaved');
-	await expect(page.getByTestId('workspace-draft-state')).toContainText('unsaved changes');
+	await expect(page.getByTestId('workspace-save-state')).toContainText('unsaved changes');
 	await page
 		.getByRole('navigation', { name: 'Strategy stages' })
 		.getByRole('link', { name: 'Test' })
@@ -371,5 +355,5 @@ test('rule rows read as IF / AND rows and nested groups keep their keyword', asy
 	await expect(rows.nth(1).locator('.kw')).toHaveText('AND');
 	await page.getByRole('button', { name: '+ ANY' }).first().click();
 	await expect(page.getByText('ANY', { exact: true })).toBeVisible();
-	await expect(page.getByTestId('workspace-draft-state')).toContainText('unsaved changes');
+	await expect(page.getByTestId('workspace-save-state')).toContainText('unsaved changes');
 });

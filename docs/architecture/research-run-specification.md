@@ -9,11 +9,12 @@ backtest ran and not authority to place an order. Mermaid:
 [contract diagrams — research-run](contracts/research-run.md).
 
 Research-run-spec publication remains an internal application boundary. The browser strategy API now
-authors revision-guarded drafts, publishes immutable strategy evidence, and submits deterministic
-backtests whose server-side workflow derives and persists the eligible run specification and immutable
-result. A read-only CLI can also evaluate an existing publication that selects the explicit signal-
-engine contract. The research-run spec itself still does not grant paper, Coinbase, or live-trading
-authority; those runtimes consume published strategy semantics on a separate confirmation-gated path.
+saves one revision-guarded mutable strategy per id and submits deterministic backtests by
+`strategy_id`; the server snapshots the current definition, then derives and persists the eligible
+run specification and immutable result
+([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). A read-only CLI
+can also evaluate an existing run spec that selects the explicit signal-engine contract. The research-run spec itself still does not grant paper, Coinbase, or live-trading
+authority; those runtimes consume the same snapshotted strategy semantics on a separate confirmation-gated path.
 
 ## Canonical V1 document
 
@@ -27,7 +28,7 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `schema_version` | Exact literal `1.0`. |
 | `run_id` | UUIDv7 whose embedded Unix millisecond matches `created_at`. It identifies one immutable research request. |
 | `created_at` | Timezone-aware UTC creation instant. |
-| `strategy_fingerprint` | Exact published canonical strategy fingerprint. |
+| `strategy_fingerprint` | Exact canonical strategy snapshot fingerprint (`strategy_snapshots`). The row also stores the owning `strategy_id` (FK to `strategies`, `ON DELETE CASCADE`); it is not part of the canonical run document. |
 | `dataset_fingerprint` | Exact verified immutable LTF dataset fingerprint for the **primary** instrument. |
 | `additional_instrument_datasets` | Optional extra covered-product bindings `{product_id, dataset_fingerprint, htf_dataset_fingerprint?, indicator_dataset_fingerprints?}`. Required iff the strategy declares `additional_instruments`; ordered by `product_id`; omitted from canonical JSON when empty. Each extra product needs a complete decision-clock dataset; HTF and extra-TF fingerprints are required iff the document declares those clocks. Identities must be unique and distinct from the primary LTF/HTF/extra-TF fingerprints. |
 | `htf_dataset_fingerprint` | Optional exact HTF dataset fingerprint. Required iff the strategy declares `htf_filter`; must differ from `dataset_fingerprint`; omitted from canonical JSON when null. |
@@ -53,7 +54,7 @@ Dataset manifests describe complete candle coverage as a half-open interval
 
 1. `warmup.starts_at == evaluation.starts_at` minus `warmup.bars` times the **decision (LTF)**
    candle duration (`1h` or `5m`);
-2. `warmup.bars` exactly equals the published strategy's declared `data_requirements.warmup_bars`;
+2. `warmup.bars` exactly equals the snapshot's declared `data_requirements.warmup_bars`;
 3. the verified LTF dataset begins no later than `warmup.starts_at`;
 4. the evaluation interval contains at least one decision-timeframe candle; and
 5. the verified LTF dataset ends no earlier than `evaluation.ends_at` plus one decision bar.
@@ -84,7 +85,7 @@ PostgreSQL table `published_research_run_specs` stores the canonical document an
 facts. Publication proceeds fail closed:
 
 1. serialize and round-trip validate the supplied typed model before artifact or insert access;
-2. load and cryptographically reverify the exact published strategy;
+2. load and cryptographically reverify the exact strategy snapshot;
 3. load and reverify the exact immutable dataset manifest and Parquet content;
 4. require the existing immutable strategy/dataset binding;
 5. validate strategy, provider, product, timeframe, warmup, interval, fill-lookahead, and optional HTF dataset compatibility;

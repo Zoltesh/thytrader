@@ -18,6 +18,7 @@ from thytrader.research.jobs import (
     ResearchJobKind,
     ResearchJobRecord,
     ResearchJobStatus,
+    primary_strategy_fingerprint,
 )
 from thytrader.research.studies import ResearchStudyRequest
 
@@ -37,15 +38,53 @@ class PostgresResearchJobStore:
         """Bind the store to a managed async engine."""
         self._engine = engine
 
-    async def create_backtest(self, request: BacktestSubmissionRequest) -> ResearchJobRecord:
+    async def create_backtest(
+        self, request: BacktestSubmissionRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
         """Insert one queued backtest job and return its initial record."""
-        return await self._create(ResearchJobKind.BACKTEST, request.model_dump_json())
+        return await self._create(
+            ResearchJobKind.BACKTEST,
+            request.model_dump_json(),
+            strategy_id=strategy_id,
+            strategy_fingerprint=request.strategy_fingerprint,
+        )
 
-    async def create_study(self, request: ResearchStudyRequest) -> ResearchJobRecord:
+    async def create_study(
+        self, request: ResearchStudyRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
         """Insert one queued study job and return its initial record."""
-        return await self._create(ResearchJobKind.STUDY, request.model_dump_json())
+        return await self._create(
+            ResearchJobKind.STUDY,
+            request.model_dump_json(),
+            strategy_id=strategy_id,
+            strategy_fingerprint=primary_strategy_fingerprint(request),
+        )
 
-    async def _create(self, kind: ResearchJobKind, payload: str) -> ResearchJobRecord:
+    async def list_for_strategy(
+        self, strategy_id: UUID, *, limit: int
+    ) -> tuple[ResearchJobRecord, ...]:
+        """Return the strategy's newest jobs first (indexed by strategy and time)."""
+        statement = (
+            select(research_jobs)
+            .where(research_jobs.c.strategy_id == str(strategy_id))
+            .order_by(research_jobs.c.created_at.desc(), research_jobs.c.job_id.asc())
+            .limit(limit)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ResearchJobUnavailableError("Research jobs are unavailable.") from error
+        return tuple(_record_from_row(row) for row in rows)
+
+    async def _create(
+        self,
+        kind: ResearchJobKind,
+        payload: str,
+        *,
+        strategy_id: UUID,
+        strategy_fingerprint: str,
+    ) -> ResearchJobRecord:
         """Insert one queued job row."""
         now = datetime.now(UTC)
         job_id = uuid4()
@@ -53,6 +92,8 @@ class PostgresResearchJobStore:
             job_id=job_id,
             kind=kind.value,
             status=ResearchJobStatus.QUEUED.value,
+            strategy_id=str(strategy_id),
+            strategy_fingerprint=strategy_fingerprint,
             payload=payload,
             progress_current=0,
             progress_total=1,
@@ -397,4 +438,6 @@ def _record_from_row(row: RowMapping) -> ResearchJobRecord:
         result_fingerprint=cast("str | None", row.get("result_fingerprint")),
         study_fingerprint=cast("str | None", row.get("study_fingerprint")),
         plan_fingerprint=cast("str | None", row.get("plan_fingerprint")),
+        strategy_id=UUID(cast("str", row["strategy_id"])),
+        strategy_fingerprint=cast("str", row["strategy_fingerprint"]),
     )

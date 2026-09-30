@@ -3,59 +3,47 @@
  * `routes/strategies/[id]/+layout.svelte` to the Build / Test / Run / Why
  * stages through Svelte context.
  *
- * It owns the identity history (published versions plus the open draft), the
- * `?version=` resolution, and a cache of published definitions by
- * fingerprint. Stages read it; only the layout reloads it.
+ * It owns the one mutable strategy record (ADR 0082) and a cache of snapshot
+ * definitions by fingerprint, used for "What changed" diffs. Stages read it;
+ * Build replaces the record after a save.
  */
-import { page } from '$app/state';
 import { getContext, setContext } from 'svelte';
 import {
-	fetchStrategyHistory,
-	fetchStrategySource,
+	builderModelFromRecord,
+	fetchStrategy,
+	fetchStrategySnapshot,
 	toBuilderModel,
 	type BuilderModel,
-	type StrategyVersionHistory
+	type StrategyRecord
 } from '$lib/strategies';
-import { resolveWorkspaceVersion } from '$lib/strategy-workspace';
 
 const KEY = Symbol('strategy-workspace');
 
 export class StrategyWorkspace {
 	strategyId = $state('');
-	history = $state<StrategyVersionHistory | null>(null);
+	record = $state<StrategyRecord | null>(null);
 	loading = $state(true);
 	error = $state<string | null>(null);
-	/** Raw `?version=` value from the URL (null when absent). */
-	readonly requestedVersion = $derived(page.url.searchParams.get('version'));
-	/** Published definitions keyed by exact fingerprint. */
-	models = $state<Record<string, BuilderModel>>({});
-	modelErrors = $state<Record<string, string>>({});
-	/** Set by the Build stage while the draft has unsaved edits. */
-	draftDirty = $state(false);
-	/** Live draft name while editing, so the identity bar follows the form. */
+	/** Snapshot definitions keyed by exact fingerprint. */
+	snapshots = $state<Record<string, BuilderModel>>({});
+	snapshotErrors = $state<Record<string, string>>({});
+	/** Set by the Build stage while the form has unsaved edits. */
+	dirty = $state(false);
+	/** Live name while editing, so the identity bar follows the form. */
 	draftName = $state<string | null>(null);
 
 	#requestId = 0;
 
-	readonly version = $derived(
-		resolveWorkspaceVersion(this.requestedVersion, this.history?.versions ?? [])
+	/** Builder model of the saved document (null when it cannot be shown in the form). */
+	readonly model = $derived(this.record === null ? null : builderModelFromRecord(this.record));
+	/** Model of the current valid definition; null while the saved document is invalid. */
+	readonly validModel = $derived(
+		this.record?.strategy ? toBuilderModel(this.record.strategy, this.record.revision) : null
 	);
-	readonly draft = $derived(this.history?.draft ?? null);
-	readonly selectedFingerprint = $derived(this.version.entry?.strategy_fingerprint ?? null);
-	readonly selectedModel = $derived(
-		this.selectedFingerprint === null ? null : (this.models[this.selectedFingerprint] ?? null)
-	);
-	readonly latestFingerprint = $derived(
-		this.history?.versions[this.history.versions.length - 1]?.strategy_fingerprint ?? null
-	);
-	/** Definition used for name / market / clock: the draft, else the latest published version. */
-	readonly identityModel = $derived.by((): BuilderModel | null => {
-		const draft = this.history?.draft ?? null;
-		if (draft !== null) return toBuilderModel(draft.strategy, draft.revision);
-		const latest = this.latestFingerprint;
-		return latest === null ? null : (this.models[latest] ?? null);
-	});
-	readonly name = $derived(this.draftName ?? this.identityModel?.name ?? null);
+	readonly valid = $derived(this.record?.validation.valid === true);
+	readonly issues = $derived(this.record?.validation.issues ?? []);
+	readonly currentFingerprint = $derived(this.record?.current_fingerprint ?? null);
+	readonly name = $derived(this.draftName ?? this.record?.name ?? null);
 
 	async load(strategyId: string): Promise<void> {
 		const requestId = ++this.#requestId;
@@ -63,58 +51,49 @@ export class StrategyWorkspace {
 		this.loading = true;
 		this.error = null;
 		try {
-			const history = await fetchStrategyHistory(strategyId);
-			if (requestId !== this.#requestId) return;
-			if (strategyId !== this.strategyId) return;
-			this.history = history;
-			const latest = history.versions[history.versions.length - 1];
-			if (history.draft === null && latest !== undefined) {
-				await this.ensureModel(latest.strategy_fingerprint);
-			}
+			const record = await fetchStrategy(strategyId);
+			if (requestId !== this.#requestId || strategyId !== this.strategyId) return;
+			this.record = record;
 		} catch (caught) {
 			if (requestId !== this.#requestId) return;
-			this.history = null;
+			this.record = null;
 			this.error = caught instanceof Error ? caught.message : 'Could not load this strategy.';
 		} finally {
 			if (requestId === this.#requestId) this.loading = false;
 		}
 	}
 
-	/** Refresh history without blanking the page (after publish, revise, save). */
+	/** Refresh the record without blanking the page. */
 	async refresh(): Promise<void> {
 		try {
-			const history = await fetchStrategyHistory(this.strategyId);
-			this.history = history;
+			this.record = await fetchStrategy(this.strategyId);
 		} catch (caught) {
 			this.error = caught instanceof Error ? caught.message : 'Could not refresh this strategy.';
 		}
 	}
 
-	/** Load (once) the immutable published definition for a fingerprint. */
-	async ensureModel(fingerprint: string): Promise<BuilderModel | null> {
-		const cached = this.models[fingerprint];
+	/** Replace the record with a save response. */
+	accept(record: StrategyRecord): void {
+		this.record = record;
+	}
+
+	/** Load (once) the snapshot definition a run or bot used. */
+	async ensureSnapshot(fingerprint: string): Promise<BuilderModel | null> {
+		const cached = this.snapshots[fingerprint];
 		if (cached !== undefined) return cached;
 		try {
-			const source = await fetchStrategySource(fingerprint);
-			const model = toBuilderModel(source, 0);
-			this.models = { ...this.models, [fingerprint]: model };
+			const snapshot = await fetchStrategySnapshot(fingerprint);
+			const model = toBuilderModel(snapshot.strategy, 0);
+			this.snapshots = { ...this.snapshots, [fingerprint]: model };
 			return model;
 		} catch (caught) {
-			this.modelErrors = {
-				...this.modelErrors,
+			this.snapshotErrors = {
+				...this.snapshotErrors,
 				[fingerprint]:
-					caught instanceof Error ? caught.message : 'Could not load the published definition.'
+					caught instanceof Error ? caught.message : 'Could not load the earlier rules.'
 			};
 			return null;
 		}
-	}
-
-	versionNumberOf(fingerprint: string | null): number | null {
-		if (fingerprint === null) return null;
-		return (
-			this.history?.versions.find((version) => version.strategy_fingerprint === fingerprint)
-				?.version ?? null
-		);
 	}
 }
 

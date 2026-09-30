@@ -49,8 +49,8 @@ def test_start_without_confirm_does_not_call_api() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "paper",
                 "--cash",
@@ -72,8 +72,8 @@ def test_live_start_without_ack_does_not_probe_yolo() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
             ]
@@ -90,8 +90,8 @@ def test_live_start_requires_dedicated_ack() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
                 "--confirm",
@@ -107,8 +107,8 @@ def test_paper_start_requires_cash() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "paper",
                 "--confirm",
@@ -147,8 +147,8 @@ def test_paper_start_yolo_skips_confirm() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "paper",
                 "--cash",
@@ -173,8 +173,8 @@ def test_live_start_without_confirm_fails_closed_when_yolo_off() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
                 "--i-understand-live",
@@ -214,8 +214,8 @@ def test_live_start_yolo_skips_confirm() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
                 "--i-understand-live",
@@ -242,8 +242,8 @@ def test_paper_yolo_does_not_skip_live_start() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
                 "--i-understand-live",
@@ -684,8 +684,8 @@ def test_paper_start_forwards_fee_rates() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "paper",
                 "--cash",
@@ -716,8 +716,8 @@ def test_paper_start_rejects_one_sided_fee_flags() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "paper",
                 "--cash",
@@ -746,8 +746,8 @@ def test_live_start_rejects_paper_fee_flags() -> None:
         main(
             [
                 "start",
-                "--strategy-fingerprint",
-                "sha256:" + "a" * 64,
+                "--strategy-id",
+                "01985cf0-7b60-7000-8000-00000000c0de",
                 "--mode",
                 "live",
                 "--maker-fee-rate",

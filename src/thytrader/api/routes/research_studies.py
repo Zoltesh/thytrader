@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
@@ -20,8 +21,10 @@ from thytrader.api.dependencies import (
     get_execution_store,
     get_research_job_store,
     get_research_study_catalog,
-    get_strategy_publication_store,
+    get_strategy_snapshot_store,
+    get_strategy_store,
 )
+from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.backtest.submission import (
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
@@ -31,6 +34,7 @@ from thytrader.execution.models import ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
+from thytrader.persistence.postgres_research_jobs import ResearchJobUnavailableError
 from thytrader.research.catalog import (
     ResearchStudyCatalog,
     StudyCatalogIntegrityError,
@@ -39,7 +43,12 @@ from thytrader.research.catalog import (
     StudyCatalogUnavailableError,
 )
 from thytrader.research.engine_support import EngineSupportMatrix, engine_support_matrix
-from thytrader.research.jobs import ResearchJobAcceptedResponse, ResearchJobRecord, ResearchJobStore
+from thytrader.research.jobs import (
+    ResearchJobAcceptedResponse,
+    ResearchJobListResponse,
+    ResearchJobRecord,
+    ResearchJobStore,
+)
 from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
 from thytrader.research.studies import (
     ResearchStudy,
@@ -54,9 +63,13 @@ from thytrader.research.studies import (
     summarize_research_study,
     summarize_research_study_plan,
 )
-from thytrader.strategies.publication import (
-    StrategyPublicationError,
-    StrategyPublicationStore,
+from thytrader.research.study_start import (
+    ResearchStudyStartRequest,  # noqa: TC001 - FastAPI body model.
+)
+from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.strategies.snapshots import (
+    StrategySnapshotError,
+    StrategySnapshotStore,
 )
 from thytrader.strategies.templates import parse_template_id, template_blueprint, template_catalog
 
@@ -105,7 +118,7 @@ class StudyCatalogListResponse(BaseModel):
 
 
 def _study_service(
-    publications: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
@@ -163,11 +176,16 @@ def get_strategy_template_detail(template_id: str) -> StrategyTemplateDetailResp
     response_model=ResearchStudyPlanSummary | ResearchStudyPlan,
 )
 async def plan_research_study(
-    request: ResearchStudyRequest,
+    start: ResearchStudyStartRequest,
     service: Annotated[ResearchStudyService, Depends(_study_service)],
+    strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     detail: Annotated[Literal["summary", "full"], Query()] = "summary",
 ) -> ResearchStudyPlanSummary | ResearchStudyPlan:
-    """Return a compact plan summary (default) or the full window schedule."""
+    """Return a compact plan summary (default) or the full window schedule.
+
+    Planning snapshots each named strategy's current rules, exactly as submit does.
+    """
+    request = await _study_request(start, strategies)
     try:
         plan = await service.plan(request)
     except StudyPlanningError as error:
@@ -175,7 +193,7 @@ async def plan_research_study(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "study_window_rejected", "message": str(error)},
         ) from None
-    except (ResearchStudyError, StrategyPublicationError) as error:
+    except (ResearchStudyError, StrategySnapshotError) as error:
         _logger.warning("research_study_plan_failed error_class=%s", type(error).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -196,18 +214,23 @@ async def plan_research_study(
     },
 )
 async def submit_research_study(
-    request: ResearchStudyRequest,
+    start: ResearchStudyStartRequest,
     service: Annotated[ResearchStudyService, Depends(_study_service)],
     job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+    strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> ResearchStudy | Response:
-    """Submit or reuse child backtests and return the derived study document."""
+    """Snapshot every named strategy, then submit or reuse the study's child backtests."""
+    request = await _study_request(start, strategies)
     if async_submission:
-        record = await job_store.create_study(request)
+        primary = start.primary_strategy_id()
+        record = await job_store.create_study(request, strategy_id=primary)
         body = ResearchJobAcceptedResponse(
             job_id=record.job_id,
             kind=record.kind,
             status=record.status,
+            strategy_id=primary,
+            strategy_fingerprint=record.strategy_fingerprint,
         )
         return Response(
             content=body.model_dump_json(),
@@ -226,12 +249,54 @@ async def submit_research_study(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "backtest_window_rejected", "message": str(rejected)},
         ) from None
-    except (ResearchStudyError, BacktestSubmissionError, StrategyPublicationError) as error:
+    except (ResearchStudyError, BacktestSubmissionError, StrategySnapshotError) as error:
         _logger.warning("research_study_submit_failed error_class=%s", type(error).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Research study submission is unavailable.",
         ) from None
+
+
+@router.get("/jobs", response_model=ResearchJobListResponse)
+async def list_research_jobs(
+    strategy_id: Annotated[UUID, Query()],
+    job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> ResearchJobListResponse:
+    """Return one strategy's newest async backtest and study jobs."""
+    try:
+        jobs = await job_store.list_for_strategy(strategy_id, limit=limit)
+    except ResearchJobUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "research_jobs_unavailable",
+                "message": "Research jobs are unavailable.",
+            },
+        ) from None
+    return ResearchJobListResponse(jobs=jobs, limit=limit, returned=len(jobs))
+
+
+async def _study_request(
+    start: ResearchStudyStartRequest, strategies: StrategyStore
+) -> ResearchStudyRequest:
+    """Snapshot each named strategy and build the internal fingerprint-bound request."""
+    try:
+        identities = start.strategy_ids()
+        start.primary_strategy_id()
+    except StudyPlanningError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "study_window_rejected", "message": str(error)},
+        ) from None
+    fingerprints = {
+        identity: (await snapshot_for_start(strategies, identity)).strategy_fingerprint
+        for identity in identities
+    }
+    try:
+        return start.to_request(fingerprints)
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from None
 
 
 @router.get("/jobs/{job_id}", response_model=ResearchJobRecord)
@@ -273,13 +338,15 @@ async def cancel_research_job(
 async def list_research_studies(
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
     kind: StudyKind | None = None,
+    strategy_id: Annotated[UUID | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StudyCatalogListResponse:
-    """List persisted study catalog rows without child equity curves."""
+    """List persisted studies (optionally every study that includes one strategy)."""
     try:
         rows = await catalog.list_summaries(
             kind=kind.value if kind is not None else None,
+            strategy_id=strategy_id,
             limit=limit,
             offset=offset,
         )
@@ -337,7 +404,7 @@ async def get_research_study(
 @router.get("/promotion-evidence", response_model=PromotionEvidence)
 async def get_promotion_evidence(
     strategy_fingerprint: Annotated[str, Query()],
-    publications: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     results: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
     execution: Annotated[ExecutionStore, Depends(get_execution_store)],
@@ -350,7 +417,7 @@ async def get_promotion_evidence(
         )
     try:
         published = await publications.load(strategy_fingerprint)
-    except StrategyPublicationError as error:
+    except StrategySnapshotError as error:
         message = str(error)
         if "not found" in message.lower():
             raise HTTPException(

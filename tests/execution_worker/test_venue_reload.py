@@ -27,7 +27,7 @@ from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -232,7 +232,7 @@ async def test_execution_worker_reads_the_venue_once_per_cycle(tmp_path: Path) -
         run_execution_worker(
             stop,
             store=InMemoryExecutionStore(),
-            publication_store=DisabledStrategyPublicationStore(),
+            publication_store=DisabledStrategySnapshotStore(),
             market_data=initial.market_data,
             paper_broker=PaperBroker(),
             live_broker=None,

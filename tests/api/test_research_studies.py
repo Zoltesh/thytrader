@@ -11,10 +11,6 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from tests.api.test_strategy_authoring import (
-    InMemoryStrategyDraftStore,
-    InMemoryStrategyPublicationStore,
-)
 from thytrader.api.app import create_app
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import (
@@ -25,10 +21,11 @@ from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
 from thytrader.research.http import find_study_by_request
-from thytrader.strategies.models import strategy_fingerprint
+from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from uuid import UUID
 
     from thytrader.persistence.backtest_results import BacktestResultSummaryView
 
@@ -103,10 +100,12 @@ class _StudyResults:
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
         """Unused by study routes."""
+        del strategy_id
         del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
         return ()
 
@@ -159,14 +158,12 @@ class _CoveringDatasetStore(DatasetStore):
 
 def _client(
     dataset_store: DatasetStore | None = None,
-) -> tuple[TestClient, InMemoryStrategyPublicationStore, _StudySubmitter]:
+) -> tuple[TestClient, InMemoryStrategyStore, _StudySubmitter]:
     """Build an API client with in-memory research stores."""
-    drafts = InMemoryStrategyDraftStore()
-    publications = InMemoryStrategyPublicationStore(drafts)
+    publications = InMemoryStrategyStore()
     submitter = _StudySubmitter()
     app = create_app(
         Settings(_env_file=None),
-        strategy_draft_store=drafts,
         strategy_store=publications,
         backtest_submitter=submitter,
         backtest_result_store=_StudyResults(),
@@ -177,18 +174,12 @@ def _client(
 
 
 def _publish_reference(client: TestClient) -> str:
-    """Create and publish the default EMA draft, returning its fingerprint."""
+    """Create the default EMA strategy, returning its strategy_id."""
     created = client.post("/api/v1/strategies")
     assert created.status_code == 201, created.text
-    draft = created.json()["strategy"]
-    published = client.post(
-        f"/api/v1/strategies/{draft['strategy_id']}/publish",
-        json={"strategy": draft, "revision": 1},
-    )
-    assert published.status_code == 201, published.text
-    fingerprint = published.json()["strategy_fingerprint"]
-    assert isinstance(fingerprint, str)
-    return fingerprint
+    strategy_id = created.json()["strategy_id"]
+    assert isinstance(strategy_id, str)
+    return strategy_id
 
 
 def _holdout_body(strategy_fingerprint_value: str) -> dict[str, object]:
@@ -202,7 +193,7 @@ def _holdout_body(strategy_fingerprint_value: str) -> dict[str, object]:
         "taker_fee_rate": "0.002",
         "fixed_slippage_bps": "10",
         "engine_contract_version": "thytrader-bar-backtest-v1",
-        "strategy_fingerprint": strategy_fingerprint_value,
+        "strategy_id": strategy_fingerprint_value,
         "dataset_fingerprint": "sha256:" + "b" * 64,
         "oos_fraction": "0.3",
     }
@@ -289,8 +280,7 @@ def test_plan_study_returns_in_sample_and_out_of_sample_windows() -> None:
     windows = full.json()["windows"]
     assert [window["role"] for window in windows] == ["in_sample", "out_of_sample"]
     assert submitter.calls == 0
-    assert publications.published is not None
-    assert strategy_fingerprint(publications.published) == fingerprint
+    assert len(publications.snapshot_fingerprints()) == 1
 
 
 def test_submit_study_composes_child_backtests() -> None:
@@ -345,7 +335,7 @@ def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:
                 "taker_fee_rate": "0.002",
                 "fixed_slippage_bps": "10",
                 "engine_contract_version": "thytrader-bar-backtest-v3",
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": fingerprint,
                 "dataset_fingerprint": "sha256:" + "b" * 64,
                 "in_sample_bars": 48,
                 "out_of_sample_bars": 24,
@@ -411,7 +401,7 @@ def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:
                 "taker_fee_rate": "0.002",
                 "fixed_slippage_bps": "10",
                 "engine_contract_version": "thytrader-bar-backtest-v1",
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": fingerprint,
                 "dataset_fingerprint": "sha256:" + "b" * 64,
                 "parameter_axes": [
                     {
@@ -426,7 +416,7 @@ def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:
     body = response.json()
     assert body["kind"] == "parameter_sweep"
     assert submitter.calls == 2
-    assert len(publications.by_fingerprint) == 3
+    assert len(publications.snapshot_fingerprints()) == 3
     assert sum(1 for window in body["windows"] if window.get("selected") is True) == 1
     assert body["selection_metric"] == "total_return_fraction"
     assert "stitched_oos_equity" not in body

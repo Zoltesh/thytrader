@@ -285,7 +285,7 @@ class PostgresExecutionStore:
     ) -> Deployment:
         """Replace mutable runtime fields for one existing deployment."""
         next_revision = deployment.revision + 1
-        values = _deployment_values(deployment)
+        values = _mutable_deployment_values(deployment)
         values["revision"] = next_revision
         statement = deployments.update().where(deployments.c.id == deployment.id)
         if expected_revision is not None:
@@ -519,7 +519,7 @@ class PostgresExecutionStore:
                     deployments.update()
                     .where(deployments.c.id == deployment_id)
                     .values(
-                        **_deployment_values(projected.deployment),
+                        **_mutable_deployment_values(projected.deployment),
                         revision=next_revision,
                     )
                 )
@@ -666,12 +666,29 @@ class PostgresExecutionStore:
         return _intent_from_row(row)
 
 
+_STRATEGY_IDENTITY_COLUMNS = ("strategy_fingerprint", "strategy_id", "strategy_name")
+
+
+def _mutable_deployment_values(deployment: Deployment) -> dict[str, object]:
+    """Map runtime fields for UPDATE, never rewriting the book's strategy identity.
+
+    ``strategy_id`` only ever changes through ``ON DELETE SET NULL`` when a stopped
+    live book's strategy is deleted (ADR 0082); a worker holding an older in-memory
+    copy must not write the deleted id back.
+    """
+    values = _deployment_values(deployment)
+    for column in _STRATEGY_IDENTITY_COLUMNS:
+        values.pop(column)
+    return values
+
+
 def _deployment_values(deployment: Deployment) -> dict[str, object]:
     """Map one deployment into insertable column values."""
     return {
         "id": deployment.id,
         "strategy_fingerprint": deployment.strategy_fingerprint,
         "strategy_id": None if deployment.strategy_id is None else str(deployment.strategy_id),
+        "strategy_name": deployment.strategy_name,
         "product_id": deployment.product_id,
         "mode": deployment.mode.value,
         "status": deployment.status.value,
@@ -745,6 +762,7 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         id=row["id"],
         strategy_fingerprint=row["strategy_fingerprint"],
         strategy_id=None if row["strategy_id"] is None else UUID(str(row["strategy_id"])),
+        strategy_name=row.get("strategy_name"),
         product_id=row["product_id"],
         mode=DeploymentMode(row["mode"]),
         status=DeploymentStatus(row["status"]),

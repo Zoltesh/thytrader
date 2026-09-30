@@ -32,7 +32,6 @@ class TradeReasonScope:
     strategy_id: UUID | None = None
     strategy_fingerprint: str | None = None
     strategy_name: str | None = None
-    strategy_version: int | None = None
     timeframe: str | None = None
     discretionary_note: str | None = None
     note_origin: str | None = None
@@ -86,7 +85,6 @@ def strategy_trade_reason_scope(
         strategy_id=strategy.strategy_id,
         strategy_fingerprint=deployment.strategy_fingerprint,
         strategy_name=strategy.name,
-        strategy_version=strategy.version,
         timeframe=strategy.timeframe,
     )
 

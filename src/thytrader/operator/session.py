@@ -35,7 +35,7 @@ from thytrader.persistence.postgres_market_data_worker import PostgresMarketData
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
@@ -44,8 +44,8 @@ from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import DisabledResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore
-from thytrader.strategies.authoring import DisabledStrategyDraftStore
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.library import DisabledStrategyStore
+from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -62,14 +62,14 @@ async def operator_diagnostics(
     market_data = _market_data_service(resolved)
     if resolved.database_url is not None:
         engine = create_engine(resolved.database_url)
-        strategy_store = PostgresStrategyPublicationStore(engine)
+        strategy_store = PostgresStrategyStore(engine)
         diagnostics = OperatorDiagnostics(
             settings=resolved,
             portfolio=_portfolio_service(resolved),
             market_data_state=PostgresMarketDataWorkerStateStore(engine),
             history=PostgresPortfolioHistoryStore(engine),
             publications=strategy_store,
-            drafts=strategy_store,
+            strategies_store=strategy_store,
             backtests=PostgresBacktestResultStore(
                 engine,
                 research_run_store=PostgresResearchRunStore(engine),
@@ -93,8 +93,8 @@ async def operator_diagnostics(
             portfolio=_portfolio_service(resolved),
             market_data_state=DisabledMarketDataWorkerStateStore(),
             history=DisabledPortfolioHistoryStore(),
-            publications=DisabledStrategyPublicationStore(),
-            drafts=DisabledStrategyDraftStore(),
+            publications=DisabledStrategySnapshotStore(),
+            strategies_store=DisabledStrategyStore(),
             backtests=DisabledBacktestResultStore(),
             execution=DisabledExecutionStore(),
             audit=DisabledAuditEventStore(),

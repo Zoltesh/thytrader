@@ -78,8 +78,14 @@ export type DeploymentFill = {
 
 export type Deployment = {
 	id: string;
+	/** Snapshot of the rules this deployment runs (fixed at start). */
 	strategy_fingerprint: string | null;
+	/** Owning strategy; null for discretionary books and for kept live books of a deleted strategy. */
 	strategy_id: string | null;
+	/** Strategy name captured when the deployment started. */
+	strategy_name?: string | null;
+	/** True for a kept live book whose strategy was deleted. */
+	strategy_deleted?: boolean;
 	kind: 'strategy' | 'discretionary' | string;
 	timeframe: string | null;
 	product_id: string;
@@ -250,12 +256,15 @@ export type DeploymentListPage = {
  */
 export async function listDeploymentsPage(
 	limit: number,
-	offset: number
+	offset: number,
+	options: { strategyId?: string } = {}
 ): Promise<DeploymentListPage> {
+	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+	if (options.strategyId !== undefined) params.set('strategy_id', options.strategyId);
 	const body = await request<{
 		deployments: Deployment[];
 		returned?: number;
-	}>(`/api/v1/deployments?limit=${limit}&offset=${offset}`);
+	}>(`/api/v1/deployments?${params.toString()}`);
 	const returned = body.deployments.length;
 	if (returned > limit) {
 		throw new Error(`Deployment inventory exceeded the requested page limit (${limit}).`);
@@ -283,12 +292,13 @@ const MAX_INVENTORY_PAGES = 25;
  * the inventory. Fails closed at the page cap instead of presenting a prefix.
  */
 export async function listAllDeployments(
-	onPage?: (rows: Deployment[]) => void
+	onPage?: (rows: Deployment[]) => void,
+	options: { strategyId?: string } = {}
 ): Promise<Deployment[]> {
 	const rows: Deployment[] = [];
 	let offset = 0;
 	for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
-		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset);
+		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset, options);
 		rows.push(...result.deployments);
 		onPage?.([...rows]);
 		if (!result.hasMore) return rows;
@@ -429,11 +439,13 @@ export async function fetchDeployment(id: string): Promise<Deployment> {
 }
 
 /**
- * Start a paper or live deployment. Live requires `i_understand_live: true`, which callers
- * set only after the operator accepted the live confirmation (the API answers 428 otherwise).
+ * Start a paper or live deployment of a strategy's current rules (the server snapshots
+ * them; the response carries the snapshot `strategy_fingerprint`). Live requires
+ * `i_understand_live: true`, which callers set only after the operator accepted the live
+ * confirmation (the API answers 428 otherwise).
  */
 export async function createDeployment(input: {
-	strategy_fingerprint: string;
+	strategy_id: string;
 	mode: 'paper' | 'live';
 	paper_starting_cash?: string;
 	maker_fee_rate?: string;
@@ -490,4 +502,18 @@ export async function placeDiscretionaryOrder(input: {
 		method: 'POST',
 		body: JSON.stringify(input)
 	});
+}
+
+/** Every deployment of one strategy (`?strategy_id=`), followed across bounded pages. */
+export async function listStrategyDeployments(strategyId: string): Promise<Deployment[]> {
+	const rows = await listAllDeployments(undefined, { strategyId });
+	// Defensive: keep only rows the server says belong to this strategy.
+	return rows.filter((deployment) => deployment.strategy_id === strategyId);
+}
+
+/** Display name for a deployment's strategy, labelling detached live books honestly. */
+export function deploymentStrategyLabel(deployment: Deployment, knownName: string | null): string {
+	const name = knownName ?? deployment.strategy_name ?? null;
+	if (deployment.strategy_deleted === true) return `${name ?? 'Strategy'} (deleted strategy)`;
+	return name ?? 'Strategy';
 }

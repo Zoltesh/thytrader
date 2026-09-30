@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore, snapshot_owner
 from thytrader.persistence.schema import published_research_run_specs
 from thytrader.research.models import (
     ResearchRunSpecification,
@@ -25,7 +25,7 @@ from thytrader.research.publication import (
     ResearchRunPublicationError,
     verify_research_run_eligibility,
 )
-from thytrader.strategies.publication import StrategyPublicationError
+from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -41,7 +41,7 @@ class PostgresResearchRunStore:
     def __init__(self, engine: AsyncEngine) -> None:
         """Use one application-managed asynchronous database engine."""
         self._engine = engine
-        self._strategy_store = PostgresStrategyPublicationStore(engine)
+        self._strategy_store = PostgresStrategyStore(engine)
 
     async def publish(
         self,
@@ -62,6 +62,7 @@ class PostgresResearchRunStore:
                 run_id=str(validated.run_id),
                 created_at=validated.created_at,
                 strategy_fingerprint=validated.strategy_fingerprint,
+                strategy_id=snapshot_owner(validated.strategy_fingerprint),
                 dataset_fingerprint=validated.dataset_fingerprint,
                 canonical_specification=canonical,
                 execution_fingerprint=execution_fingerprint,
@@ -251,7 +252,7 @@ class PostgresResearchRunStore:
                     clocks[clock.timeframe] = dataset_store.load_manifest(clock.dataset_fingerprint)
                 if clocks:
                     additional_indicator_manifests[extra.product_id] = clocks
-        except (DatasetStoreError, OSError, StrategyPublicationError, ValueError) as error:
+        except (DatasetStoreError, OSError, StrategySnapshotError, ValueError) as error:
             raise ResearchRunPublicationError(
                 "Research run artifact binding could not be verified."
             ) from error

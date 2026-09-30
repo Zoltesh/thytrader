@@ -14,9 +14,11 @@ from thytrader.api.dependencies import (
     get_execution_store,
     get_risk_policy_store,
     get_runtime_state,
-    get_strategy_publication_store,
+    get_strategy_snapshot_store,
+    get_strategy_store,
 )
 from thytrader.api.live_ack import require_live_acknowledgement
+from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -51,10 +53,11 @@ from thytrader.persistence.audit_events import (
 )
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.models import covered_product_ids
-from thytrader.strategies.publication import (
-    StrategyPublicationError,
-    StrategyPublicationStore,
+from thytrader.strategies.snapshots import (
+    StrategySnapshotError,
+    StrategySnapshotStore,
 )
 
 if TYPE_CHECKING:
@@ -64,9 +67,13 @@ router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 
 
 class CreateDeploymentRequest(BaseModel):
-    """Start one paper or live runtime for an immutable published strategy."""
+    """Start one paper or live runtime from a strategy's current (valid) rules.
 
-    strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    The server snapshots the definition; the response's ``strategy_fingerprint``
+    names the exact rules the bot runs, even after later edits.
+    """
+
+    strategy_id: UUID
     mode: DeploymentMode
     paper_starting_cash: str | None = None
     maker_fee_rate: str | None = None
@@ -198,6 +205,13 @@ class DeploymentResponse(BaseModel):
     id: UUID
     strategy_fingerprint: str | None
     strategy_id: UUID | None
+    strategy_name: str | None = Field(
+        default=None, description="Strategy name captured at start; kept after deletion."
+    )
+    strategy_deleted: bool = Field(
+        default=False,
+        description="True for a kept (stopped live) book whose strategy was deleted.",
+    )
     kind: str
     timeframe: str | None
     product_id: str
@@ -268,18 +282,20 @@ class OrderListResponse(BaseModel):
 async def post_deployment(
     body: CreateDeploymentRequest,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
+    strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
 ) -> DeploymentResponse:
-    """Create a running paper or live deployment without waiting for the worker."""
+    """Snapshot the strategy's current rules and start a running paper or live book."""
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
+    snapshot = await snapshot_for_start(strategies, body.strategy_id)
     try:
         deployment = await create_deployment(
             store=store,
             publication_store=publication_store,
-            strategy_fingerprint=body.strategy_fingerprint,
+            strategy_fingerprint=snapshot.strategy_fingerprint,
             mode=body.mode,
             paper_starting_cash=parse_decimal(body.paper_starting_cash),
             paper_maker_fee_rate=parse_decimal(body.maker_fee_rate, field="maker_fee_rate"),
@@ -313,13 +329,18 @@ async def post_deployment(
 @router.get("", response_model=DeploymentListResponse)
 async def list_deployments(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    strategy_id: Annotated[UUID | None, Query()] = None,
 ) -> DeploymentListResponse:
-    """Return deployment summaries without loading every historical order or fill."""
+    """Return deployment summaries, optionally only one strategy's bots (indexed)."""
     try:
-        deployment_rows = await store.list_deployments(limit=limit, offset=offset)
+        if strategy_id is None:
+            deployment_rows = await store.list_deployments(limit=limit, offset=offset)
+        else:
+            owned = await store.list_by_strategy(str(strategy_id))
+            deployment_rows = owned[offset : offset + limit]
     except ExecutionStoreError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
@@ -350,7 +371,7 @@ async def list_deployments(
 async def get_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     detail: Annotated[Literal["summary", "full"], Query()] = "summary",
 ) -> DeploymentResponse:
     """Return one deployment; ``full`` includes every order and fill."""
@@ -452,7 +473,7 @@ async def list_deployment_orders(
 async def pause_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Pause a running deployment so the worker skips new orders."""
@@ -465,7 +486,7 @@ async def pause_deployment(
 async def resume_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     body: Annotated[ResumeDeploymentRequest | None, Body()] = None,
 ) -> DeploymentResponse:
@@ -486,7 +507,7 @@ async def resume_deployment(
 async def stop_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     flatten: Annotated[
         bool,
@@ -513,7 +534,7 @@ async def stop_deployment(
 async def post_reset_breaker_latches(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    publication_store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
+    publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> DeploymentResponse:
     """Clear latched daily-loss and drawdown breakers after explicit operator reset."""
@@ -546,7 +567,7 @@ async def _set_status(
     audit: AuditEventStore,
     deployment_id: UUID,
     status_value: DeploymentStatus,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotStore,
     *,
     flatten: bool = False,
 ) -> DeploymentResponse:
@@ -639,7 +660,7 @@ async def _require_deployment_row(store: ExecutionStore, deployment_id: UUID) ->
 
 
 async def _covered_products(
-    publication_store: StrategyPublicationStore, deployment: Deployment
+    publication_store: StrategySnapshotStore, deployment: Deployment
 ) -> tuple[str, ...]:
     """Return published covered products, or the primary id when identity is missing."""
     fingerprint = deployment.strategy_fingerprint
@@ -650,7 +671,7 @@ async def _covered_products(
         return (deployment.product_id,)
     try:
         published = await loader(fingerprint)
-    except StrategyPublicationError, ExecutionStoreError:
+    except StrategySnapshotError, ExecutionStoreError:
         return (deployment.product_id,)
     return covered_product_ids(published.definition)
 
@@ -687,6 +708,8 @@ def _deployment_response(
         id=deployment.id,
         strategy_fingerprint=deployment.strategy_fingerprint,
         strategy_id=deployment.strategy_id,
+        strategy_name=deployment.strategy_name,
+        strategy_deleted=deployment.strategy_deleted,
         kind=deployment.kind.value,
         timeframe=timeframe,
         product_id=deployment.product_id,
@@ -736,7 +759,7 @@ def _worker_lease_held(deployment: Deployment) -> bool:
 
 async def _snapshot_response(
     snapshot: DeploymentSnapshot,
-    publication_store: StrategyPublicationStore | None = None,
+    publication_store: StrategySnapshotStore | None = None,
     *,
     extra_product_ids: tuple[str, ...] = (),
 ) -> DeploymentResponse:
@@ -779,7 +802,7 @@ async def _snapshot_response(
 
 async def _summary_response(
     summary: DeploymentSummarySnapshot,
-    publication_store: StrategyPublicationStore | None = None,
+    publication_store: StrategySnapshotStore | None = None,
     *,
     extra_product_ids: tuple[str, ...] = (),
 ) -> DeploymentResponse:

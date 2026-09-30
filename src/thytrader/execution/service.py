@@ -1,4 +1,4 @@
-"""Create and control paper/live deployments of published strategies."""
+"""Create and control paper/live deployments of strategy snapshots."""
 
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision, RiskReasonCode
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import covered_product_ids
-from thytrader.strategies.publication import (
-    PublishedStrategy,
-    StrategyPublicationError,
-    StrategyPublicationStore,
+from thytrader.strategies.snapshots import (
+    StrategySnapshot,
+    StrategySnapshotError,
+    StrategySnapshotReader,
 )
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 async def create_deployment(
     *,
     store: ExecutionStore,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotReader,
     strategy_fingerprint: str,
     mode: DeploymentMode,
     paper_starting_cash: Decimal | None,
@@ -49,7 +49,12 @@ async def create_deployment(
     paper_maker_fee_rate: Decimal | None = None,
     paper_taker_fee_rate: Decimal | None = None,
 ) -> Deployment:
-    """Start one running deployment for an immutable published strategy."""
+    """Start one running deployment for one exact strategy snapshot.
+
+    Callers snapshot the strategy's current (valid) definition first; the book
+    records that fingerprint and the strategy name so its rules stay exact even
+    after later edits or deletion (ADR 0082).
+    """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     maker_fee_rate, taker_fee_rate = _paper_fee_schedule(
         mode, paper_maker_fee_rate, paper_taker_fee_rate
@@ -76,6 +81,7 @@ async def create_deployment(
         id=uuid7(now),
         strategy_fingerprint=published.strategy_fingerprint,
         strategy_id=definition.strategy_id,
+        strategy_name=definition.name,
         product_id=definition.instrument.product_id,
         timeframe=definition.timeframe,
         mode=mode,
@@ -248,22 +254,22 @@ async def _opening_allocation(
 
 
 async def _load_published(
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotReader,
     strategy_fingerprint: str,
-) -> PublishedStrategy:
+) -> StrategySnapshot:
     """Load one published strategy through the optional load contract."""
     loader = getattr(publication_store, "load", None)
     if loader is None:
         raise ExecutionStoreError("Strategy publication store cannot load fingerprints.")
     try:
         return await loader(strategy_fingerprint)
-    except StrategyPublicationError as error:
+    except StrategySnapshotError as error:
         raise ExecutionStoreError(str(error) or "Published strategy was not found.") from error
 
 
 async def resolved_deployment_timeframe(
     deployment: Deployment,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotReader,
 ) -> str | None:
     """Return the stored book clock or the published strategy clock for observability."""
     if deployment.timeframe is not None:

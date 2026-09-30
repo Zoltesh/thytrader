@@ -30,7 +30,7 @@ Completed capability checklist (Phases 0–6):
 
 1. **Create and research in the browser:** ✅ author, publish, backtest, inspect evidence.
 2. **Observe through supported agent interfaces:** ✅ `thytrader-operator` CLI/API and skill — no trading authority.
-3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (drafts, publish, backtests, and composed studies).
+3. **Permit bounded research automation:** ✅ confirmation-gated `thytrader-research` CLI and skill (strategy create/save/import/clone/delete, backtests, and composed studies).
 4. **Automate in paper mode:** ✅ 1h and 5m candle-close paper loop, Deploy tab, pause/resume/stop.
 5. **Live maker execution:** ✅ Deploy → live places Advanced Trade spot orders when credentials
    exist. Phase 13 live extras (5m live, ATR trailing, user-order WS, native OCO) are also shipped.
@@ -360,7 +360,7 @@ V1/V2/V3 golden fingerprints unchanged.
 
 Stochastic `%K`/`%D`, Wilder ADX / `+DI` / `-DI`, configurable rolling OHLCV inputs, and sample
 stdev join the fail-closed registry ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)).
-Same complete-only candles, last-completed per-indicator clocks, and published strategy semantics in
+Same complete-only candles, last-completed per-indicator clocks, and snapshotted strategy semantics in
 backtest, paper, and live. No TA-library passthrough. No interpolated candles. Population `stdev`
 and Bollinger bands are unchanged.
 
@@ -385,7 +385,7 @@ hooks ([ADR 0049](decisions/0049-experiential-train-v1.md)). Engine
 `thytrader-experiential-train-v1`. Documents `thytrader-experiential-model-v1` and
 `thytrader-experiential-advisory-v1`. Evidence is local only (backtest / research / market_data /
 deployment / paper_fill / live_fill); dangling pointers fail the train; missing candles are never
-interpolated. Output is advisory research input. `create-draft --experiential-model-id` is HTTP-only
+interpolated. Output is advisory research input. `create-strategy --experiential-model-id` is HTTP-only
 and merges that advisory into JSON. YOLO never covers `train`. Journal schema and review UI stay
 with the sibling why-trade slice; this trainer consumes `JournalEntry` as stored. Extra exchanges
 stay out. Ops contract is `thytrader-ops-contract-v17` / Alembic `0029`.
@@ -413,8 +413,8 @@ entry gate; operator `risk` reports fractions/ints and `DAILY_LOSS_LIMIT` /
 
 ## Trade-reason journals — ✅ Shipped
 
-A human or agent can open a paper or live intent and see **why it was made**: published strategy
-version, closed-bar signal facts actually used, the risk-registry verdict, an optional
+A human or agent can open a paper or live intent and see **why it was made**: strategy snapshot
+(fingerprint and name), closed-bar signal facts actually used, the risk-registry verdict, an optional
 discretionary note, and fill/reconcile facts joined from the execution ledger
 ([ADR 0054](decisions/0054-trade-reason-journals.md)). Schema `thytrader-trade-reason-v1`. One row
 per persisted order intent. Denied risk with no intent is not recorded. Recording fails open.
@@ -503,10 +503,11 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Deploy | Concurrent paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); one document may cover multiple Coinbase USD spot products with optional intra-strategy pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)) | Extra exchanges stay out |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); YAML YOLO applies without restart ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043 / 0055). In-app operator chat is a separate destination row |
-| Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with published strategy identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
+| Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with strategy snapshot identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
 | Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Loopback `/chat` and `/api/v1/operator-chat`; user-pasted LLM key in the API process; closed catalog of gated skill-lane HTTP tools ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Coinbase keys stay off this surface | Not a substitute for `ops/` skills. Extra exchanges stay waiting |
-| Workstation IA | Four-destination rail (Home, Strategies, Portfolio, Trade) plus a System group (Settings, Audit log, Journal, Memory & why-trade), ⌘K command palette, Agent side panel hosting operator chat on every page (`/chat` kept as full page), and light/dark design tokens ([ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md), superseding [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) in part). Each strategy has one workspace (Build · Test · Run · Why at `/strategies/{id}`, `/test`, `/run`, `/why`) with exact `?version=` context, a library evidence pipeline, and a live preflight from existing endpoints ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md)); `/research`, `/deploy`, `/backtests` links redirect or show a chooser. Portfolio groups and filters bots with truthful per-mode capital totals, bot detail and Trade are recomposed, and a route-declared amber live strip and frame mark every live context ([ADR 0081](decisions/0081-live-chrome-portfolio-bot-detail-trade.md)) | Multi-strategy portfolios (sleeves with shared capital, portfolio backtest, manager agent) are not built. V4 in the browser launcher needs result-detail disclosure first. Keep those surfaces uncluttered. Do not weaken safety copy or confirmation. YAML/YOLO stays the ADR 0055 panel beside Coinbase credentials |
+| Workstation IA | Four-destination rail (Home, Strategies, Portfolio, Trade) plus a System group (Settings, Audit log, Journal, Memory & why-trade), ⌘K command palette, Agent side panel hosting operator chat on every page (`/chat` kept as full page), and light/dark design tokens ([ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md), superseding [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) in part). Each strategy has one workspace (Build · Test · Run · Why at `/strategies/{id}`, `/test`, `/run`, `/why`) with a library evidence pipeline, and a live preflight from existing endpoints ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md)); `/research`, `/deploy`, `/backtests` links redirect or show a chooser. Portfolio groups and filters bots with truthful per-mode capital totals, bot detail and Trade are recomposed, and a route-declared amber live strip and frame mark every live context ([ADR 0081](decisions/0081-live-chrome-portfolio-bot-detail-trade.md)) | Multi-strategy portfolios (sleeves with shared capital, portfolio backtest, manager agent) are not built. V4 in the browser launcher needs result-detail disclosure first. Keep those surfaces uncluttered. Do not weaken safety copy or confirmation. YAML/YOLO stays the ADR 0055 panel beside Coinbase credentials |
+| Strategy model | One mutable strategy per id with revision-guarded saves (invalid work in progress allowed), automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys on every run and bot, Current rules / Earlier edit with a What-changed diff, guided Update bot, hard delete and bulk delete with a running/paused-bot block and kept live history; ops contract v41 / Alembic 0048 ([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) | One unified backtest engine model (follow-up); V1–V4 unchanged here |
 | Coinbase secrets UI | Loopback Settings form beside YAML/YOLO plus `thytrader-runtime` show/set/clear ([ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md)). Keys stay server-side. GET never echoes them. YOLO never covers set/clear. Extra exchanges out | Same write-only contract. LLM keys stay with operator chat ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Non-secret YAML/YOLO stays ADR 0055 |
 | Mermaid schemas and contracts | Contributor [contract diagrams](architecture/contracts/README.md) for strategy, research-run spec, backtest result, ops contract, order-intent → risk → broker, and other durable payloads | Keep diagrams in sync when those contracts change. Link from contributor docs. Do not dump on the landing README |
 
@@ -627,6 +628,10 @@ readiness, and graceful shutdown.
 **Exit gate:** the same immutable strategy version can be validated and associated with a
 reproducible dataset snapshot.
 
+> Superseded in part by [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md):
+> drafts, publication, revise, archive markers, and version numbers were replaced by one mutable
+> strategy with automatic snapshots. The bullets above record what shipped at the time.
+
 **Declarative publication exit gate met:** the implemented indicator and recursive-condition
 language can be validated, published, verified by fingerprint, and durably associated only with a
 verified dataset fingerprint. Unsupported sizing/stop variants and a visual node canvas stay later
@@ -667,11 +672,11 @@ verified dataset fingerprint. Unsupported sizing/stop variants and a visual node
 
 ### Next delivery increment
 
-The browser/API research loop is implemented: it recovers and saves validated drafts, publishes
-immutable strategy evidence, presents a bounded semantic summary plus honest V1/V2/V3 support matrix,
-archives a publication without mutating its evidence, launches explicit exact-version V1/V2/V3
-research or a composed OOS/walk-forward/sweep/WFO study, and compares complete stored result histories across
-versions.
+The browser/API research loop is implemented: it saves one mutable strategy in place (invalid work in
+progress allowed), presents a bounded semantic summary plus honest V1/V2/V3 support matrix, launches
+V1/V2/V3 research or a composed OOS/walk-forward/sweep/WFO study from the current definition (each
+start snapshots it), and marks every result Current rules or Earlier edit
+([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
 
 Paper and live share one execution worker. Maker entries are implemented (`limit_limit_gtc` +
 `post_only`); stops and time-exits are marketable sells. Live orders use Advanced Trade REST v3 JSON
@@ -684,7 +689,7 @@ assumptions, resist lookahead, and pass adversarial fill/risk tests.
 ## Phase 4: Paper execution — ✅ Complete (narrow 1h|5m maker loop)
 
 - Persistent simulated broker using normalized 1h or 5m candle-close events (live 5m arrived in Phase 13).
-- Same published strategy semantics used by backtests/live trading.
+- Same snapshotted strategy semantics used by backtests/live trading.
 - Continuous `thytrader-execution-worker` supervision.
 - Deploy tab with pause/resume/stop, position, orders, fills, and reject reasons.
 
@@ -713,7 +718,8 @@ authority merely because it can inspect a system.
 - ✅ Redacted health/configuration/data-quality/performance reports.
 - ✅ In-repo ThyTrader operator skill.
 - ✅ Machine-readable schemas and compatibility checks (`schema-check` plus committed JSON Schema).
-- ✅ Explicitly separated, confirmation-gated research mutation tools for drafts, immutable publication,
+- ✅ Explicitly separated, confirmation-gated research mutation tools for strategy authoring (drafts and
+  immutable publication at the time; one mutable strategy with automatic snapshots since ADR 0082)
   and backtest submission. These are distinct from paper/live authority.
 - ✅ HTTP-first operator and research CLIs (loopback API by default; `--local` is explicit).
 - ✅ Read-only runtime watch (`thytrader-operator runtime`).

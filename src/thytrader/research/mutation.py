@@ -13,20 +13,34 @@ from thytrader.persistence.audit_events import (
     AuditEventStore,
 )
 from thytrader.research.studies import ResearchStudy, ResearchStudyRequest, ResearchStudyService
-from thytrader.strategies.authoring import StrategyDraft, StrategyDraftStore, create_reference_draft
+from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
+from thytrader.strategies.library import (
+    BulkDeletionReport,
+    StrategyDocument,
+    StrategyRecord,
+    StrategyStore,
+    bulk_delete_strategies,
+    clone_strategy,
+    create_strategy_from_definition,
+    import_strategy,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmitter
+    from thytrader.backtest.submission import (
+        BacktestStartRequest,
+        BacktestSubmissionRequest,
+        BacktestSubmitter,
+    )
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import (
         BacktestResultReader,
         BacktestResultSummaryView,
     )
     from thytrader.research.catalog import ResearchStudyCatalog, StudyCatalogSummary
-    from thytrader.strategies.models import StrategyDefinition
-    from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
+    from thytrader.research.study_start import ResearchStudyStartRequest
+    from thytrader.strategies.snapshots import StrategySnapshotStore
 
 
 class ResearchMutationError(RuntimeError):
@@ -35,69 +49,90 @@ class ResearchMutationError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ResearchMutator:
-    """Create drafts, publish versions, and submit backtests after explicit confirmation."""
+    """Create, save, delete, and test strategies after explicit confirmation (``--local``)."""
 
-    drafts: StrategyDraftStore
-    publications: StrategyPublicationStore
+    strategies: StrategyStore
+    publications: StrategySnapshotStore
     submitter: BacktestSubmitter
     results: BacktestResultReader
     audit: AuditEventStore
     catalog: ResearchStudyCatalog | None = None
     datasets: DatasetStore | None = None
 
-    async def create_reference_draft(
+    async def create_strategy(
         self,
         *,
         product_id: str = "BTC-USD",
         timeframe: str = "1h",
         template: str = "ema-trend",
-    ) -> StrategyDraft:
-        """Persist a research template draft and record an audit event."""
-        definition = create_reference_draft(
+    ) -> StrategyRecord:
+        """Persist a research template strategy and record an audit event."""
+        definition = create_template_strategy(
             product_id=product_id,
             timeframe=timeframe,
             template=template,
         )
-        draft = await self.drafts.create_draft(definition)
-        await self._audit("create_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
-        return draft
+        record = await create_strategy_from_definition(self.strategies, definition)
+        await self._audit("create_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
+        return record
 
-    async def save_draft(
+    async def save_strategy(
         self,
-        definition: StrategyDefinition,
+        strategy_id: UUID,
+        document: StrategyDocument,
         *,
         expected_revision: int,
-    ) -> StrategyDraft:
-        """Replace one draft when the expected revision still matches."""
-        draft = await self.drafts.save_draft(definition, expected_revision=expected_revision)
-        await self._audit("save_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
-        return draft
+    ) -> StrategyRecord:
+        """Save one document in place when the expected revision still matches."""
+        record = await self.strategies.save(
+            strategy_id, document, expected_revision=expected_revision
+        )
+        await self._audit("save_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
+        return record
 
-    async def import_draft(self, definition: StrategyDefinition) -> StrategyDraft:
-        """Persist one supplied custom document as a new draft identity."""
-        draft = await self.drafts.create_draft(definition)
-        await self._audit("import_draft", AuditEventOutcome.SUCCESS, _draft_detail(draft))
-        return draft
+    async def import_strategy(self, document: StrategyDocument) -> StrategyRecord:
+        """Create a new strategy (fresh identity) from one supplied document."""
+        strategy_id, created_at = new_strategy_identity()
+        record = await import_strategy(
+            self.strategies, document, strategy_id=strategy_id, created_at=created_at
+        )
+        await self._audit("import_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
+        return record
 
-    async def publish(self, strategy_id: UUID) -> PublishedStrategy:
-        """Publish the matching durable draft as an immutable version."""
-        drafts = await self.drafts.list_drafts()
-        match = next(
-            (draft for draft in drafts if draft.definition.strategy_id == strategy_id),
-            None,
+    async def clone_strategy(self, source_id: UUID) -> StrategyRecord:
+        """Duplicate one strategy into a new identity."""
+        strategy_id, created_at = new_strategy_identity()
+        record = await clone_strategy(
+            self.strategies, source_id, strategy_id=strategy_id, created_at=created_at
         )
-        if match is None:
-            raise ResearchMutationError("Strategy draft was not found.")
-        published = await self.publications.publish_draft(
-            match.definition,
-            expected_revision=match.revision,
-        )
-        await self._audit(
-            "publish_strategy",
-            AuditEventOutcome.SUCCESS,
-            f"strategy_id={strategy_id} fingerprint={published.strategy_fingerprint}",
-        )
-        return published
+        await self._audit("clone_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
+        return record
+
+    async def delete_strategies(
+        self, strategy_ids: tuple[UUID, ...], *, dry_run: bool
+    ) -> BulkDeletionReport:
+        """Delete (or preview deleting) strategies, auditing each committed deletion."""
+        report = await bulk_delete_strategies(self.strategies, strategy_ids, dry_run=dry_run)
+        for item in report.items:
+            if item.outcome == "deleted":
+                await self._audit(
+                    "delete_strategy", AuditEventOutcome.SUCCESS, f"strategy_id={item.strategy_id}"
+                )
+        return report
+
+    async def start_backtest(self, start: BacktestStartRequest) -> tuple[str, str, str]:
+        """Snapshot the strategy and run one backtest; return run, result, and snapshot."""
+        snapshot = await self.strategies.snapshot(start.strategy_id)
+        run, result = await self.submit_backtest(start.submission(snapshot.strategy_fingerprint))
+        return run, result, snapshot.strategy_fingerprint
+
+    async def study_request(self, start: ResearchStudyStartRequest) -> ResearchStudyRequest:
+        """Snapshot every named strategy and build the fingerprint-bound study request."""
+        fingerprints = {
+            identity: (await self.strategies.snapshot(identity)).strategy_fingerprint
+            for identity in start.strategy_ids()
+        }
+        return start.to_request(fingerprints)
 
     async def submit_backtest(self, request: BacktestSubmissionRequest) -> tuple[str, str]:
         """Submit one idempotent historical simulation and return immutable identities."""
@@ -130,12 +165,13 @@ class ResearchMutator:
         self,
         *,
         kind: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int = 50,
     ) -> tuple[StudyCatalogSummary, ...]:
         """List newest-first persisted study catalog rows."""
         if self.catalog is None:
             raise ResearchMutationError("Research study catalog is unavailable.")
-        return await self.catalog.list_summaries(kind=kind, limit=limit)
+        return await self.catalog.list_summaries(kind=kind, strategy_id=strategy_id, limit=limit)
 
     async def show_study(self, study_fingerprint: str) -> ResearchStudy:
         """Load one persisted study document."""
@@ -148,11 +184,13 @@ class ResearchMutator:
         self,
         *,
         strategy_fingerprint: str | None,
+        strategy_id: UUID | None = None,
         limit: int = 20,
     ) -> tuple[BacktestResultSummaryView, ...]:
         """List newest-first immutable result summaries."""
         return await self.results.list_summaries(
             strategy_fingerprint=strategy_fingerprint,
+            strategy_id=strategy_id,
             limit=limit,
             offset=0,
         )
@@ -169,9 +207,9 @@ class ResearchMutator:
         await self.audit.append(event)
 
 
-def _draft_detail(draft: StrategyDraft) -> str:
-    """Identify a draft without including the full strategy body."""
+def _record_detail(record: StrategyRecord) -> str:
+    """Identify a strategy without including its document body."""
     return (
-        f"strategy_id={draft.definition.strategy_id} "
-        f"version={draft.definition.version} revision={draft.revision}"
+        f"strategy_id={record.strategy_id} revision={record.revision} "
+        f"valid={record.validation.valid}"
     )

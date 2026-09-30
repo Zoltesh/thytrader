@@ -31,11 +31,15 @@ describe('live acknowledgement on HTTP mutations', () => {
 	it('createDeployment forwards i_understand_live for live', async () => {
 		const calls = stubFetch();
 		await createDeployment({
-			strategy_fingerprint: 'sha256:' + 'a'.repeat(64),
+			strategy_id: '01985cf0-7b60-7000-8000-000000000003',
 			mode: 'live',
 			i_understand_live: true
 		});
-		expect(calls[0].body).toMatchObject({ mode: 'live', i_understand_live: true });
+		expect(calls[0].body).toMatchObject({
+			strategy_id: '01985cf0-7b60-7000-8000-000000000003',
+			mode: 'live',
+			i_understand_live: true
+		});
 	});
 
 	it('resumeDeployment sends the ack body only when acknowledged', async () => {

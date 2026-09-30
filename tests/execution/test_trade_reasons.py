@@ -56,7 +56,7 @@ async def test_strategy_entry_records_published_identity_and_risk() -> None:
     assert record.origin is TradeReasonOrigin.RUNTIME
     assert record.signal.kind is TradeReasonSignalKind.STRATEGY_ENTRY
     assert record.strategy is not None
-    assert record.strategy.version == strategy.version
+    assert record.strategy.name == strategy.name
     assert record.strategy.strategy_id == strategy.strategy_id
     assert record.risk.decision == "allow"
     composed = await compose_trade_reasons(rows, store)

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle
     from thytrader.research.publication import PublishedResearchRunSpecification
     from thytrader.research.trace import SignalTrace
-    from thytrader.strategies.publication import PublishedStrategy
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 
 class VerifiedCandleReader(Protocol):
@@ -40,7 +40,7 @@ class PublishedRunReader(Protocol[_DatasetReaderT]):
 class PublishedStrategyReader(Protocol):
     """Read and reverify immutable strategy publications by identity."""
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Load one exact published strategy definition or fail closed."""
         ...
 

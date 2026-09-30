@@ -70,7 +70,8 @@ export type ResearchStudyRequest = {
 	fixed_slippage_bps: string;
 	engine_contract_version: string;
 	spread_bps?: string | null;
-	strategy_fingerprint?: string;
+	/** The server snapshots this strategy's current definition. */
+	strategy_id?: string;
 	dataset_fingerprint?: string;
 	htf_dataset_fingerprint?: string;
 	indicator_dataset_fingerprints?: { timeframe: string; dataset_fingerprint: string }[];
@@ -80,7 +81,7 @@ export type ResearchStudyRequest = {
 	out_of_sample_bars?: number;
 	step_bars?: number;
 	fold_mode?: FoldMode;
-	candidate_strategy_fingerprints?: string[];
+	candidate_strategy_ids?: string[];
 	parameter_axes?: ParameterAxis[];
 	selection_metric?: SelectionMetric;
 };

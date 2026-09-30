@@ -9,45 +9,39 @@ from fastapi.testclient import TestClient
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.operator.models import SCHEMA_VERSION
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
-    from thytrader.strategies.authoring import StrategyDefinition, StrategyDraft
+    from datetime import datetime
+    from uuid import UUID
+
+    from thytrader.strategies.library import StrategyDocument, StrategyRecord
 
 
-class _RecordingDraftStore:
-    """Fail closed on writes while allowing empty draft lists."""
+class _RecordingStrategyStore(InMemoryStrategyStore):
+    """Fail closed on writes while allowing empty strategy lists."""
 
     def __init__(self) -> None:
-        """Start with zero create calls."""
+        """Start with zero mutation calls."""
+        super().__init__()
         self.create_calls = 0
 
-    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
+    async def create(
+        self, document: StrategyDocument, *, strategy_id: UUID, created_at: datetime
+    ) -> StrategyRecord:
         """Count forbidden mutations."""
+        del document, strategy_id, created_at
         self.create_calls += 1
-        del definition
-        message = "operator routes must not create drafts"
+        message = "operator routes must not create strategies"
         raise RuntimeError(message)
 
-    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
-        """Return no drafts."""
-        return ()
-
-    async def save_draft(
-        self,
-        definition: StrategyDefinition,
-        *,
-        expected_revision: int,
-    ) -> StrategyDraft:
-        """Refuse saves."""
-        del definition, expected_revision
-        message = "operator routes must not save drafts"
-        raise RuntimeError(message)
-
-    async def delete_draft(self, strategy_id: object, version: int) -> None:
-        """Refuse deletes."""
-        del strategy_id, version
-        message = "operator routes must not delete drafts"
+    async def save(
+        self, strategy_id: UUID, document: StrategyDocument, *, expected_revision: int
+    ) -> StrategyRecord:
+        """Count forbidden saves."""
+        del strategy_id, document, expected_revision
+        self.create_calls += 1
+        message = "operator routes must not save strategies"
         raise RuntimeError(message)
 
 
@@ -105,12 +99,8 @@ def test_operator_risk_reports_available_registry() -> None:
 
 def test_operator_health_does_not_mutate_drafts() -> None:
     """Health diagnostics must not create or save strategy drafts."""
-    drafts = _RecordingDraftStore()
-    app = create_app(
-        Settings(_env_file=None),
-        strategy_draft_store=drafts,
-        strategy_store=DisabledStrategyPublicationStore(),
-    )
+    drafts = _RecordingStrategyStore()
+    app = create_app(Settings(_env_file=None), strategy_store=drafts)
     with TestClient(app) as client:
         response = client.get("/api/v1/operator/health")
     assert response.status_code == 200

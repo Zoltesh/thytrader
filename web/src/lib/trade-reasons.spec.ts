@@ -21,7 +21,7 @@ function reason(overrides: Partial<TradeReasonRecord> = {}): TradeReasonRecord {
 		product_id: 'ETH-USDC',
 		purpose: 'entry',
 		side: 'buy',
-		strategy: { strategy_id: 's', name: 'RSI Reversion', version: 2 },
+		strategy: { strategy_id: 's', name: 'RSI Reversion' },
 		signal: {
 			kind: 'strategy_entry',
 			last_signal: 'matched',

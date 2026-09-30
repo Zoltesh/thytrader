@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-	archiveConfirmMessage,
+	builderModelFromRecord,
+	bulkOutcomeText,
+	deletionCountsText,
 	latestDatasets,
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
 	operandChoices,
 	parseIndicatorOperandKey,
-	publishedVersionsFor,
 	researchWindowHint,
+	StrategyApiError,
+	strategyErrorCode,
 	serializeIndicator,
 	toBuilderModel,
 	fromBuilderModel,
@@ -128,43 +131,97 @@ describe('researchWindowHint', () => {
 	});
 });
 
-describe('archiveConfirmMessage', () => {
-	it('names the strategy, version, and fingerprint being archived', () => {
-		const fingerprint = `sha256:${'a'.repeat(64)}`;
-		const message = archiveConfirmMessage({
-			name: 'Recovered BTC trend draft',
-			latest_version: 1,
-			latest_fingerprint: fingerprint
+const zeroCounts = {
+	snapshots: 0,
+	backtests: 0,
+	research_runs: 0,
+	studies: 0,
+	research_jobs: 0,
+	dataset_bindings: 0,
+	paper_deployments: 0,
+	live_deployments_kept: 0,
+	allocations_removed: 0
+};
+
+describe('deletionCountsText', () => {
+	it('lists what goes and states that live history is kept', () => {
+		const lines = deletionCountsText({
+			...zeroCounts,
+			snapshots: 2,
+			backtests: 3,
+			studies: 1,
+			paper_deployments: 1,
+			live_deployments_kept: 1
 		});
-		expect(message).toContain('Recovered BTC trend draft');
-		expect(message).toContain('Version: v1');
-		expect(message).toContain(`Fingerprint: ${fingerprint}`);
-		expect(message.indexOf('Version: v1')).toBeLessThan(message.indexOf('This hides'));
-		expect(message).toContain('hides the latest published fingerprint from active selection');
-		expect(message).not.toContain('delete');
+		expect(lines).toContain('3 backtests');
+		expect(lines).toContain('1 study');
+		expect(lines).toContain('1 paper bot (with its ledger)');
+		expect(lines).toContain('2 rules snapshots');
+		expect(lines.at(-1)).toBe('1 stopped live bot kept with full history');
+	});
+
+	it('says so when nothing but the strategy goes', () => {
+		expect(deletionCountsText(zeroCounts)).toEqual(['No backtests, studies, or bots']);
 	});
 });
 
-describe('publishedVersionsFor', () => {
-	it('falls back to the latest fingerprint when published_versions is empty', () => {
+describe('bulkOutcomeText', () => {
+	const base = {
+		strategy_id: 's',
+		name: 'n',
+		code: null,
+		message: null,
+		deployment_ids: [] as string[],
+		counts: null
+	};
+	it('explains a block by running or paused bots', () => {
 		expect(
-			publishedVersionsFor({
-				strategy_id: 's',
-				name: 'n',
-				product_id: 'BTC-USD',
-				timeframe: '1h',
-				latest_version: 2,
-				status: 'published',
-				latest_fingerprint: 'sha256:abc',
-				published_versions: [],
-				archived: false,
-				summary: '',
-				backtest: null,
-				paper_live: { paper: 'unavailable', live: 'unavailable' },
-				created_at: '2026-01-01T00:00:00Z',
-				updated_at: '2026-01-01T00:00:00Z'
+			bulkOutcomeText({
+				...base,
+				outcome: 'blocked',
+				code: 'strategy_has_active_deployments',
+				deployment_ids: ['d1', 'd2']
 			})
-		).toEqual([{ version: 2, strategy_fingerprint: 'sha256:abc' }]);
+		).toBe('Blocked: 2 running or paused bots. Stop them first.');
+	});
+	it('reports partial failures with the server message', () => {
+		expect(bulkOutcomeText({ ...base, outcome: 'failed', message: 'storage down' })).toBe(
+			'Failed: storage down'
+		);
+		expect(bulkOutcomeText({ ...base, outcome: 'deleted' })).toBe('Deleted');
+		expect(bulkOutcomeText({ ...base, outcome: 'not_found' })).toContain('Not found');
+	});
+});
+
+describe('builderModelFromRecord', () => {
+	it('returns null for a work-in-progress document the form cannot show', () => {
+		expect(
+			builderModelFromRecord({
+				strategy_id: 's',
+				name: 'WIP',
+				revision: 3,
+				created_at: '2026-01-01T00:00:00Z',
+				updated_at: '2026-01-01T00:00:00Z',
+				document: { strategy_id: 's', name: 'WIP' },
+				strategy: null,
+				validation: { valid: false, issues: [{ loc: 'instrument', message: 'Field required' }] },
+				current_fingerprint: null,
+				summary: null,
+				product_id: null,
+				timeframe: null
+			})
+		).toBeNull();
+	});
+});
+
+describe('strategyErrorCode', () => {
+	it('reads the structured detail code only from StrategyApiError', () => {
+		const error = new StrategyApiError(409, 'strategy_revision_conflict', 'stale', {
+			current_revision: 4
+		});
+		expect(strategyErrorCode(error)).toBe('strategy_revision_conflict');
+		expect(error.detail.current_revision).toBe(4);
+		expect(strategyErrorCode(new Error('x'))).toBeNull();
 	});
 });
 
@@ -335,10 +392,8 @@ describe('builder multi-instrument pass-through', () => {
 		const draft = {
 			schema_version: '1.0',
 			strategy_id: '01985cf0-7b60-7000-8000-000000000007',
-			version: 1,
 			name: 'Pass-through',
 			description: null,
-			status: 'draft' as const,
 			created_at: '2026-08-14T12:00:00Z',
 			instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
 			additional_instruments: [
@@ -398,10 +453,8 @@ describe('builder multi-instrument pass-through', () => {
 		const draft = {
 			schema_version: '1.0',
 			strategy_id: '01985cf0-7b60-7000-8000-000000000008',
-			version: 1,
 			name: 'Single',
 			description: null,
-			status: 'draft' as const,
 			created_at: '2026-08-14T12:00:00Z',
 			instrument: { product_id: 'BTC-USD', base_currency: 'BTC', quote_currency: 'USD' },
 			timeframe: '1h',

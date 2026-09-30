@@ -60,7 +60,6 @@ def _record() -> TradeReasonRecord:
             strategy_id=uuid4(),
             strategy_fingerprint=_FP,
             name="ref",
-            version=1,
         ),
         signal=TradeReasonSignal(
             kind=TradeReasonSignalKind.STRATEGY_ENTRY,
@@ -163,7 +162,6 @@ def test_record_from_submit_uses_intent_product_not_primary() -> None:
         strategy_id=deployment.strategy_id,
         strategy_fingerprint=_FP,
         strategy_name="ref",
-        strategy_version=1,
         timeframe="1h",
     )
     record = _record_from_submit(

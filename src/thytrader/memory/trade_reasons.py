@@ -77,26 +77,26 @@ class TradeReasonNoteWrite(_FrozenModel):
 
 
 class TradeReasonStrategy(_FrozenModel):
-    """Published strategy identity frozen at intent persist. Absent for discretionary books."""
+    """Strategy snapshot identity frozen at intent persist. Absent for discretionary books.
+
+    ``strategy_fingerprint`` names the exact snapshot the bot ran; ``strategy_id``
+    and ``name`` stay recorded even after the strategy is deleted (ADR 0082).
+    """
 
     strategy_id: UUID | None = None
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT)
     name: str | None = Field(default=None, max_length=120)
-    version: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def require_consistent_identity(self) -> Self:
-        """Fingerprint, id, name, and version are all present or all absent."""
+        """Fingerprint, id, and name are all present or all absent."""
         present = (
             self.strategy_id is not None,
             self.strategy_fingerprint is not None,
             self.name is not None,
-            self.version is not None,
         )
         if any(present) and not all(present):
-            raise ValueError(
-                "published strategy identity must include id, fingerprint, name, version"
-            )
+            raise ValueError("strategy identity must include id, fingerprint, and name")
         return self
 
 

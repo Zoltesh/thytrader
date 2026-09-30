@@ -207,7 +207,7 @@
 
 	/**
 	 * Old deep links keep working: when the result's (or filter's) strategy
-	 * fingerprint is a published version of a strategy, open that strategy's
+	 * fingerprint is a snapshot of a strategy that still exists, open that strategy's
 	 * Test stage. Otherwise stay on this standalone view.
 	 */
 	async function redirectToOwner(): Promise<void> {
@@ -222,9 +222,9 @@
 		}
 		if (fingerprint === null || fingerprint === '') return;
 		const owner = await resolveStrategyOwner(fingerprint);
-		if (owner === null) return;
+		if (owner.kind !== 'owned') return;
 		redirecting = true;
-		await goto(resolve(workspaceHref(owner, 'test', { version: fingerprint, result })), {
+		await goto(resolve(workspaceHref(owner.strategyId, 'test', { result })), {
 			replaceState: true
 		});
 	}

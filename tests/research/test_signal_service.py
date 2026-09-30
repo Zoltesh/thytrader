@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from thytrader.research.publication import PublishedResearchRunSpecification
 from thytrader.research.signal_service import evaluate_published_signal_run
 from thytrader.strategies.models import strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 from .test_signal_evaluator import _candles, _run, _strategy
 
@@ -47,12 +47,12 @@ class _StrategyStore:
         """Record strategy loads for exact-identity assertions."""
         self.loaded: list[str] = []
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Return the canonical test strategy after checking its exact identity."""
         self.loaded.append(strategy_fingerprint_value)
         strategy = _strategy()
         assert strategy_fingerprint(strategy) == strategy_fingerprint_value
-        return PublishedStrategy(
+        return StrategySnapshot(
             strategy_fingerprint=strategy_fingerprint_value,
             definition=strategy,
         )

@@ -7,12 +7,15 @@ paper or live authority and it does not interpolate candles or equity.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - Pydantic field type.
 from thytrader.research.parameter_sweep import SelectionMetric  # noqa: TC001 - Pydantic field type.
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _STUDY_KINDS = (
@@ -87,10 +90,11 @@ class ResearchStudyCatalog(Protocol):
         self,
         *,
         kind: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
-        """Return newest-first catalog rows without child ledgers."""
+        """Return newest-first catalog rows, optionally only studies including a strategy."""
         ...
 
     async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
@@ -119,11 +123,12 @@ class DisabledResearchStudyCatalog:
         self,
         *,
         kind: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
         """Reject listing so disabled persistence never looks empty."""
-        del kind, limit, offset
+        del kind, strategy_id, limit, offset
         raise StudyCatalogUnavailableError("Research study catalog is unavailable.")
 
     async def find_by_plan_fingerprint(self, plan_fingerprint: str) -> str | None:
@@ -167,10 +172,19 @@ class InMemoryResearchStudyCatalog:
         self,
         *,
         kind: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
-        """Return newest-first summaries, optionally filtered by study kind."""
+        """Return newest-first summaries, optionally filtered by study kind.
+
+        Strategy membership lives in PostgreSQL (``research_study_strategies``);
+        this process-local catalog refuses a strategy filter instead of guessing.
+        """
+        if strategy_id is not None:
+            raise StudyCatalogUnavailableError(
+                "Filtering studies by strategy requires durable storage."
+            )
         if kind is not None and kind not in _STUDY_KINDS:
             raise StudyCatalogIntegrityError("Unknown research study kind.")
         if limit < 1 or limit > 100:

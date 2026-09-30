@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * One deployment of the selected version inside a Run-stage card: status,
+	 * One deployment of this strategy inside a Run-stage card: which rules it
+	 * runs (current or an earlier edit, with the guided update path), status,
 	 * instruction and entry eligibility (kept separate), fill-ledger
 	 * performance, exposure and protection, and the lifecycle triggers. The
 	 * triggers only open the accessible lifecycle dialog; they never mutate.
@@ -16,16 +17,25 @@
 	} from '$lib/deployment-detail';
 	import { canonicalPositions, type Deployment } from '$lib/deployments';
 	import { lifecycleContractNote, lifecycleControlsAvailable } from '$lib/lifecycle-contract';
+	import type { BuilderModel } from '$lib/strategies';
+	import EarlierEditNotice from './EarlierEditNotice.svelte';
+	import RulesBadge from './RulesBadge.svelte';
 
 	let {
 		deployment,
 		disabled,
-		onaction
+		currentFingerprint,
+		current,
+		onaction,
+		onupdated
 	}: {
 		deployment: Deployment;
 		/** True while a mutation is pending or its outcome is unknown. */
 		disabled: boolean;
+		currentFingerprint: string | null;
+		current: BuilderModel | null;
 		onaction: (action: LifecycleAction, deployment: Deployment) => void;
+		onupdated: (result: { stopped: Deployment; started: Deployment | null }) => void;
 	} = $props();
 
 	const summary = $derived(eligibility(deployment));
@@ -46,12 +56,14 @@
 						? 'Stopped'
 						: summary.status} since {deployment.created_at.slice(0, 10)}
 		</h3>
+		<RulesBadge fingerprint={deployment.strategy_fingerprint} {currentFingerprint} {current} />
 		<a
 			class="btn ghost"
 			href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
 			aria-label="Open {modeLabel.toLowerCase()} bot {deployment.id}">Open bot →</a
 		>
 	</div>
+	<EarlierEditNotice {deployment} {currentFingerprint} {current} {disabled} {onupdated} />
 	<dl class="facts">
 		<div>
 			<dt>Instruction</dt>

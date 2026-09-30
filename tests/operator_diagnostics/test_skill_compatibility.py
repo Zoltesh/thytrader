@@ -71,8 +71,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v40" in skill
-    assert "0047" in skill
+    assert "thytrader-ops-contract-v41" in skill
+    assert "0048" in skill
+    assert "strategy_model" in skill
     assert "spot_quote_currencies" in skill or "USDC" in skill
     assert "spot_quote_currencies" in schemas
     assert "catalog_health" in schemas
@@ -93,8 +94,21 @@ def test_research_skill_requires_confirm_and_forbids_trading() -> None:
     skill = _RESEARCH_SKILL.read_text(encoding="utf-8")
     assert "thytrader-research" in skill
     assert "--confirm" in skill
-    assert "create-draft" in skill
-    assert "import-draft" in skill
+    assert "create-strategy" in skill
+    assert "save-strategy" in skill
+    assert "--revision" in skill
+    assert "strategy_revision_conflict" in skill
+    assert "import-strategy" in skill
+    assert "clone-strategy" in skill
+    assert "delete-strategy" in skill
+    assert "bulk-delete-strategies" in skill
+    assert "--dry-run" in skill
+    assert "strategy_has_active_deployments" in skill
+    assert "show-snapshot" in skill
+    assert "--strategy-id" in skill
+    assert "strategy_invalid" in skill
+    for removed in ("create-draft", "import-draft", "save-draft", "publish --strategy-id"):
+        assert removed not in skill, removed
     assert "--experiential-model-id" in skill
     assert "--product-id" in skill
     assert "--timeframe" in skill
@@ -153,6 +167,8 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "--confirm" in skill
     assert "--i-understand-live" in skill
     assert "start" in skill
+    assert "start --strategy-id" in skill
+    assert "start --strategy-fingerprint" not in skill
     assert "pause" in skill
     assert "/api/v1/deployments" in skill
     assert "show-risk-policy" in skill
@@ -231,6 +247,10 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "0.002" in skill
     assert "thytrader.yaml" in skill
     assert "THYTRADER_YOLO_TIERS=paper" in skill
+    assert "--create-strategy" in skill
+    assert "--strategy-id" in skill
+    assert "--create-draft" not in skill
+    assert "--publish" not in skill
 
 
 def test_memory_skill_requires_confirm_and_forbids_yolo() -> None:

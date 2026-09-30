@@ -19,14 +19,16 @@ uv run thytrader-backtest list --run-fingerprint <run_fingerprint>
 uv run thytrader-backtest show <result_fingerprint> --pretty
 ```
 
-The publication command derives warmup from the verified strategy and binds every execution-relevant assumption into a new backtest-engine run. It calculates a separate semantic execution fingerprint, so repeating the exact command reuses the previously verified immutable run rather than minting another equivalent request. Simulation loads and reverifies that run, its published strategy, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
+These developer commands take an existing strategy **snapshot** fingerprint (one a prior backtest, study, or deployment start created; see `thytrader-research show-snapshot`). The supported operator path is `thytrader-research submit-backtest` with a `strategy_id`, which snapshots automatically ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
+
+The publication command derives warmup from the verified strategy snapshot and binds every execution-relevant assumption into a new backtest-engine run. It calculates a separate semantic execution fingerprint, so repeating the exact command reuses the previously verified immutable run rather than minting another equivalent request. Simulation loads and reverifies that run, its strategy snapshot, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
 
 ## Source and result identity
 
 The result stores these immutable source identities:
 
 - published research-run fingerprint;
-- published strategy fingerprint;
+- strategy snapshot fingerprint (plus the owning `strategy_id` on the stored row);
 - immutable dataset fingerprint; and
 - `thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engine-contract version; and
 - for V2, a fully resolved broker-assumptions block containing the constant spread, full-fill policy,

@@ -10,7 +10,7 @@ same change that changes the contract.
 
 | Diagram | Contract | Models |
 |---|---|---|
-| [Strategy schema](strategy.md) | Canonical published strategy document | `thytrader.strategies.models.StrategyDefinition` |
+| [Strategy schema](strategy.md) | Canonical strategy document (mutable strategy content and immutable snapshots) | `thytrader.strategies.models.StrategyDefinition` |
 | [Research-run spec](research-run.md) | Immutable research request | `thytrader.research.models.ResearchRunSpecification` |
 | [Backtest result](backtest-result.md) | Immutable simulation evidence | `thytrader.backtest.models.BacktestResult` |
 | [Ops contract](ops-contract.md) | CLI versus running-image identity | `thytrader.ops_contract`, `OpsContractPayload` |
@@ -19,7 +19,7 @@ same change that changes the contract.
 
 ```mermaid
 flowchart LR
-  Draft["Strategy draft"] --> Published["Published StrategyDefinition\nsha256 fingerprint"]
+  Draft["Strategy (mutable, revision)"] -->|start| Published["Strategy snapshot\nsha256 fingerprint"]
   Dataset["Complete-only Parquet\n+ manifest"] --> Binding["strategy_dataset_bindings"]
   Published --> Binding
   Binding --> RunSpec["ResearchRunSpecification"]

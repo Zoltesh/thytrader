@@ -42,8 +42,8 @@ def test_live_start_sends_explicit_acknowledgement() -> None:
     captured = _run(
         [
             "start",
-            "--strategy-fingerprint",
-            _FINGERPRINT,
+            "--strategy-id",
+            "01985cf0-7b60-7000-8000-00000000c0de",
             "--mode",
             "live",
             "--confirm",
@@ -58,8 +58,8 @@ def test_paper_start_does_not_send_live_acknowledgement() -> None:
     captured = _run(
         [
             "start",
-            "--strategy-fingerprint",
-            _FINGERPRINT,
+            "--strategy-id",
+            "01985cf0-7b60-7000-8000-00000000c0de",
             "--mode",
             "paper",
             "--cash",

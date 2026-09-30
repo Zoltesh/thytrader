@@ -31,34 +31,35 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
   ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
   preferences;
-- canonical sorted compact JSON and `sha256:<hex>` identity over the entire published document;
-- immutable `published_strategy_versions` rows and exact `strategy_dataset_bindings` rows; concurrent
-  conflicts on either fingerprint or strategy-version identity become no-op candidates, after which
-  reload of the requested fingerprint either succeeds for identical content or fails closed for a
-  reused identity with different content; loading re-verifies both exact artifacts and requires
-  Coinbase provider, product, and timeframe compatibility.
+- canonical sorted compact JSON and `sha256:<hex>` identity over the entire snapshotted document;
+- one mutable `strategies` row per `strategy_id` (document, validation result, `current_fingerprint`,
+  revision) plus content-addressed, deduplicated `strategy_snapshots` rows written automatically when
+  a backtest, study, or deployment starts, and exact `strategy_dataset_bindings` rows keyed by
+  `strategy_id` ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md));
+  a concurrent snapshot of identical content is a no-op, and loading re-verifies canonical bytes,
+  the fingerprint, and Coinbase provider, product, and timeframe compatibility.
 
 The dataset root is a private, worker-owned local trust boundary. Verification and binding have a
 bounded verify-then-persist TOCTOU window under that assumption. A binding row records an accepted
 association, not permanent consumability; every binding load re-verifies both exact artifacts.
 
-Implemented: optimistic-concurrency draft persistence and lifecycle transitions, browser authoring
-API/UI, immutable strategy publication, completed reproducible backtest results (including
+Implemented: optimistic-concurrency strategy persistence (invalid work in progress is saved with
+its validation result), browser authoring API/UI, automatic immutable snapshots, completed reproducible backtest results (including
 `thytrader-bar-backtest-v3` maker-limit fills), paper and live execution on closed venue bars,
 and optional ATR-multiple trailing stops. Paper and live evaluate `htf_filter` on last-completed
 complete-only HTF bars. Not yet implemented: other sizing/stop/trailing variants or richer human
-summaries. Published `thytrader-bar-signal-v1` runs support read-only deterministic
+summaries. Snapshotted `thytrader-bar-signal-v1` runs support read-only deterministic
 entry-condition evaluation as defined in
 [Signal Evaluation](signal-evaluation.md). Unsupported shapes are rejected rather than approximated.
 
 ## Design principles
 
-1. **One schema, every runtime.** Backtest, paper, and live consume the same immutable version.
+1. **One schema, every runtime.** Backtest, paper, and live consume the same immutable snapshot.
 2. **Declarative, not executable.** No Python, JavaScript, arbitrary expressions, or UI layout data.
 3. **Decimal-precise.** All monetary and quantity values are strings, consistent with existing
    ThyTrader financial boundaries.
 4. **Explicit and bounded.** Every field has a type, allowed range, and defined invalid behavior.
-5. **Reproducible.** A strategy version + dataset fingerprint + canonical research-run specification
+5. **Reproducible.** A strategy snapshot fingerprint + dataset fingerprint + canonical research-run specification
    must disclose every implemented assumption needed to reproduce a future backtest result.
 6. **No false authority.** A validated strategy is not a profitable strategy and not a live order.
 
@@ -68,10 +69,8 @@ entry-condition evaluation as defined in
 {
   "schema_version": "1.0",
   "strategy_id": "01978a3e-5f2c-7d10-b3a4-000000000001",
-  "version": 1,
   "name": "EMA trend reference",
   "description": "Optional operator-facing description.",
-  "status": "draft",
   "created_at": "2026-07-28T12:00:00Z",
   "instrument": {
     "product_id": "BTC-USD",
@@ -103,12 +102,10 @@ stable ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.m
 | Field | Type | Rules |
 |-------|------|-------|
 | `schema_version` | string | Semver. Currently `"1.0"`. Breaking changes bump major. |
-| `strategy_id` | UUIDv7 string | Stable across all versions of one strategy. |
-| `version` | integer ≥ 1 | Monotonically incremented per strategy_id. |
+| `strategy_id` | UUIDv7 string | Identity of the mutable strategy; stable across every edit and snapshot. The server forces it on save. |
 | `name` | string | 1–120 characters. |
 | `description` | string | Optional, ≤ 500 characters. |
-| `status` | enum | `draft` → `published` → `archived`. See lifecycle below. |
-| `created_at` | RFC 3339 UTC | Set by backend on creation, never edited. |
+| `created_at` | RFC 3339 UTC | Set by backend on creation, never edited (the server forces it on save). |
 | `instrument` | object | Explicit primary Coinbase `BASE-USD` or `BASE-USDC` spot product, never inherited from runtime. |
 | `additional_instruments` | array \| omitted | Optional 1–7 extra unique spot products with the same quote currency as `instrument`, disjoint from `instrument`. Total coverage is at most eight. Omitted from canonical JSON when empty. |
 | `timeframe` | enum | One ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `1d`). This is the LTF decision clock. Paper and live use the same clock. Sub-hour live requires a connected user-order feed. |
@@ -122,15 +119,27 @@ stable ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.m
 | `execution` | object | Maker/taker preference and fill-wait policy. |
 | `metadata` | object | Typed operator tags and notes; never affects evaluation. |
 
-### Version lifecycle
+### Lifecycle, snapshots, and fingerprint
 
-- **`draft`**: editable. Can be validated but not referenced by backtests or sessions.
-- **`published`**: immutable. Backtests, paper sessions, and live decisions reference this version.
-  Editing any behaviorally relevant field creates a new version with incremented `version` number.
-- **`archived`**: immutable, hidden from active selection. Historical references remain valid.
+[ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md) replaced the former
+`draft` → `published` → `archived` lifecycle and per-identity `version` numbers. The document no
+longer has `version` or `status` fields. Input that still carries those legacy keys (older exports)
+is accepted and the keys are discarded; they never appear in canonical bytes.
 
-A published version must have a deterministic canonical JSON serialization and content hash so that
-backtest results and audit events can prove which exact definition was used.
+- A strategy is edited and saved in place. A save may hold an invalid document; the stored
+  validation result lists `issues` (`loc`, `message`) and `current_fingerprint` is null.
+- Backtest, study, and deployment starts require a valid current definition, then snapshot it.
+  Identical content deduplicates to one snapshot.
+- **Fingerprint** (stable, documented): `strategy_fingerprint = "sha256:" + hex(SHA-256(canonical
+  bytes))`. Canonical bytes are the revalidated document serialized as UTF-8 JSON with sorted keys,
+  `(",", ":")` separators, and NaN forbidden, omitting null `htf_filter`, empty
+  `additional_instruments`, absent `entry.pyramiding`, and absent indicator `input` / operand
+  `series`. Every document field is covered, including `strategy_id`, `created_at`, `name`,
+  `description`, and `metadata`, so a rename yields a new snapshot. Parameter-sweep variants keep
+  the base `strategy_id`.
+
+A snapshot's deterministic canonical JSON and content hash let backtest results, bots, trade
+reasons, and audit events prove which exact definition was used.
 
 ## Indicators
 
@@ -497,8 +506,8 @@ order-rate limits, reference-price collars) on paper/live entries
 
 Parameter sweeps, grid search, and auto-tuning are **not** part of strategy authoring in V1. They
 are a separate research activity that can manufacture overfit results. The schema represents one
-fixed, human-chosen parameter set. Research studies may select among published or submit-published
-derived fingerprints ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) without
+fixed, human-chosen parameter set. Research studies may select among snapshots of named strategies or
+derived variant snapshots ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)) without
 rewriting that authoring boundary.
 
 ## Reference strategy

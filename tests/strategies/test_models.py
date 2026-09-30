@@ -13,7 +13,6 @@ import pytest
 from thytrader.strategies.models import (
     ConstantIndicatorParameters,
     StrategyDefinition,
-    StrategyStatus,
     can_pyramid_add,
     canonical_strategy_bytes,
     expanded_data_requirements,
@@ -198,15 +197,20 @@ def _assert_golden_strategy(
 
 
 def test_reference_strategy_has_stable_canonical_fingerprint() -> None:
-    """Validated definitions serialize deterministically and hash the whole document."""
+    """Validated definitions serialize deterministically and hash the whole document.
+
+    The payload still carries retired ``version``/``status`` keys: they are accepted and
+    dropped, so they never change the canonical bytes or fingerprint (ADR 0082).
+    """
     definition = StrategyDefinition.model_validate(reference_payload())
     canonical = canonical_strategy_bytes(definition)
 
-    assert definition.status is StrategyStatus.PUBLISHED
+    assert b'"version"' not in canonical
+    assert b'"status"' not in canonical
     assert definition.created_at == datetime(2026, 7, 29, 18, tzinfo=UTC)
     assert canonical == (Path(__file__).parent / "golden/reference_strategy_v1.json").read_bytes()
     assert strategy_fingerprint(definition) == (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
     assert strategy_fingerprint(definition) == strategy_fingerprint(
         StrategyDefinition.model_validate_json(canonical)
@@ -262,7 +266,7 @@ def test_sma_strategy_has_stable_canonical_fingerprint() -> None:
     _assert_golden_strategy(
         sma_strategy_payload(),
         "sma_strategy_v1.json",
-        "sha256:7a6ae244a523f14decd096103330ce0b072315a6917adbbbb5a29453b28646d8",
+        "sha256:2c2bd80b2342979818e410af2f871d1c6f9279d29a00eb34c1e2ae036629d433",
     )
 
 
@@ -271,7 +275,7 @@ def test_volume_sma_strategy_has_stable_canonical_fingerprint() -> None:
     _assert_golden_strategy(
         volume_sma_strategy_payload(),
         "volume_sma_strategy_v1.json",
-        "sha256:d70ba699a5978b7524496b4bc4d96312a4066dd28bd3f3193b2538c0a0ad8194",
+        "sha256:908f0b0612597de190d0052487e70a0f9727642624ee3364450758902ac700c3",
     )
 
 
@@ -280,7 +284,7 @@ def test_nested_condition_strategy_has_stable_canonical_fingerprint() -> None:
     _assert_golden_strategy(
         nested_condition_strategy_payload(),
         "nested_condition_strategy_v1.json",
-        "sha256:d480c48454b55ce4c412643fe35b63d7da254f4793c20f80feafc8c8659fe55e",
+        "sha256:8377a9e8871b016dfb3d47900a859b61603036bec65ea0231602e5e001df4435",
     )
 
 
@@ -1708,7 +1712,7 @@ def test_omitted_htf_filter_preserves_reference_fingerprint() -> None:
     definition = StrategyDefinition.model_validate(reference_payload())
     assert definition.htf_filter is None
     assert strategy_fingerprint(definition) == (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
 
 
@@ -1735,7 +1739,7 @@ def test_htf_filter_is_fail_closed_and_fingerprinted() -> None:
     assert [item.role for item in requirements] == ["decision", "filter"]
     assert [item.timeframe for item in requirements] == ["1h", "6h"]
     assert strategy_fingerprint(definition) != (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
 
     same_clock = reference_payload()
@@ -1808,7 +1812,7 @@ def test_omitted_indicator_timeframe_preserves_reference_fingerprint() -> None:
     definition = StrategyDefinition.model_validate(reference_payload())
     assert all(indicator.timeframe is None for indicator in definition.indicators)
     assert strategy_fingerprint(definition) == (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
 
 
@@ -1823,7 +1827,7 @@ def test_indicator_timeframe_is_fail_closed_and_fingerprinted() -> None:
     assert [item.role for item in requirements] == ["decision", "indicator"]
     assert [item.timeframe for item in requirements] == ["1h", "6h"]
     assert strategy_fingerprint(definition) != (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
 
     shared = reference_payload()
@@ -1987,7 +1991,7 @@ def test_omitted_additional_instruments_and_pyramiding_preserve_reference_finger
     assert b"additional_instruments" not in canonical
     assert b"pyramiding" not in canonical
     assert strategy_fingerprint(definition) == (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
 
 
@@ -2045,7 +2049,7 @@ def test_additional_instruments_and_pyramiding_are_fail_closed() -> None:
         add_count=2,
     )
     assert strategy_fingerprint(enabled) != (
-        "sha256:9109f4a024c595ee769a5886a0f147208e2a01c86c26e34aec08dfccdf0f4ea3"
+        "sha256:fc71217907b862f63fbe6f2bdfb218071b155d631c6a9c4faf06f86d2a5db954"
     )
     _object_mapping(lots["entry"])["max_open_positions"] = 1
     with pytest.raises(ValidationError, match="between 2 and 8"):

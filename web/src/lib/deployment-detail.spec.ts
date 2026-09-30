@@ -227,10 +227,10 @@ describe('version mixup guards', () => {
 		expect(others.map((item) => item.id)).toEqual(['dep-2']);
 	});
 
-	it('builds a fingerprint-exact deploy link and a strategy-identity link', () => {
+	it('links to the strategy workspace and keeps the exact snapshot fingerprint', () => {
 		const current = deployment();
 		expect(strategyVersionLink(current)).toEqual({
-			href: `/strategies/strat-1/run?version=${encodeURIComponent('sha256:' + 'a'.repeat(64))}`,
+			href: '/strategies/strat-1/run',
 			fingerprint: 'sha256:' + 'a'.repeat(64)
 		});
 		expect(strategyIdentityLink(current)).toBe('/strategies/strat-1/run');
@@ -479,24 +479,43 @@ describe('operator performance provenance', () => {
 	});
 });
 
-describe('exact-version evidence links', () => {
-	it('scopes Test and Why workspace links to this exact fingerprint', () => {
-		const current = deployment();
-		const links = exactVersionEvidenceLinks(current);
-		const fingerprint = current.strategy_fingerprint!;
+describe('strategy evidence links', () => {
+	it('links the Test and Why stages of the owning strategy', () => {
+		const links = exactVersionEvidenceLinks(deployment());
 		expect(links).toHaveLength(2);
-		expect(links[0]!.label).toBe('Backtests of this version');
-		expect(links[0]!.href).toBe(
-			`/strategies/strat-1/test?version=${encodeURIComponent(fingerprint)}`
-		);
-		expect(links[1]!.label).toBe('Decisions for this version');
-		expect(links[1]!.href).toBe(
-			`/strategies/strat-1/why?version=${encodeURIComponent(fingerprint)}`
-		);
+		expect(links[0]!.label).toBe('Backtests of this strategy');
+		expect(links[0]!.href).toBe('/strategies/strat-1/test');
+		expect(links[1]!.label).toBe('Decisions for this strategy');
+		expect(links[1]!.href).toBe('/strategies/strat-1/why');
 	});
 
-	it('offers no version-scoped evidence for a discretionary deployment', () => {
+	it('falls back to the snapshot backtest list for a deleted strategy', () => {
+		const fingerprint = 'sha256:' + 'a'.repeat(64);
+		const links = exactVersionEvidenceLinks(
+			deployment({ strategy_id: null, strategy_deleted: true, mode: 'live' })
+		);
+		expect(links).toEqual([
+			{
+				label: 'Backtests of these rules',
+				href: `/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}`
+			}
+		]);
+	});
+
+	it('offers no strategy evidence for a discretionary deployment', () => {
 		expect(exactVersionEvidenceLinks(deployment({ strategy_fingerprint: null }))).toEqual([]);
+	});
+});
+
+describe('bot title', () => {
+	it('labels a kept live bot of a deleted strategy', () => {
+		expect(
+			botTitle(
+				deployment({ strategy_id: null, strategy_deleted: true, strategy_name: 'Old breakout' }),
+				null
+			)
+		).toBe('Old breakout (deleted strategy)');
+		expect(botTitle(deployment({ strategy_name: 'Trend' }), null)).toBe('Trend');
 	});
 });
 
@@ -504,10 +523,8 @@ describe('strategy config summary from the source API', () => {
 	const draft = {
 		schema_version: '1.0',
 		strategy_id: 'strat-1',
-		version: 2,
 		name: 'UNI trend',
 		description: null,
-		status: 'published',
 		created_at: '2026-09-01T00:00:00Z',
 		instrument: { product_id: 'UNI-USDC', base_currency: 'UNI', quote_currency: 'USDC' },
 		timeframe: '2h',

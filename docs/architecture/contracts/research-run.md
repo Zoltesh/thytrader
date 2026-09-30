@@ -5,7 +5,7 @@ Field rules: [research-run specification](../research-run-specification.md).
 Model: `thytrader.research.models.ResearchRunSpecification`.
 
 PostgreSQL table `published_research_run_specs`. Publication reverifies the
-published strategy, verified dataset, and existing strategy/dataset binding.
+strategy snapshot, verified dataset, and existing strategy/dataset binding.
 Fingerprint is `sha256:` of the canonical document.
 
 ```mermaid

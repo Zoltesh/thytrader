@@ -46,7 +46,7 @@
     <td align="center" width="25%">
       <img src="docs/assets/icon-automate.svg" width="96" alt="Candles and a gold play coin"><br>
       <strong>Research → automate</strong><br>
-      <sub>You author it. You test it. Then it runs. Same published strategy.</sub>
+      <sub>You author it. You test it. Then it runs. Same exact rules, snapshotted.</sub>
     </td>
   </tr>
 </table>

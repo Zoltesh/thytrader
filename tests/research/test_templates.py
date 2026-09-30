@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from thytrader.strategies.authoring import create_reference_draft
+from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     AllCondition,
     ComparisonCondition,
@@ -17,7 +17,7 @@ from thytrader.strategies.templates import StrategyTemplateId, parse_template_id
 
 def test_default_template_matches_historical_ema_reference() -> None:
     """ema-trend keeps the BTC 1h name and EMA crossover entry."""
-    draft = create_reference_draft()
+    draft = create_template_strategy()
     assert draft.name == "BTC hourly EMA trend"
     kinds = {indicator.id: indicator.kind for indicator in draft.indicators}
     assert kinds["fast"] is IndicatorKind.EMA
@@ -27,7 +27,7 @@ def test_default_template_matches_historical_ema_reference() -> None:
 
 def test_rsi_mean_reversion_template_uses_oversold_threshold() -> None:
     """RSI template is long-only with an RSI LTE 30 leaf."""
-    draft = create_reference_draft(template="rsi-mean-reversion", product_id="ETH-USD")
+    draft = create_template_strategy(template="rsi-mean-reversion", product_id="ETH-USD")
     assert "RSI mean reversion" in draft.name
     assert draft.instrument.product_id == "ETH-USD"
     assert isinstance(draft.entry.when, AllCondition)
@@ -39,8 +39,8 @@ def test_rsi_mean_reversion_template_uses_oversold_threshold() -> None:
 
 def test_macd_and_bollinger_templates_require_series_operands() -> None:
     """Multi-series templates name MACD/Bollinger series ids on conditions."""
-    macd = create_reference_draft(template="macd-trend")
-    bollinger = create_reference_draft(template="bollinger-mean-reversion")
+    macd = create_template_strategy(template="macd-trend")
+    bollinger = create_template_strategy(template="bollinger-mean-reversion")
     assert isinstance(macd.entry.when, AllCondition)
     macd_when = macd.entry.when.all[0]
     assert isinstance(macd_when, ComparisonCondition)

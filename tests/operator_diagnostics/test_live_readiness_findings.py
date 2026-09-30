@@ -25,8 +25,8 @@ from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
-from thytrader.strategies.authoring import DisabledStrategyDraftStore
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.library import DisabledStrategyStore
+from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 
 
 def _deployment(*, mode: DeploymentMode, mismatch: str | None = None) -> Deployment:
@@ -54,8 +54,8 @@ def _diagnostics(execution: InMemoryExecutionStore, settings: Settings) -> Opera
         portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
-        publications=DisabledStrategyPublicationStore(),
-        drafts=DisabledStrategyDraftStore(),
+        publications=DisabledStrategySnapshotStore(),
+        strategies_store=DisabledStrategyStore(),
         backtests=DisabledBacktestResultStore(),
         execution=execution,
         audit=InMemoryAuditEventStore(),

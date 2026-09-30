@@ -1,11 +1,12 @@
 # Strategy schema
 
-Canonical published document. Field rules:
+Canonical strategy document (the content of a mutable strategy and of each snapshot). Field rules:
 [canonical strategy schema](../canonical-strategy-schema.md).
 Model: `thytrader.strategies.models.StrategyDefinition`.
 
-Fingerprint is `sha256:` of sorted compact UTF-8 JSON over the entire published
-document. Unknown fields are rejected. `instrument` is the primary Coinbase
+Fingerprint is `sha256:` of sorted compact UTF-8 JSON over the entire snapshotted
+document. `version` and `status` are not document fields; legacy input keys are discarded
+([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). Unknown fields are rejected. `instrument` is the primary Coinbase
 USD spot product. Optional `additional_instruments` lists 1–7 extra unique USD
 spot products (at most eight total). `max_concurrent_positions` is 1–8 and must
 not exceed covered products. `max_open_positions` is 1 unless
@@ -17,10 +18,8 @@ classDiagram
   class StrategyDefinition {
     schema_version 1.0
     strategy_id UUIDv7
-    version int
     name string
     description string?
-    status draft|published|archived
     created_at UTC
     timeframe venue clock
     additional_instruments 0..7
@@ -94,11 +93,11 @@ classDiagram
 
 ```mermaid
 flowchart TD
-  Draft["draft editable"] -->|publish| Published["published immutable"]
-  Published -->|revise POST .../revise| NextDraft["next version draft"]
-  NextDraft -->|publish| NextPublished["published vN+1"]
-  Published -->|archive marker| Archived["archived hidden from active selection"]
-  Archived -.->|historical refs remain valid| Published
+  Strategy["strategies row (mutable, revision, validation)"] -->|PUT save with revision| Strategy
+  Strategy -->|backtest / study / deploy start, valid only| Snapshot["strategy_snapshots (sha256, deduplicated)"]
+  Snapshot --> Runs["run specs, results, studies, jobs, bindings (strategy_id FK, CASCADE)"]
+  Snapshot --> Bots["deployments (strategy_id FK, SET NULL for kept live books)"]
+  Strategy -->|DELETE| Gone["hard delete: cascades research and paper; stopped live kept, detached"]
 ```
 
 `htf_filter` is omitted from canonical JSON when null. Optional per-indicator

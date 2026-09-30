@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api.app import create_app
 from thytrader.config import Environment, Settings
 from thytrader.execution.ids import utc_now, uuid7
@@ -32,107 +33,21 @@ from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAudit
 from thytrader.risk.models import RiskReasonCode, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
-from thytrader.strategies.authoring import StrategyDraft, create_reference_draft
+from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     Instrument,
     StrategyDefinition,
-    StrategyStatus,
     strategy_fingerprint,
 )
-from thytrader.strategies.publication import (
-    PublishedStrategy,
-    StrategyCatalogEntry,
-    StrategyPublicationError,
+from thytrader.strategies.snapshots import (
+    StrategySnapshot,
 )
-
-
-class InMemoryDraftStore:
-    """Minimal draft store so create_app can satisfy the authoring boundary."""
-
-    def __init__(self) -> None:
-        """Start with no drafts."""
-        self.drafts: dict[tuple[str, int], StrategyDraft] = {}
-
-    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
-        """Record one draft."""
-        draft = StrategyDraft(definition=definition, revision=1)
-        self.drafts[(str(definition.strategy_id), definition.version)] = draft
-        return draft
-
-    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
-        """Return saved drafts."""
-        return tuple(self.drafts.values())
-
-    async def save_draft(
-        self, definition: StrategyDefinition, *, expected_revision: int
-    ) -> StrategyDraft:
-        """Replace a current draft."""
-        del expected_revision
-        draft = StrategyDraft(definition=definition, revision=2)
-        self.drafts[(str(definition.strategy_id), definition.version)] = draft
-        return draft
-
-    async def delete_draft(self, strategy_id: UUID, version: int) -> None:
-        """Remove one draft."""
-        self.drafts.pop((str(strategy_id), version), None)
-
-
-class InMemoryPublicationStore:
-    """Load published strategies by fingerprint for deployment tests."""
-
-    def __init__(self) -> None:
-        """Start without publications."""
-        self.published: dict[str, PublishedStrategy] = {}
-
-    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
-        """Retain one immutable publication."""
-        fingerprint = strategy_fingerprint(definition)
-        published = PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
-        self.published[fingerprint] = published
-        return published
-
-    async def publish_draft(
-        self, definition: StrategyDefinition, *, expected_revision: int
-    ) -> PublishedStrategy:
-        """Unused atomic publish path for this store."""
-        del expected_revision
-        return await self.publish(definition)
-
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
-        """Return one previously published definition or fail."""
-        published = self.published.get(strategy_fingerprint_value)
-        if published is None:
-            raise StrategyPublicationError("Published strategy was not found.")
-        return published
-
-    async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
-        """Return every retained publication."""
-        del include_archived
-        return tuple(
-            StrategyCatalogEntry(
-                strategy_fingerprint=fingerprint,
-                definition=item.definition,
-                archived_at=None,
-            )
-            for fingerprint, item in self.published.items()
-        )
-
-    async def archive(self, strategy_fingerprint_value: str) -> StrategyCatalogEntry:
-        """Unused archive path for this store."""
-        published = await self.load(strategy_fingerprint_value)
-        return StrategyCatalogEntry(
-            strategy_fingerprint=published.strategy_fingerprint,
-            definition=published.definition,
-            archived_at=datetime(2026, 1, 2, tzinfo=UTC),
-        )
 
 
 def _published_strategy() -> StrategyDefinition:
     """Return the reference strategy marked published."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
-    return StrategyDefinition.model_validate(
-        {**draft.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED.value}
-    )
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
+    return StrategyDefinition.model_validate({**draft.model_dump(mode="python")})
 
 
 def _client(
@@ -154,7 +69,6 @@ def _client(
     app = create_app(
         settings,
         strategy_store=publication,
-        strategy_draft_store=InMemoryDraftStore(),
         execution_store=execution,
         audit_event_store=audit,
         risk_policy_store=risk,
@@ -181,13 +95,13 @@ def test_paper_deployment_persists_and_updates_library_status() -> None:
     fingerprint = strategy_fingerprint(definition)
 
     with _client(publication, execution) as client:
-        publication.published[fingerprint] = PublishedStrategy(
+        publication.published[fingerprint] = StrategySnapshot(
             strategy_fingerprint=fingerprint, definition=definition
         )
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -213,7 +127,7 @@ def test_paper_deployment_persists_and_updates_library_status() -> None:
         for item in library.json()["strategies"]
         if item["strategy_id"] == str(definition.strategy_id)
     )
-    assert entry["paper_live"] == {"paper": "running", "live": "unavailable"}
+    assert entry["paper_live"] == {"paper": "running", "live": "none"}
 
 
 def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enabled() -> None:
@@ -222,7 +136,7 @@ def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enab
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
     settings = Settings(
@@ -234,11 +148,10 @@ def test_paper_deployment_mutation_requires_installation_auth_when_boundary_enab
     app = create_app(
         settings,
         strategy_store=publication,
-        strategy_draft_store=InMemoryDraftStore(),
         execution_store=execution,
     )
     payload = {
-        "strategy_fingerprint": fingerprint,
+        "strategy_id": str(definition.strategy_id),
         "mode": "paper",
         "paper_starting_cash": "10000",
     }
@@ -263,7 +176,7 @@ def test_pause_resume_and_stop_deployment() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -271,7 +184,7 @@ def test_pause_resume_and_stop_deployment() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "5000",
             },
@@ -294,7 +207,7 @@ def test_deployment_response_includes_lifecycle_and_capital_fields() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -302,7 +215,7 @@ def test_deployment_response_includes_lifecycle_and_capital_fields() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "5000",
             },
@@ -325,7 +238,7 @@ def test_deployment_list_includes_lifecycle_observability_fields() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -333,7 +246,7 @@ def test_deployment_list_includes_lifecycle_observability_fields() -> None:
         client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "5000",
             },
@@ -355,7 +268,7 @@ def test_deployment_list_resolves_timeframe_from_published_strategy() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "2h"})
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
     now = datetime(2026, 9, 17, tzinfo=UTC)
@@ -389,7 +302,7 @@ def test_create_deployment_persists_strategy_timeframe() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "2h"})
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -397,7 +310,7 @@ def test_create_deployment_persists_strategy_timeframe() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "5000",
             },
@@ -412,7 +325,7 @@ def test_reset_breaker_latches_clears_latched_breakers() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -420,7 +333,7 @@ def test_reset_breaker_latches_clears_latched_breakers() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "5000",
             },
@@ -452,11 +365,11 @@ def test_duplicate_running_paper_deployment_conflicts() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
     payload = {
-        "strategy_fingerprint": fingerprint,
+        "strategy_id": str(definition.strategy_id),
         "mode": "paper",
         "paper_starting_cash": "10000",
     }
@@ -475,14 +388,18 @@ def test_live_deployment_requires_credentials() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
     with _client(publication, execution) as client:
         denied = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     with _client(
@@ -490,7 +407,11 @@ def test_live_deployment_requires_credentials() -> None:
     ) as client:
         allowed = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     assert denied.status_code == 409
@@ -507,7 +428,7 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "5m"})
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -515,14 +436,18 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
         paper = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
         )
         live = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     with _client(
@@ -530,7 +455,11 @@ def test_five_minute_strategy_can_start_paper_and_live() -> None:
     ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     assert paper.status_code == 201
@@ -546,7 +475,7 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "1m"})
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -554,14 +483,18 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
         paper = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
         )
         live = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     with _client(
@@ -569,7 +502,11 @@ def test_one_minute_strategy_can_start_paper_and_live() -> None:
     ) as client:
         live_with_keys = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
         )
 
     assert paper.status_code == 201
@@ -585,7 +522,7 @@ def test_fifteen_minute_strategy_can_start_paper() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy().model_copy(update={"timeframe": "15m"})
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -593,7 +530,7 @@ def test_fifteen_minute_strategy_can_start_paper() -> None:
         paper = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -604,12 +541,12 @@ def test_fifteen_minute_strategy_can_start_paper() -> None:
 
 
 def test_unknown_fingerprint_is_not_found() -> None:
-    """Deploying an unpublished fingerprint fails closed."""
+    """Deploying an unknown strategy fails closed."""
     with _client(InMemoryPublicationStore(), InMemoryExecutionStore()) as client:
         missing = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": "sha256:" + "a" * 64,
+                "strategy_id": "01985cf0-7b60-7000-8000-0000000000ff",
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -625,20 +562,18 @@ def test_two_instruments_can_run_paper_together_under_the_default_policy() -> No
     publication = InMemoryPublicationStore()
     execution = InMemoryExecutionStore()
     btc = _published_strategy()
-    eth = create_reference_draft(now=datetime(2026, 1, 2, tzinfo=UTC), product_id="ETH-USD")
-    eth = StrategyDefinition.model_validate(
-        {**eth.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED.value}
-    )
+    eth = create_template_strategy(now=datetime(2026, 1, 2, tzinfo=UTC), product_id="ETH-USD")
+    eth = StrategyDefinition.model_validate({**eth.model_dump(mode="python")})
     btc_fp = strategy_fingerprint(btc)
     eth_fp = strategy_fingerprint(eth)
-    publication.published[btc_fp] = PublishedStrategy(strategy_fingerprint=btc_fp, definition=btc)
-    publication.published[eth_fp] = PublishedStrategy(strategy_fingerprint=eth_fp, definition=eth)
+    publication.published[btc_fp] = StrategySnapshot(strategy_fingerprint=btc_fp, definition=btc)
+    publication.published[eth_fp] = StrategySnapshot(strategy_fingerprint=eth_fp, definition=eth)
 
     with _client(publication, execution) as client:
         first = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": btc_fp,
+                "strategy_id": str(btc.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -646,7 +581,7 @@ def test_two_instruments_can_run_paper_together_under_the_default_policy() -> No
         second = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": eth_fp,
+                "strategy_id": str(eth.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -663,7 +598,7 @@ def test_paper_starting_cash_over_the_book_is_conflict() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -671,7 +606,7 @@ def test_paper_starting_cash_over_the_book_is_conflict() -> None:
         denied = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "100001",
             },
@@ -688,7 +623,7 @@ def test_paper_start_records_runtime_audit_without_cash() -> None:
     audit = InMemoryAuditEventStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -696,7 +631,7 @@ def test_paper_start_records_runtime_audit_without_cash() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -721,7 +656,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
     def _fresh() -> tuple[InMemoryPublicationStore, InMemoryExecutionStore]:
         """Return a published fingerprint bound to an empty execution store."""
         publication = InMemoryPublicationStore()
-        publication.published[fingerprint] = PublishedStrategy(
+        publication.published[fingerprint] = StrategySnapshot(
             strategy_fingerprint=fingerprint, definition=definition
         )
         return publication, InMemoryExecutionStore()
@@ -731,7 +666,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
                 "maker_fee_rate": "0.0025",
@@ -747,7 +682,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
         one_sided = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
                 "maker_fee_rate": "0.0025",
@@ -756,7 +691,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
         inverted = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
                 "maker_fee_rate": "0.004",
@@ -771,7 +706,7 @@ def test_paper_fee_fields_persist_and_reject_illegal_pairs() -> None:
         live_fees = live_client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "live",
                 "i_understand_live": True,
                 "maker_fee_rate": "0.001",
@@ -855,7 +790,7 @@ def test_two_product_post_lists_flat_runtimes_without_seeding_store() -> None:
     execution = InMemoryExecutionStore()
     definition = _two_product_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -863,7 +798,7 @@ def test_two_product_post_lists_flat_runtimes_without_seeding_store() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -885,7 +820,7 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
     execution = InMemoryExecutionStore()
     definition = _two_product_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -893,7 +828,7 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -955,7 +890,7 @@ def test_two_open_books_keep_distinct_sides_and_reconcile_totals() -> None:
     execution = InMemoryExecutionStore()
     definition = _two_product_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
 
@@ -963,7 +898,7 @@ def test_two_open_books_keep_distinct_sides_and_reconcile_totals() -> None:
         created = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": str(definition.strategy_id),
                 "mode": "paper",
                 "paper_starting_cash": "10000",
             },
@@ -1045,7 +980,7 @@ def test_deployment_response_includes_capital_accounting_block() -> None:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
     deployment_id = uuid4()
@@ -1091,3 +1026,32 @@ def test_deployment_response_includes_capital_accounting_block() -> None:
     assert capital["performance_equity"] == "24800"
     assert capital["initial_equity"] == "25000"
     assert capital["utc_day_open_equity"] == "24900"
+
+
+def test_deployment_records_strategy_name_and_filters_by_strategy() -> None:
+    """A started bot names its strategy and the list filters by strategy_id."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = StrategySnapshot(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    with _client(publication, execution) as client:
+        created = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "paper",
+                "paper_starting_cash": "10000",
+            },
+        )
+        mine = client.get(f"/api/v1/deployments?strategy_id={definition.strategy_id}")
+        other = client.get("/api/v1/deployments?strategy_id=01985cf0-7b60-7000-8000-0000000000ee")
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["strategy_fingerprint"] == fingerprint
+    assert body["strategy_name"] == definition.name
+    assert body["strategy_deleted"] is False
+    assert [item["id"] for item in mine.json()["deployments"]] == [body["id"]]
+    assert other.json()["deployments"] == []

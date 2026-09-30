@@ -25,7 +25,7 @@ from thytrader.risk.store import RiskPolicyStoreError
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 
 class PostgresRiskPolicyStore:
@@ -37,62 +37,81 @@ class PostgresRiskPolicyStore:
 
     async def load_active(self) -> ActiveRiskPolicy:
         """Return the active published policy, or the compiled default when unset."""
-        statement = (
-            select(
-                published_risk_policies.c.policy_fingerprint,
-                published_risk_policies.c.canonical_definition,
-            )
-            .join(
-                active_risk_policy,
-                active_risk_policy.c.policy_fingerprint
-                == published_risk_policies.c.policy_fingerprint,
-            )
-            .where(active_risk_policy.c.id == 1)
-        )
         try:
             async with self._engine.connect() as connection:
-                row = (await connection.execute(statement)).mappings().one_or_none()
+                return await load_active_policy_in(connection)
         except SQLAlchemyError as error:
             raise RiskPolicyStoreError("Risk-policy storage is unavailable.") from error
-        if row is None:
-            return compiled_default_active_policy()
-        return _published_from_row(row)
 
     async def publish(self, definition: RiskPolicyDefinition) -> ActiveRiskPolicy:
         """Insert one immutable version and point the singleton active row at it."""
-        fingerprint = risk_policy_fingerprint(definition)
-        canonical = canonical_text(definition)
-        now = datetime.now(UTC)
-        insert_policy = (
-            insert(published_risk_policies)
-            .values(
-                policy_fingerprint=fingerprint,
-                policy_id=str(definition.policy_id),
-                version=definition.version,
-                canonical_definition=canonical,
-                published_at=now,
-            )
-            .on_conflict_do_nothing()
-        )
-        upsert_active = (
-            insert(active_risk_policy)
-            .values(id=1, policy_fingerprint=fingerprint, activated_at=now)
-            .on_conflict_do_update(
-                index_elements=["id"],
-                set_={"policy_fingerprint": fingerprint, "activated_at": now},
-            )
-        )
         try:
             async with self._engine.begin() as connection:
-                await connection.execute(insert_policy)
-                await connection.execute(upsert_active)
+                return await publish_policy_in(connection, definition)
         except SQLAlchemyError as error:
             raise RiskPolicyStoreError("Risk-policy storage is unavailable.") from error
-        return ActiveRiskPolicy(
-            definition=definition,
-            policy_fingerprint=fingerprint,
-            source=RiskPolicySource.PUBLISHED,
+
+
+async def load_active_policy_in(
+    connection: AsyncConnection, *, for_update: bool = False
+) -> ActiveRiskPolicy:
+    """Load the active policy inside a caller-owned connection or transaction.
+
+    ``for_update`` locks the singleton active row so a caller can publish a
+    successor atomically (strategy deletion removing an allocation).
+    """
+    statement = (
+        select(
+            published_risk_policies.c.policy_fingerprint,
+            published_risk_policies.c.canonical_definition,
         )
+        .join(
+            active_risk_policy,
+            active_risk_policy.c.policy_fingerprint == published_risk_policies.c.policy_fingerprint,
+        )
+        .where(active_risk_policy.c.id == 1)
+    )
+    if for_update:
+        statement = statement.with_for_update(of=active_risk_policy)
+    row = (await connection.execute(statement)).mappings().one_or_none()
+    if row is None:
+        return compiled_default_active_policy()
+    return _published_from_row(row)
+
+
+async def publish_policy_in(
+    connection: AsyncConnection, definition: RiskPolicyDefinition
+) -> ActiveRiskPolicy:
+    """Insert one immutable version and repoint the active row inside ``connection``."""
+    fingerprint = risk_policy_fingerprint(definition)
+    canonical = canonical_text(definition)
+    now = datetime.now(UTC)
+    insert_policy = (
+        insert(published_risk_policies)
+        .values(
+            policy_fingerprint=fingerprint,
+            policy_id=str(definition.policy_id),
+            version=definition.version,
+            canonical_definition=canonical,
+            published_at=now,
+        )
+        .on_conflict_do_nothing()
+    )
+    upsert_active = (
+        insert(active_risk_policy)
+        .values(id=1, policy_fingerprint=fingerprint, activated_at=now)
+        .on_conflict_do_update(
+            index_elements=["id"],
+            set_={"policy_fingerprint": fingerprint, "activated_at": now},
+        )
+    )
+    await connection.execute(insert_policy)
+    await connection.execute(upsert_active)
+    return ActiveRiskPolicy(
+        definition=definition,
+        policy_fingerprint=fingerprint,
+        source=RiskPolicySource.PUBLISHED,
+    )
 
 
 def canonical_text(definition: RiskPolicyDefinition) -> str:
