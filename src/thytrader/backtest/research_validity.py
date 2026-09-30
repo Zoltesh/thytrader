@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-from thytrader.research.models import ResearchRunSpecification  # noqa: TC001
 from thytrader.strategies.models import StrategyDefinition  # noqa: TC001
 
 ResearchValidityLimitCode = Literal[
@@ -16,11 +15,13 @@ ResearchValidityLimitCode = Literal[
 
 def collect_backtest_validity_limits(
     strategy: StrategyDefinition,
-    specification: ResearchRunSpecification,
 ) -> tuple[ResearchValidityLimitCode, ...]:
-    """Return F23 limit codes that apply to one V4 backtest result."""
-    if specification.engine_contract_version != "thytrader-bar-backtest-v4":
-        return ()
+    """Return the modeling limits that apply to one unified backtest result.
+
+    Every result discloses maker touch-full-fill optimism and the resting take-profit
+    matching before the stop check on bars after the fill bar (paper/live parity).
+    Short strategies also disclose synthetic spot-short inventory.
+    """
     limits: list[ResearchValidityLimitCode] = [
         "maker_touch_full_fill",
         "tp_before_stop_same_bar",

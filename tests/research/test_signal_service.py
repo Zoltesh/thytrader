@@ -93,4 +93,4 @@ def test_service_loads_exact_published_artifacts_before_evaluation() -> None:
     assert strategy_store.loaded == [specification.strategy_fingerprint]
     assert dataset_store.loaded == [specification.dataset_fingerprint]
     assert len(trace.records) == 2
-    assert Path("tests/research/golden/reference_signal_trace_v1.json").exists()
+    assert Path("tests/research/golden/reference_signal_trace.json").exists()

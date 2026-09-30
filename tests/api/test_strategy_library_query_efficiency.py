@@ -110,7 +110,6 @@ def _summary(fingerprint: str, published_at: datetime) -> BacktestResultSummaryV
         run_fingerprint=f"sha256:{tail}",
         strategy_fingerprint=fingerprint,
         dataset_fingerprint=f"sha256:{tail}",
-        engine_contract_version="thytrader-bar-backtest-v4",
         published_at=published_at,
         summary=BacktestSummary(
             initial_equity="10000",

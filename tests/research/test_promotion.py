@@ -69,7 +69,6 @@ def test_promotion_evidence_does_not_label_sweep_candidates_as_oos() -> None:
         study_fingerprint="sha256:" + "b" * 64,
         request_fingerprint="sha256:" + "c" * 64,
         kind=StudyKind.PARAMETER_SWEEP,
-        engine_contract_version="thytrader-bar-backtest-v4",
         windows=(
             _window(
                 role=WindowRole.SWEEP_CANDIDATE,
@@ -105,7 +104,6 @@ def test_promotion_evidence_does_not_label_sweep_candidates_as_oos() -> None:
         run_fingerprint="sha256:" + "5" * 64,
         strategy_fingerprint=strategy_fingerprint,
         dataset_fingerprint="sha256:" + "6" * 64,
-        engine_contract_version="thytrader-bar-backtest-v4",
         published_at=datetime(2026, 9, 19, tzinfo=UTC),
         summary=_summary(pnl="10.88", trades=27),
     )

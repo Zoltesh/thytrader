@@ -1,4 +1,4 @@
-"""HTTP tests for Phase 11 templates, engine-support, and research studies."""
+"""HTTP tests for Phase 11 templates, the backtest model, and research studies."""
 
 from __future__ import annotations
 
@@ -50,11 +50,10 @@ def _summary() -> BacktestSummary:
 
 
 def _result_with_summary() -> BacktestResult:
-    """Build a V1 result document for study child loads."""
+    """Build a unified-model result document for study child loads."""
     fingerprint = "sha256:" + "e" * 64
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v1",
         run_fingerprint=fingerprint,
         strategy_fingerprint=fingerprint,
         dataset_fingerprint=fingerprint,
@@ -110,7 +109,7 @@ class _StudyResults:
         return ()
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
-        """Return a V1 child result with a constant summary."""
+        """Return a unified-model child result with a constant summary."""
         del result_fingerprint
         return _result_with_summary()
 
@@ -192,29 +191,34 @@ def _holdout_body(strategy_fingerprint_value: str) -> dict[str, object]:
         "maker_fee_rate": "0.001",
         "taker_fee_rate": "0.002",
         "fixed_slippage_bps": "10",
-        "engine_contract_version": "thytrader-bar-backtest-v1",
         "strategy_id": strategy_fingerprint_value,
         "dataset_fingerprint": "sha256:" + "b" * 64,
         "oos_fraction": "0.3",
     }
 
 
-def test_engine_support_matrix_includes_v3_and_studies() -> None:
-    """The matrix is a first-class read contract with a V3 column."""
+def test_backtest_model_is_a_first_class_read_contract() -> None:
+    """The single model's description replaces the retired per-engine matrix."""
     client, _, _ = _client()
     with client:
-        response = client.get("/api/v1/research/engine-support")
+        response = client.get("/api/v1/research/backtest-model")
+        removed = client.get("/api/v1/research/engine-support")
     assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["engines"] == [
-        "thytrader-bar-backtest-v1",
-        "thytrader-bar-backtest-v2",
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ]
-    labels = {row["label"] for row in body["rows"]}
-    assert "Walk-forward / OOS / cross-market studies" in labels
-    assert "Maker-only / marketable entry preference" in labels
+    assert response.json()["engine"] == "thytrader-backtest"
+    assert removed.status_code == 404
+
+
+def test_study_plan_rejects_the_removed_engine_selector() -> None:
+    """A study body that still selects an engine gets an explicit 422 migration message."""
+    client, _, _ = _client()
+    with client:
+        fingerprint = _publish_reference(client)
+        response = client.post(
+            "/api/v1/research/studies/plan",
+            json={**_holdout_body(fingerprint), "engine_contract_version": "thytrader-backtest"},
+        )
+    assert response.status_code == 422
+    assert "engine_contract_version was removed" in response.text
 
 
 def test_templates_catalog_lists_fail_closed_ids() -> None:
@@ -334,7 +338,6 @@ def test_plan_study_rejects_an_evaluation_window_that_cannot_fold() -> None:
                 "maker_fee_rate": "0.001",
                 "taker_fee_rate": "0.002",
                 "fixed_slippage_bps": "10",
-                "engine_contract_version": "thytrader-bar-backtest-v3",
                 "strategy_id": fingerprint,
                 "dataset_fingerprint": "sha256:" + "b" * 64,
                 "in_sample_bars": 48,
@@ -400,7 +403,6 @@ def test_submit_parameter_sweep_publishes_derived_axis_candidates() -> None:
                 "maker_fee_rate": "0.001",
                 "taker_fee_rate": "0.002",
                 "fixed_slippage_bps": "10",
-                "engine_contract_version": "thytrader-bar-backtest-v1",
                 "strategy_id": fingerprint,
                 "dataset_fingerprint": "sha256:" + "b" * 64,
                 "parameter_axes": [

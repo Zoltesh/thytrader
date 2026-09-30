@@ -604,3 +604,12 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "./thytrader.yaml:/var/lib/thytrader/settings/thytrader.yaml" in content
     assert "THYTRADER_YOLO_TIERS" not in content
     assert "THYTRADER_SNAPSHOT_INTERVAL_SECONDS" not in content
+
+
+def test_unified_backtest_migration_follows_strategy_root_model() -> None:
+    """The forty-ninth migration collapses the engines (ADR 0083) after 0048."""
+    content = Path("alembic/versions/0049_unified_backtest_model.py").read_text(encoding="utf-8")
+    assert 'revision = "0049"' in content
+    assert 'down_revision = "0048"' in content
+    assert "ADR 0083" in content
+    assert 'drop_column("published_research_studies", "engine_contract_version")' in content

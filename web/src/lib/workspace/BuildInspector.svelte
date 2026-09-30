@@ -1,12 +1,12 @@
 <script lang="ts">
 	/**
 	 * Build stage right column: plain-English summary, checks (validation,
-	 * warmup / required data, collapsible engine support), save state, and the
+	 * warmup / required data, how backtests simulate), save state, and the
 	 * Save action. Disabled actions say why in visible text
 	 * wired through `aria-describedby`.
 	 */
 	import type { Snippet } from 'svelte';
-	import EngineSupportMatrix from '$lib/EngineSupportMatrix.svelte';
+	import BacktestModelDisclosure from '$lib/BacktestModelDisclosure.svelte';
 	import type { BuilderModel } from '$lib/strategies';
 	import { plainEnglishSummary, requiredDataText } from '$lib/strategy-insight';
 
@@ -49,10 +49,9 @@
 				>Warmup and data: {requiredDataText(model)}</span
 			>
 		</div>
-		<details class="engine" open>
-			<summary>Engine support</summary>
-			<EngineSupportMatrix />
-		</details>
+		<div class="model">
+			<BacktestModelDisclosure maxEntryWaitBars={model.execution?.max_entry_wait_bars ?? null} />
+		</div>
 		<div class="actions">
 			{@render actions()}
 		</div>
@@ -103,15 +102,10 @@
 		color: var(--neg);
 		font-size: var(--fs-sm);
 	}
-	.engine {
+	.model {
 		min-width: 0;
-		overflow-x: auto;
 		padding: 8px 0;
 		border-bottom: 1px solid var(--line);
-	}
-	.engine summary {
-		cursor: pointer;
-		color: var(--muted);
 	}
 	.actions {
 		display: grid;

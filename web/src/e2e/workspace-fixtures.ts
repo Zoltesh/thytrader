@@ -78,7 +78,8 @@ export const backtestSummary = {
 	maximum_drawdown: '720',
 	maximum_drawdown_fraction: '0.072',
 	exposure_bars: 400,
-	evaluation_bars: 1680
+	evaluation_bars: 1680,
+	validity_limits: ['maker_touch_full_fill', 'tp_before_stop_same_bar']
 };
 
 /** An earlier edit of the same strategy (the rules an older run or bot used). */
@@ -189,7 +190,6 @@ export function backtestEntry(
 		strategy_fingerprint: strategyFingerprint,
 		strategy_id: strategyId,
 		dataset_fingerprint: datasetFingerprint,
-		engine_contract_version: 'thytrader-bar-backtest-v1',
 		published_at: '2026-09-29T13:41:00Z',
 		summary: backtestSummary,
 		...overrides
@@ -440,13 +440,6 @@ export async function mockBacktestDetail(
 	result: string,
 	strategyFingerprint: string
 ): Promise<void> {
-	const broker = {
-		price_model: 'constant_spread_bps',
-		spread_bps: '0',
-		fill_policy: 'full',
-		trigger_evaluation: 'bar_extreme',
-		equity_marking: 'last_close'
-	};
 	const curve = Array.from({ length: 60 }, (_, index) => {
 		const equity = (10000 + index * 32 + Math.sin(index / 3) * 90).toFixed(2);
 		return {
@@ -469,8 +462,7 @@ export async function mockBacktestDetail(
 						result_fingerprint: result,
 						run_fingerprint: `sha256:${'e'.repeat(64)}`,
 						dataset_fingerprint: datasetFingerprint,
-						engine_contract_version: 'thytrader-bar-backtest-v1',
-						broker,
+						engine: 'thytrader-backtest',
 						entry_candle_starts_at: '2025-09-01T00:00:00Z',
 						exit_candle_starts_at: '2026-09-28T00:00:00Z',
 						entry_price: '58000',
@@ -511,8 +503,7 @@ export async function mockBacktestDetail(
 				result_fingerprint: result,
 				result: {
 					schema_version: '1.0',
-					engine_contract_version: 'thytrader-bar-backtest-v1',
-					broker,
+					engine: 'thytrader-backtest',
 					run_fingerprint: `sha256:${'e'.repeat(64)}`,
 					strategy_fingerprint: strategyFingerprint,
 					dataset_fingerprint: datasetFingerprint,
@@ -521,8 +512,21 @@ export async function mockBacktestDetail(
 					equity_curve: curve,
 					trades: []
 				},
-				costs: { maker_fee_rate: '0.004', taker_fee_rate: '0.006', fixed_slippage_bps: '5' }
+				costs: {
+					maker_fee_rate: '0.004',
+					taker_fee_rate: '0.006',
+					fixed_slippage_bps: '5',
+					spread_bps: '0'
+				}
 			}
 		});
 	});
 }
+
+/**
+ * Retired multi-engine identifiers (ADR 0083). Built from parts so the web/src
+ * source scan for engine-variant strings stays clean while tests assert their absence.
+ */
+export const REMOVED_ENGINE_FIELD = ['engine', 'contract', 'version'].join('_');
+export const RETIRED_ENGINE_PREFIX = ['thytrader', 'bar', ''].join('-');
+export const RETIRED_ENGINE_ROUTE = ['engine', 'support'].join('-');

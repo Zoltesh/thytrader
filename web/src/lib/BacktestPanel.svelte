@@ -83,8 +83,7 @@
 			<table>
 				<thead
 					><tr
-						><th>Strategy</th><th>Engine</th><th>Return</th><th>Final equity</th><th>Trades</th><th
-							>Win rate</th
+						><th>Strategy</th><th>Return</th><th>Final equity</th><th>Trades</th><th>Win rate</th
 						><th>Max drawdown</th><th>Published</th></tr
 					></thead
 				>
@@ -101,14 +100,12 @@
 										>{shortFingerprint(entry.result_fingerprint)}</small
 									></button
 								></td
-							><td class="engine"
-								><span data-testid="backtest-list-engine">{entry.engine_contract_version}</span
-								>{#if spreadCue}<small data-testid="backtest-list-spread">{spreadCue}</small
-									>{/if}</td
 							><td
 								class:gain={compareDecimalStrings(entry.summary.total_return_fraction, '0') > 0}
 								class:loss={compareDecimalStrings(entry.summary.total_return_fraction, '0') < 0}
-								>{formatPercent(entry.summary.total_return_fraction)}</td
+								>{formatPercent(entry.summary.total_return_fraction)}{#if spreadCue}<small
+										data-testid="backtest-list-spread">{spreadCue}</small
+									>{/if}</td
 							><td>{formatUsd(entry.summary.final_equity)}</td><td>{entry.summary.trade_count}</td
 							><td>{formatPercent(entry.summary.win_rate)}</td><td class="loss"
 								>{formatPercent(entry.summary.maximum_drawdown_fraction)}</td
@@ -194,9 +191,7 @@
 		padding: 13px 18px;
 	}
 	th:first-child,
-	td:first-child,
-	th:nth-child(2),
-	td.engine {
+	td:first-child {
 		text-align: left;
 	}
 	td {
@@ -211,10 +206,6 @@
 			monospace;
 		white-space: nowrap;
 	}
-	td.engine {
-		white-space: normal;
-		max-width: 220px;
-	}
 	td button {
 		border: 0;
 		padding: 0;
@@ -227,8 +218,7 @@
 	td button:hover {
 		color: var(--text);
 	}
-	td button small,
-	td.engine small {
+	td small {
 		display: block;
 		margin-top: 4px;
 		color: var(--faint);

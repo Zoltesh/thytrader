@@ -20,8 +20,9 @@ from pydantic import (
 )
 
 from thytrader.backtest.research_validity import ResearchValidityLimitCode  # noqa: TC001
-from thytrader.research.models import (  # noqa: TC001
-    BrokerAssumptions,
+from thytrader.research.models import (
+    BACKTEST_ENGINE,
+    BacktestEngine,
     FingerprintText,
     UtcDateTime,
 )
@@ -86,31 +87,13 @@ class _FrozenBacktestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-BacktestEngineContract = Literal[
-    "thytrader-bar-backtest-v1",
-    "thytrader-bar-backtest-v2",
-    "thytrader-bar-backtest-v3",
-    "thytrader-bar-backtest-v4",
-]
-
-
-def _require_result_broker_evidence(
-    engine_contract_version: BacktestEngineContract,
-    broker: BrokerAssumptions | None,
-    *,
-    kind: Literal["backtest", "benchmark"],
-) -> None:
-    """Bind broker evidence to V2/V3/V4 contracts and keep V1 results broker-free."""
-    if engine_contract_version == "thytrader-bar-backtest-v1":
-        if broker is not None:
-            raise ValueError(f"broker assumptions require a {kind} V2, V3, or V4 result")
-        return
-    if broker is None:
-        raise ValueError(f"{kind} {engine_contract_version} results require broker assumptions")
-
-
 class BacktestFill(_FrozenBacktestModel):
-    """One modeled fill using a completed-candle price assumption."""
+    """One modeled fill using a completed-candle price assumption.
+
+    ``reference_price``, ``executable_side``, and ``spread_cost`` appear only on marketable
+    (taker) fills of a run with nonzero ``spread_bps`` stress; maker fills and zero-spread
+    runs omit them so the canonical bytes stay minimal.
+    """
 
     candle_starts_at: UtcDateTime
     price: ResultDecimalText
@@ -119,7 +102,7 @@ class BacktestFill(_FrozenBacktestModel):
     fee: ResultDecimalText
     fee_rate: ResultDecimalText
     reference_price: ResultDecimalText | None = None
-    executable_side: Literal["ask", "bid", "mark"] | None = None
+    executable_side: Literal["ask", "bid"] | None = None
     spread_cost: ResultDecimalText | None = None
 
     @field_validator("candle_starts_at")
@@ -208,8 +191,7 @@ class BacktestResult(_FrozenBacktestModel):
     """Canonical full result from one immutable research-run simulation."""
 
     schema_version: Literal["1.0"]
-    engine_contract_version: BacktestEngineContract
-    broker: BrokerAssumptions | None = None
+    engine: BacktestEngine = BACKTEST_ENGINE
     run_fingerprint: FingerprintText
     strategy_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
@@ -217,12 +199,6 @@ class BacktestResult(_FrozenBacktestModel):
     trades: tuple[BacktestTrade, ...]
     equity_curve: tuple[EquityPoint, ...] = Field(min_length=1)
     summary: BacktestSummary
-
-    @model_validator(mode="after")
-    def require_v2_broker_evidence(self) -> Self:
-        """Require V2/V3 output to carry the same immutable broker facts as its source run."""
-        _require_result_broker_evidence(self.engine_contract_version, self.broker, kind="backtest")
-        return self
 
 
 class BacktestBenchmark(_FrozenBacktestModel):
@@ -233,8 +209,7 @@ class BacktestBenchmark(_FrozenBacktestModel):
     result_fingerprint: FingerprintText
     run_fingerprint: FingerprintText
     dataset_fingerprint: FingerprintText
-    engine_contract_version: BacktestEngineContract
-    broker: BrokerAssumptions | None = None
+    engine: BacktestEngine = BACKTEST_ENGINE
     entry_candle_starts_at: UtcDateTime
     exit_candle_starts_at: UtcDateTime
     entry_price: ResultDecimalText
@@ -263,12 +238,6 @@ class BacktestBenchmark(_FrozenBacktestModel):
         return value.isoformat().replace("+00:00", "Z")
 
     @model_validator(mode="after")
-    def require_v2_broker_evidence(self) -> Self:
-        """Keep derived benchmark broker evidence aligned with its execution contract."""
-        _require_result_broker_evidence(self.engine_contract_version, self.broker, kind="benchmark")
-        return self
-
-    @model_validator(mode="after")
     def require_canonical_fingerprint(self) -> Self:
         """Bind derived evidence to every field in its canonical payload."""
         expected = _backtest_benchmark_fingerprint_for_model(self)
@@ -286,7 +255,7 @@ class BacktestPerformanceMetrics(_FrozenBacktestModel):
     metrics_fingerprint: FingerprintText = _METRICS_FINGERPRINT_PLACEHOLDER
     result_fingerprint: FingerprintText
     run_fingerprint: FingerprintText
-    engine_contract_version: BacktestEngineContract
+    engine: BacktestEngine = BACKTEST_ENGINE
     risk_free_rate: ResultDecimalText
     annualization: Literal["equity_curve_bar_clock"]
     bar_seconds: ResultDecimalText | None = None

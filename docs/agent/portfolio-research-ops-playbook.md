@@ -60,9 +60,10 @@ decision clock — ingest extras explicitly with `thytrader-data`.
 
 ### 3. Research (strategy → backtest)
 
-10. Prefer **`thytrader-bar-backtest-v4`** for new bar backtests (default in
-    [`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md)). v1/v2-only
-    images return 422 on v3/v4 requests.
+10. There is one backtest model (`engine: "thytrader-backtest"`,
+    [ADR 0083](../decisions/0083-unified-backtest-model.md)) and no engine to pick. Read its fill
+    assumptions with `uv run thytrader-research backtest-model`. Requests name no engine
+    version (sending one returns HTTP 422); `spread_bps` is an optional disclosed spread stress.
 11. Build `request.json` for `submit-backtest`:
     - Name the strategy with `strategy_id` (no fingerprint; the server snapshots the current saved
       definition and returns `strategy_fingerprint`).
@@ -78,7 +79,8 @@ decision clock — ingest extras explicitly with `thytrader-data`.
 13. Confirm `validation.valid` is true with `uv run thytrader-research show-strategy --strategy-id UUID`;
     an invalid saved definition makes the backtest fail with HTTP 422 `strategy_invalid`.
 14. `uv run thytrader-research submit-backtest --file request.json --confirm`
-15. Read `validity_limits` on v4 summaries before claiming paper/live parity
+15. Read `validity_limits` (`maker_touch_full_fill`, `tp_before_stop_same_bar`, and
+    `spot_short_synthetic` for shorts) on backtest summaries before claiming paper/live parity
     ([ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)).
 
 Composed studies (OOS, walk-forward, cross-market, sweep, WFO) stay in the research skill; this

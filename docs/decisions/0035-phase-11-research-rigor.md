@@ -1,7 +1,7 @@
 # 0035: Phase 11 walk-forward, OOS, and cross-market research studies
 
-- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
-- Superseded part: studies over *published* fingerprints and `create-draft`. Studies name strategies by id and use automatic snapshots; templates create strategies with `create-strategy`.
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) and [0083](0083-unified-backtest-model.md)
+- Superseded part: studies over *published* fingerprints and `create-draft`. Studies name strategies by id and use automatic snapshots; templates create strategies with `create-strategy`. ADR 0083 supersedes the engine-support matrix and per-study engine selection. Studies compose unified-model backtests; `backtest-model` describes the assumptions.
 - Date: 2026-09-15
 - Relates to: [0007](0007-immutable-research-run-specifications.md),
   [0009](0009-deterministic-bar-level-backtest-engine.md),

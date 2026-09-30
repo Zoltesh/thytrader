@@ -20,7 +20,6 @@ from pydantic import (
 )
 
 from thytrader.backtest.models import (
-    BacktestEngineContract,  # noqa: TC001 - Pydantic model field.
     BacktestResult,  # noqa: TC001 - used as a runtime result map value.
     BacktestSummary,  # noqa: TC001 - Pydantic model field.
 )
@@ -35,7 +34,11 @@ from thytrader.research.catalog import (
     StudyCatalogSummary,
     StudyCatalogUnavailableError,
 )
-from thytrader.research.models import EvaluationWindow, IndicatorTimeframeDataset
+from thytrader.research.models import (
+    EvaluationWindow,
+    IndicatorTimeframeDataset,
+    reject_removed_engine_selection,
+)
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
     ParameterAxis,
@@ -151,7 +154,6 @@ class ResearchStudyRequest(_FrozenStudyModel):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
-    engine_contract_version: BacktestEngineContract
     spread_bps: str | None = None
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -183,6 +185,12 @@ class ResearchStudyRequest(_FrozenStudyModel):
         default=SelectionMetric.TOTAL_RETURN_FRACTION,
         exclude_if=lambda value: value is SelectionMetric.TOTAL_RETURN_FRACTION,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_engine_selection(cls, data: object) -> object:
+        """Reject the retired engine selector with an explicit migration message."""
+        return reject_removed_engine_selection(data)
 
     @field_serializer("evaluation_start", "evaluation_end", when_used="json")
     def serialize_timestamp(self, value: datetime) -> str:
@@ -326,7 +334,6 @@ class ResearchStudy(_FrozenStudyModel):
     study_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     kind: StudyKind
-    engine_contract_version: BacktestEngineContract
     windows: tuple[StudyWindowResult, ...] = Field(min_length=1)
     aggregate: StudyAggregate
     warnings: tuple[str, ...] = ()
@@ -360,7 +367,6 @@ class ResearchStudySummary(_FrozenStudyModel):
     study_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     kind: StudyKind
-    engine_contract_version: BacktestEngineContract
     aggregate: StudyAggregate
     warnings: tuple[str, ...] = ()
     selection_metric: SelectionMetric | None = Field(
@@ -384,7 +390,6 @@ def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
         study_fingerprint=study.study_fingerprint,
         request_fingerprint=study.request_fingerprint,
         kind=study.kind,
-        engine_contract_version=study.engine_contract_version,
         aggregate=study.aggregate,
         warnings=study.warnings,
         selection_metric=study.selection_metric,
@@ -467,7 +472,6 @@ def study_catalog_summary(study: ResearchStudy, plan: ResearchStudyPlan) -> Stud
         request_fingerprint=study.request_fingerprint,
         plan_fingerprint=plan.plan_fingerprint,
         kind=study.kind.value,
-        engine_contract_version=study.engine_contract_version,
         published_at=datetime.now(UTC),
         product_id=plan.windows[0].product_id,
         timeframe=plan.timeframe,
@@ -525,7 +529,6 @@ def window_submission_request(
         maker_fee_rate=request.maker_fee_rate,
         taker_fee_rate=request.taker_fee_rate,
         fixed_slippage_bps=request.fixed_slippage_bps,
-        engine_contract_version=request.engine_contract_version,
         spread_bps=request.spread_bps,
     )
 
@@ -644,7 +647,6 @@ class ResearchStudyService:
             study_fingerprint="sha256:" + ("0" * 64),
             request_fingerprint=plan.request_fingerprint,
             kind=request.kind,
-            engine_contract_version=request.engine_contract_version,
             windows=windows,
             aggregate=aggregate_windows(windows, selected_only=selected_only),
             warnings=_stitch_warnings(plan.warnings, stitched),

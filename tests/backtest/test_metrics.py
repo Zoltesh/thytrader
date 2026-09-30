@@ -62,7 +62,7 @@ def _trade(*, entry_hour: int, exit_hour: int, net_pnl: str) -> BacktestTrade:
 def _result(
     *, equity: tuple[EquityPoint, ...], trades: tuple[BacktestTrade, ...]
 ) -> BacktestResult:
-    """Build a V1 result whose summary matches the supplied ledger facts."""
+    """Build a unified-model result whose summary matches the supplied ledger facts."""
     initial = equity[0].equity
     final = equity[-1].equity
     fingerprint = "sha256:" + "a" * 64
@@ -71,7 +71,6 @@ def _result(
     )
     return BacktestResult(
         schema_version="1.0",
-        engine_contract_version="thytrader-bar-backtest-v1",
         run_fingerprint=fingerprint,
         strategy_fingerprint=fingerprint,
         dataset_fingerprint=fingerprint,
@@ -97,7 +96,7 @@ def _result(
 
 
 def test_metrics_leave_canonical_result_bytes_unchanged() -> None:
-    """Computing Sharpe must not alter v1/v2/v3 result identity."""
+    """Computing Sharpe must not alter canonical result identity."""
     result = _result(
         equity=(_point(0, "100", "10"), _point(1, "110", "11"), _point(2, "90", "9")),
         trades=(),

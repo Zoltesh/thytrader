@@ -1,4 +1,4 @@
-"""Behavioral tests for browser backtest submission engine and spread semantics."""
+"""Behavioral tests for backtest submission assumptions and optional spread stress."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
     PostgresBacktestSubmitter,
-    _broker_from_request,
+    _cost_assumptions,
     _execution_fingerprint,
 )
 from thytrader.market_data.datasets import DatasetStoreError
@@ -49,7 +49,6 @@ class _RequestOverrides(TypedDict, total=False):
     maker_fee_rate: str
     taker_fee_rate: str
     fixed_slippage_bps: str
-    engine_contract_version: str
     spread_bps: str | None
 
 
@@ -84,94 +83,39 @@ def test_submission_allows_omitted_evaluation_window() -> None:
     assert request.evaluation_end is None
 
 
-def test_v1_submission_rejects_spread() -> None:
-    """The V1 contract has no broker block; a spread value is a caller error."""
-    with pytest.raises(ValidationError, match="spread_bps requires"):
-        _request(engine_contract_version="thytrader-bar-backtest-v1", spread_bps="5")
+def test_submission_rejects_the_removed_engine_selector() -> None:
+    """A request that still selects an engine fails with the explicit migration message."""
+    fields = {**_request().model_dump(mode="python"), "engine_contract_version": "anything"}
+    with pytest.raises(ValidationError, match="engine_contract_version was removed"):
+        BacktestSubmissionRequest.model_validate(fields)
 
 
-def test_v2_submission_requires_spread() -> None:
-    """The V2 contract is undefined without an explicit constant spread."""
-    with pytest.raises(ValidationError, match="spread_bps is required"):
-        _request(engine_contract_version="thytrader-bar-backtest-v2")
+def test_submission_spread_stress_is_optional_and_defaults_to_zero() -> None:
+    """Omitted spread_bps publishes the unstressed model; explicit values are bounded."""
+    assert _cost_assumptions(_request()).spread_bps == "0"
+    assert _cost_assumptions(_request(spread_bps="8")).spread_bps == "8"
+    with pytest.raises(ValidationError, match="spread_bps must be at most 1000"):
+        _request(spread_bps="1001")
 
 
-def test_v2_submission_builds_the_cli_equivalent_broker_block() -> None:
-    """Browser V2 broker assumptions are identical to the CLI's V2 broker assumptions."""
-    request = _request(
-        engine_contract_version="thytrader-bar-backtest-v2",
-        spread_bps="8",
-    )
-
-    broker = _broker_from_request(request)
-    assert broker is not None
-    assert broker.model_dump(mode="python") == {
-        "price_model": "constant_spread_bps",
-        "spread_bps": "8",
-        "fill_policy": "full",
-        "trigger_evaluation": "bid_side",
-        "equity_marking": "bid_close",
-    }
-
-
-def test_execution_fingerprint_distinguishes_engine_and_spread() -> None:
-    """Equivalent browser and CLI semantics hash equally; different engines do not."""
-    v1 = _request(engine_contract_version="thytrader-bar-backtest-v1")
-    v1_again = _request(engine_contract_version="thytrader-bar-backtest-v1")
-    v2_spread8 = _request(
-        engine_contract_version="thytrader-bar-backtest-v2",
-        spread_bps="8",
-    )
-    v2_spread12 = _request(
-        engine_contract_version="thytrader-bar-backtest-v2",
-        spread_bps="12",
-    )
-
-    assert _execution_fingerprint(v1, "USD") == _execution_fingerprint(v1_again, "USD")
-    assert _execution_fingerprint(v1, "USD") != _execution_fingerprint(v2_spread8, "USD")
-    assert _execution_fingerprint(v2_spread8, "USD") != _execution_fingerprint(v2_spread12, "USD")
-
-
-def test_v3_submission_rejects_spread_and_builds_resting_limit_broker() -> None:
-    """V3 is post-only; a v2 spread value is a caller error, not a silent mix-in."""
-    with pytest.raises(ValidationError, match="spread_bps requires"):
-        _request(engine_contract_version="thytrader-bar-backtest-v3", spread_bps="5")
-    request = _request(engine_contract_version="thytrader-bar-backtest-v3")
-    broker = _broker_from_request(request)
-    assert broker is not None
-    assert broker.model_dump(mode="python") == {
-        "price_model": "post_only_limit",
-        "spread_bps": "0",
-        "fill_policy": "resting_limit",
-        "trigger_evaluation": "bar_extreme",
-        "equity_marking": "last_close",
-    }
+def test_execution_fingerprint_distinguishes_spread_but_not_its_spelling() -> None:
+    """Omitted and zero spread dedupe together; different spread values do not."""
+    unstressed = _execution_fingerprint(_request(), "USD")
+    assert unstressed == _execution_fingerprint(_request(spread_bps="0"), "USD")
+    assert unstressed == _execution_fingerprint(_request(spread_bps="0.0"), "USD")
+    spread8 = _execution_fingerprint(_request(spread_bps="8"), "USD")
+    spread12 = _execution_fingerprint(_request(spread_bps="12"), "USD")
+    assert len({unstressed, spread8, spread12}) == 3
 
 
 def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
-    """The hash payload carries the broker block so CLI and browser dedupe together."""
-    request = _request(
-        engine_contract_version="thytrader-bar-backtest-v2",
-        spread_bps="8",
-    )
+    """The hash payload binds the unified engine and costs so CLI and browser dedupe together."""
+    request = _request(spread_bps="8")
     fingerprint = _execution_fingerprint(request, "USD")
 
-    assert fingerprint.startswith("sha256:")
     assert request.evaluation_end is not None
     assert request.evaluation_start is not None
-    # Recompute the canonical payload to confirm the broker block participates.
     payload = {
-        "bar_execution": {
-            "fill_timing": "next_candle_open",
-            "signal_timing": "completed_candle_close",
-        },
-        "broker": {
-            "price_model": "constant_spread_bps",
-            "spread_bps": "8",
-            "fill_policy": "full",
-            "trigger_evaluation": "bid_side",
-            "equity_marking": "bid_close",
-        },
         "capital": {
             "quote_currency": "USD",
             "initial_quote_balance": "10000",
@@ -180,9 +124,10 @@ def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
             "maker_fee_rate": "0.001",
             "taker_fee_rate": "0.002",
             "fixed_slippage_bps": "10",
+            "spread_bps": "8",
         },
         "dataset_fingerprint": "sha256:" + "b" * 64,
-        "engine_contract_version": "thytrader-bar-backtest-v2",
+        "engine": "thytrader-backtest",
         "evaluation_end": request.evaluation_end.isoformat(),
         "evaluation_start": request.evaluation_start.isoformat(),
         "random_seed": 0,

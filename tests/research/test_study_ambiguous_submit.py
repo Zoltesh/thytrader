@@ -30,7 +30,6 @@ def _study_request() -> ResearchStudyStartRequest:
             "maker_fee_rate": "0.001",
             "taker_fee_rate": "0.002",
             "fixed_slippage_bps": "10",
-            "engine_contract_version": "thytrader-bar-backtest-v1",
             "strategy_id": _STRATEGY_ID,
             "dataset_fingerprint": "sha256:" + "b" * 64,
             "parameter_axes": [

@@ -69,7 +69,9 @@ def test_browser_strategy_workflow_snapshots_backtests_and_deletes(tmp_path: Pat
                 "maker_fee_rate": "0.001",
                 "taker_fee_rate": "0.002",
                 "fixed_slippage_bps": "10",
+                "spread_bps": "0",
             }
+            assert detail.json()["result"]["engine"] == "thytrader-backtest"
 
             second = client.post("/api/v1/backtests", json=request)
             assert second.status_code == 201, second.text

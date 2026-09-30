@@ -33,7 +33,6 @@ class BacktestResultSummaryView:
 
     __slots__ = (
         "dataset_fingerprint",
-        "engine_contract_version",
         "published_at",
         "result_fingerprint",
         "run_fingerprint",
@@ -49,7 +48,6 @@ class BacktestResultSummaryView:
         run_fingerprint: str,
         strategy_fingerprint: str,
         dataset_fingerprint: str,
-        engine_contract_version: str,
         published_at: datetime,
         summary: BacktestSummary,
         strategy_id: str | None = None,
@@ -59,7 +57,6 @@ class BacktestResultSummaryView:
         self.run_fingerprint = run_fingerprint
         self.strategy_fingerprint = strategy_fingerprint
         self.dataset_fingerprint = dataset_fingerprint
-        self.engine_contract_version = engine_contract_version
         self.published_at = published_at
         self.summary = summary
         self.strategy_id = strategy_id

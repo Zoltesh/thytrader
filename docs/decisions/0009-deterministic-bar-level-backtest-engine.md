@@ -1,6 +1,7 @@
 # 0009: Version bar-level backtest simulation separately from signal evaluation
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: the separately versioned next-open taker engine `thytrader-bar-backtest-v1` (code deleted). The Decimal contract and fail-closed input verification carry into the unified model.
 - Date: 2026-08-01
 
 ## Context

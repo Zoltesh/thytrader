@@ -78,7 +78,6 @@ class BacktestSummaryResponse(BaseModel):
     strategy_fingerprint: str
     strategy_id: UUID | None = None
     dataset_fingerprint: str
-    engine_contract_version: str
     published_at: str
     summary: BacktestSummary
 
@@ -121,7 +120,6 @@ class BacktestSummaryDetailResponse(BaseModel):
     run_fingerprint: str
     strategy_fingerprint: str
     dataset_fingerprint: str
-    engine_contract_version: str
     summary: BacktestSummary
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
@@ -553,7 +551,6 @@ async def get_backtest(
             run_fingerprint=result.run_fingerprint,
             strategy_fingerprint=result.strategy_fingerprint,
             dataset_fingerprint=result.dataset_fingerprint,
-            engine_contract_version=result.engine_contract_version,
             summary=result.summary,
             costs=costs,
             metrics=metrics,
@@ -582,7 +579,6 @@ def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryRes
         strategy_fingerprint=entry.strategy_fingerprint,
         strategy_id=None if entry.strategy_id is None else UUID(entry.strategy_id),
         dataset_fingerprint=entry.dataset_fingerprint,
-        engine_contract_version=entry.engine_contract_version,
         published_at=entry.published_at.isoformat().replace("+00:00", "Z"),
         summary=entry.summary,
     )

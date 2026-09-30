@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 from datetime import UTC, datetime
+import io
 import json
 from pathlib import Path
 from typing import Protocol
@@ -340,7 +342,7 @@ def test_import_strategy_without_confirm_does_not_write() -> None:
 
 
 def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
-    """A stale API that still only names v1/v2 must tell operators to rebuild."""
+    """A stale API that still demands an engine selector must tell operators to rebuild."""
     path = tmp_path / "request.json"
     path.write_text("{}")
     with (
@@ -354,10 +356,7 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
         ),
         patch(
             "thytrader.research.http.submit_backtest",
-            side_effect=AgentHttpError(
-                "HTTP 422: Input should be 'thytrader-bar-backtest-v1' or "
-                "'thytrader-bar-backtest-v2'"
-            ),
+            side_effect=AgentHttpError("HTTP 422: engine_contract_version: Field required"),
         ),
         pytest.raises(SystemExit) as raised,
     ):
@@ -368,33 +367,44 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
     assert "failed safely" not in message
 
 
-def test_submit_backtest_stale_v3_only_engine_422_hints_rebuild(tmp_path: Path) -> None:
-    """A pre-v4 API that lists v1-v3 but not v4 must tell operators to rebuild."""
+def test_submit_backtest_rejects_a_file_that_still_selects_an_engine(tmp_path: Path) -> None:
+    """A start document naming engine_contract_version fails locally with the migration text."""
     path = tmp_path / "request.json"
-    path.write_text("{}")
+    path.write_text(
+        json.dumps(
+            {
+                "strategy_id": "11111111-1111-1111-1111-111111111111",
+                "dataset_fingerprint": "sha256:" + "b" * 64,
+                "initial_quote_balance": "10000",
+                "maker_fee_rate": "0.001",
+                "taker_fee_rate": "0.002",
+                "fixed_slippage_bps": "10",
+                "engine_contract_version": "thytrader-backtest",
+            }
+        )
+    )
     with (
-        patch(
-            "thytrader.research.mutation_cli.BacktestStartRequest.model_validate",
-            return_value=object(),
-        ),
         patch(
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch(
-            "thytrader.research.http.submit_backtest",
-            side_effect=AgentHttpError(
-                "HTTP 422: Input should be 'thytrader-bar-backtest-v1', "
-                "'thytrader-bar-backtest-v2', or 'thytrader-bar-backtest-v3'"
-            ),
-        ),
+        patch("thytrader.research.http.submit_backtest") as submit,
         pytest.raises(SystemExit) as raised,
     ):
         main(["submit-backtest", "--file", str(path), "--confirm"])
-    message = str(raised.value)
-    assert "422" in message
-    assert "make run" in message
-    assert "failed safely" not in message
+    assert "engine_contract_version was removed" in str(raised.value)
+    submit.assert_not_called()
+
+
+def test_backtest_model_command_describes_the_single_model_locally() -> None:
+    """The local backtest-model command prints the unified engine and its assumptions."""
+    output = io.StringIO()
+    with redirect_stdout(output), pytest.raises(SystemExit) as raised:
+        main(["backtest-model", "--local"])
+    assert raised.value.code == EXIT_HEALTHY
+    document = json.loads(output.getvalue())
+    assert document["engine"] == "thytrader-backtest"
+    assert {item["key"] for item in document["assumptions"]} >= {"maker_entries", "spread_stress"}
 
 
 def test_create_strategy_yolo_skips_confirm() -> None:

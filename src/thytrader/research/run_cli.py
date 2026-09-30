@@ -1,4 +1,4 @@
-"""CLI for publishing immutable executable bar-backtest research runs."""
+"""CLI for publishing immutable unified-model backtest research runs (ADR 0083)."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.models import (
-    BarExecutionAssumptions,
-    BrokerAssumptions,
+    BACKTEST_ENGINE,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     IndicatorTimeframeDataset,
     ResearchRunSpecification,
     WarmupWindow,
+    removed_engine_selection_message,
     warmup_starts_at,
 )
 from thytrader.strategies.models import unbound_indicator_timeframes
@@ -57,7 +57,14 @@ def _timestamp(value: str) -> datetime:
 
 def _parser() -> argparse.ArgumentParser:
     """Build the explicit backtest-run publication command parser."""
-    parser = argparse.ArgumentParser(prog="thytrader-research-run")
+    parser = argparse.ArgumentParser(
+        prog="thytrader-research-run",
+        description=(
+            "Publish one immutable run for the single unified backtest model: resting "
+            "post-only maker entries, bar-extreme stops, taker exits with fixed slippage, and "
+            "optional constant spread stress. There is no engine selector."
+        ),
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     publish = commands.add_parser("publish-backtest", help="Publish a verified bar-backtest run.")
     publish.add_argument("--strategy-fingerprint", required=True, type=_fingerprint)
@@ -81,14 +88,12 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("--taker-fee-rate", required=True)
     publish.add_argument("--fixed-slippage-bps", required=True)
     publish.add_argument(
-        "--engine-contract-version",
-        choices=("thytrader-bar-backtest-v1", "thytrader-bar-backtest-v2"),
-        default="thytrader-bar-backtest-v1",
-        help="Immutable broker contract. V2 requires --spread-bps.",
-    )
-    publish.add_argument(
         "--spread-bps",
-        help="Constant total bid-ask spread in basis points; required only for the V2 contract.",
+        default="0",
+        help=(
+            "Optional constant total bid-ask spread stress in basis points (default 0). "
+            "Applied to taker exits, stop triggers, and marks; maker fills stay at the limit."
+        ),
     )
     publish.add_argument("--random-seed", type=int, default=0)
     return parser
@@ -107,27 +112,6 @@ def _uuid7(created_at: datetime) -> UUID:
     return UUID(int=value)
 
 
-def _broker_from_arguments(arguments: argparse.Namespace) -> BrokerAssumptions | None:
-    """Resolve V2-only broker inputs before they become execution identity."""
-    if arguments.engine_contract_version == "thytrader-bar-backtest-v1":
-        if arguments.spread_bps is not None:
-            raise ValueError(
-                "--spread-bps requires --engine-contract-version thytrader-bar-backtest-v2"
-            )
-        return None
-    if arguments.spread_bps is None:
-        raise ValueError(
-            "--spread-bps is required for --engine-contract-version thytrader-bar-backtest-v2"
-        )
-    return BrokerAssumptions(
-        price_model="constant_spread_bps",
-        spread_bps=arguments.spread_bps,
-        fill_policy="full",
-        trigger_evaluation="bid_side",
-        equity_marking="bid_close",
-    )
-
-
 def backtest_execution_fingerprint(
     arguments: argparse.Namespace,
     *,
@@ -137,22 +121,12 @@ def backtest_execution_fingerprint(
     capital = CapitalAssumptions(
         quote_currency=quote_currency, initial_quote_balance=arguments.initial_quote_balance
     )
-    costs = CostAssumptions(
-        maker_fee_rate=arguments.maker_fee_rate,
-        taker_fee_rate=arguments.taker_fee_rate,
-        fixed_slippage_bps=arguments.fixed_slippage_bps,
-    )
-    broker = _broker_from_arguments(arguments)
+    costs = _cost_assumptions(arguments)
     payload = {
-        "bar_execution": {
-            "fill_timing": "next_candle_open",
-            "signal_timing": "completed_candle_close",
-        },
-        "broker": None if broker is None else broker.model_dump(mode="json"),
         "capital": capital.model_dump(mode="json"),
         "costs": costs.model_dump(mode="json"),
         "dataset_fingerprint": arguments.dataset_fingerprint,
-        "engine_contract_version": arguments.engine_contract_version,
+        "engine": BACKTEST_ENGINE,
         "evaluation_end": arguments.evaluation_end.isoformat(),
         "evaluation_start": arguments.evaluation_start.isoformat(),
         "random_seed": arguments.random_seed,
@@ -167,6 +141,16 @@ def backtest_execution_fingerprint(
         ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
+
+
+def _cost_assumptions(arguments: argparse.Namespace) -> CostAssumptions:
+    """Build the published fee, slippage, and optional spread-stress assumptions."""
+    return CostAssumptions(
+        maker_fee_rate=arguments.maker_fee_rate,
+        taker_fee_rate=arguments.taker_fee_rate,
+        fixed_slippage_bps=arguments.fixed_slippage_bps,
+        spread_bps=arguments.spread_bps,
+    )
 
 
 def _htf_dataset_fingerprint(
@@ -247,7 +231,6 @@ async def _publish(arguments: argparse.Namespace) -> str:
         execution_fingerprint = backtest_execution_fingerprint(
             arguments, quote_currency=strategy.definition.instrument.quote_currency
         )
-        broker = _broker_from_arguments(arguments)
         existing = await run_store.load_by_execution_fingerprint(
             execution_fingerprint, dataset_store=dataset_store
         )
@@ -278,16 +261,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
                 quote_currency=strategy.definition.instrument.quote_currency,
                 initial_quote_balance=arguments.initial_quote_balance,
             ),
-            costs=CostAssumptions(
-                maker_fee_rate=arguments.maker_fee_rate,
-                taker_fee_rate=arguments.taker_fee_rate,
-                fixed_slippage_bps=arguments.fixed_slippage_bps,
-            ),
-            broker=broker,
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close", fill_timing="next_candle_open"
-            ),
-            engine_contract_version=arguments.engine_contract_version,
+            costs=_cost_assumptions(arguments),
             random_seed=arguments.random_seed,
         )
         published = await run_store.publish(
@@ -302,7 +276,10 @@ async def _publish(arguments: argparse.Namespace) -> str:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Publish a verified executable run and print only its immutable identity."""
-    arguments = _parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if any(item.split("=", 1)[0] == "--engine-contract-version" for item in raw):
+        raise SystemExit(removed_engine_selection_message("--engine-contract-version"))
+    arguments = _parser().parse_args(raw)
     try:
         fingerprint = asyncio.run(_publish(arguments))
     except Exception as error:

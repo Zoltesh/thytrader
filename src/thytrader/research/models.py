@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 import re
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -31,6 +31,34 @@ _MAX_INITIAL_QUOTE_BALANCE = Decimal("1000000000000000000")
 _MAX_FEE_RATE = Decimal("0.1")
 _MAX_SLIPPAGE_BPS = Decimal("1000")
 _MAX_SPREAD_BPS = Decimal("1000")
+
+BACKTEST_ENGINE: Final = "thytrader-backtest"
+"""The single unversioned backtest engine identity bound into run, trace, and result bytes.
+
+ADR 0083 defines its semantics. A future semantic change needs a superseding ADR and a new
+identity string so earlier fingerprints never acquire new meaning.
+"""
+
+BacktestEngine = Literal["thytrader-backtest"]
+
+
+def removed_engine_selection_message(name: str = "engine_contract_version") -> str:
+    """Return the caller-facing rejection for a request that still selects an engine."""
+    return (
+        f"{name} was removed: ThyTrader has one backtest model (ADR 0083). "
+        "Omit it; set spread_bps only for optional constant spread stress."
+    )
+
+
+def reject_removed_engine_selection(data: object) -> object:
+    """Fail loudly when an untrusted request payload still carries an engine selector.
+
+    Used as a ``mode="before"`` validator on HTTP, CLI, study, and job request models so a
+    stale client gets an explicit migration message instead of a generic extra-field error.
+    """
+    if isinstance(data, dict) and "engine_contract_version" in data:
+        raise ValueError(removed_engine_selection_message())
+    return data
 
 
 def _decimal_text(value: str) -> str:
@@ -143,11 +171,17 @@ class CapitalAssumptions(_FrozenModel):
 
 
 class CostAssumptions(_FrozenModel):
-    """Exact deterministic fee and fixed-slippage assumptions."""
+    """Exact deterministic fee, fixed-slippage, and optional spread-stress assumptions.
+
+    ``spread_bps`` is a disclosed constant total bid-ask spread stress (default zero). It is
+    applied to marketable (taker) legs, stop triggers, and equity marks only; resting maker
+    limits still fill at their posted price. It is never observed Coinbase book evidence.
+    """
 
     maker_fee_rate: DecimalText
     taker_fee_rate: DecimalText
     fixed_slippage_bps: DecimalText
+    spread_bps: DecimalText = "0"
 
     @field_validator("maker_fee_rate", "taker_fee_rate")
     @classmethod
@@ -165,38 +199,20 @@ class CostAssumptions(_FrozenModel):
             raise ValueError("fixed_slippage_bps must be at most 1000")
         return value
 
+    @field_validator("spread_bps")
+    @classmethod
+    def require_bounded_spread(cls, value: str) -> str:
+        """Bound the constant spread stress to a deliberately conservative maximum."""
+        if Decimal(value) > _MAX_SPREAD_BPS:
+            raise ValueError("spread_bps must be at most 1000")
+        return value
+
     @model_validator(mode="after")
     def require_maker_not_above_taker(self) -> Self:
         """Require the maker fee assumption not to exceed the taker fee assumption."""
         if Decimal(self.maker_fee_rate) > Decimal(self.taker_fee_rate):
             raise ValueError("maker_fee_rate must not exceed taker_fee_rate")
         return self
-
-
-class BarExecutionAssumptions(_FrozenModel):
-    """Fixed no-lookahead timing. V1/V2 use next-open fills; V3 rests a close-limit."""
-
-    signal_timing: Literal["completed_candle_close"]
-    fill_timing: Literal["next_candle_open", "resting_maker_limit"]
-    limit_at: Literal["completed_close"] | None = None
-
-
-class BrokerAssumptions(_FrozenModel):
-    """Fully disclosed deterministic broker assumptions, independent of ambient configuration."""
-
-    price_model: Literal["constant_spread_bps", "post_only_limit"]
-    spread_bps: DecimalText
-    fill_policy: Literal["full", "resting_limit"]
-    trigger_evaluation: Literal["bid_side", "bar_extreme"]
-    equity_marking: Literal["bid_close", "last_close"]
-
-    @field_validator("spread_bps")
-    @classmethod
-    def require_bounded_spread(cls, value: str) -> str:
-        """Bound fixed quoted spread to a deliberately conservative maximum."""
-        if Decimal(value) > _MAX_SPREAD_BPS:
-            raise ValueError("spread_bps must be at most 1000")
-        return value
 
 
 class IndicatorTimeframeDataset(_FrozenModel):
@@ -219,7 +235,7 @@ class AdditionalInstrumentDataset(_FrozenModel):
 
 
 class ResearchRunSpecification(_FrozenModel):
-    """Immutable identity-bearing request for a future deterministic research simulation."""
+    """Immutable identity-bearing request for one deterministic unified backtest simulation."""
 
     schema_version: Literal["1.0"]
     run_id: StrictUuid
@@ -239,16 +255,7 @@ class ResearchRunSpecification(_FrozenModel):
     warmup: WarmupWindow
     capital: CapitalAssumptions
     costs: CostAssumptions
-    broker: BrokerAssumptions | None = None
-    bar_execution: BarExecutionAssumptions
-    engine_contract_version: Literal[
-        "thytrader-bar-v1",
-        "thytrader-bar-signal-v1",
-        "thytrader-bar-backtest-v1",
-        "thytrader-bar-backtest-v2",
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    ]
+    engine: BacktestEngine = BACKTEST_ENGINE
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
 
     @field_validator("run_id")
@@ -367,63 +374,6 @@ class ResearchRunSpecification(_FrozenModel):
         if len(extra_fingerprints) != len(set(extra_fingerprints)):
             raise ValueError("additional_instrument_datasets identities must be unique")
         return self
-
-    @model_validator(mode="after")
-    def require_broker_for_spread_and_maker_contracts(self) -> Self:
-        """Bind broker and fill-timing literals to the engine contract that owns them."""
-        if self.engine_contract_version in (
-            "thytrader-bar-backtest-v3",
-            "thytrader-bar-backtest-v4",
-        ):
-            _require_v3_maker_assumptions(self)
-            return self
-        if (
-            self.bar_execution.fill_timing != "next_candle_open"
-            or self.bar_execution.limit_at is not None
-        ):
-            raise ValueError("resting maker fills require the backtest V3 or V4 contract")
-        _require_v2_broker_exclusivity(self)
-        return self
-
-
-def _require_v3_maker_assumptions(specification: ResearchRunSpecification) -> None:
-    """V3 identity includes resting close-limit fills and the post-only broker block."""
-    if (
-        specification.bar_execution.fill_timing != "resting_maker_limit"
-        or specification.bar_execution.limit_at != "completed_close"
-    ):
-        raise ValueError("backtest V3 requires resting_maker_limit at completed_close")
-    broker = specification.broker
-    if broker is None:
-        raise ValueError("backtest V3 requires broker assumptions")
-    if (
-        broker.price_model != "post_only_limit"
-        or broker.fill_policy != "resting_limit"
-        or broker.trigger_evaluation != "bar_extreme"
-        or broker.equity_marking != "last_close"
-    ):
-        raise ValueError("backtest V3 requires post-only resting-limit broker assumptions")
-
-
-def _require_v2_broker_exclusivity(specification: ResearchRunSpecification) -> None:
-    """V2 is the only non-maker contract that may carry a constant-spread broker block."""
-    is_v2 = specification.engine_contract_version == "thytrader-bar-backtest-v2"
-    is_maker = specification.engine_contract_version in (
-        "thytrader-bar-backtest-v3",
-        "thytrader-bar-backtest-v4",
-    )
-    if is_v2 and specification.broker is None:
-        raise ValueError("backtest V2 requires broker assumptions")
-    if not is_v2 and not is_maker and specification.broker is not None:
-        raise ValueError("broker assumptions require the backtest V2 contract")
-    broker = specification.broker
-    if broker is not None and (
-        broker.price_model != "constant_spread_bps"
-        or broker.fill_policy != "full"
-        or broker.trigger_evaluation != "bid_side"
-        or broker.equity_marking != "bid_close"
-    ):
-        raise ValueError("backtest V2 requires full-fill constant-spread broker assumptions")
 
 
 def specification_bar_interval(specification: ResearchRunSpecification) -> CandleInterval:

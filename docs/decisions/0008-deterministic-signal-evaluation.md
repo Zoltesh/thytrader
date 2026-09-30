@@ -1,6 +1,7 @@
 # 0008: Version deterministic signal evaluation separately from request-only runs
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: the request-only `thytrader-bar-v1` and signal-only `thytrader-bar-signal-v1` contracts. Signal traces are evaluated for unified-model runs and carry `engine: "thytrader-backtest"`; deterministic evaluation rules are unchanged.
 - Date: 2026-07-30
 
 ## Context

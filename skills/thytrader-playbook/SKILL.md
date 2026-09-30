@@ -131,8 +131,9 @@ operator asks for portfolio visibility **and** research on the same pass, run th
    per-indicator TF fields `create-strategy` does not emit. Check `validation.valid` is true.
 7. Build `request.json` with `strategy_id` plus dataset fingerprints copied from `data-catalog` (primary
    `dataset_fingerprint`, optional `htf_filter`, `indicator_dataset_fingerprints`,
-   `additional_instrument_datasets`) → `submit-backtest --file request.json --confirm` preferring
-   **`thytrader-bar-backtest-v4`**.
+   `additional_instrument_datasets`), `initial_quote_balance`, maker/taker fee rates,
+   `fixed_slippage_bps`, and optional `spread_bps` → `submit-backtest --file request.json --confirm`.
+   There is one backtest model; never add an engine field (`engine_contract_version` is rejected).
 8. Read results with `uv run thytrader-operator performance --result-fingerprint sha256:…`.
 
 Composed studies (OOS, walk-forward, cross-market, sweep, WFO) stay in

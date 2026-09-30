@@ -97,11 +97,12 @@ contracts below:
   delete, clone, and import; `GET /api/v1/strategies/snapshots/{strategy_fingerprint}` reads one
   snapshot ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md));
 - `POST /api/v1/backtests` takes a `strategy_id`, snapshots the current definition, binds a verified dataset, publishes/reuses the exact research run, and invokes
-  the deterministic backtest engine;
-- `GET /api/v1/research/engine-support`, `GET /api/v1/research/templates`, `POST /api/v1/research/studies/plan`,
+  the single deterministic backtest model (`engine: "thytrader-backtest"`,
+  [ADR 0083](../decisions/0083-unified-backtest-model.md));
+- `GET /api/v1/research/backtest-model`, `GET /api/v1/research/templates`, `POST /api/v1/research/studies/plan`,
   `POST /api/v1/research/studies`, `GET /api/v1/research/studies`, and
   `GET /api/v1/research/studies/{study_fingerprint}` compose walk-forward / OOS / cross-market /
-  sweep / WFO studies from those engines and persist catalog rows
+  sweep / WFO studies from that model and persist catalog rows
   ([research studies](research-studies.md));
 - `POST /api/v1/deployments` starts a paper or live runtime for one `strategy_id` from a snapshot of its current definition; pause, resume,
   and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy

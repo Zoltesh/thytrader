@@ -2,159 +2,240 @@
 
 ## Purpose and boundary
 
-`thytrader-bar-backtest-v1` turns one exact published V1 research run into an immutable simulated trade ledger, equity curve, drawdown series, and performance summary. `thytrader-bar-backtest-v2` keeps the same deterministic single-position bar event ordering while adding one disclosed constant bid-ask spread assumption to every modeled execution. `thytrader-bar-backtest-v3` keeps the same signal stage and single-position rule while resting maker limits the way the paper/live worker did before [ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md). `thytrader-bar-backtest-v4` is the corrected maker contract for new research. Published `entry.side` of `"short"` uses cash-and-inventory spot shorts; existing `"long"` result bytes stay identical. Multi-instrument documents evaluate covered products in lexicographic `product_id` order on each shared bar against one quote book; stored `signal_trace_fingerprint` remains the primary instrument's trace while extra products still fail closed if their candles or traces cannot be verified ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). All three are research-only components: none of them can create an order intent, submit an order, connect to an exchange, or grant paper/live trading authority. Mermaid: [contract diagrams — backtest result](contracts/backtest-result.md).
+ThyTrader has **one** backtest model, identified as `engine: "thytrader-backtest"`
+([ADR 0083](../decisions/0083-unified-backtest-model.md)). It turns one exact published research
+run into an immutable simulated trade ledger, equity curve, drawdown series, and performance
+summary using the same resting maker-limit loop that paper and live trade (its semantics are the
+corrected maker model of [ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)).
+There is no engine selector and no versioned engine family: every backtest, study window, sweep
+candidate, and benchmark uses this model.
 
-`thytrader-bar-v1` remains request-only and `thytrader-bar-signal-v1` remains signal-trace-only. They fail closed at this simulator boundary: a backtest requires a separately published run carrying the backtest engine contract, so old immutable request bytes never acquire new fill/PnL meaning.
+It is a research-only component: it cannot create an order intent, submit an order, connect to an
+exchange, or grant paper/live trading authority. Results are **simulated research evidence, not a
+promise** of paper or live performance. Mermaid: [contract diagrams — backtest result](contracts/backtest-result.md).
 
-The public command is:
+The public commands are:
 
 ```bash
+uv run thytrader-research backtest-model            # describe the model's assumptions
+uv run thytrader-research submit-backtest --file start.json --confirm
 uv run thytrader-research-run publish-backtest --strategy-fingerprint sha256:... \
   --dataset-fingerprint sha256:... --evaluation-start 2026-01-01T00:00:00Z \
   --evaluation-end 2026-03-01T00:00:00Z --initial-quote-balance 10000 \
-  --maker-fee-rate 0.001 --taker-fee-rate 0.002 --fixed-slippage-bps 1 \
-  --engine-contract-version thytrader-bar-backtest-v4 --spread-bps 10
+  --maker-fee-rate 0.001 --taker-fee-rate 0.002 --fixed-slippage-bps 1 --spread-bps 10
 uv run thytrader-backtest simulate <run_fingerprint> --pretty
 uv run thytrader-backtest list --run-fingerprint <run_fingerprint>
 uv run thytrader-backtest show <result_fingerprint> --pretty
 ```
 
-These developer commands take an existing strategy **snapshot** fingerprint (one a prior backtest, study, or deployment start created; see `thytrader-research show-snapshot`). The supported operator path is `thytrader-research submit-backtest` with a `strategy_id`, which snapshots automatically ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
+The supported operator path is `thytrader-research submit-backtest` (or `POST /api/v1/backtests`)
+with a `strategy_id`, which snapshots the strategy automatically
+([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). The
+`thytrader-research-run` / `thytrader-backtest` developer commands take an existing strategy
+**snapshot** fingerprint. `--spread-bps` is optional (default `0`); the retired
+`--engine-contract-version` flag exits with a removal message.
 
-The publication command derives warmup from the verified strategy snapshot and binds every execution-relevant assumption into a new backtest-engine run. It calculates a separate semantic execution fingerprint, so repeating the exact command reuses the previously verified immutable run rather than minting another equivalent request. Simulation loads and reverifies that run, its strategy snapshot, immutable dataset manifest, and Parquet candles. It appends one canonical result to PostgreSQL; list and show are read-only and reverify output before returning it. Failures are generic and do not expose database URLs or artifacts.
+Publication derives warmup from the verified strategy snapshot and binds every execution-relevant
+assumption into one run. A separate semantic execution fingerprint makes repeating the exact
+request reuse the verified immutable run. Simulation reloads and reverifies the run, strategy
+snapshot, immutable dataset manifest, and Parquet candles, then appends one canonical result to
+PostgreSQL; list and show reverify output before returning it. Failures are generic and do not
+expose database URLs or artifacts.
 
 ## Source and result identity
 
-The result stores these immutable source identities:
+A run specification binds: strategy snapshot fingerprint, dataset fingerprint(s) (HTF,
+per-indicator timeframes, additional instruments), the evaluation and warmup windows, capital,
+costs (`maker_fee_rate`, `taker_fee_rate`, `fixed_slippage_bps`, `spread_bps`), the random seed,
+and `engine: "thytrader-backtest"`. The result stores the run, strategy snapshot, dataset, and
+primary signal-trace fingerprints, the same `engine`, the trades, the equity curve, and the
+summary.
 
-- published research-run fingerprint;
-- strategy snapshot fingerprint (plus the owning `strategy_id` on the stored row);
-- immutable dataset fingerprint; and
-- `thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engine-contract version; and
-- for V2, a fully resolved broker-assumptions block containing the constant spread, full-fill policy,
-  bid-side trigger policy, and bid-close equity-marking policy; and
-- for V3, a fully resolved broker-assumptions block containing post-only limits, resting-limit fills,
-  bar-extreme triggers, and last-close equity marking.
+Canonical result JSON is sorted, compact UTF-8 JSON; its SHA-256 fingerprint is the result
+identity. `engine` stays inside canonical bytes so each fingerprint binds the simulator that
+produced it; a future semantic change needs a superseding ADR and a new identity string. The
+authoritative service independently re-evaluates the signal trace, and persistence rejects a
+trace or source run whose identities or `engine` do not match the result. Results are
+append-only and idempotent by result fingerprint.
 
-Canonical result JSON is sorted, compact UTF-8 JSON. Its SHA-256 fingerprint is the result identity. The authoritative service independently re-evaluates the signal trace and result persistence rejects a trace whose identity or source identities do not match the result. Publication revalidates unchecked in-memory models, source-row identities, canonical bytes, and the stored fingerprint on every load. Results are append-only and idempotent by result fingerprint; multiple engine versions may derive different results from the same run without rewriting earlier evidence.
+A request that still sends `engine_contract_version` (HTTP body, study body, job payload, or CLI
+file) is rejected with "engine_contract_version was removed: ThyTrader has one backtest model
+(ADR 0083)…". Canonical run documents reject `engine_contract_version`, `broker`, and
+`bar_execution` as unknown fields.
 
 ## Decimal contract
 
-The simulator runs every calculation inside `decimal64-half-even-v1`: precision 64, `ROUND_HALF_EVEN`, `Emin=-6143`, `Emax=6144`, and traps for invalid operations, division by zero, and overflow. Ambient process Decimal settings cannot change output. Result decimals are canonical plain strings and may use the context subnormal range down to exponent `-6206`.
+The simulator runs every calculation inside `decimal64-half-even-v1`: precision 64,
+`ROUND_HALF_EVEN`, `Emin=-6143`, `Emax=6144`, and traps for invalid operations, division by zero,
+and overflow. Ambient process Decimal settings cannot change output. Result decimals are canonical
+plain strings and may use the context subnormal range down to exponent `-6206`.
 
-There is no binary floating point conversion. Exchange increment quantization remains a future broker-boundary concern; this first research simulator deliberately does not claim venue-valid order quantities.
+There is no binary floating point conversion. Exchange increment quantization remains a broker
+boundary concern; the simulator does not claim venue-valid order quantities.
 
 ## Bar event ordering
 
-For each evaluation candle the simulator uses this fixed sequence:
+Signals are evaluated on completed candles only ([signal evaluation](signal-evaluation.md)). For
+each evaluation candle, and for each covered product in lexicographic `product_id` order, the
+simulator runs this fixed sequence:
 
-1. A `matched` entry condition becomes a pending entry only after that candle closes.
-2. A pending entry fills exactly once at the **next candle open**, with adverse fixed slippage and the published **taker** fee assumption.
-3. A time exit that has reached its completed-bar limit fills at that candle open before intrabar prices are considered.
-4. Otherwise, the completed candle's low/high may trigger protective exits. If both initial stop and take-profit are reachable in the same OHLC candle, the simulator chooses the stop first.
-5. The next completed-candle signal may schedule another entry only while flat.
+1. **Resting entry.** A limit rested on an earlier bar fills iff this bar trades through it
+   (`low <= limit` for a long buy, `high >= limit` for a short sell), at the posted limit, with
+   the **maker** fee, no slippage, and no spread. Otherwise the wait count increases; when it
+   reaches `execution.max_entry_wait_bars`, `on_unfilled_entry=cancel` drops it and starts at
+   least one bar of cooldown, and `reprice` re-rests it at this bar's close (same quantity,
+   stop, and target).
+2. **Resting take-profit.** From the bar after the fill bar, a take-profit rests at the target.
+   If this bar touches it (`high >= target`, `low <= target` for shorts) it fills at the target
+   with the maker fee. This runs **before** the stop check, as the worker matches resting orders
+   before managing the position; results disclose it as `tp_before_stop_same_bar`.
+3. **Stop.** If the bar's executable extreme trades through the working stop, the position exits
+   as a taker at `min(open, stop)` (`max` for shorts: a gap fills at the worse open), with the
+   taker fee and `fixed_slippage_bps`. On the **fill bar** the stop is the only eligible exit
+   (stop-first): the take-profit is not resting yet.
+4. **Trailing.** Enabled ATR trailing ratchets after the stop check, sharing the paper/live
+   ratchet (`thytrader.execution.trailing`); the fill bar records the trail extreme without
+   raising the stop. Disabled trailing is a no-op.
+5. **Time exit.** A position held `exits.time_exit.max_bars_held` completed bars sells at this
+   bar's close as a taker (taker fee, slippage).
+6. **New entry.** A `matched` close-time signal rests a new post-only limit at this bar's close
+   when the book is flat, off cooldown, and under `max_concurrent_positions`, or a same-side
+   pyramiding add when the strategy allows it and the position is in profit. A signal never
+   fills on its own bar.
+7. **Mark.** Equity marks every open position at this bar's close.
 
-The final next-open candle required by the published run may fill a final pending entry. Any position still open at that boundary is forcibly closed at that same open, with the normal adverse sell slippage and taker fee, reason `evaluation_end`. This makes the result ledger closed and reproducible without reading a candle outside the published input range.
+After the last evaluation bar, the bar starting at `evaluation.ends_at` is used **only** to
+liquidate open inventory at its **open** as a taker (reason `evaluation_end`, taker fee,
+slippage). Any unfilled resting entry is dropped. No entry, take-profit, stop, or trailing logic
+runs on that bar, and its high, low, close, and volume cannot affect the result. The required
+bar is never passed to indicator or condition evaluation, so no future value influences a prior
+signal or fill. Publication rejects a run whose evaluation end cannot represent that one extra
+bar.
 
-The required final next-open candle is never passed into indicator or condition evaluation. No future high, low, close, or volume can influence prior signals or fills.
+## Position, sizing, and cost model
 
-Publication eligibility applies the same boundary contract before simulation: a run whose final evaluation end cannot represent one additional hourly next-open candle is rejected with a controlled research-publication error rather than leaking a raw datetime overflow.
+Entries are sized at the limit price from the signal bar's ATR: stop distance
+`atr * initial_stop.multiple`, stop at `limit - distance` (`+` for shorts), target at
+`limit + distance * take_profit.multiple` (`-` for shorts). Risk quantity
+`cash * risk_fraction / distance` is bounded by `max_quote_notional`, portfolio exposure
+fraction, available quote cash including the maker fee, and `min_quote_notional`. A
+non-positive stop distance, a non-positive stop or target, or an unavailable minimum notional
+skips the entry. Shorts sell to open (credit quote cash) and buy to cover; there is no borrow,
+margin, or funding model (`spot_short_synthetic`).
 
-## Position and cost model
+Pyramiding adds (when `entry.pyramiding` is enabled and `max_open_positions` allows) size against
+the existing stop, rest as maker limits, and volume-weight into the open position without moving
+its stop or target.
 
-V1 is one BTC-USD-like position at a time, long or short from published `entry.side`. It uses the declared ATR stop distance and risk fraction, bounded by the strategy maximum quote notional, portfolio exposure fraction, available quote cash including entry fees, and minimum quote notional. It does not create a trade if the calculated stop is non-positive or the minimum notional is unavailable. Shorts sell to open (credit quote) and buy to cover.
+Multi-instrument documents ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md))
+run every covered product on each shared bar against one quote balance, in lexicographic
+`product_id` order, capped by `portfolio_limits.max_concurrent_positions`. Stored
+`signal_trace_fingerprint` remains the primary instrument's trace; extra products still fail
+closed if their candles or traces cannot be verified.
 
-Fills are modeled marketable at the next open. V1 long buys multiply the raw open by `1 + slippage_bps / 10,000`; V1 long sells multiply the applicable stop, target, time-exit open, or final open by `1 - slippage_bps / 10,000`. Shorts invert those legs. Both legs use `taker_fee_rate`. The currently declared maker fee and maker preference are intentionally not treated as evidence of a limit-order fill in this bar-level contract.
+| Leg | Fee | Slippage | Spread stress |
+|---|---|---|---|
+| Resting entry / pyramiding add | maker | none | none |
+| Resting take-profit | maker | none | none |
+| Stop exit | taker | `fixed_slippage_bps` | yes |
+| Time exit (close) | taker | `fixed_slippage_bps` | yes |
+| Evaluation-end liquidation (open) | taker | `fixed_slippage_bps` | yes |
 
-### V2 constant-spread stress model
+Fee rates, slippage, and spread are modeled inputs (`CostAssumptions`), never observed Coinbase
+fills.
 
-V2 accepts exactly one explicit `spread_bps` assumption (zero through 1,000 total basis points). It is a **stress parameter**, not reconstructed historical order-book evidence: the system must not present it as an observed Coinbase bid/ask spread or as a prediction of live fills. Operators should compare the same strategy across disclosed values such as `0`, `10`, `25`, and `50` basis points and reject strategies that cease to work at plausible friction.
+### Optional spread stress
 
-For a raw reference price `p` and total spread fraction `s = spread_bps / 10,000`, V2 uses `ask = p * (1 + s / 2)` for buys and `bid = p * (1 - s / 2)` for sells. It applies the existing adverse fixed slippage after the selected executable side. Long stop/target triggers compare the candle extreme at bid side before slippage. Open positions mark at bid close, so drawdown reflects pre-slippage liquidation value rather than an optimistic raw close.
+`costs.spread_bps` (zero through 1,000 total basis points, default `0`) is a disclosed constant
+bid-ask spread **stress**, not reconstructed order-book evidence; do not present it as an
+observed Coinbase spread or a prediction of live fills. Compare the same strategy at `0`, `10`,
+`25`, and `50` bps and reject strategies that stop working at plausible friction.
 
-Every V2 entry and exit records its raw reference price, executable side, and per-unit spread cost. The result summary records total spread cost. A V2 run with `spread_bps=0` must reproduce V1 trade economics exactly, although its run/result fingerprints remain distinct because the contract and disclosed broker evidence differ. Existing V1 canonical documents omit V2-only fields and remain byte-identical, loadable, and reverified.
+For a raw reference price `p` and total fraction `s = spread_bps / 10,000`, the stressed ask is
+`p * (1 + s/2)` and the stressed bid is `p * (1 - s/2)`:
 
-Disabled trailing (`{"enabled": false}`) is a no-op, so existing golden results stay byte-identical.
-Enabled ATR trailing shares the paper/live ratchet: the fill bar records `trail_extreme` without
-raising the initial stop; later bars never decrease the working stop.
+- taker sells (long exits) fill at the bid and taker buys (short covers) at the ask, then pay
+  fixed slippage from that side;
+- long stops trigger when the stressed bid of the bar low reaches the stop (short stops: the
+  stressed ask of the high), and a gapped stop fills at the worse of the stressed open and stop;
+- open longs mark at the stressed bid close, open shorts at the stressed ask close;
+- resting maker entries and take-profits still fill at their posted limit.
 
-### V3 resting maker-limit model
-
-`thytrader-bar-backtest-v3` is a new engine contract. It does not reinterpret v1 or v2. Paper and live rest a post-only buy at the completed bar's close, wait up to `max_entry_wait_bars`, cancel or reprice if unfilled, and can stop on the fill bar. V3 simulates that loop:
-
-1. A `matched` close-time signal rests a buy at that candle's close. It does not fill at the next open.
-2. A later bar fills the resting buy if and only if `low <= limit`, at the posted limit, with the published **maker** fee and no modeled slippage.
-3. Unfilled bars increment the wait. When the wait reaches `max_entry_wait_bars`, the order cancels (`on_unfilled_entry=cancel`, with at least one bar of cooldown) or reprices at the expiry bar's close (`reprice`, keeping the original quantity, stop, and target).
-4. After a fill, the same bar may stop if `low <= stop`. The stop is a marketable sell at `min(open, stop)` with the **taker** fee, matching the worker. Take-profit is **not** eligible on the fill bar because the worker places that rest after matching.
-5. On later bars, a resting take-profit fills when `high >= target`, at the target, with the maker fee. If the same later bar also trades through the stop, the resting take-profit match runs first, matching `_match_resting_orders` before `_manage_position`.
-6. A time exit that has reached `max_bars_held` completed bars after entry sells at that candle's close with the taker fee.
-7. Equity marks at last close. The required extra candle after evaluation end may fill a resting entry or take-profit. An open position at that boundary still closes as `evaluation_end` so the ledger is complete.
-
-V3 results carry the published post-only broker block. `total_spread_cost` stays omitted: v3 is not the v2 spread-stress contract. Existing v1 and v2 canonical documents remain byte-identical.
-
-### V4 corrected maker-limit model
-
-`thytrader-bar-backtest-v4` ([ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)) keeps v3 broker/bar_execution identity and fixes research-boundary semantics:
-
-1. Intrabar matching runs only on declared evaluation bars. The candle at `evaluation.ends_at` may liquidate open inventory at its **open** only; no post-boundary TP/stop/entry processing.
-2. Taker exits (stop, time, evaluation end) honor published `fixed_slippage_bps`. Maker resting take-profit fills remain zero slippage.
-3. ATR trailing evaluates the entering stop before ratcheting the stop for the same bar.
-4. Summaries may include `validity_limits` documenting maker touch-full-fill optimism, TP-before-stop same-bar ordering, and spot-short synthetic inventory.
-
-v3 canonical bytes stay loadable for historical evidence. Prefer v4 for walk-forward selection and paper/live comparison.
-
-Indicator warmup and first-valid-index rules: [indicators.md](indicators.md).
+Spread-stressed taker fills record `reference_price`, `executable_side` (`ask`/`bid`), and
+per-unit `spread_cost`; the summary records `total_spread_cost`. With `spread_bps = 0` none of
+those fields appear and results are byte-identical to runs that omit the field.
 
 ## Result fields
 
-Every closed trade has exact entry/exit fills, notional, fee, fee rate, exit reason, gross PnL, net PnL, and holding bars. The equity curve contains cash, base quantity, mark price, and equity at every evaluation boundary plus the final required next-open boundary.
+Every closed trade has exact entry/exit fills, notional, fee, fee rate, exit reason
+(`stop_loss`, `take_profit`, `time_exit`, `evaluation_end`), gross PnL, net PnL, and holding
+bars. The equity curve holds cash, base quantity (negative for shorts, `0` when several books
+are open), mark price, and equity at every evaluation close plus one terminal point at
+`evaluation.ends_at` after liquidation.
 
-The summary includes initial/final equity, total PnL and return fraction, trade/win counts, gross profit/loss, win rate, profit factor when losses exist, average win/loss when defined, absolute and fractional maximum drawdown, and exposure/evaluation bars. It does not invent annualization or Sharpe-like statistics inside canonical bytes. Those ratios live on the derived `thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)); fee-aware buy-and-hold remains a separate `thytrader-buy-and-hold-v1` report.
+The summary includes initial/final equity, total PnL and return fraction, trade/win counts,
+gross profit/loss, win rate, profit factor when losses exist, average win/loss when defined,
+absolute and fractional maximum drawdown, exposure and evaluation bars, `total_spread_cost` when
+spread stress is active, and `validity_limits` — always `maker_touch_full_fill` (candles do not
+show queue position, so a touched limit is assumed to fill completely) and
+`tp_before_stop_same_bar`, plus `spot_short_synthetic` for short strategies. It does not invent
+annualization or Sharpe-like statistics inside canonical bytes; those live on the derived
+`thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)),
+and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.
 
 ## Persistence
 
-Migration `0007_published_backtest_results.py` creates `published_backtest_results`. Each row has a result fingerprint primary key, source identity columns, canonical result JSON, timestamp, source-run foreign key, and fingerprint format constraints. The source dataset has an index for result lookup; all result content remains inside the canonical document to preserve one audited identity. The PostgreSQL result store requires an application-managed research-run verifier and `DatasetStore`; there is no row-only source fallback, so a result store cannot become a benchmark source without full strategy, run, manifest, and coverage verification.
+`published_research_run_specs` and `published_backtest_results` hold canonical run and result
+JSON with fingerprint primary keys, source identity columns, `strategy_id` foreign keys, and
+fingerprint format checks. The PostgreSQL result store requires an application-managed
+research-run verifier and `DatasetStore`; there is no row-only source fallback. Migration
+`0049_unified_backtest_model.py` deleted research rows written by the retired engines and dropped
+`published_research_studies.engine_contract_version`.
 
 ## Results API and bounded research submission
 
-Three read-only endpoints expose stored evidence to the browser; `POST /api/v1/backtests` submits a
-bounded deterministic historical simulation. No endpoint can mutate an immutable result or grant paper/live
-trading authority.
+- `GET /api/v1/backtests` returns a bounded newest-first page of summaries: result, run,
+  strategy, and dataset fingerprints, `strategy_id`, publication timestamp, and the immutable
+  `summary` block (projected server-side; no ledger or equity curve). One source filter
+  (`run_fingerprint`, `strategy_fingerprint`, `dataset_fingerprint`, or `strategy_id`), `limit`
+  (1–100, default 50), and `offset`.
+- `GET /api/v1/backtests/{result_fingerprint}` returns one reverified result (`detail=full`) or a
+  bounded projection (`detail=summary`), plus the source run's `costs` (including `spread_bps`)
+  and derived `metrics` as siblings outside canonical bytes.
+- `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns `thytrader-buy-and-hold-v1`:
+  buy at the first evaluation open and sell at the `evaluation.ends_at` open, both as unified
+  taker legs (taker fee, fixed slippage, half the spread stress), marking at the stressed bid
+  close, with a canonical `benchmark_fingerprint` and `engine`.
+- `GET /api/v1/backtests/{result_fingerprint}/metrics` returns derived
+  `thytrader-performance-metrics-v1` ratios.
+- `GET /api/v1/research/backtest-model` describes this model's assumptions for agents (it
+  replaced the removed `engine-support` matrix).
+- `POST /api/v1/backtests` takes `strategy_id`, a verified `dataset_fingerprint`, optional
+  `htf_dataset_fingerprint`, `indicator_dataset_fingerprints`, `additional_instrument_datasets`,
+  an evaluation period (or both dates omitted — the server fills the common covered window of
+  every bound clock), `initial_quote_balance`, maker/taker fee rates, `fixed_slippage_bps`, and
+  optional `spread_bps`. `?async=true` queues a research job (HTTP 202). Explicit dates the
+  datasets cannot cover are `422 backtest_window_rejected`; `engine_contract_version` is a 422
+  caller error. The UI may prefill fee rates from `GET /api/v1/fees` suggestions (labeled as
+  suggestions); they become published cost assumptions, not observed fills.
 
-- `GET /api/v1/backtests` returns a bounded newest-first page of summaries. Each row carries the result/run/strategy/dataset fingerprints, the engine-contract version, the publication timestamp, and the immutable `summary` metrics block. Summary metrics are projected from the canonical document server-side, so a list query never materializes a full trade ledger or equity curve. It accepts at most one source-fingerprint filter (`run_fingerprint`, `strategy_fingerprint`, or `dataset_fingerprint`), `limit` (1–100, default 50), and `offset` (≥ 0). The `/backtests` UI discloses that bound (`Showing N (newest)`), pages when `returned === limit`, keeps `?result=` in sync with the open immutable detail via `replaceState`, and lists the engine contract (plus a recorded spread cue when present) on each row. Evidence timestamps render as explicit UTC. Reloading the list while a detail is open does not regenerate that result.
-- `GET /api/v1/backtests/{result_fingerprint}` returns one complete result (full trade ledger, equity curve, and summary). It reuses the same fail-closed `load` path as the CLI `show` command: the stored canonical bytes, the result fingerprint, the row identity columns, and the linked source run publication are all reverified before anything is returned. A result is never served from stored JSON without reverification. The HTTP wrapper also projects the source run's published `CostAssumptions` (`maker_fee_rate`, `taker_fee_rate`, `fixed_slippage_bps`) as a sibling `costs` field when the store can reload that run. That projection is not part of canonical result bytes and must not be presented as observed Coinbase fees.
-- `GET /api/v1/backtests/{result_fingerprint}/benchmark` returns a versioned `thytrader-buy-and-hold-v1` comparison derived from the same reverified result, source run, and immutable dataset. It buys at the first evaluation candle open, marks at completed evaluation closes, and liquidates at the published final next-open boundary using the source run's taker fee, fixed slippage, and the run's V1/V2/V3 fill model. The response includes source identities, entry/exit evidence, modeled costs, return, maximum drawdown, and a canonical `benchmark_fingerprint` covering every other derived field; the API revalidates that identity before serialization. It is not part of canonical result bytes.
-- `GET /api/v1/backtests/{result_fingerprint}/metrics` returns derived `thytrader-performance-metrics-v1` ratios (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) from the equity curve and trades. Summary and full detail also attach a sibling `metrics` object. None of these fields enter canonical result bytes.
-- `POST /api/v1/backtests` requires an immutable strategy fingerprint, verified dataset fingerprint,
-  optional `htf_dataset_fingerprint` when the strategy declares `htf_filter`,
-  `indicator_dataset_fingerprints` when unbound extra indicator clocks exist,
-  an evaluation period (or both dates omitted), capital, maker/taker fees, fixed slippage, and an
-  explicit V1, V2, V3, or V4 engine contract. When both `evaluation_start` and `evaluation_end` are
-  omitted, the server fills the common covered intersection of the LTF dataset and every bound extra
-  clock (HTF, unbound indicator timeframes, additional instruments). LTF warmup and next-open fill
-  still bound that window; extra clocks use last-completed coverage only. Explicit dates that the
-  bound datasets cannot cover remain a `422 backtest_window_rejected` caller error. V1 and V3 reject
-  a spread field; V2 requires a bounded constant `spread_bps` value. V3 publishes the post-only
-  resting-limit broker block. Equivalent browser and CLI assumptions reuse the same immutable run,
-  except the research-run CLI still publishes only V1/V2 until a later increment adds the V3 flag.
-  The Research form may prefill maker/taker from `GET /api/v1/fees` `suggested_*` fields (pinned
-  Coinbase schedule, labeled as a suggestion). Custom rates win. Those values become the published
-  CostAssumptions; they are not observed Coinbase fills. Demo or missing credentials omit
-  suggestions so the operator must enter modeled rates.
+Failures use redacted envelopes: malformed fingerprint `400 backtest_invalid`, unknown result
+`404 backtest_not_found`, storage/integrity failure `503 backtests_unavailable`. Without a
+database URL the routes fail closed with `503`. Decimal values remain canonical strings at the API
+boundary; the browser formats them with exact string/`BigInt` arithmetic.
 
-The endpoints return redacted failure envelopes. A malformed fingerprint yields `400 backtest_invalid`; a well-formed but unknown result fingerprint yields `404 backtest_not_found`; storage or integrity failures yield `503 backtests_unavailable` with no internal detail. When durable result storage is not configured (no database URL), the routes fail closed with `503` rather than presenting empty results. A submission whose evaluation window cannot fit the selected dataset (missing warmup coverage before the window, or missing next-candle-open coverage after it) is a caller error, not an outage: `POST /api/v1/backtests` answers `422 backtest_window_rejected` with a plain-language explanation, and only genuine infrastructure failures keep the redacted `503`. Decimal values remain canonical strings at the API boundary; the browser formats them for display only, using exact string/`BigInt` arithmetic for monetary and percentage presentation rather than binary `Number` conversion.
+The Test stage run bar has no engine picker. Its Advanced options hold fixed slippage and the
+optional spread stress, and a "How backtests simulate" disclosure summarizes these assumptions.
 
-The strategies page collapses cumulative dataset revisions to the latest verified revision per
-product and timeframe, bounds the evaluation inputs from the selected LTF dataset and the strategy
-warmup (and, when extra clocks are bound, their common covered intersection), requires a second HTF
-dataset fingerprint when `htf_filter` is present, requires extra indicator-clock datasets for
-unbound per-indicator timeframes, and shows the usable window inline.
+## Explicitly not modeled
 
-## Explicitly not in this slice
-
-- observed bid/ask data ingestion or calibration of the V2 stress parameter to venue microstructure;
-- margin, leverage, multiple positions, or cross-strategy portfolio allocation;
-- sensitivity analysis, parameter sweeps, or walk-forward optimization inside a single engine run
-  (Phase 11 and ADR 0044 compose ordinary V1/V2/V3 submissions; see
-  [research studies](research-studies.md));
+- queue position, partial fills, or post-only rejection of resting limits (a touched limit fills
+  completely);
+- observed bid/ask data or calibration of the spread stress to venue microstructure;
+- margin, leverage, borrow, or funding for shorts;
+- cross-strategy portfolio allocation;
+- sensitivity analysis or walk-forward optimization inside one run (studies compose ordinary
+  submissions; see [research studies](research-studies.md));
 - paper broker, exchange adapters, Coinbase submission, or live execution.
+
+Indicator warmup and first-valid-index rules: [indicators.md](indicators.md).

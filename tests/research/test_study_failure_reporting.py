@@ -65,7 +65,6 @@ def _holdout_request() -> ResearchStudyRequest:
         maker_fee_rate="0.001",
         taker_fee_rate="0.002",
         fixed_slippage_bps="10",
-        engine_contract_version="thytrader-bar-backtest-v1",
         strategy_fingerprint="sha256:" + "a" * 64,
         dataset_fingerprint="sha256:" + "b" * 64,
         oos_fraction="0.3",
@@ -83,7 +82,6 @@ def _sweep_request() -> ResearchStudyRequest:
         maker_fee_rate="0.001",
         taker_fee_rate="0.002",
         fixed_slippage_bps="10",
-        engine_contract_version="thytrader-bar-backtest-v1",
         strategy_fingerprint=published.strategy_fingerprint,
         dataset_fingerprint="sha256:" + "b" * 64,
         parameter_axes=(

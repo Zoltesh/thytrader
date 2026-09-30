@@ -68,25 +68,33 @@ route while `/health/ready` is 200 (the shared stale-image signal). Matching `0.
 current-image evidence. Open the `ops/` workspace instead of
 the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
-## When to pick backtest engine V1 vs V2 vs V3 vs V4
+## How backtests simulate (one model)
 
-These are **parallel research contracts**, not product releases. Later engines do not obsolete
-earlier fingerprints. Each run fingerprints its engine; results stay comparable only within the same
-contract. Full semantics: `docs/architecture/backtest-simulation.md` and
-[ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md). Do not confuse
-engine versions with Coinbase Advanced Trade REST **v3** (live order API).
+There is **one** backtest model, `engine: "thytrader-backtest"`
+([ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)). There is no engine to pick and
+no engine field to send: a backtest or study body that includes `engine_contract_version` is
+rejected with HTTP 422 ("engine_contract_version was removed…"). Drop the field and resubmit.
+`uv run thytrader-research backtest-model` (or `GET /api/v1/research/backtest-model`) prints the
+assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 
-| Engine | Use when | Not for |
-|---|---|---|
-| `thytrader-bar-backtest-v1` | Fast baseline: signal on close → fill at **next open** as marketable/taker-style (fixed slippage + taker fee). Good first pass and cheap compare. | Matching paper/live maker-limit behavior; spread-stress sweeps |
-| `thytrader-bar-backtest-v2` | Same event order as V1, plus explicit constant **`spread_bps` stress** (not observed Coinbase bid/ask). Compare the same strategy at 0 / 10 / 25 / 50 bps. `spread_bps=0` matches V1 economics. | Claiming live fill quality; maker-rest realism |
-| `thytrader-bar-backtest-v3` | Historical maker-limit contract (pre-0062): post-only limit at signal close, terminal candle may process intrabar exits beyond the declared boundary. Keep for reproducing existing v3 evidence only. | Walk-forward/OOS selection, new paper/live comparison, or claiming corrected terminal boundaries |
-| `thytrader-bar-backtest-v4` | **Default for new maker research** ([ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md)): v3 maker semantics plus causal evaluation terminal, taker slippage on stops/time/end, causal same-bar trailing, and `validity_limits` on summaries. | Spread-stress sweeps (no `spread_bps`); silently comparing to pre-0062 v3 bytes |
-
-Default guidance: v4 for OOS/walk-forward/sweeps and paper/live comparison; v2 for friction
-stress; v1 for quick smoke tests; v3 only when reproducing an existing v3 fingerprint. Never treat
-a backtest as a paper or live fill. Read `validity_limits` on v4 summaries before deployment
-claims — they document maker touch-fill, TP-before-stop ordering, and spot-short modeling limits.
+- **Maker-limit entries rest.** A matched completed-candle signal rests a post-only limit at that
+  close. A later candle fills it only if its low (high for shorts) trades through, at the limit,
+  maker fee, no slippage. It rests up to `execution.max_entry_wait_bars` candles, then cancels or
+  reprices per `on_unfilled_entry`.
+- **Stops and targets on bar extremes.** On the fill candle only the stop can trigger (stop-first).
+  From the next candle the take-profit rests; a candle that touches it fills at the target (maker)
+  before the stop is checked, as paper and live do. Stops fill as takers at the stop or the worse
+  gapped open; ATR trailing ratchets after the check. Time exits sell at the close.
+- **End of window.** Open inventory sells at the open of the `evaluation_end` candle; nothing else
+  happens on that candle.
+- **Costs.** Maker fee on resting entries/take-profits; taker fee plus `fixed_slippage_bps` on stop,
+  time, and end exits. Optional `spread_bps` (default 0, max 1000) is a constant total spread
+  **stress**: taker exits cross half of it, stops trigger and positions mark on the stressed
+  bid/ask, maker fills stay at the limit. Compare the same strategy at 0 / 10 / 25 / 50 bps.
+- **Honesty.** Candles do not show queue position: a touched limit is assumed to fill fully.
+  Every summary lists `validity_limits` (`maker_touch_full_fill`, `tp_before_stop_same_bar`, and
+  `spot_short_synthetic` for shorts); read them before any deployment claim. Backtests are
+  simulated research evidence, never paper or live fills.
 
 ## Commands
 
@@ -104,7 +112,7 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Bulk delete strategies | `uv run thytrader-research bulk-delete-strategies --strategy-id UUID [--strategy-id UUID …] --confirm` |
 | List strategy templates | `uv run thytrader-research list-templates` |
 | Show one template's defaults and sweepable axes | `uv run thytrader-research show-template --template macd-trend` |
-| Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
+| Describe the backtest model's fill and cost assumptions | `uv run thytrader-research backtest-model` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
 | Queue a long backtest (HTTP 202) | `uv run thytrader-research submit-backtest --file request.json --async --confirm` |
 | Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
@@ -120,7 +128,7 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
 `list-studies`, `list-strategies`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
@@ -128,8 +136,8 @@ do not use `--confirm`. `list-results` and `list-strategies` page at most 100 ro
 without child equity curves; `?detail=full` still returns `windows[]`. Queued research jobs report
 `progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-strategy` loops
 can exceed a 180s agent timeout after HTTP 201 — list-strategies before retrying; the mutation is
-already persisted. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
-backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
+already persisted. `submit-study` requires `--confirm`. Studies compose ordinary
+unified-model backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
 `mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one snapshot of the strategy. `parameter_sweep` and
 `walk_forward_optimization` select among `candidate_strategy_ids` (each snapshotted at submit) or
 `parameter_axes` (derived variants keep the base `strategy_id`, so they belong to that strategy). Axes default
@@ -143,7 +151,7 @@ total candidates (≤8 values per axis does not imply ≤8 total).
 `sweepable_axes` so parameter-axis studies can be authored without reading source or guessing ids.
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
 not look ahead from OOS.
-`plan-study` derives axis candidates in memory, then rejects windows that cannot fit the selected dataset after warmup and the reserved next-open fill. A rejected plan is HTTP 422 `study_window_rejected` and names the field that failed (`evaluation_start` or `evaluation_end`) plus the same suggested ISO range child backtests use. It returns a compact plan summary by default
+`plan-study` derives axis candidates in memory, then rejects windows that cannot fit the selected dataset after warmup and the reserved end-of-window bar (open inventory liquidates at its open). A rejected plan is HTTP 422 `study_window_rejected` and names the field that failed (`evaluation_start` or `evaluation_end`) plus the same suggested ISO range child backtests use. It returns a compact plan summary by default
 (`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
 child windows are required. `submit-study --confirm` snapshots every named strategy and any derived axis
 variants, then submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
@@ -190,7 +198,7 @@ htf_dataset_fingerprint?, indicator_dataset_fingerprints?}` per extra covered pr
 `product_id`, omitted when the document has no extra products. Each extra product needs a complete
 Coinbase dataset on the decision clock; HTF and extra-TF fingerprints are required iff the document
 declares those clocks. Identities must be unique and distinct from the primary LTF/HTF/extra-TF
-fingerprints. `dataset_fingerprint` remains the primary instrument. Research engines V1/V2/V3 evaluate
+fingerprints. `dataset_fingerprint` remains the primary instrument. Backtests evaluate
 last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 
@@ -217,10 +225,10 @@ document of an existing strategy (first save after create/import/clone uses `--r
 accepted save bumps revision; the server forces the row's `strategy_id`/`created_at`). A save is
 accepted even when the document is invalid — read `validation.valid` and `validation.issues` in the
 output; do not treat a saved invalid document as ready to backtest. HTTP 422
-`strategy_document_invalid` means the file is not a JSON object or exceeds 256 KiB. HTTP 422 that lists
-backtest engines through v1/v2 only, or through v3 without v4, is a stale Compose image — rebuild
-with `make run`. A matching `/health/ready` ops contract must advertise v4 before v4
-`submit-backtest` requests ([ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
+`strategy_document_invalid` means the file is not a JSON object or exceeds 256 KiB. HTTP 422 that says
+`engine_contract_version` is required (rather than "was removed") is a stale Compose image —
+rebuild with `make run`. A current `/health/ready` ops contract advertises
+`backtest_engine: "thytrader-backtest"` ([ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)).
 
 `submit-backtest` JSON names the strategy with `strategy_id` (not a fingerprint); the server
 snapshots the current definition and returns `strategy_id` plus the snapshot `strategy_fingerprint`
@@ -232,17 +240,18 @@ identities). HTTP 404 `strategy_not_found`; HTTP 422 `strategy_invalid` lists `i
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,
 unbound indicator-timeframe datasets, and additional-instrument datasets). LTF warmup still sits
-before the start and one LTF bar after the end is reserved for next-open fill. Extra clocks use
-last-completed coverage only (no extra-clock next-open fill). If that intersection is empty, or
+before the start and one LTF bar after the end is reserved for the end-of-window liquidation at its
+open. Extra clocks use last-completed coverage only (no extra-clock terminal bar). If that intersection is empty, or
 supplied dates do not fit, the API returns 422 with a suggested ISO range. `evaluation_end` uses a
 half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `evaluation_end` named
 in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
 long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtests?async=true`) and
-poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
-`…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
-reproducing an existing v3 fingerprint.
+poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`.
+Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate`,
+`fixed_slippage_bps`; optional `spread_bps` stress. Never send `engine_contract_version`.
 
-`show-result` copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
+`show-result` returns the result summary, derived `metrics`, and the published `costs`
+(including `spread_bps`). It copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
 `4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
 ## Maker/taker rates
@@ -253,8 +262,8 @@ and `fetched_at`). Copy those into `submit-backtest` JSON unless the operator su
 Demo or missing credentials set `suggestion_source=unavailable` — do **not** use dashboard demo
 `maker_fee_rate` / `taker_fee_rate` as research defaults, and do not invent a tier. The request must
 still include explicit rates; submitted runs fingerprint those values. They are modeled
-`CostAssumptions`, not observed Coinbase fills. V1/V2 next-open fills use the **taker** rate even
-when the strategy prefers maker. Paper deploy accepts optional `maker_fee_rate` / `taker_fee_rate`
+`CostAssumptions`, not observed Coinbase fills. Resting entries and take-profits use the **maker**
+rate; stop, time, and end-of-window exits use the **taker** rate. Paper deploy accepts optional `maker_fee_rate` / `taker_fee_rate`
 through `thytrader-runtime` ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md));
 omitted paper rates keep the documented `0.001` maker / `0.002` taker schedule. Those paper rates
 are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.

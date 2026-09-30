@@ -15,7 +15,6 @@ import pytest
 from thytrader.market_data.datasets import DatasetManifest
 from thytrader.market_data.models import Candle
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -130,11 +129,6 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-backtest-v1",
         random_seed=42,
     )
 
@@ -251,11 +245,6 @@ def test_evaluator_rejects_htf_candles_without_filter() -> None:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-signal-v1",
         random_seed=42,
     )
     candles = tuple(
@@ -291,11 +280,6 @@ def test_run_spec_rejects_aliased_htf_dataset_fingerprint() -> None:
                 taker_fee_rate="0.006",
                 fixed_slippage_bps="2.5",
             ),
-            bar_execution=BarExecutionAssumptions(
-                signal_timing="completed_candle_close",
-                fill_timing="next_candle_open",
-            ),
-            engine_contract_version="thytrader-bar-backtest-v1",
             random_seed=42,
         )
 

@@ -13,7 +13,6 @@ import pytest
 
 from tests.research.test_htf_filter import _htf_candles, _ltf_candles
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -102,11 +101,6 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-backtest-v1",
         random_seed=42,
     )
 
@@ -206,11 +200,6 @@ def test_empty_indicator_datasets_omitted_from_canonical_json() -> None:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-signal-v1",
         random_seed=42,
     )
     payload = specification.model_dump(mode="json", exclude_none=True)

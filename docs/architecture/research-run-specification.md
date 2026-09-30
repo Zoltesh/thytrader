@@ -13,10 +13,10 @@ saves one revision-guarded mutable strategy per id and submits deterministic bac
 `strategy_id`; the server snapshots the current definition, then derives and persists the eligible
 run specification and immutable result
 ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). A read-only CLI
-can also evaluate an existing run spec that selects the explicit signal-engine contract. The research-run spec itself still does not grant paper, Coinbase, or live-trading
+can also replay the deterministic signal trace of an existing run spec. The research-run spec itself still does not grant paper, Coinbase, or live-trading
 authority; those runtimes consume the same snapshotted strategy semantics on a separate confirmation-gated path.
 
-## Canonical V1 document
+## Canonical document
 
 Every document is a frozen, unknown-field-rejecting Pydantic model. Canonical JSON uses sorted object
 keys, compact separators, UTF-8, canonical UTC timestamps with a `Z` suffix, and exact lexical decimal
@@ -36,10 +36,8 @@ normalization. Floats and exponent notation are rejected. The full canonical doc
 | `evaluation` | Non-empty, 5-minute-aligned UTC, half-open `[starts_at, ends_at)` interval. 1h strategies still require hour-aligned windows derived from hourly warmup spacing. |
 | `warmup` | `bars` plus the exact derived `starts_at`; its interval is `[starts_at, evaluation.starts_at)`. |
 | `capital` | USD-only initial quote balance, greater than zero and at most `1e18`. |
-| `costs` | Maker/taker fee rates from zero through `0.1`, maker no greater than taker, and fixed slippage from zero through `1000` basis points. |
-| `broker` | Omitted for legacy contracts. `thytrader-bar-backtest-v2` requires one fully resolved constant-spread broker block: zero through `1000` total spread basis points, full fills, bid-side triggers, and bid-close marking. `thytrader-bar-backtest-v3` requires a post-only resting-limit broker block: `spread_bps` `0`, `fill_policy` `resting_limit`, `trigger_evaluation` `bar_extreme`, and `equity_marking` `last_close`. |
-| `bar_execution` | Signals use completed candle closes. V1/V2 modeled fills use the next candle open. V3 rests a buy at the completed close (`limit_at: completed_close`) and fills later if the bar trades through. |
-| `engine_contract_version` | `thytrader-bar-v1` remains request-only; `thytrader-bar-signal-v1` selects deterministic signal evaluation; `thytrader-bar-backtest-v1`, `v2`, and `v3` select their separately documented simulation semantics. |
+| `costs` | Maker/taker fee rates from zero through `0.1`, maker no greater than taker, fixed slippage from zero through `1000` basis points, and optional `spread_bps` (decimal string, default `"0"`, at most `1000`): a disclosed constant total bid-ask spread stress, not observed book data. A zero spread is byte-identical to omitting it. |
+| `engine` | Exact literal `thytrader-backtest`, the single backtest model ([ADR 0083](../decisions/0083-unified-backtest-model.md)). Runs carry no `broker`, `bar_execution`, or engine-version field; unknown fields are rejected. |
 | `random_seed` | Explicit integer from zero through signed 64-bit maximum. |
 
 Equivalent accepted decimal spellings such as `10000.00` and `10000` share canonical identity. Digits
@@ -61,18 +59,18 @@ Dataset manifests describe complete candle coverage as a half-open interval
 6. when `htf_filter` is present, the HTF dataset matches product and HTF timeframe, is complete, and
    covers last-completed HTF bars plus HTF warmup for `[evaluation.starts_at, evaluation.ends_at)`.
    Coverage uses `evaluation.starts_at` as the previous LTF close (first evaluation bar start) so
-   first-bar crossovers have the prior mapped HTF bar. HTF datasets do not need a next-open fill
-   candle.
+   first-bar crossovers have the prior mapped HTF bar. HTF datasets do not need the extra
+   liquidation candle.
 7. when unbound extra indicator clocks are present, each `indicator_dataset_fingerprints` binding
    matches product and timeframe, is complete, and covers last-completed extra-TF bars plus extra-TF
-   warmup. Extra-TF datasets do not need a next-open fill candle.
+   warmup. Extra-TF datasets do not need the extra liquidation candle.
 8. when `additional_instruments` are present, each `additional_instrument_datasets` binding matches
    that product, is complete on the decision clock, and covers the same warmup/evaluation/fill-lookahead
    window as the primary LTF dataset. HTF and extra-TF bindings on that product follow rules 6–7.
 
-The final extra LTF candle is required because a signal evaluated at the close of the final eligible candle
-may only use the next candle's open as a modeled fill price. It is fill lookahead data, never signal
-lookahead data.
+The final extra LTF candle is the one that opens at `evaluation.ends_at`: open inventory is liquidated
+at its open as a taker (`evaluation_end`) and nothing else is processed on it. It is fill lookahead
+data, never signal lookahead data.
 
 `POST /api/v1/backtests` and `submit-backtest` may omit both evaluation bounds. The server then
 selects the half-open LTF window that also satisfies last-completed HTF and extra-TF coverage
@@ -106,12 +104,11 @@ be made atomic, so private single-writer ownership is part of the supported loca
 
 ## Deliberate boundary
 
-`thytrader-bar-v1` permanently identifies only the request contract and its completed-close/next-open
-timing convention. Existing publications using it are not executable. The identity-bearing
-`thytrader-bar-signal-v1` value selects the formulas and entry-condition semantics in
-[signal-evaluation.md](signal-evaluation.md).
-
-`thytrader-bar-backtest-v2` selects the same signal stage plus the spread-aware simulator described in [backtest-simulation.md](backtest-simulation.md). It requires a canonical `broker` block, so a command-line spread value can never be ambient configuration or omitted from run identity. The constant spread is a disclosed stress assumption, not observed historical bid/ask evidence.
+The `engine` value `thytrader-backtest` selects the signal stage in
+[signal-evaluation.md](signal-evaluation.md) plus the simulator in
+[backtest-simulation.md](backtest-simulation.md). Spread stress lives in `costs.spread_bps`, so a
+command-line spread value can never be ambient configuration or omitted from run identity. Documents
+written by the retired engines are not loadable; migration `0049` removed them.
 
 Signal evaluation still does not define latency, partial fills, rejection policy, cooldown or
 position state, SL/TP ordering, PnL, metrics, or result persistence. A deterministic condition trace is

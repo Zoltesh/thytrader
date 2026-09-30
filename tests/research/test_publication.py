@@ -11,7 +11,6 @@ import pytest
 
 from thytrader.market_data.datasets import DatasetManifest
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -71,11 +70,6 @@ def _run(
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-v1",
         random_seed=42,
     )
 

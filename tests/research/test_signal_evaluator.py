@@ -16,7 +16,6 @@ import pytest
 from thytrader.market_data.models import Candle
 from thytrader.research.indicators import calculate_indicator_rows
 from thytrader.research.models import (
-    BarExecutionAssumptions,
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -103,11 +102,6 @@ def _run(strategy: StrategyDefinition) -> ResearchRunSpecification:
             taker_fee_rate="0.006",
             fixed_slippage_bps="2.5",
         ),
-        bar_execution=BarExecutionAssumptions(
-            signal_timing="completed_candle_close",
-            fill_timing="next_candle_open",
-        ),
-        engine_contract_version="thytrader-bar-signal-v1",
         random_seed=42,
     )
 
@@ -1162,18 +1156,13 @@ def test_indicator_seeds_use_chronological_left_fold_decimal64_sums() -> None:
     )
 
 
-def test_request_only_contract_cannot_be_evaluated() -> None:
-    """Old immutable request identities never silently acquire executable semantics."""
+def test_signal_trace_binds_the_unified_engine_identity() -> None:
+    """Every trace carries the one unversioned engine id of the run that produced it."""
     strategy = _strategy()
-    request_only = ResearchRunSpecification.model_validate(
-        {
-            **_run(strategy).model_dump(mode="python"),
-            "engine_contract_version": "thytrader-bar-v1",
-        }
-    )
+    trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
 
-    with pytest.raises(SignalEvaluationError, match="executable signal contract"):
-        evaluate_signal_trace(request_only, strategy, _candles())
+    assert trace.engine == "thytrader-backtest"
+    assert b'"engine":"thytrader-backtest"' in canonical_signal_trace_bytes(trace)
 
 
 def test_future_candle_mutation_cannot_change_prior_signal_records() -> None:
@@ -1435,13 +1424,11 @@ def test_reference_signal_trace_matches_literal_golden_bytes() -> None:
     """The complete trace ordering and Decimal rendering must remain byte-for-byte stable."""
     strategy = _strategy()
     trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
-    expected = (
-        Path("tests/research/golden/reference_signal_trace_v1.json").read_bytes().rstrip(b"\n")
-    )
+    expected = Path("tests/research/golden/reference_signal_trace.json").read_bytes().rstrip(b"\n")
 
     assert canonical_signal_trace_bytes(trace) == expected
     assert signal_trace_fingerprint(trace) == (
-        "sha256:4fb57eacb7f42702b83682eeb4e4d4d03fd756cd1932f1956b0378e90aa86457"
+        "sha256:4d0a9aec5d2287029e1304134c7f82762b1b1d6db969ae5c41d69f3fe0fc8286"
     )
 
 

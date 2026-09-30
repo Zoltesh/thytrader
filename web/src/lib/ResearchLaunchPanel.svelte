@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { formatPercent } from '$lib/backtests';
+	import { formatPercent, optionalSpreadStress } from '$lib/backtests';
+	import BacktestModelDisclosure from '$lib/BacktestModelDisclosure.svelte';
 	import { productIdQuote } from '$lib/deployment-detail';
 	import {
 		RESEARCH_FEE_ENGINE_NOTE,
@@ -14,9 +15,6 @@
 	} from '$lib/fees';
 	import {
 		axisNeedsIndicator,
-		defaultLaunchEngine,
-		engineContractLabel,
-		fetchEngineSupport,
 		parametersForTarget,
 		parseParameterAxisValues,
 		submitResearchStudy,
@@ -89,13 +87,10 @@
 		maker_fee_rate: '',
 		taker_fee_rate: '',
 		fixed_slippage_bps: '10',
-		engine: '' as BacktestLaunchInput['engine_contract_version'] | '',
-		spread_bps: '8'
+		/** Optional spread stress in bps; blank or zero sends none. */
+		spread_bps: ''
 	});
 	let studyOpen = $state(false);
-	/** Engines advertised by `GET /api/v1/research/engine-support`; null until read or on failure. */
-	let advertisedEngines = $state<string[] | null>(null);
-	let engineDefaulted = $state(false);
 	let latestFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let appliedFeeSuggestion = $state<ResearchFeeSuggestion | null>(null);
 	let feeSuggestionLoading = $state(false);
@@ -140,24 +135,6 @@
 			void loadFeeSuggestion();
 		}
 	});
-
-	$effect(() => {
-		void loadEngineSupport();
-	});
-
-	/** Default the engine once from the engine-support matrix; never override a choice. */
-	async function loadEngineSupport(): Promise<void> {
-		try {
-			advertisedEngines = (await fetchEngineSupport()).engines;
-		} catch {
-			advertisedEngines = null;
-		}
-		const engine = defaultLaunchEngine(advertisedEngines);
-		if (launchForm.engine === '' && engine !== '') {
-			launchForm.engine = engine;
-			engineDefaulted = true;
-		}
-	}
 
 	function periodLabel(): string {
 		const bounds = launchWindowBounds();
@@ -277,10 +254,6 @@
 
 	async function runLaunch(mode: 'single' | 'study'): Promise<void> {
 		if (selectedStrategyFingerprint === '' || launching) return;
-		if (launchForm.engine === '') {
-			launchError = 'Select an engine contract before launching.';
-			return;
-		}
 		if (launchForm.maker_fee_rate.trim() === '' || launchForm.taker_fee_rate.trim() === '') {
 			launchError = 'Enter modeled maker and taker fee rates before launching.';
 			return;
@@ -312,9 +285,7 @@
 					maker_fee_rate: launchForm.maker_fee_rate,
 					taker_fee_rate: launchForm.taker_fee_rate,
 					fixed_slippage_bps: launchForm.fixed_slippage_bps,
-					engine_contract_version: launchForm.engine,
-					spread_bps:
-						launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null,
+					...optionalSpreadStress(launchForm.spread_bps),
 					...studyGeometryFields(),
 					...candidateFields
 				});
@@ -336,8 +307,7 @@
 				maker_fee_rate: launchForm.maker_fee_rate,
 				taker_fee_rate: launchForm.taker_fee_rate,
 				fixed_slippage_bps: launchForm.fixed_slippage_bps,
-				engine_contract_version: launchForm.engine,
-				spread_bps: launchForm.engine === 'thytrader-bar-backtest-v2' ? launchForm.spread_bps : null
+				...optionalSpreadStress(launchForm.spread_bps)
 			};
 			const result = await submitBacktest(input);
 			onBacktestLaunched(result.result_fingerprint);
@@ -470,6 +440,9 @@
 		return researchWindowHint(bounds, model.warmup_bars ?? 0, model.timeframe);
 	}
 
+	/** The spread stress a launch would send, or null when none. */
+	const spreadStress = $derived(optionalSpreadStress(launchForm.spread_bps).spread_bps ?? null);
+
 	const launchBlocked = $derived(
 		launching ||
 			selectedStrategyFingerprint === '' ||
@@ -478,7 +451,6 @@
 			missingExtraLaunchDatasets() ||
 			launchForm.evaluation_start === '' ||
 			launchForm.evaluation_end === '' ||
-			launchForm.engine === '' ||
 			launchForm.maker_fee_rate.trim() === '' ||
 			launchForm.taker_fee_rate.trim() === ''
 	);
@@ -573,20 +545,6 @@
 					/>
 				</div>
 			</div>
-			<label class="f engine"
-				>Engine
-				<select
-					bind:value={launchForm.engine}
-					title={engineDefaulted
-						? 'Defaulted to the newest engine this launcher offers from the server engine-support matrix'
-						: undefined}
-				>
-					<option value="" disabled hidden>Select an engine</option>
-					<option value="thytrader-bar-backtest-v1">V1 — mark price, fixed slippage</option>
-					<option value="thytrader-bar-backtest-v2">V2 — constant spread (bid/ask)</option>
-					<option value="thytrader-bar-backtest-v3">V3 — resting maker limit</option>
-				</select></label
-			>
 			<div class="actions">
 				<button
 					class="btn"
@@ -655,9 +613,8 @@
 		<details class="advanced" data-testid="run-advanced">
 			<summary
 				>Advanced options <span class="summary-values"
-					>slippage {launchForm.fixed_slippage_bps || '—'} bps{launchForm.engine ===
-					'thytrader-bar-backtest-v2'
-						? ` · spread ${launchForm.spread_bps || '—'} bps`
+					>slippage {launchForm.fixed_slippage_bps || '—'} bps{spreadStress !== null
+						? ` · spread stress ${spreadStress} bps`
 						: ''} · {periodLabel()}</span
 				></summary
 			>
@@ -667,12 +624,10 @@
 						>Fixed slippage (bps)
 						<input inputmode="decimal" bind:value={launchForm.fixed_slippage_bps} /></label
 					>
-					{#if launchForm.engine === 'thytrader-bar-backtest-v2'}
-						<label
-							>Constant spread (bps, total bid-ask)
-							<input inputmode="decimal" bind:value={launchForm.spread_bps} /></label
-						>
-					{/if}
+					<label
+						>Spread stress (bps, total bid-ask, optional)
+						<input inputmode="decimal" placeholder="0" bind:value={launchForm.spread_bps} /></label
+					>
 				</div>
 				<div class="launch-grid">
 					<label
@@ -813,13 +768,14 @@
 			research evidence, not a promise: candles don't show queue position or real fills. This stage
 			does not start paper or live trading. {RESEARCH_FEE_ENGINE_NOTE}
 		</p>
+		<BacktestModelDisclosure maxEntryWaitBars={model.execution?.max_entry_wait_bars ?? null} />
 	{/if}
 </section>
 {#if studyResult}
 	<div class="view-block" data-testid="research-study-result">
 		<h3>Research study</h3>
 		<p class="view-note">
-			{studyResult.kind} · {engineContractLabel(studyResult.engine_contract_version)} ·
+			{studyResult.kind} ·
 			{studyResult.aggregate.oos_window_count} OOS window(s) · fingerprint
 			{studyResult.study_fingerprint.slice(0, 18)}…
 		</p>
@@ -908,9 +864,6 @@
 	}
 	.f.fees {
 		flex: 0 1 160px;
-	}
-	.f.engine {
-		flex: 0 1 200px;
 	}
 	.f select,
 	.f input,
@@ -1103,8 +1056,7 @@
 		.f.dataset,
 		.f.period,
 		.f.capital,
-		.f.fees,
-		.f.engine {
+		.f.fees {
 			flex-basis: 100%;
 			max-width: none;
 		}

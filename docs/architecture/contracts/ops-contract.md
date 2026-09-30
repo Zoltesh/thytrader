@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0048`):
+Current checkout (Alembic `0049`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v41` |
-| `expected_schema_revision` | `0048` |
+| `id` | `thytrader-ops-contract-v42` |
+| `expected_schema_revision` | `0049` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
@@ -25,7 +25,7 @@ Current checkout (Alembic `0048`):
 | `deployment_ledger_pagination` | `cursor` |
 | `multi_book_ledger` | `paper`, `live` |
 | `max_historical_interval_count` | `129600` |
-| `backtest_engines` | `thytrader-bar-backtest-v1`, `v2`, `v3`, `v4` |
+| `backtest_engine` | `thytrader-backtest` — the single unified model ([ADR 0083](../../decisions/0083-unified-backtest-model.md)); replaced the `backtest_engines` list |
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
 | `htf_filter_runtimes` | `research`, `paper`, `live` |
 | `indicator_timeframe_runtimes` | `research`, `paper`, `live` |
@@ -46,9 +46,9 @@ Current checkout (Alembic `0048`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v41
+    id thytrader-ops-contract-v42
     max_historical_interval_count
-    backtest_engines
+    backtest_engine
     paper_timeframes
     live_timeframes
     htf_filter_runtimes
@@ -76,7 +76,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0048
+    expected_schema_revision 0049
   }
   class HealthPayload {
     api_probed

@@ -308,8 +308,8 @@
 					<input type="number" min="1" bind:value={model.warmup_bars} oninput={markDirty} /></label
 				>
 				<div class="hint">
-					V1 is Coinbase USD spot, long-only. Research, paper, and live use any ingested venue clock
-					(this strategy uses {model.timeframe} candles). Sub-hour live requires a connected user-order
+					This release trades Coinbase USD spot. Research, paper, and live use any ingested venue
+					clock (this strategy uses {model.timeframe} candles). Sub-hour live requires a connected user-order
 					feed. Optional HTF filters may use a strictly coarser integer-multiple venue clock; paper and
 					live evaluate those strategies on last-completed HTF bars.
 				</div>
@@ -472,7 +472,7 @@
 							oninput={markDirty}
 						/></label
 					>
-					<label>Trailing stop<input value="disabled (V1)" disabled /></label>
+					<label>Trailing stop<input value="disabled" disabled /></label>
 				</div>
 			</section>
 		{:else if activeSection === 'sizing'}
@@ -516,7 +516,7 @@
 						oninput={markDirty}
 					/></label
 				>
-				<div class="hint">V1 allows exactly one concurrent position per strategy.</div>
+				<div class="hint">One concurrent position per strategy.</div>
 			</section>
 		{:else if activeSection === 'execution'}
 			<section class="panel">

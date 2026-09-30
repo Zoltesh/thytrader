@@ -228,11 +228,11 @@ def show_template(base_url: str, template_id: str) -> str:
     return _encode(body)
 
 
-def engine_support(base_url: str) -> str:
-    """Fetch the V1-V4 engine-support matrix."""
+def backtest_model(base_url: str) -> str:
+    """Fetch the unified backtest model's identity and fill assumptions."""
     body = _as_object(
-        request_json(method="GET", url=f"{base_url}/api/v1/research/engine-support"),
-        "engine-support matrix",
+        request_json(method="GET", url=f"{base_url}/api/v1/research/backtest-model"),
+        "backtest model",
     )
     return _encode(body)
 
@@ -432,7 +432,6 @@ def list_results(
                 "strategy_fingerprint": row.get("strategy_fingerprint"),
                 "strategy_id": row.get("strategy_id"),
                 "dataset_fingerprint": row.get("dataset_fingerprint"),
-                "engine_contract_version": row.get("engine_contract_version"),
                 "published_at": row.get("published_at"),
                 "trade_count": summary.get("trade_count"),
                 "total_net_pnl": summary.get("total_net_pnl"),
@@ -501,13 +500,11 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
         strategy_fingerprint = result.get("strategy_fingerprint")
         run_fingerprint = result.get("run_fingerprint")
         dataset_fingerprint = result.get("dataset_fingerprint")
-        engine_contract_version = result.get("engine_contract_version")
         summary = result.get("summary")
     else:
         strategy_fingerprint = body.get("strategy_fingerprint")
         run_fingerprint = body.get("run_fingerprint")
         dataset_fingerprint = body.get("dataset_fingerprint")
-        engine_contract_version = body.get("engine_contract_version")
         summary = body.get("summary")
     timeframe = "1h"
     currency: str | None = None
@@ -524,11 +521,11 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "run_fingerprint": run_fingerprint,
             "strategy_fingerprint": strategy_fingerprint,
             "dataset_fingerprint": dataset_fingerprint,
-            "engine_contract_version": engine_contract_version,
             "mode": "backtest",
             "timeframe": timeframe,
             "currency": currency,
             "summary": summary,
+            "costs": body.get("costs"),
             "metrics": body.get("metrics"),
         }
     )

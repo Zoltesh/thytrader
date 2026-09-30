@@ -1,6 +1,7 @@
 # 0066: Research ops-contract v25 and bar-backtest-v4 advertisement
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: advertising `thytrader-bar-backtest-v4` in `backtest_engines`. The ops contract now names one engine.
 - Date: 2026-09-17
 - Relates to: [0019](0019-ops-contract-identity.md), [0062](0062-research-paper-semantics-audit-stage-4.md),
   [0052](0052-richer-sweep-axes-study-catalog.md)

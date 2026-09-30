@@ -1,6 +1,7 @@
 # 0062: Research and paper semantics (audit stage 4)
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: the `thytrader-bar-backtest-v4` identity and "prefer v4" guidance. Its corrected maker semantics are kept as the single unified model.
 - Date: 2026-09-16
 - Relates to: [0017](0017-maker-limit-bar-backtest.md), [0011](0011-derived-buy-and-hold-benchmark.md),
   [0035](0035-phase-11-research-rigor.md), [0044](0044-parameter-sweeps-wfo-stitched-equity.md),

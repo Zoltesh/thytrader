@@ -1,7 +1,7 @@
 """Derived ratio metrics from an immutable backtest equity curve and trades.
 
 These numbers are a versioned view of an existing result. They are not part of
-the canonical simulation ledger and must not change v1/v2/v3 result fingerprints.
+the canonical simulation ledger and must not change result fingerprints.
 
 Formulas (risk-free rate 0):
 
@@ -58,7 +58,7 @@ def compute_performance_metrics(result: BacktestResult) -> BacktestPerformanceMe
         metrics_contract_version="thytrader-performance-metrics-v1",
         result_fingerprint=backtest_result_fingerprint(result),
         run_fingerprint=result.run_fingerprint,
-        engine_contract_version=result.engine_contract_version,
+        engine=result.engine,
         risk_free_rate="0",
         annualization="equity_curve_bar_clock",
         bar_seconds=_optional_decimal(bar_seconds),

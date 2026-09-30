@@ -6,12 +6,9 @@ import {
 	utcTimestampSeconds,
 	type HonestLinePoint
 } from './portfolio';
+import type { BacktestEngine, ValidityLimitCode } from './backtest-model';
 
 export { compareDecimalStrings };
-
-const ENGINE_V1 = 'thytrader-bar-backtest-v1';
-const ENGINE_V2 = 'thytrader-bar-backtest-v2';
-const ENGINE_V3 = 'thytrader-bar-backtest-v3';
 
 export type BacktestSummary = {
 	initial_equity: string;
@@ -30,24 +27,18 @@ export type BacktestSummary = {
 	maximum_drawdown_fraction: string;
 	exposure_bars: number;
 	evaluation_bars: number;
+	/** Present only when the run was spread-stressed (`spread_bps` > 0). */
 	total_spread_cost?: string | null;
-};
-
-export type EngineContractVersion =
-	'thytrader-bar-backtest-v1' | 'thytrader-bar-backtest-v2' | 'thytrader-bar-backtest-v3';
-
-export type BrokerAssumptions = {
-	price_model: 'constant_spread_bps' | 'post_only_limit' | (string & {});
-	spread_bps: string;
-	fill_policy: 'full' | 'resting_limit' | (string & {});
-	trigger_evaluation: 'bid_side' | 'bar_extreme' | (string & {});
-	equity_marking: 'bid_close' | 'last_close' | (string & {});
+	/** Modeling limits this result discloses. */
+	validity_limits?: ValidityLimitCode[] | null;
 };
 
 export type CostAssumptions = {
 	maker_fee_rate?: string | null;
 	taker_fee_rate?: string | null;
 	fixed_slippage_bps?: string | null;
+	/** Constant total bid-ask spread stress; "0" when unstressed. */
+	spread_bps?: string | null;
 };
 
 export type BacktestSummaryEntry = {
@@ -57,7 +48,6 @@ export type BacktestSummaryEntry = {
 	strategy_fingerprint: string;
 	strategy_id?: string | null;
 	dataset_fingerprint: string;
-	engine_contract_version: EngineContractVersion;
 	published_at: string;
 	summary: BacktestSummary;
 };
@@ -77,8 +67,9 @@ export type BacktestFill = {
 	notional: string;
 	fee: string;
 	fee_rate?: string | null;
+	/** Taker fills of spread-stressed runs only. */
 	reference_price?: string | null;
-	executable_side?: 'ask' | 'bid' | 'mark' | null;
+	executable_side?: 'ask' | 'bid' | null;
 	spread_cost?: string | null;
 };
 
@@ -102,8 +93,7 @@ export type EquityPoint = {
 
 export type BacktestResult = {
 	schema_version: '1.0';
-	engine_contract_version: EngineContractVersion;
-	broker?: BrokerAssumptions | null;
+	engine: BacktestEngine;
 	run_fingerprint: string;
 	strategy_fingerprint: string;
 	dataset_fingerprint: string;
@@ -125,8 +115,7 @@ export type BacktestBenchmark = {
 	result_fingerprint: string;
 	run_fingerprint: string;
 	dataset_fingerprint: string;
-	engine_contract_version: EngineContractVersion;
-	broker?: BrokerAssumptions | null;
+	engine: BacktestEngine;
 	entry_candle_starts_at: string;
 	exit_candle_starts_at: string;
 	entry_price: string;
@@ -152,7 +141,7 @@ export type BacktestPerformanceMetrics = {
 	metrics_fingerprint: string;
 	result_fingerprint: string;
 	run_fingerprint: string;
-	engine_contract_version: string;
+	engine: BacktestEngine;
 	risk_free_rate: string;
 	annualization: 'equity_curve_bar_clock';
 	bar_seconds?: string | null;
@@ -240,10 +229,6 @@ function isRecordedDecimal(value: string | null | undefined): value is string {
 	return typeof value === 'string' && value.length > 0;
 }
 
-function formatPolicyToken(value: string): string {
-	return value.replaceAll('_', '-');
-}
-
 function formatDisplayFeeRate(rate: string): string {
 	try {
 		return formatPercent(rate);
@@ -252,67 +237,21 @@ function formatDisplayFeeRate(rate: string): string {
 	}
 }
 
-export function formatBrokerAssumptions(
-	broker?: BrokerAssumptions | null,
-	engineContractVersion?: string | null
-): string {
-	const engine = engineContractVersion ?? '';
-	if (engine !== ENGINE_V1 && engine !== ENGINE_V2 && engine !== ENGINE_V3) {
-		return engine
-			? `Unknown engine contract ${engine}; broker assumptions are not labeled.`
-			: 'Engine contract is missing; broker assumptions are not labeled.';
+/** Stop-first on the fill candle; later candles match a resting take-profit first. */
+export const SAME_BAR_POLICY_LABEL = 'Fill candle: stop first';
+
+/** The recorded spread stress in bps when it is greater than zero; otherwise null. */
+export function spreadStressBps(costs?: CostAssumptions | null): string | null {
+	const bps = costs?.spread_bps;
+	if (!isRecordedDecimal(bps)) return null;
+	try {
+		return compareDecimalStrings(bps, '0') > 0 ? bps : null;
+	} catch {
+		return null;
 	}
-	if (engine === ENGINE_V1) {
-		if (broker) {
-			return 'Unexpected broker block on a V1 result; broker assumptions are not labeled.';
-		}
-		return 'V1 mark-price execution; no modeled spread evidence was recorded.';
-	}
-	if (!broker) {
-		return engine === ENGINE_V2
-			? 'V2 requires disclosed broker assumptions; none were recorded.'
-			: 'V3 requires disclosed post-only broker assumptions; none were recorded.';
-	}
-	if (engine === ENGINE_V2) {
-		if (broker.price_model !== 'constant_spread_bps') {
-			return `Unrecognized V2 price model ${broker.price_model}; broker assumptions are not labeled.`;
-		}
-		if (!isRecordedDecimal(broker.spread_bps)) {
-			return 'V2 constant-spread model is missing spread_bps; a spread is not labeled.';
-		}
-		return `${broker.spread_bps} bps constant spread · ${formatPolicyToken(broker.fill_policy)} fills · ${formatPolicyToken(broker.trigger_evaluation)} exits · ${formatPolicyToken(broker.equity_marking)}`;
-	}
-	if (broker.price_model !== 'post_only_limit') {
-		return `Unrecognized V3 price model ${broker.price_model}; broker assumptions are not labeled.`;
-	}
-	const fillPolicy = isRecordedDecimal(broker.fill_policy)
-		? formatPolicyToken(broker.fill_policy)
-		: 'unrecorded';
-	const trigger = isRecordedDecimal(broker.trigger_evaluation)
-		? formatPolicyToken(broker.trigger_evaluation)
-		: 'unrecorded';
-	const equity = isRecordedDecimal(broker.equity_marking)
-		? formatPolicyToken(broker.equity_marking)
-		: 'unrecorded';
-	return `post-only limit · ${fillPolicy} fills · ${trigger} triggers · ${equity} marking`;
 }
 
-export function formatEngineFillAssumptions(engineContractVersion?: string | null): string {
-	if (engineContractVersion === ENGINE_V1 || engineContractVersion === ENGINE_V2) {
-		return 'Long-only, one position · completed close → next-open taker fill · adverse fixed slippage · time exit before intrabar exits · stop first if stop and target collide · terminal force close.';
-	}
-	if (engineContractVersion === ENGINE_V3) {
-		return 'Long-only, one position · completed close rests a post-only buy at that close · later bar fills at the posted limit with maker fee and no modeled entry slippage · same-bar stop is a marketable taker fill · take-profit is not eligible on the fill bar · later bars may rest take-profit at the target with maker fee · time exit at close with taker fee · terminal force close.';
-	}
-	return engineContractVersion
-		? `Unknown engine contract ${engineContractVersion}; this page will not invent fill semantics.`
-		: 'Engine contract is missing; this page will not invent fill semantics.';
-}
-
-export function formatPublishedCosts(
-	costs?: CostAssumptions | null,
-	engineContractVersion?: string | null
-): string {
+export function formatPublishedCosts(costs?: CostAssumptions | null): string {
 	if (!costs) {
 		return 'Published maker/taker fee rates and fixed_slippage_bps are not included in this response.';
 	}
@@ -323,43 +262,26 @@ export function formatPublishedCosts(
 		? `taker ${formatDisplayFeeRate(costs.taker_fee_rate)}`
 		: 'taker fee not recorded';
 	const slippage = isRecordedDecimal(costs.fixed_slippage_bps)
-		? `fixed slippage ${costs.fixed_slippage_bps} bps`
+		? `fixed slippage ${costs.fixed_slippage_bps} bps on taker exits`
 		: 'fixed_slippage_bps not recorded';
-	const base = `${maker} · ${taker} · ${slippage} (published research-run CostAssumptions, not observed Coinbase fees)`;
-	if (engineContractVersion === ENGINE_V3 && isRecordedDecimal(costs.fixed_slippage_bps)) {
-		return `${base}. V3 modeled fills do not apply this slippage.`;
-	}
-	return base;
+	return `${maker} · ${taker} · ${slippage} (published research-run CostAssumptions, not observed Coinbase fees)`;
 }
 
+/**
+ * Spread-stress disclosure for one result, or null when the run was not stressed
+ * and recorded no spread cost.
+ */
 export function formatSpreadCostNote(
-	engineContractVersion: string | null | undefined,
+	costs: CostAssumptions | null | undefined,
 	totalSpreadCost: string | null | undefined
 ): string | null {
-	if (engineContractVersion === ENGINE_V3) {
-		if (!isRecordedDecimal(totalSpreadCost)) return null;
-		return `Recorded spread cost: ${formatUsd(totalSpreadCost)}. V3 is not the constant-spread stress contract; this is not observed bid/ask data.`;
-	}
-	if (engineContractVersion === ENGINE_V2) {
-		if (!isRecordedDecimal(totalSpreadCost)) {
-			return 'Total modeled spread cost was not recorded on this result.';
-		}
-		return `Total modeled spread cost: ${formatUsd(totalSpreadCost)}. This is a disclosed stress assumption, not observed bid/ask data.`;
-	}
-	if (isRecordedDecimal(totalSpreadCost)) {
-		return `Total modeled spread cost: ${formatUsd(totalSpreadCost)}. This is a disclosed stress assumption, not observed bid/ask data.`;
-	}
-	return null;
-}
-
-export function formatSameBarPolicy(engineContractVersion?: string | null): string {
-	if (engineContractVersion === ENGINE_V1 || engineContractVersion === ENGINE_V2) {
-		return 'Stop-first same-bar policy';
-	}
-	if (engineContractVersion === ENGINE_V3) {
-		return 'Fill-bar stop; take-profit waits';
-	}
-	return 'Same-bar policy unlabeled';
+	const bps = spreadStressBps(costs);
+	const cost = isRecordedDecimal(totalSpreadCost) ? totalSpreadCost : null;
+	if (bps === null && cost === null) return null;
+	const parts: string[] = [];
+	if (bps !== null) parts.push(`Spread stress ${bps} bps (total bid-ask)`);
+	if (cost !== null) parts.push(`total modeled spread cost ${formatUsd(cost)}`);
+	return `${parts.join(' · ')}. This is a disclosed stress input, not observed bid/ask data.`;
 }
 
 export function formatFillFee(fill: Pick<BacktestFill, 'fee' | 'fee_rate'>): string {
@@ -540,4 +462,19 @@ export async function fetchAllBacktestsForStrategy(
 		offset += listing.returned;
 	}
 	return rows;
+}
+
+/**
+ * Request field for the optional spread-stress input: omitted when blank or zero
+ * (the server default is no stress); any other text is sent for server validation.
+ */
+export function optionalSpreadStress(raw: string): { spread_bps?: string } {
+	const value = raw.trim();
+	if (value === '') return {};
+	try {
+		if (compareDecimalStrings(value, '0') === 0) return {};
+	} catch {
+		// Not a decimal: send it so the server returns its validation message.
+	}
+	return { spread_bps: value };
 }

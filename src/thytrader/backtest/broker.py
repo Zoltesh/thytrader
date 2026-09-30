@@ -1,10 +1,22 @@
-"""Pure deterministic bar-level broker pricing models without exchange authority."""
+"""Pure deterministic bar-level broker pricing for the unified backtest model.
+
+Resting post-only maker limits fill at their posted price with no modeled slippage or
+spread. Marketable (taker) legs — stop, time, and evaluation-end exits, plus the
+buy-and-hold benchmark — cross half of the optional constant ``spread_bps`` stress and
+then pay adverse fixed slippage. Stop triggers and open-position equity marks use the
+same half-spread executable side. With ``spread_bps == 0`` every price is the raw OHLC
+reference. None of this has exchange authority.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, Protocol
+from typing import Literal
+
+_ONE = Decimal("1")
+_BPS = Decimal("10000")
+_HALF_SPREAD_DIVISOR = Decimal("20000")
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,155 +25,82 @@ class FillQuote:
 
     reference_price: Decimal
     price: Decimal
-    executable_side: Literal["ask", "bid", "mark"]
+    executable_side: Literal["ask", "bid"] | None
     spread_cost: Decimal
 
 
-class FillModel(Protocol):
-    """Translate raw candle prices into deterministic executable prices and trigger marks."""
-
-    def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Return the adverse executable long-entry quote at one raw reference price."""
-        ...
-
-    def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Return the adverse executable long-exit quote at one raw reference price."""
-        ...
-
-    def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Return the pre-slippage bid-side price used for V2 exit-trigger evaluation."""
-        ...
-
-    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Return the pre-slippage ask-side price used for short exit-trigger evaluation."""
-        ...
-
-    def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
-        """Invert one sell trigger into its raw OHLC reference price."""
-        ...
-
-    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
-        """Invert one buy trigger into its raw OHLC reference price."""
-        ...
-
-    def mark_price(self, raw_price: Decimal) -> Decimal:
-        """Return the liquidation-value account mark for an open long position."""
-        ...
-
-
 @dataclass(frozen=True, slots=True)
-class MarkFillModel:
-    """V1 mark-price broker that reproduces the original fixed-slippage arithmetic exactly."""
+class FillModel:
+    """The unified model's only broker: maker limits at the limit, taker legs across the spread.
 
-    def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Apply adverse fixed basis-point slippage to a mark-price long entry."""
-        price = reference_price * (Decimal("1") + slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "mark", Decimal("0"))
-
-    def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Apply adverse fixed basis-point slippage to a mark-price long exit."""
-        price = reference_price * (Decimal("1") - slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "mark", Decimal("0"))
-
-    def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Preserve the V1 raw OHLC trigger comparison exactly."""
-        return raw_price
-
-    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Preserve the V1 raw OHLC trigger comparison exactly."""
-        return raw_price
-
-    def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
-        """Preserve the V1 identity mapping from trigger to raw reference price."""
-        return executable_price
-
-    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
-        """Preserve the V1 identity mapping from trigger to raw reference price."""
-        return executable_price
-
-    def mark_price(self, raw_price: Decimal) -> Decimal:
-        """Preserve the V1 midpoint-style raw close/open account mark exactly."""
-        return raw_price
-
-
-@dataclass(frozen=True, slots=True)
-class ConstantSpreadFillModel:
-    """V2 full-fill broker with one disclosed constant bid-ask spread in basis points."""
+    Attributes:
+        spread_bps: Constant total bid-ask spread stress in basis points (zero disables it).
+    """
 
     spread_bps: Decimal
 
-    def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Buy at ask, then apply adverse slippage from that executable side."""
-        ask = reference_price * (Decimal("1") + self._half_spread_fraction)
-        price = ask * (Decimal("1") + slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "ask", ask - reference_price)
+    @property
+    def spread_stressed(self) -> bool:
+        """Whether taker fills must record spread evidence."""
+        return self.spread_bps > 0
 
-    def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Sell at bid, then apply adverse slippage from that executable side."""
-        bid = self.sell_trigger_price(reference_price)
-        price = bid * (Decimal("1") - slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "bid", reference_price - bid)
+    def maker(self, limit_price: Decimal) -> FillQuote:
+        """Fill one resting post-only limit exactly at its posted price."""
+        return FillQuote(limit_price, limit_price, None, Decimal("0"))
 
-    def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Evaluate long exits against the executable bid side before slippage."""
-        return raw_price * (Decimal("1") - self._half_spread_fraction)
+    def taker_buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
+        """Buy at the stressed ask, then apply adverse fixed slippage from that side."""
+        ask = self.ask(reference_price)
+        price = ask * (_ONE + slippage_bps / _BPS)
+        return self._quote(reference_price, price, "ask", ask - reference_price)
 
-    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Evaluate short exits against the executable ask side before slippage."""
-        return raw_price * (Decimal("1") + self._half_spread_fraction)
+    def taker_sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
+        """Sell at the stressed bid, then apply adverse fixed slippage from that side."""
+        bid = self.bid(reference_price)
+        price = bid * (_ONE - slippage_bps / _BPS)
+        return self._quote(reference_price, price, "bid", reference_price - bid)
 
-    def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
-        """Invert bid-side trigger thresholds to their raw OHLC reference prices."""
-        return executable_price / (Decimal("1") - self._half_spread_fraction)
+    def bid(self, raw_price: Decimal) -> Decimal:
+        """Return the executable bid for one raw OHLC reference price."""
+        if not self.spread_stressed:
+            return raw_price
+        return raw_price * (_ONE - self._half_spread_fraction)
 
-    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
-        """Invert ask-side trigger thresholds to their raw OHLC reference prices."""
-        return executable_price / (Decimal("1") + self._half_spread_fraction)
+    def ask(self, raw_price: Decimal) -> Decimal:
+        """Return the executable ask for one raw OHLC reference price."""
+        if not self.spread_stressed:
+            return raw_price
+        return raw_price * (_ONE + self._half_spread_fraction)
 
-    def mark_price(self, raw_price: Decimal) -> Decimal:
-        """Mark an open long at bid-close liquidation value, before any exit slippage."""
-        return self.sell_trigger_price(raw_price)
+    def raw_for_bid(self, bid_price: Decimal) -> Decimal:
+        """Invert one bid-side threshold back to its raw OHLC reference price."""
+        if not self.spread_stressed:
+            return bid_price
+        return bid_price / (_ONE - self._half_spread_fraction)
+
+    def raw_for_ask(self, ask_price: Decimal) -> Decimal:
+        """Invert one ask-side threshold back to its raw OHLC reference price."""
+        if not self.spread_stressed:
+            return ask_price
+        return ask_price / (_ONE + self._half_spread_fraction)
+
+    def mark(self, raw_price: Decimal, side: Literal["long", "short"]) -> Decimal:
+        """Mark longs at liquidation bid and shorts at cover ask (raw close when unstressed)."""
+        return self.ask(raw_price) if side == "short" else self.bid(raw_price)
+
+    def _quote(
+        self,
+        reference_price: Decimal,
+        price: Decimal,
+        side: Literal["ask", "bid"],
+        spread_cost: Decimal,
+    ) -> FillQuote:
+        """Record executable-side evidence only when spread stress is active."""
+        if not self.spread_stressed:
+            return FillQuote(reference_price, price, None, Decimal("0"))
+        return FillQuote(reference_price, price, side, spread_cost)
 
     @property
     def _half_spread_fraction(self) -> Decimal:
         """Return one side of the total declared basis-point spread as a price fraction."""
-        return self.spread_bps / Decimal("20000")
-
-
-@dataclass(frozen=True, slots=True)
-class MakerLimitFillModel:
-    """V3 post-only broker: rest at the reference price and fill without modeled slippage."""
-
-    def buy(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Fill a resting maker entry at the limit, or apply taker slippage when disclosed."""
-        if slippage_bps == 0:
-            return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
-        price = reference_price * (Decimal("1") + slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "mark", Decimal("0"))
-
-    def sell(self, reference_price: Decimal, slippage_bps: Decimal) -> FillQuote:
-        """Fill a resting maker exit at the limit, or apply taker slippage when disclosed."""
-        if slippage_bps == 0:
-            return FillQuote(reference_price, reference_price, "mark", Decimal("0"))
-        price = reference_price * (Decimal("1") - slippage_bps / Decimal("10000"))
-        return FillQuote(reference_price, price, "mark", Decimal("0"))
-
-    def sell_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Evaluate long exits against the same OHLC extreme the worker uses."""
-        return raw_price
-
-    def buy_trigger_price(self, raw_price: Decimal) -> Decimal:
-        """Evaluate short exits against the same OHLC extreme the worker uses."""
-        return raw_price
-
-    def reference_for_sell_trigger(self, executable_price: Decimal) -> Decimal:
-        """Keep bar-extreme triggers identical to their raw OHLC reference prices."""
-        return executable_price
-
-    def reference_for_buy_trigger(self, executable_price: Decimal) -> Decimal:
-        """Keep bar-extreme triggers identical to their raw OHLC reference prices."""
-        return executable_price
-
-    def mark_price(self, raw_price: Decimal) -> Decimal:
-        """Mark an open long at last close, matching V3 equity_marking."""
-        return raw_price
+        return self.spread_bps / _HALF_SPREAD_DIVISOR

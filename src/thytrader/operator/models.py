@@ -102,7 +102,7 @@ class OpsContractPayload(_FrozenModel):
 
     id: str = Field(min_length=1, max_length=64)
     max_historical_interval_count: int = Field(ge=1)
-    backtest_engines: tuple[str, ...]
+    backtest_engine: str = Field(min_length=1, max_length=64)
     paper_timeframes: tuple[SupportedTimeframe, ...]
     live_timeframes: tuple[SupportedTimeframe, ...]
     htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
@@ -421,7 +421,6 @@ class PerformancePayload(_FrozenModel):
     currency: SpotQuoteCurrency | None = None
     strategy_fingerprint: str | None
     dataset_fingerprint: str | None
-    engine_contract_version: str | None
     fee_treatment: str
     result_fingerprint: str | None
     deployment_id: UUID | None

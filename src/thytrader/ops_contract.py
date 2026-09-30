@@ -6,7 +6,8 @@ payload means the running API image is older than the CLI, even when both string
 say 0.1.0. Do not default-fill a missing payload. Do not treat matching `0.1.0` as
 current.
 
-Bump `OPS_CONTRACT_ID` whenever paper/live timeframes, backtest engines, the
+Bump `OPS_CONTRACT_ID` whenever paper/live timeframes, the backtest engine identity
+or its request fields (ADR 0083 collapsed the engines into one model), the
 historical interval cap, the expected Alembic revision, the risk-policy
 registry contract, live extras (user-order feed / native OCO),
 experiential-memory persistence, experiential-model engines, discretionary-order
@@ -37,12 +38,13 @@ from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
+from thytrader.research.models import BACKTEST_ENGINE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v41"
-EXPECTED_SCHEMA_REVISION = "0048"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v42"
+EXPECTED_SCHEMA_REVISION = "0049"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
@@ -59,12 +61,7 @@ DEPLOYMENT_CAPITAL_FIELDS: tuple[str, ...] = (
     "high_water_mark_equity",
     "utc_day_open_equity",
 )
-BACKTEST_ENGINES: tuple[str, ...] = (
-    "thytrader-bar-backtest-v1",
-    "thytrader-bar-backtest-v2",
-    "thytrader-bar-backtest-v3",
-    "thytrader-bar-backtest-v4",
-)
+BACKTEST_ENGINE_ID: str = BACKTEST_ENGINE
 RESEARCH_JOB_STATUSES: tuple[str, ...] = (
     "queued",
     "running",
@@ -104,7 +101,7 @@ def expected_ops_contract() -> dict[str, object]:
     return {
         "id": OPS_CONTRACT_ID,
         "max_historical_interval_count": MAX_HISTORICAL_INTERVAL_COUNT,
-        "backtest_engines": list(BACKTEST_ENGINES),
+        "backtest_engine": BACKTEST_ENGINE_ID,
         "paper_timeframes": list(PAPER_TIMEFRAMES),
         "live_timeframes": list(LIVE_TIMEFRAMES),
         "htf_filter_runtimes": list(HTF_FILTER_RUNTIMES),

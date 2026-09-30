@@ -47,7 +47,6 @@ class StudyCatalogSummary(BaseModel):
     request_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     plan_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     kind: str = Field(pattern=r"^[a-z_]+$")
-    engine_contract_version: str
     published_at: datetime
     product_id: str
     timeframe: DatasetTimeframe

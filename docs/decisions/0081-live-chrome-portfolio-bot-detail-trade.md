@@ -1,6 +1,7 @@
 # 0081: Global live chrome, Portfolio, bot detail, and Trade review
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0083](0083-unified-backtest-model.md)
+- Superseded part: the Test run bar engine default from `engine-support`. There is no engine picker; the run bar shows the "How backtests simulate" disclosure.
 - Date: 2026-09-30
 - Relates to: [0079](0079-four-destination-shell-agent-panel-palette-tokens.md),
   [0080](0080-per-strategy-workspace-build-test-run-why.md),

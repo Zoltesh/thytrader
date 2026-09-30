@@ -84,7 +84,7 @@ on its workspace.
 
 **Build** (`/strategies/{strategy_id}`) edits the strategy in place. Rules read as IF / AND / OR rows
 in a nested ALL/ANY/NOT tree; the right column shows **In plain English**, **Checks** (validation,
-warmup and required data, collapsible engine support), save state, and **Save**. You may save an
+warmup and required data, a collapsible **How backtests simulate** disclosure), save state, and **Save**. You may save an
 incomplete or invalid strategy; Build shows its validation issues, and Test and Run refuse to start
 until the saved definition is valid. Saves carry a revision and reject a stale browser tab rather
 than overwriting newer edits (reload to see the newer version); leaving Build with unsaved edits
@@ -100,12 +100,14 @@ field-by-field diff between that snapshot and the current definition.
 Open a strategy's **Test** stage (`/strategies/{strategy_id}/test`; old `/research?strategy=` links
 redirect here, and `/research` alone points you to the library). The run bar is one compact row that
 starts from the strategy's current saved definition: verified dataset, period (**Full coverage** unless you
-set custom dates), initial capital, maker/taker fees, and engine, with **Run a study** and **Run
-backtest** on the right. **Advanced options** holds fixed slippage, the V2 constant-spread stress,
-and custom evaluation dates; its summary line always shows the current slippage, spread, and
-period. The engine defaults to the newest engine that both `GET /api/v1/research/engine-support`
-advertises and the browser launcher offers (V3 today; V4 is launched from the research CLI). If
-that endpoint cannot be read, the engine stays on **Select an engine**. Omitting
+set custom dates), initial capital, and maker/taker fees, with **Run a study** and **Run
+backtest** on the right. There is no engine to pick: every backtest uses ThyTrader's one backtest
+model ([ADR 0083](../decisions/0083-unified-backtest-model.md)), described by **How backtests
+simulate** and by `GET /api/v1/research/backtest-model`. Upgrading to this model (migration `0049`) deleted every earlier
+backtest result, research run, research job, and study; strategies, snapshots, and bots are kept. **Advanced options** holds fixed slippage,
+an optional **Spread stress (bps)** (a disclosed constant bid-ask spread stress, default 0), and
+custom evaluation dates; its summary line always shows the current slippage, spread, and
+period. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
 from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
@@ -114,7 +116,7 @@ strategy evidence. Result summaries report the snapshot's strategy clock,
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
 (OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same strategy. Below
 the run bar, **Results for this strategy** lists every result, each marked **Current rules** or
-**Earlier edit**; opening one shows it inline (`?result=` deep link): a compact header (rules · period · engine · time and a
+**Earlier edit**; opening one shows it inline (`?result=` deep link): a compact header (rules · period · time and a
 **Simulated result (candle-based fills)** chip), a metrics row (net return, buy & hold, max
 drawdown, trades, win rate, profit factor), the equity curve, the modeled assumptions line, and a
 collapsed **Evidence** row with the result, strategy, dataset, and run fingerprints. Ratio metrics,
@@ -333,12 +335,12 @@ Command details live in the canonical skills under [`skills/`](../../skills/READ
 scrape logs, query PostgreSQL, or print `.env`.
 
 For a numbered **portfolio visibility → data health → research** path (account balances, deployment
-inventory, fingerprint copy, v4 backtests), see
+inventory, fingerprint copy, backtests), see
 [`docs/agent/portfolio-research-ops-playbook.md`](../agent/portfolio-research-ops-playbook.md).
 
 ### Read-only signal evaluation
 
-An existing published research run that explicitly selects `thytrader-bar-signal-v1` can be replayed
+An existing published research run (`engine: "thytrader-backtest"`) can be replayed
 against its exact verified strategy and Parquet dataset:
 
 ```bash

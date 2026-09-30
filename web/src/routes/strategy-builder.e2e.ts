@@ -1,4 +1,5 @@
 import { expect, isStrategyLibraryRequest, test } from '../e2e/harness';
+import { RETIRED_ENGINE_PREFIX } from '../e2e/workspace-fixtures';
 
 const strategyId = '01985cf0-7b60-7000-8000-000000000007';
 const fingerprint = `sha256:${'c'.repeat(64)}`;
@@ -228,20 +229,27 @@ test('a saved document the form cannot show opens as JSON with its problems', as
 		.toBe('Builder test trend');
 });
 
-test('flags engine settings the current backtester does not model', async ({ page }) => {
+test('the Build inspector explains how backtests simulate without engine variants', async ({
+	page
+}) => {
 	await mockDraftStorage(page);
 	await page.goto(`/strategies/${strategyId}`);
-	const engineMatrix = page.getByRole('table', { name: 'Engine support matrix' });
-	await expect(engineMatrix.getByRole('columnheader', { name: 'V1' })).toBeVisible();
-	await expect(engineMatrix.getByRole('columnheader', { name: 'V2' })).toBeVisible();
-	await expect(engineMatrix.getByRole('columnheader', { name: 'V3' })).toBeVisible();
-	await expect(engineMatrix.getByRole('columnheader', { name: 'V4' })).toBeVisible();
-	const cooldown = engineMatrix.getByRole('row', { name: /Entry cooldown/ });
-	await expect(cooldown).toContainText('V3/V4 maker path blocks re-entry');
-	await expect(cooldown.getByText('Unsupported')).toHaveCount(2);
-	const makerEntry = engineMatrix.getByRole('row', { name: /Maker-only/ });
-	await expect(makerEntry.getByText('Unsupported', { exact: true })).toHaveCount(2);
-	await expect(makerEntry.getByText('Supported', { exact: true })).toHaveCount(2);
+	const inspector = page.getByRole('complementary', { name: 'Strategy inspector' });
+	await expect(inspector).toBeVisible();
+	await expect(page.getByRole('table', { name: 'Engine support matrix' })).toHaveCount(0);
+	const disclosure = inspector.getByTestId('backtest-model-disclosure');
+	await disclosure.getByText('How backtests simulate').click();
+	await expect(disclosure).toContainText('Signals on completed candles');
+	await expect(disclosure).toContainText('Maker-limit entries rest');
+	await expect(disclosure).toContainText('Stops and targets on bar extremes');
+	await expect(disclosure).toContainText('Optional spread stress');
+	await expect(disclosure).toContainText("Candles don't show queue position");
+	await expect(disclosure).toContainText('max_entry_wait_bars');
+	await expect(disclosure).toContainText('not a promise');
+	expect(await disclosure.getByTestId('backtest-model-assumption').count()).toBeGreaterThan(8);
+	const text = await inspector.innerText();
+	expect(text).not.toMatch(/\bV[1-4]\b/);
+	expect(text).not.toContain(RETIRED_ENGINE_PREFIX);
 });
 
 test('saves the document in place with the loaded revision', async ({ page }) => {
