@@ -23,8 +23,8 @@ from thytrader.api.dependencies import (
     get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
-    get_strategy_draft_store,
-    get_strategy_publication_catalog,
+    get_strategy_snapshot_store,
+    get_strategy_store,
     get_user_order_feed_state_store,
     get_worker_heartbeat_store,
 )
@@ -66,8 +66,8 @@ from thytrader.portfolio.service import PortfolioService  # noqa: TC001
 from thytrader.research.catalog import ResearchStudyCatalog  # noqa: TC001
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
-from thytrader.strategies.authoring import StrategyDraftStore  # noqa: TC001
-from thytrader.strategies.publication import StrategyPublicationCatalog  # noqa: TC001
+from thytrader.strategies.library import StrategyStore  # noqa: TC001
+from thytrader.strategies.snapshots import StrategySnapshotStore  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/operator", tags=["operator"])
 
@@ -77,8 +77,8 @@ def get_operator_diagnostics(
     portfolio: Annotated[PortfolioService, Depends(get_portfolio_service)],
     market_data_state: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     history: Annotated[PortfolioHistoryStore, Depends(get_history_store)],
-    publications: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-    drafts: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
+    strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     backtests: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     execution: Annotated[ExecutionStore, Depends(get_execution_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
@@ -99,7 +99,7 @@ def get_operator_diagnostics(
         market_data_state=market_data_state,
         history=history,
         publications=publications,
-        drafts=drafts,
+        strategies_store=strategies,
         backtests=backtests,
         execution=execution,
         audit=audit,

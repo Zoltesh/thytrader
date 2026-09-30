@@ -10,17 +10,20 @@ from __future__ import annotations
 import logging
 import re
 from typing import Annotated, Literal, Protocol, runtime_checkable
-from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
     get_backtest_result_store,
     get_backtest_submitter,
     get_research_job_store,
+    get_strategy_store,
 )
+from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -31,9 +34,9 @@ from thytrader.backtest.models import (
     backtest_result_fingerprint,
 )
 from thytrader.backtest.submission import (
+    BacktestStartRequest,
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
-    BacktestSubmissionRequest,
     BacktestSubmitter,
 )
 from thytrader.persistence.backtest_benchmarks import (
@@ -56,6 +59,7 @@ from thytrader.research.jobs import (
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
+from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
@@ -72,6 +76,7 @@ class BacktestSummaryResponse(BaseModel):
     result_fingerprint: str
     run_fingerprint: str
     strategy_fingerprint: str
+    strategy_id: UUID | None = None
     dataset_fingerprint: str
     engine_contract_version: str
     published_at: str
@@ -90,10 +95,12 @@ class BacktestListResponse(BaseModel):
 
 
 class BacktestSubmissionResponse(BaseModel):
-    """Immutable evidence identities emitted by one completed research submission."""
+    """Evidence identities of one completed run plus the strategy snapshot it used."""
 
     run_fingerprint: str
     result_fingerprint: str
+    strategy_id: UUID
+    strategy_fingerprint: str
 
 
 class BacktestDetailResponse(BaseModel):
@@ -210,18 +217,30 @@ def _list_offset(*, offset: int, cursor: str | None) -> int:
     },
 )
 async def submit_backtest(
-    request: BacktestSubmissionRequest,
+    start: BacktestStartRequest,
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
+    strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> BacktestSubmissionResponse | Response:
-    """Submit one immutable historical simulation without paper or live authority."""
+    """Snapshot the strategy's current rules and run one historical simulation.
+
+    The strategy must currently validate (422 ``strategy_invalid`` otherwise). No
+    paper or live authority is granted.
+    """
+    snapshot = await snapshot_for_start(strategies, start.strategy_id)
+    try:
+        request = start.submission(snapshot.strategy_fingerprint)
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from None
     if async_submission:
-        record = await job_store.create_backtest(request)
+        record = await job_store.create_backtest(request, strategy_id=start.strategy_id)
         body = ResearchJobAcceptedResponse(
             job_id=record.job_id,
             kind=record.kind,
             status=record.status,
+            strategy_id=start.strategy_id,
+            strategy_fingerprint=snapshot.strategy_fingerprint,
         )
         return Response(
             content=body.model_dump_json(),
@@ -247,6 +266,8 @@ async def submit_backtest(
     return BacktestSubmissionResponse(
         run_fingerprint=result.run_fingerprint,
         result_fingerprint=result.result_fingerprint,
+        strategy_id=start.strategy_id,
+        strategy_fingerprint=snapshot.strategy_fingerprint,
     )
 
 
@@ -275,6 +296,7 @@ async def list_backtests(
     run_fingerprint: Annotated[str | None, Query()] = None,
     strategy_fingerprint: Annotated[str | None, Query()] = None,
     dataset_fingerprint: Annotated[str | None, Query()] = None,
+    strategy_id: Annotated[UUID | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     cursor: Annotated[str | None, Query()] = None,
@@ -285,7 +307,7 @@ async def list_backtests(
         for value in (run_fingerprint, strategy_fingerprint, dataset_fingerprint)
         if value is not None
     ]
-    if len(selected) > 1:
+    if len(selected) + (strategy_id is not None) > 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -299,6 +321,7 @@ async def list_backtests(
             run_fingerprint=_fingerprint_or_none(run_fingerprint),
             strategy_fingerprint=_fingerprint_or_none(strategy_fingerprint),
             dataset_fingerprint=_fingerprint_or_none(dataset_fingerprint),
+            strategy_id=strategy_id,
             limit=limit + 1,
             offset=start,
         )
@@ -557,6 +580,7 @@ def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryRes
         result_fingerprint=entry.result_fingerprint,
         run_fingerprint=entry.run_fingerprint,
         strategy_fingerprint=entry.strategy_fingerprint,
+        strategy_id=None if entry.strategy_id is None else UUID(entry.strategy_id),
         dataset_fingerprint=entry.dataset_fingerprint,
         engine_contract_version=entry.engine_contract_version,
         published_at=entry.published_at.isoformat().replace("+00:00", "Z"),

@@ -1,20 +1,22 @@
 <script lang="ts">
 	/**
-	 * Why stage: for each deployment of the selected exact version, the
-	 * latest completed-bar signal and the persisted trade reasons
-	 * (`GET /api/v1/memory/trade-reasons?deployment_id=`), newest first.
+	 * Why stage: for each deployment of this strategy, the latest
+	 * completed-bar signal and the persisted trade reasons
+	 * (`GET /api/v1/memory/trade-reasons?deployment_id=`), newest first. Each
+	 * card says whether that bot runs the current rules or an earlier edit.
 	 *
-	 * Joins only what contracts prove: deployments by exact fingerprint,
+	 * Joins only what contracts prove: deployments by `strategy_id`,
 	 * reasons by deployment id, and an order only when the server-composed
 	 * reason names it. Full per-bar decision history is not recorded yet.
 	 */
 	import { resolve } from '$app/paths';
 	import { untrack } from 'svelte';
-	import { listAllDeployments, type Deployment } from '$lib/deployments';
+	import { listStrategyDeployments, type Deployment } from '$lib/deployments';
 	import { fetchTradeReasons } from '$lib/memory';
 	import { DECISION_HISTORY_NOTE, workspaceHref } from '$lib/strategy-workspace';
 	import { sortTradeReasons } from '$lib/trade-reasons';
 	import TradeReasonTimeline, { type TradeReasonState } from '$lib/TradeReasonTimeline.svelte';
+	import RulesBadge from '$lib/workspace/RulesBadge.svelte';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
 
 	const workspace = useWorkspace();
@@ -25,11 +27,8 @@
 	let reasons = $state<Record<string, TradeReasonState>>({});
 	let request = 0;
 
-	const selected = $derived(workspace.version.entry);
-	const fingerprint = $derived(selected?.strategy_fingerprint ?? '');
-
 	$effect(() => {
-		const key = `${workspace.strategyId}:${fingerprint}`;
+		const key = workspace.strategyId;
 		void key;
 		untrack(() => void load());
 	});
@@ -38,17 +37,13 @@
 		const requestId = ++request;
 		deployments = [];
 		reasons = {};
-		if (fingerprint === '') return;
+		if (workspace.strategyId === '') return;
 		loading = true;
 		loadError = null;
 		try {
-			const all = await listAllDeployments();
+			const rows = await listStrategyDeployments(workspace.strategyId);
 			if (requestId !== request) return;
-			deployments = all.filter(
-				(deployment) =>
-					deployment.strategy_id === workspace.strategyId &&
-					deployment.strategy_fingerprint === fingerprint
-			);
+			deployments = rows;
 			for (const deployment of deployments) void loadReasons(deployment.id, requestId);
 		} catch (caught) {
 			if (requestId !== request) return;
@@ -82,12 +77,7 @@
 
 <p class="history-note chip" data-testid="decision-history-note">{DECISION_HISTORY_NOTE}</p>
 
-{#if workspace.version.status === 'none'}
-	<div class="empty-state">
-		<h2>No published version yet</h2>
-		<p>Decisions exist only for deployments of a published version.</p>
-	</div>
-{:else if loading && deployments.length === 0}
+{#if loading && deployments.length === 0}
 	<div class="loading-card" aria-busy="true"><div class="skeleton"></div></div>
 {:else if loadError}
 	<div class="error-banner" role="alert">
@@ -99,14 +89,9 @@
 	</div>
 {:else if deployments.length === 0}
 	<div class="empty-state">
-		<h2>No deployment uses v{selected?.version}</h2>
-		<p>Decisions appear once a paper or live deployment of this exact version evaluates bars.</p>
-		<a
-			class="btn"
-			href={resolve(
-				workspaceHref(workspace.strategyId, 'run', { version: workspace.requestedVersion })
-			)}>Go to Run</a
-		>
+		<h2>No deployment of this strategy yet</h2>
+		<p>Decisions appear once a paper or live deployment of this strategy evaluates bars.</p>
+		<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'run'))}>Go to Run</a>
 	</div>
 {:else}
 	{#each deployments as deployment (deployment.id)}
@@ -122,6 +107,11 @@
 					>{deployment.mode === 'live' ? 'LIVE' : 'Paper'}</span
 				>
 				<h2>Decisions · {deployment.status}</h2>
+				<RulesBadge
+					fingerprint={deployment.strategy_fingerprint}
+					currentFingerprint={workspace.currentFingerprint}
+					current={workspace.validModel}
+				/>
 				<a class="btn ghost" href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
 					>Open bot →</a
 				>

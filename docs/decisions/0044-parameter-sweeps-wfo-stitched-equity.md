@@ -1,6 +1,7 @@
 # 0044: Parameter sweeps, walk-forward optimization, and stitched OOS equity
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: publishing derived sweep documents and `candidate_strategy_fingerprints`. Derived variants are snapshots that keep the base `strategy_id`; candidates are named by `candidate_strategy_ids`.
 - Date: 2026-09-16
 - Relates to: [0005](0005-canonical-strategy-schema.md),
   [0007](0007-immutable-research-run-specifications.md),

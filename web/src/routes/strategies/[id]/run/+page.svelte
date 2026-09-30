@@ -1,9 +1,11 @@
 <script lang="ts">
 	/**
-	 * Run stage: Paper and Live cards for the selected exact version.
+	 * Run stage: Paper and Live cards for this strategy (ADR 0082).
 	 *
-	 * Deployments are filtered by exact `strategy_fingerprint`; other versions
-	 * stay listed separately. Pause / resume / stop / flatten go through the
+	 * Deployments are listed by `strategy_id`; each row says whether it runs the
+	 * current rules or an earlier edit, with a guided "Update bot" (managed stop,
+	 * then a new start of the current rules). Starting always snapshots the
+	 * current saved definition and is blocked while it is invalid. Pause / resume / stop / flatten go through the
 	 * accessible lifecycle dialog (managed stop vs `?flatten=true`). Arming live
 	 * needs an explicit "real orders" checkbox before `i_understand_live: true`
 	 * is sent. The live preflight lists what existing endpoints report, with
@@ -22,16 +24,16 @@
 	} from '$lib/deployment-detail';
 	import {
 		createDeployment,
-		listAllDeployments,
+		listStrategyDeployments,
 		pauseDeployment,
 		resumeDeployment,
 		stopDeployment,
 		type Deployment
 	} from '$lib/deployments';
 	import {
+		invalidStartReason,
 		livePreflight,
 		paperEvidenceText,
-		shortStrategyFingerprint,
 		timeframeMinutes,
 		workspaceHref,
 		type LivePreflightInput,
@@ -67,33 +69,19 @@
 	let arming = $state(false);
 	let armError = $state<string | null>(null);
 
-	const selected = $derived(workspace.version.entry);
-	const model = $derived(workspace.selectedModel);
-	const fingerprint = $derived(selected?.strategy_fingerprint ?? '');
-	const versionDeployments = $derived(
-		deployments.filter(
-			(deployment) => fingerprint !== '' && deployment.strategy_fingerprint === fingerprint
-		)
-	);
-	const paper = $derived(versionDeployments.filter((deployment) => deployment.mode === 'paper'));
-	const live = $derived(versionDeployments.filter((deployment) => deployment.mode === 'live'));
-	const otherVersions = $derived(
-		deployments.filter(
-			(deployment) =>
-				fingerprint !== '' &&
-				deployment.strategy_fingerprint !== null &&
-				deployment.strategy_fingerprint !== fingerprint
-		)
-	);
+	const model = $derived(workspace.validModel);
+	const fingerprint = $derived(workspace.currentFingerprint ?? '');
+	const canStart = $derived(model !== null && fingerprint !== '');
+	const paper = $derived(deployments.filter((deployment) => deployment.mode === 'paper'));
+	const live = $derived(deployments.filter((deployment) => deployment.mode === 'live'));
 	const activePaper = $derived(paper.filter((deployment) => deployment.status !== 'stopped'));
 	const activeLive = $derived(live.filter((deployment) => deployment.status !== 'stopped'));
 	const controlsBlocked = $derived(mutating || outcomeUnknown);
 
 	$effect(() => {
-		const key = `${workspace.strategyId}:${fingerprint}`;
+		const key = workspace.strategyId;
 		void key;
 		untrack(() => {
-			// Switching version clears prior runtime rows before loading the new selection.
 			deployments = [];
 			void loadDeployments();
 		});
@@ -117,9 +105,9 @@
 		loading = true;
 		loadError = null;
 		try {
-			const all = await listAllDeployments();
+			const all = await listStrategyDeployments(strategyId);
 			if (requestId !== loadRequest) return false;
-			deployments = all.filter((deployment) => deployment.strategy_id === strategyId);
+			deployments = all;
 			return true;
 		} catch (caught) {
 			if (requestId !== loadRequest) return false;
@@ -238,7 +226,7 @@
 		try {
 			// Reached only after the "I understand this places real orders" checkbox.
 			const created = await createDeployment({
-				strategy_fingerprint: fingerprint,
+				strategy_id: workspace.strategyId,
 				mode: 'live',
 				i_understand_live: true
 			});
@@ -254,6 +242,18 @@
 		}
 	}
 
+	function onBotUpdated(result: { stopped: Deployment; started: Deployment | null }): void {
+		deployments = deployments.map((deployment) =>
+			deployment.id === result.stopped.id ? result.stopped : deployment
+		);
+		if (result.started !== null) {
+			deployments = [...deployments, result.started];
+			acceptedMessage =
+				'Bot updated: the earlier bot got a managed stop and a new bot started with the current rules.';
+		}
+		void loadDeployments();
+	}
+
 	function onPaperStarted(deployment: Deployment): void {
 		deployments = [...deployments, deployment];
 		acceptedMessage = 'Paper deployment started.';
@@ -263,13 +263,16 @@
 
 <svelte:head><title>Run · {workspace.name ?? 'Strategy'} · ThyTrader</title></svelte:head>
 
-{#if workspace.version.status === 'none'}
-	<div class="empty-state">
-		<h2>No published version yet</h2>
-		<p>Drafts cannot run. Validate and publish this draft first.</p>
-		<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'build'))}>Go to Build</a>
-	</div>
-{:else if selected && model}
+{#if workspace.record}
+	{#if !canStart}
+		<div class="blocked" role="status" data-testid="run-blocked-invalid">
+			<div>
+				<strong>Starting bots is blocked</strong>
+				<p>{invalidStartReason(workspace.issues.length)}</p>
+			</div>
+			<a class="btn" href={resolve(workspaceHref(workspace.strategyId, 'build'))}>Go to Build</a>
+		</div>
+	{/if}
 	{#if acceptedMessage}<p class="accepted" role="status">{acceptedMessage}</p>{/if}
 	{#if actionError && dialogAction === null}
 		<div class="error-banner" role="alert">
@@ -310,34 +313,39 @@
 						<DeploymentRuntimeRow
 							{deployment}
 							disabled={controlsBlocked}
+							currentFingerprint={workspace.currentFingerprint}
+							current={model}
 							onaction={openLifecycle}
+							onupdated={onBotUpdated}
 						/>
 					{:else}
-						<p class="muted">No paper deployment using this version.</p>
+						<p class="muted">No paper deployment of this strategy.</p>
 					{/each}
 				{/if}
-				{#if activePaper.length > 0}
-					<details class="start-another">
-						<summary>Start another paper deployment</summary>
+				{#if model && canStart}
+					{#if activePaper.length > 0}
+						<details class="start-another">
+							<summary>Start another paper deployment</summary>
+							<PaperStartForm
+								strategyId={workspace.strategyId}
+								currentFingerprint={fingerprint}
+								name={workspace.name ?? model.name}
+								{model}
+								disabled={controlsBlocked}
+								onStarted={onPaperStarted}
+							/>
+						</details>
+					{:else}
+						<h3 class="sub">Start paper with the current rules</h3>
 						<PaperStartForm
-							{fingerprint}
-							version={selected.version}
+							strategyId={workspace.strategyId}
+							currentFingerprint={fingerprint}
 							name={workspace.name ?? model.name}
 							{model}
 							disabled={controlsBlocked}
 							onStarted={onPaperStarted}
 						/>
-					</details>
-				{:else}
-					<h3 class="sub">Start paper</h3>
-					<PaperStartForm
-						{fingerprint}
-						version={selected.version}
-						name={workspace.name ?? model.name}
-						{model}
-						disabled={controlsBlocked}
-						onStarted={onPaperStarted}
-					/>
+					{/if}
 				{/if}
 			</div>
 		</section>
@@ -351,7 +359,14 @@
 			</div>
 			<div class="card-body">
 				{#each live as deployment (deployment.id)}
-					<DeploymentRuntimeRow {deployment} disabled={controlsBlocked} onaction={openLifecycle} />
+					<DeploymentRuntimeRow
+						{deployment}
+						disabled={controlsBlocked}
+						currentFingerprint={workspace.currentFingerprint}
+						current={model}
+						onaction={openLifecycle}
+						onupdated={onBotUpdated}
+					/>
 				{/each}
 				<h3 class="sub">Live preflight</h3>
 				<p class="note">
@@ -388,34 +403,16 @@
 				<button
 					class="btn live arm"
 					type="button"
-					disabled={controlsBlocked || fingerprint === ''}
+					disabled={controlsBlocked || !canStart}
+					aria-describedby={canStart ? undefined : 'arm-blocked'}
 					onclick={openLive}>Arm live trading…</button
 				>
+				{#if !canStart}<p class="note" id="arm-blocked">
+						Blocked until the saved definition is valid.
+					</p>{/if}
 			</div>
 		</section>
 	</div>
-
-	{#if otherVersions.length > 0}
-		<section class="card others" aria-labelledby="others-title">
-			<div class="card-head"><h2 id="others-title">Other deployments for this strategy</h2></div>
-			<div class="card-body">
-				<p class="note">
-					These run different published versions. Their evidence is not mixed into v{selected.version}.
-				</p>
-				<ul>
-					{#each otherVersions as deployment (deployment.id)}
-						<li>
-							<a href={resolve(`/deployments/${encodeURIComponent(deployment.id)}`)}
-								>{deployment.mode} · {deployment.status} · v{workspace.versionNumberOf(
-									deployment.strategy_fingerprint
-								) ?? '?'} · {shortStrategyFingerprint(deployment.strategy_fingerprint ?? '')}</a
-							>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</section>
-	{/if}
 
 	<DeploymentLifecycleDialog
 		deployment={dialogTarget}
@@ -443,16 +440,18 @@
 		onconfirm={() => void armLive()}
 	>
 		<p>
-			This starts a live deployment of <strong>{workspace.name ?? model.name}</strong>
-			v{selected.version}
-			that places real spot orders on Coinbase with your API keys. You are responsible for every trade
-			and its market risk.
+			This starts a live deployment of the current rules of
+			<strong>{workspace.name ?? model?.name ?? 'this strategy'}</strong>
+			that places real spot orders on Coinbase with your API keys. Later edits do not change it. You are
+			responsible for every trade and its market risk.
 		</p>
-		<div class="row">
-			<span>Market</span><span>{marketLabel(model.product_id)} · {model.timeframe}</span>
-		</div>
-		<div class="row"><span>Coinbase product record</span><code>{model.product_id}</code></div>
-		<div class="row"><span>Fingerprint</span><code class="fp">{fingerprint}</code></div>
+		{#if model}
+			<div class="row">
+				<span>Market</span><span>{marketLabel(model.product_id)} · {model.timeframe}</span>
+			</div>
+			<div class="row"><span>Coinbase product record</span><code>{model.product_id}</code></div>
+		{/if}
+		<div class="row"><span>Rules snapshot</span><code class="fp">{fingerprint}</code></div>
 		<div class="row">
 			<span>If you stop it</span><span
 				>Managed stop keeps protective exits until flat; flatten is a separate choice</span
@@ -463,13 +462,6 @@
 			<span>I understand this places real orders on Coinbase with real money.</span>
 		</label>
 	</ConfirmDialog>
-{:else if selected && workspace.modelErrors[selected.strategy_fingerprint]}
-	<div class="error-banner" role="alert">
-		<div>
-			<strong>Published definition unavailable</strong>
-			<p>{workspace.modelErrors[selected.strategy_fingerprint]}</p>
-		</div>
-	</div>
 {:else}
 	<div class="loading-card" aria-busy="true"><div class="skeleton"></div></div>
 {/if}
@@ -562,12 +554,20 @@
 		margin: 0 0 var(--space-3);
 		color: var(--pos);
 	}
-	.others {
-		margin-top: var(--space-4);
+	.blocked {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: var(--space-4);
+		padding: 14px 17px;
+		border: 1px solid var(--warn-line);
+		border-radius: var(--radius-lg);
+		background: var(--surface-2);
 	}
-	.others ul {
-		margin: 0;
-		padding-left: 18px;
+	.blocked p {
+		margin: 4px 0 0;
+		color: var(--muted);
 	}
 	.live-ack {
 		display: flex;

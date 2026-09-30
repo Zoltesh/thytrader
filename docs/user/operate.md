@@ -49,50 +49,57 @@ Open http://127.0.0.1:5175/strategies when the stack is healthy. The library req
 server page at a time (10 rows by default; select 10, 25, 50, or 100). Use Next/Previous to
 navigate cursor pages. Changing the page size returns to page one. A failed page shows a retryable
 error rather than an empty library. Other selection screens may still load the full library.
-Each row shows the strategy name and short fingerprint, market (`BTC / USDC`) and clock, the
-latest version (an open draft over published history reads `v3 · draft v4`), a progress pipeline,
-the latest backtest, and when it was updated. The pipeline chips are evidence, not readiness:
-**Build** (draft open or published), **Test** (a backtest exists), **Paper** and **Live** (newest
-deployment status per mode: running, paused, stopped, or not deployed). Clicking a row opens that
-strategy's workspace; the latest-backtest link opens that result on its Test stage.
+Each row shows a checkbox, the strategy name, market (`BTC / USDC`) and clock, whether the saved
+definition is valid, a progress pipeline, the latest backtest, and when it was updated. There are no
+versions, drafts, or publish steps: a strategy is one object you edit and save
+([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). The pipeline chips
+are evidence, not readiness: **Build** (the saved definition is valid), **Test** (a backtest exists),
+**Paper** and **Live** (newest deployment status per mode: running, paused, stopped, or not
+deployed). Clicking a row opens that strategy's workspace; the latest-backtest link opens that
+result on its Test stage.
 
-From the library you can create the conservative reference draft, clone a published strategy into a
-fresh draft identity (Clone stays ungated), import a complete strategy definition JSON as a new
-draft, and archive an immutable publication after confirming the latest published version and
-fingerprint in the Archive dialog (Cancel is the default focus; Escape cancels). Browser writes first establish a CSRF session and send its matching token and cookie;
+From the library you can create the conservative reference strategy, **Clone** a strategy into a new
+identity, **Import** a strategy definition JSON as a new strategy (older exports that still carry
+`version` / `status` import fine; those keys are ignored), and **Delete** strategies. Tick rows (or
+the header checkbox to select every row on the page) and choose **Delete N strategies…**; a single
+row's delete does the same for one strategy. The confirmation dialog (Cancel is the default focus;
+Escape cancels) lists what will be deleted for each strategy — its backtests, studies, research jobs,
+and paper bots with their history. A strategy with a running or paused bot is **blocked** and the
+dialog says why: stop the bot first. Stopped **live** bots are kept with their orders, fills,
+positions, and trade reasons; they stay on Portfolio as "<name> (deleted strategy)". If a risk-policy
+allocation names a deleted strategy, the next policy version is published without it. Deletion is
+permanent. After confirming, each strategy reports its own result, so a partial failure shows which
+strategies were deleted and which were not. Browser writes first establish a CSRF session and send its matching token and cookie;
 the app handles this automatically. A 401 CSRF error is a browser-session/client failure, not a
 strategy-validation error. Do not disable the trust boundary to work around it.
 
 ### Strategy workspace
 
 Every strategy has one workspace ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md)).
-A sticky identity bar shows the name, **Draft vN** or **Published vN**, a version picker
-(published versions plus the open draft), the short fingerprint with **Copy full fingerprint**,
-the market with its Coinbase product id, the clock, and the draft state (unsaved changes, or
-**No editable draft** with **Revise into new draft**). **Versions** opens the history (export,
-semantic diff, Edit into next draft); **Clone** copies the selected published version into a new
-strategy. The stage links are **Build · Test · Run · Why**.
+A sticky identity bar shows the name, the market with its Coinbase product id, the clock, whether the
+saved definition is valid, and the save state (saved, or unsaved changes). **Clone** copies the
+strategy into a new identity. The stage links are **Build · Test · Run · Why**. Old links that
+carried `?version=` or a strategy fingerprint still open: they resolve the owning strategy and land
+on its workspace.
 
-`?version=<strategy_fingerprint>` pins the exact published version for Test, Run, and Why; without
-it the latest published version is used. A fingerprint that does not belong to the strategy shows
-an error and no stage content, so nothing can be tested or started against a different version.
+**Build** (`/strategies/{strategy_id}`) edits the strategy in place. Rules read as IF / AND / OR rows
+in a nested ALL/ANY/NOT tree; the right column shows **In plain English**, **Checks** (validation,
+warmup and required data, collapsible engine support), save state, and **Save**. You may save an
+incomplete or invalid strategy; Build shows its validation issues, and Test and Run refuse to start
+until the saved definition is valid. Saves carry a revision and reject a stale browser tab rather
+than overwriting newer edits (reload to see the newer version); leaving Build with unsaved edits
+asks first. Saving never changes an existing backtest or a running bot.
 
-**Build** (`/strategies/{strategy_id}`) reads that identity's version history directly and opens its
-durable draft without loading the full library. Rules read as IF / AND / OR rows in a nested
-ALL/ANY/NOT tree; the right column shows **In plain English**, **Checks** (validation, warmup and
-required data, collapsible engine support), save state, **Save draft**, and **Publish vN…**. Publish
-asks for confirmation ("Publish immutable strategy version?") and never starts trading; the success
-panel offers View published version and Set up a backtest. If the identity has only immutable
-published or archived versions, Build says **No editable draft** and shows the published
-definition read-only in the same layout. That state is not a missing strategy or an API outage.
-Saves carry an opaque revision and reject stale browser tabs rather than overwriting newer edits;
-leaving Build with unsaved edits asks first.
+**Snapshots.** Starting a backtest, study, or bot takes an automatic snapshot of the saved rules
+(a `sha256:` fingerprint). Every result and bot row shows **Current rules** when it used the rules
+you have now, or **Earlier edit** when the strategy changed since; **What changed** shows a
+field-by-field diff between that snapshot and the current definition.
 
 ### Test (research and backtests)
 
 Open a strategy's **Test** stage (`/strategies/{strategy_id}/test`; old `/research?strategy=` links
-redirect here, and `/research` alone points you to the library). The run bar is one compact row for
-the workspace's selected immutable version: verified dataset, period (**Full coverage** unless you
+redirect here, and `/research` alone points you to the library). The run bar is one compact row that
+starts from the strategy's current saved definition: verified dataset, period (**Full coverage** unless you
 set custom dates), initial capital, maker/taker fees, and engine, with **Run a study** and **Run
 backtest** on the right. **Advanced options** holds fixed slippage, the V2 constant-spread stress,
 and custom evaluation dates; its summary line always shows the current slippage, spread, and
@@ -102,31 +109,26 @@ that endpoint cannot be read, the engine stays on **Select an engine**. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
 from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
-blank rather than inventing a tier. It lists every stored result for each exact published version
-and compares the latest result across versions; dataset and per-version result failures remain
-visible without hiding strategy evidence. Result summaries report the published strategy clock,
+blank rather than inventing a tier. Dataset and result-list failures remain visible without hiding
+strategy evidence. Result summaries report the snapshot's strategy clock,
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
-(OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same version. Below
-the run bar, **Results for this strategy** lists every published result for every version; opening
-one shows it inline (`?result=` deep link): a compact header (version · period · engine · time and a
+(OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same strategy. Below
+the run bar, **Results for this strategy** lists every result, each marked **Current rules** or
+**Earlier edit**; opening one shows it inline (`?result=` deep link): a compact header (rules · period · engine · time and a
 **Simulated result (candle-based fills)** chip), a metrics row (net return, buy & hold, max
 drawdown, trades, win rate, profit factor), the equity curve, the modeled assumptions line, and a
 collapsed **Evidence** row with the result, strategy, dataset, and run fingerprints. Ratio metrics,
 the buy-and-hold comparison, and the modeled trade ledger follow. Results are research evidence, not
 a promise, and there is no Deploy or Start-paper button on them.
 
-**Validate & publish immutable version** (`POST /api/v1/strategies/{strategy_id}/publish`) atomically
-consumes that mutable draft and records canonical strategy evidence; it does **not** start paper or
-live trading. A published version can be archived from the library after confirmation: that appends
-a permanent archive marker and hides it from active selection without changing its fingerprint or
-canonical bytes. Backtests require a verified dataset fingerprint and remain deterministic research
-artifacts.
+Starting a backtest never starts paper or live trading. Backtests require a verified dataset
+fingerprint and remain deterministic research artifacts.
 
 ### Backtests
 
 Open `/backtests` to inspect immutable result summaries across all strategies. An old
 `/backtests?result=` or `/backtests?strategy_fingerprint=` link opens the owning strategy's Test
-stage when that fingerprint is one of its published versions; otherwise the standalone view stays. The list requests 10 newest-first rows
+stage (the fingerprint resolves its owning strategy); otherwise the standalone view stays. The list requests 10 newest-first rows
 by default; its Rows per page selector offers 10, 25, 50, and 100. Newer/Older request only the
 current server page, and changing the size restarts at the newest results. A full page does not
 by itself imply there are older results: the server's `has_more` indicates that. Opening an
@@ -135,11 +137,13 @@ individual result does not require loading every list page.
 ### Paper and live
 
 Open a strategy's **Run** stage (`/strategies/{strategy_id}/run`; old `/deploy?strategy=` links
-redirect here). A **Paper** card and a **Live** card sit side by side, each listing deployments of
-the selected exact version with status, instruction, entry eligibility, fill-ledger performance,
-exposure and protection, and an **Open bot →** link to `/deployments/{id}`. Other versions'
-deployments are listed separately. **Start paper deployment…** asks for confirmation and starts a
-new deployment of the version (never a promotion of a backtest). Pause, resume, stop, and flatten
+redirect here). A **Paper** card and a **Live** card sit side by side, each listing this strategy's
+deployments with status, instruction, entry eligibility, fill-ledger performance,
+exposure and protection, a **Current rules** / **Earlier edit** marker, and an **Open bot →** link
+to `/deployments/{id}`. **Start paper deployment…** asks for confirmation and starts a new
+deployment from the current saved definition (never a promotion of a backtest). A bot on an
+earlier edit keeps running those rules; **Update bot…** moves it to the current rules by a managed
+stop followed by a new start, confirming each step (live keeps the understand-live checkbox). Pause, resume, stop, and flatten
 use the lifecycle dialog. **Arm live trading…** opens a dialog whose confirm stays disabled until
 you tick "I understand this places real orders on Coinbase with real money"; live resume asks the
 same. The Live card's preflight lists, independently, Coinbase credential presence, whether a risk
@@ -149,7 +153,7 @@ shows **Unknown**. It is not a readiness verdict and does not gate arming; paper
 as information only.
 
 The execution worker
-evaluates published paper and live deployments against closed venue candles about every 30 seconds.
+evaluates paper and live deployments against closed venue candles about every 30 seconds.
 Paper simulates maker fills; live places Coinbase Advanced Trade spot orders when credentials
 exist (credentials set from Settings reach the execution worker without restart; without them
 paper uses synthetic demo candles and operator `runtime` reports `DEMO_MARKET_DATA`). Sub-hour
@@ -163,7 +167,7 @@ new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, 
 `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
 keeps venue-recorded fees.
 
-Publishing a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
+Saving or backtesting a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
 the Run stage or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
 **managed shutdown**: protective brackets stay and residual exposure stays in account-level risk
 until the book is flat. Pass `--flatten` only when the operator asked to marketably exit then cancel
@@ -183,7 +187,7 @@ product-tagged); do not treat it as the full inventory
 ([ADR 0060](../decisions/0060-multi-book-deployment-api.md)). Operator `strategies` / `runtime`
 reports include redacted `books[]` (product, phase, side, protection — no quantities).
 
-On-demand trades and published strategies use `entry.side` of `long` or `short`. CLI `--side`
+On-demand trades and strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
 available base and never borrows. When stop and take-profit are known and trailing is off, live
 attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
@@ -194,8 +198,8 @@ attaches those exits to the entry; paper still uses synthetic exits. Command exa
 **Portfolio** (http://127.0.0.1:5175/deployments) lists every bot: one row per deployment, grouped
 **Needs attention** (any status other than running, paused, or stopped), **Running**, **Paused**,
 and **Stopped**. An **All / Paper / Live** switch filters the rows. Each row shows the strategy name
-and version (resolved from the strategy library by exact fingerprint; otherwise the short
-fingerprint, or "Discretionary order"), a **Paper** or amber **LIVE** chip, the market with the
+(from the deployment's captured `strategy_name`; a live bot whose strategy was deleted reads
+"<name> (deleted strategy)"; or "Discretionary order"), a **Paper** or amber **LIVE** chip, the market with the
 product's own quote (`ETH / USDC`) and clock, position and protection, fill-ledger net PnL (`—` when
 not computed), and status. Rows open `/deployments/{id}`. The list is paged 50 at a time; the filter
 applies to the page you are on. The header counts running, paused, and needs-attention bots across
@@ -206,9 +210,11 @@ capital block, an open position without a complete mark) shows `—` with the re
 deployment** opens the strategy library; start from a strategy's Run stage. Portfolios with shared
 capital and a manager agent are not built yet.
 
-**Bot detail** (`/deployments/{id}`) is anchored to the immutable published strategy fingerprint.
-The header shows the strategy name, the mode chip, a version pill that opens the strategy workspace
-at that exact fingerprint, market · clock · status · worker lease (a held lease is coordination
+**Bot detail** (`/deployments/{id}`) is anchored to the snapshot the bot started with.
+The header shows the strategy name (or "<name> (deleted strategy)" for a kept live bot), the mode
+chip, a link to the strategy workspace, a **Current rules** / **Earlier edit** marker ("This bot is
+running an earlier edit" offers **What changed** and **Update bot…**: managed stop, then a new start
+on the current rules, each confirmed), market · clock · status · worker lease (a held lease is coordination
 state, not proof the worker is healthy), instruction, entry eligibility, and revision, plus
 **Pause entries…**, **Resume entries…**, **Stop…** (managed stop or stop and flatten), and
 **Flatten remaining exposure…** when a managed stop left residual exposure. A stopped bot never
@@ -219,17 +225,14 @@ latest completed-bar signal. **Orders & fills** is one card with an Orders / Fil
 keeps its own cursor paging. **Why it traded** is a timeline of the latest bar signal and this bot's
 persisted trade reasons; full per-bar decision history is not recorded yet. A latched breaker shows
 a banner with **Reset breaker latches…** (its own confirmation). Positions & protection, evidence
-links (**Backtests of this version** and **Decisions for this version** open the Test and Why
-stages for that fingerprint), other deployments of the same strategy, and the **Capital breakdown**
-and **Exact published configuration** disclosures follow. Live resume, here and on the Run stage,
+links (**Backtests of this strategy** and **Decisions** open the Test and Why stages), other
+deployments of the same strategy, and the **Capital breakdown** and **Exact configuration** (the
+bot's snapshot) disclosures follow. Live resume, here and on the Run stage,
 keeps its confirm disabled until you tick "I understand this places real orders on Coinbase with
 real money"; only then is `i_understand_live: true` sent. Incomplete or malformed lifecycle payloads
 (including an unknown `lifecycle_command`) stay read-only, and an ambiguous or stale mutation
-disables controls until a refresh succeeds. Discretionary deployments have no published strategy
-source. Published-only strategies have no editable draft; their Build stage shows the published
-definition read-only. The workspace's `?version=` selects an exact published fingerprint, and an
-invalid requested version must not start a different version. Start a new deployment on the Run
-stage; manage an existing one there or on its detail page.
+disables controls until a refresh succeeds. Discretionary deployments have no strategy source.
+Start a new deployment on the Run stage; manage an existing one there or on its detail page.
 
 ### Trade
 
@@ -249,12 +252,12 @@ why-trade records stay below the ticket.
 
 ### Why
 
-A strategy's **Why** stage (`/strategies/{strategy_id}/why`) lists each deployment of the selected
-version with its latest completed-bar signal ("No trade — conditions did not match", "could not be
+A strategy's **Why** stage (`/strategies/{strategy_id}/why`) lists each deployment of the strategy
+(marked Current rules or Earlier edit) with its latest completed-bar signal ("No trade — conditions did not match", "could not be
 evaluated", or matched) and the persisted trade reasons for that deployment (risk decision,
 reconciled order and fills when the reason names one, notes). Full per-bar decision history is not
 recorded yet; "no recorded trade rationale" does not mean the conditions failed. The UI must not
-silently relabel a `BASE-USD` book’s PnL as USDC. Performance quote comes from the published
+silently relabel a `BASE-USD` book’s PnL as USDC. Performance quote comes from the snapshot's
 instrument (or discretionary product), with unknown provenance shown explicitly.
 Lifecycle controls require the full deployment contract (`lifecycle_command`, both breaker
 latches, `revision`, and `worker_lease_held`); incomplete or malformed payloads stay read-only.
@@ -298,8 +301,11 @@ output. HTTP talks to loopback (`http://127.0.0.1:8200`) unless you pass `--loca
 
 ```bash
 uv run thytrader-operator health
-uv run thytrader-research create-draft --confirm
-uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
+uv run thytrader-research list-strategies
+uv run thytrader-research create-strategy --confirm
+uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm
+uv run thytrader-research save-strategy --strategy-id UUID --file document.json --revision 1 --confirm
+uv run thytrader-research bulk-delete-strategies --strategy-id UUID --dry-run
 uv run thytrader-research plan-study --file study.json
 uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-research list-studies
@@ -313,7 +319,7 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 |---|---|---|
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
 | `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations; writes send installation Bearer when a token is resolvable |
-| `thytrader-research` | Drafts, publish, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
+| `thytrader-research` | Strategy create/save/import/clone/delete, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
 | `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials | `--confirm`; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |

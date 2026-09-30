@@ -39,7 +39,8 @@ Confirmation-gated watchlist, complete-only ingest jobs, and gap inspection. No 
 
 ## `thytrader-research`
 
-Confirmation-gated drafts, immutable publication, idempotent backtest submission, and composed
+Confirmation-gated strategy create/save/import/clone/delete (one mutable strategy per id,
+automatic snapshots at start), idempotent backtest submission by `strategy_id`, and composed
 research studies (OOS / walk-forward / cross-market / parameter_sweep / walk_forward_optimization).
 No paper, live, arming, or cancellation authority.
 
@@ -61,7 +62,7 @@ Not an extension of operator or research.
 
 ## `thytrader-playbook`
 
-Sequences existing lane CLIs: data healthy → draft/publish → backtest → optional paper. Forwards
+Sequences existing lane CLIs: data healthy → create strategy → backtest → optional paper. Forwards
 `--confirm`. Never starts live. For portfolio visibility before research, use the manual sequence in
 [`docs/agent/portfolio-research-ops-playbook.md`](../docs/agent/portfolio-research-ops-playbook.md).
 Not an extension of the other skills.

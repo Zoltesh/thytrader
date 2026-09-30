@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 import sys
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import (
@@ -101,9 +102,16 @@ def _parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser(
         "start",
         parents=[trailing],
-        help="Start one paper or live deployment.",
+        help=(
+            "Start one paper or live deployment from a strategy's current (valid) rules. "
+            "The response's strategy_fingerprint names the snapshot the bot runs."
+        ),
     )
-    start.add_argument("--strategy-fingerprint", required=True)
+    start.add_argument(
+        "--strategy-id",
+        required=True,
+        help="Strategy UUID (thytrader-research list-strategies). The server snapshots it.",
+    )
     start.add_argument("--mode", required=True, choices=("paper", "live"))
     start.add_argument("--cash", default=None, help="Paper starting cash decimal string.")
     start.add_argument(
@@ -426,7 +434,7 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
     require_matching_ops_contract(base_url)
     return start_deployment(
         base_url,
-        strategy_fingerprint=arguments.strategy_fingerprint,
+        strategy_id=str(_strategy_uuid(arguments.strategy_id)),
         mode=arguments.mode,
         paper_starting_cash=cash,
         maker_fee_rate=maker,
@@ -434,6 +442,14 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         settings=settings,
         i_understand_live=live and arguments.i_understand_live,
     )
+
+
+def _strategy_uuid(value: str) -> UUID:
+    """Parse --strategy-id before any HTTP call."""
+    try:
+        return UUID(value)
+    except ValueError as error:
+        raise RuntimeControlError("--strategy-id must be a strategy UUID.") from error
 
 
 def _place_order(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:

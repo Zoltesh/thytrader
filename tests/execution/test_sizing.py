@@ -5,7 +5,7 @@ from decimal import Decimal
 from thytrader.execution.models import PositionSide
 from thytrader.execution.sizing import size_entry, size_long_entry
 from thytrader.market_data.models import MarketProduct
-from thytrader.strategies.authoring import create_reference_draft
+from thytrader.strategies.authoring import create_template_strategy
 
 
 def _product() -> MarketProduct:
@@ -25,7 +25,7 @@ def _product() -> MarketProduct:
 
 def test_size_long_entry_respects_risk_fraction_and_increments() -> None:
     """Quantity snaps down to the base increment and stay inside quote bounds."""
-    strategy = create_reference_draft()
+    strategy = create_template_strategy()
     sized = size_long_entry(
         strategy=strategy,
         cash=Decimal("10000"),
@@ -44,7 +44,7 @@ def test_size_long_entry_respects_risk_fraction_and_increments() -> None:
 
 def test_size_long_entry_reserves_fee_inside_cash() -> None:
     """Fee-adjusted cash must cap notional so notional plus fee cannot exceed cash."""
-    strategy = create_reference_draft()
+    strategy = create_template_strategy()
     payload = strategy.model_dump(mode="python")
     payload["sizing"]["max_quote_notional"] = "100000"
     payload["portfolio_limits"]["max_strategy_exposure_fraction"] = "1"
@@ -62,7 +62,7 @@ def test_size_long_entry_reserves_fee_inside_cash() -> None:
     assert sized.notional <= Decimal("100") / Decimal("1.01")
 
     """Below the minimum quote notional there is no executable size."""
-    strategy = create_reference_draft()
+    strategy = create_template_strategy()
     sized = size_long_entry(
         strategy=strategy,
         cash=Decimal("1"),
@@ -75,7 +75,7 @@ def test_size_long_entry_reserves_fee_inside_cash() -> None:
 
 def test_size_short_entry_places_stop_above_and_target_below() -> None:
     """Short geometry inverts the ATR stop and reward/risk target."""
-    strategy = create_reference_draft()
+    strategy = create_template_strategy()
     sized = size_entry(
         strategy=strategy,
         cash=Decimal("10000"),

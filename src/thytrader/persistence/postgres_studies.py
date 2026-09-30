@@ -7,12 +7,17 @@ import re
 from typing import TYPE_CHECKING, cast
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import String, literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - cast target
-from thytrader.persistence.schema import published_research_studies
+from thytrader.persistence.postgres_strategies import snapshot_owner
+from thytrader.persistence.schema import (
+    published_research_studies,
+    research_study_strategies,
+    strategy_snapshots,
+)
 from thytrader.research.catalog import (
     StudyCatalogIntegrityError,
     StudyCatalogNotFoundError,
@@ -22,6 +27,8 @@ from thytrader.research.catalog import (
 from thytrader.research.parameter_sweep import SelectionMetric
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -51,10 +58,12 @@ class PostgresResearchStudyCatalog:
     ) -> StudyCatalogSummary:
         """Idempotently store one assembled study after identity checks."""
         _validate_fingerprint(summary.study_fingerprint)
+        strategy_fingerprints = _window_strategy_fingerprints(canonical_study)
         statement = (
             insert(published_research_studies)
             .values(
                 study_fingerprint=summary.study_fingerprint,
+                strategy_id=snapshot_owner(strategy_fingerprints[0]),
                 request_fingerprint=summary.request_fingerprint,
                 plan_fingerprint=summary.plan_fingerprint,
                 kind=summary.kind,
@@ -73,9 +82,22 @@ class PostgresResearchStudyCatalog:
             )
             .on_conflict_do_nothing()
         )
+        members = insert(research_study_strategies).from_select(
+            ["study_fingerprint", "strategy_id"],
+            select(
+                literal(summary.study_fingerprint, String(71)),
+                strategy_snapshots.c.strategy_id,
+            )
+            .where(
+                strategy_snapshots.c.strategy_fingerprint.in_(strategy_fingerprints),
+                strategy_snapshots.c.strategy_id.is_not(None),
+            )
+            .distinct(),
+        )
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
+                await connection.execute(members.on_conflict_do_nothing())
         except SQLAlchemyError as error:
             raise StudyCatalogUnavailableError("Research study catalog is unavailable.") from error
         loaded = await self.load(summary.study_fingerprint)
@@ -106,10 +128,11 @@ class PostgresResearchStudyCatalog:
         self,
         *,
         kind: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[StudyCatalogSummary, ...]:
-        """Return newest-first catalog rows without child ledgers."""
+        """Return newest-first catalog rows, optionally only studies including a strategy."""
         if kind is not None and kind not in _STUDY_KINDS:
             raise StudyCatalogIntegrityError("Unknown research study kind.")
         if limit < 1 or limit > 100:
@@ -139,6 +162,14 @@ class PostgresResearchStudyCatalog:
         )
         if kind is not None:
             statement = statement.where(table.c.kind == kind)
+        if strategy_id is not None:
+            statement = statement.where(
+                table.c.study_fingerprint.in_(
+                    select(research_study_strategies.c.study_fingerprint).where(
+                        research_study_strategies.c.strategy_id == str(strategy_id)
+                    )
+                )
+            )
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -185,6 +216,23 @@ def _summary_from_row(row: RowMapping) -> StudyCatalogSummary:
         raise StudyCatalogIntegrityError(
             "Published research study row failed validation."
         ) from error
+
+
+def _window_strategy_fingerprints(canonical_study: str) -> tuple[str, ...]:
+    """Return each distinct child-window snapshot fingerprint in window order."""
+    try:
+        loaded: object = json.loads(canonical_study)
+    except ValueError as error:
+        raise StudyCatalogIntegrityError("Research study JSON is malformed.") from error
+    windows = loaded.get("windows") if isinstance(loaded, dict) else None
+    fingerprints: dict[str, None] = {}
+    for window in windows if isinstance(windows, list) else ():
+        value = window.get("strategy_fingerprint") if isinstance(window, dict) else None
+        if isinstance(value, str) and _FINGERPRINT_PATTERN.fullmatch(value) is not None:
+            fingerprints[value] = None
+    if not fingerprints:
+        raise StudyCatalogIntegrityError("Research study has no strategy snapshot windows.")
+    return tuple(fingerprints)
 
 
 def _validate_fingerprint(value: str) -> None:

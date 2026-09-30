@@ -93,7 +93,7 @@ def path_keys(path: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
-_QUERY_POST_TOOLS = frozenset({"research_create_draft", "runtime_stop"})
+_QUERY_POST_TOOLS = frozenset({"research_create_strategy", "runtime_stop"})
 _PAYLOAD_BODY_TOOLS = frozenset(
     {
         "research_submit_backtest",
@@ -453,7 +453,7 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="research_list_templates",
-        description="List research draft templates.",
+        description="List strategy templates.",
         lane=ChatLane.RESEARCH,
         method="GET",
         path="/api/v1/research/templates",
@@ -478,8 +478,34 @@ _TOOLS: tuple[ChatTool, ...] = (
         required=(),
     ),
     ChatTool(
-        name="research_create_draft",
-        description="Create a research template draft. Mutation; cannot deploy.",
+        name="research_list_strategies",
+        description="List strategies (validity, current_fingerprint, paper/live status).",
+        lane=ChatLane.RESEARCH,
+        method="GET",
+        path="/api/v1/strategies",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={"limit": _integer("Page size, max 100."), "cursor": _opt_string("Cursor.")},
+        required=(),
+    ),
+    ChatTool(
+        name="research_show_strategy",
+        description="Show one strategy's document, validation, revision, and current_fingerprint.",
+        lane=ChatLane.RESEARCH,
+        method="GET",
+        path="/api/v1/strategies/{strategy_id}",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={"strategy_id": _UUID},
+        required=("strategy_id",),
+    ),
+    ChatTool(
+        name="research_create_strategy",
+        description="Create one strategy from a template. Mutation; cannot deploy.",
         lane=ChatLane.RESEARCH,
         method="POST",
         path="/api/v1/strategies",
@@ -495,21 +521,28 @@ _TOOLS: tuple[ChatTool, ...] = (
         required=(),
     ),
     ChatTool(
-        name="research_publish",
-        description="Publish the current draft immutably. Does not start paper or live.",
+        name="research_delete_strategy",
+        description=(
+            "Hard-delete one strategy with its backtests, studies, jobs, and paper bots. "
+            "Refused (409) while a bot is running or paused; stopped live bots are kept. "
+            "Always needs explicit confirmation."
+        ),
         lane=ChatLane.RESEARCH,
-        method="POST",
-        path="/api/v1/strategies/{strategy_id}/publish",
+        method="DELETE",
+        path="/api/v1/strategies/{strategy_id}",
         mutation=True,
-        yolo="research",
-        hard_gate=False,
+        yolo="none",
+        hard_gate=True,
         live_ack="never",
         properties={"strategy_id": _UUID},
         required=("strategy_id",),
     ),
     ChatTool(
         name="research_submit_backtest",
-        description="Submit an idempotent backtest against a published strategy and dataset.",
+        description=(
+            "Backtest a strategy's current rules: payload names strategy_id plus dataset and "
+            "cost assumptions; the response returns the snapshot strategy_fingerprint."
+        ),
         lane=ChatLane.RESEARCH,
         method="POST",
         path="/api/v1/backtests",
@@ -535,7 +568,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="research_submit_study",
-        description="Submit a composed OOS / walk-forward / sweep / WFO study.",
+        description=(
+            "Submit a composed OOS / walk-forward / sweep / WFO study naming strategies by "
+            "strategy_id (candidate_strategy_ids, markets[].strategy_id)."
+        ),
         lane=ChatLane.RESEARCH,
         method="POST",
         path="/api/v1/research/studies",
@@ -575,7 +611,8 @@ _TOOLS: tuple[ChatTool, ...] = (
     ChatTool(
         name="runtime_start",
         description=(
-            "Start paper or live for a published fingerprint. Live needs understand-live. "
+            "Start paper or live from a strategy's current rules (by strategy_id). "
+            "Live needs understand-live. "
             "Paper may pass maker_fee_rate and taker_fee_rate together (documented assumptions; "
             "omitted paper uses 0.001 / 0.002). Live rejects those fields."
         ),
@@ -587,7 +624,7 @@ _TOOLS: tuple[ChatTool, ...] = (
         hard_gate=False,
         live_ack="when_mode_live",
         properties={
-            "strategy_fingerprint": _string("sha256: plus 64 hex."),
+            "strategy_id": _string("Strategy UUID; the server snapshots its current rules."),
             "mode": _string("paper or live."),
             "paper_starting_cash": _opt_string("Paper book cash."),
             "maker_fee_rate": _opt_string(
@@ -597,7 +634,7 @@ _TOOLS: tuple[ChatTool, ...] = (
                 "Paper taker fee assumption. Pass with maker_fee_rate. Live rejects."
             ),
         },
-        required=("strategy_fingerprint", "mode"),
+        required=("strategy_id", "mode"),
     ),
     ChatTool(
         name="runtime_pause",

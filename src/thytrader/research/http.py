@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlencode
 
 from pydantic import ValidationError
 
@@ -12,17 +13,16 @@ from thytrader.agent_http import AgentHttpError, request_json, request_mutation_
 from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.research.mutation import ResearchMutationError
-from thytrader.research.studies import request_fingerprint
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.backtest.submission import BacktestSubmissionRequest
-    from thytrader.research.studies import ResearchStudyRequest
-    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.backtest.submission import BacktestStartRequest
+    from thytrader.research.study_start import ResearchStudyStartRequest
+    from thytrader.strategies.library import StrategyDocument
 
 
-def create_draft(
+def create_strategy(
     base_url: str,
     *,
     product_id: str = "BTC-USD",
@@ -30,196 +30,163 @@ def create_draft(
     template: str = "ema-trend",
     experiential_model_id: str | None = None,
 ) -> str:
-    """POST a research template draft through the strategies API.
+    """POST one research template strategy through the strategies API.
 
     Optional ``experiential_model_id`` is fail-closed HTTP-only advisory input.
-    It never changes published strategy semantics or places orders.
+    It never changes strategy semantics or places orders.
     """
     advisory = (
         _experiential_advisory_fields(base_url, experiential_model_id)
         if experiential_model_id is not None
         else {}
     )
-    url = f"{base_url}/api/v1/strategies"
-    query: list[str] = []
-    if product_id != "BTC-USD":
-        query.append(f"product_id={product_id}")
-    if timeframe != "1h":
-        query.append(f"timeframe={timeframe}")
-    if template != "ema-trend":
-        query.append(f"template={template}")
-    if query:
-        url = f"{url}?{'&'.join(query)}"
+    query = urlencode({"product_id": product_id, "timeframe": timeframe, "template": template})
     body = _as_object(
-        request_mutation_json(method="POST", url=url),
-        "create-draft response",
+        request_mutation_json(method="POST", url=f"{base_url}/api/v1/strategies?{query}"),
+        "create-strategy response",
     )
-    strategy = _as_object(body.get("strategy"), "created strategy")
-    payload: dict[str, object] = {
-        "strategy_id": _as_str(strategy.get("strategy_id"), "strategy_id"),
-        "revision": body.get("revision"),
-        "version": strategy.get("version"),
-        "name": strategy.get("name"),
-    }
+    payload = _strategy_digest(body)
     payload.update(advisory)
     return _encode(payload)
 
 
-def save_draft(base_url: str, definition: StrategyDefinition, revision: int) -> str:
-    """PUT one draft JSON document through the strategies API."""
-    strategy_id = definition.strategy_id
-    version = definition.version
+def show_strategy(base_url: str, strategy_id: UUID) -> str:
+    """GET one strategy's current document, validation, and fingerprint."""
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/strategies/{strategy_id}"),
+        "strategy",
+    )
+    return _encode(body)
+
+
+def save_strategy(
+    base_url: str, strategy_id: UUID, document: StrategyDocument, revision: int
+) -> str:
+    """PUT one document in place; a stale revision fails with strategy_revision_conflict."""
     body = _as_object(
         request_mutation_json(
             method="PUT",
-            url=f"{base_url}/api/v1/strategies/{strategy_id}/versions/{version}",
-            payload={"strategy": definition.model_dump(mode="json"), "revision": revision},
+            url=f"{base_url}/api/v1/strategies/{strategy_id}",
+            payload={"document": document, "revision": revision},
         ),
-        "save-draft response",
+        "save-strategy response",
     )
-    strategy = _as_object(body.get("strategy"), "saved strategy")
-    return _encode(
-        {
-            "strategy_id": _as_str(strategy.get("strategy_id"), "strategy_id"),
-            "revision": body.get("revision"),
-            "version": strategy.get("version"),
-        }
-    )
+    return _encode(_strategy_digest(body))
 
 
-def import_draft(base_url: str, definition: StrategyDefinition) -> str:
-    """POST one new custom strategy document through the strategies import API."""
+def import_strategy(base_url: str, document: StrategyDocument) -> str:
+    """POST one JSON document as a new strategy (fresh identity)."""
     body = _as_object(
         request_mutation_json(
             method="POST",
             url=f"{base_url}/api/v1/strategies/import",
-            payload={"strategy": definition.model_dump(mode="json")},
+            payload={"document": document},
         ),
-        "import-draft response",
+        "import-strategy response",
     )
-    strategy = _as_object(body.get("strategy"), "imported strategy")
-    return _encode(
-        {
-            "strategy_id": _as_str(strategy.get("strategy_id"), "strategy_id"),
-            "revision": body.get("revision"),
-            "version": strategy.get("version"),
-            "name": strategy.get("name"),
-            "summary": body.get("summary"),
-        }
+    return _encode(_strategy_digest(body))
+
+
+def clone_strategy(base_url: str, strategy_id: UUID) -> str:
+    """POST one clone of a strategy into a new identity."""
+    body = _as_object(
+        request_mutation_json(
+            method="POST", url=f"{base_url}/api/v1/strategies/{strategy_id}/clone"
+        ),
+        "clone-strategy response",
     )
+    return _encode(_strategy_digest(body))
+
+
+def delete_strategy(base_url: str, strategy_id: UUID) -> str:
+    """DELETE one strategy; running or paused bots block it (409)."""
+    body = _as_object(
+        request_mutation_json(
+            method="DELETE",
+            url=f"{base_url}/api/v1/strategies/{strategy_id}",
+            timeout=30.0,
+        ),
+        "delete-strategy response",
+    )
+    return _encode(body)
+
+
+def bulk_delete_strategies(base_url: str, strategy_ids: tuple[UUID, ...], *, dry_run: bool) -> str:
+    """POST one bulk delete (or dry run) and return per-strategy results."""
+    body = _as_object(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/strategies/bulk-delete",
+            payload={
+                "strategy_ids": [str(item) for item in strategy_ids],
+                "confirm": not dry_run,
+                "dry_run": dry_run,
+            },
+            timeout=60.0,
+        ),
+        "bulk-delete response",
+    )
+    return _encode(body)
+
+
+def show_snapshot(base_url: str, strategy_fingerprint: str) -> str:
+    """GET one strategy snapshot (the exact rules a run or bot used) and its owner."""
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", strategy_fingerprint) is None:
+        raise ResearchMutationError("--strategy-fingerprint must match sha256:<64 hex characters>.")
+    return _encode(_strategy_source(base_url, strategy_fingerprint))
 
 
 def list_strategies(
     base_url: str,
     *,
-    include_archived: bool = False,
     limit: int = 50,
     cursor: str | None = None,
 ) -> str:
-    """List the strategy library, hiding archived publications by default."""
-    archived_flag = "true" if include_archived else "false"
-    url = f"{base_url}/api/v1/strategies?limit={limit}&include_archived={archived_flag}"
+    """List one page of the strategy library (newest updated first)."""
+    url = f"{base_url}/api/v1/strategies?limit={limit}"
     if cursor:
         url = f"{url}&cursor={cursor}"
-    body = _as_object(
-        request_json(method="GET", url=url),
-        "strategy list",
-    )
+    body = _as_object(request_json(method="GET", url=url), "strategy list")
     strategies = body.get("strategies")
     if not isinstance(strategies, list):
         raise ResearchMutationError("Strategy library was not a JSON array.")
-    rows: list[dict[str, object]] = []
-    for item in strategies:
-        row = _as_object(item, "strategy library row")
-        archived = bool(row.get("archived"))
-        if archived and not include_archived:
-            continue
-        rows.append(
-            {
-                "strategy_id": row.get("strategy_id"),
-                "name": row.get("name"),
-                "latest_version": row.get("latest_version"),
-                "status": row.get("status"),
-                "archived": archived,
-                "archived_at": row.get("archived_at"),
-            }
-        )
+    rows = [
+        {
+            key: row.get(key)
+            for key in (
+                "strategy_id",
+                "name",
+                "product_id",
+                "timeframe",
+                "revision",
+                "valid",
+                "current_fingerprint",
+                "paper_live",
+                "active_deployment_count",
+                "updated_at",
+            )
+        }
+        for row in (_as_object(item, "strategy library row") for item in strategies)
+    ]
     return _encode(
         {
             "strategies": rows,
             "limit": body.get("limit", limit),
             "returned": body.get("returned", len(rows)),
+            "total": body.get("total"),
             "has_more": body.get("has_more", False),
             "next_cursor": body.get("next_cursor"),
         }
     )
 
 
-def archive_strategy(base_url: str, strategy_fingerprint: str) -> str:
-    """Archive one published strategy without deleting immutable evidence."""
-    if re.fullmatch(r"sha256:[0-9a-f]{64}", strategy_fingerprint) is None:
-        raise ResearchMutationError("--strategy-fingerprint must match sha256:<64 hex characters>.")
-    body = _as_object(
-        request_mutation_json(
-            method="POST",
-            url=f"{base_url}/api/v1/strategies/{strategy_fingerprint}/archive",
-            timeout=10.0,
-        ),
-        "archive response",
-    )
-    return _encode(
-        {
-            "strategy_fingerprint": body.get("strategy_fingerprint"),
-            "archived_at": body.get("archived_at"),
-        }
-    )
-
-
-def publish(base_url: str, strategy_id: UUID) -> str:
-    """Load the matching draft over HTTP and publish it immutably."""
-    listing = _as_object(
-        request_json(method="GET", url=f"{base_url}/api/v1/strategies"),
-        "strategy list",
-    )
-    entry = _draft_entry(listing, str(strategy_id))
-    version = entry.get("latest_version")
-    if not isinstance(version, int):
-        raise ResearchMutationError("Strategy draft was not found.")
-    draft = _as_object(
-        request_json(
-            method="GET",
-            url=f"{base_url}/api/v1/strategies/{strategy_id}/versions/{version}",
-        ),
-        "draft version",
-    )
-    published = _as_object(
-        request_mutation_json(
-            method="POST",
-            url=f"{base_url}/api/v1/strategies/{strategy_id}/publish",
-            payload={
-                "strategy": draft.get("strategy"),
-                "revision": draft.get("revision"),
-            },
-        ),
-        "publish response",
-    )
-    strategy = _as_object(published.get("strategy"), "published strategy")
-    return _encode(
-        {
-            "strategy_id": _as_str(strategy.get("strategy_id"), "strategy_id"),
-            "strategy_fingerprint": published.get("strategy_fingerprint"),
-            "version": strategy.get("version"),
-        }
-    )
-
-
 def submit_backtest(
     base_url: str,
-    request: BacktestSubmissionRequest,
+    request: BacktestStartRequest,
     *,
     async_submission: bool = False,
 ) -> str:
-    """POST one idempotent research run through the backtests API."""
+    """POST one backtest start; the server snapshots the strategy's current rules."""
     url = f"{base_url}/api/v1/backtests"
     if async_submission:
         url = f"{url}?async=true"
@@ -232,13 +199,10 @@ def submit_backtest(
         "submit-backtest response",
     )
     if async_submission:
-        return _encode({"job_id": body.get("job_id"), "status": body.get("status")})
-    return _encode(
-        {
-            "run_fingerprint": body.get("run_fingerprint"),
-            "result_fingerprint": body.get("result_fingerprint"),
-        }
-    )
+        keys: tuple[str, ...] = ("job_id", "status", "strategy_id", "strategy_fingerprint")
+    else:
+        keys = ("run_fingerprint", "result_fingerprint", "strategy_id", "strategy_fingerprint")
+    return _encode({key: body.get(key) for key in keys})
 
 
 def show_backtest_job(base_url: str, job_id: str) -> str:
@@ -275,7 +239,7 @@ def engine_support(base_url: str) -> str:
 
 def plan_study(
     base_url: str,
-    request: ResearchStudyRequest,
+    request: ResearchStudyStartRequest,
     *,
     detail: Literal["summary", "full"] = "summary",
 ) -> str:
@@ -297,7 +261,7 @@ def plan_study(
 
 def submit_study(
     base_url: str,
-    request: ResearchStudyRequest,
+    request: ResearchStudyStartRequest,
     *,
     async_submission: bool = False,
 ) -> str:
@@ -320,41 +284,38 @@ def submit_study(
     if async_submission:
         return _encode(
             {
-                "job_id": body.get("job_id"),
-                "kind": body.get("kind"),
-                "status": body.get("status"),
+                key: body.get(key)
+                for key in ("job_id", "kind", "status", "strategy_id", "strategy_fingerprint")
             }
         )
     return _encode(body)
 
 
 def _ambiguous_study_error(
-    request: ResearchStudyRequest,
+    request: ResearchStudyStartRequest,
     error: AgentHttpError,
 ) -> AgentHttpError:
     """Convert a study-submission failure into an actionable operator error.
 
     A definitive rejection — a 4xx status other than 408 — proves the server
-    saw and refused the request, so nothing was persisted: the message keeps
-    the real reason and the request identity, and never claims an ambiguous
-    submit state. Ambiguous failures (client timeout, unreachable transport,
-    408, or any 5xx after this write-risk POST) keep the #99 readback suffix
-    because the study may already be persisted.
+    saw and refused the request, so nothing was persisted. Ambiguous failures
+    (client timeout, unreachable transport, 408, or any 5xx after this
+    write-risk POST) name the readback command, because the study may already
+    be persisted under the strategy the server snapshotted.
     """
-    request_fp = request_fingerprint(request)
     message = str(error)
     status = error.status
     if status is not None:
         ambiguous = status == 408 or status >= 500
     else:
-        # Transport-level failures carry no status (urllib raised before a
-        # response existed). Odd bodies after this write-risk POST fall to the
-        # definitive branch rather than claiming a false ambiguous state.
         lowered = message.lower()
         ambiguous = "timed out" in lowered or "unreachable" in lowered
+    identities = request.strategy_ids()
+    primary = identities[0] if identities else None
     readback = (
-        f"thytrader-research find-study-by-request --request-fingerprint {request_fp} "
-        "(or `thytrader-research list-studies --limit 50`)"
+        f"thytrader-research list-studies --strategy-id {primary} --limit 20"
+        if primary is not None
+        else "thytrader-research list-studies --limit 50"
     )
     if ambiguous:
         return AgentHttpError(
@@ -362,10 +323,7 @@ def _ambiguous_study_error(
             f"persisted. Read back before retrying: {readback}",
             status=status,
         )
-    return AgentHttpError(
-        f"{message} (Request identity: request_fingerprint={request_fp}. Verify with: {readback})",
-        status=status,
-    )
+    return AgentHttpError(f"{message} (Verify with: {readback})", status=status)
 
 
 def find_study_by_request(base_url: str, request_fingerprint: str) -> str:
@@ -419,11 +377,15 @@ def cancel_research_job(base_url: str, job_id: str) -> str:
     return _encode(body)
 
 
-def list_studies(base_url: str, kind: str | None, limit: int) -> str:
-    """List persisted research-study catalog rows."""
+def list_studies(
+    base_url: str, kind: str | None, limit: int, strategy_id: UUID | None = None
+) -> str:
+    """List persisted research-study catalog rows (optionally for one strategy)."""
     url = f"{base_url}/api/v1/research/studies?limit={limit}"
     if kind:
         url = f"{url}&kind={kind}"
+    if strategy_id is not None:
+        url = f"{url}&strategy_id={strategy_id}"
     body = _as_object(request_json(method="GET", url=url), "study catalog")
     return _encode(body)
 
@@ -445,11 +407,14 @@ def list_results(
     strategy_fingerprint: str | None,
     limit: int,
     cursor: str | None = None,
+    strategy_id: UUID | None = None,
 ) -> str:
-    """List bounded immutable result summaries."""
+    """List bounded immutable result summaries (by strategy or by exact snapshot)."""
     url = f"{base_url}/api/v1/backtests?limit={limit}"
     if strategy_fingerprint:
         url = f"{url}&strategy_fingerprint={strategy_fingerprint}"
+    if strategy_id is not None:
+        url = f"{url}&strategy_id={strategy_id}"
     if cursor:
         url = f"{url}&cursor={cursor}"
     body = _as_object(request_json(method="GET", url=url), "backtest list")
@@ -465,6 +430,7 @@ def list_results(
                 "result_fingerprint": row.get("result_fingerprint"),
                 "run_fingerprint": row.get("run_fingerprint"),
                 "strategy_fingerprint": row.get("strategy_fingerprint"),
+                "strategy_id": row.get("strategy_id"),
                 "dataset_fingerprint": row.get("dataset_fingerprint"),
                 "engine_contract_version": row.get("engine_contract_version"),
                 "published_at": row.get("published_at"),
@@ -484,13 +450,13 @@ def list_results(
 
 
 def _strategy_source(base_url: str, strategy_fingerprint: str) -> dict[str, object]:
-    """Load one published strategy source document."""
+    """Load one strategy snapshot document."""
     return _as_object(
         request_json(
             method="GET",
-            url=f"{base_url}/api/v1/strategies/source/{strategy_fingerprint}",
+            url=f"{base_url}/api/v1/strategies/snapshots/{strategy_fingerprint}",
         ),
-        "strategy source",
+        "strategy snapshot",
     )
 
 
@@ -504,11 +470,6 @@ def _published_clock_and_quote(source: dict[str, object]) -> tuple[str, str]:
         raise ResearchMutationError("Published strategy quote currency was not USD, USDC, or USDT.")
     clock = published_execution_timeframe(timeframe) if isinstance(timeframe, str) else "1h"
     return clock, str(quote)
-
-
-def show_strategy(base_url: str, strategy_fingerprint: str) -> str:
-    """Show one published strategy definition."""
-    return _encode(_strategy_source(base_url, strategy_fingerprint))
 
 
 def show_evidence(base_url: str, strategy_fingerprint: str) -> str:
@@ -592,16 +553,18 @@ def _experiential_advisory_fields(base_url: str, model_id: str) -> dict[str, obj
     }
 
 
-def _draft_entry(listing: dict[str, object], strategy_id: str) -> dict[str, object]:
-    """Find the library row for one draft identity."""
-    strategies = listing.get("strategies")
-    if not isinstance(strategies, list):
-        raise ResearchMutationError("Strategy list was not a JSON array.")
-    for item in strategies:
-        entry = _as_object(item, "strategy library entry")
-        if entry.get("strategy_id") == strategy_id and entry.get("status") == "draft":
-            return entry
-    raise ResearchMutationError("Strategy draft was not found.")
+def _strategy_digest(body: dict[str, object]) -> dict[str, object]:
+    """Summarize one StrategyResponse without its full document."""
+    validation = _as_object(body.get("validation"), "strategy validation")
+    return {
+        "strategy_id": _as_str(body.get("strategy_id"), "strategy_id"),
+        "name": body.get("name"),
+        "revision": body.get("revision"),
+        "valid": validation.get("valid"),
+        "issues": validation.get("issues"),
+        "current_fingerprint": body.get("current_fingerprint"),
+        "summary": body.get("summary"),
+    }
 
 
 def _as_object(value: object, what: str) -> dict[str, object]:

@@ -6,10 +6,10 @@ import { expect, test } from '../e2e/harness';
 import {
 	backtestEntry,
 	datasetFingerprint,
-	draft,
+	definition,
 	fingerprint,
 	fingerprintV2,
-	historyVersion,
+	invalidRecord,
 	mockBacktestDetail,
 	mockBacktestList,
 	mockDatasets,
@@ -17,22 +17,20 @@ import {
 	mockStrategy,
 	resultFingerprint,
 	strategyId,
+	strategyRecord,
 	suggestedFeeProfile
 } from '../e2e/workspace-fixtures';
 
-const twoVersions = [historyVersion(1, fingerprint), historyVersion(2, fingerprintV2)];
 const testStage = `/strategies/${strategyId}/test`;
 
-test('old /research links redirect to the Test stage with the exact version', async ({ page }) => {
-	await mockStrategy(page, { versions: twoVersions });
+test('old /research links redirect to the Test stage of the owning strategy', async ({ page }) => {
+	await mockStrategy(page);
 	await mockBacktestList(page);
 	await mockDatasets(page);
 	await page.goto(`/research?strategy=${strategyId}&strategy_fingerprint=${fingerprint}`);
-	await expect(page).toHaveURL(
-		new RegExp(`/strategies/${strategyId}/test\\?version=${encodeURIComponent(fingerprint)}`)
-	);
-	await expect(page.getByTestId('workspace-version-pill')).toHaveText(/Published v1/);
-	await page.goto(`/research?strategy=${strategyId}`);
+	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}/test$`));
+	await expect(page.getByTestId('workspace-name')).toHaveText('Recovered BTC trend draft');
+	await page.goto(`/research?strategy_fingerprint=${encodeURIComponent(fingerprintV2)}`);
 	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}/test$`));
 });
 
@@ -51,28 +49,25 @@ test('/research without a strategy is a chooser that points at the library', asy
 	await expect(page.getByTestId('breadcrumb')).toHaveText(/Strategies\s*\/\s*Research/);
 });
 
-test('runs a backtest for the selected version and inspects the result inline', async ({
-	page
-}) => {
-	await mockStrategy(page, { versions: twoVersions });
+test('runs a backtest of the current rules and marks earlier-edit results', async ({ page }) => {
+	await mockStrategy(page);
 	await mockFees(page, suggestedFeeProfile());
 	await mockDatasets(page);
 	const v2Result = `sha256:${'9'.repeat(64)}`;
-	await mockBacktestList(page, (requested) =>
-		requested === fingerprintV2
-			? [
-					backtestEntry(fingerprintV2, {
-						result_fingerprint: v2Result,
-						engine_contract_version: 'thytrader-bar-backtest-v2'
-					})
-				]
-			: [
-					backtestEntry(fingerprint, {
-						published_at: '2026-09-22T10:00:00Z',
-						summary: { ...backtestEntry(fingerprint).summary, total_return_fraction: '0.11' }
-					})
-				]
-	);
+	const listed: string[] = [];
+	await mockBacktestList(page, (requested) => {
+		listed.push(requested);
+		return [
+			backtestEntry(fingerprintV2, {
+				result_fingerprint: v2Result,
+				engine_contract_version: 'thytrader-bar-backtest-v2'
+			}),
+			backtestEntry(fingerprint, {
+				published_at: '2026-09-22T10:00:00Z',
+				summary: { ...backtestEntry(fingerprint).summary, total_return_fraction: '0.11' }
+			})
+		];
+	});
 	await mockBacktestDetail(page, v2Result, fingerprintV2);
 	let launchBody: Record<string, unknown> | null = null;
 	await page.route(
@@ -82,7 +77,12 @@ test('runs a backtest for the selected version and inspects the result inline', 
 			launchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
 			await route.fulfill({
 				status: 201,
-				json: { run_fingerprint: `sha256:${'e'.repeat(64)}`, result_fingerprint: v2Result }
+				json: {
+					run_fingerprint: `sha256:${'e'.repeat(64)}`,
+					result_fingerprint: v2Result,
+					strategy_id: strategyId,
+					strategy_fingerprint: fingerprint
+				}
 			});
 		}
 	);
@@ -100,20 +100,31 @@ test('runs a backtest for the selected version and inspects the result inline', 
 	await page.getByTestId('run-advanced').locator('summary').click();
 	await expect(page.getByText(/\(UTC, 1h bars\)/)).toBeVisible();
 
-	// Results list covers every published version of this strategy.
+	// Results list covers every run of this strategy, by strategy id.
+	expect(listed[0]).toBe(strategyId);
 	const results = page.getByRole('table', { name: 'Backtest results for this strategy' });
 	await expect(results.getByRole('row')).toHaveCount(3);
-	await expect(results.getByRole('cell', { name: 'v1', exact: true })).toBeVisible();
-	await expect(results.getByRole('cell', { name: 'v2', exact: true })).toBeVisible();
-	await page.getByLabel('Only v2').check();
+	const earlier = results.locator('[data-rules="earlier"]');
+	await expect(earlier).toContainText('Earlier edit');
+	await expect(results.locator('[data-rules="current"]')).toContainText('Current rules');
+	// "What changed" diffs the earlier snapshot against the current rules.
+	await earlier.getByRole('button', { name: 'What changed' }).click();
+	const diff = results.getByTestId('snapshot-diff');
+	await expect(diff.getByRole('table', { name: 'What changed since these rules' })).toBeVisible();
+	await expect(diff).toContainText('12');
+	await expect(diff).toContainText('21');
+	await page.getByLabel('Only current rules').check();
 	await expect(results.getByRole('row')).toHaveCount(2);
+	await expect(results.locator('[data-rules="earlier"]')).toHaveCount(0);
+	await page.getByLabel('Only current rules').uncheck();
 
 	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v2');
 	await page.getByLabel('Constant spread (bps, total bid-ask)').fill('8');
 	await page.getByRole('button', { name: 'Run backtest' }).click();
 	await expect.poll(() => launchBody).not.toBeNull();
+	expect(launchBody).not.toHaveProperty('strategy_fingerprint');
 	expect(launchBody).toMatchObject({
-		strategy_fingerprint: fingerprintV2,
+		strategy_id: strategyId,
 		engine_contract_version: 'thytrader-bar-backtest-v2',
 		spread_bps: '8',
 		maker_fee_rate: '0.0025',
@@ -126,9 +137,11 @@ test('runs a backtest for the selected version and inspects the result inline', 
 	await expect(result.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(result.getByTestId('modeled-assumptions')).toBeVisible();
 	await expect(result.getByText(/research\s+evidence, not a promise/)).toBeVisible();
-	// Compact result header: version · period · engine, plus the simulated-result chip.
+	// Compact result header: rules · period · engine, plus the simulated-result chip.
 	const head = result.getByTestId('backtest-result-head');
-	await expect(head).toContainText(/v2 · \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2} · \d+ bars · V1/);
+	await expect(head).toContainText(
+		/Earlier edit · \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2} · \d+ bars · V1/
+	);
 	await expect(head.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	const metrics = result.getByTestId('result-metrics');
 	for (const label of [
@@ -160,11 +173,11 @@ test('a ?result= deep link opens inline, and a foreign result is refused', async
 	await mockBacktestList(page, () => [backtestEntry(fingerprint)]);
 	await mockDatasets(page);
 	await mockBacktestDetail(page, resultFingerprint, fingerprint);
-	await page.goto(`${testStage}?version=${fingerprint}&result=${resultFingerprint}`);
+	await page.goto(`${testStage}?result=${resultFingerprint}`);
 	await expect(
 		page.getByTestId('workspace-result').getByText('Simulated result (candle-based fills)')
 	).toBeVisible();
-	await expect(page.getByRole('link', { name: /Inspect v1 result/ })).toHaveAttribute(
+	await expect(page.getByRole('link', { name: /Inspect result/ })).toHaveAttribute(
 		'aria-current',
 		'true'
 	);
@@ -178,7 +191,7 @@ test('a ?result= deep link opens inline, and a foreign result is refused', async
 	await expect(page.getByText('Simulated result (candle-based fills)')).toHaveCount(0);
 });
 
-test('a composed study runs from the Run a study disclosure against the exact version', async ({
+test('a composed study runs from the Run a study disclosure against the current rules', async ({
 	page
 }) => {
 	await mockStrategy(page);
@@ -202,16 +215,17 @@ test('a composed study runs from the Run a study disclosure against the exact ve
 	await page.getByLabel('Study').selectOption('oos_holdout');
 	await page.getByRole('button', { name: 'Run study' }).click();
 	await expect.poll(() => studyBody).not.toBeNull();
-	expect(studyBody).toMatchObject({ kind: 'oos_holdout', strategy_fingerprint: fingerprint });
+	expect(studyBody).toMatchObject({ kind: 'oos_holdout', strategy_id: strategyId });
+	expect(studyBody).not.toHaveProperty('strategy_fingerprint');
 	await expect(page.getByRole('alert')).toContainText('study rejected in test');
 });
 
-test('loads every result page for an exact version', async ({ page }) => {
+test('loads every result page for the strategy', async ({ page }) => {
 	await mockStrategy(page);
 	await mockDatasets(page);
 	const offsets: number[] = [];
 	await page.route(
-		(url) => url.pathname === '/api/v1/backtests' && url.searchParams.has('strategy_fingerprint'),
+		(url) => url.pathname === '/api/v1/backtests' && url.searchParams.has('strategy_id'),
 		(route) => {
 			const url = new URL(route.request().url());
 			const offset = Number(url.searchParams.get('offset') ?? '0');
@@ -307,20 +321,10 @@ test('a refreshed fee suggestion never overwrites in-progress fee edits', async 
 });
 
 test('the window hint names the strategy clock, not UTC hours', async ({ page }) => {
-	await page.route(`**/api/v1/strategies/${strategyId}/history`, (route) =>
-		route.fulfill({
-			json: {
-				strategy_id: strategyId,
-				latest_version: 1,
-				next_version: 2,
-				versions: [historyVersion(1, fingerprint)],
-				draft: null
-			}
-		})
-	);
-	await page.route('**/api/v1/strategies/source/*', (route) =>
-		route.fulfill({ json: { strategy: { ...draft, status: 'published', timeframe: '5m' } } })
-	);
+	const fiveMinute = { ...definition, timeframe: '5m' };
+	await mockStrategy(page, {
+		record: strategyRecord({ document: fiveMinute, strategy: fiveMinute, timeframe: '5m' })
+	});
 	await mockDatasets(page, '5m');
 	await mockBacktestList(page);
 	await page.goto(testStage);
@@ -329,11 +333,47 @@ test('the window hint names the strategy clock, not UTC hours', async ({ page })
 	await expect(page.getByText(/UTC hours/)).toHaveCount(0);
 });
 
-test('a draft-only strategy has nothing to test yet', async ({ page }) => {
-	await mockStrategy(page, { versions: [], draft });
+test('an invalid saved definition blocks backtests and studies with a reason', async ({ page }) => {
+	await mockStrategy(page, { record: invalidRecord() });
+	await mockBacktestList(page, () => [backtestEntry(fingerprint)]);
 	await page.goto(testStage);
-	await expect(page.getByRole('heading', { name: 'No published version yet' })).toBeVisible();
+	const blocked = page.getByTestId('test-blocked-invalid');
+	await expect(blocked).toContainText('Backtests and studies are blocked');
+	await expect(blocked).toContainText('1 problem');
 	await expect(page.getByRole('button', { name: 'Run backtest' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Run study' })).toHaveCount(0);
+	// Existing results stay readable; with no current fingerprint their rules are unknown.
+	await expect(page.locator('[data-rules="unknown"]')).toContainText('Rules unknown');
+});
+
+test('a strategy_invalid rejection from the server is explained, not retried', async ({ page }) => {
+	await mockStrategy(page);
+	await mockFees(page, suggestedFeeProfile());
+	await mockDatasets(page);
+	await mockBacktestList(page);
+	let posts = 0;
+	await page.route(
+		(url) => url.pathname === '/api/v1/backtests',
+		async (route) => {
+			if (route.request().method() !== 'POST') return route.fallback();
+			posts += 1;
+			await route.fulfill({
+				status: 422,
+				json: {
+					detail: {
+						code: 'strategy_invalid',
+						message: 'Strategy definition is invalid.',
+						issues: [{ loc: 'entry', message: 'bad' }]
+					}
+				}
+			});
+		}
+	);
+	await page.goto(testStage);
+	await page.getByLabel('Engine').selectOption('thytrader-bar-backtest-v1');
+	await page.getByRole('button', { name: 'Run backtest' }).click();
+	await expect(page.getByRole('alert')).toContainText('The saved definition is not valid');
+	expect(posts).toBe(1);
 });
 
 test('the run bar is one compact row with Advanced options and a defaulted engine', async ({

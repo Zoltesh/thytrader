@@ -20,11 +20,12 @@ from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_range
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.schema import (
     published_research_run_specs,
-    published_strategy_versions,
+    strategies,
     strategy_dataset_bindings,
+    strategy_snapshots,
 )
 from thytrader.research.models import (
     BarExecutionAssumptions,
@@ -41,6 +42,7 @@ from thytrader.research.publication import (
     ResearchRunPublicationError,
 )
 from thytrader.research.signal_service import evaluate_published_signal_run
+from thytrader.strategies.library import StrategyNotFoundError, create_strategy_from_definition
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -124,6 +126,15 @@ def _specification(
     )
 
 
+async def _ensure_snapshot(store: PostgresStrategyStore, definition: StrategyDefinition) -> None:
+    """Create the fixed test strategy when missing, then snapshot it."""
+    try:
+        await store.get(definition.strategy_id)
+    except StrategyNotFoundError:
+        await create_strategy_from_definition(store, definition)
+    await store.snapshot(definition.strategy_id)
+
+
 async def _cleanup(
     engine: AsyncEngine,
     run_fingerprints: set[str],
@@ -145,9 +156,12 @@ async def _cleanup(
             )
         )
         await connection.execute(
-            delete(published_strategy_versions).where(
-                published_strategy_versions.c.strategy_fingerprint == strategy_fingerprint_value
+            delete(strategy_snapshots).where(
+                strategy_snapshots.c.strategy_fingerprint == strategy_fingerprint_value
             )
+        )
+        await connection.execute(
+            delete(strategies).where(strategies.c.current_fingerprint == strategy_fingerprint_value)
         )
 
 
@@ -179,7 +193,7 @@ def test_postgres_publishes_and_reverifies_exact_research_run_spec(tmp_path: Pat
         if _TEST_DATABASE_URL is None:
             raise AssertionError("PostgreSQL integration URL was not configured.")
         engine = create_engine(SecretStr(_TEST_DATABASE_URL))
-        strategy_store = PostgresStrategyPublicationStore(engine)
+        strategy_store = PostgresStrategyStore(engine)
         run_store = PostgresResearchRunStore(engine)
         dataset_store = DatasetStore(tmp_path)
         definition = _strategy()
@@ -189,7 +203,7 @@ def test_postgres_publishes_and_reverifies_exact_research_run_spec(tmp_path: Pat
         run_fingerprints: set[str] = set()
 
         try:
-            await strategy_store.publish(definition)
+            await _ensure_snapshot(strategy_store, definition)
 
             with pytest.raises(ResearchRunPublicationError, match="binding"):
                 await run_store.publish(specification, dataset_store=dataset_store)

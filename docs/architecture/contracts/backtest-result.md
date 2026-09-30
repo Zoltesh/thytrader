@@ -67,7 +67,7 @@ classDiagram
 ```mermaid
 flowchart TD
   Run["ResearchRunSpecification"] --> Sim["bar simulator decimal64-half-even-v1"]
-  Strat["Published strategy"] --> Sim
+  Strat["Strategy snapshot"] --> Sim
   Data["Verified complete-only candles"] --> Sim
   Sim --> Result["BacktestResult fingerprint"]
   Result --> API["GET /api/v1/backtests/..."]

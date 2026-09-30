@@ -50,7 +50,7 @@ from thytrader.research.parameter_sweep import (
     validate_parameter_axes_candidate_budget,
 )
 from thytrader.research.publication import explain_evaluation_window_rejection
-from thytrader.strategies.publication import StrategyPublicationError
+from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import BacktestResultReader
-    from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationStore
+    from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotStore
 
 STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
 _FINGERPRINT_PREFIX = "sha256:"
@@ -482,7 +482,7 @@ def study_catalog_summary(study: ResearchStudy, plan: ResearchStudyPlan) -> Stud
 def plan_study(
     request: ResearchStudyRequest,
     *,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
 ) -> ResearchStudyPlan:
     """Build the child window schedule from published strategy metadata."""
     warnings: list[str] = []
@@ -597,7 +597,7 @@ def aggregate_windows(
 class ResearchStudyService:
     """Plan and submit studies by composing existing backtest submissions."""
 
-    publications: StrategyPublicationStore
+    publications: StrategySnapshotStore
     submitter: BacktestSubmitter
     results: BacktestResultReader
     catalog: ResearchStudyCatalog | None = None
@@ -743,8 +743,8 @@ class ResearchStudyService:
     async def _publish_derived_candidates(
         self,
         request: ResearchStudyRequest,
-        publications: dict[str, PublishedStrategy],
-    ) -> dict[str, PublishedStrategy]:
+        publications: dict[str, StrategySnapshot],
+    ) -> dict[str, StrategySnapshot]:
         """Persist missing axis-derived fingerprints, then return the merged map."""
         merged = _merge_derived_candidates(request, publications)
         if not request.parameter_axes:
@@ -758,7 +758,7 @@ class ResearchStudyService:
                 published[loaded.strategy_fingerprint] = loaded
         except StudyPlanningError:
             raise
-        except StrategyPublicationError as error:
+        except StrategySnapshotError as error:
             if "was not found" in str(error):
                 raise StudyPlanningError(str(error)) from error
             raise ResearchStudyError(
@@ -775,20 +775,20 @@ class ResearchStudyService:
     async def _load_or_publish_derived(
         self,
         fingerprint: str,
-        candidate: PublishedStrategy,
-    ) -> PublishedStrategy:
+        candidate: StrategySnapshot,
+    ) -> StrategySnapshot:
         """Reuse a stored derived fingerprint or persist it for the first time."""
         try:
             return await self.publications.load(fingerprint)
-        except StrategyPublicationError as error:
+        except StrategySnapshotError as error:
             if "was not found" not in str(error):
                 raise
-            return await self.publications.publish(candidate.definition)
+            return await self.publications.record_snapshot(candidate.definition)
 
     def _reject_windows_outside_datasets(
         self,
         plan: ResearchStudyPlan,
-        publications: dict[str, PublishedStrategy],
+        publications: dict[str, StrategySnapshot],
     ) -> None:
         """Reject planned windows with the same dataset bound check as child backtests."""
         if self.datasets is None:
@@ -825,14 +825,14 @@ class ResearchStudyService:
 
     async def _load_publications(
         self, request: ResearchStudyRequest
-    ) -> dict[str, PublishedStrategy]:
+    ) -> dict[str, StrategySnapshot]:
         """Load every published strategy named by the study request."""
         fingerprints = _strategy_fingerprints(request)
-        loaded: dict[str, PublishedStrategy] = {}
+        loaded: dict[str, StrategySnapshot] = {}
         try:
             for fingerprint in fingerprints:
                 loaded[fingerprint] = await self.publications.load(fingerprint)
-        except StrategyPublicationError as error:
+        except StrategySnapshotError as error:
             if "was not found" in str(error):
                 raise StudyPlanningError("Published strategy was not found.") from error
             raise ResearchStudyError(
@@ -981,7 +981,7 @@ def _require_cross_market(request: ResearchStudyRequest) -> None:
 
 def _plan_cross_market(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
 ) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit one full-window child per distinct product."""
     if request.markets is None:
@@ -1023,7 +1023,7 @@ def _plan_cross_market(
 
 def _plan_single_market(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
     warnings: list[str],
 ) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit IS/OOS windows for holdout or walk-forward validation."""
@@ -1062,7 +1062,7 @@ def _plan_single_market(
 
 def _plan_parameter_sweep(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
     warnings: list[str],
 ) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit one full-window child per candidate on the shared evaluation bounds."""
@@ -1094,7 +1094,7 @@ def _plan_parameter_sweep(
 
 def _plan_walk_forward_optimization(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
     warnings: list[str],
 ) -> tuple[list[PlannedStudyWindow], DatasetTimeframe]:
     """Emit IS and OOS children for every candidate on every fold."""
@@ -1126,7 +1126,7 @@ def _plan_walk_forward_optimization(
 
 def _resolve_candidates(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
+    publications: dict[str, StrategySnapshot],
 ) -> tuple[tuple[str, ...], DatasetTimeframe, str]:
     """Return candidate fingerprints that share the base product and timeframe."""
     if request.strategy_fingerprint is None or request.dataset_fingerprint is None:
@@ -1152,8 +1152,8 @@ def _resolve_candidates(
 
 def _merge_derived_candidates(
     request: ResearchStudyRequest,
-    publications: dict[str, PublishedStrategy],
-) -> dict[str, PublishedStrategy]:
+    publications: dict[str, StrategySnapshot],
+) -> dict[str, StrategySnapshot]:
     """Add in-memory axis-derived publications without persisting them."""
     if not request.parameter_axes:
         return publications
@@ -1168,8 +1168,8 @@ def _merge_derived_candidates(
 
 def _derived_from_axes(
     request: ResearchStudyRequest,
-    base: PublishedStrategy,
-) -> tuple[PublishedStrategy, ...]:
+    base: StrategySnapshot,
+) -> tuple[StrategySnapshot, ...]:
     """Derive axis candidates or convert validation failures into planning errors."""
     if request.strategy_fingerprint is None:
         raise StudyPlanningError("parameter_axes require strategy_fingerprint.")
@@ -1366,7 +1366,7 @@ def _required_dataset_fingerprint(request: ResearchStudyRequest) -> str:
     return request.dataset_fingerprint
 
 
-def _decision_timeframe(published: PublishedStrategy) -> DatasetTimeframe:
+def _decision_timeframe(published: StrategySnapshot) -> DatasetTimeframe:
     """Read the published LTF clock without inventing unsupported intervals."""
     return published.definition.timeframe
 

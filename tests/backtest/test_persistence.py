@@ -25,8 +25,9 @@ from thytrader.persistence.schema import (
     metadata,
     published_backtest_results,
     published_research_run_specs,
-    published_strategy_versions,
+    strategies,
     strategy_dataset_bindings,
+    strategy_snapshots,
 )
 from thytrader.research.models import (
     ResearchRunSpecification,
@@ -278,8 +279,13 @@ async def _cleanup_seeded_sources(
             )
         )
         await connection.execute(
-            delete(published_strategy_versions).where(
-                published_strategy_versions.c.strategy_fingerprint == result.strategy_fingerprint
+            delete(strategy_snapshots).where(
+                strategy_snapshots.c.strategy_fingerprint == result.strategy_fingerprint
+            )
+        )
+        await connection.execute(
+            delete(strategies).where(
+                strategies.c.current_fingerprint == result.strategy_fingerprint
             )
         )
 
@@ -308,14 +314,26 @@ async def _seed_sources(
             )
         )
         await connection.execute(
-            postgres_insert(published_strategy_versions)
+            postgres_insert(strategies)
+            .values(
+                strategy_id=str(strategy.strategy_id),
+                name=strategy.name,
+                document="{}",
+                is_valid=True,
+                current_fingerprint=result.strategy_fingerprint,
+                revision=1,
+                created_at=strategy.created_at,
+                updated_at=now,
+            )
+            .on_conflict_do_nothing()
+        )
+        await connection.execute(
+            postgres_insert(strategy_snapshots)
             .values(
                 strategy_fingerprint=result.strategy_fingerprint,
                 strategy_id=str(strategy.strategy_id),
-                version=strategy.version,
-                created_at=strategy.created_at,
                 canonical_definition="{}",
-                published_at=now,
+                created_at=now,
             )
             .on_conflict_do_nothing()
         )
@@ -324,6 +342,7 @@ async def _seed_sources(
             .values(
                 strategy_fingerprint=result.strategy_fingerprint,
                 dataset_fingerprint=result.dataset_fingerprint,
+                strategy_id=str(strategy.strategy_id),
                 bound_at=now,
             )
             .on_conflict_do_nothing()
@@ -335,6 +354,7 @@ async def _seed_sources(
                 run_id=str(specification.run_id),
                 created_at=specification.created_at,
                 strategy_fingerprint=result.strategy_fingerprint,
+                strategy_id=str(strategy.strategy_id),
                 dataset_fingerprint=result.dataset_fingerprint,
                 canonical_specification=canonical_research_run_bytes(specification).decode("utf-8"),
                 published_at=now,

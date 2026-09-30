@@ -21,8 +21,7 @@ from thytrader.market_data.service import MarketDataService
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.risk.models import CapitalAllocation, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
-from thytrader.strategies.authoring import DisabledStrategyDraftStore
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.library import DisabledStrategyStore
 
 if TYPE_CHECKING:
     from thytrader.exchanges.fees import FeeProfile
@@ -77,8 +76,7 @@ def _client(
         )
     app = create_app(
         settings,
-        strategy_store=DisabledStrategyPublicationStore(),
-        strategy_draft_store=DisabledStrategyDraftStore(),
+        strategy_store=DisabledStrategyStore(),
         execution_store=execution,
         paper_broker=paper_broker if paper_broker is not None else PaperBroker(),
         live_broker=live_broker,

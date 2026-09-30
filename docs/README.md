@@ -36,7 +36,7 @@ You can:
 1. **Go 100% human** — browser and CLIs, same confirmation gates any actor faces.
 2. **Go 100% agent** — diagnosis, ingest, research, journals, notify, paper/live control through
    shipped skills, only with authority you grant.
-3. **Share the wheel** — the agent drafts; you publish and arm (or the reverse).
+3. **Share the wheel** — the agent edits a strategy; you backtest and arm (or the reverse).
 
 Safety that outlives any one screen: [Safety](user/safety.md) and the
 [security and trading-risk baseline](security-and-risk.md).

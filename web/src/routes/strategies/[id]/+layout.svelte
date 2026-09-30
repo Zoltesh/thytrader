@@ -1,28 +1,29 @@
 <script lang="ts">
 	/**
-	 * Strategy workspace shell (ADR 0080): sticky identity bar plus the
+	 * Strategy workspace shell (ADR 0080, ADR 0082): sticky identity bar plus the
 	 * Build · Test · Run · Why stage navigation. Stages are ordinary links
 	 * with `aria-current="page"`, not an ARIA tablist.
 	 *
-	 * `?version=<strategy_fingerprint>` selects the exact published version.
-	 * A fingerprint that does not belong to this strategy fails closed: the
-	 * stage content (and every mutation in it) is not rendered.
+	 * A strategy is one mutable object: the bar shows its saved validation state
+	 * and the fingerprint its next snapshot gets. Old deep links degrade
+	 * gracefully: `?version=` is dropped, and a snapshot fingerprint in place of
+	 * the strategy id resolves to the owning strategy.
 	 */
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { untrack, type Snippet } from 'svelte';
 	import { marketLabel } from '$lib/deployment-detail';
-	import { clonePublishedStrategy, reviseStrategy } from '$lib/strategies';
+	import { cloneStrategy } from '$lib/strategies';
 	import {
-		INVALID_VERSION_MESSAGE,
 		WORKSPACE_STAGES,
+		isStrategyFingerprint,
 		shortStrategyFingerprint,
 		stageFromRouteId,
 		workspaceHref,
 		type WorkspaceStage
 	} from '$lib/strategy-workspace';
-	import VersionsDialog from '$lib/workspace/VersionsDialog.svelte';
+	import { resolveStrategyOwner } from '$lib/workspace-data';
 	import { StrategyWorkspace, provideWorkspace } from '$lib/workspace/workspace.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -30,56 +31,49 @@
 	const workspace = new StrategyWorkspace();
 	provideWorkspace(workspace);
 
-	const strategyId = $derived(page.params.id ?? '');
+	const routeId = $derived(page.params.id ?? '');
 	const stage = $derived<WorkspaceStage>(stageFromRouteId(page.route.id) ?? 'build');
-	const history = $derived(workspace.history);
-	const draft = $derived(workspace.draft);
-	/** Build shows the open draft unless an exact published version is requested. */
-	const buildShowsDraft = $derived(
-		stage === 'build' && draft !== null && workspace.requestedVersion === null
-	);
-	const selected = $derived(workspace.version.entry);
-	const model = $derived(workspace.identityModel);
-	const pickerValue = $derived(buildShowsDraft ? 'draft' : (selected?.strategy_fingerprint ?? ''));
+	const record = $derived(workspace.record);
+	const model = $derived(workspace.model);
 
-	let versionsOpen = $state(false);
-	let actionPending = $state<'clone' | 'revise' | null>(null);
+	let actionPending = $state(false);
 	let actionError = $state<string | null>(null);
 	let copyStatus = $state('');
+	/** Set when an old fingerprint link could not be resolved to a live strategy. */
+	let legacyProblem = $state<string | null>(null);
 
 	$effect(() => {
-		const id = strategyId;
+		const id = routeId;
 		if (id === '') return;
-		untrack(() => void workspace.load(id));
+		untrack(() => {
+			if (isStrategyFingerprint(id)) {
+				void redirectFingerprint(id);
+				return;
+			}
+			legacyProblem = null;
+			if (page.url.searchParams.has('version')) {
+				// Old `?version=` links: a strategy has one current definition now.
+				const url = new URL(page.url);
+				url.searchParams.delete('version');
+				// eslint-disable-next-line svelte/no-navigation-without-resolve -- same route, param dropped
+				void goto(`${url.pathname}${url.search}${url.hash}`, { replaceState: true });
+			}
+			void workspace.load(id);
+		});
 	});
 
-	$effect(() => {
-		const fingerprint = workspace.selectedFingerprint;
-		if (fingerprint !== null) untrack(() => void workspace.ensureModel(fingerprint));
-	});
-
-	function stageLink(target: WorkspaceStage): `/strategies/${string}` {
-		if (target === 'build') {
-			return workspaceHref(strategyId, 'build', {
-				version: draft === null ? workspace.requestedVersion : null
-			});
-		}
-		return workspaceHref(strategyId, target, { version: workspace.requestedVersion });
-	}
-
-	function stageMeta(target: WorkspaceStage): string | null {
-		if (target !== 'build') return null;
-		if (draft !== null) return `draft v${draft.strategy.version}`;
-		const latest = history?.versions[history.versions.length - 1];
-		return latest === undefined ? null : `published v${latest.version}`;
-	}
-
-	function pickVersion(value: string): void {
-		if (value === 'draft') {
-			void goto(resolve(workspaceHref(strategyId, 'build')));
+	async function redirectFingerprint(fingerprint: string): Promise<void> {
+		legacyProblem = null;
+		const owner = await resolveStrategyOwner(fingerprint);
+		if (owner.kind === 'owned') {
+			await goto(resolve(workspaceHref(owner.strategyId, stage)), { replaceState: true });
 			return;
 		}
-		void goto(resolve(workspaceHref(strategyId, stage, { version: value })));
+		workspace.loading = false;
+		legacyProblem =
+			owner.kind === 'deleted'
+				? `These rules belonged to ${owner.strategyName ?? 'a strategy'} (deleted strategy). Its live history is kept on the Portfolio page.`
+				: 'This link names strategy rules that no longer exist on this workstation.';
 	}
 
 	async function copyFingerprint(fingerprint: string): Promise<void> {
@@ -92,56 +86,54 @@
 	}
 
 	async function clone(): Promise<void> {
-		const fingerprint = selected?.strategy_fingerprint ?? workspace.latestFingerprint;
-		if (fingerprint === null || actionPending !== null) return;
-		actionPending = 'clone';
+		if (record === null || actionPending) return;
+		actionPending = true;
 		actionError = null;
 		try {
-			const created = await clonePublishedStrategy(fingerprint);
-			await goto(resolve(workspaceHref(created.strategy.strategy_id, 'build')));
+			const created = await cloneStrategy(record.strategy_id);
+			await goto(resolve(workspaceHref(created.strategy_id, 'build')));
 		} catch (caught) {
 			actionError = caught instanceof Error ? caught.message : 'Could not clone the strategy.';
 		} finally {
-			actionPending = null;
+			actionPending = false;
 		}
 	}
 
-	async function reviseIntoDraft(): Promise<void> {
-		const fingerprint = selected?.strategy_fingerprint ?? workspace.latestFingerprint;
-		if (fingerprint === null || actionPending !== null) return;
-		actionPending = 'revise';
-		actionError = null;
-		try {
-			await reviseStrategy(strategyId, fingerprint);
-			await workspace.refresh();
-			await goto(resolve(workspaceHref(strategyId, 'build')));
-		} catch (caught) {
-			actionError = caught instanceof Error ? caught.message : 'Could not create a new draft.';
-		} finally {
-			actionPending = null;
-		}
-	}
-
-	async function onRevised(): Promise<void> {
-		versionsOpen = false;
-		await workspace.refresh();
-		await goto(resolve(workspaceHref(strategyId, 'build')));
+	function exportJson(): void {
+		if (record === null) return;
+		const blob = new Blob([JSON.stringify(record.document, null, 2)], {
+			type: 'application/json'
+		});
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = `${record.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'strategy'}.json`;
+		anchor.click();
+		URL.revokeObjectURL(url);
 	}
 </script>
 
 <main class="workspace">
-	{#if workspace.loading && history === null}
+	{#if legacyProblem}
+		<div class="error-banner" role="alert" data-testid="workspace-legacy-link">
+			<div>
+				<strong>Strategy not found</strong>
+				<p>{legacyProblem}</p>
+			</div>
+		</div>
+		<a href={resolve('/strategies')}>← Back to strategies</a>
+	{:else if workspace.loading && record === null}
 		<div class="loading-card" aria-busy="true"><div class="skeleton wide"></div></div>
-	{:else if workspace.error && history === null}
+	{:else if workspace.error && record === null}
 		<div class="error-banner" role="alert">
 			<div>
 				<strong>Strategy workspace unavailable</strong>
 				<p>{workspace.error}</p>
 			</div>
-			<button type="button" onclick={() => void workspace.load(strategyId)}>Retry</button>
+			<button type="button" onclick={() => void workspace.load(routeId)}>Retry</button>
 		</div>
 		<a href={resolve('/strategies')}>← Back to strategies</a>
-	{:else if history}
+	{:else if record}
 		<section class="card identity" aria-label="Strategy identity">
 			<div class="idbar">
 				<a class="btn ghost back" href={resolve('/strategies')} aria-label="Back to strategies">←</a
@@ -149,47 +141,27 @@
 				<div class="id-main">
 					<h1 data-testid="workspace-name">{workspace.name ?? 'Strategy'}</h1>
 					<div class="id-row">
-						<span class="pill" data-testid="workspace-version-pill">
-							{#if buildShowsDraft && draft}
-								<span class="dot draft" aria-hidden="true"></span>Draft v{draft.strategy.version}
-							{:else if selected}
-								<span class="dot" aria-hidden="true"></span>Published v{selected.version}
-							{:else if workspace.version.status === 'invalid'}
-								Unknown version
+						<span class="pill" data-testid="workspace-validity" data-valid={workspace.valid}>
+							{#if workspace.valid}
+								<span class="dot" aria-hidden="true"></span>Valid rules
 							{:else}
-								Not published
+								<span class="dot problem" aria-hidden="true"></span>{workspace.issues.length || 1} problem{workspace
+									.issues.length === 1
+									? ''
+									: 's'}
 							{/if}
 						</span>
-						<label class="picker">
-							<span class="sr-only">Version</span>
-							<select
-								data-testid="workspace-version-picker"
-								value={pickerValue}
-								onchange={(event) => pickVersion((event.currentTarget as HTMLSelectElement).value)}
-							>
-								{#if workspace.version.status === 'invalid'}
-									<option value="" disabled>Unknown version</option>
-								{/if}
-								{#each [...history.versions].reverse() as version (version.strategy_fingerprint)}
-									<option value={version.strategy_fingerprint}
-										>Published v{version.version}{version.archived ? ' · archived' : ''}</option
-									>
-								{/each}
-								{#if draft}
-									<option value="draft">Draft v{draft.strategy.version} (open)</option>
-								{/if}
-							</select>
-						</label>
-						{#if buildShowsDraft && draft}
-							<span class="faint">fingerprint created at publication</span>
-						{:else if selected}
-							<span class="pill mono" title={selected.strategy_fingerprint}
-								>{shortStrategyFingerprint(selected.strategy_fingerprint)}</span
+						{#if record.current_fingerprint}
+							<span
+								class="pill mono"
+								title="Fingerprint the next backtest or bot records: {record.current_fingerprint}"
+								data-testid="workspace-fingerprint"
+								>{shortStrategyFingerprint(record.current_fingerprint)}</span
 							>
 							<button
 								class="btn ghost small"
 								type="button"
-								onclick={() => void copyFingerprint(selected.strategy_fingerprint)}
+								onclick={() => void copyFingerprint(record.current_fingerprint!)}
 								>Copy full fingerprint</button
 							>
 						{/if}
@@ -201,73 +173,35 @@
 							<span class="faint mono product-record">Coinbase product {model.product_id}</span>
 						{/if}
 					</div>
-					<p class="draft-state" data-testid="workspace-draft-state">
-						{#if draft}
-							Draft v{draft.strategy.version} open{stage === 'build' && buildShowsDraft
-								? workspace.draftDirty
-									? ' · unsaved changes'
-									: ' · all edits saved'
-								: ''}
-						{:else}
-							No editable draft
-							<button
-								class="btn ghost small"
-								type="button"
-								disabled={actionPending !== null || workspace.latestFingerprint === null}
-								onclick={() => void reviseIntoDraft()}
-								>{actionPending === 'revise' ? 'Creating draft…' : 'Revise into new draft'}</button
-							>
-						{/if}
+					<p class="save-state" data-testid="workspace-save-state">
+						Revision {record.revision}{stage === 'build'
+							? workspace.dirty
+								? ' · unsaved changes'
+								: ' · all edits saved'
+							: ''}
 					</p>
 				</div>
 				<div class="id-actions">
-					<button class="btn" type="button" onclick={() => (versionsOpen = true)}>Versions</button>
-					<button
-						class="btn"
-						type="button"
-						disabled={actionPending !== null || workspace.latestFingerprint === null}
-						title={workspace.latestFingerprint === null
-							? 'Publish a version before cloning'
-							: undefined}
-						onclick={() => void clone()}>{actionPending === 'clone' ? 'Cloning…' : 'Clone'}</button
+					<button class="btn" type="button" onclick={exportJson}>Export JSON</button>
+					<button class="btn" type="button" disabled={actionPending} onclick={() => void clone()}
+						>{actionPending ? 'Cloning…' : 'Clone'}</button
 					>
 				</div>
 			</div>
 			<nav class="stages" aria-label="Strategy stages">
 				{#each WORKSPACE_STAGES as item (item.id)}
-					{@const meta = stageMeta(item.id)}
 					<a
 						class="stage"
 						class:on={stage === item.id}
-						href={resolve(stageLink(item.id))}
-						aria-current={stage === item.id ? 'page' : undefined}
-						>{item.label}{#if meta}<span class="n">{meta}</span>{/if}</a
+						href={resolve(workspaceHref(record.strategy_id, item.id))}
+						aria-current={stage === item.id ? 'page' : undefined}>{item.label}</a
 					>
 				{/each}
 			</nav>
 			<p class="sr-only" aria-live="polite">{copyStatus}</p>
 		</section>
-		{#if actionError}<p class="problem" role="alert">{actionError}</p>{/if}
-		{#if workspace.version.status === 'invalid'}
-			<div class="error-banner invalid" role="alert" data-testid="workspace-invalid-version">
-				<div>
-					<strong>Version not found for this strategy</strong>
-					<p>{INVALID_VERSION_MESSAGE}</p>
-					<p class="mono requested">Requested: {workspace.version.requested}</p>
-				</div>
-				<a class="btn" href={resolve(workspaceHref(strategyId, stage))}>Open latest version</a>
-			</div>
-		{:else}
-			{@render children()}
-		{/if}
-		<VersionsDialog
-			open={versionsOpen}
-			{strategyId}
-			name={workspace.name ?? 'Strategy'}
-			{history}
-			onclose={() => (versionsOpen = false)}
-			onrevised={() => void onRevised()}
-		/>
+		{#if actionError}<p class="problem-text" role="alert">{actionError}</p>{/if}
+		{@render children()}
 	{/if}
 </main>
 
@@ -327,17 +261,8 @@
 		border-radius: 50%;
 		background: var(--accent);
 	}
-	.dot.draft {
+	.dot.problem {
 		background: var(--warn);
-	}
-	.picker select {
-		height: 26px;
-		padding: 0 6px;
-		border: 1px solid var(--line-2);
-		border-radius: var(--radius-sm);
-		background: var(--surface);
-		color: var(--text);
-		font-size: var(--fs-sm);
 	}
 	.btn.small {
 		min-height: 26px;
@@ -351,7 +276,7 @@
 	.product-record {
 		font-size: var(--fs-xs);
 	}
-	.draft-state {
+	.save-state {
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -388,20 +313,8 @@
 		border-bottom-color: var(--accent);
 		color: var(--text);
 	}
-	.stage .n {
-		color: var(--faint);
-		font-size: var(--fs-xs);
-	}
-	.problem {
+	.problem-text {
 		color: var(--neg);
-	}
-	.invalid {
-		align-items: flex-start;
-		gap: 16px;
-	}
-	.requested {
-		font-size: var(--fs-xs);
-		word-break: break-all;
 	}
 	@media (max-width: 720px) {
 		.identity {

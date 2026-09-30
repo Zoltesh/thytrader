@@ -75,27 +75,64 @@ class ResearchJobRecord(BaseModel):
     result_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     study_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     plan_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
+    strategy_id: UUID | None = None
+    strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
 
 
 class ResearchJobAcceptedResponse(BaseModel):
-    """HTTP 202 body for one queued research submission."""
+    """HTTP 202 body for one queued research submission.
+
+    ``strategy_fingerprint`` is the snapshot the job will run (for a study, its
+    primary strategy's snapshot), taken when the request was accepted.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     job_id: UUID
     kind: ResearchJobKind
     status: ResearchJobStatus
+    strategy_id: UUID | None = None
+    strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
+
+
+class ResearchJobListResponse(BaseModel):
+    """Newest-first async research jobs for one strategy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    jobs: tuple[ResearchJobRecord, ...]
+    limit: int
+    returned: int
+
+
+def primary_strategy_fingerprint(request: ResearchStudyRequest) -> str:
+    """Return the snapshot a study is filed under: its base strategy or first market."""
+    if request.strategy_fingerprint is not None:
+        return request.strategy_fingerprint
+    if request.markets:
+        return request.markets[0].strategy_fingerprint
+    raise StudyPlanningError("Study request names no strategy snapshot.")
 
 
 class ResearchJobStore(Protocol):
     """Durable queue for async backtests and composed studies."""
 
-    async def create_backtest(self, request: BacktestSubmissionRequest) -> ResearchJobRecord:
-        """Insert one queued backtest job and return its initial record."""
+    async def create_backtest(
+        self, request: BacktestSubmissionRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
+        """Insert one queued backtest job owned by ``strategy_id``."""
         ...
 
-    async def create_study(self, request: ResearchStudyRequest) -> ResearchJobRecord:
-        """Insert one queued study job and return its initial record."""
+    async def create_study(
+        self, request: ResearchStudyRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
+        """Insert one queued study job owned by its primary ``strategy_id``."""
+        ...
+
+    async def list_for_strategy(
+        self, strategy_id: UUID, *, limit: int
+    ) -> tuple[ResearchJobRecord, ...]:
+        """Return the strategy's newest jobs first."""
         ...
 
     async def get(self, job_id: UUID) -> ResearchJobRecord | None:
@@ -190,15 +227,45 @@ class InMemoryResearchJobStore:
     _running_count: int = 0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    async def create_backtest(self, request: BacktestSubmissionRequest) -> ResearchJobRecord:
+    async def create_backtest(
+        self, request: BacktestSubmissionRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
         """Insert one queued backtest job and return its initial record."""
-        return await self._create(ResearchJobKind.BACKTEST, request.model_dump_json())
+        return await self._create(
+            ResearchJobKind.BACKTEST,
+            request.model_dump_json(),
+            strategy_id=strategy_id,
+            strategy_fingerprint=request.strategy_fingerprint,
+        )
 
-    async def create_study(self, request: ResearchStudyRequest) -> ResearchJobRecord:
+    async def create_study(
+        self, request: ResearchStudyRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
         """Insert one queued study job and return its initial record."""
-        return await self._create(ResearchJobKind.STUDY, request.model_dump_json())
+        return await self._create(
+            ResearchJobKind.STUDY,
+            request.model_dump_json(),
+            strategy_id=strategy_id,
+            strategy_fingerprint=primary_strategy_fingerprint(request),
+        )
 
-    async def _create(self, kind: ResearchJobKind, payload: str) -> ResearchJobRecord:
+    async def list_for_strategy(
+        self, strategy_id: UUID, *, limit: int
+    ) -> tuple[ResearchJobRecord, ...]:
+        """Return the strategy's newest jobs first."""
+        async with self._lock:
+            rows = [item for item in self._records.values() if item.strategy_id == strategy_id]
+        rows.sort(key=lambda item: item.created_at, reverse=True)
+        return tuple(rows[:limit])
+
+    async def _create(
+        self,
+        kind: ResearchJobKind,
+        payload: str,
+        *,
+        strategy_id: UUID,
+        strategy_fingerprint: str,
+    ) -> ResearchJobRecord:
         """Insert one queued job under the store lock."""
         now = datetime.now(UTC)
         record = ResearchJobRecord(
@@ -208,6 +275,8 @@ class InMemoryResearchJobStore:
             created_at=now,
             updated_at=now,
             expires_at=now + timedelta(hours=RESEARCH_JOB_EXPIRY_HOURS),
+            strategy_id=strategy_id,
+            strategy_fingerprint=strategy_fingerprint,
         )
         async with self._lock:
             self._records[record.job_id] = record

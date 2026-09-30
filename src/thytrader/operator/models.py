@@ -137,6 +137,7 @@ class OpsContractPayload(_FrozenModel):
     bounded_deployment_reads: tuple[Literal["list", "summary", "fills", "orders"], ...]
     deployment_ledger_pagination: tuple[Literal["cursor"], ...]
     multi_book_ledger: tuple[Literal["paper", "live"], ...]
+    strategy_model: tuple[Literal["mutable_root", "auto_snapshot", "hard_delete"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -322,27 +323,17 @@ class MarketDataReport(OperatorEnvelope):
     payload: MarketDataPayload
 
 
-class DraftSummary(_FrozenModel):
-    """One editable draft identity safe for operator listing."""
+class StrategySummary(_FrozenModel):
+    """One mutable strategy without its document body (ADR 0082)."""
 
     strategy_id: UUID
     name: str
-    version: int
     revision: int
-    product_id: str
-    timeframe: SupportedTimeframe
-
-
-class PublicationSummary(_FrozenModel):
-    """One immutable published version without the full strategy body."""
-
-    strategy_id: UUID
-    name: str
-    version: int
-    strategy_fingerprint: str
-    product_id: str
-    timeframe: SupportedTimeframe
-    archived: bool
+    valid: bool
+    current_fingerprint: str | None
+    product_id: str | None
+    timeframe: SupportedTimeframe | None
+    updated_at: datetime
 
 
 class DeploymentBookSummary(_FrozenModel):
@@ -361,6 +352,8 @@ class DeploymentSummary(_FrozenModel):
     kind: str
     strategy_id: UUID | None
     strategy_fingerprint: str | None
+    strategy_name: str | None = None
+    strategy_deleted: bool = False
     timeframe: SupportedTimeframe | None = None
     mode: str
     status: str
@@ -407,10 +400,9 @@ class UserOrderFeedPayload(_FrozenModel):
 
 
 class StrategiesPayload(_FrozenModel):
-    """Published, draft, and runtime identities visible to operators."""
+    """Mutable strategies and runtime books visible to operators."""
 
-    drafts: tuple[DraftSummary, ...]
-    publications: tuple[PublicationSummary, ...]
+    strategies: tuple[StrategySummary, ...]
     deployments: tuple[DeploymentSummary, ...]
 
 

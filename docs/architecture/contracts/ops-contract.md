@@ -8,17 +8,18 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0045`):
+Current checkout (Alembic `0048`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v32` |
-| `expected_schema_revision` | `0045` |
+| `id` | `thytrader-ops-contract-v41` |
+| `expected_schema_revision` | `0048` |
+| `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
 | `max_concurrent_research_jobs` | `2` |
 | `research_job_expiry_hours` | `24` |
-| `spot_quote_currencies` | `USD`, `USDC` |
+| `spot_quote_currencies` | `USD`, `USDC`, `USDT` |
 | `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest` |
 | `bounded_deployment_reads` | `list`, `summary`, `fills`, `orders` |
 | `deployment_ledger_pagination` | `cursor` |
@@ -45,7 +46,7 @@ Current checkout (Alembic `0045`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v32
+    id thytrader-ops-contract-v41
     max_historical_interval_count
     backtest_engines
     paper_timeframes
@@ -65,6 +66,7 @@ classDiagram
     lifecycle_commands
     deployment_capital_fields
     breaker_latch_reset
+    strategy_model
     async_backtest_job_statuses
     research_job_statuses
     max_concurrent_research_jobs
@@ -74,7 +76,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0045
+    expected_schema_revision 0048
   }
   class HealthPayload {
     api_probed

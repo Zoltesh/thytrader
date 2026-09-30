@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.risk.models import (
     ActiveRiskPolicy,
@@ -11,6 +11,9 @@ from thytrader.risk.models import (
     compiled_default_active_policy,
     risk_policy_fingerprint,
 )
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 
 class RiskPolicyStoreError(RuntimeError):
@@ -81,3 +84,25 @@ def next_policy_version(current: ActiveRiskPolicy) -> int:
     if current.source is RiskPolicySource.COMPILED_DEFAULT:
         return 1
     return current.definition.version + 1
+
+
+def successor_without_allocation(
+    current: ActiveRiskPolicy, strategy_id: UUID
+) -> RiskPolicyDefinition | None:
+    """Return the next policy version minus ``strategy_id``'s allocation, if it has one.
+
+    Deleting a strategy must not leave capital reserved for an identity that no
+    longer exists (ADR 0082). ``None`` means nothing needs publishing.
+    """
+    remaining = tuple(
+        item for item in current.definition.allocations if item.strategy_id != strategy_id
+    )
+    if len(remaining) == len(current.definition.allocations):
+        return None
+    return RiskPolicyDefinition.model_validate(
+        {
+            **current.definition.model_dump(mode="python"),
+            "version": next_policy_version(current),
+            "allocations": remaining,
+        }
+    )

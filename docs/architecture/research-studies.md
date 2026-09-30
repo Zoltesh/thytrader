@@ -19,7 +19,7 @@ uv run thytrader-research show-study --study-fingerprint sha256:…
 uv run thytrader-research show-evidence --strategy-fingerprint sha256:…
 uv run thytrader-research list-results [--limit 20] [--cursor CURSOR]
 uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR]
-uv run thytrader-research create-draft --template rsi-mean-reversion --confirm
+uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm
 ```
 
 `plan-study`, `engine-support`, `list-templates`, `list-studies`, `show-study`, `show-evidence`,
@@ -41,17 +41,17 @@ out-of-sample windows and disclose stitched vs equal-weight aggregates.
 | Kind | Child windows |
 |---|---|
 | `oos_holdout` | One in-sample window and one out-of-sample window, optional `embargo_bars` unused between them. `oos_fraction` is the last share of the evaluation bars assigned to OOS. |
-| `walk_forward` | For each fold, one IS window and one OOS window. `fold_mode` is `rolling` (IS start advances by `step_bars`) or `anchored` (IS start fixed; IS length grows by `step_bars`). Every window uses the request's published strategy fingerprint. |
+| `walk_forward` | For each fold, one IS window and one OOS window. `fold_mode` is `rolling` (IS start advances by `step_bars`) or `anchored` (IS start fixed; IS length grows by `step_bars`). Every window uses the snapshot of the request's `strategy_id` taken at submit. |
 | `cross_market` | One full-window backtest per market binding. Products must be unique. Timeframes must match. |
-| `parameter_sweep` | One full-window child per candidate on the shared evaluation bounds. Candidates come from **exactly one** of `candidate_strategy_fingerprints` (2–8 published) or `parameter_axes` (1–4 axes, Cartesian product ≤ 8). |
+| `parameter_sweep` | One full-window child per candidate on the shared evaluation bounds. Candidates come from **exactly one** of `candidate_strategy_ids` (2–8 valid strategies, each snapshotted at submit) or `parameter_axes` (1–4 axes, Cartesian product ≤ 8). |
 | `walk_forward_optimization` | Same fold geometry as `walk_forward`, but every candidate is simulated on every IS and OOS window. Selection uses only in-sample `selection_metric`. The matching OOS child is the fold claim. |
 
 Evaluation bounds are half-open UTC candle boundaries, the same contract as a single backtest.
 Walk-forward and WFO require at least one complete fold inside `[evaluation_start, evaluation_end)`.
 At most 24 folds and 128 child windows. Cross-market accepts 2–8 markets.
 
-`walk_forward` validation does **not** retune parameters. WFO selects among published or
-submit-published derived fingerprints; it does not peek at OOS to choose the winner.
+`walk_forward` validation does **not** retune parameters. WFO selects among candidate snapshots or
+derived variant snapshots (which keep the base `strategy_id`); it does not peek at OOS to choose the winner.
 
 ### Parameter axes
 
@@ -75,9 +75,11 @@ ADR 0044 fingerprint 3-tuple.
 `plan-study` derives in memory and does not persist. It loads dataset manifests and
 rejects windows that fail the same warmup / next-open bound check as child
 backtests (`422 study_window_rejected`, named field plus suggested ISO range).
-`submit-study --confirm` publishes missing
-derived documents through the existing publication store, then submits ordinary backtests, then
-stores the assembled study in the catalog.
+`submit-study --confirm` snapshots every named strategy and any
+derived variants, then submits ordinary backtests, then stores the assembled study in the catalog.
+Requests name strategies with `strategy_id`, `candidate_strategy_ids`, and `markets[].strategy_id`
+([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)); the canonical
+request and windows still carry the resolved snapshot `strategy_fingerprint` values.
 
 `selection_metric` is `total_return_fraction` or `total_net_pnl` (maximize) or
 `maximum_drawdown_fraction` (minimize). Ties break on the lexicographically smaller strategy
@@ -89,7 +91,11 @@ from canonical JSON so Phase 11 / ADR 0044 request fingerprints stay stable.
 `submit-study` writes one `published_research_studies` row (Alembic `0031`, ops contract
 `thytrader-ops-contract-v19`). PostgreSQL is durable. The API without a database keeps a
 process-local catalog. Operator `--local` without PostgreSQL reports `STUDY_CATALOG_UNAVAILABLE`
-rather than an empty healthy list. `list-studies` returns newest-first summaries without child
+rather than an empty healthy list. Since Alembic `0048` each row carries the primary
+`strategy_id` (FK, `ON DELETE CASCADE`) and `research_study_strategies` links every strategy the
+study includes, so `GET /api/v1/research/studies?strategy_id=` (CLI `list-studies --strategy-id`)
+lists every study that touches a strategy, and deleting any included strategy deletes the study.
+`list-studies` returns newest-first summaries without child
 equity. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
 (`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
 `windows`. `show-study` uses the default summary. `thytrader-operator studies` is the same catalog
@@ -153,7 +159,7 @@ equals `htf_filter.timeframe` stays on the HTF dataset.
 ## Explicitly not in this slice
 
 - paper or live evaluation;
-- auto-tuning inside `save-draft` / strategy authoring;
+- auto-tuning inside `save-strategy` / strategy authoring;
 - interpolating candles or equity across embargo gaps;
 - carrying open positions across OOS windows in one engine run;
 - rewriting WFO in-sample selection;

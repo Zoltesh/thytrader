@@ -1,8 +1,8 @@
 """Study submission ambiguity readback tests.
 
 A timed-out synchronous ``submit-study`` may have already persisted the study
-(derived publications and children included). The CLI must surface the request
-fingerprint and the readback command instead of a bare generic failure.
+(derived snapshots and children included). The CLI must name the strategy-scoped
+readback command instead of a bare generic failure.
 """
 
 from __future__ import annotations
@@ -14,12 +14,14 @@ import pytest
 
 from thytrader.agent_http import AgentHttpError
 from thytrader.research.http import _ambiguous_study_error, find_study_by_request
-from thytrader.research.studies import ResearchStudyRequest, request_fingerprint
+from thytrader.research.study_start import ResearchStudyStartRequest
+
+_STRATEGY_ID = "01985cf0-7b60-7000-8000-00000000beef"
 
 
-def _study_request() -> ResearchStudyRequest:
-    """Return one minimal valid parameter-sweep request."""
-    return ResearchStudyRequest.model_validate(
+def _study_request() -> ResearchStudyStartRequest:
+    """Return one minimal valid parameter-sweep start request."""
+    return ResearchStudyStartRequest.model_validate(
         {
             "kind": "parameter_sweep",
             "evaluation_start": "2026-01-01T00:00:00Z",
@@ -29,7 +31,7 @@ def _study_request() -> ResearchStudyRequest:
             "taker_fee_rate": "0.002",
             "fixed_slippage_bps": "10",
             "engine_contract_version": "thytrader-bar-backtest-v1",
-            "strategy_fingerprint": "sha256:" + "a" * 64,
+            "strategy_id": _STRATEGY_ID,
             "dataset_fingerprint": "sha256:" + "b" * 64,
             "parameter_axes": [
                 {"indicator_id": "fast", "parameter": "period", "values": ["12", "26"]}
@@ -46,9 +48,7 @@ def test_ambiguous_timeout_error_names_request_fingerprint_and_readback() -> Non
         AgentHttpError("HTTP request timed out after 5.0 seconds"),
     )
     message = str(error)
-    assert "--request-fingerprint" in message
-    assert request_fingerprint(request) in message
-    assert "find-study-by-request" in message
+    assert f"list-studies --strategy-id {_STRATEGY_ID}" in message
     assert "already be persisted" in message
 
 
@@ -61,8 +61,7 @@ def test_definitive_rejection_names_identity_without_ambiguity_hint() -> None:
     )
     message = str(error)
     assert "422" in message
-    assert "--request-fingerprint" in message
-    assert request_fingerprint(request) in message
+    assert f"--strategy-id {_STRATEGY_ID}" in message
     assert "already be persisted" not in message
 
 
@@ -74,7 +73,7 @@ def test_unreachable_submission_is_ambiguous_and_names_readback() -> None:
         AgentHttpError("ThyTrader API is unreachable at http://127.0.0.1:8000."),
     )
     message = str(error)
-    assert "--request-fingerprint" in message
+    assert "--strategy-id" in message
     assert "already be persisted" in message
 
 
@@ -86,7 +85,7 @@ def test_server_timeout_status_is_ambiguous_and_names_readback() -> None:
     )
     message = str(error)
     assert "504" in message
-    assert "--request-fingerprint" in message
+    assert "--strategy-id" in message
     assert "already be persisted" in message
 
 

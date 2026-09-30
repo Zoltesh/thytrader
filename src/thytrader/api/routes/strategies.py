@@ -1,66 +1,59 @@
-"""Browser-facing strategy library, draft, and immutable-publication HTTP contracts."""
+"""Browser- and agent-facing HTTP contract for mutable strategies (ADR 0082).
+
+A strategy is one object: create, list, get, save (revision-guarded), clone,
+import, delete, and bulk delete. Saving never starts anything; backtest, study,
+and deployment start endpoints snapshot the current definition themselves.
+"""
 
 from __future__ import annotations
 
-from collections import deque
-from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import TYPE_CHECKING, Annotated
+from datetime import UTC, datetime
+import logging
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue, StrictBool, StrictInt
 
 from thytrader.api.dependencies import (
+    get_audit_event_store,
     get_backtest_result_store,
     get_execution_store,
-    get_strategy_draft_store,
-    get_strategy_publication_catalog,
-    get_strategy_publication_store,
+    get_strategy_store,
 )
+from thytrader.api.strategy_http import strategy_http_error
 from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
-from thytrader.execution.models import DeploymentMode, ExecutionStoreError
+from thytrader.execution.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - FastAPI Query annotation.
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.persistence.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
 )
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
-from thytrader.strategies.authoring import (
-    StrategyDraft,
-    StrategyDraftStore,
-    create_cloned_draft,
-    create_reference_draft,
-    create_revised_draft,
+from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
+from thytrader.strategies.library import (
+    MAX_BULK_DELETE,
+    BulkDeletionItem,
+    StrategyDeletionCounts,
+    StrategyLibraryError,
+    StrategyRecord,
+    StrategyStore,
+    bulk_delete_strategies,
+    clone_strategy,
+    create_strategy_from_definition,
+    import_strategy,
+    parse_document,
 )
-from thytrader.strategies.models import (
-    AllCondition,
-    AnyCondition,
-    BollingerIndicatorParameters,
-    ComparisonCondition,
-    ComparisonOperator,
-    ConditionOperand,
-    IndicatorDefinition,
-    IndicatorKind,
-    IndicatorOperand,
-    IndicatorParameters,
-    LiteralOperand,
-    MacdIndicatorParameters,
-    NotCondition,
-    StochasticIndicatorParameters,
-    StrategyDefinition,
-    StrategyStatus,
-    strategy_fingerprint,
-)
-from thytrader.strategies.publication import (
-    PublishedStrategy,
-    StrategyCatalogEntry,
-    StrategyPublicationCatalog,
-    StrategyPublicationError,
-    StrategyPublicationStore,
-)
+from thytrader.strategies.models import StrategyDefinition  # noqa: TC001 - Pydantic field.
+from thytrader.strategies.summary import strategy_summary
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -68,1322 +61,553 @@ if TYPE_CHECKING:
     from thytrader.execution.models import Deployment
 
 router = APIRouter(prefix="/api/v1/strategies", tags=["strategies"])
+_logger = logging.getLogger(__name__)
 
-_LIBRARY_SUMMARY_LIMIT = 5
+PaperLiveStatus = Literal["running", "paused", "stopped", "none", "unavailable"]
+_STATUS_LABELS: dict[DeploymentStatus, PaperLiveStatus] = {
+    DeploymentStatus.RUNNING: "running",
+    DeploymentStatus.PAUSED: "paused",
+    DeploymentStatus.STOPPED: "stopped",
+}
+
+
+class ValidationIssueResponse(BaseModel):
+    """One problem that keeps a saved document from being startable."""
+
+    loc: str
+    message: str
+
+
+class StrategyValidationResponse(BaseModel):
+    """The validation result stored with the current document."""
+
+    valid: bool
+    issues: tuple[ValidationIssueResponse, ...] = ()
+
+
+class StrategyResponse(BaseModel):
+    """One mutable strategy: its document, validity, and current fingerprint."""
+
+    strategy_id: UUID
+    name: str
+    revision: int = Field(ge=1)
+    created_at: str
+    updated_at: str
+    document: dict[str, JsonValue]
+    strategy: StrategyDefinition | None = Field(
+        description="The validated definition; null while the saved document is invalid."
+    )
+    validation: StrategyValidationResponse
+    current_fingerprint: str | None = Field(
+        description="Fingerprint the next backtest/study/deployment snapshot would record."
+    )
+    summary: str | None
+    product_id: str | None
+    timeframe: str | None
 
 
 class StrategyLibraryBacktestResponse(BaseModel):
-    """One immutable backtest summary bound to the listed strategy identity."""
+    """The newest backtest of one strategy, with the snapshot it ran."""
 
     result_fingerprint: str
+    strategy_fingerprint: str
     published_at: str
     summary: BacktestSummary
 
 
 class StrategyLibraryPaperLiveResponse(BaseModel):
-    """Paper and live runtime status for one strategy identity."""
+    """Newest paper and live bot status for one strategy."""
 
-    paper: str = "unavailable"
-    live: str = "unavailable"
-
-
-class StrategyLibraryPublishedVersionResponse(BaseModel):
-    """Bind one published version number to its immutable strategy fingerprint."""
-
-    version: int = Field(ge=1)
-    strategy_fingerprint: str
+    paper: PaperLiveStatus = "none"
+    live: PaperLiveStatus = "none"
 
 
 class StrategyLibraryEntryResponse(BaseModel):
-    """One stable strategy identity with its newest lifecycle evidence."""
+    """One library row: identity, validity, and Build/Test/Paper/Live evidence."""
 
-    strategy_id: str
+    strategy_id: UUID
     name: str
-    product_id: str
-    timeframe: str
-    latest_version: int | None
-    status: str
-    latest_fingerprint: str | None
-    published_versions: tuple[StrategyLibraryPublishedVersionResponse, ...] = Field(default=())
-    archived: bool
-    summary: str
-    backtest: StrategyLibraryBacktestResponse | None
-    paper_live: StrategyLibraryPaperLiveResponse
+    product_id: str | None
+    timeframe: str | None
+    revision: int
+    valid: bool
+    current_fingerprint: str | None
+    summary: str | None
     created_at: str
     updated_at: str
+    backtest: StrategyLibraryBacktestResponse | None
+    paper_live: StrategyLibraryPaperLiveResponse
+    active_deployment_count: int = Field(ge=0)
 
 
 class StrategyListResponse(BaseModel):
-    """A bounded newest-first page of the strategy library."""
+    """One bounded newest-updated-first page of the strategy library."""
 
     strategies: tuple[StrategyLibraryEntryResponse, ...]
-    limit: int = 100
-    returned: int = 0
-    has_more: bool = False
+    limit: int
+    returned: int
+    total: int
+    has_more: bool
     next_cursor: str | None = None
 
 
-class StrategyCreatedResponse(BaseModel):
-    """One created draft document plus its library row and latest sibling evidence."""
+class StrategySaveRequest(BaseModel):
+    """One complete document (valid or not) plus the revision it was edited from."""
 
-    strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-    created: StrategyLibraryEntryResponse
-    siblings: tuple[StrategyLibraryEntryResponse, ...]
-
-
-class StrategyDraftResponse(BaseModel):
-    """One server-identified strategy draft safe for browser editing."""
-
-    strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-    summary: str
-
-
-class StrategyDraftVersionResponse(BaseModel):
-    """One complete durable draft document with its optimistic-concurrency revision."""
-
-    strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-
-
-class StrategyDraftRequest(BaseModel):
-    """One complete editable strategy draft supplied by the browser."""
-
-    strategy: StrategyDefinition
-    revision: Annotated[int, Field(strict=True, ge=1)]
-
-
-class StrategyCloneRequest(BaseModel):
-    """One published strategy identity selected for draft cloning."""
-
-    strategy_fingerprint: str
-
-
-class StrategyCloneResponse(BaseModel):
-    """One cloned draft derived from an immutable published strategy."""
-
-    strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-    summary: str
+    document: dict[str, JsonValue]
+    revision: Annotated[StrictInt, Field(ge=1)]
 
 
 class StrategyImportRequest(BaseModel):
-    """One complete strategy definition supplied for durable draft import."""
+    """One strategy JSON document to import as a new strategy."""
 
-    strategy: StrategyDefinition
+    document: dict[str, JsonValue]
 
 
-class StrategyRevisionRequest(BaseModel):
-    """One immutable published version selected as the base for a new draft."""
+class StrategyDeletionCountsResponse(BaseModel):
+    """What a deletion removes; live books are kept and only detached."""
+
+    snapshots: int
+    backtests: int
+    research_runs: int
+    studies: int
+    research_jobs: int
+    dataset_bindings: int
+    paper_deployments: int
+    live_deployments_kept: int
+    allocations_removed: int
+
+
+class StrategyDeletionResponse(BaseModel):
+    """The committed result of deleting one strategy."""
+
+    strategy_id: UUID
+    name: str
+    outcome: Literal["deleted"] = "deleted"
+    counts: StrategyDeletionCountsResponse
+    risk_policy_republished: bool
+
+
+class StrategyBulkDeleteRequest(BaseModel):
+    """Up to 100 strategies to delete, or to preview deleting with ``dry_run``."""
+
+    strategy_ids: tuple[UUID, ...] = Field(min_length=1, max_length=MAX_BULK_DELETE)
+    confirm: StrictBool = False
+    dry_run: StrictBool = False
+
+
+class StrategyBulkDeleteItemResponse(BaseModel):
+    """One strategy's bulk outcome."""
+
+    strategy_id: UUID
+    name: str | None
+    outcome: Literal["deleted", "would_delete", "blocked", "not_found", "failed"]
+    code: str | None
+    message: str | None
+    deployment_ids: tuple[UUID, ...] = ()
+    counts: StrategyDeletionCountsResponse | None
+    risk_policy_republished: bool = False
+
+
+class StrategyBulkDeleteResponse(BaseModel):
+    """Per-strategy results; partial failure is reported, never hidden."""
+
+    dry_run: bool
+    results: tuple[StrategyBulkDeleteItemResponse, ...]
+    deleted: int
+    would_delete: int
+    blocked: int
+    not_found: int
+    failed: int
+
+
+class StrategySnapshotResponse(BaseModel):
+    """One immutable snapshot, its owner, and whether it equals the current rules."""
 
     strategy_fingerprint: str
-
-
-class StrategyImportResponse(BaseModel):
-    """One imported draft as durably persisted by the authoring boundary."""
-
+    strategy_id: UUID | None
+    strategy_name: str | None
     strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-    summary: str
-
-
-class StrategyPublishRequest(BaseModel):
-    """One complete durable draft supplied for immutable publication."""
-
-    strategy: StrategyDefinition
-    revision: Annotated[int, Field(strict=True, ge=1)]
-
-
-class StrategyPublishResponse(BaseModel):
-    """One immutable strategy version returned after authoritative persistence."""
-
-    strategy_fingerprint: str
-    strategy: StrategyDefinition
-
-
-class StrategyArchiveResponse(BaseModel):
-    """One immutable publication that is now hidden from active selection."""
-
-    strategy_fingerprint: str
-    archived_at: str | None
-
-
-class StrategyDefinitionSourceResponse(BaseModel):
-    """One complete canonical strategy definition returned for cloning or import."""
-
-    strategy: StrategyDefinition
-
-
-class StrategyVersionHistoryEntryResponse(BaseModel):
-    """One immutable published version with its newest backtest evidence."""
-
-    version: int = Field(ge=1)
-    strategy_fingerprint: str
-    published: bool
-    archived: bool
-    archived_at: str | None
-    backtest: StrategyLibraryBacktestResponse | None
-
-
-class StrategyVersionHistoryResponse(BaseModel):
-    """Complete published version history for one stable strategy identity."""
-
-    strategy_id: str
-    latest_version: int | None
-    next_version: int
-    versions: tuple[StrategyVersionHistoryEntryResponse, ...] = Field(default=())
-    draft: StrategyDraftResponse | None
-
-
-class StrategyRevisionResponse(BaseModel):
-    """One newly derived next-version draft created from immutable evidence."""
-
-    strategy: StrategyDefinition
-    revision: int = Field(ge=1)
-    source_fingerprint: str
-    summary: str
+    created_at: str
+    is_current: bool
 
 
 @router.get("", response_model=StrategyListResponse)
 async def list_strategies(
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-    publication_catalog: Annotated[
-        StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
-    ],
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
     result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
     execution_store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
-    include_archived: Annotated[bool, Query()] = True,
 ) -> StrategyListResponse:
-    """Return a bounded strategy library page grouped by stable identity."""
+    """Return one newest-updated-first library page with batched evidence reads."""
+    start = _cursor_offset(cursor)
     try:
-        drafts = await draft_store.list_drafts()
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy lifecycle storage is unavailable.",
-        ) from None
-    try:
-        publications = await publication_catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-
-    groups: dict[str, _LibraryGroup] = {}
-    for draft in drafts:
-        validated = _require_exact_draft(
-            draft,
-            detail="Strategy lifecycle storage is unavailable.",
+        page = await store.list_page(limit=limit, offset=start)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    identities = [record.strategy_id for record in page.records]
+    backtests = await _newest_backtests(identities, result_store)
+    runtimes = await _runtime_statuses(identities, execution_store)
+    entries = tuple(
+        _library_entry(
+            record,
+            backtests.get(record.strategy_id),
+            runtimes.get(record.strategy_id, (StrategyLibraryPaperLiveResponse(), 0)),
         )
-        _register_draft(groups, validated)
-    for entry in publications:
-        definition = _require_exact_catalog_entry(entry)
-        _register_publication(groups, entry, definition)
-
-    # Select the page before paying enrichment cost: ordering, archive
-    # filtering, and slicing work on the in-memory groups, so lookups run per
-    # returned row instead of per catalog identity.
-    if cursor is None:
-        start = 0
-    else:
-        try:
-            start = decode_offset_cursor(cursor)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Pagination cursor is malformed.",
-            ) from None
-    ordered = sorted(groups.items(), key=lambda item: item[1].updated_at, reverse=True)
-    if not include_archived:
-        ordered = [item for item in ordered if not item[1].archived]
-    page = ordered[start : start + limit]
-
-    page_fingerprints = [
-        fingerprint for _identity, group in page for fingerprint in group.fingerprints
-    ]
-    latest_backtests = await _latest_backtests(page_fingerprints, result_store)
-    paper_live_statuses = await _paper_live_statuses(
-        [identity for identity, _group in page], execution_store
+        for record in page.records
     )
-
-    entries: list[StrategyLibraryEntryResponse] = []
-    for identity, group in page:
-        backtest = None
-        group_views = [
-            view
-            for fingerprint in group.fingerprints
-            if (view := latest_backtests.get(fingerprint))
-        ]
-        if group_views:
-            newest = max(group_views, key=lambda view: view.published_at)
-            backtest = StrategyLibraryBacktestResponse(
-                result_fingerprint=newest.result_fingerprint,
-                published_at=newest.published_at.isoformat(),
-                summary=newest.summary,
-            )
-        entries.append(
-            _library_entry(
-                group,
-                backtest,
-                paper_live_statuses.get(identity) or StrategyLibraryPaperLiveResponse(),
-            )
-        )
-    has_more = start + limit < len(ordered)
+    has_more = start + len(entries) < page.total
     return StrategyListResponse(
-        strategies=tuple(entries),
+        strategies=entries,
         limit=limit,
         returned=len(entries),
+        total=page.total,
         has_more=has_more,
         next_cursor=encode_offset_cursor(start + limit) if has_more else None,
     )
 
 
-@router.post("", response_model=StrategyCreatedResponse, status_code=status.HTTP_201_CREATED)
-async def create_strategy_draft(
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-    publication_catalog: Annotated[
-        StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
-    ],
-    result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+@router.post("", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)
+async def create_strategy(
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
     product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
     template: Annotated[str, Query()] = "ema-trend",
-) -> StrategyCreatedResponse:
-    """Create and durably save a research template draft without trading authority."""
+) -> StrategyResponse:
+    """Create one strategy from a fail-closed research template (no trading authority)."""
     try:
-        definition = create_reference_draft(
-            product_id=product_id,
-            timeframe=timeframe,
-            template=template,
+        definition = create_template_strategy(
+            product_id=product_id, timeframe=timeframe, template=template
         )
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
+            detail={"code": "strategy_template_invalid", "message": str(error)},
         ) from None
     try:
-        draft = await draft_store.create_draft(definition)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    try:
-        drafts = await draft_store.list_drafts()
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy lifecycle storage is unavailable.",
-        ) from None
-    try:
-        publications = await publication_catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-    draft = _require_exact_draft(
-        draft,
-        expected=definition,
-        expected_revision=1,
-        detail="Strategy draft storage is unavailable.",
-    )
-    try:
-        drafts = await draft_store.list_drafts()
-        publications = await publication_catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        # The draft is durably persisted and verified; a transient library-read
-        # failure must not turn a created draft into a retryable 503 (a retry
-        # would mint a duplicate reference draft).
-        only_group: dict[str, _LibraryGroup] = {}
-        _register_draft(only_group, draft)
-        created = _library_entry(only_group[str(definition.strategy_id)], None)
-        return StrategyCreatedResponse(
-            strategy=draft.definition,
-            revision=draft.revision,
-            created=created,
-            siblings=(),
-        )
-    groups: dict[str, _LibraryGroup] = {}
-    for stored in drafts:
-        _register_draft(
-            groups, _require_exact_draft(stored, detail="Strategy draft storage is unavailable.")
-        )
-    for entry in publications:
-        _register_publication(groups, entry, _require_exact_catalog_entry(entry))
-    created = _library_entry(groups[str(definition.strategy_id)], None)
-    siblings: list[StrategyLibraryEntryResponse] = []
-    for identity, group in groups.items():
-        if identity == str(definition.strategy_id):
-            continue
-        backtest = await _latest_backtest(group.fingerprints, result_store)
-        siblings.append(_library_entry(group, backtest))
-    siblings.sort(
-        key=lambda entry: datetime.fromisoformat(entry.updated_at),
-        reverse=True,
-    )
-    return StrategyCreatedResponse(
-        strategy=draft.definition,
-        revision=draft.revision,
-        created=created,
-        siblings=tuple(siblings),
-    )
+        record = await create_strategy_from_definition(store, definition)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return strategy_response(record)
 
 
-@router.get(
-    "/{strategy_id}/versions/{version}",
-    response_model=StrategyDraftVersionResponse,
-)
-async def get_strategy_draft_version(
-    strategy_id: UUID,
-    version: int,
-    store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-) -> StrategyDraftVersionResponse:
-    """Return one complete durable draft document for browser editing."""
+@router.post("/import", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)
+async def import_strategy_document(
+    body: StrategyImportRequest,
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+) -> StrategyResponse:
+    """Create a new strategy (fresh identity) from one imported JSON document."""
+    strategy_id, created_at = new_strategy_identity()
     try:
-        drafts = await store.list_drafts()
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    for draft in drafts:
-        if draft.definition.strategy_id == strategy_id and draft.definition.version == version:
-            validated = _require_exact_draft(
-                draft,
-                detail="Strategy draft storage is unavailable.",
-            )
-            return StrategyDraftVersionResponse(
-                strategy=validated.definition,
-                revision=validated.revision,
-            )
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Strategy draft was not found.",
-    )
-
-
-@router.post("/clone", response_model=StrategyCloneResponse, status_code=status.HTTP_201_CREATED)
-async def clone_strategy_draft(
-    request: StrategyCloneRequest,
-    catalog: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-) -> StrategyCloneResponse:
-    """Create one new draft identity from immutable published strategy evidence."""
-    source = await _published_definition(catalog, request.strategy_fingerprint)
-    cloned = _cloned_draft_definition(source)
-    try:
-        draft = await draft_store.create_draft(cloned)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    draft = _require_exact_draft(
-        draft,
-        expected=cloned,
-        expected_revision=1,
-        detail="Strategy draft storage is unavailable.",
-    )
-    return StrategyCloneResponse(
-        strategy=draft.definition,
-        revision=draft.revision,
-        summary=_strategy_summary(draft.definition),
-    )
-
-
-@router.get(
-    "/{strategy_id}/history",
-    response_model=StrategyVersionHistoryResponse,
-)
-async def get_strategy_version_history(
-    strategy_id: UUID,
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-    publication_catalog: Annotated[
-        StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)
-    ],
-    result_store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
-) -> StrategyVersionHistoryResponse:
-    """Return the immutable version history for one stable strategy identity."""
-    identity = str(strategy_id)
-    try:
-        drafts = await draft_store.list_drafts()
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy lifecycle storage is unavailable.",
-        ) from None
-    try:
-        publications = await publication_catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-    matching = [entry for entry in publications if str(entry.definition.strategy_id) == identity]
-    if not matching and not any(str(draft.definition.strategy_id) == identity for draft in drafts):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Strategy was not found.",
+        document = parse_document(body.document)
+        record = await import_strategy(
+            store, document, strategy_id=strategy_id, created_at=created_at
         )
-    identity_draft = next(
-        (draft for draft in drafts if str(draft.definition.strategy_id) == identity),
-        None,
-    )
-    identity_draft = (
-        _require_exact_draft(
-            identity_draft,
-            detail="Strategy draft storage is unavailable.",
-        )
-        if identity_draft is not None
-        else None
-    )
-    versions: list[StrategyVersionHistoryEntryResponse] = []
-    for entry in matching:
-        definition = _require_exact_catalog_entry(entry)
-        backtest = await _latest_backtest(
-            (entry.strategy_fingerprint,),
-            result_store,
-        )
-        versions.append(
-            StrategyVersionHistoryEntryResponse(
-                version=definition.version,
-                strategy_fingerprint=entry.strategy_fingerprint,
-                published=True,
-                archived=entry.archived_at is not None,
-                archived_at=(
-                    entry.archived_at.isoformat() if entry.archived_at is not None else None
-                ),
-                backtest=backtest,
-            )
-        )
-    versions.sort(key=lambda version: version.version)
-    latest_version = (
-        versions[-1].version
-        if versions
-        else (identity_draft.definition.version if identity_draft is not None else None)
-    )
-    next_version = (latest_version or 1) + 1
-    draft_response = (
-        StrategyDraftResponse(
-            strategy=identity_draft.definition,
-            revision=identity_draft.revision,
-            summary=_strategy_summary(identity_draft.definition),
-        )
-        if identity_draft is not None
-        else None
-    )
-    return StrategyVersionHistoryResponse(
-        strategy_id=identity,
-        latest_version=latest_version,
-        next_version=next_version,
-        versions=tuple(versions),
-        draft=draft_response,
-    )
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return strategy_response(record)
 
 
 @router.post(
-    "/{strategy_id}/revise",
-    response_model=StrategyRevisionResponse,
-    status_code=status.HTTP_201_CREATED,
+    "/bulk-delete",
+    response_model=StrategyBulkDeleteResponse,
+    responses={status.HTTP_400_BAD_REQUEST: {"description": "confirmation_required"}},
 )
-async def revise_strategy(
-    strategy_id: UUID,
-    request: StrategyRevisionRequest,
-    catalog: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-) -> StrategyRevisionResponse:
-    """Derive the next editable draft version from one immutable published version."""
-    source = await _published_definition(catalog, request.strategy_fingerprint)
-    if str(source.strategy_id) != str(strategy_id):
+async def bulk_delete(
+    body: StrategyBulkDeleteRequest,
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> StrategyBulkDeleteResponse:
+    """Delete (or with ``dry_run`` preview deleting) several strategies independently."""
+    if not body.dry_run and not body.confirm:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The supplied fingerprint belongs to a different strategy identity.",
+            detail={
+                "code": "confirmation_required",
+                "message": "Bulk delete requires confirm=true (or dry_run=true to preview).",
+            },
         )
-    try:
-        drafts = await draft_store.list_drafts()
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    existing_drafts = [
-        draft for draft in drafts if str(draft.definition.strategy_id) == str(strategy_id)
-    ]
-    if existing_drafts:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An editable draft already exists for this strategy; open it instead.",
-        )
-    try:
-        publications = await catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-    identity_versions = [
-        entry.definition.version
-        for entry in publications
-        if str(entry.definition.strategy_id) == str(strategy_id)
-    ]
-    next_version = max(identity_versions, default=source.version) + 1
-    try:
-        revised = create_revised_draft(source, next_version=next_version)
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(error),
-        ) from None
-    try:
-        draft = await draft_store.create_draft(revised)
-    except RuntimeError as error:
-        if str(error) == "An editable draft already exists for this strategy; open it instead.":
-            # A concurrent revise won the draft slot; the winner must be reused, not retried.
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="An editable draft already exists for this strategy; open it instead.",
-            ) from None
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    draft = _require_exact_draft(
-        draft,
-        expected=revised,
-        expected_revision=1,
-        detail="Strategy draft storage is unavailable.",
-    )
-    return StrategyRevisionResponse(
-        strategy=draft.definition,
-        revision=draft.revision,
-        source_fingerprint=request.strategy_fingerprint,
-        summary=_strategy_summary(draft.definition),
+    identities = tuple(dict.fromkeys(body.strategy_ids))
+    report = await bulk_delete_strategies(store, identities, dry_run=body.dry_run)
+    if not report.dry_run:
+        for item in report.items:
+            if item.outcome == "deleted" and item.counts is not None:
+                await _audit_deletion(audit, item.strategy_id, item.counts)
+    return StrategyBulkDeleteResponse(
+        dry_run=report.dry_run,
+        results=tuple(_bulk_item_response(item) for item in report.items),
+        deleted=report.count("deleted"),
+        would_delete=report.count("would_delete"),
+        blocked=report.count("blocked"),
+        not_found=report.count("not_found"),
+        failed=report.count("failed"),
     )
 
 
-@router.get("/source/{strategy_fingerprint}", response_model=StrategyDefinitionSourceResponse)
-async def get_strategy_definition_source(
+@router.get("/snapshots/{strategy_fingerprint}", response_model=StrategySnapshotResponse)
+async def get_strategy_snapshot(
     strategy_fingerprint: str,
-    catalog: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-) -> StrategyDefinitionSourceResponse:
-    """Return one immutable canonical strategy definition for editor hydration."""
-    source = await _published_definition(catalog, strategy_fingerprint)
-    return StrategyDefinitionSourceResponse(strategy=source)
-
-
-@router.post("/import", response_model=StrategyImportResponse, status_code=status.HTTP_201_CREATED)
-async def import_strategy(
-    request: StrategyImportRequest,
-    draft_store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-    catalog: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-) -> StrategyImportResponse:
-    """Persist one supplied validated definition as a new editable draft identity."""
-    supplied = request.strategy.model_copy(update={"status": StrategyStatus.DRAFT})
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+) -> StrategySnapshotResponse:
+    """Return one snapshot so clients can diff it or resolve its owning strategy."""
     try:
-        supplied = StrategyDefinition.model_validate(supplied.model_dump(mode="python"))
-    except TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Strategy import requires a valid strategy definition.",
-        ) from None
-    if supplied.status is not StrategyStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Strategy import requires a draft status.",
-        )
-    await _require_import_identity_available(draft_store, catalog, supplied)
-    try:
-        draft = await draft_store.create_draft(supplied)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy draft storage is unavailable.",
-        ) from None
-    draft = _require_exact_draft(
-        draft,
-        expected=supplied,
-        expected_revision=1,
-        detail="Strategy draft storage is unavailable.",
-    )
-    return StrategyImportResponse(
-        strategy=draft.definition,
-        revision=draft.revision,
-        summary=_strategy_summary(draft.definition),
+        lookup = await store.lookup_snapshot(strategy_fingerprint)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return StrategySnapshotResponse(
+        strategy_fingerprint=lookup.snapshot.strategy_fingerprint,
+        strategy_id=lookup.strategy_id,
+        strategy_name=lookup.strategy_name,
+        strategy=lookup.snapshot.definition,
+        created_at=_iso(lookup.created_at),
+        is_current=lookup.is_current,
     )
 
 
-@router.put(
-    "/{strategy_id}/versions/{version}",
-    response_model=StrategyDraftResponse,
-)
-async def save_strategy_draft(
+@router.get("/{strategy_id}", response_model=StrategyResponse)
+async def get_strategy(
     strategy_id: UUID,
-    version: int,
-    request: StrategyDraftRequest,
-    store: Annotated[StrategyDraftStore, Depends(get_strategy_draft_store)],
-) -> StrategyDraftResponse:
-    """Validate and persist one matching editable draft without publication authority."""
-    draft = request.strategy
-    if (
-        draft.strategy_id != strategy_id
-        or draft.version != version
-        or draft.status is not StrategyStatus.DRAFT
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only the matching editable draft can be saved.",
-        )
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+) -> StrategyResponse:
+    """Return one strategy's current document and validation state."""
     try:
-        saved = await store.save_draft(draft, expected_revision=request.revision)
-    except (RuntimeError, TypeError, ValueError) as error:
-        if str(error) == "Strategy draft was not found.":
-            status_code = status.HTTP_404_NOT_FOUND
-            detail = "Strategy draft was not found."
-        elif str(error) == "Strategy draft revision conflict.":
-            status_code = status.HTTP_409_CONFLICT
-            detail = "Strategy draft changed; reload before saving."
-        else:
-            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            detail = "Strategy draft storage is unavailable."
-        raise HTTPException(status_code=status_code, detail=detail) from None
-    saved = _require_exact_draft(
-        saved,
-        expected=draft,
-        expected_revision=request.revision + 1,
-        detail="Strategy draft storage is unavailable.",
-    )
-    return StrategyDraftResponse(
-        strategy=saved.definition,
-        revision=saved.revision,
-        summary=_strategy_summary(saved.definition),
-    )
+        record = await store.get(strategy_id)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return strategy_response(record)
+
+
+@router.put("/{strategy_id}", response_model=StrategyResponse)
+async def save_strategy(
+    strategy_id: UUID,
+    body: StrategySaveRequest,
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+) -> StrategyResponse:
+    """Save in place; a stale ``revision`` is rejected (409), never overwritten."""
+    try:
+        document = parse_document(body.document)
+        record = await store.save(strategy_id, document, expected_revision=body.revision)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return strategy_response(record)
 
 
 @router.post(
-    "/{strategy_fingerprint}/archive",
-    response_model=StrategyArchiveResponse,
+    "/{strategy_id}/clone", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED
 )
-async def archive_strategy(
-    strategy_fingerprint: str,
-    store: Annotated[StrategyPublicationCatalog, Depends(get_strategy_publication_catalog)],
-) -> StrategyArchiveResponse:
-    """Permanently hide immutable evidence from active browser selection without altering it."""
+async def clone_strategy_route(
+    strategy_id: UUID,
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+) -> StrategyResponse:
+    """Duplicate one strategy into a new identity (no history is copied)."""
+    new_id, created_at = new_strategy_identity()
     try:
-        archived = await store.archive(strategy_fingerprint)
-    except (RuntimeError, TypeError, ValueError) as error:
-        status_code = (
-            status.HTTP_404_NOT_FOUND
-            if str(error) == "Published strategy was not found."
-            else status.HTTP_503_SERVICE_UNAVAILABLE
-        )
-        detail = (
-            "Published strategy was not found."
-            if status_code == status.HTTP_404_NOT_FOUND
-            else "Strategy publication catalog is unavailable."
-        )
-        raise HTTPException(status_code=status_code, detail=detail) from None
-    _require_exact_catalog_entry(
-        archived,
-        expected_fingerprint=strategy_fingerprint,
-        require_archive_marker=True,
+        record = await clone_strategy(store, strategy_id, strategy_id=new_id, created_at=created_at)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    return strategy_response(record)
+
+
+@router.delete("/{strategy_id}", response_model=StrategyDeletionResponse)
+async def delete_strategy(
+    strategy_id: UUID,
+    store: Annotated[StrategyStore, Depends(get_strategy_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> StrategyDeletionResponse:
+    """Hard-delete one strategy; 409 while any of its bots is running or paused."""
+    try:
+        result = await store.delete(strategy_id)
+    except StrategyLibraryError as error:
+        raise strategy_http_error(error) from None
+    await _audit_deletion(audit, strategy_id, result.counts)
+    return StrategyDeletionResponse(
+        strategy_id=result.strategy_id,
+        name=result.name,
+        counts=counts_response(result.counts),
+        risk_policy_republished=result.risk_policy_republished,
     )
-    return StrategyArchiveResponse(
-        strategy_fingerprint=strategy_fingerprint,
-        archived_at=(
-            archived.archived_at.isoformat() if archived.archived_at is not None else None
+
+
+def strategy_response(record: StrategyRecord) -> StrategyResponse:
+    """Project one record into its HTTP body."""
+    return StrategyResponse(
+        strategy_id=record.strategy_id,
+        name=record.name,
+        revision=record.revision,
+        created_at=_iso(record.created_at),
+        updated_at=_iso(record.updated_at),
+        document=record.document,
+        strategy=record.definition,
+        validation=StrategyValidationResponse(
+            valid=record.validation.valid,
+            issues=tuple(
+                ValidationIssueResponse(loc=item.loc, message=item.message)
+                for item in record.validation.issues
+            ),
         ),
+        current_fingerprint=record.current_fingerprint,
+        summary=None if record.definition is None else strategy_summary(record.definition),
+        product_id=record.product_id,
+        timeframe=record.timeframe,
     )
 
 
-@router.post(
-    "/{strategy_id}/publish",
-    response_model=StrategyPublishResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def publish_strategy(
-    strategy_id: UUID,
-    request: StrategyPublishRequest,
-    store: Annotated[StrategyPublicationStore, Depends(get_strategy_publication_store)],
-) -> StrategyPublishResponse:
-    """Validate and persist one browser draft as an immutable research artifact."""
-    draft = request.strategy
-    if draft.strategy_id != strategy_id or draft.status is not StrategyStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only the matching durable draft can be published.",
-        )
-    try:
-        published = await store.publish_draft(draft, expected_revision=request.revision)
-    except StrategyPublicationError as error:
-        if str(error) == "Strategy draft was not found.":
-            status_code = status.HTTP_404_NOT_FOUND
-            detail = "Strategy draft was not found."
-        elif str(error) == "Strategy draft revision conflict.":
-            status_code = status.HTTP_409_CONFLICT
-            detail = "Strategy draft changed; reload before publishing."
-        else:
-            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            detail = "Strategy publication is unavailable."
-        raise HTTPException(status_code=status_code, detail=detail) from None
-    published_definition = StrategyDefinition.model_validate(
-        {**draft.model_dump(mode="python"), "status": StrategyStatus.PUBLISHED}
+def counts_response(counts: StrategyDeletionCounts) -> StrategyDeletionCountsResponse:
+    """Project deletion counts."""
+    return StrategyDeletionCountsResponse(
+        snapshots=counts.snapshots,
+        backtests=counts.backtests,
+        research_runs=counts.research_runs,
+        studies=counts.studies,
+        research_jobs=counts.research_jobs,
+        dataset_bindings=counts.dataset_bindings,
+        paper_deployments=counts.paper_deployments,
+        live_deployments_kept=counts.live_deployments_kept,
+        allocations_removed=counts.allocations_removed,
     )
-    _require_exact_publication(published, published_definition)
-    return StrategyPublishResponse(
-        strategy_fingerprint=published.strategy_fingerprint,
-        strategy=published.definition,
-    )
-
-
-class _LibraryGroup:
-    """One stable strategy identity accumulating its drafts and publications."""
-
-    __slots__ = (
-        "activity",
-        "archived",
-        "created_at",
-        "drafts",
-        "fingerprints",
-        "latest_fingerprint",
-        "latest_version",
-        "name",
-        "product_id",
-        "publications",
-        "status",
-        "timeframe",
-        "updated_at",
-        "version_archived",
-        "version_fingerprints",
-    )
-
-    def __init__(self, definition: StrategyDefinition) -> None:
-        """Start one group from its first observed draft or publication."""
-        self.name = definition.name
-        self.product_id = definition.instrument.product_id
-        self.timeframe = definition.timeframe
-        self.latest_version: int | None = None
-        self.latest_fingerprint: str | None = None
-        self.status = StrategyStatus.DRAFT
-        self.archived = False
-        self.created_at: datetime | None = None
-        self.updated_at: datetime | None = None
-        self.activity: datetime | None = None
-        self.drafts: deque[StrategyDefinition] = deque()
-        self.publications: deque[StrategyDefinition] = deque()
-        self.fingerprints: tuple[str, ...] = ()
-        self.version_archived: tuple[tuple[int, bool], ...] = ()
-        self.version_fingerprints: tuple[tuple[int, str], ...] = ()
-
-    def _observe(self, definition: StrategyDefinition) -> None:
-        """Track the group-wide name, market, and time envelope of one version."""
-        if self.created_at is None or definition.created_at < self.created_at:
-            self.created_at = definition.created_at
-        if self.updated_at is None or definition.created_at > self.updated_at:
-            self.updated_at = definition.created_at
-
-    def _adopt_identity(self, definition: StrategyDefinition) -> None:
-        """Adopt display identity from the highest observed version, not registration order."""
-        self.name = definition.name
-        self.product_id = definition.instrument.product_id
-        self.timeframe = definition.timeframe
-
-    def observe_draft(self, definition: StrategyDefinition) -> None:
-        """Record one editable draft version inside the stable identity group."""
-        self._observe(definition)
-        self.drafts.append(definition)
-        if self.activity is None or definition.created_at > self.activity:
-            self.activity = definition.created_at
-        if self.latest_version is None or definition.version > self.latest_version:
-            self.latest_version = definition.version
-            self.status = StrategyStatus.DRAFT
-            self._adopt_identity(definition)
-
-    def observe_publication(
-        self,
-        entry: StrategyCatalogEntry,
-        definition: StrategyDefinition,
-    ) -> None:
-        """Record one immutable version and its optional archive marker."""
-        self._observe(definition)
-        self.publications.append(definition)
-        if self.activity is None or definition.created_at > self.activity:
-            self.activity = definition.created_at
-        # Publications win version ties so immutable evidence outranks a stale draft.
-        if self.latest_version is None or definition.version >= self.latest_version:
-            self.latest_version = definition.version
-            self.status = StrategyStatus.PUBLISHED
-            self._adopt_identity(definition)
-        known = dict(self.version_fingerprints)
-        known[definition.version] = entry.strategy_fingerprint
-        self.version_fingerprints = tuple(sorted(known.items()))
-        self.latest_fingerprint = self.version_fingerprints[-1][1]
-        archive_markers = dict(self.version_archived)
-        archive_markers[definition.version] = entry.archived_at is not None
-        self.version_archived = tuple(sorted(archive_markers.items()))
-        latest_published_version = self.version_fingerprints[-1][0]
-        self.archived = archive_markers[latest_published_version]
-
-    def require_times(self) -> tuple[datetime, datetime]:
-        """Return the group envelope, rejecting identities without observed versions."""
-        if self.created_at is None or self.updated_at is None:
-            message = "Strategy library group has no observed versions."
-            raise TypeError(message)
-        return (self.created_at, self.updated_at)
-
-
-async def _published_definition(
-    catalog: StrategyPublicationCatalog,
-    strategy_fingerprint_value: str,
-) -> StrategyDefinition:
-    """Resolve one immutable definition by fingerprint with strict identity binding."""
-    try:
-        publications = await catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-    for entry in publications:
-        if entry.strategy_fingerprint != strategy_fingerprint_value:
-            continue
-        definition = _require_exact_catalog_entry(
-            entry,
-            expected_fingerprint=strategy_fingerprint_value,
-        )
-        return definition  # noqa: RET504 - name keeps the revalidation result explicit.
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Published strategy was not found.",
-    )
-
-
-def _cloned_draft_definition(source: StrategyDefinition) -> StrategyDefinition:
-    """Derive a fresh draft identity from immutable evidence without changing semantics."""
-    try:
-        return create_cloned_draft(source)
-    except ValueError as error:
-        # A 120-character source name would exceed the " (clone)" headroom.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="This strategy name is too long to clone; shorten it first.",
-        ) from error
-
-
-async def _require_import_identity_available(
-    draft_store: StrategyDraftStore,
-    catalog: StrategyPublicationCatalog,
-    supplied: StrategyDefinition,
-) -> None:
-    """Reject imports that would overwrite an existing draft or duplicate a publication."""
-    identity = str(supplied.strategy_id)
-    try:
-        drafts = await draft_store.list_drafts()
-        publications = await catalog.list_published(include_archived=True)
-    except RuntimeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy lifecycle storage is unavailable.",
-        ) from None
-    for draft in drafts:
-        if str(draft.definition.strategy_id) == identity:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A draft with this strategy identity already exists.",
-            )
-    published_copy = supplied.model_copy(update={"status": StrategyStatus.PUBLISHED})
-    for entry in publications:
-        if str(entry.definition.strategy_id) == identity and (
-            entry.definition == published_copy or entry.definition.version == supplied.version
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This strategy is already published; clone it instead.",
-            )
-
-
-def _register_draft(
-    groups: dict[str, _LibraryGroup],
-    draft: StrategyDraft,
-) -> None:
-    """Register one revalidated draft in its stable identity group."""
-    identity = str(draft.definition.strategy_id)
-    group = groups.setdefault(identity, _LibraryGroup(draft.definition))
-    group.observe_draft(draft.definition)
-
-
-def _register_publication(
-    groups: dict[str, _LibraryGroup],
-    entry: StrategyCatalogEntry,
-    definition: StrategyDefinition,
-) -> None:
-    """Register one revalidated immutable publication in its identity group."""
-    identity = str(definition.strategy_id)
-    group = groups.setdefault(identity, _LibraryGroup(definition))
-    group.observe_publication(entry, definition)
-    fingerprints = list(group.fingerprints)
-    fingerprints.append(entry.strategy_fingerprint)
-    group.fingerprints = tuple(fingerprints)
-
-
-async def _latest_backtest(
-    fingerprints: tuple[str, ...],
-    result_store: BacktestResultReader,
-) -> StrategyLibraryBacktestResponse | None:
-    """Resolve the newest immutable backtest bound to any version of one strategy."""
-    candidates: list[BacktestResultSummaryView] = []
-    for fingerprint_value in fingerprints:
-        try:
-            summaries = await result_store.list_summaries(
-                strategy_fingerprint=fingerprint_value,
-                limit=1,
-                offset=0,
-            )
-        except Exception:  # noqa: BLE001, S112 - redacted per-request degradation.
-            continue
-        if not summaries:
-            continue
-        candidates.append(summaries[0])
-    if not candidates:
-        return None
-    newest = max(candidates, key=lambda summary: summary.published_at)
-    return StrategyLibraryBacktestResponse(
-        result_fingerprint=newest.result_fingerprint,
-        published_at=newest.published_at.isoformat(),
-        summary=newest.summary,
-    )
-
-
-async def _latest_backtests(
-    strategy_fingerprints: Sequence[str],
-    result_store: BacktestResultReader,
-) -> dict[str, BacktestResultSummaryView]:
-    """Resolve the newest stored backtest per requested fingerprint in one batch.
-
-    A storage boundary that predates batched discovery degrades to one bounded
-    query per fingerprint; missing or failing fingerprints are simply absent.
-    """
-    fingerprints = list(dict.fromkeys(strategy_fingerprints))
-    if not fingerprints:
-        return {}
-    batched = getattr(result_store, "list_summaries_for_strategies", None)
-    if batched is not None:
-        try:
-            return await batched(fingerprints)
-        except Exception:  # noqa: BLE001, S110 - fall back to per-fingerprint reads.
-            pass
-    grouped: dict[str, BacktestResultSummaryView] = {}
-    for fingerprint_value in fingerprints:
-        try:
-            summaries = await result_store.list_summaries(
-                strategy_fingerprint=fingerprint_value,
-                limit=1,
-                offset=0,
-            )
-        except Exception:  # noqa: BLE001, S112 - redacted per-request degradation.
-            continue
-        if summaries:
-            grouped[fingerprint_value] = summaries[0]
-    return grouped
-
-
-async def _paper_live_statuses(
-    strategy_ids: Sequence[str],
-    store: ExecutionStore,
-) -> dict[str, StrategyLibraryPaperLiveResponse]:
-    """Project paper/live deployment statuses for one page of identities.
-
-    A storage boundary that predates batched discovery degrades to one query
-    per identity; failing identities report the neutral unavailable status.
-    """
-    identities = list(strategy_ids)
-    if not identities:
-        return {}
-    batched = getattr(store, "list_by_strategy_ids", None)
-    grouped: dict[str, tuple[Deployment, ...]] = {}
-    if batched is not None:
-        try:
-            grouped = await batched(identities)
-        except ExecutionStoreError:
-            grouped = {}
-    else:
-        for identity in identities:
-            try:
-                grouped[identity] = await store.list_by_strategy(identity)
-            except ExecutionStoreError:
-                grouped[identity] = ()
-    statuses: dict[str, StrategyLibraryPaperLiveResponse] = {}
-    for identity, deployments in grouped.items():
-        paper = "unavailable"
-        live = "unavailable"
-        for item in deployments:
-            if item.mode is DeploymentMode.PAPER and paper == "unavailable":
-                paper = item.status.value
-            elif item.mode is DeploymentMode.LIVE and live == "unavailable":
-                live = item.status.value
-        statuses[identity] = StrategyLibraryPaperLiveResponse(paper=paper, live=live)
-    return statuses
 
 
 def _library_entry(
-    group: _LibraryGroup,
-    backtest: StrategyLibraryBacktestResponse | None,
-    paper_live: StrategyLibraryPaperLiveResponse | None = None,
+    record: StrategyRecord,
+    backtest: BacktestResultSummaryView | None,
+    runtime: tuple[StrategyLibraryPaperLiveResponse, int],
 ) -> StrategyLibraryEntryResponse:
-    """Project one identity group into its bounded library row."""
-    created_at, updated_at = group.require_times()
-    if not group.drafts and group.latest_fingerprint is not None:
-        group.status = StrategyStatus.PUBLISHED
-    representative = group.drafts[0] if group.drafts else group.publications[0]
+    """Project one strategy and its newest evidence into a library row."""
+    paper_live, active = runtime
     return StrategyLibraryEntryResponse(
-        strategy_id=representative.strategy_id
-        if isinstance(representative.strategy_id, str)
-        else str(representative.strategy_id),
-        name=group.name,
-        product_id=group.product_id,
-        timeframe=group.timeframe,
-        latest_version=group.latest_version,
-        status=(
-            "archived"
-            if group.archived and group.status is not StrategyStatus.DRAFT
-            else group.status.value
+        strategy_id=record.strategy_id,
+        name=record.name,
+        product_id=record.product_id,
+        timeframe=record.timeframe,
+        revision=record.revision,
+        valid=record.validation.valid,
+        current_fingerprint=record.current_fingerprint,
+        summary=None if record.definition is None else strategy_summary(record.definition),
+        created_at=_iso(record.created_at),
+        updated_at=_iso(record.updated_at),
+        backtest=None
+        if backtest is None
+        else StrategyLibraryBacktestResponse(
+            result_fingerprint=backtest.result_fingerprint,
+            strategy_fingerprint=backtest.strategy_fingerprint,
+            published_at=_iso(backtest.published_at),
+            summary=backtest.summary,
         ),
-        latest_fingerprint=group.latest_fingerprint,
-        published_versions=tuple(
-            StrategyLibraryPublishedVersionResponse(
-                version=version,
-                strategy_fingerprint=fingerprint,
-            )
-            for version, fingerprint in group.version_fingerprints
-        ),
-        archived=group.archived,
-        summary=_strategy_summary(representative),
-        backtest=backtest,
-        paper_live=paper_live or StrategyLibraryPaperLiveResponse(),
-        created_at=created_at.isoformat(),
-        updated_at=updated_at.isoformat(),
+        paper_live=paper_live,
+        active_deployment_count=active,
     )
 
 
-def _require_exact_publication(
-    published: PublishedStrategy,
-    expected: StrategyDefinition,
-) -> None:
-    """Reject a storage boundary that returns mismatched immutable strategy evidence."""
-    if published.definition != expected or published.strategy_fingerprint != strategy_fingerprint(
-        expected
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication is unavailable.",
-        )
-
-
-def _require_exact_draft(
-    draft: StrategyDraft,
-    *,
-    detail: str,
-    expected: StrategyDefinition | None = None,
-    expected_revision: int | None = None,
-) -> StrategyDraft:
-    """Revalidate draft-store output and bind expected content and revision identity."""
+async def _newest_backtests(
+    identities: Sequence[UUID], result_store: BacktestResultReader
+) -> dict[UUID, BacktestResultSummaryView]:
+    """Return each strategy's newest backtest in one batched read when supported."""
+    if not identities:
+        return {}
+    batched = getattr(result_store, "newest_summaries_for_strategy_ids", None)
+    newest: dict[UUID, BacktestResultSummaryView] = {}
     try:
-        definition = StrategyDefinition.model_validate(draft.definition.model_dump(mode="python"))
-        revision = draft.revision
-    except AttributeError, TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail
-        ) from None
-    if (
-        definition.status is not StrategyStatus.DRAFT
-        or type(revision) is not int
-        or revision < 1
-        or (expected is not None and definition != expected)
-        or (expected_revision is not None and revision != expected_revision)
-    ):
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
-    return StrategyDraft(definition=definition, revision=revision)
+        if batched is not None:
+            return await batched(list(identities))
+        for identity in identities:
+            rows = await result_store.list_summaries(strategy_id=identity, limit=1, offset=0)
+            if rows:
+                newest[identity] = rows[0]
+    except Exception as error:  # noqa: BLE001 - evidence enrichment must not fail the page.
+        _logger.warning("strategy_library_backtests_unavailable error=%s", type(error).__name__)
+        return {}
+    return newest
 
 
-def _require_exact_catalog_entry(
-    entry: StrategyCatalogEntry,
-    *,
-    expected_fingerprint: str | None = None,
-    require_archive_marker: bool = False,
-) -> StrategyDefinition:
-    """Revalidate catalog evidence and bind it to canonical and requested identity."""
+async def _runtime_statuses(
+    identities: Sequence[UUID], store: ExecutionStore
+) -> dict[UUID, tuple[StrategyLibraryPaperLiveResponse, int]]:
+    """Project newest paper/live status and active bot count per strategy (one query)."""
+    if not identities:
+        return {}
+    keys = [str(identity) for identity in identities]
+    batched = getattr(store, "list_by_strategy_ids", None)
     try:
-        definition = StrategyDefinition.model_validate(entry.definition.model_dump(mode="python"))
-        canonical_fingerprint = strategy_fingerprint(definition)
-    except TypeError, ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        ) from None
-    archived_at = entry.archived_at
-    archive_marker_invalid = archived_at is not None and (
-        not isinstance(archived_at, datetime) or archived_at.utcoffset() != timedelta(0)
-    )
-    if (
-        definition.status is not StrategyStatus.PUBLISHED
-        or entry.strategy_fingerprint != canonical_fingerprint
-        or (expected_fingerprint is not None and entry.strategy_fingerprint != expected_fingerprint)
-        or archive_marker_invalid
-        or (require_archive_marker and archived_at is None)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Strategy publication catalog is unavailable.",
-        )
-    return definition
-
-
-def _strategy_summary(definition: StrategyDefinition) -> str:
-    """Render a bounded human-readable outline from validated strategy semantics."""
-    entry_summary = _entry_rule_summary(definition)
-    risk_text = _shift_decimal_text(definition.sizing.risk_fraction, places=2)
-    return (
-        f"{definition.instrument.product_id} · {definition.timeframe} · {entry_summary} · "
-        f"{risk_text}% risk · "
-        f"${definition.sizing.min_quote_notional}-${definition.sizing.max_quote_notional}"
-    )
-
-
-def _entry_rule_summary(definition: StrategyDefinition) -> str:
-    """Describe the validated entry rule tree without EMA-only assumptions."""
-    indicators = {indicator.id: indicator for indicator in definition.indicators}
-    return _condition_summary(definition.entry.when, indicators)
-
-
-def _condition_summary(
-    condition: ComparisonCondition | AllCondition | AnyCondition | NotCondition,
-    indicators: dict[str, IndicatorDefinition],
-) -> str:
-    """Flatten one validated condition tree into bounded operator-readable text."""
-    if isinstance(condition, ComparisonCondition):
-        return _comparison_summary(condition, indicators)
-    if isinstance(condition, NotCondition):
-        return f"NOT ({_condition_summary(condition.not_, indicators)})"
-    children = condition.all if isinstance(condition, AllCondition) else condition.any
-    joiner = " AND " if isinstance(condition, AllCondition) else " OR "
-    return joiner.join(_condition_summary(child, indicators) for child in children)
-
-
-def _comparison_summary(
-    condition: ComparisonCondition,
-    indicators: dict[str, IndicatorDefinition],
-) -> str:
-    """Render one comparison or crossover from its validated operands."""
-    left = _operand_summary(condition.left, indicators)
-    right = _operand_summary(condition.right, indicators)
-    if condition.operator is ComparisonOperator.CROSSES_ABOVE:
-        return f"{left} crosses above {right}"
-    if condition.operator is ComparisonOperator.CROSSES_BELOW:
-        return f"{left} crosses below {right}"
-    symbol = _COMPARISON_SYMBOLS[condition.operator]
-    return f"{left} {symbol} {right}"
-
-
-_COMPARISON_SYMBOLS = {
-    ComparisonOperator.GT: ">",
-    ComparisonOperator.GTE: "≥",
-    ComparisonOperator.LT: "<",
-    ComparisonOperator.LTE: "≤",
-    ComparisonOperator.EQ: "=",
-}
-
-
-def _operand_summary(operand: ConditionOperand, indicators: dict[str, IndicatorDefinition]) -> str:
-    """Render one indicator or literal operand for summary text."""
-    if isinstance(operand, LiteralOperand):
-        return operand.literal
-    return _indicator_operand_summary(operand, indicators[operand.indicator])
-
-
-_PERIOD_KIND_LABELS: dict[IndicatorKind, str] = {
-    IndicatorKind.EMA: "EMA",
-    IndicatorKind.SMA: "SMA",
-    IndicatorKind.WMA: "WMA",
-    IndicatorKind.RSI: "RSI",
-    IndicatorKind.ROC: "ROC",
-}
-
-
-def _multi_series_indicator_label(
-    operand: IndicatorOperand,
-    indicator: IndicatorDefinition,
-) -> str | None:
-    """Return a label for multi-output indicator kinds when recognized."""
-    if indicator.kind is IndicatorKind.MACD and isinstance(
-        indicator.parameters, MacdIndicatorParameters
-    ):
-        if operand.series == "signal":
-            return "MACD signal"
-        if operand.series == "histogram":
-            return "MACD histogram"
-        return "MACD line"
-    if indicator.kind is IndicatorKind.BOLLINGER and isinstance(
-        indicator.parameters, BollingerIndicatorParameters
-    ):
-        series = operand.series or "middle"
-        if series == "upper":
-            return "upper Bollinger band"
-        if series == "lower":
-            return "lower Bollinger band"
-        return "middle Bollinger band"
-    if indicator.kind is IndicatorKind.STOCHASTIC and isinstance(
-        indicator.parameters, StochasticIndicatorParameters
-    ):
-        series = operand.series or "k"
-        return "%K" if series == "k" else "%D"
-    if indicator.kind is IndicatorKind.ADX and isinstance(
-        indicator.parameters, IndicatorParameters
-    ):
-        series = operand.series or "adx"
-        if series == "adx":
-            return f"ADX({indicator.parameters.period})"
-        return f"{series.upper()}({indicator.parameters.period})"
-    return None
-
-
-def _indicator_operand_summary(
-    operand: IndicatorOperand,
-    indicator: IndicatorDefinition,
-) -> str:
-    """Render one indicator reference, including multi-series ids when declared."""
-    if isinstance(indicator.parameters, IndicatorParameters):
-        period_label = _PERIOD_KIND_LABELS.get(indicator.kind)
-        if period_label is not None:
-            return f"{period_label}({indicator.parameters.period})"
-    multi_series = _multi_series_indicator_label(operand, indicator)
-    if multi_series is not None:
-        return multi_series
-    if indicator.kind is IndicatorKind.IDENTITY:
-        return str(indicator.input)
-    if operand.series is None:
-        return operand.indicator
-    return f"{operand.indicator}.{operand.series}"
-
-
-def _shift_decimal_text(value: str, *, places: int) -> str:
-    """Shift an exact canonical decimal point without ambient-context arithmetic."""
-    sign, digits, exponent = Decimal(value).as_tuple()
-    if not isinstance(exponent, int):
-        raise TypeError("Strategy summary requires a finite decimal risk fraction.")
-    digit_text = "".join(str(digit) for digit in digits) or "0"
-    shifted_exponent = exponent + places
-    if shifted_exponent >= 0:
-        result = digit_text + ("0" * shifted_exponent)
-    else:
-        point = len(digit_text) + shifted_exponent
-        if point <= 0:
-            result = f"0.{('0' * -point)}{digit_text}"
+        if batched is not None:
+            grouped: dict[str, tuple[Deployment, ...]] = await batched(keys)
         else:
-            result = f"{digit_text[:point]}.{digit_text[point:]}"
-    result = result.rstrip("0").rstrip(".") if "." in result else result
-    unsigned = result or "0"
-    return f"-{unsigned}" if sign else unsigned
+            grouped = {key: await store.list_by_strategy(key) for key in keys}
+    except ExecutionStoreError:
+        unavailable = StrategyLibraryPaperLiveResponse(paper="unavailable", live="unavailable")
+        return dict.fromkeys(identities, (unavailable, 0))
+    return {identity: _runtime_status(grouped.get(str(identity), ())) for identity in identities}
+
+
+def _runtime_status(
+    items: Sequence[Deployment],
+) -> tuple[StrategyLibraryPaperLiveResponse, int]:
+    """Summarize one strategy's deployments (already newest first)."""
+    paper: PaperLiveStatus = "none"
+    live: PaperLiveStatus = "none"
+    for item in items:
+        if item.mode is DeploymentMode.PAPER and paper == "none":
+            paper = _STATUS_LABELS[item.status]
+        elif item.mode is DeploymentMode.LIVE and live == "none":
+            live = _STATUS_LABELS[item.status]
+    active = sum(
+        1 for item in items if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+    )
+    return StrategyLibraryPaperLiveResponse(paper=paper, live=live), active
+
+
+def _bulk_item_response(item: BulkDeletionItem) -> StrategyBulkDeleteItemResponse:
+    """Project one bulk outcome."""
+    return StrategyBulkDeleteItemResponse(
+        strategy_id=item.strategy_id,
+        name=item.name,
+        outcome=item.outcome,
+        code=item.code,
+        message=item.message,
+        deployment_ids=item.deployment_ids,
+        counts=None if item.counts is None else counts_response(item.counts),
+        risk_policy_republished=item.risk_policy_republished,
+    )
+
+
+async def _audit_deletion(
+    audit: AuditEventStore, strategy_id: UUID, counts: StrategyDeletionCounts
+) -> None:
+    """Record a committed deletion; an audit outage never reverses or hides it."""
+    event = AuditEvent(
+        occurred_at=datetime.now(UTC),
+        category=AuditEventCategory.RESEARCH,
+        action="delete_strategy",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"strategy_id={strategy_id} backtests={counts.backtests} studies={counts.studies} "
+            f"paper_deployments={counts.paper_deployments} "
+            f"live_deployments_kept={counts.live_deployments_kept} "
+            f"allocations_removed={counts.allocations_removed}"
+        ),
+    )
+    try:
+        await audit.append(event)
+    except Exception as error:  # noqa: BLE001 - the deletion already committed.
+        _logger.warning("strategy_delete_audit_failed error=%s", type(error).__name__)
+
+
+def _cursor_offset(cursor: str | None) -> int:
+    """Decode one opaque offset cursor."""
+    if cursor is None:
+        return 0
+    try:
+        return decode_offset_cursor(cursor)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "strategy_cursor_invalid",
+                "message": "Pagination cursor is malformed.",
+            },
+        ) from None
+
+
+def _iso(value: datetime) -> str:
+    """Render one UTC instant with a Z suffix."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

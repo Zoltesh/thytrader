@@ -3,7 +3,7 @@
 ## Purpose and boundary
 
 The first executable research engine consumes one exact published research-run specification using
-`thytrader-bar-signal-v1`. It reloads and reverifies the published run, published strategy, immutable
+`thytrader-bar-signal-v1`. It reloads and reverifies the published run, strategy snapshot, immutable
 dataset manifest, and Parquet candles before calculating indicators or conditions. The evaluator
 reconstructs and revalidates typed run and strategy inputs before use, and both canonical identity
 helpers do the same before hashing, so unchecked model copies cannot enter evaluation identity.
@@ -297,7 +297,7 @@ Each trace records:
 
 - schema and executable engine-contract version;
 - exact run, strategy, and dataset fingerprints;
-- the identity-bearing exact output-key sequence copied from the published strategy (LTF then HTF
+- the identity-bearing exact output-key sequence copied from the strategy snapshot (LTF then HTF
   when a filter is present): `{id}` for single-output kinds, `{id}.{series}` for multi-series kinds;
 - one unique, strictly increasing record per evaluation candle;
 - every declared output key's canonical value or explicit `null` exactly once in that sequence; and

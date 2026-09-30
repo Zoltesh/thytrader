@@ -30,7 +30,7 @@ from thytrader.research.publication import (
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 _HTF_DATASET_FINGERPRINT = "sha256:" + "3" * 64
 _LTF_DATASET_FINGERPRINT = "sha256:" + "2" * 64
@@ -300,9 +300,9 @@ def test_run_spec_rejects_aliased_htf_dataset_fingerprint() -> None:
         )
 
 
-def _published(strategy: StrategyDefinition) -> PublishedStrategy:
+def _published(strategy: StrategyDefinition) -> StrategySnapshot:
     """Wrap one validated definition as a publication."""
-    return PublishedStrategy(
+    return StrategySnapshot(
         strategy_fingerprint=strategy_fingerprint(strategy),
         definition=strategy,
     )

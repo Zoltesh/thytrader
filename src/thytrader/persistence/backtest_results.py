@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from uuid import UUID
 
     from thytrader.backtest.models import BacktestResult, BacktestSummary
 
@@ -37,6 +38,7 @@ class BacktestResultSummaryView:
         "result_fingerprint",
         "run_fingerprint",
         "strategy_fingerprint",
+        "strategy_id",
         "summary",
     )
 
@@ -50,6 +52,7 @@ class BacktestResultSummaryView:
         engine_contract_version: str,
         published_at: datetime,
         summary: BacktestSummary,
+        strategy_id: str | None = None,
     ) -> None:
         """Bind one verified identity row to its immutable summary block."""
         self.result_fingerprint = result_fingerprint
@@ -59,6 +62,7 @@ class BacktestResultSummaryView:
         self.engine_contract_version = engine_contract_version
         self.published_at = published_at
         self.summary = summary
+        self.strategy_id = strategy_id
 
 
 @runtime_checkable
@@ -71,10 +75,11 @@ class BacktestResultReader(Protocol):
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
-        """Return bounded newest-first summary rows for browser discovery."""
+        """Return bounded newest-first summary rows, filtered by at most one source."""
         ...
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
@@ -91,11 +96,12 @@ class DisabledBacktestResultStore:
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
         """Reject discovery so disabled persistence never looks like empty results."""
-        del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
+        del run_fingerprint, strategy_fingerprint, dataset_fingerprint, strategy_id, limit, offset
         raise BacktestResultUnavailableError("Backtest results are unavailable.")
 
     async def load(self, result_fingerprint: str) -> BacktestResult:

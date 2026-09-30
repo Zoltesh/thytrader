@@ -16,7 +16,7 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -95,7 +95,7 @@ async def _evaluate(run_fingerprint: str) -> BacktestResult:
         return await evaluate_and_publish_backtest(
             run_fingerprint,
             run_store=PostgresResearchRunStore(engine),
-            strategy_store=PostgresStrategyPublicationStore(engine),
+            strategy_store=PostgresStrategyStore(engine),
             dataset_store=dataset_store,
             result_store=PostgresBacktestResultStore(
                 engine,

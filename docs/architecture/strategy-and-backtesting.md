@@ -2,7 +2,7 @@
 
 ## Canonical strategy definition
 
-A strategy is an immutable, versioned document validated by backend-owned schemas. UI forms, templates, agent research tools, backtests, paper execution, and live execution all use this definition. Published strategy versions are never mutated in place; editing creates a new version so results and live decisions remain reproducible.
+A strategy is one mutable object (a `strategies` row) whose document is validated by backend-owned schemas ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). UI forms, templates, agent research tools, backtests, paper execution, and live execution all use this definition. You edit and save it in place under an optimistic-concurrency `revision`. Starting a backtest, study, or deployment snapshots the current definition into `strategy_snapshots`: canonical JSON addressed by its SHA-256 `strategy_fingerprint` and deduplicated. Results, studies, jobs, and bots record `strategy_id` plus that snapshot fingerprint, so results and live decisions remain reproducible without drafts, publication, or version numbers.
 
 The complete V1 field-level contract — indicators, conditions, entry, sizing, exits, execution, and validation layers — is specified in [canonical-strategy-schema.md](canonical-strategy-schema.md). That document is the implementation-facing specification; this document covers the runtime and simulation design.
 
@@ -11,17 +11,18 @@ on every Coinbase-listed timeframe, plus single-asset **and** multi-asset deploy
 **Shipped:** long or short, one primary instrument plus optional additional Coinbase USD spot products (at most eight total), `max_concurrent_positions` 1–8 (product books, not pyramid lots), optional intra-strategy pyramiding, venue LTF clocks ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)). Extra exchanges stay out.
 
 The implemented Phase 2B publication profile validates the conservative indicator catalog
-(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, stochastic, ADX, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, publishes exact
-canonical content immutably, and durably associates that strategy fingerprint with an independently
-verified immutable dataset fingerprint. A narrow durable browser-authoring API now manages revision-
-guarded drafts, publication, and archive markers. Paper and live execution consume the same published
-version through `thytrader-execution-worker`: maker post-only entries, marketable stop/time-exits, and
+(EMA, SMA, RSI, ATR, volume SMA, highest, lowest, stdev, sample stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger, stochastic, ADX, identity OHLCV, and constant) and bounded recursive AND/OR/NOT conditions, snapshots exact
+canonical content immutably at each start, and durably associates that snapshot fingerprint with an
+independently verified immutable dataset fingerprint (`strategy_dataset_bindings`, keyed by
+`strategy_id`). The browser-authoring API manages one revision-guarded strategy per id (invalid work
+in progress is saved with its validation result). Paper and live execution consume the same
+snapshot through `thytrader-execution-worker`: maker post-only entries, marketable stop/time-exits, and
 fill-based live reconcile against Advanced Trade REST v3 JSON, paging List Fills by documented
 cursor until exhausted and quarantining unparseable fill evidence
 ([ADR 0059](../decisions/0059-coinbase-list-fills-cursor-pagination.md)).
 
 The first Phase 3 prerequisite is also implemented: an internal immutable
-[research-run specification](research-run-specification.md) binds the exact published strategy and
+[research-run specification](research-run-specification.md) binds the exact strategy snapshot and
 verified dataset to evaluation/warmup intervals, exact USD capital, maker/taker fees, fixed slippage,
 completed-close/next-open timing, an explicit seed, and an explicit engine-contract version.
 PostgreSQL publication is binding-gated and every load reverifies both source artifacts.
@@ -51,9 +52,9 @@ not retire V1/V2 evidence. Operator when-to-pick guidance lives in
 [`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md). Do not confuse these
 engine ids with Coinbase Advanced Trade REST v3.
 
-The browser API can author durable revision-guarded drafts, publish immutable strategy evidence,
-archive publications through append-only markers, submit reproducible backtests, and inspect stored
-immutable results. These narrow UI/API contracts preserve fingerprint verification, result
+The browser API can create, save (revision-guarded), clone, import, and hard-delete strategies,
+submit reproducible backtests and studies by `strategy_id` (the server snapshots the current
+definition), and inspect stored immutable results. These narrow UI/API contracts preserve fingerprint verification, result
 immutability, and the boundary between research and execution.
 
 ## V1 authoring experience
@@ -67,12 +68,12 @@ The V1 UI uses a structured rule builder with nested AND/OR groups. It should pr
 - validation before save or deployment;
 - clear separation among signal, sizing, execution, and risk rules.
 
-The browser builder at `/strategies/{strategy_id}` implements this for durable drafts: Overview,
+The browser builder at `/strategies/{strategy_id}` (Build) implements this and saves in place: Overview,
 Market and data, Indicators, Entry conditions, Exit conditions and protective stops, Position
 sizing, Portfolio limits, and Execution preferences. Entry conditions are edited as a nested
 ALL/ANY/NOT rule tree over comparisons and crossovers. An always-visible inspector shows a
 plain-English summary, live validation errors, the required warmup/data window, unsaved-change
-state, and an explicit engine-support matrix. That matrix distinguishes settings the current
+state, the saved validation state, and an explicit engine-support matrix. That matrix distinguishes settings the current
 `thytrader-bar-backtest-v1` through `thytrader-bar-backtest-v4` engines actually consume. V1 and V2
 consume entry conditions, optional HTF filter, the shipped indicator catalog (EMA, SMA, RSI, ATR,
 volume SMA, highest, lowest, stdev, ROC, Williams %R, CCI, WMA, momentum, MFI, MACD, Bollinger,
@@ -83,60 +84,55 @@ V4 consume the same HTF signal stage plus maker-only close-limit entries, `max_e
 matching the paper worker and causal V4 terminal rules. V1 and V2 fill every simulated entry at the
 next bar open unconditionally; V3/V4 do not. Disabled trailing is a no-op on every engine. Walk-forward /
 OOS / cross-market studies compose these engines ([research studies](research-studies.md)).
-Validation kinds freeze one fingerprint; parameter sweeps and WFO select among published or
-derived fingerprints without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).
+Validation kinds freeze one snapshot; parameter sweeps and WFO select among snapshots of named
+candidate strategies or derived variants (which keep the base `strategy_id`) without looking ahead ([ADR 0044](../decisions/0044-parameter-sweeps-wfo-stitched-equity.md)).
 Richer axes and persisted catalog rows are [ADR 0052](../decisions/0052-richer-sweep-axes-study-catalog.md).
 MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
 are shipped on V1/V2/V3, paper, and live. Paper and live consume the same LTF catalog, extra-TF
 overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
-`rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting drafts, not
+`rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting strategies, not
 proven edges.
 
-The library's read-only detail surface exposes Insight, Research, and Versions tabs for every
-strategy identity. Insight always shows the same summary, validation, warmup/data, unsaved/read-only
-state, and V1/V2/V3 support matrix as the builder. Research requires an explicit immutable published
-version, verified dataset, half-open evaluation period, exact initial capital, maker/taker fees,
-fixed slippage, and engine contract; V2 additionally requires an explicit constant total bid-ask
-spread. The Research tab can launch a single window or a composed OOS / walk-forward / parameter-sweep
-/ WFO study (cross-market stays on the research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase credentials
-exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or missing
-credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
+The per-strategy workspace ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md),
+amended by [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) has Build,
+Test, Run, and Why stages. Test requires a currently valid saved definition, a verified dataset,
+half-open evaluation period, exact initial capital, maker/taker fees, fixed slippage, and engine
+contract; V2 additionally requires an explicit constant total bid-ask spread. It can launch a single
+window or a composed OOS / walk-forward / parameter-sweep / WFO study (cross-market stays on the
+research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase
+credentials exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or
+missing credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
 observed Coinbase fills. V1/V2 next-open fills still use the taker rate even when the strategy
-prefers maker. It walks the bounded results API until every stored result for each exact version is loaded,
-groups complete history by version, and compares the newest result across versions. Drafts must be
-published before research submission. Dataset-catalog and per-version result failures remain
-independently visible. Versions lists the complete immutable published history for one strategy
-identity — each version with its fingerprint, archive marker, and newest backtest — and supports
-three derived actions. Export downloads the exact canonical definition of one published version.
-The semantic diff compares any two published versions field by field and renders human-readable
-differences without JSON noise. `POST /api/v1/strategies/{strategy_id}/revise` derives the next
-editable draft version (for example draft v2 from published v1) on the same stable strategy
-identity from one selected immutable version, rejecting conflicting open drafts with HTTP 409;
-publication remains immutable and history-preserving. Clone stays a separate-identity action at the
-library level. `/deploy` starts paper or live runtimes for a published version, shows phase,
-position, orders, fills, and reject reasons, and pause/resume/stop the execution worker. Live start
-and stop ask for confirmation. Pause keeps protective exits running; stop cancels resting orders. The
-library hover Archive action confirms the latest published version and fingerprint before appending
-an archive marker; Clone stays ungated. The library paper/live column shows newest paper then live
-status (`unavailable`, `running`, `paused`, or `stopped`) with a column legend; the cell opens
-`/deploy`. Research launches from `/research`.
+prefers maker. Test lists this strategy's results (`GET /api/v1/backtests?strategy_id=`); each row
+shows **Current rules** when its snapshot `strategy_fingerprint` equals the strategy's
+`current_fingerprint`, otherwise **Earlier edit** with a field-by-field "What changed" diff against
+the snapshot (`GET /api/v1/strategies/snapshots/{strategy_fingerprint}`). Run starts paper or live
+from the current definition and marks bots running an earlier edit; its guided **Update bot** is a
+managed stop followed by a new start on the current rules, each confirmed (live keeps the
+understand-live checkbox). Pause keeps protective exits running; stop defaults to managed shutdown.
+Clone copies a strategy into a new identity; Import creates a new strategy from JSON. The library
+has a checkbox column with page select-all, a bulk "Delete N strategies…" action with an accessible
+confirmation dialog (dry run first; strategies with running or paused bots are blocked with the
+reason; stopped live history is kept), per-strategy results for partial failures, a single-row
+delete, and Build / Test / Paper / Live pipeline chips. Detached live bots of a deleted strategy show
+"<name> (deleted strategy)".
 
 A future node-and-edge canvas may project the same schema. Advanced Python strategies may later implement a controlled plugin interface, but the built-in visual model must not depend on arbitrary code execution.
 
 ### First author-to-result vertical slice
 
 The first authoring surface is intentionally constrained to the implemented conservative profile,
-not a general-purpose strategy IDE. It must let a user create a draft from the reference template,
-edit only fields supported by the current schema, validate errors before publication, publish one
-immutable version, select a verified dataset, submit a reproducible backtest, and open the resulting
-immutable evidence in the existing results screen.
+not a general-purpose strategy IDE. It must let a user create a strategy from the reference template,
+edit only fields supported by the current schema, see validation errors, save, select a verified
+dataset, submit a reproducible backtest (which snapshots the saved definition), and open the
+resulting immutable evidence in the existing results screen.
 
-Backtest submission must name a published strategy fingerprint and verified dataset fingerprint
+Backtest submission must name a `strategy_id` whose saved definition is valid and a verified dataset fingerprint
 (plus `htf_dataset_fingerprint` when the strategy declares `htf_filter`, and
 `indicator_dataset_fingerprints` for unbound extra indicator clocks);
 the server derives or validates all execution identity inputs and returns a result/run identity. A
-browser or agent must not pass arbitrary code, bypass publication, mutate a published version, or
+browser or agent must not pass arbitrary code, bypass snapshotting, mutate a stored snapshot, or
 turn backtest submission into a paper/live deployment.
 
 ## Reference strategy

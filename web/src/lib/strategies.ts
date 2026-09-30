@@ -1,11 +1,14 @@
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 
-export type StrategyDraft = {
+/**
+ * One canonical strategy definition (ADR 0082). A strategy is one mutable object:
+ * there is no draft/published status and no version number. Backtests, studies,
+ * and deployments snapshot the definition and record its `strategy_fingerprint`.
+ */
+export type StrategyDefinition = {
 	strategy_id: string;
-	version: number;
 	name: string;
 	description: string | null;
-	status: 'draft' | 'published' | 'archived';
 	created_at: string;
 	sizing: {
 		kind?: string;
@@ -17,8 +20,34 @@ export type StrategyDraft = {
 	[key: string]: unknown;
 };
 
+/** Raw saved document: any JSON object (it may be an invalid work in progress). */
+export type StrategyDocument = { [key: string]: unknown };
+
+export type StrategyValidationIssue = { loc: string; message: string };
+
+export type StrategyValidation = { valid: boolean; issues: StrategyValidationIssue[] };
+
+/** `GET/PUT /api/v1/strategies/{id}` and the create / clone / import responses. */
+export type StrategyRecord = {
+	strategy_id: string;
+	name: string;
+	revision: number;
+	created_at: string;
+	updated_at: string;
+	document: StrategyDocument;
+	/** Present only when the saved document is a valid definition. */
+	strategy: StrategyDefinition | null;
+	validation: StrategyValidation;
+	/** Fingerprint the next snapshot gets; null while the definition is invalid. */
+	current_fingerprint: string | null;
+	summary: string | null;
+	product_id: string | null;
+	timeframe: string | null;
+};
+
 export type StrategyLibraryBacktest = {
 	result_fingerprint: string;
+	strategy_fingerprint?: string;
 	published_at: string;
 	summary: {
 		initial_equity: string;
@@ -33,75 +62,74 @@ export type StrategyLibraryBacktest = {
 
 export type StrategyLibraryPaperLive = { paper: string; live: string };
 
-/**
- * Immutable versions a library row can launch or deploy.
- *
- * Some payloads only expose the latest fingerprint; treat that as vN when status
- * is not draft.
- */
-export function publishedVersionsFor(entry: StrategyLibraryEntry): StrategyPublishedVersion[] {
-	if (entry.published_versions.length > 0) return entry.published_versions;
-	if (entry.status !== 'draft' && entry.latest_fingerprint && entry.latest_version) {
-		return [
-			{
-				version: entry.latest_version,
-				strategy_fingerprint: entry.latest_fingerprint
-			}
-		];
-	}
-	return [];
-}
-
-/**
- * Confirm copy for archiving the latest published fingerprint from the library.
- * Names version and fingerprint identity; archive is an append-only hide, not a delete.
- */
-export function archiveConfirmMessage(input: {
-	name: string;
-	latest_version: number | null;
-	latest_fingerprint: string;
-}): string {
-	const version = input.latest_version === null ? 'unknown version' : `v${input.latest_version}`;
-	return [
-		`Archive ${input.name}?`,
-		'',
-		`Version: ${version}`,
-		`Fingerprint: ${input.latest_fingerprint}`,
-		'',
-		'This hides the latest published fingerprint from active selection. Canonical evidence stays immutable; older published versions are unchanged.'
-	].join('\n');
-}
-
-export type StrategyPublishedVersion = {
-	version: number;
-	strategy_fingerprint: string;
-};
-
 export type StrategyLibraryEntry = {
 	strategy_id: string;
 	name: string;
-	product_id: string;
-	timeframe: string;
-	latest_version: number | null;
-	status: string;
-	latest_fingerprint: string | null;
-	published_versions: StrategyPublishedVersion[];
-	archived: boolean;
-	summary: string;
-	backtest: StrategyLibraryBacktest | null;
-	paper_live: StrategyLibraryPaperLive;
+	product_id: string | null;
+	timeframe: string | null;
+	revision: number;
+	valid: boolean;
+	current_fingerprint: string | null;
+	summary: string | null;
 	created_at: string;
 	updated_at: string;
+	backtest: StrategyLibraryBacktest | null;
+	paper_live: StrategyLibraryPaperLive;
+	active_deployment_count: number;
 };
 
-export type StrategyCreatedResponse = {
-	strategy: StrategyDraft;
-	revision: number;
-	created: StrategyLibraryEntry;
-	siblings: StrategyLibraryEntry[];
+/** What deleting one strategy removes (and the live history it keeps). */
+export type StrategyDeletionCounts = {
+	snapshots: number;
+	backtests: number;
+	research_runs: number;
+	studies: number;
+	research_jobs: number;
+	dataset_bindings: number;
+	paper_deployments: number;
+	live_deployments_kept: number;
+	allocations_removed: number;
 };
 
-export type DraftVersionResponse = { strategy: StrategyDraft; revision: number };
+export type StrategyDeletionResult = {
+	strategy_id: string;
+	name: string;
+	outcome: 'deleted';
+	counts: StrategyDeletionCounts;
+	risk_policy_republished: boolean;
+};
+
+export type BulkDeleteOutcome = 'deleted' | 'would_delete' | 'blocked' | 'not_found' | 'failed';
+
+export type BulkDeleteItem = {
+	strategy_id: string;
+	name: string | null;
+	outcome: BulkDeleteOutcome;
+	code: string | null;
+	message: string | null;
+	deployment_ids: string[];
+	counts: StrategyDeletionCounts | null;
+};
+
+export type BulkDeleteResponse = {
+	dry_run: boolean;
+	results: BulkDeleteItem[];
+	would_delete?: number;
+	deleted: number;
+	blocked: number;
+	not_found: number;
+	failed: number;
+};
+
+/** `GET /api/v1/strategies/snapshots/{fingerprint}`. */
+export type StrategySnapshot = {
+	strategy_fingerprint: string;
+	strategy_id: string | null;
+	strategy_name: string | null;
+	strategy: StrategyDefinition;
+	created_at: string;
+	is_current: boolean;
+};
 
 export type IdentityInput = 'open' | 'high' | 'low' | 'close' | 'volume';
 
@@ -230,11 +258,9 @@ export type PyramidingDraft = {
 
 export type BuilderModel = {
 	strategy_id: string;
-	version: number;
 	revision: number;
 	name: string;
 	description: string;
-	status: string;
 	created_at: string;
 	product_id: string;
 	base_currency: string;
@@ -479,7 +505,7 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 	indicator.parameters = { period };
 }
 
-/** Canonical indicator payload for draft save/publish. */
+/** Canonical indicator payload for saving a strategy. */
 export function serializeIndicator(
 	indicator: IndicatorDraft,
 	decisionTimeframe?: string
@@ -709,15 +735,47 @@ export function researchWindowHint(
 	return `Usable window for this dataset: ${bounds.min.replace('T', ' ')} → ${bounds.max.replace('T', ' ')} (UTC, ${barTimeframe} bars). It must fit inside the dataset with ${warmupBars} warmup bars before it and one candle after it.`;
 }
 
-export type DraftResponse = { strategy: StrategyDraft; revision: number; summary: string };
 type StrategyLibraryResponse = {
 	strategies: StrategyLibraryEntry[];
+	total?: number;
 	has_more?: boolean;
 	next_cursor?: string | null;
 };
-type PublishedStrategy = { strategy_fingerprint: string; strategy: StrategyDraft };
-type ArchivedStrategy = { strategy_fingerprint: string; archived_at: string | null };
-type BacktestSubmission = { run_fingerprint: string; result_fingerprint: string };
+type BacktestSubmission = {
+	run_fingerprint: string;
+	result_fingerprint: string;
+	strategy_id?: string;
+	strategy_fingerprint?: string;
+};
+
+/**
+ * One failed strategy API call. `code` is the structured `detail.code` when the
+ * server sent one (for example `strategy_revision_conflict`, `strategy_invalid`,
+ * `strategy_has_active_deployments`), so callers can branch without parsing text.
+ */
+export class StrategyApiError extends Error {
+	readonly status: number;
+	readonly code: string | null;
+	readonly detail: Record<string, unknown>;
+
+	constructor(
+		status: number,
+		code: string | null,
+		message: string,
+		detail: Record<string, unknown>
+	) {
+		super(message);
+		this.name = 'StrategyApiError';
+		this.status = status;
+		this.code = code;
+		this.detail = detail;
+	}
+}
+
+/** Structured error code of a caught value, or null. */
+export function strategyErrorCode(caught: unknown): string | null {
+	return caught instanceof StrategyApiError ? caught.code : null;
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	const method = init?.method?.toUpperCase() ?? 'GET';
@@ -735,22 +793,34 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	});
 	if (!response.ok) {
 		const body = (await response.json().catch(() => ({}))) as {
-			detail?: string | { message?: string };
+			detail?: string | ({ message?: string; code?: string } & Record<string, unknown>);
 		};
 		const detail =
 			typeof body.detail === 'string'
 				? body.detail
 				: (body.detail?.message ?? 'no details returned');
-		throw new Error(`The research operation failed (HTTP ${response.status}): ${detail}`);
+		const structured = typeof body.detail === 'object' && body.detail !== null ? body.detail : {};
+		const code = typeof structured.code === 'string' ? structured.code : null;
+		throw new StrategyApiError(
+			response.status,
+			code,
+			`The research operation failed (HTTP ${response.status}): ${detail}`,
+			structured
+		);
 	}
 	return (await response.json()) as T;
 }
 
-export async function createDraft(options?: {
+function strategyPath(strategyId: string, suffix = ''): string {
+	return `/api/v1/strategies/${encodeURIComponent(strategyId)}${suffix}`;
+}
+
+/** Create a strategy from a fail-closed research template. */
+export async function createStrategy(options?: {
 	template?: string;
 	product_id?: string;
 	timeframe?: string;
-}): Promise<StrategyCreatedResponse> {
+}): Promise<StrategyRecord> {
 	const params = new URLSearchParams();
 	if (options?.template !== undefined && options.template !== 'ema-trend') {
 		params.set('template', options.template);
@@ -763,13 +833,71 @@ export async function createDraft(options?: {
 	}
 	const query = params.toString();
 	const path = query === '' ? '/api/v1/strategies' : `/api/v1/strategies?${query}`;
-	return request<StrategyCreatedResponse>(path, { method: 'POST' });
+	return request<StrategyRecord>(path, { method: 'POST' });
+}
+
+export async function fetchStrategy(strategyId: string): Promise<StrategyRecord> {
+	return request<StrategyRecord>(strategyPath(strategyId));
+}
+
+/**
+ * Save the document in place. The revision guard rejects a stale save with 409
+ * `strategy_revision_conflict`; it never overwrites. Invalid documents are saved
+ * and come back with their validation result.
+ */
+export async function saveStrategy(
+	strategyId: string,
+	document: StrategyDocument,
+	revision: number
+): Promise<StrategyRecord> {
+	return request<StrategyRecord>(strategyPath(strategyId), {
+		method: 'PUT',
+		body: JSON.stringify({ document, revision })
+	});
+}
+
+export async function deleteStrategy(strategyId: string): Promise<StrategyDeletionResult> {
+	return request<StrategyDeletionResult>(strategyPath(strategyId), { method: 'DELETE' });
+}
+
+/** Preview (`dryRun`) or confirm deletion of up to 100 strategies; results are per strategy. */
+export async function bulkDeleteStrategies(
+	strategyIds: string[],
+	options: { dryRun: boolean }
+): Promise<BulkDeleteResponse> {
+	return request<BulkDeleteResponse>('/api/v1/strategies/bulk-delete', {
+		method: 'POST',
+		body: JSON.stringify({
+			strategy_ids: strategyIds,
+			confirm: !options.dryRun,
+			dry_run: options.dryRun
+		})
+	});
+}
+
+export async function cloneStrategy(strategyId: string): Promise<StrategyRecord> {
+	return request<StrategyRecord>(strategyPath(strategyId, '/clone'), { method: 'POST' });
+}
+
+/** Import one JSON document as a new strategy (always a fresh identity). */
+export async function importStrategy(document: unknown): Promise<StrategyRecord> {
+	return request<StrategyRecord>('/api/v1/strategies/import', {
+		method: 'POST',
+		body: JSON.stringify({ document })
+	});
+}
+
+/** The exact rules one run or bot used, addressed by snapshot fingerprint. */
+export async function fetchStrategySnapshot(fingerprint: string): Promise<StrategySnapshot> {
+	return request<StrategySnapshot>(
+		`/api/v1/strategies/snapshots/${encodeURIComponent(fingerprint)}`
+	);
 }
 
 export async function fetchStrategyPage(
 	limit: 10 | 25 | 50 | 100,
 	cursor?: string
-): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null }> {
+): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null; total: number | null }> {
 	const params = new URLSearchParams({ limit: String(limit) });
 	if (cursor !== undefined) params.set('cursor', cursor);
 	const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
@@ -780,7 +908,11 @@ export async function fetchStrategyPage(
 	if (hasMore && !body.next_cursor) {
 		throw new Error('Strategy library has more strategies but no next cursor.');
 	}
-	return { entries: body.strategies, nextCursor: hasMore ? body.next_cursor! : null };
+	return {
+		entries: body.strategies,
+		nextCursor: hasMore ? body.next_cursor! : null,
+		total: typeof body.total === 'number' ? body.total : null
+	};
 }
 
 export async function listStrategies(
@@ -808,37 +940,6 @@ export async function listStrategies(
 	throw new Error('Strategy library truncated: exceeded the 50-page fetch cap.');
 }
 
-export async function clonePublishedStrategy(fingerprint: string): Promise<DraftResponse> {
-	return request<DraftResponse>('/api/v1/strategies/clone', {
-		method: 'POST',
-		body: JSON.stringify({ strategy_fingerprint: fingerprint })
-	});
-}
-
-export async function importStrategy(definition: unknown): Promise<DraftResponse> {
-	return request<DraftResponse>('/api/v1/strategies/import', {
-		method: 'POST',
-		body: JSON.stringify({ strategy: definition })
-	});
-}
-
-export async function fetchStrategySource(fingerprint: string): Promise<StrategyDraft> {
-	return (
-		await request<{ strategy: StrategyDraft }>(
-			`/api/v1/strategies/source/${encodeURIComponent(fingerprint)}`
-		)
-	).strategy;
-}
-
-export async function fetchDraftVersion(
-	strategyId: string,
-	version: number
-): Promise<DraftVersionResponse> {
-	return request<DraftVersionResponse>(
-		`/api/v1/strategies/${encodeURIComponent(strategyId)}/versions/${version}`
-	);
-}
-
 function toHtfFilterDraft(raw: unknown): HtfFilterDraft | null {
 	if (raw === null || raw === undefined || typeof raw !== 'object') return null;
 	const filter = raw as {
@@ -856,7 +957,7 @@ function toHtfFilterDraft(raw: unknown): HtfFilterDraft | null {
 	};
 }
 
-export function toBuilderModel(strategy: StrategyDraft, revision: number): BuilderModel {
+export function toBuilderModel(strategy: StrategyDefinition, revision: number): BuilderModel {
 	const entry = strategy.entry as {
 		when: ConditionDraft;
 		cooldown_bars: number;
@@ -868,11 +969,9 @@ export function toBuilderModel(strategy: StrategyDraft, revision: number): Build
 	const exits = strategy.exits as BuilderModel['exits'];
 	return {
 		strategy_id: strategy.strategy_id,
-		version: strategy.version,
 		revision,
 		name: strategy.name,
 		description: strategy.description ?? '',
-		status: strategy.status,
 		created_at: strategy.created_at,
 		product_id: (strategy.instrument as { product_id: string }).product_id,
 		base_currency: (strategy.instrument as { base_currency: string }).base_currency,
@@ -918,14 +1017,12 @@ export function quoteCurrencyFor(productId: string, fallback = 'USD'): string {
 	return parts.length === 2 && parts[1].length > 0 ? parts[1] : fallback;
 }
 
-export function fromBuilderModel(model: BuilderModel): StrategyDraft {
+export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 	return {
 		schema_version: '1.0',
 		strategy_id: model.strategy_id,
-		version: model.version,
 		name: model.name,
 		description: model.description.trim().length > 0 ? model.description : null,
-		status: 'draft',
 		created_at: model.created_at,
 		instrument: {
 			product_id: model.product_id,
@@ -980,79 +1077,28 @@ export function fromBuilderModel(model: BuilderModel): StrategyDraft {
 	};
 }
 
-export async function saveDraft(draft: StrategyDraft, revision: number): Promise<DraftResponse> {
-	return request<DraftResponse>(
-		`/api/v1/strategies/${encodeURIComponent(draft.strategy_id)}/versions/${draft.version}`,
-		{ method: 'PUT', body: JSON.stringify({ strategy: draft, revision }) }
-	);
-}
-
 export async function listDatasets(): Promise<Dataset[]> {
 	return (await request<{ datasets: Dataset[] }>('/api/v1/market-data/datasets/latest')).datasets;
 }
 
-export async function publishDraft(
-	draft: StrategyDraft,
-	revision: number
-): Promise<PublishedStrategy> {
-	return request<PublishedStrategy>(
-		`/api/v1/strategies/${encodeURIComponent(draft.strategy_id)}/publish`,
-		{
-			method: 'POST',
-			body: JSON.stringify({ strategy: draft, revision })
-		}
-	);
-}
-
-export async function archivePublishedStrategy(fingerprint: string): Promise<ArchivedStrategy> {
-	return request<ArchivedStrategy>(
-		`/api/v1/strategies/${encodeURIComponent(fingerprint)}/archive`,
-		{ method: 'POST' }
-	);
-}
-
-export type StrategyVersionHistoryEntry = {
-	version: number;
-	strategy_fingerprint: string;
-	published: boolean;
-	archived: boolean;
-	archived_at: string | null;
-	backtest: StrategyLibraryBacktest | null;
-};
-
-export type StrategyVersionHistory = {
-	strategy_id: string;
-	latest_version: number | null;
-	next_version: number;
-	versions: StrategyVersionHistoryEntry[];
-	draft: DraftResponse | null;
-};
-
-export async function fetchStrategyHistory(strategyId: string): Promise<StrategyVersionHistory> {
-	return request<StrategyVersionHistory>(
-		`/api/v1/strategies/${encodeURIComponent(strategyId)}/history`
-	);
-}
-
-export type RevisionResponse = {
-	strategy: StrategyDraft;
-	revision: number;
-	source_fingerprint: string;
-	summary: string;
-};
-
-export async function reviseStrategy(
-	strategyId: string,
-	fingerprint: string
-): Promise<RevisionResponse> {
-	return request<RevisionResponse>(`/api/v1/strategies/${encodeURIComponent(strategyId)}/revise`, {
-		method: 'POST',
-		body: JSON.stringify({ strategy_fingerprint: fingerprint })
-	});
+/**
+ * Builder model for a saved document, or null when the document cannot be
+ * projected into the form (an invalid work in progress that is missing blocks).
+ */
+export function builderModelFromRecord(record: StrategyRecord): BuilderModel | null {
+	const source = (record.strategy ?? record.document) as StrategyDefinition;
+	try {
+		const model = toBuilderModel(source, record.revision);
+		if (typeof model.name !== 'string' || typeof model.product_id !== 'string') return null;
+		return model;
+	} catch {
+		return null;
+	}
 }
 
 export type BacktestLaunchInput = {
-	strategy_fingerprint: string;
+	/** The server snapshots this strategy's current definition. */
+	strategy_id: string;
 	dataset_fingerprint: string;
 	htf_dataset_fingerprint?: string;
 	indicator_dataset_fingerprints?: { timeframe: string; dataset_fingerprint: string }[];
@@ -1072,4 +1118,43 @@ export async function submitBacktest(input: BacktestLaunchInput): Promise<Backte
 		method: 'POST',
 		body: JSON.stringify(input)
 	});
+}
+
+/** Plain list of what deleting one strategy removes, skipping zero counts. */
+export function deletionCountsText(counts: StrategyDeletionCounts): string[] {
+	const parts: [number, string, string][] = [
+		[counts.backtests, 'backtest', 'backtests'],
+		[counts.studies, 'study', 'studies'],
+		[counts.research_jobs, 'research job', 'research jobs'],
+		[counts.paper_deployments, 'paper bot (with its ledger)', 'paper bots (with their ledgers)'],
+		[counts.snapshots, 'rules snapshot', 'rules snapshots'],
+		[counts.allocations_removed, 'risk-policy allocation', 'risk-policy allocations']
+	];
+	const lines = parts
+		.filter(([count]) => count > 0)
+		.map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
+	if (lines.length === 0) lines.push('No backtests, studies, or bots');
+	if (counts.live_deployments_kept > 0) {
+		const n = counts.live_deployments_kept;
+		lines.push(`${n} stopped live bot${n === 1 ? '' : 's'} kept with full history`);
+	}
+	return lines;
+}
+
+/** One-line outcome for a bulk-delete result row. */
+export function bulkOutcomeText(item: BulkDeleteItem): string {
+	switch (item.outcome) {
+		case 'deleted':
+			return 'Deleted';
+		case 'would_delete':
+			return 'Will be deleted';
+		case 'blocked':
+			return item.code === 'strategy_has_active_deployments'
+				? `Blocked: ${item.deployment_ids.length || 'a'} running or paused bot${item.deployment_ids.length === 1 ? '' : 's'}. Stop ${item.deployment_ids.length === 1 ? 'it' : 'them'} first.`
+				: `Blocked: ${item.message ?? 'the server refused this deletion.'}`;
+		case 'not_found':
+			return 'Not found (already deleted?)';
+		case 'failed':
+			return `Failed: ${item.message ?? 'no details returned'}`;
+	}
 }

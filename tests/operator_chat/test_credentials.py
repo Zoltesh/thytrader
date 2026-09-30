@@ -56,9 +56,9 @@ def test_pem_shaped_secret_is_rejected() -> None:
         store.replace(write)
 
 
-def test_create_draft_uses_query_string() -> None:
-    """Research create-draft stays on the existing POST query contract."""
-    tool = tool_by_name("research_create_draft")
+def test_create_strategy_uses_query_string() -> None:
+    """Research create-strategy stays on the existing POST query contract."""
+    tool = tool_by_name("research_create_strategy")
     assert tool is not None
     path, query, body = split_request(
         tool,
@@ -93,7 +93,8 @@ def test_catalog_keeps_lanes_separated() -> None:
     by_lane = {tool.name: tool.lane.value for tool in chat_tools()}
     assert by_lane["operator_health"] == "operator"
     assert by_lane["data_ingest"] == "data"
-    assert by_lane["research_publish"] == "research"
+    assert "research_publish" not in by_lane
+    assert by_lane["research_delete_strategy"] == "research"
     assert by_lane["runtime_start"] == "runtime"
     assert by_lane["memory_add_journal"] == "memory"
     runtime = tool_by_name("runtime_start")
@@ -103,6 +104,13 @@ def test_catalog_keeps_lanes_separated() -> None:
     memory = tool_by_name("memory_add_journal")
     assert memory is not None
     assert memory.hard_gate is True
+    delete = tool_by_name("research_delete_strategy")
+    assert delete is not None
+    assert delete.method == "DELETE"
+    assert delete.hard_gate is True
+    assert delete.yolo == "none"
+    assert "strategy_id" in runtime.required
+    assert "strategy_fingerprint" not in runtime.properties
 
 
 def test_runtime_start_and_place_order_forward_paper_fee_fields() -> None:

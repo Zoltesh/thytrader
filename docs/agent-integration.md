@@ -48,7 +48,7 @@ Bounded V1 training ships as a fail-closed integer ranker over those attributed 
 `thytrader-trade-reason-v1` ([ADR 0054](decisions/0054-trade-reason-journals.md)):
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
-  `agent`). Per-trade **why it was made** records freeze published strategy identity, closed-bar
+  `agent`). Per-trade **why it was made** records freeze the strategy snapshot identity, closed-bar
   signal, risk verdict, and notes at persist; fill/reconcile facts join from the ledger on read.
 - Read-only monitor of deployments, recent journals, why-trade records, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).
@@ -93,8 +93,8 @@ Shipped command groups:
 stochastic, ADX, configurable rolling inputs, and sample stdev
 ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations; `watch-add`, `ingest`, and `fill-gaps` POSTs send installation Bearer when a token is resolvable).
-- `thytrader-research` — drafts, publish, backtests, composed studies, persisted study catalog reads, and publication archive reads/writes (`list-strategies`, `archive`) (`--confirm` on mutations). Multi-instrument documents bind extra products through `additional_instrument_datasets` on submit-backtest JSON (lexicographic `product_id`; omitted when empty) ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Omitting both `evaluation_start` and `evaluation_end` on `submit-backtest` fills the common LTF+HTF (and extra-clock) covered intersection. `show-result` reports the published strategy clock, including `2h` and `4h`.
-- `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Default stop is managed shutdown (keep protective brackets and residual occupancy); `--flatten` / `?flatten=true` marketably exits ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading. `set-risk-policy --allow-intra-strategy-pyramiding` is required for paper/live same-side adds when the published strategy also enables pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Live start and live `place-order` require a published risk policy; the compiled default cannot arm live (`LIVE_REQUIRES_PUBLISHED_POLICY`). Optional `--max-daily-loss-quote` / `--max-portfolio-exposure-quote` add absolute quote ceilings alongside the matching fraction, and optional `--max-venue-order-actions-per-minute` adds a combined entry+cancel budget that can only deny a new entry, never a cancellation or protective submission ([ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)). `list` / `show` return every product book (`positions`, `instrument_runtimes`, product-tagged orders/fills, `book_totals`). The singular `position` field is compatibility-only and always includes `product_id`; read `positions` for inventory ([ADR 0060](decisions/0060-multi-book-deployment-api.md)). `protection_status` is classified from verified attached-child coverage and venue-visible exits (`flat` / `covered` / `unprotected` / `unknown`); missing children are unprotected, not unknown ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Default `stop` is managed shutdown; pass `--flatten` or `?flatten=true` only to marketably exit then cancel remainders. Pause still maintains protection and does not reset breaker baselines. Operator `runtime` reports `lifecycle_command`, latches, `revision`, and `worker_lease_held`; `thytrader-runtime show` reports a `capital` block (`allocated_capital`, `venue_available_quote`, reserved/inventory/equity fields) separately from ledger `cash` ([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)).
+- `thytrader-research` — strategy list/show/create/save/import/clone/delete/bulk-delete and snapshot reads, backtests and composed studies by `strategy_id`, and persisted study catalog reads (`--confirm` on mutations). Multi-instrument documents bind extra products through `additional_instrument_datasets` on submit-backtest JSON (lexicographic `product_id`; omitted when empty) ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Omitting both `evaluation_start` and `evaluation_end` on `submit-backtest` fills the common LTF+HTF (and extra-clock) covered intersection. `show-result` reports the snapshot's strategy clock, including `2h` and `4h`.
+- `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Default stop is managed shutdown (keep protective brackets and residual occupancy); `--flatten` / `?flatten=true` marketably exits ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading. `set-risk-policy --allow-intra-strategy-pyramiding` is required for paper/live same-side adds when the strategy also enables pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Live start and live `place-order` require a published risk policy; the compiled default cannot arm live (`LIVE_REQUIRES_PUBLISHED_POLICY`). Optional `--max-daily-loss-quote` / `--max-portfolio-exposure-quote` add absolute quote ceilings alongside the matching fraction, and optional `--max-venue-order-actions-per-minute` adds a combined entry+cancel budget that can only deny a new entry, never a cancellation or protective submission ([ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)). `list` / `show` return every product book (`positions`, `instrument_runtimes`, product-tagged orders/fills, `book_totals`). The singular `position` field is compatibility-only and always includes `product_id`; read `positions` for inventory ([ADR 0060](decisions/0060-multi-book-deployment-api.md)). `protection_status` is classified from verified attached-child coverage and venue-visible exits (`flat` / `covered` / `unprotected` / `unknown`); missing children are unprotected, not unknown ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Default `stop` is managed shutdown; pass `--flatten` or `?flatten=true` only to marketably exit then cancel remainders. Pause still maintains protection and does not reset breaker baselines. Operator `runtime` reports `lifecycle_command`, latches, `revision`, and `worker_lease_held`; `thytrader-runtime show` reports a `capital` block (`allocated_capital`, `venue_available_quote`, reserved/inventory/equity fields) separately from ledger `cash` ([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
 - `thytrader-memory` — journals, why-trade review, sentiment/pattern hooks, monitor, notify, and
   fail-closed experiential training (`--confirm`; YOLO never covers this lane).
@@ -132,17 +132,22 @@ capabilities. Research, data, runtime, playbook, and memory already follow that 
 
 ### Research mutation boundary
 
-The browser strategy workspace ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md))
-lives at `/strategies/{strategy_id}` (Build), `/test`, `/run`, and `/why`, with
-`?version=<strategy_fingerprint>` pinning an exact published version (a foreign fingerprint fails
-closed). Old `/research?strategy=` and `/deploy?strategy=` links redirect to Test and Run. Build
-reads the identity's version-history endpoint to find its editable draft. `draft: null` means the
-remaining versions are immutable; Build shows the published definition read-only, and the
-workspace's Versions dialog revises one into a new draft, rather than requesting a published
-version through the draft endpoint. The browser uses only existing HTTP routes; agents keep the
-CLI lanes. This read requires no confirmation and does not scan the full
-strategy library. The browser library displays page one immediately while the remaining cursor
-pages load, and marks a later-page failure as incomplete rather than calling the partial result
+The browser strategy workspace ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md),
+[ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md))
+lives at `/strategies/{strategy_id}` (Build), `/test`, `/run`, and `/why`. A strategy is one
+mutable object: Build loads `GET /api/v1/strategies/{strategy_id}` and saves in place with
+`PUT /api/v1/strategies/{strategy_id}` (`{document, revision}`); a stale revision is HTTP 409
+`strategy_revision_conflict` and is never overwritten. Invalid work in progress saves with its
+`validation` result; Test and Run refuse to start (HTTP 422 `strategy_invalid`) until the current
+definition validates. There are no drafts, publish, versions, or archive. Old `?version=` and
+fingerprint deep links, `/research?strategy=`, and `/deploy?strategy=` resolve the owning strategy
+(via `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`) and redirect to the workspace.
+Result and bot rows show **Current rules** or **Earlier edit** by comparing their snapshot
+`strategy_fingerprint` to the strategy's `current_fingerprint`; Earlier edit offers a "What
+changed" diff. The browser uses only these HTTP routes; agents keep the CLI lanes. The browser
+library pages with a cursor, offers per-row delete and a checkbox bulk delete
+(`POST /api/v1/strategies/bulk-delete`, dry run first, then `confirm: true`), and marks a
+later-page failure as incomplete rather than calling the partial result
 empty. The CLI still follows its bounded `--limit` / `--cursor` contract. The Test stage's run bar
 defaults its engine to the newest engine that `GET /api/v1/research/engine-support` advertises and
 the browser launcher offers (V3 today); agents name the engine explicitly (prefer V4 per the
@@ -160,10 +165,35 @@ using the CLI lanes; nothing here is an agent-only contract.
 
 The earliest permitted mutation surface is limited to research artifacts:
 
-- create or edit a strategy **draft**;
-- validate and publish a new immutable strategy version;
-- submit an idempotent backtest that names a published strategy and verified dataset;
+- create, save (revision-guarded), import, clone, or delete a strategy;
+- submit an idempotent backtest that names a strategy by `strategy_id` and a verified dataset (the
+  server snapshots the current definition and returns its `strategy_fingerprint`);
 - retrieve immutable results for comparison.
+
+Strategy HTTP surface ([ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)):
+
+| Method and path | Purpose | Notable errors |
+|---|---|---|
+| `GET /api/v1/strategies?limit=&cursor=` | Library page (newest-updated first; `valid`, `current_fingerprint`, newest `backtest`, `paper_live`, `active_deployment_count`) | 400 malformed cursor |
+| `POST /api/v1/strategies?product_id=&timeframe=&template=` | Create from a template (201) | 400 bad template/product/timeframe |
+| `GET /api/v1/strategies/{strategy_id}` | Document, `strategy` (null when invalid), `validation`, `revision`, `current_fingerprint` | 404 `strategy_not_found` |
+| `PUT /api/v1/strategies/{strategy_id}` | Save `{document, revision}` in place; invalid documents allowed | 409 `strategy_revision_conflict` (`current_revision`), 422 `strategy_document_invalid` |
+| `DELETE /api/v1/strategies/{strategy_id}` | Hard delete with cascade; returns `counts`, `risk_policy_republished` | 404, 409 `strategy_has_active_deployments` (`deployment_ids`) |
+| `POST /api/v1/strategies/bulk-delete` | `{strategy_ids, confirm, dry_run}`; per-id `outcome` (`deleted` / `would_delete` / `blocked` / `not_found` / `failed`) | 400 `confirmation_required` |
+| `POST /api/v1/strategies/{strategy_id}/clone` | Copy into a new identity (201) | 404 |
+| `POST /api/v1/strategies/import` | `{document}` → new strategy with a fresh id (201) | 422 `strategy_document_invalid` |
+| `GET /api/v1/strategies/snapshots/{strategy_fingerprint}` | Snapshot definition, owning `strategy_id` (null if deleted), `is_current` | 404 `strategy_snapshot_not_found` |
+
+`POST /api/v1/backtests`, `POST /api/v1/research/studies` (and `/plan`), and
+`POST /api/v1/deployments` take `strategy_id` (studies also `candidate_strategy_ids` and
+`markets[].strategy_id`) instead of fingerprints and fail with 404 `strategy_not_found` or 422
+`strategy_invalid` (`issues`). `GET /api/v1/backtests`, `GET /api/v1/research/studies`,
+`GET /api/v1/research/jobs` (required), and `GET /api/v1/deployments` accept `?strategy_id=`;
+backtest list entries and job records carry `strategy_id` (backtest detail responses carry only the
+snapshot `strategy_fingerprint`; resolve it with `GET /api/v1/strategies/snapshots/{fingerprint}`).
+Start responses (201 and async 202) return `strategy_id` and the snapshot `strategy_fingerprint`.
+Deployment responses carry `strategy_name` and `strategy_deleted`. Deleting a strategy is refused while any of
+its bots is running or paused; stopped live books are kept and detached, never destroyed.
 
 Each operation requires explicit user confirmation, returns stable artifact identities, and records an
 audit event once audit recording exists. It may not deploy a strategy, start/stop paper execution,
@@ -176,7 +206,8 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v40` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
+`thytrader-ops-contract-v41` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+[ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md); expected Alembic revision `0048`).
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.
@@ -206,7 +237,7 @@ Account balances and portfolio history are **`GET /api/v1/portfolio`** and
 **`GET /api/v1/portfolio/history`** (loopback; no `thytrader-operator` CLI subcommand today).
 Deployment inventory (quantities, orders, fills, capital, lifecycle/latch state) is
 **`thytrader-runtime show`** / **`GET /api/v1/deployments/{id}?detail=full`**. Operator
-`performance --deployment-id` reports the published instrument quote for strategy deployments
+`performance --deployment-id` reports the snapshot instrument quote for strategy deployments
 or the product quote for discretionary books. When quote provenance cannot be verified,
 `payload.currency` is null with a partial-result warning; never silently interpret it as USDC.
 Default `detail=summary` omits historical orders and fills; paginate **`/fills`** and **`/orders`**
@@ -245,7 +276,7 @@ Every machine-readable report should include:
 - partial-result warnings;
 - recommended next diagnostic action.
 
-Performance reports must state timeframe, strategy version, dataset/source, currency, fee treatment, and whether values are backtest, paper, or live.
+Performance reports must state timeframe, strategy snapshot fingerprint, dataset/source, currency, fee treatment, and whether values are backtest, paper, or live.
 
 ## Skill packaging
 
@@ -292,7 +323,7 @@ The operator skill tells agents to:
 1. Verify version and connectivity.
 2. Start with read-only health/configuration checks.
 3. Gather the minimum required report.
-4. Preserve mode, timeframe, and strategy-version context.
+4. Preserve mode, timeframe, and strategy snapshot (`strategy_fingerprint`) context.
 5. Correlate performance with fees, data quality, risk events, and execution anomalies.
 6. Redact before returning diagnostics.
 7. Clearly separate verified findings from hypotheses.
@@ -311,12 +342,12 @@ The operator skill tells agents to:
 
 | Capability available | Supported agent authority |
 |---|---|
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, published strategy state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
-| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated drafts, immutable publication, backtest submission (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, strategy library state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
+| Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated strategy create/save/import/clone/delete, backtest submission by `strategy_id` (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Live fills ingest through cursor-terminated List Fills and quarantine incomplete rows ([ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md)). Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
 | Coinbase credentials | `thytrader-runtime show-coinbase-credentials` / `set-coinbase-credentials --private-key-file` / `clear-coinbase-credentials`. HTTP `GET/PUT/DELETE /api/v1/credentials/coinbase`. Presence flags only; GET never echoes secrets. Set/clear always `--confirm`. YOLO never covers this. Setting credentials does not arm live trading. LLM keys stay on `/chat`. |
-| Experiential memory | `thytrader-memory`: confirmation-gated journals, why-trade review, sentiment/pattern hooks, notify, and fail-closed `train`. Operator `monitor` and `trade-reasons` are read-only. YOLO never covers this lane. Research `create-draft --experiential-model-id` may merge the advisory into JSON (HTTP only). |
+| Experiential memory | `thytrader-memory`: confirmation-gated journals, why-trade review, sentiment/pattern hooks, notify, and fail-closed `train`. Operator `monitor` and `trade-reasons` are read-only. YOLO never covers this lane. Research `create-strategy --experiential-model-id` may merge the advisory into JSON (HTTP only). |
 | In-app operator chat | Loopback `/chat` plus `/api/v1/operator-chat`. Uses the same HTTP skill routes. Mutations stay confirmation-gated; live still needs understand-live. LLM keys stay in the API process; Coinbase keys never go to the browser. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.

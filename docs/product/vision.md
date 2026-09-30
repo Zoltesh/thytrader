@@ -34,7 +34,8 @@ are not. Do not treat those remainders as already shipped.
 - **On-demand trades:** place discretionary trades with stop loss, take profit, and other execution
   params — not only strategy-driven orders. Discretionary actions and strategy signals both create
   an **order intent**; they never bypass risk checks to call Coinbase.
-- **Strategy design:** declarative, immutable, versioned strategies using many technical indicators
+- **Strategy design:** declarative strategies you edit and save in place, with every backtest and
+  bot bound to an automatic immutable snapshot of the exact rules it used, using many technical indicators
   on exchange-offered timeframes, including **1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d**, and whatever else
   Coinbase lists.
 - **Research:** historical and cross-market analysis on complete ingested data (no interpolated
@@ -46,7 +47,7 @@ are not. Do not treat those remainders as already shipped.
 - **Agent E2E:** an agent can do 100% of the above through confirmation-gated, auditable tools
   (`--confirm`; live also `--i-understand-live`).
 - **Trade-reason journals:** a human or an agent can open a trade and see **why it was made**
-  (signal, published strategy version, risk decision, discretionary note, fill/reconcile facts).
+  (signal, strategy snapshot, risk decision, discretionary note, fill/reconcile facts).
   Durable, attributed, redacted. Same record for UI and operator reports. Phase 14 hooks are not
   this record.
 - **In-app operator chat:** a loopback chat surface where the user supplies **their** LLM API key.
@@ -60,7 +61,7 @@ are not. Do not treat those remainders as already shipped.
   browser payloads. View + Trade is enough; extra permissions are reported, not treated as consent.
 
 A user or an agent can research markets, design strategies, backtest them, paper-trade them, and
-run live Coinbase spot — with the **same published strategy semantics** in every mode.
+run live Coinbase spot — with the **same snapshotted strategy semantics** in every mode.
 
 ## Product principles
 
@@ -81,7 +82,7 @@ design target** ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)):
 
 1. **100% human-driven.** A person performs every observation and mutation through the browser and CLIs, with the same confirmation gates any actor faces.
 2. **100% agent-driven.** An agent performs diagnosis, data ingest, research, journals, notifications, and paper/live control end-to-end through the shipped skills, acting only within explicitly granted, confirmation-gated authority (`--confirm`; live additionally `--i-understand-live`).
-3. **Collaborative human + agent.** A human and an agent share the loop—for example, the agent diagnoses and drafts while the human publishes and arms.
+3. **Collaborative human + agent.** A human and an agent share the loop—for example, the agent diagnoses and edits a strategy while the human reviews, backtests, and arms.
 
 Safety comes from confirmation gating, scoped authority, immutable evidence, auditability, and risk
 controls—not from excluding agents, and agents are never required.
@@ -96,7 +97,7 @@ A technically comfortable individual who wants to:
 - collect and inspect market history across Coinbase-listed timeframes;
 - define strategies through agent skills and a clean UI, with many indicators;
 - backtest strategies with credible assumptions and compare across markets;
-- deploy a published strategy to paper or live for one instrument or several;
+- deploy a strategy (snapshotted at start) to paper or live for one instrument or several;
 - arm continuous live execution and leave the worker to run it;
 - manage SL/TP and trailing exits;
 - inspect health, risk state, and execution history;
@@ -134,7 +135,8 @@ boundary must permit other historical sources without coupling them to Coinbase 
 
 - Structured rule builder with nested AND/OR groups.
 - Reusable, parameterized templates.
-- A canonical, immutable, versioned strategy schema.
+- A canonical strategy schema with content-addressed, immutable snapshots for every run and bot
+  ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
 - Future visual node-canvas and custom Python strategy adapters over the same domain interfaces.
 
 The first reference strategy is an EMA trend strategy with optional RSI and volume filters, ATR-based risk, configurable reward/risk take-profit, trailing-stop support, volatility-aware sizing, and maker-entry policies.
@@ -151,16 +153,16 @@ Coinbase's static sandbox is suitable for API contract tests, not realistic pape
 On-demand (discretionary) trades with SL/TP are **shipped** as long or short books through the
 order-intent → risk → broker path ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md),
 [ADR 0045](../decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Live shorts require
-available base and never borrow. Strategy deploy of a published fingerprint remains the automated
-runtime.
+available base and never borrow. Strategy deploy by `strategy_id` (snapshotted at start) remains the
+automated runtime.
 
 ### Delivery order for the first usable automation path
 
 The product first made one narrow research loop user-controllable: configure the implemented
-reference strategy through the browser, publish an immutable version, backtest it against a verified
+reference strategy through the browser, save it, backtest it (the start snapshots it) against a verified
 dataset, and inspect the evidence. Supported agent observation uses `thytrader-operator`; bounded,
 confirmation-gated research automation uses `thytrader-research --confirm`. Paper deployment is the
-first automated runtime, using the shared published strategy semantics and independent risk gate.
+first automated runtime, using the shared snapshotted strategy semantics and independent risk gate.
 Guarded live execution remains after paper restart, stale-data, duplicate-event, and reconciliation
 acceptance tests pass.
 
@@ -198,7 +200,7 @@ Bounded V1 training ships as a fail-closed integer ranker over those attributed 
 
 - Durable journals, sentiment snapshots, and pattern observations with required `origin` (`human` or
   `agent`) so later learning can separate authors.
-- Per-trade **why it was made** records: published strategy version, closed-bar signal, risk
+- Per-trade **why it was made** records: strategy snapshot, closed-bar signal, risk
   verdict, discretionary note, and fill/reconcile facts. Trainer consumes `JournalEntry` as stored.
 - Read-only monitor of deployments, recent journals, why-trade records, and notification delivery.
 - Config-gated user notification (`none` default, `log`, or `webhook`).

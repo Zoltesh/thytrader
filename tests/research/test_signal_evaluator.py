@@ -1441,7 +1441,7 @@ def test_reference_signal_trace_matches_literal_golden_bytes() -> None:
 
     assert canonical_signal_trace_bytes(trace) == expected
     assert signal_trace_fingerprint(trace) == (
-        "sha256:db75b85d1960af31c6ff8edee84d82cb1bb209906e0bcb4549f71e4bca1870b1"
+        "sha256:4fb57eacb7f42702b83682eeb4e4d4d03fd756cd1932f1956b0378e90aa86457"
     )
 
 

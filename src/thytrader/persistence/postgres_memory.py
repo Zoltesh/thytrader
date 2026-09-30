@@ -507,7 +507,6 @@ def _trade_reason_values(record: TradeReasonRecord) -> dict[str, object]:
         "strategy_id": None if strategy is None else strategy.strategy_id,
         "strategy_fingerprint": None if strategy is None else strategy.strategy_fingerprint,
         "strategy_name": None if strategy is None else strategy.name,
-        "strategy_version": None if strategy is None else strategy.version,
         "signal_kind": record.signal.kind.value,
         "last_signal": record.signal.last_signal,
         "candle_starts_at": record.signal.candle_starts_at,
@@ -529,7 +528,6 @@ def _trade_reason_from_row(row: RowMapping) -> TradeReasonRecord:
             "strategy_id": row["strategy_id"],
             "strategy_fingerprint": str(row["strategy_fingerprint"]),
             "name": str(row["strategy_name"]),
-            "version": int(row["strategy_version"]),
         }
     return TradeReasonRecord.model_validate(
         {

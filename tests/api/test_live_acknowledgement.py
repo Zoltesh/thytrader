@@ -13,7 +13,7 @@ from tests.api.test_deployments import (
 from tests.api.test_discretionary_orders import _body, _client as _order_client
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.strategies.models import strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 
 def _stores() -> tuple[InMemoryPublicationStore, InMemoryExecutionStore, str]:
@@ -22,29 +22,29 @@ def _stores() -> tuple[InMemoryPublicationStore, InMemoryExecutionStore, str]:
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
     fingerprint = strategy_fingerprint(definition)
-    publication.published[fingerprint] = PublishedStrategy(
+    publication.published[fingerprint] = StrategySnapshot(
         strategy_fingerprint=fingerprint, definition=definition
     )
-    return publication, execution, fingerprint
+    return publication, execution, str(definition.strategy_id)
 
 
 def test_live_start_without_acknowledgement_is_428_and_creates_nothing() -> None:
     """Missing or false acknowledgement fails closed; a non-boolean is a 422."""
-    publication, execution, fingerprint = _stores()
+    publication, execution, strategy_id = _stores()
     with _client(
         publication, execution, live_credentials=True, risk=_published_risk_policy_store()
     ) as client:
         missing = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live"},
+            json={"strategy_id": strategy_id, "mode": "live"},
         )
         false_ack = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": False},
+            json={"strategy_id": strategy_id, "mode": "live", "i_understand_live": False},
         )
         string_ack = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": "yes"},
+            json={"strategy_id": strategy_id, "mode": "live", "i_understand_live": "yes"},
         )
     assert missing.status_code == 428
     assert missing.json()["detail"].startswith("live_acknowledgement_required:")
@@ -55,12 +55,12 @@ def test_live_start_without_acknowledgement_is_428_and_creates_nothing() -> None
 
 def test_paper_start_needs_no_live_acknowledgement() -> None:
     """Paper is unaffected by the live acknowledgement."""
-    publication, execution, fingerprint = _stores()
+    publication, execution, strategy_id = _stores()
     with _client(publication, execution) as client:
         response = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": strategy_id,
                 "mode": "paper",
                 "paper_starting_cash": "1000",
             },
@@ -70,13 +70,13 @@ def test_paper_start_needs_no_live_acknowledgement() -> None:
 
 def test_live_resume_requires_acknowledgement_but_paper_resume_does_not() -> None:
     """Resuming a live book re-arms orders; the book stays paused without the ack."""
-    publication, execution, fingerprint = _stores()
+    publication, execution, strategy_id = _stores()
     with _client(
         publication, execution, live_credentials=True, risk=_published_risk_policy_store()
     ) as client:
         created = client.post(
             "/api/v1/deployments",
-            json={"strategy_fingerprint": fingerprint, "mode": "live", "i_understand_live": True},
+            json={"strategy_id": strategy_id, "mode": "live", "i_understand_live": True},
         )
         live_id = created.json()["id"]
         client.post(f"/api/v1/deployments/{live_id}/pause")
@@ -88,7 +88,7 @@ def test_live_resume_requires_acknowledgement_but_paper_resume_does_not() -> Non
         paper = client.post(
             "/api/v1/deployments",
             json={
-                "strategy_fingerprint": fingerprint,
+                "strategy_id": strategy_id,
                 "mode": "paper",
                 "paper_starting_cash": "1000",
             },

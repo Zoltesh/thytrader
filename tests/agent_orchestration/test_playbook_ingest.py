@@ -63,7 +63,7 @@ def test_ingest_only_run_uses_no_wait(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ingest_followed_by_research_waits_for_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When the same run drafts next, ingest keeps waiting so research sees the data."""
+    """When the same run creates a strategy next, ingest keeps waiting so research sees the data."""
     calls = _run(
         monkeypatch,
         [
@@ -73,7 +73,7 @@ def test_ingest_followed_by_research_waits_for_data(monkeypatch: pytest.MonkeyPa
             "--timeframe",
             "5m",
             "--ingest",
-            "--create-draft",
+            "--create-strategy",
             "--confirm",
         ],
     )

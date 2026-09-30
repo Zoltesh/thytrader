@@ -29,7 +29,6 @@ from thytrader.strategies.models import (
     RiskFractionSizing,
     StrategyDefinition,
     StrategyMetadata,
-    StrategyStatus,
     TimeExit,
 )
 
@@ -200,7 +199,7 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
     return blueprint
 
 
-def build_template_draft(
+def build_template_definition(
     *,
     template_id: StrategyTemplateId,
     strategy_id: UUID,
@@ -417,10 +416,8 @@ def _draft(
     return StrategyDefinition(
         schema_version="1.0",
         strategy_id=strategy_id,
-        version=1,
         name=name,
         description=description,
-        status=StrategyStatus.DRAFT,
         created_at=created,
         instrument=instrument,
         timeframe=timeframe,

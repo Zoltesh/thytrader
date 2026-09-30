@@ -2,7 +2,7 @@
 	/**
 	 * Build stage right column: plain-English summary, checks (validation,
 	 * warmup / required data, collapsible engine support), save state, and the
-	 * Save draft / Publish actions. Disabled actions say why in visible text
+	 * Save action. Disabled actions say why in visible text
 	 * wired through `aria-describedby`.
 	 */
 	import type { Snippet } from 'svelte';
@@ -17,7 +17,7 @@
 	}: {
 		model: BuilderModel;
 		validationErrors: string[];
-		/** Save / publish controls, or the read-only note for a published version. */
+		/** Save controls and the saved validation state. */
 		actions: Snippet;
 	} = $props();
 </script>

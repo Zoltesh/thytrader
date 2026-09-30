@@ -158,23 +158,43 @@ def test_market_data_revision_backfill_follows_maintenance_migration() -> None:
     assert "dataset_revision = 1" in content
 
 
-def test_schema_metadata_has_immutable_strategy_publication_tables() -> None:
-    """Published definitions and exact dataset bindings have separate durable identities."""
-    strategies = metadata.tables["published_strategy_versions"]
+def test_schema_metadata_has_strategy_root_snapshot_and_binding_tables() -> None:
+    """Mutable strategies, content-addressed snapshots, and bindings have separate identities."""
+    root = metadata.tables["strategies"]
+    snapshots = metadata.tables["strategy_snapshots"]
     bindings = metadata.tables["strategy_dataset_bindings"]
 
-    assert set(strategies.primary_key.columns.keys()) == {"strategy_fingerprint"}
-    assert "canonical_definition" in strategies.columns
+    assert set(root.primary_key.columns.keys()) == {"strategy_id"}
+    assert {"document", "is_valid", "validation_issues", "current_fingerprint", "revision"} <= set(
+        root.columns.keys()
+    )
+    assert set(snapshots.primary_key.columns.keys()) == {"strategy_fingerprint"}
+    assert "canonical_definition" in snapshots.columns
+    assert snapshots.c.strategy_id.nullable
     assert set(bindings.primary_key.columns.keys()) == {
         "strategy_fingerprint",
         "dataset_fingerprint",
     }
-    strategy_constraints = {constraint.name for constraint in strategies.constraints}
+    root_constraints = {constraint.name for constraint in root.constraints}
+    snapshot_constraints = {constraint.name for constraint in snapshots.constraints}
     binding_constraints = {constraint.name for constraint in bindings.constraints}
-    assert "ck_published_strategy_version_positive" in strategy_constraints
-    assert "ck_published_strategy_fingerprint_format" in strategy_constraints
-    assert "ck_strategy_dataset_binding_strategy_fingerprint_format" in binding_constraints
+    assert "ck_strategies_revision_positive" in root_constraints
+    assert "ck_strategies_validity_fingerprint" in root_constraints
+    assert "ck_strategy_snapshots_fingerprint_format" in snapshot_constraints
+    assert "fk_strategy_snapshots_strategy_id" in snapshot_constraints
+    assert "fk_strategy_dataset_bindings_strategy_id" in binding_constraints
     assert "ck_strategy_dataset_binding_dataset_fingerprint_format" in binding_constraints
+    for table in (
+        "published_research_run_specs",
+        "published_backtest_results",
+        "published_research_studies",
+        "research_jobs",
+    ):
+        assert metadata.tables[table].c.strategy_id.nullable is False, table
+    deployments = metadata.tables["deployments"]
+    assert "strategy_name" in deployments.columns
+    for retired in ("strategy_drafts", "published_strategy_versions", "archived_strategy_versions"):
+        assert retired not in metadata.tables
 
 
 def test_strategy_publication_migration_follows_market_data_backfill() -> None:

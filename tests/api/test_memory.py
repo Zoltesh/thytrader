@@ -217,7 +217,6 @@ def test_trade_reasons_list_show_and_note() -> None:
                     strategy_id=uuid4(),
                     strategy_fingerprint=_FP,
                     name="ref",
-                    version=1,
                 ),
                 signal=TradeReasonSignal(
                     kind=TradeReasonSignalKind.STRATEGY_ENTRY,

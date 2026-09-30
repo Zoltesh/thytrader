@@ -1,6 +1,7 @@
 # 0035: Phase 11 walk-forward, OOS, and cross-market research studies
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: studies over *published* fingerprints and `create-draft`. Studies name strategies by id and use automatic snapshots; templates create strategies with `create-strategy`.
 - Date: 2026-09-15
 - Relates to: [0007](0007-immutable-research-run-specifications.md),
   [0009](0009-deterministic-bar-level-backtest-engine.md),

@@ -92,7 +92,6 @@ export interface TradeReasonStrategy {
 	strategy_id: string | null;
 	strategy_fingerprint: string | null;
 	name: string | null;
-	version: number | null;
 }
 
 export interface TradeReasonSignal {

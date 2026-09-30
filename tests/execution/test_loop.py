@@ -35,8 +35,8 @@ from thytrader.execution.models import (
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.models import Candle, MarketProduct
 from thytrader.risk.models import compiled_default_risk_policy
-from thytrader.strategies.authoring import create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 
 def _product() -> MarketProduct:
@@ -56,9 +56,8 @@ def _product() -> MarketProduct:
 
 def _always_entry_strategy(*, on_unfilled_entry: str = "cancel") -> StrategyDefinition:
     """Published reference strategy whose entry condition is always true."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     payload["entry"]["when"] = {
         "all": [
             {

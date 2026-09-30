@@ -12,7 +12,7 @@ from thytrader.backtest.service import evaluate_and_publish_backtest
 from thytrader.research.models import research_run_fingerprint
 from thytrader.research.publication import PublishedResearchRunSpecification
 from thytrader.strategies.models import strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 from .test_kernel import _candles, _run, _strategy
 
@@ -52,12 +52,12 @@ class _StrategyStore:
         """Record strategy identities resolved by the service."""
         self.loaded: list[str] = []
 
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Return the deterministic strategy after asserting exact identity use."""
         self.loaded.append(strategy_fingerprint_value)
         strategy = _strategy()
         assert strategy_fingerprint(strategy) == strategy_fingerprint_value
-        return PublishedStrategy(
+        return StrategySnapshot(
             strategy_fingerprint=strategy_fingerprint_value,
             definition=strategy,
         )

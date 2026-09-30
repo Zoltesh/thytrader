@@ -18,7 +18,7 @@ from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.models import (
     AdditionalInstrumentDataset,
     BarExecutionAssumptions,
@@ -58,14 +58,13 @@ if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
-    from thytrader.strategies.publication import PublishedStrategy
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 
-class BacktestSubmissionRequest(BaseModel):
-    """Browser-supplied immutable simulation assumptions with no execution authority."""
+class BacktestAssumptions(BaseModel):
+    """Datasets, window, capital, costs, and engine for one simulation (no strategy)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
@@ -89,6 +88,30 @@ class BacktestSubmissionRequest(BaseModel):
         """Reject assumptions that cannot form one valid immutable research run."""
         _validate_submission_assumptions(self)
         return self
+
+
+class BacktestSubmissionRequest(BacktestAssumptions):
+    """Internal submission bound to one exact strategy snapshot fingerprint.
+
+    HTTP and CLI callers send :class:`BacktestStartRequest` (a ``strategy_id``);
+    the server snapshots the current definition and builds this request, which
+    is also the durable async-job payload.
+    """
+
+    strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class BacktestStartRequest(BacktestAssumptions):
+    """Agent/browser backtest start: the server snapshots ``strategy_id``'s current rules."""
+
+    strategy_id: UUID
+
+    def submission(self, strategy_fingerprint: str) -> BacktestSubmissionRequest:
+        """Bind these assumptions to the snapshot taken for ``strategy_id``."""
+        payload = self.model_dump(mode="python", exclude={"strategy_id"})
+        return BacktestSubmissionRequest.model_validate(
+            {**payload, "strategy_fingerprint": strategy_fingerprint}
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +154,7 @@ class PostgresBacktestSubmitter:
     def __init__(self, engine: AsyncEngine, dataset_store: DatasetStore) -> None:
         """Use one application-managed engine and immutable dataset root."""
         self._dataset_store = dataset_store
-        self._strategy_store = PostgresStrategyPublicationStore(engine)
+        self._strategy_store = PostgresStrategyStore(engine)
         self._run_store = PostgresResearchRunStore(engine)
         self._result_store = PostgresBacktestResultStore(
             engine,
@@ -234,7 +257,7 @@ class PostgresBacktestSubmitter:
     async def _publish_run(
         self,
         request: BacktestSubmissionRequest,
-        strategy: PublishedStrategy,
+        strategy: StrategySnapshot,
         now: datetime,
         execution_fingerprint: str,
     ) -> PublishedResearchRunSpecification:
@@ -301,7 +324,7 @@ class PostgresBacktestSubmitter:
 
 def _with_evaluation_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> BacktestSubmissionRequest:
     """Fill omitted dates from common coverage, or reject supplied dates with a suggestion."""
@@ -353,7 +376,7 @@ def _with_evaluation_window(
 
 def _fill_omitted_evaluation_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
     *,
     suggested_start: datetime,
@@ -379,7 +402,7 @@ def _fill_omitted_evaluation_window(
 
 def _require_coverage_windows(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> None:
     """Reject a filled window that extra-clock or extra-product datasets cannot cover."""
@@ -390,7 +413,7 @@ def _require_coverage_windows(
 
 def _intersect_omitted_evaluation_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
     *,
     suggested_start: datetime,
@@ -453,7 +476,7 @@ def _intersect_htf_omitted_window(
     start: datetime,
     end: datetime,
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> tuple[datetime, datetime]:
     """Clip omitted bounds to last-completed HTF coverage when a filter is declared."""
@@ -480,7 +503,7 @@ def _intersect_indicator_omitted_window(
     start: datetime,
     end: datetime,
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> tuple[datetime, datetime]:
     """Clip omitted bounds to last-completed extra-TF coverage."""
@@ -511,7 +534,7 @@ def _intersect_additional_omitted_window(
     start: datetime,
     end: datetime,
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> tuple[datetime, datetime]:
     """Clip omitted bounds to extra-product LTF, HTF, and extra-TF coverage."""
@@ -533,7 +556,7 @@ def _clip_additional_binding_window(
     start: datetime,
     end: datetime,
     binding: AdditionalInstrumentDataset,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> tuple[datetime, datetime]:
     """Clip omitted bounds to one extra product's bound datasets."""
@@ -581,7 +604,7 @@ def _clip_additional_extra_tf_window(
     start: datetime,
     end: datetime,
     binding: AdditionalInstrumentDataset,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> tuple[datetime, datetime]:
     """Clip omitted bounds to one extra product's extra-TF datasets."""
@@ -617,7 +640,7 @@ def _manifest_instant(value: str) -> datetime:
 
 
 def _validate_submission_assumptions(
-    request: BacktestSubmissionRequest,
+    request: BacktestAssumptions,
     *,
     quote_currency: SpotQuoteCurrency = "USD",
 ) -> None:
@@ -641,7 +664,7 @@ def _validate_submission_assumptions(
     _broker_from_request(request)
 
 
-def _broker_from_request(request: BacktestSubmissionRequest) -> BrokerAssumptions | None:
+def _broker_from_request(request: BacktestAssumptions) -> BrokerAssumptions | None:
     """Resolve contract-specific broker inputs, mirroring the CLI contract exactly."""
     if request.engine_contract_version == "thytrader-bar-backtest-v1":
         return None
@@ -685,7 +708,7 @@ def _bar_execution_from_request(request: BacktestSubmissionRequest) -> BarExecut
     )
 
 
-def _require_valid_broker_inputs(request: BacktestSubmissionRequest) -> None:
+def _require_valid_broker_inputs(request: BacktestAssumptions) -> None:
     """Reject mismatched engine and spread combinations before any publication."""
     if request.engine_contract_version == "thytrader-bar-backtest-v2":
         if request.spread_bps is None:
@@ -791,7 +814,7 @@ def _require_indicator_dataset_request(
 
 def _require_htf_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> None:
     """Confirm the HTF dataset covers last-completed HTF bars for the LTF window."""
@@ -839,7 +862,7 @@ def _require_htf_window(
 
 def _require_indicator_timeframe_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> None:
     """Confirm extra-TF datasets cover last-completed bars for the LTF window."""
@@ -972,7 +995,7 @@ def _require_additional_instrument_request(
 
 def _require_additional_instrument_window(
     request: BacktestSubmissionRequest,
-    strategy: PublishedStrategy,
+    strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> None:
     """Confirm extra product datasets cover the same evaluation window as the primary."""

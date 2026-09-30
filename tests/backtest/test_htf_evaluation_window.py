@@ -22,7 +22,7 @@ from thytrader.research.multi_timeframe import (
 )
 from thytrader.research.publication import dataset_evaluation_bounds
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy
+from thytrader.strategies.snapshots import StrategySnapshot
 
 _LTF_FINGERPRINT = "sha256:" + "b" * 64
 _HTF_FINGERPRINT = "sha256:" + "c" * 64
@@ -114,9 +114,9 @@ def _htf_strategy(*, decision_timeframe: str, htf_timeframe: str) -> StrategyDef
     return StrategyDefinition.model_validate(payload)
 
 
-def _published(strategy: StrategyDefinition) -> PublishedStrategy:
+def _published(strategy: StrategyDefinition) -> StrategySnapshot:
     """Wrap one validated definition as a publication."""
-    return PublishedStrategy(
+    return StrategySnapshot(
         strategy_fingerprint=strategy_fingerprint(strategy),
         definition=strategy,
     )

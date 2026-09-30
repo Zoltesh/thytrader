@@ -14,7 +14,7 @@
 		if (record.strategy === null || record.strategy.name === null) {
 			return 'discretionary';
 		}
-		return `${record.strategy.name} v${record.strategy.version ?? '?'}`;
+		return record.strategy.name;
 	}
 
 	function notesLabel(record: TradeReasonRecord): string {

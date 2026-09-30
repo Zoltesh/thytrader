@@ -24,27 +24,29 @@ from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
-from thytrader.strategies.authoring import DisabledStrategyDraftStore, create_reference_draft
-from thytrader.strategies.models import Instrument, StrategyDefinition, StrategyStatus
-from thytrader.strategies.publication import StrategyCatalogEntry
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.library import DisabledStrategyStore
+from thytrader.strategies.models import Instrument, StrategyDefinition
+from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
 
 
 class _Catalog:
-    """Publication catalog that can list one two-product document."""
+    """Snapshot store that serves one two-product document by fingerprint."""
 
-    def __init__(self, entry: StrategyCatalogEntry) -> None:
-        """Retain one catalog row."""
-        self._entry = entry
+    def __init__(self, snapshot: StrategySnapshot) -> None:
+        """Retain one snapshot."""
+        self._snapshot = snapshot
 
-    async def list_published(self, *, include_archived: bool) -> tuple[StrategyCatalogEntry, ...]:
-        """Return the retained publication."""
-        del include_archived
-        return (self._entry,)
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
+        """Return the retained snapshot for its fingerprint."""
+        if strategy_fingerprint_value != self._snapshot.strategy_fingerprint:
+            raise StrategySnapshotError("Strategy snapshot was not found.")
+        return self._snapshot
 
-    async def archive(self, strategy_fingerprint_value: str) -> StrategyCatalogEntry:
-        """Unused archive path."""
-        del strategy_fingerprint_value
-        return self._entry
+    async def record_snapshot(self, definition: StrategyDefinition) -> StrategySnapshot:
+        """Unused derived-snapshot path."""
+        del definition
+        return self._snapshot
 
 
 def _now() -> datetime:
@@ -54,13 +56,12 @@ def _now() -> datetime:
 
 def _two_product_definition() -> StrategyDefinition:
     """Return a published BTC primary with ETH extra coverage."""
-    draft = create_reference_draft(now=_now())
+    draft = create_template_strategy(now=_now())
     extra = Instrument(product_id="ETH-USD", base_currency="ETH", quote_currency="USD")
     limits = draft.portfolio_limits.model_copy(update={"max_concurrent_positions": 2})
     return StrategyDefinition.model_validate(
         {
             **draft.model_dump(mode="python"),
-            "status": StrategyStatus.PUBLISHED.value,
             "additional_instruments": [extra.model_dump(mode="python")],
             "portfolio_limits": limits.model_dump(mode="python"),
         }
@@ -71,13 +72,7 @@ def test_operator_books_omit_quantities_and_label_each_product() -> None:
     """Primary flat and secondary open stay distinct without leaking size."""
     definition = _two_product_definition()
     fingerprint = "sha256:" + ("c" * 64)
-    catalog = _Catalog(
-        StrategyCatalogEntry(
-            strategy_fingerprint=fingerprint,
-            definition=definition,
-            archived_at=None,
-        )
-    )
+    catalog = _Catalog(StrategySnapshot(strategy_fingerprint=fingerprint, definition=definition))
     store = InMemoryExecutionStore()
     deployment = Deployment(
         id=uuid4(),
@@ -111,7 +106,7 @@ def test_operator_books_omit_quantities_and_label_each_product() -> None:
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
         publications=catalog,
-        drafts=DisabledStrategyDraftStore(),
+        strategies_store=DisabledStrategyStore(),
         backtests=DisabledBacktestResultStore(),
         execution=store,
         audit=InMemoryAuditEventStore(),

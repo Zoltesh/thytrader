@@ -79,7 +79,7 @@ require `--confirm`. YOLO never skips that gate. Lessons require `--lesson-outco
 fail-closed: unevidenced rows are skipped; dangling local evidence refuses the whole train.
 Output is advisory, not a live policy. Place-order `--note` is the first why-trade note; later
 notes use `add-trade-reason-note --confirm`. Pass a model id into research with
-`uv run thytrader-research create-draft --experiential-model-id UUID --confirm` (HTTP only).
+`uv run thytrader-research create-strategy --experiential-model-id UUID --confirm` (HTTP only).
 
 Underlying HTTP used by this CLI:
 

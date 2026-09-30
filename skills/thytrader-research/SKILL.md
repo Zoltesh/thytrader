@@ -1,12 +1,14 @@
 ---
 name: thytrader-research
 description: >-
-  Create ThyTrader strategy drafts, publish immutable versions, and submit or
-  compare deterministic backtests and composed research studies through the
-  confirmation-gated thytrader-research CLI. Use when the user asks to create a
-  strategy, publish, run a backtest, or run an OOS / walk-forward / cross-market /
-  parameter-sweep / WFO study, or to list persisted study catalog rows. Requires explicit --confirm for every mutation. Never deploys,
-  paper-trades, live-trades, arms, or cancels orders.
+  Create, edit, clone, import, and delete ThyTrader strategies (one mutable
+  object per strategy, revision-guarded saves) and submit or compare
+  deterministic backtests and composed research studies by strategy id through
+  the confirmation-gated thytrader-research CLI. Use when the user asks to
+  create or change a strategy, delete strategies, run a backtest, or run an OOS /
+  walk-forward / cross-market / parameter-sweep / WFO study, or to list persisted
+  study catalog rows. Requires explicit --confirm for every mutation.
+  Never deploys, paper-trades, live-trades, arms, or cancels orders.
 ---
 
 # ThyTrader research
@@ -21,10 +23,33 @@ Production installs enforce the application trust boundary
 `$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
 The CLI sends that header automatically; `--local` bypasses HTTP and therefore the boundary.
 
-Existing HTTP contracts (`POST /api/v1/strategies`, `POST /api/v1/strategies/import`,
-`POST /api/v1/strategies/{id}/publish`,
-`POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`) remain valid. The agent-facing mutation
-path is `uv run thytrader-research` with `--confirm`.
+HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)):
+`GET/POST /api/v1/strategies`, `GET/PUT/DELETE /api/v1/strategies/{strategy_id}`,
+`POST /api/v1/strategies/bulk-delete`, `POST /api/v1/strategies/{strategy_id}/clone`,
+`POST /api/v1/strategies/import`, `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`,
+`POST /api/v1/backtests`, `POST /api/v1/research/studies`, `GET /api/v1/research/studies`,
+`GET /api/v1/research/jobs?strategy_id=`. The agent-facing mutation path is
+`uv run thytrader-research` with `--confirm`.
+
+## Strategy model (no drafts, no publish, no versions)
+
+- A strategy is **one mutable object** identified by `strategy_id` (UUIDv7) with an
+  optimistic-concurrency `revision`. You edit it and save it in place. There is no draft,
+  publish, revise, archive, or version number.
+- Saving an **invalid** work-in-progress document is allowed: the response carries
+  `validation: {valid, issues:[{loc, message}]}` and `current_fingerprint: null`. Backtest,
+  study, and deployment starts require a currently valid definition and fail closed with HTTP
+  422 `strategy_invalid` (the `issues` list says what to fix).
+- Starting a backtest, study, or deployment **snapshots** the current definition automatically:
+  canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
+  studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they
+  are always exact about the rules they used. A row whose `strategy_fingerprint` differs from the
+  strategy's `current_fingerprint` ran on an **earlier edit**; read it with `show-snapshot`.
+- Canonical documents no longer contain `version` or `status`. Legacy files that still carry them
+  import fine; the keys are discarded and never fingerprinted.
+- Saves are revision-guarded: pass the `revision` you last read. A stale save returns HTTP 409
+  `strategy_revision_conflict` with `current_revision`; re-read with `show-strategy`, reapply the
+  change, and save again. Never overwrite blindly.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
@@ -55,7 +80,7 @@ engine versions with Coinbase Advanced Trade REST **v3** (live order API).
 |---|---|---|
 | `thytrader-bar-backtest-v1` | Fast baseline: signal on close → fill at **next open** as marketable/taker-style (fixed slippage + taker fee). Good first pass and cheap compare. | Matching paper/live maker-limit behavior; spread-stress sweeps |
 | `thytrader-bar-backtest-v2` | Same event order as V1, plus explicit constant **`spread_bps` stress** (not observed Coinbase bid/ask). Compare the same strategy at 0 / 10 / 25 / 50 bps. `spread_bps=0` matches V1 economics. | Claiming live fill quality; maker-rest realism |
-| `thytrader-bar-backtest-v3` | Historical maker-limit contract (pre-0062): post-only limit at signal close, terminal candle may process intrabar exits beyond the declared boundary. Keep for reproducing published v3 evidence only. | Walk-forward/OOS selection, new paper/live comparison, or claiming corrected terminal boundaries |
+| `thytrader-bar-backtest-v3` | Historical maker-limit contract (pre-0062): post-only limit at signal close, terminal candle may process intrabar exits beyond the declared boundary. Keep for reproducing existing v3 evidence only. | Walk-forward/OOS selection, new paper/live comparison, or claiming corrected terminal boundaries |
 | `thytrader-bar-backtest-v4` | **Default for new maker research** ([ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md)): v3 maker semantics plus causal evaluation terminal, taker slippage on stops/time/end, causal same-bar trailing, and `validity_limits` on summaries. | Spread-stress sweeps (no `spread_bps`); silently comparing to pre-0062 v3 bytes |
 
 Default guidance: v4 for OOS/walk-forward/sweeps and paper/live comparison; v2 for friction
@@ -67,13 +92,19 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 
 | Need | Command |
 |---|---|
-| Create a template draft | `uv run thytrader-research create-draft [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
-| List draft templates | `uv run thytrader-research list-templates` |
+| List the strategy library | `uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR]` |
+| Show one strategy (document, validation, revision, current fingerprint) | `uv run thytrader-research show-strategy --strategy-id UUID` |
+| Show one snapshot a result or bot used | `uv run thytrader-research show-snapshot --strategy-fingerprint sha256:…` |
+| Create a strategy from a template | `uv run thytrader-research create-strategy [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
+| Save (edit) a strategy in place | `uv run thytrader-research save-strategy --strategy-id UUID --file document.json --revision N --confirm` |
+| Import a JSON document as a new strategy | `uv run thytrader-research import-strategy --file document.json --confirm` |
+| Clone a strategy into a new identity | `uv run thytrader-research clone-strategy --strategy-id UUID --confirm` |
+| Delete one strategy (hard delete) | `uv run thytrader-research delete-strategy --strategy-id UUID --confirm` |
+| Preview a bulk delete | `uv run thytrader-research bulk-delete-strategies --strategy-id UUID [--strategy-id UUID …] --dry-run` |
+| Bulk delete strategies | `uv run thytrader-research bulk-delete-strategies --strategy-id UUID [--strategy-id UUID …] --confirm` |
+| List strategy templates | `uv run thytrader-research list-templates` |
 | Show one template's defaults and sweepable axes | `uv run thytrader-research show-template --template macd-trend` |
 | Show the V1/V2/V3/V4 engine-support matrix | `uv run thytrader-research engine-support` |
-| Save a draft from JSON | `uv run thytrader-research save-draft --file definition.json --revision N --confirm` |
-| Import a new custom draft from JSON | `uv run thytrader-research import-draft --file definition.json --confirm` |
-| Publish the matching draft | `uv run thytrader-research publish --strategy-id UUID --confirm` |
 | Submit an idempotent backtest | `uv run thytrader-research submit-backtest --file request.json --confirm` |
 | Queue a long backtest (HTTP 202) | `uv run thytrader-research submit-backtest --file request.json --async --confirm` |
 | Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
@@ -83,26 +114,25 @@ claims — they document maker touch-fill, TP-before-stop ordering, and spot-sho
 | Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
 | Read back a study after an ambiguous submit | `uv run thytrader-research find-study-by-request --request-fingerprint sha256:…` |
 | Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
-| List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--limit 50]` |
+| List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--strategy-id UUID] [--limit 50]` |
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
-| List result summaries | `uv run thytrader-research list-results [--strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
+| List result summaries | `uv run thytrader-research list-results [--strategy-id UUID \| --strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
-| Show one published strategy definition | `uv run thytrader-research show-strategy --strategy-fingerprint sha256:…` |
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
-| List the strategy library | `uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR] [--include-archived]` |
 
-`list-results`, `show-result`, `show-strategy`, `show-evidence`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
+`list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `engine-support`, `plan-study`,
 `list-studies`, `list-strategies`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
 `next_cursor`). Default `show-study` includes `window_pnl` headlines (label, role, PnL, trades)
 without child equity curves; `?detail=full` still returns `windows[]`. Queued research jobs report
-`progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-draft`/`publish` loops
+`progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-strategy` loops
 can exceed a 180s agent timeout after HTTP 201 — list-strategies before retrying; the mutation is
 already persisted. `submit-study` requires `--confirm`. Studies compose existing V1/V2/V3/V4
 backtests. In-sample-only studies expose `oos_window_count=0` and absent OOS means; do not treat
-`mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one published fingerprint. `parameter_sweep` and
-`walk_forward_optimization` select among published fingerprints or `parameter_axes`. Axes default
+`mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one snapshot of the strategy. `parameter_sweep` and
+`walk_forward_optimization` select among `candidate_strategy_ids` (each snapshotted at submit) or
+`parameter_axes` (derived variants keep the base `strategy_id`, so they belong to that strategy). Axes default
 to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_period` / `d_period` /
 `stdev_multiplier` / `value`. Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
 `max_quote_notional`), `exits` (`initial_stop_multiple`, `take_profit_multiple`,
@@ -115,8 +145,8 @@ Product and timeframe are not sweepable. Selection uses only in-sample `selectio
 not look ahead from OOS.
 `plan-study` derives axis candidates in memory, then rejects windows that cannot fit the selected dataset after warmup and the reserved next-open fill. A rejected plan is HTTP 422 `study_window_rejected` and names the field that failed (`evaluation_start` or `evaluation_end`) plus the same suggested ISO range child backtests use. It returns a compact plan summary by default
 (`window_count`, `fold_count`, fingerprints, warnings). Pass `?detail=full` on the HTTP route when
-child windows are required. `submit-study --confirm` publishes missing derived documents, then
-submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
+child windows are required. `submit-study --confirm` snapshots every named strategy and any derived axis
+variants, then submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
 `plan_fingerprint` even when request bounds differ. Long WFO batches should use
 `submit-study --async --confirm` and poll `show-research-job`. If a synchronous `submit-study`
 fails with a timeout or unreachable-API error, the study may already be persisted: the CLI error
@@ -132,29 +162,29 @@ returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo
 interpolated. Parameter-sweep aggregates are not an out-of-sample claim: sweep documents carry
 `candidate_window_count` / `mean_candidate_return_fraction` (their `oos_*` fields are zero/absent),
 and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-market studies
-need 2–8 published single-instrument strategies on distinct products. See
+need 2–8 valid single-instrument strategies (`markets[].strategy_id`) on distinct products. See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
-`create-draft` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
+`create-strategy` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
-`--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live may start that published fingerprint.
-`show-result` (HTTP and `--local`) and operator `performance` copy the published strategy
+`--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live start by `strategy_id` through `thytrader-runtime`; the server snapshots the current definition.
+`show-result` (HTTP and `--local`) and operator `performance` copy the snapshot's
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
 `currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
 (`sharpe`, `sortino`, `calmar`, `sqn`, `cagr`, annualized volatility, max consecutive losses,
 exposure fraction, mark-to-mark buy-and-hold) without changing canonical result fingerprints.
-The quote is `null` when the publication cannot be loaded; never relabel an unverified result as USD or USDC.
+The quote is `null` when the snapshot cannot be loaded; never relabel an unverified result as USD or USDC.
 Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 `GET /api/v1/memory/models/{id}` fail-closed and merges `experiential_advisory` into the
-create-draft JSON. It does not change published strategy semantics, place orders, or arm live
+create-strategy JSON. It does not change strategy semantics, place orders, or arm live
 trading. Train models with `skills/thytrader-memory/SKILL.md`.
 Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
-`create-draft` does not add it. `save-draft` JSON may include the block. `submit-backtest` JSON must
-include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the published strategy
+`create-strategy` does not add it. `save-strategy` JSON may include the block. `submit-backtest` JSON must
+include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the strategy
 declares `htf_filter`, and must omit it otherwise. Extra indicator clocks that are not already
 `htf_filter.timeframe` require `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
 ordered by increasing duration, each distinct from LTF and HTF). Ingest those extra clocks with
-`skills/thytrader-data/SKILL.md` before naming fingerprints. Multi-instrument published documents
+`skills/thytrader-data/SKILL.md` before naming fingerprints. Multi-instrument documents
 require `additional_instrument_datasets` on submit-backtest JSON: one `{product_id, dataset_fingerprint,
 htf_dataset_fingerprint?, indicator_dataset_fingerprints?}` per extra covered product, ordered by
 `product_id`, omitted when the document has no extra products. Each extra product needs a complete
@@ -180,14 +210,24 @@ Optional per-indicator `timeframe` on LTF-list indicators must be a coarser inte
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a
 level with `greater_than*` / `less_than*` and a `literal`, or declare a `constant` kind and cross that
-id. Copy a candle field with `identity`. Custom documents need a new UUIDv7 `strategy_id` and
-`status: draft`; use `import-draft --file … --confirm` to create a new identity. Use
-`save-draft --file … --revision N --confirm` only to replace an existing draft (first save after
-create/import uses `--revision 1`; each accepted save bumps revision). `save-draft` prints the first Pydantic
-validation message; do not treat a generic “failed safely” string as success. HTTP 422 that lists
+id. Copy a candle field with `identity`. `import-strategy --file … --confirm` always creates a new
+strategy (the server mints a fresh `strategy_id` and `created_at`; `version`/`status` keys are
+discarded). `save-strategy --strategy-id UUID --file … --revision N --confirm` replaces the whole
+document of an existing strategy (first save after create/import/clone uses `--revision 1`; each
+accepted save bumps revision; the server forces the row's `strategy_id`/`created_at`). A save is
+accepted even when the document is invalid — read `validation.valid` and `validation.issues` in the
+output; do not treat a saved invalid document as ready to backtest. HTTP 422
+`strategy_document_invalid` means the file is not a JSON object or exceeds 256 KiB. HTTP 422 that lists
 backtest engines through v1/v2 only, or through v3 without v4, is a stale Compose image — rebuild
 with `make run`. A matching `/health/ready` ops contract must advertise v4 before v4
 `submit-backtest` requests ([ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md)).
+
+`submit-backtest` JSON names the strategy with `strategy_id` (not a fingerprint); the server
+snapshots the current definition and returns `strategy_id` plus the snapshot `strategy_fingerprint`
+with `run_fingerprint` / `result_fingerprint` (async 202 returns `job_id` plus the same strategy
+identities). HTTP 404 `strategy_not_found`; HTTP 422 `strategy_invalid` lists `issues`.
+`submit-study` / `plan-study` JSON uses `strategy_id`, `candidate_strategy_ids`, and
+`markets[].strategy_id` the same way; study windows still report each snapshot `strategy_fingerprint`.
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,
@@ -200,9 +240,9 @@ in the error is inclusive. Do not invent a window that the catalog cannot cover.
 long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtests?async=true`) and
 poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`. Name an explicit engine contract in the request (`thytrader-bar-backtest-v1`,
 `…-v2`, `…-v3`, or `…-v4`) per the table above. Prefer v4 for new maker research unless
-reproducing a published v3 fingerprint.
+reproducing an existing v3 fingerprint.
 
-`show-result` copies the published strategy decision clock (`1m` through `1d`, including `2h` and
+`show-result` copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
 `4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
 ## Maker/taker rates
@@ -227,33 +267,38 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
   claims an ambiguous submit state — nothing was persisted; fix the request instead of re-reading.
 - Ambiguous failures (timeout, unreachable API, HTTP 408/5xx) keep the readback suffix: the study
   may already be persisted. Run `find-study-by-request --request-fingerprint …` before retrying.
-- Failed async study jobs expose `failed_phase` (`plan`, `publish_derived`, `submit_children`,
+- Failed async study jobs expose `failed_phase` (`plan`, `publish_derived` (snapshotting derived variants), `submit_children`,
   `persist_study`, or `unknown`), `failed_detail` (underlying cause text), and `error_message` in
   `show-research-job` output. Child-window 422s copy the rejection text into `failed_detail`.
   Decide retries from the phase, not from `progress_current`.
 
-## Publication archive reads and writes
+## Library and deletion
 
-- `uv run thytrader-research list-strategies` lists the strategy library; archived publications are
-  hidden by default. Pass `--include-archived` to audit them (rows keep fingerprints and
-  `archived_at` markers; nothing is deleted). The browser workspace Build stage at `/strategies/{strategy_id}`
-  reads the identity's `GET /api/v1/strategies/{strategy_id}/history` directly: its `draft` is editable;
-  `draft: null` means only immutable published/archived versions remain, not a missing strategy.
-  Build then shows the published definition read-only; the workspace **Versions** dialog revises
-  one into a new draft (browser Test stage: `/strategies/{strategy_id}/test?version=<fingerprint>`;
-  old `/research?strategy=` links redirect there). Do not retry
-  a published version through the draft-version endpoint. The browser `/strategies` list requests
-  one cursor page at a time: 10 rows by default, configurable to 25, 50, or 100. Next/Previous
-  navigate pages; changing the size resets to the first page. A failed page is retryable, not an
-  empty library. Other browser selection screens can still fetch the complete strategy catalog.
-- `uv run thytrader-research archive --strategy-fingerprint sha256:… --confirm` permanently hides
-  one immutable publication from default listings. It cannot remove evidence and cannot archive a
-  draft. Use it to retire sweep-variant or screening byproducts after recording the fingerprint in
-  the session report.
+- `list-strategies` lists every strategy, newest-updated first, with `revision`, `valid`,
+  `current_fingerprint`, newest `backtest`, `paper_live` status, and `active_deployment_count`.
+  The browser workspace is `/strategies/{strategy_id}` (Build · Test · Run · Why). Old `?version=`
+  and fingerprint deep links resolve to the owning strategy through
+  `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`.
+- `delete-strategy --strategy-id UUID --confirm` **hard-deletes** the strategy and everything that
+  belongs to it: snapshots, backtests, run specs, studies that include it, research jobs, dataset
+  bindings, and PAPER deployments with their orders, fills, positions, intents, and trade reasons.
+  It is refused with HTTP 409 `strategy_has_active_deployments` (with `deployment_ids`) while any
+  bot of the strategy is running or paused — stop it with `skills/thytrader-runtime/SKILL.md`
+  first (that is a runtime-lane action; this skill never stops bots). Stopped LIVE deployments are
+  **kept** with their orders, fills, positions, trade reasons, and the snapshot they ran; they are
+  detached (`strategy_id: null`, `strategy_deleted: true`, `strategy_name` kept). Real-money
+  records are never destroyed. If the active risk policy allocated capital to the strategy, the
+  same transaction publishes the next risk-policy version without that allocation
+  (`risk_policy_republished: true`). The output `counts` lists what was removed.
+- `bulk-delete-strategies --strategy-id … --dry-run` previews each id (`would_delete` with
+  `counts`, `blocked`, or `not_found`) without writing; run it first and show the user the list.
+  `--confirm` executes and returns one result per id (`deleted`, `blocked`, `not_found`, `failed`);
+  partial success is normal — report each id's outcome. At most 100 ids per call.
+- Deletion cannot be undone. Only delete when the user explicitly named the strategies.
 
 ## Confirmation
 
-- Never run `create-draft`, `import-draft`, `save-draft`, `publish`, `submit-backtest`, `submit-study`, or `archive` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
+- Never run `create-strategy`, `import-strategy`, `save-strategy`, `clone-strategy`, `delete-strategy`, `bulk-delete-strategies` (without `--dry-run`), `submit-backtest`, `submit-study`, or `cancel-research-job` unless the user explicitly asked for that mutation **and** `--confirm` is present, unless the user explicitly asked to operate under YOLO **and** operator `configuration` / `thytrader-playbook status` shows the `research` tier enabled.
 - `--local` research always requires `--confirm` (YOLO is HTTP-only).
 - If `--confirm` is missing in Safe mode, the CLI exits without writing. Do not retry with `--confirm` unless the user asked you to.
 - Successful mutations print JSON identities (`strategy_id`, `strategy_fingerprint`, `run_fingerprint`, `result_fingerprint`, `study_fingerprint`). Keep those identities.
@@ -263,7 +308,7 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 - Deployments, pause/resume/stop, Coinbase orders, risk-limit edits, kill switches
 - Direct PostgreSQL access as the public agent contract
 - Treating a backtest as a live or paper fill
-- Deleting research artifacts (archive hides; it never removes evidence)
+- Deleting strategies the user did not explicitly name, or deleting to "clean up" on your own initiative
 - Editing application source to change strategy or backtest semantics on a running instance
 
-Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be any ingested venue clock for backtests, paper, and live. Published `htf_filter` is executable in paper and live.
+Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be any ingested venue clock for backtests, paper, and live. A strategy's `htf_filter` is executable in paper and live.

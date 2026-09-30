@@ -36,7 +36,7 @@ def show_deployment(base_url: str, deployment_id: str) -> object:
 def start_deployment(
     base_url: str,
     *,
-    strategy_fingerprint: str,
+    strategy_id: str,
     mode: str,
     paper_starting_cash: str | None,
     maker_fee_rate: str | None = None,
@@ -44,12 +44,14 @@ def start_deployment(
     settings: Settings | None = None,
     i_understand_live: bool = False,
 ) -> object:
-    """Create one paper or live deployment through the existing HTTP contract.
+    """Start one paper or live deployment from a strategy's current rules.
 
-    ``i_understand_live`` is forwarded only for live; the API rejects live without it.
+    The server snapshots the strategy and returns the snapshot
+    ``strategy_fingerprint`` the bot runs. ``i_understand_live`` is forwarded
+    only for live; the API rejects live without it.
     """
     payload: dict[str, str | bool] = {
-        "strategy_fingerprint": strategy_fingerprint,
+        "strategy_id": strategy_id,
         "mode": mode,
     }
     if mode == "live" and i_understand_live:

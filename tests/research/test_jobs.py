@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.research.jobs import (
@@ -17,6 +18,8 @@ from thytrader.research.studies import (
     plan_fingerprint,
     summarize_research_study_plan,
 )
+
+_STRATEGY_ID = UUID("01985cf0-7b60-7000-8000-00000000abcd")
 
 
 def _backtest_request() -> BacktestSubmissionRequest:
@@ -51,7 +54,7 @@ def test_in_memory_job_store_runs_backtest_to_completion() -> None:
     store = InMemoryResearchJobStore()
 
     async def _scenario() -> None:
-        record = await store.create_backtest(_backtest_request())
+        record = await store.create_backtest(_backtest_request(), strategy_id=_STRATEGY_ID)
         assert record.progress_current == 0
         assert record.progress_total >= 1
         await run_backtest_job(store, _ImmediateSubmitter(), record.job_id, _backtest_request())
@@ -141,7 +144,7 @@ def test_in_memory_job_store_expires_stale_jobs() -> None:
     store = InMemoryResearchJobStore()
 
     async def _scenario() -> None:
-        record = await store.create_backtest(_backtest_request())
+        record = await store.create_backtest(_backtest_request(), strategy_id=_STRATEGY_ID)
         stale = record.model_copy(update={"expires_at": datetime.now(UTC) - timedelta(hours=1)})
         store._records[record.job_id] = stale
         expired = await store.expire_stale()

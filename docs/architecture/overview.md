@@ -12,7 +12,7 @@ professional workstation. Product destination is a Coinbase-first research and t
 
 The diagram describes the **target system shape**, not a claim that every responsibility is already
 implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
-authoring, backtests, and paper/live deployments of a published venue-clock strategy.
+authoring, backtests, and paper/live deployments of a venue-clock strategy snapshot.
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
 6h, 1d, 1m, 2h, and 4h datasets; the execution worker evaluates closed venue candles and submits maker orders
 through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
@@ -47,12 +47,14 @@ Execution worker ------------------------+
     `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Audit log, Journal,
     Memory & why-trade). The rail collapses to icons on narrow desktop widths.
   - A per-strategy workspace layout at `/strategies/[id]` with stage routes Build (`/`), Test
-    (`/test`), Run (`/run`), and Why (`/why`), a sticky identity bar, and `?version=` exact-version
-    context shared through Svelte context (`web/src/lib/workspace/`)
-    ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md)). An unknown
-    version fails closed. `/research` and `/deploy` redirect (`+page.ts`) to Test and Run;
-    `/backtests` resolves a result's owning strategy client-side. Pure view logic (version
-    resolution, library pipeline, live preflight, signal wording) lives in
+    (`/test`), Run (`/run`), and Why (`/why`), and a sticky identity bar with the strategy's
+    saved/validation state, shared through Svelte context (`web/src/lib/workspace/`)
+    ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md),
+    [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)). Build saves in
+    place; results and bots show Current rules / Earlier edit against `current_fingerprint`.
+    `/research`, `/deploy`, old `?version=` links, and fingerprint deep links resolve the owning
+    strategy and redirect; `/backtests` resolves a result's owning strategy client-side. Pure view
+    logic (snapshot comparison, library pipeline, live preflight, signal wording) lives in
     `web/src/lib/strategy-workspace.ts` and composes existing endpoints only.
   - A top bar with a breadcrumb, a ⌘K / Ctrl+K command palette (navigation only), an Agent toggle,
     and a theme toggle.
@@ -87,21 +89,21 @@ FastAPI owns the supported application interface. Its implemented surface is por
 market-data, worker-state, health, immutable backtest-result retrieval, and the bounded research mutation
 contracts below:
 
-- `POST /api/v1/strategies` creates a durable reference draft with a server-owned identity;
-- `GET /api/v1/strategies?status=draft` recovers saved editable drafts and `PUT
-  /api/v1/strategies/{strategy_id}/versions/{version}` persists a validated replacement;
-- `POST /api/v1/strategies/{strategy_id}/publish` validates and publishes that immutable strategy;
-- `GET /api/v1/strategies?status=published` lists active immutable versions, while `POST
-  /api/v1/strategies/{strategy_fingerprint}/archive` appends an archive marker that hides a version
-  from active selection without changing its canonical publication evidence;
-- `POST /api/v1/backtests` binds a verified dataset, publishes/reuses the exact research run, and invokes
+- `GET /api/v1/strategies` pages the strategy library; `POST /api/v1/strategies` creates a strategy
+  from a template with a server-owned identity; `GET` / `PUT` / `DELETE
+  /api/v1/strategies/{strategy_id}` read, save (revision-guarded; invalid documents allowed with
+  their validation), and hard-delete one strategy; `POST /api/v1/strategies/bulk-delete`,
+  `POST /api/v1/strategies/{strategy_id}/clone`, and `POST /api/v1/strategies/import` cover bulk
+  delete, clone, and import; `GET /api/v1/strategies/snapshots/{strategy_fingerprint}` reads one
+  snapshot ([ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md));
+- `POST /api/v1/backtests` takes a `strategy_id`, snapshots the current definition, binds a verified dataset, publishes/reuses the exact research run, and invokes
   the deterministic backtest engine;
 - `GET /api/v1/research/engine-support`, `GET /api/v1/research/templates`, `POST /api/v1/research/studies/plan`,
   `POST /api/v1/research/studies`, `GET /api/v1/research/studies`, and
   `GET /api/v1/research/studies/{study_fingerprint}` compose walk-forward / OOS / cross-market /
   sweep / WFO studies from those engines and persist catalog rows
   ([research studies](research-studies.md));
-- `POST /api/v1/deployments` starts a paper or live runtime for one published fingerprint; pause, resume,
+- `POST /api/v1/deployments` starts a paper or live runtime for one `strategy_id` from a snapshot of its current definition; pause, resume,
   and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy
   registry before persisting a new intent.
 - `GET` / `PUT /api/v1/risk-policy` reads or publishes the effective `thytrader-risk-policy-v1`
@@ -118,13 +120,16 @@ contracts below:
   ([ADR 0055](../decisions/0055-yaml-settings-runtime-reloadable-yolo.md)). Secrets stay out.
   Bind address and dataset root remain env-at-boot.
 
-Drafts are mutable PostgreSQL records guarded
-by an opaque monotonically increasing revision, so a stale browser cannot overwrite a newer save. A
-successful publication saves the current draft, writes immutable evidence, and consumes the draft in
-one PostgreSQL transaction; published canonical definitions remain immutable. Archives are separate
-immutable markers rather than a mutation of the content-addressed publication row.
+A strategy is one mutable PostgreSQL row (`strategies`) guarded by a monotonically increasing
+revision, so a stale browser cannot overwrite a newer save. Starts write content-addressed,
+deduplicated `strategy_snapshots` rows; snapshots are never mutated. Bindings, run specs, results,
+studies (plus the `research_study_strategies` link table), and research jobs reference
+`strategies.strategy_id` with `ON DELETE CASCADE`; `deployments.strategy_id` uses `ON DELETE SET
+NULL` and `deployments.strategy_name` is captured at start. Deleting a strategy is refused while any
+of its deployments runs or is paused; it removes research evidence and paper books in one
+transaction and keeps stopped live books (orders, fills, positions, trade reasons, snapshot) detached.
 
-Paper and live share one execution worker and the same published strategy semantics. Live mode is the
+Paper and live share one execution worker and the same snapshotted strategy semantics. Live mode is the
 arming action and requires Coinbase credentials; demo mode can paper-trade only. Coinbase order JSON
 from Advanced Trade REST v3 is the live ledger. Phase 13 shipped 5m live, trailing stops, native
 brackets/OCO, and user-order WebSockets ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
@@ -177,7 +182,7 @@ boundary within the modular monolith, not a microservice or trading-authority bo
 
 ### Storage
 
-- **PostgreSQL:** configurations, strategy versions, runtime state, orders, fills, positions, risk state, jobs, and audit records.
+- **PostgreSQL:** configurations, strategies and their snapshots, runtime state, orders, fills, positions, risk state, jobs, and audit records.
 - **Parquet:** immutable or append-oriented historical market datasets, partitioned by provider/product/timeframe/date as appropriate.
 - **Polars:** primary dataframe/query engine in Python.
 - **DuckDB:** ad hoc analytical SQL over Parquet and derived datasets.
@@ -190,7 +195,7 @@ Expected durable boundaries include:
 
 - `exchanges`: provider-neutral account, market-data, and broker interfaces;
 - `market_data`: normalized products, candles, trades, ingestion, and quality checks;
-- `strategies`: schemas, indicators, conditions, signals, and versioning;
+- `strategies`: schemas, indicators, conditions, signals, mutable strategy storage, and snapshots;
 - `backtesting`: clocks, events, fills, metrics, and reproducibility;
 - `execution`: order intents, lifecycle, idempotency, and reconciliation;
 - `risk`: composable pre-trade and runtime policies;

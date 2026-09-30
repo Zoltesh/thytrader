@@ -35,13 +35,15 @@ same acknowledgement is the strict boolean `i_understand_live: true` on `POST /a
 `POST /api/v1/discretionary-orders` (mode `live`); without it the API answers **HTTP 428** with
 detail `live_acknowledgement_required: …` and nothing is created or resumed
 ([ADR 0078](../../docs/decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)).
-In the browser these controls live on each strategy's Run stage (`/strategies/{strategy_id}/run`,
-optionally `?version=<strategy_fingerprint>`; old `/deploy?strategy=` links redirect there,
-[ADR 0080](../../docs/decisions/0080-per-strategy-workspace-build-test-run-why.md)); its live
+In the browser these controls live on each strategy's Run stage (`/strategies/{strategy_id}/run`;
+old `/deploy?strategy=` and `?version=` links redirect there,
+[ADR 0080](../../docs/decisions/0080-per-strategy-workspace-build-test-run-why.md),
+[ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)); its live
 arm / resume dialogs send `i_understand_live: true` only after an explicit checkbox, and its live
 preflight list is informational, not a readiness gate. Each bot's detail page (`/deployments/{id}`,
 listed on Portfolio at `/deployments`) offers the same pause / resume / stop / flatten / breaker-reset
-dialogs, with the same checkbox on live resume, and the Trade page (`/trade`) sends a live
+dialogs, with the same checkbox on live resume (a bot running an earlier edit offers **Update bot**: a
+managed stop followed by a new start on the current rules, each confirmed; live keeps the checkbox), and the Trade page (`/trade`) sends a live
 `place-order` only after its live dialog's checkbox. Agents keep using this CLI.
 Protection, leases, and live capital follow
 [ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md): pause
@@ -80,7 +82,7 @@ credentials, paper evaluates **synthetic demo candles**, not Coinbase prices: op
 then reports component `execution_market_data` / `DEMO_MARKET_DATA`. The market-data ingest worker
 keeps its startup provider until restarted (`make run` only when the user asked).
 
-Paper may start on closed **venue-clock** bars of a published strategy (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses (`mismatch_detail` `User-order feed is not connected.`) unless the user-order feed is connected and fresh; when that feed pause is the **only** reason (no operator pause, no other mismatch, no breaker latch) the worker resumes the book automatically once the feed is healthy (audit `user_feed_pause_cleared`). Operator pauses, other mismatches, and latches never auto-clear. Published `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
+Paper may start on closed **venue-clock** bars of a strategy snapshot (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses (`mismatch_detail` `User-order feed is not connected.`) unless the user-order feed is connected and fresh; when that feed pause is the **only** reason (no operator pause, no other mismatch, no breaker latch) the worker resumes the book automatically once the feed is healthy (audit `user_feed_pause_cleared`). Operator pauses, other mismatches, and latches never auto-clear. A strategy's `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
 
 ## Hard stop
 
@@ -92,15 +94,36 @@ or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an ag
 evidence. Open the `ops/` workspace instead of the git root. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
+## Starting by strategy id
+
+`start --strategy-id UUID` (HTTP `POST /api/v1/deployments` with `strategy_id`) starts from the
+strategy's **current** saved definition: the server snapshots it and the bot records
+`strategy_id` plus the snapshot `strategy_fingerprint` (and `strategy_name`). There is no publish
+step and no fingerprint argument ([ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
+Read the id from `thytrader-research list-strategies`. HTTP 404 `strategy_not_found`; HTTP 422
+`strategy_invalid` (with `issues`) means the saved definition does not validate — fix it through
+`skills/thytrader-research/SKILL.md`, never here. Editing a strategy never changes a running bot:
+a bot whose `strategy_fingerprint` differs from the strategy's `current_fingerprint` is running an
+**earlier edit**. To move it to the current rules, `stop UUID --confirm` (managed shutdown), then
+`start --strategy-id UUID … --confirm` again (live also `--i-understand-live`) — only when the user
+asked. Filter `list` output by `strategy_id`; HTTP `GET /api/v1/deployments?strategy_id=` does the
+same server-side.
+
+Strategy deletion (`thytrader-research delete-strategy`) is refused with HTTP 409
+`strategy_has_active_deployments` while any bot of that strategy is running or paused; stopping it
+is this lane's job and needs the user's request. After deletion, stopped live books remain with
+`strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; paper books of the
+strategy are removed with it.
+
 ## Commands
 
 | Need | Command |
 |---|---|
 | List deployments | `uv run thytrader-runtime list` |
 | Show one snapshot | `uv run thytrader-runtime show UUID` |
-| Start paper | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode paper --cash 10000 --confirm` |
-| Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
-| Start live | `uv run thytrader-runtime start --strategy-fingerprint sha256:… --mode live --confirm --i-understand-live` |
+| Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
+| Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
+| Start live | `uv run thytrader-runtime start --strategy-id UUID --mode live --confirm --i-understand-live` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume paper | `uv run thytrader-runtime resume UUID --confirm` |
 | Resume live (re-arms orders) | `uv run thytrader-runtime resume UUID --confirm --i-understand-live` |
@@ -133,8 +156,8 @@ allocation is denied at start and entry. The allocations may not sum above
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
-([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the published strategy
-`timeframe` (copied from the immutable strategy when the stored deployment row is null;
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the snapshot's
+`timeframe` (copied from the strategy snapshot when the stored deployment row is null;
 [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)),
 ADR 0058 lifecycle fields
 (`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`, `revision`, `worker_lease_held`;
@@ -152,7 +175,7 @@ flags default to the compiled envelope: `--daily-loss-limit-fraction 1`,
 `--max-cancellations-per-minute 60`, `--reference-price-collar-fraction 0.5`. Daily-loss and
 drawdown trips pause risk-increasing orders (exits continue). Rate and collar denies do not pause.
 Pass `--allow-intra-strategy-pyramiding` when paper/live same-side adds should be legal; the
-published strategy must also enable `entry.pyramiding`. Omitted (false) keeps compiled-default
+strategy must also enable `entry.pyramiding`. Omitted (false) keeps compiled-default
 policy bytes stable. Schema-enabled pyramiding without this flag is denied
 (`PYRAMIDING_NOT_ALLOWED`). Backtests follow the strategy document only. `set-risk-policy`
 requires `--confirm` and does **not** require `--i-understand-live`. `reset-breaker-latches`
@@ -243,7 +266,7 @@ Underlying HTTP:
 - Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
   Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `kind`, optional
-  `strategy_fingerprint`). Keep those identities.
+  `strategy_id`, `strategy_fingerprint`, `strategy_name`). Keep those identities.
 - Watch status after a mutation with `uv run thytrader-operator runtime --deployment-id UUID`.
 
 YOLO on/off and independent tiers live in `thytrader.yaml` (loopback `/settings`, or

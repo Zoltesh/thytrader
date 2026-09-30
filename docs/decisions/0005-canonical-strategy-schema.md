@@ -1,6 +1,7 @@
 # 0005: Canonical versioned strategy schema
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: the immutable, versioned document and the draft/published/archived `status` lifecycle. Strategies are now one mutable, revision-guarded object; `version` and `status` left the canonical document; runs and bots use automatic content-addressed snapshots.
 - Date: 2026-07-26
 - Related: [0031](0031-coinbase-first-platform-end-state.md) records destination venue timeframes
   and single- plus multi-asset deploy. This ADR's one-schema-across-runtimes decision is unchanged;

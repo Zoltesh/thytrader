@@ -159,14 +159,13 @@ def _record_from_submit(
 def _strategy_from_scope(
     scope: TradeReasonScope, kind: DeploymentKind
 ) -> TradeReasonStrategy | None:
-    """Freeze published identity for strategy books only."""
+    """Freeze snapshot identity for strategy books only."""
     if kind is not DeploymentKind.STRATEGY:
         return None
     return TradeReasonStrategy(
         strategy_id=scope.strategy_id,
         strategy_fingerprint=scope.strategy_fingerprint,
         name=scope.strategy_name,
-        version=scope.strategy_version,
     )
 
 

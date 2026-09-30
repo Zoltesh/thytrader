@@ -1,17 +1,15 @@
 /**
- * Exact-version strategy configuration summary from the canonical source API.
+ * Exact-rules strategy configuration summary from the snapshot API.
  *
- * The deployment detail page fetches `GET /api/v1/strategies/source/{fingerprint}`
- * and renders the immutable rule/config of the exact published version this
- * deployment runs — never a generic link and never a locally reinvented
- * interpretation of the fingerprint. Every derivation here is a pure function
- * over the API payload so the page and unit tests share one reading.
+ * The deployment detail page fetches `GET /api/v1/strategies/snapshots/{fingerprint}`
+ * and renders the rules this deployment actually runs (its snapshot) — never
+ * the strategy's current edit and never a locally reinvented interpretation of
+ * the fingerprint. Every derivation here is a pure function over the API
+ * payload so the page and unit tests share one reading.
  */
-import type { IndicatorDraft, StrategyDraft } from './strategies';
-import { toBuilderModel } from './strategies';
+import type { IndicatorDraft, StrategyDefinition, StrategySnapshot } from './strategies';
+import { fetchStrategySnapshot, toBuilderModel } from './strategies';
 import { conditionToText, plainEnglishSummary } from './strategy-insight';
-
-export type StrategySourceResponse = { strategy: StrategyDraft };
 
 export type StrategyConfigSummary = {
 	/** One-sentence rule reading from the immutable definition. */
@@ -29,24 +27,14 @@ export type StrategySourceState =
 	| {
 			kind: 'loaded';
 			fingerprint: string;
-			/** Name and published version recorded in the immutable definition. */
+			/** Name recorded in the snapshot the deployment runs. */
 			name: string;
-			version: number | null;
+			/** Owning strategy, or null when the strategy was deleted. */
+			strategyId: string | null;
+			snapshot: StrategySnapshot;
 			summary: StrategyConfigSummary;
 	  }
 	| { kind: 'unavailable'; fingerprint: string; reason: string };
-
-async function fetchStrategySourceResponse(fingerprint: string): Promise<StrategySourceResponse> {
-	const response = await fetch(`/api/v1/strategies/source/${encodeURIComponent(fingerprint)}`, {
-		headers: { Accept: 'application/json' }
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => ({}))) as { detail?: unknown };
-		const detail = typeof body.detail === 'string' ? body.detail : undefined;
-		throw new Error(detail ?? `Strategy source is unavailable (HTTP ${response.status}).`);
-	}
-	return (await response.json()) as StrategySourceResponse;
-}
 
 function indicatorText(indicator: IndicatorDraft): string {
 	const input =
@@ -70,7 +58,7 @@ function indicatorText(indicator: IndicatorDraft): string {
 /** Project the immutable definition into display rows for the detail page. */
 export function summarizeStrategySource(
 	fingerprint: string,
-	draft: StrategyDraft
+	draft: StrategyDefinition
 ): StrategyConfigSummary {
 	const model = toBuilderModel(draft, 0);
 	const identity = [
@@ -111,27 +99,28 @@ export function summarizeStrategySource(
 }
 
 /**
- * Load the exact-version configuration, failing to an explicit unavailable state.
+ * Load the exact-rules configuration, failing to an explicit unavailable state.
  *
- * A 404 or transport error never falls back to another version: the detail page
+ * A 404 or transport error never falls back to the current edit: the detail page
  * renders `unavailable` with the reason and keeps the fingerprint as the only
  * identity shown.
  */
 export async function loadStrategyConfig(fingerprint: string): Promise<StrategySourceState> {
 	try {
-		const body = await fetchStrategySourceResponse(fingerprint);
+		const body = await fetchStrategySnapshot(fingerprint);
 		return {
 			kind: 'loaded',
 			fingerprint,
 			name: body.strategy.name,
-			version: typeof body.strategy.version === 'number' ? body.strategy.version : null,
+			strategyId: body.strategy_id,
+			snapshot: body,
 			summary: summarizeStrategySource(fingerprint, body.strategy)
 		};
 	} catch (caught) {
 		return {
 			kind: 'unavailable',
 			fingerprint,
-			reason: caught instanceof Error ? caught.message : 'Strategy source is unavailable.'
+			reason: caught instanceof Error ? caught.message : 'Strategy snapshot is unavailable.'
 		};
 	}
 }

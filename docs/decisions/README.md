@@ -10,14 +10,14 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0002](0002-modular-monolith.md) | Start as a modular monolith with separate API and worker processes | Accepted |
 | [0003](0003-polyglot-storage.md) | Use PostgreSQL operationally and Parquet/Polars/DuckDB analytically | Accepted |
 | [0004](0004-safe-execution-and-access.md) | Use maker-first execution, risk-first exits, loopback-safe deployment, and restrictive credential permissions | Superseded in part by 0006 |
-| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted — extended by 0025, 0026, 0027, 0028, 0029, 0032, 0042, and 0047 |
+| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted — extended by 0025, 0026, 0027, 0028, 0029, 0032, 0042, and 0047 — superseded in part by 0082 |
 | [0006](0006-credential-permission-acceptance.md) | Accept operator-selected Coinbase keys with additional permissions | Accepted |
-| [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted |
+| [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted — superseded in part by 0082 |
 | [0008](0008-deterministic-signal-evaluation.md) | Version deterministic signal evaluation separately from request-only runs | Accepted — extended by 0026, 0027, 0028, 0029, 0032, 0042, and 0047 |
 | [0009](0009-deterministic-bar-level-backtest-engine.md) | Version bar-level backtest simulation separately from signal evaluation | Accepted |
 | [0010](0010-constant-spread-backtest-provenance.md) | Version constant-spread stress assumptions as immutable backtest evidence | Accepted |
 | [0011](0011-derived-buy-and-hold-benchmark.md) | Keep buy-and-hold comparison as a derived backtest report | Accepted |
-| [0012](0012-operator-diagnostics.md) | Versioned operator diagnostics CLI/API and confirmation-gated research CLI | Accepted |
+| [0012](0012-operator-diagnostics.md) | Versioned operator diagnostics CLI/API and confirmation-gated research CLI | Accepted — superseded in part by 0082 |
 | [0013](0013-http-first-agent-clients.md) | HTTP-first agent CLIs and confirmation-gated runtime control skill | Accepted |
 | [0014](0014-watchlist-and-5m-research.md) | Watchlist ingest and 5m research datasets; paper/live stay 1h | Accepted — superseded in part by 0015, 0016, and 0018 |
 | [0015](0015-worker-owned-ingest-and-ops-workspace.md) | Worker-owned ingest jobs, inclusive Coinbase paging, heartbeats, ops workspace | Accepted |
@@ -39,8 +39,8 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0031](0031-coinbase-first-platform-end-state.md) | Coinbase-first platform end-state: on-demand trades, venue TFs, single- and multi-asset | Accepted — superseded in part by 0046 |
 | [0032](0032-phase-9-macd-bollinger.md) | Phase 9 fifth slice: `macd` and `bollinger` with referenceable series ids | Accepted |
 | [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted |
-| [0034](0034-phase-12-agent-orchestration-yolo.md) | Phase 12 playbook over existing CLIs and default-off YOLO confirmation opt-in | Accepted — superseded in part by 0043 |
-| [0035](0035-phase-11-research-rigor.md) | Phase 11 walk-forward, OOS, and cross-market research studies; richer templates; V1/V2/V3 matrix | Accepted |
+| [0034](0034-phase-12-agent-orchestration-yolo.md) | Phase 12 playbook over existing CLIs and default-off YOLO confirmation opt-in | Accepted — superseded in part by 0043 and 0082 |
+| [0035](0035-phase-11-research-rigor.md) | Phase 11 walk-forward, OOS, and cross-market research studies; richer templates; V1/V2/V3 matrix | Accepted — superseded in part by 0082 |
 | [0036](0036-phase-13-live-extras.md) | Phase 13 5m live, ATR trailing stops, user-order WS, native OCO brackets | Accepted |
 | [0037](0037-phase-14-experiential-memory.md) | Phase 14 journals, sentiment/pattern hooks, monitor, and config-gated notify | Accepted |
 | [0038](0038-complete-only-1m-2h-4h-datasets.md) | Complete-only 1m, 2h, and 4h historical datasets; this slice does not widen clocks | Accepted — superseded in part by 0040 (clocks) |
@@ -49,7 +49,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0041](0041-paper-live-htf-filter-evaluation.md) | Paper and live evaluate `htf_filter` on last-completed complete-only HTF bars | Accepted |
 | [0042](0042-per-indicator-timeframes.md) | Optional per-indicator timeframes on LTF-list indicators; last-completed overlay | Accepted |
 | [0043](0043-yolo-live-skip-confirm.md) | Operator-enabled YOLO `live` tier skips `--confirm` on live start/pause/resume/stop; `--i-understand-live` remains | Accepted |
-| [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted |
+| [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted — superseded in part by 0082 |
 | [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted |
 | [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted |
 | [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted |
@@ -84,8 +84,9 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0077](0077-derived-performance-metrics.md) | Sharpe-class ratios as derived `thytrader-performance-metrics-v1`; ops contract v36 | Accepted |
 | [0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md) | HTTP `i_understand_live` on live start/resume/place-order, execution-worker credential hot reload, definite create rejects vs ambiguous lookup, feed-only pause auto-clear; ops contract v40 | Accepted |
 | [0079](0079-four-destination-shell-agent-panel-palette-tokens.md) | Four-destination rail (Home, Strategies, Portfolio, Trade) plus System group, Agent side panel, ⌘K command palette, design tokens with light/dark theme; supersedes 0053 in part | Accepted |
-| [0080](0080-per-strategy-workspace-build-test-run-why.md) | Per-strategy workspace (Build · Test · Run · Why) with exact `?version=` context, library pipeline, live preflight from existing endpoints, and redirects from /research, /deploy, /backtests; amends 0054 surfaces | Accepted |
+| [0080](0080-per-strategy-workspace-build-test-run-why.md) | Per-strategy workspace (Build · Test · Run · Why) with exact `?version=` context, library pipeline, live preflight from existing endpoints, and redirects from /research, /deploy, /backtests; amends 0054 surfaces | Accepted — superseded in part by 0082 |
 | [0081](0081-live-chrome-portfolio-bot-detail-trade.md) | Route-declared global live chrome (amber `LIVE:` strip and frame), Portfolio groups/filter with truthful per-mode capital totals, recomposed bot detail with checkbox-gated live resume, Trade Review aside and live dialog, compact Test run bar with engine default from engine-support | Accepted |
+| [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) | Strategy as the root object: one mutable revision-guarded strategy, automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys, hard delete with live-ledger carve-out; ops contract v41 / Alembic 0048 | Accepted |
 
 ## Status values
 

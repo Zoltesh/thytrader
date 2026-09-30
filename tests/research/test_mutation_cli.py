@@ -34,54 +34,70 @@ _REFERENCE_STRATEGY = (
     Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 )
 _MODEL_ID = UUID("11111111-1111-1111-1111-111111111111")
-_ARCHIVE_FINGERPRINT = "sha256:" + "a" * 64
+
+
+_STRATEGY_ID = "0199aaaa-aaaa-7aaa-aaaa-aaaaaaaaaaaa"
 
 
 def _library_payload() -> dict[str, object]:
-    """Return a strategy-library body with one active and one archived entry."""
+    """Return a strategy-library body with one valid and one work-in-progress strategy."""
     return {
         "strategies": [
             {
                 "strategy_id": "22222222-2222-2222-2222-222222222222",
-                "name": "EMA trend active",
-                "latest_version": 1,
-                "status": "published",
-                "archived": False,
-                "archived_at": None,
-                "versions": [],
+                "name": "EMA trend",
+                "revision": 3,
+                "valid": True,
+                "current_fingerprint": "sha256:" + "c" * 64,
+                "paper_live": {"paper": "running", "live": "none"},
+                "active_deployment_count": 1,
             },
             {
                 "strategy_id": "33333333-3333-3333-3333-333333333333",
-                "name": "RSI mean reversion orphan",
-                "latest_version": 1,
-                "status": "published",
-                "archived": True,
-                "archived_at": "2026-09-19T00:00:00+00:00",
-                "versions": [],
+                "name": "RSI work in progress",
+                "revision": 1,
+                "valid": False,
+                "current_fingerprint": None,
+                "paper_live": {"paper": "none", "live": "none"},
+                "active_deployment_count": 0,
             },
-        ]
+        ],
+        "total": 2,
+        "has_more": False,
     }
 
 
-def test_archive_without_confirm_does_not_write() -> None:
-    """Omitting --confirm must exit before the archive HTTP call."""
+def _strategy_response(name: str = "EMA trend") -> dict[str, object]:
+    """Return one StrategyResponse body."""
+    return {
+        "strategy_id": _STRATEGY_ID,
+        "name": name,
+        "revision": 1,
+        "validation": {"valid": True, "issues": []},
+        "current_fingerprint": "sha256:" + "c" * 64,
+        "summary": "BTC-USD · 1h",
+    }
+
+
+def test_delete_without_confirm_does_not_write() -> None:
+    """Omitting --confirm must exit before the DELETE call."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
         "GET /api/v1/agent-orchestration": orchestration_status_payload(),
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.research.http.archive_strategy") as request,
+        patch("thytrader.research.http.delete_strategy") as request,
         pytest.raises(SystemExit) as raised,
     ):
-        main(["archive", "--strategy-fingerprint", _ARCHIVE_FINGERPRINT])
+        main(["delete-strategy", "--strategy-id", _STRATEGY_ID])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
     request.assert_not_called()
 
 
-def test_archive_rejects_malformed_fingerprint() -> None:
-    """A non-fingerprint argument fails closed before any HTTP call."""
+def test_delete_rejects_a_non_uuid_strategy_id() -> None:
+    """A malformed id fails closed before any mutation."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
         "GET /api/v1/agent-orchestration": orchestration_status_payload(),
@@ -90,38 +106,65 @@ def test_archive_rejects_malformed_fingerprint() -> None:
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         pytest.raises(SystemExit) as raised,
     ):
-        main(["archive", "--strategy-fingerprint", "not-a-fingerprint", "--confirm"])
+        main(["delete-strategy", "--strategy-id", "not-a-uuid", "--confirm"])
     assert raised.value.code != 0
-    assert "sha256" in str(raised.value)
+    assert "UUID" in str(raised.value)
 
 
-def test_archive_posts_to_strategy_archive_route(
+def test_bulk_delete_dry_run_needs_no_confirm_and_reports_per_strategy(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Archive hides one immutable publication through the existing route."""
+    """A dry run previews each strategy without --confirm and without deleting."""
+    body = {
+        "dry_run": True,
+        "results": [
+            {"strategy_id": _STRATEGY_ID, "outcome": "would_delete"},
+            {"strategy_id": "22222222-2222-2222-2222-222222222222", "outcome": "blocked"},
+        ],
+    }
     handlers = {
         "GET /health/ready": matching_ready_payload(),
-        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
-        f"POST /api/v1/strategies/{_ARCHIVE_FINGERPRINT}/archive": {
-            "strategy_fingerprint": _ARCHIVE_FINGERPRINT,
-            "archived_at": "2026-09-19T00:00:00+00:00",
-        },
+        "POST /api/v1/strategies/bulk-delete": body,
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         pytest.raises(SystemExit) as raised,
     ):
-        main(["archive", "--strategy-fingerprint", _ARCHIVE_FINGERPRINT, "--confirm"])
+        main(
+            [
+                "bulk-delete-strategies",
+                "--strategy-id",
+                _STRATEGY_ID,
+                "--strategy-id",
+                "22222222-2222-2222-2222-222222222222",
+                "--dry-run",
+            ]
+        )
     assert raised.value.code == EXIT_HEALTHY
     payload = json.loads(capsys.readouterr().out)
-    assert payload["strategy_fingerprint"] == _ARCHIVE_FINGERPRINT
-    assert payload["archived_at"] == "2026-09-19T00:00:00+00:00"
+    assert [item["outcome"] for item in payload["results"]] == ["would_delete", "blocked"]
+
+
+def test_bulk_delete_without_dry_run_requires_confirm() -> None:
+    """A real bulk delete is a mutation and needs --confirm."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.research.http.bulk_delete_strategies") as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["bulk-delete-strategies", "--strategy-id", _STRATEGY_ID])
+    assert "Pass --confirm" in str(raised.value)
+    request.assert_not_called()
 
 
 def test_list_results_help_documents_cursor_and_max_100(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Operators must see the page cap and cursor flag before a 422."""
+    """Operators must see the page cap, cursor, and strategy filters before a 422."""
     with pytest.raises(SystemExit) as raised:
         main(["list-results", "--help"])
     assert raised.value.code == 0
@@ -129,6 +172,7 @@ def test_list_results_help_documents_cursor_and_max_100(
     assert "maximum 100" in output or "max 100" in output
     assert "--cursor" in output
     assert "has_more" in output or "next page" in output
+    assert "--strategy-id" in output
 
 
 def test_list_strategies_help_documents_cursor(
@@ -144,10 +188,10 @@ def test_list_strategies_help_documents_cursor(
     assert "maximum 100" in output or "max 100" in output
 
 
-def test_list_strategies_hides_archived_by_default(
+def test_list_strategies_reports_validity_and_current_fingerprint(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Archived publications stay out of the default operator listing."""
+    """Each listed strategy shows whether it can start and which rules would run."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
         "GET /api/v1/strategies": _library_payload(),
@@ -159,27 +203,62 @@ def test_list_strategies_hides_archived_by_default(
         main(["list-strategies"])
     assert raised.value.code == EXIT_HEALTHY
     payload = json.loads(capsys.readouterr().out)
-    names = [entry["name"] for entry in payload["strategies"]]
-    assert names == ["EMA trend active"]
+    assert [row["valid"] for row in payload["strategies"]] == [True, False]
+    assert payload["strategies"][0]["current_fingerprint"] == "sha256:" + "c" * 64
+    assert payload["strategies"][0]["active_deployment_count"] == 1
+    assert payload["total"] == 2
 
 
-def test_list_strategies_include_archived_shows_all(
-    capsys: pytest.CaptureFixture[str],
+def test_save_strategy_puts_the_document_with_its_revision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--include-archived keeps full fingerprint integrity for audit reads."""
-    handlers = {
-        "GET /health/ready": matching_ready_payload(),
-        "GET /api/v1/strategies": _library_payload(),
+    """Work-in-progress documents save in place; the CLI sends the edited revision."""
+    payload = json.loads(_REFERENCE_STRATEGY.read_text())
+    payload["entry"]["when"]["all"][0]["right"] = {"literal": "50"}
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps(payload))
+    sent: list[dict[str, object]] = []
+    saved = {
+        **_strategy_response(),
+        "revision": 4,
+        "validation": {"valid": False, "issues": [{"loc": "entry", "message": "bad"}]},
+        "current_fingerprint": None,
     }
+
+    def fake_mutation(
+        *, method: str, url: str, payload: dict[str, object], **_kw: object
+    ) -> object:
+        assert method == "PUT"
+        assert url.endswith(f"/api/v1/strategies/{_STRATEGY_ID}")
+        sent.append(payload)
+        return saved
+
     with (
-        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
         pytest.raises(SystemExit) as raised,
     ):
-        main(["list-strategies", "--include-archived"])
+        main(
+            [
+                "save-strategy",
+                "--strategy-id",
+                _STRATEGY_ID,
+                "--file",
+                str(path),
+                "--revision",
+                "3",
+                "--confirm",
+            ]
+        )
     assert raised.value.code == EXIT_HEALTHY
-    payload = json.loads(capsys.readouterr().out)
-    names = {entry["name"] for entry in payload["strategies"]}
-    assert names == {"EMA trend active", "RSI mean reversion orphan"}
+    assert sent[0]["revision"] == 3
+    assert sent[0]["document"] == payload
+    output = json.loads(capsys.readouterr().out)
+    assert output["valid"] is False
+    assert output["revision"] == 4
 
 
 class _HasFullUrl(Protocol):
@@ -200,12 +279,12 @@ def test_research_help_mentions_confirm_and_no_trading(
     assert "no paper or live" in output.lower() or "no paper" in output.lower()
 
 
-def test_create_draft_help_allows_five_minute_paper(
+def test_create_strategy_help_allows_five_minute_paper(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """create-draft help must name ingested venue clocks for paper and live."""
     with pytest.raises(SystemExit) as raised:
-        main(["create-draft", "--help"])
+        main(["create-strategy", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out.lower()
     collapsed = " ".join(output.split())
@@ -214,7 +293,7 @@ def test_create_draft_help_allows_five_minute_paper(
     assert "1h or 5m" not in collapsed
 
 
-def test_create_draft_without_confirm_does_not_write() -> None:
+def test_create_strategy_without_confirm_does_not_write() -> None:
     """Omitting --confirm in Safe mode exits after the YOLO probe, before create-draft HTTP."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
@@ -222,27 +301,28 @@ def test_create_draft_without_confirm_does_not_write() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.research.http.create_draft") as request,
+        patch("thytrader.research.http.create_strategy") as request,
         pytest.raises(SystemExit) as raised,
     ):
-        main(["create-draft"])
+        main(["create-strategy"])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
     request.assert_not_called()
 
 
-def test_save_draft_help_documents_revision_one_for_new_identities(
+def test_save_strategy_help_documents_revision_guard(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """save-draft help must explain that new identities start at revision 1."""
     with pytest.raises(SystemExit) as raised:
-        main(["save-draft", "--help"])
+        main(["save-strategy", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out.lower()
-    assert "revision 1" in output
+    assert "revision" in output
+    assert "stale" in output
 
 
-def test_import_draft_without_confirm_does_not_write() -> None:
+def test_import_strategy_without_confirm_does_not_write() -> None:
     """Omitting --confirm must exit before import-draft HTTP."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
@@ -250,25 +330,13 @@ def test_import_draft_without_confirm_does_not_write() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.research.http.import_draft") as request,
+        patch("thytrader.research.http.import_strategy") as request,
         pytest.raises(SystemExit) as raised,
     ):
-        main(["import-draft", "--file", str(_REFERENCE_STRATEGY)])
+        main(["import-strategy", "--file", str(_REFERENCE_STRATEGY)])
     assert raised.value.code != 0
     assert "Pass --confirm" in str(raised.value)
     request.assert_not_called()
-
-
-def test_save_draft_prints_crossover_validation_error(tmp_path: Path) -> None:
-    """Invalid crossover operands must surface the semantic validator message."""
-    payload = json.loads(_REFERENCE_STRATEGY.read_text())
-    payload["entry"]["when"]["all"][0]["right"] = {"literal": "50"}
-    path = tmp_path / "draft.json"
-    path.write_text(json.dumps(payload))
-    with pytest.raises(SystemExit) as raised:
-        main(["save-draft", "--file", str(path), "--revision", "1", "--confirm"])
-    assert "crossover right operand must reference an indicator" in str(raised.value)
-    assert "failed safely" not in str(raised.value)
 
 
 def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
@@ -277,7 +345,7 @@ def test_submit_backtest_stale_engine_422_hints_rebuild(tmp_path: Path) -> None:
     path.write_text("{}")
     with (
         patch(
-            "thytrader.research.mutation_cli.BacktestSubmissionRequest.model_validate",
+            "thytrader.research.mutation_cli.BacktestStartRequest.model_validate",
             return_value=object(),
         ),
         patch(
@@ -306,7 +374,7 @@ def test_submit_backtest_stale_v3_only_engine_422_hints_rebuild(tmp_path: Path) 
     path.write_text("{}")
     with (
         patch(
-            "thytrader.research.mutation_cli.BacktestSubmissionRequest.model_validate",
+            "thytrader.research.mutation_cli.BacktestStartRequest.model_validate",
             return_value=object(),
         ),
         patch(
@@ -329,7 +397,7 @@ def test_submit_backtest_stale_v3_only_engine_422_hints_rebuild(tmp_path: Path) 
     assert "failed safely" not in message
 
 
-def test_create_draft_yolo_skips_confirm() -> None:
+def test_create_strategy_yolo_skips_confirm() -> None:
     """Research YOLO records a skip then creates a draft without --confirm."""
     skip = {
         "id": "11111111-1111-1111-1111-111111111111",
@@ -337,7 +405,7 @@ def test_create_draft_yolo_skips_confirm() -> None:
         "action": "confirm_skipped",
         "outcome": "info",
         "tier": "research",
-        "command": "create-draft",
+        "command": "create-strategy",
     }
     handlers = {
         "GET /health/ready": matching_ready_payload(),
@@ -350,12 +418,12 @@ def test_create_draft_yolo_skips_confirm() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.research.http.create_draft",
+            "thytrader.research.http.create_strategy",
             return_value='{"strategy_id":"x"}',
         ) as request,
         pytest.raises(SystemExit) as raised,
     ):
-        main(["create-draft"])
+        main(["create-strategy"])
     assert raised.value.code == 0
     request.assert_called_once()
 
@@ -367,19 +435,19 @@ def test_research_cli_refuses_stale_ops_contract_before_command() -> None:
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(stale_ready_payload()),
         ),
-        patch("thytrader.research.http.create_draft") as request,
+        patch("thytrader.research.http.create_strategy") as request,
         pytest.raises(SystemExit, match="make run"),
     ):
-        main(["create-draft", "--confirm"])
+        main(["create-strategy", "--confirm"])
     request.assert_not_called()
 
 
-def test_create_draft_help_lists_research_templates(
+def test_create_strategy_help_lists_research_templates(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Operators can discover the Phase 11 template ids without a database."""
     with pytest.raises(SystemExit) as raised:
-        main(["create-draft", "--help"])
+        main(["create-strategy", "--help"])
     assert raised.value.code == 0
     output = " ".join(capsys.readouterr().out.split())
     assert "--template" in output
@@ -456,13 +524,13 @@ def _trained_model_payload() -> dict[str, object]:
     return {str(key): value for key, value in dumped.items()}
 
 
-def test_create_draft_local_refuses_experiential_model_id() -> None:
+def test_create_strategy_local_refuses_experiential_model_id() -> None:
     """Gated advisory input is HTTP-only."""
     with pytest.raises(SystemExit, match="HTTP transport") as raised:
         main(
             [
                 "--local",
-                "create-draft",
+                "create-strategy",
                 "--experiential-model-id",
                 str(_MODEL_ID),
                 "--confirm",
@@ -471,21 +539,14 @@ def test_create_draft_local_refuses_experiential_model_id() -> None:
     assert raised.value.code != 0
 
 
-def test_create_draft_merges_experiential_advisory(
+def test_create_strategy_merges_experiential_advisory(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """HTTP create-draft JSON includes the fail-closed advisory, not a live policy."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
         f"GET /api/v1/memory/models/{_MODEL_ID}": _trained_model_payload(),
-        "POST /api/v1/strategies": {
-            "revision": 1,
-            "strategy": {
-                "strategy_id": "0199aaaa-aaaa-7aaa-aaaa-aaaaaaaaaaaa",
-                "version": 1,
-                "name": "EMA trend",
-            },
-        },
+        "POST /api/v1/strategies": _strategy_response(),
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
@@ -493,7 +554,7 @@ def test_create_draft_merges_experiential_advisory(
     ):
         main(
             [
-                "create-draft",
+                "create-strategy",
                 "--experiential-model-id",
                 str(_MODEL_ID),
                 "--confirm",
@@ -506,7 +567,7 @@ def test_create_draft_merges_experiential_advisory(
     assert "live brain" in payload["experiential_advisory"]["notes"].lower()
 
 
-def test_create_draft_missing_model_does_not_create() -> None:
+def test_create_strategy_missing_model_does_not_create() -> None:
     """A missing trained model fails closed before POST /strategies."""
 
     def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> object:
@@ -526,7 +587,7 @@ def test_create_draft_missing_model_does_not_create() -> None:
     ):
         main(
             [
-                "create-draft",
+                "create-strategy",
                 "--experiential-model-id",
                 str(_MODEL_ID),
                 "--confirm",
@@ -536,12 +597,12 @@ def test_create_draft_missing_model_does_not_create() -> None:
     assert "failed safely" not in str(raised.value).lower()
 
 
-def test_create_draft_help_names_experiential_model(
+def test_create_strategy_help_names_experiential_model(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Operators can discover the gated advisory flag from --help."""
     with pytest.raises(SystemExit) as raised:
-        main(["create-draft", "--help"])
+        main(["create-strategy", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out.lower()
     assert "--experiential-model-id" in output

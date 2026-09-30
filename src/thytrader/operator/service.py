@@ -65,7 +65,6 @@ from thytrader.operator.models import (
     DatasetCoverageRow,
     DeploymentBookSummary,
     DeploymentSummary,
-    DraftSummary,
     ExchangePayload,
     ExchangeReport,
     FeesPayload,
@@ -88,7 +87,6 @@ from thytrader.operator.models import (
     ProductsPayload,
     ProductsReport,
     ProductSummary,
-    PublicationSummary,
     ReconciliationFinding,
     ReconciliationPayload,
     ReconciliationReport,
@@ -100,6 +98,7 @@ from thytrader.operator.models import (
     RuntimeReport,
     StrategiesPayload,
     StrategiesReport,
+    StrategySummary,
     StudiesPayload,
     StudiesReport,
     SupportBundlePayload,
@@ -132,8 +131,9 @@ from thytrader.research.catalog import (
 from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.settings_yaml import default_settings_path
+from thytrader.strategies.library import StrategyLibraryError
 from thytrader.strategies.models import IndicatorKind, covered_product_ids
-from thytrader.strategies.publication import StrategyPublicationCatalog, StrategyPublicationError
+from thytrader.strategies.snapshots import StrategySnapshotError
 
 
 def _yaml_settings_file(runtime: RuntimeState | None) -> str:
@@ -177,7 +177,11 @@ if TYPE_CHECKING:
     from thytrader.portfolio.models import PortfolioAsset
     from thytrader.portfolio.service import PortfolioService
     from thytrader.runtime import RuntimeState
-    from thytrader.strategies.authoring import StrategyDraftStore
+    from thytrader.strategies.library import StrategyStore
+    from thytrader.strategies.snapshots import StrategySnapshotStore
+
+
+_MAX_REPORT_STRATEGIES = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,8 +192,8 @@ class OperatorDiagnostics:
     portfolio: PortfolioService
     market_data_state: MarketDataWorkerStateStore
     history: PortfolioHistoryStore
-    publications: StrategyPublicationCatalog
-    drafts: StrategyDraftStore
+    publications: StrategySnapshotStore
+    strategies_store: StrategyStore
     backtests: BacktestResultReader
     execution: ExecutionStore
     audit: AuditEventStore
@@ -559,12 +563,11 @@ class OperatorDiagnostics:
         )
 
     async def strategies(self) -> StrategiesReport:
-        """List drafts, publications, and deployments without cash or fills."""
+        """List strategies and deployments without documents, cash, or fills."""
         now = datetime.now(UTC)
         components: list[ComponentReport] = []
         warnings: list[str] = []
-        drafts = await self._draft_summaries(components, warnings)
-        publications = await self._publication_summaries(components, warnings)
+        strategy_rows = await self._strategy_summaries(components, warnings)
         deployments = await self._deployment_summaries(components, warnings)
         if not components:
             components.append(
@@ -572,7 +575,7 @@ class OperatorDiagnostics:
                     name="strategies",
                     status=ReportStatus.HEALTHY,
                     reason_code="OK",
-                    detail="Drafts, publications, and deployments were listed.",
+                    detail="Strategies and deployments were listed.",
                 )
             )
         return StrategiesReport(
@@ -584,8 +587,7 @@ class OperatorDiagnostics:
             partial_result_warnings=tuple(warnings),
             recommended_next_action=recommend_next_action(components),
             payload=StrategiesPayload(
-                drafts=drafts,
-                publications=publications,
+                strategies=strategy_rows,
                 deployments=deployments,
             ),
         )
@@ -1332,78 +1334,42 @@ class OperatorDiagnostics:
         manifests = () if self.dataset_store is None else self.dataset_store.list_latest_verified()
         return _merge_coverage_rows(now, watched, worker_states, manifests)
 
-    async def _draft_summaries(
+    async def _strategy_summaries(
         self,
         components: list[ComponentReport],
         warnings: list[str],
-    ) -> tuple[DraftSummary, ...]:
-        """List drafts or record a partial-result warning."""
+    ) -> tuple[StrategySummary, ...]:
+        """List up to ``_MAX_REPORT_STRATEGIES`` strategies or record a partial result."""
         try:
-            drafts = await self.drafts.list_drafts()
-        except (
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ):
+            page = await self.strategies_store.list_page(limit=_MAX_REPORT_STRATEGIES, offset=0)
+        except StrategyLibraryError:
             components.append(
                 ComponentReport(
-                    name="drafts",
+                    name="strategies",
                     status=ReportStatus.DEGRADED,
-                    reason_code="DRAFTS_UNAVAILABLE",
-                    detail="Strategy drafts could not be listed.",
+                    reason_code="STRATEGIES_UNAVAILABLE",
+                    detail="Strategies could not be listed.",
                 )
             )
+            warnings.append("Strategy listing failed; runtime rows may still be complete.")
+            return ()
+        if page.total > len(page.records):
             warnings.append(
-                "Draft listing failed; published and runtime rows may still be complete."
+                f"Showing the {len(page.records)} most recently updated of {page.total} "
+                "strategies; use thytrader-research list-strategies to page."
             )
-            return ()
         return tuple(
-            DraftSummary(
-                strategy_id=draft.definition.strategy_id,
-                name=draft.definition.name,
-                version=draft.definition.version,
-                revision=draft.revision,
-                product_id=draft.definition.instrument.product_id,
-                timeframe=draft.definition.timeframe,
+            StrategySummary(
+                strategy_id=record.strategy_id,
+                name=record.name,
+                revision=record.revision,
+                valid=record.validation.valid,
+                current_fingerprint=record.current_fingerprint,
+                product_id=record.product_id,
+                timeframe=_supported_clock(record.timeframe),
+                updated_at=record.updated_at,
             )
-            for draft in drafts
-        )
-
-    async def _publication_summaries(
-        self,
-        components: list[ComponentReport],
-        warnings: list[str],
-    ) -> tuple[PublicationSummary, ...]:
-        """List publications or record a partial-result warning."""
-        try:
-            entries = await self.publications.list_published(include_archived=True)
-        except (
-            StrategyPublicationError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ):
-            components.append(
-                ComponentReport(
-                    name="publications",
-                    status=ReportStatus.DEGRADED,
-                    reason_code="PUBLICATIONS_UNAVAILABLE",
-                    detail="Published strategies could not be listed.",
-                )
-            )
-            warnings.append("Publication listing failed.")
-            return ()
-        return tuple(
-            PublicationSummary(
-                strategy_id=entry.definition.strategy_id,
-                name=entry.definition.name,
-                version=entry.definition.version,
-                strategy_fingerprint=entry.strategy_fingerprint,
-                product_id=entry.definition.instrument.product_id,
-                timeframe=entry.definition.timeframe,
-                archived=entry.archived_at is not None,
-            )
-            for entry in entries
+            for record in page.records
         )
 
     async def _deployment_summaries(
@@ -1414,7 +1380,7 @@ class OperatorDiagnostics:
         """List deployments without cash or order payloads."""
         del components, warnings
         deployments = await self.execution.list_deployments()
-        extra = await self._covered_products_by_fingerprint()
+        extra = await self._covered_products_by_fingerprint(deployments)
         summaries: list[DeploymentSummary] = []
         for item in deployments:
             summary_row = await self._summary_or_none(item.id)
@@ -1437,20 +1403,20 @@ class OperatorDiagnostics:
         except ExecutionStoreError:
             return None
 
-    async def _covered_products_by_fingerprint(self) -> dict[str, tuple[str, ...]]:
-        """Map publications onto covered product ids for runtime book rows."""
-        try:
-            entries = await self.publications.list_published(include_archived=True)
-        except (
-            StrategyPublicationError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ):
-            return {}
-        return {
-            entry.strategy_fingerprint: covered_product_ids(entry.definition) for entry in entries
-        }
+    async def _covered_products_by_fingerprint(
+        self, deployments: tuple[Deployment, ...]
+    ) -> dict[str, tuple[str, ...]]:
+        """Map each deployment's snapshot onto its covered product ids."""
+        covered: dict[str, tuple[str, ...]] = {}
+        for fingerprint in {item.strategy_fingerprint for item in deployments}:
+            if fingerprint is None:
+                continue
+            try:
+                snapshot = await self.publications.load(fingerprint)
+            except StrategySnapshotError, RuntimeError, TypeError, ValueError:
+                continue
+            covered[fingerprint] = covered_product_ids(snapshot.definition)
+        return covered
 
     async def _backtest_performance(
         self,
@@ -2068,6 +2034,8 @@ def _deployment_summary(
         kind=deployment.kind.value,
         strategy_id=deployment.strategy_id,
         strategy_fingerprint=deployment.strategy_fingerprint,
+        strategy_name=deployment.strategy_name,
+        strategy_deleted=deployment.strategy_deleted,
         timeframe=timeframe if timeframe is not None else _supported_clock(deployment.timeframe),
         mode=deployment.mode.value,
         status=deployment.status.value,

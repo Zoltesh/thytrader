@@ -133,7 +133,7 @@ describe('submitResearchStudy', () => {
 			taker_fee_rate: '0.002',
 			fixed_slippage_bps: '10',
 			engine_contract_version: 'thytrader-bar-backtest-v1',
-			strategy_fingerprint: `sha256:${'b'.repeat(64)}`,
+			strategy_id: '01985cf0-7b60-7000-8000-000000000003',
 			dataset_fingerprint: `sha256:${'c'.repeat(64)}`,
 			oos_fraction: '0.3'
 		});

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from io import StringIO
 import json
+from pathlib import Path
 import sys
+import tempfile
 from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
@@ -27,7 +29,7 @@ from thytrader.research.mutation_cli import main as research_main
 from thytrader.runtime_control.cli import main as runtime_main
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
 
 class PlaybookError(RuntimeError):
@@ -76,7 +78,7 @@ def _parser() -> argparse.ArgumentParser:
         default="1h",
         choices=EXECUTION_TIMEFRAMES,
         help=(
-            "Decision clock for watch, ingest, and create-draft. Default 1h. "
+            "Decision clock for watch, ingest, and create-strategy. Default 1h. "
             "Any ingested venue clock. Extra HTF or per-indicator clocks need "
             "a separate thytrader-data ingest."
         ),
@@ -93,17 +95,34 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Queue complete-only ingest (implies --ensure-watch). Returns right after "
             "the worker accepts the job (thytrader-data ingest --no-wait) unless this run "
-            "also drafts, publishes, backtests, or starts paper; then it waits for the "
+            "also creates a strategy, backtests, or starts paper; then it waits for the "
             "ingest (up to 45 minutes). Poll thytrader-operator data-catalog for "
             "watch_complete before the next step."
         ),
     )
-    run.add_argument("--create-draft", action="store_true")
-    run.add_argument("--publish", action="store_true")
-    run.add_argument("--strategy-id", default=None)
-    run.add_argument("--backtest-file", default=None)
-    run.add_argument("--paper-cash", default=None, help="Start paper with this cash decimal.")
-    run.add_argument("--strategy-fingerprint", default=None)
+    run.add_argument(
+        "--create-strategy",
+        action="store_true",
+        help="Create one template strategy (thytrader-research create-strategy).",
+    )
+    run.add_argument(
+        "--strategy-id",
+        default=None,
+        help="Existing strategy UUID for --backtest-file and --paper-cash.",
+    )
+    run.add_argument(
+        "--backtest-file",
+        default=None,
+        help=(
+            "Backtest start JSON. When it omits strategy_id, the run's strategy "
+            "(--strategy-id or --create-strategy) is filled in."
+        ),
+    )
+    run.add_argument(
+        "--paper-cash",
+        default=None,
+        help="Start paper from the strategy's current rules with this cash decimal.",
+    )
     run.add_argument(
         "--confirm",
         action="store_true",
@@ -280,17 +299,12 @@ def _run_data_steps(
 
 
 def _later_steps_need_data(arguments: argparse.Namespace) -> bool:
-    """True when this run drafts, publishes, backtests, or starts paper after ingest.
+    """True when this run creates a strategy, backtests, or starts paper after ingest.
 
     Only then does the playbook block on ingest completion; an ingest-only run
     returns after the 202 so agents poll instead of holding a 45-minute call.
     """
-    return bool(
-        arguments.create_draft
-        or arguments.publish
-        or arguments.backtest_file
-        or arguments.paper_cash
-    )
+    return bool(arguments.create_strategy or arguments.backtest_file or arguments.paper_cash)
 
 
 def _run_research_steps(
@@ -298,14 +312,15 @@ def _run_research_steps(
     steps: list[PlaybookStep],
     identities: dict[str, str],
 ) -> str | None:
-    """Create, publish, and/or backtest through thytrader-research."""
-    strategy_id = arguments.strategy_id
-    fingerprint = arguments.strategy_fingerprint
-    if arguments.create_draft:
-        draft_argv = _child_argv(
+    """Create and/or backtest through thytrader-research; return the run's strategy id."""
+    strategy_id: str | None = arguments.strategy_id
+    if strategy_id is not None:
+        identities["strategy_id"] = strategy_id
+    if arguments.create_strategy:
+        create_argv = _child_argv(
             arguments,
             [
-                "create-draft",
+                "create-strategy",
                 "--product-id",
                 arguments.product_id,
                 "--timeframe",
@@ -313,66 +328,67 @@ def _run_research_steps(
                 *_confirm_argv(arguments.confirm),
             ],
         )
-        steps.append(_step("create-draft", "thytrader-research", draft_argv, research_main))
+        steps.append(_step("create-strategy", "thytrader-research", create_argv, research_main))
         created_id = _identity_str(steps[-1].payload, "strategy_id")
         if created_id is not None:
             strategy_id = created_id
             identities["strategy_id"] = created_id
-    if arguments.publish:
-        if strategy_id is None:
-            raise PlaybookError("Publish requires --strategy-id or --create-draft in the same run.")
-        publish_argv = _child_argv(
-            arguments,
-            ["publish", "--strategy-id", str(strategy_id), *_confirm_argv(arguments.confirm)],
-        )
-        steps.append(_step("publish", "thytrader-research", publish_argv, research_main))
-        published = steps[-1].payload
-        published_id = _identity_str(published, "strategy_id")
-        published_fp = _identity_str(published, "strategy_fingerprint")
-        if published_id is not None:
-            identities["strategy_id"] = published_id
-        if published_fp is not None:
-            fingerprint = published_fp
-            identities["strategy_fingerprint"] = published_fp
     if arguments.backtest_file is None:
-        return fingerprint
-    backtest_argv = _child_argv(
-        arguments,
-        [
-            "submit-backtest",
-            "--file",
-            arguments.backtest_file,
-            *_confirm_argv(arguments.confirm),
-        ],
-    )
-    steps.append(_step("submit-backtest", "thytrader-research", backtest_argv, research_main))
+        return strategy_id
+    with _backtest_file_for(arguments.backtest_file, strategy_id) as backtest_file:
+        backtest_argv = _child_argv(
+            arguments,
+            ["submit-backtest", "--file", backtest_file, *_confirm_argv(arguments.confirm)],
+        )
+        steps.append(_step("submit-backtest", "thytrader-research", backtest_argv, research_main))
     result = steps[-1].payload
-    for key in ("run_fingerprint", "result_fingerprint"):
+    for key in ("run_fingerprint", "result_fingerprint", "strategy_fingerprint"):
         value = _identity_str(result, key)
         if value is not None:
             identities[key] = value
-    return fingerprint
+    return strategy_id
+
+
+@contextmanager
+def _backtest_file_for(path_text: str, strategy_id: str | None) -> Iterator[str]:
+    """Yield a backtest start file that names the run's strategy.
+
+    A file that already names ``strategy_id`` is used as-is. Otherwise the run's
+    strategy is filled into a temporary copy, which is removed afterwards.
+    """
+    loaded: object = json.loads(Path(path_text).read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise PlaybookError("--backtest-file must contain a JSON object.")
+    if "strategy_id" in loaded:
+        yield path_text
+        return
+    if strategy_id is None:
+        raise PlaybookError(
+            "--backtest-file omits strategy_id; pass --strategy-id or --create-strategy."
+        )
+    with tempfile.TemporaryDirectory(prefix="thytrader-playbook-") as directory:
+        filled = Path(directory) / "backtest.json"
+        filled.write_text(json.dumps({**loaded, "strategy_id": strategy_id}), encoding="utf-8")
+        yield str(filled)
 
 
 def _run_paper_step(
     arguments: argparse.Namespace,
     steps: list[PlaybookStep],
     identities: dict[str, str],
-    fingerprint: str | None,
+    strategy_id: str | None,
 ) -> None:
     """Start paper through thytrader-runtime; never constructs a live start."""
     if arguments.paper_cash is None:
         return
-    if fingerprint is None:
-        raise PlaybookError(
-            "Paper start requires --strategy-fingerprint or --publish in the same run."
-        )
+    if strategy_id is None:
+        raise PlaybookError("Paper start requires --strategy-id or --create-strategy.")
     paper_argv = _child_argv(
         arguments,
         [
             "start",
-            "--strategy-fingerprint",
-            fingerprint,
+            "--strategy-id",
+            strategy_id,
             "--mode",
             "paper",
             "--cash",
@@ -388,6 +404,9 @@ def _run_paper_step(
     if deployment_id is not None:
         identities["deployment_id"] = str(deployment_id)
         identities["deployment_mode"] = "paper"
+    fingerprint = _identity_str(started, "strategy_fingerprint")
+    if fingerprint is not None:
+        identities["strategy_fingerprint"] = fingerprint
 
 
 def _run_playbook(arguments: argparse.Namespace, base_url: str) -> dict[str, object]:
@@ -397,8 +416,8 @@ def _run_playbook(arguments: argparse.Namespace, base_url: str) -> dict[str, obj
     steps: list[PlaybookStep] = []
     identities: dict[str, str] = {}
     _run_data_steps(arguments, steps)
-    fingerprint = _run_research_steps(arguments, steps, identities)
-    _run_paper_step(arguments, steps, identities, fingerprint)
+    strategy_id = _run_research_steps(arguments, steps, identities)
+    _run_paper_step(arguments, steps, identities, strategy_id)
     dumped: dict[str, object] = PlaybookRun(
         confirmation_mode=orchestration.confirmation_mode,
         yolo_enabled=orchestration.yolo_enabled,

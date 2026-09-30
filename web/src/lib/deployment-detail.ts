@@ -264,11 +264,11 @@ export function fingerprintText(deployment: Deployment): string {
 }
 
 /**
- * Deployments of this same strategy running a different published fingerprint.
+ * Deployments of this same strategy running different rules (another snapshot).
  *
- * The version-mixup guard: the current version's evidence is filtered by exact
- * fingerprint; everything else lands here so it stays discoverable but never
- * mixed into this version's runtime rows.
+ * The rules-mixup guard: this bot's evidence is filtered by its exact
+ * snapshot fingerprint; everything else lands here so it stays discoverable
+ * but never mixed into this bot's runtime rows.
  */
 export function otherVersionDeployments(
 	deployments: Deployment[],
@@ -290,20 +290,18 @@ export type LedgerPaging<T> = {
 	nextCursor: string | null;
 };
 
-/** Run stage of the strategy workspace for exactly this deployment's fingerprint. */
+/** Run stage of this deployment's strategy workspace, plus the snapshot it runs. */
 export function strategyVersionLink(
 	deployment: Deployment
-): { href: string; fingerprint: string } | null {
+): { href: `/strategies/${string}`; fingerprint: string } | null {
 	if (deployment.strategy_id === null || deployment.strategy_fingerprint === null) return null;
 	return {
-		href: workspaceHref(deployment.strategy_id, 'run', {
-			version: deployment.strategy_fingerprint
-		}),
+		href: workspaceHref(deployment.strategy_id, 'run'),
 		fingerprint: deployment.strategy_fingerprint
 	};
 }
 
-/** Run stage of the strategy workspace (latest version, not version-exact). */
+/** Run stage of the strategy workspace. */
 export function strategyIdentityLink(deployment: Deployment): string | null {
 	if (deployment.strategy_id === null) return null;
 	return workspaceHref(deployment.strategy_id, 'run');
@@ -367,11 +365,12 @@ export function performanceReportText(performance: {
 export type EvidenceLink = { label: string; href: string };
 
 /**
- * Evidence links for this exact version.
+ * Evidence links for this deployment's strategy.
  *
- * The strategy workspace's Test and Why stages, pinned to the deployment's
- * exact fingerprint, so the operator sees this version's evidence only. Discretionary deployments
- * without a fingerprint have no version-scoped evidence.
+ * The strategy workspace's Test and Why stages (rows there say which ran
+ * these exact rules). A kept live book of a deleted strategy links to the
+ * standalone backtest list for its snapshot. Discretionary deployments have
+ * no strategy evidence.
  */
 export function exactVersionEvidenceLinks(deployment: Deployment): EvidenceLink[] {
 	const fingerprint = deployment.strategy_fingerprint;
@@ -379,19 +378,19 @@ export function exactVersionEvidenceLinks(deployment: Deployment): EvidenceLink[
 	if (deployment.strategy_id === null) {
 		return [
 			{
-				label: 'Backtests of this version',
+				label: 'Backtests of these rules',
 				href: `/backtests?strategy_fingerprint=${encodeURIComponent(fingerprint)}`
 			}
 		];
 	}
 	return [
 		{
-			label: 'Backtests of this version',
-			href: workspaceHref(deployment.strategy_id, 'test', { version: fingerprint })
+			label: 'Backtests of this strategy',
+			href: workspaceHref(deployment.strategy_id, 'test')
 		},
 		{
-			label: 'Decisions for this version',
-			href: workspaceHref(deployment.strategy_id, 'why', { version: fingerprint })
+			label: 'Decisions for this strategy',
+			href: workspaceHref(deployment.strategy_id, 'why')
 		}
 	];
 }
@@ -406,14 +405,17 @@ export const EVIDENCE_BOUNDED_NOTE =
 	'Evidence shown is bounded (recent history and persisted studies only); it is not a comprehensive record.';
 
 /**
- * Bot detail heading: the published strategy name when its immutable source
- * loaded, `Discretionary order` for tickets, else the market (never a guess).
+ * Bot detail heading: the strategy name (from its snapshot, else the name
+ * captured at start), `Discretionary order` for tickets, else the market
+ * (never a guess). A kept live book of a deleted strategy says so.
  */
 export function botTitle(deployment: Deployment, strategyName: string | null): string {
 	if (deployment.kind === 'discretionary' || deployment.strategy_fingerprint === null) {
 		return `Discretionary order · ${marketLabel(deployment.product_id)}`;
 	}
-	return strategyName ?? marketLabel(deployment.product_id);
+	const name = strategyName ?? deployment.strategy_name ?? null;
+	if (deployment.strategy_deleted === true) return `${name ?? 'Strategy'} (deleted strategy)`;
+	return name ?? marketLabel(deployment.product_id);
 }
 
 /** Worker lease line; a held lease is coordination state, not proof of worker health. */

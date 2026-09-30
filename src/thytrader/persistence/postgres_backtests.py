@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import re
 from typing import TYPE_CHECKING, Protocol, cast
+from uuid import UUID
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
@@ -24,6 +25,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
+from thytrader.persistence.postgres_strategies import snapshot_owner
 from thytrader.persistence.schema import published_backtest_results
 from thytrader.research.publication import ResearchRunPublicationError
 from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
@@ -85,6 +87,7 @@ class PostgresBacktestResultStore:
                 result_fingerprint=fingerprint,
                 run_fingerprint=validated.run_fingerprint,
                 strategy_fingerprint=validated.strategy_fingerprint,
+                strategy_id=snapshot_owner(validated.strategy_fingerprint),
                 dataset_fingerprint=validated.dataset_fingerprint,
                 signal_trace_fingerprint=validated.signal_trace_fingerprint,
                 canonical_result=canonical,
@@ -192,6 +195,7 @@ class PostgresBacktestResultStore:
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
@@ -206,7 +210,7 @@ class PostgresBacktestResultStore:
             for value in (run_fingerprint, strategy_fingerprint, dataset_fingerprint)
             if value is not None
         ]
-        if len(filters) > 1:
+        if len(filters) + (strategy_id is not None) > 1:
             raise BacktestPublicationError("Summary discovery accepts one source filter at a time.")
         for value in filters:
             _validate_fingerprint(value)
@@ -227,6 +231,7 @@ class PostgresBacktestResultStore:
                 table.c.result_fingerprint,
                 table.c.run_fingerprint,
                 table.c.strategy_fingerprint,
+                table.c.strategy_id,
                 table.c.dataset_fingerprint,
                 table.c.published_at,
                 engine_contract_version,
@@ -242,6 +247,8 @@ class PostgresBacktestResultStore:
             statement = statement.where(table.c.strategy_fingerprint == strategy_fingerprint)
         if dataset_fingerprint is not None:
             statement = statement.where(table.c.dataset_fingerprint == dataset_fingerprint)
+        if strategy_id is not None:
+            statement = statement.where(table.c.strategy_id == str(strategy_id))
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -251,24 +258,19 @@ class PostgresBacktestResultStore:
             ) from error
         return tuple(_to_summary_view(row) for row in rows)
 
-    async def list_summaries_for_strategies(
+    async def newest_summaries_for_strategy_ids(
         self,
-        strategy_fingerprints: Sequence[str],
-    ) -> dict[str, BacktestResultSummaryView]:
-        """Return the newest summary per requested strategy fingerprint.
+        strategy_ids: Sequence[UUID],
+    ) -> dict[UUID, BacktestResultSummaryView]:
+        """Return the newest summary per strategy in one ``DISTINCT ON`` round trip.
 
-        One bounded ``DISTINCT ON`` query answers the whole requested set, so a
-        library page costs a single round trip regardless of fingerprint count.
-        Fingerprints without stored results are absent from the mapping.
+        A library page costs a single indexed query regardless of page size.
+        Strategies without stored results are absent from the mapping.
         """
-        if not strategy_fingerprints:
+        if not strategy_ids:
             return {}
-        if len(strategy_fingerprints) > 1000:
-            raise BacktestPublicationError(
-                "Summary discovery accepts at most 1000 strategy fingerprints."
-            )
-        for value in strategy_fingerprints:
-            _validate_fingerprint(value)
+        if len(strategy_ids) > 1000:
+            raise BacktestPublicationError("Summary discovery accepts at most 1000 strategies.")
         table = published_backtest_results
         summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
         engine_contract_version = (
@@ -281,15 +283,16 @@ class PostgresBacktestResultStore:
                 table.c.result_fingerprint,
                 table.c.run_fingerprint,
                 table.c.strategy_fingerprint,
+                table.c.strategy_id,
                 table.c.dataset_fingerprint,
                 table.c.published_at,
                 engine_contract_version,
                 summary_json,
             )
-            .where(table.c.strategy_fingerprint.in_(strategy_fingerprints))
-            .distinct(table.c.strategy_fingerprint)
+            .where(table.c.strategy_id.in_([str(item) for item in strategy_ids]))
+            .distinct(table.c.strategy_id)
             .order_by(
-                table.c.strategy_fingerprint,
+                table.c.strategy_id,
                 table.c.published_at.desc(),
                 table.c.result_fingerprint.asc(),
             )
@@ -301,10 +304,11 @@ class PostgresBacktestResultStore:
             raise BacktestResultUnavailableError(
                 "Backtest result storage is unavailable."
             ) from error
-        newest: dict[str, BacktestResultSummaryView] = {}
+        newest: dict[UUID, BacktestResultSummaryView] = {}
         for row in rows:
             view = _to_summary_view(row)
-            newest[view.strategy_fingerprint] = view
+            if view.strategy_id is not None:
+                newest[UUID(view.strategy_id)] = view
         return newest
 
     async def load_source_specification(
@@ -380,6 +384,7 @@ def _to_summary_view(row: object) -> BacktestResultSummaryView:
         engine_contract_version=cast("str", mapping["engine_contract_version"]),
         published_at=published_at,
         summary=summary,
+        strategy_id=cast("str | None", mapping.get("strategy_id")),
     )
 
 

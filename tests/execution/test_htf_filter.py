@@ -17,35 +17,23 @@ from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
-from thytrader.strategies.authoring import create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
-from thytrader.strategies.publication import PublishedStrategy, StrategyPublicationError
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
 
 
 class _Catalog:
-    """Load-only StrategyPublicationStore double for one published strategy."""
+    """Load-only StrategySnapshotStore double for one published strategy."""
 
     def __init__(self, definition: StrategyDefinition) -> None:
         """Bind one immutable publication."""
         fingerprint = strategy_fingerprint(definition)
-        self._published = PublishedStrategy(strategy_fingerprint=fingerprint, definition=definition)
+        self._published = StrategySnapshot(strategy_fingerprint=fingerprint, definition=definition)
 
-    async def publish(self, definition: StrategyDefinition) -> PublishedStrategy:
-        """Refuse extra publications; this fixture only serves load()."""
-        del definition
-        raise StrategyPublicationError("Catalog fixture is load-only.")
-
-    async def publish_draft(
-        self, definition: StrategyDefinition, *, expected_revision: int
-    ) -> PublishedStrategy:
-        """Refuse draft publication; this fixture only serves load()."""
-        del definition, expected_revision
-        raise StrategyPublicationError("Catalog fixture is load-only.")
-
-    async def load(self, strategy_fingerprint_value: str) -> PublishedStrategy:
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
         """Return the bound publication or fail closed."""
         if strategy_fingerprint_value != self._published.strategy_fingerprint:
-            raise StrategyPublicationError("Published strategy was not found.")
+            raise StrategySnapshotError("Published strategy was not found.")
         return self._published
 
 
@@ -79,9 +67,8 @@ def _candle(starts_at: datetime, close: str) -> Candle:
 
 def _five_minute_htf_strategy() -> StrategyDefinition:
     """Published 5m strategy with always-true LTF entry and a 1h SMA HTF filter."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     payload["timeframe"] = "5m"
     payload["data_requirements"] = {
         "warmup_bars": 2,
@@ -219,9 +206,8 @@ def test_evaluate_latest_entry_fails_closed_when_completed_htf_bar_is_missing() 
 
 def test_evaluate_latest_entry_rejects_htf_candles_without_filter() -> None:
     """A single-timeframe strategy must not silently consume extra HTF candles."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     strategy = StrategyDefinition.model_validate(payload)
     with pytest.raises(SignalEvaluationError, match="without an HTF filter"):
         evaluate_latest_entry(strategy, _ltf_window(), _htf_hours())

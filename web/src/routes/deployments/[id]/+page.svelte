@@ -1,9 +1,11 @@
 <script lang="ts">
 	/**
-	 * Bot detail (`/deployments/[id]`): one deployment of one exact strategy
-	 * version. Header (mode chip, version pill, lifecycle controls), four KPI
-	 * cards, orders & fills, why it traded, then progressively disclosed
-	 * capital, configuration, and evidence.
+	 * Bot detail (`/deployments/[id]`): one deployment running one rules
+	 * snapshot of its strategy (ADR 0082). Header (mode chip, rules pill,
+	 * lifecycle controls), an "earlier edit" notice with the guided update path
+	 * when the strategy changed since start, four KPI cards, orders & fills, why
+	 * it traded, then progressively disclosed capital, configuration, and
+	 * evidence. A kept live book of a deleted strategy says "(deleted strategy)".
 	 *
 	 * Lifecycle controls render only for a complete lifecycle contract and a
 	 * fresh snapshot; an unknown outcome or stale refresh disables them until a
@@ -11,8 +13,10 @@
 	 * before `i_understand_live: true` is sent. Live deployments turn on the
 	 * shell's live chrome.
 	 */
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page as pageState } from '$app/state';
+	import EarlierEditNotice from '$lib/workspace/EarlierEditNotice.svelte';
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
 	import Segmented from '$lib/Segmented.svelte';
 	import TradeReasonTimeline, { type TradeReasonState } from '$lib/TradeReasonTimeline.svelte';
@@ -44,9 +48,16 @@
 	import { fetchTradeReasons } from '$lib/memory';
 	import {
 		DECISION_HISTORY_NOTE,
-		shortStrategyFingerprint,
-		workspaceHref
+		rulesLabel,
+		rulesState,
+		shortStrategyFingerprint
 	} from '$lib/strategy-workspace';
+	import {
+		fetchStrategy,
+		toBuilderModel,
+		type BuilderModel,
+		type StrategyRecord
+	} from '$lib/strategies';
 	import { formatUtcTimestamp } from '$lib/time';
 	import { sortTradeReasons } from '$lib/trade-reasons';
 	import {
@@ -77,8 +88,11 @@
 	let stale = $state(false);
 	let refreshError = $state<string | null>(null);
 
-	// Exact-version configuration summary from the canonical source API.
+	// Exact-rules configuration summary from the snapshot API.
 	let strategyConfig = $state<StrategySourceState | null>(null);
+	// The owning strategy's current record (for "Current rules" / "Earlier edit").
+	let strategyRecord = $state<StrategyRecord | null>(null);
+	let strategyRecordFor = '';
 
 	// Operator performance report: provenance-labeled numbers, not the raw ledger.
 	let performanceReport = $state<OperatorPerformanceReport | null>(null);
@@ -123,17 +137,15 @@
 	const evidenceLinks = $derived(current === null ? [] : exactVersionEvidenceLinks(current));
 	const performancePayload = $derived(performanceReport?.payload ?? null);
 	const positions = $derived(current === null ? [] : canonicalPositions(current));
-	/** Run stage of the strategy workspace pinned to this deployment's exact fingerprint. */
-	const versionLink = $derived.by(() => {
-		if (current === null || current.strategy_id === null) return null;
-		const link = strategyVersionLink(current);
-		return link === null
-			? null
-			: {
-					fingerprint: link.fingerprint,
-					href: workspaceHref(current.strategy_id, 'run', { version: link.fingerprint })
-				};
-	});
+	/** Run stage of this bot's strategy workspace, plus the snapshot it runs. */
+	const versionLink = $derived(current === null ? null : strategyVersionLink(current));
+	const currentFingerprint = $derived(strategyRecord?.current_fingerprint ?? null);
+	const currentModel = $derived<BuilderModel | null>(
+		strategyRecord?.strategy
+			? toBuilderModel(strategyRecord.strategy, strategyRecord.revision)
+			: null
+	);
+	const botRules = $derived(rulesState(current?.strategy_fingerprint, currentFingerprint));
 	const loadedConfig = $derived(strategyConfig?.kind === 'loaded' ? strategyConfig : null);
 	const capitalRows = $derived(current === null ? null : capitalBreakdown(current));
 
@@ -199,7 +211,30 @@
 		}
 	}
 
-	/** Exact-version rule/config summary; explicit unavailable state on failure. */
+	/** The owning strategy's current record; failures leave the rules state unknown. */
+	async function loadStrategyRecord(strategyId: string): Promise<void> {
+		strategyRecordFor = strategyId;
+		try {
+			const record = await fetchStrategy(strategyId);
+			if (strategyRecordFor === strategyId) strategyRecord = record;
+		} catch {
+			if (strategyRecordFor === strategyId) strategyRecord = null;
+		}
+	}
+
+	async function onBotUpdated(result: {
+		stopped: Deployment;
+		started: Deployment | null;
+	}): Promise<void> {
+		if (result.started !== null) {
+			await goto(resolve(`/deployments/${encodeURIComponent(result.started.id)}`));
+			return;
+		}
+		deployment = result.stopped;
+		await refreshAfterMutation();
+	}
+
+	/** Exact-rules config summary; explicit unavailable state on failure. */
 	async function loadStrategyConfigFor(fingerprint: string): Promise<void> {
 		strategyConfig = await loadStrategyConfig(fingerprint);
 	}
@@ -350,6 +385,17 @@
 	});
 
 	$effect(() => {
+		const strategyId = current?.strategy_id ?? null;
+		if (strategyId === null) {
+			strategyRecord = null;
+			strategyRecordFor = '';
+			return;
+		}
+		if (strategyRecordFor === strategyId) return;
+		void loadStrategyRecord(strategyId);
+	});
+
+	$effect(() => {
 		const fingerprint = current?.strategy_fingerprint ?? null;
 		if (fingerprint === null) {
 			strategyConfig = null;
@@ -396,10 +442,11 @@
 							class="pill"
 							href={resolve(versionLink.href)}
 							data-testid="version-pill"
-							title="Open this exact version ({versionLink.fingerprint}) in the strategy workspace"
-							>{loadedConfig?.version !== null && loadedConfig?.version !== undefined
-								? `v${loadedConfig.version}`
-								: shortStrategyFingerprint(versionLink.fingerprint)} →</a
+							data-rules={botRules}
+							title="Rules snapshot {versionLink.fingerprint}. Open the strategy workspace."
+							>{botRules === 'unknown'
+								? shortStrategyFingerprint(versionLink.fingerprint)
+								: rulesLabel(botRules)} →</a
 						>
 					{/if}
 				</div>
@@ -454,6 +501,20 @@
 				{/if}
 			</div>
 		</header>
+
+		{#if current.strategy_deleted}
+			<p class="contract-note" data-testid="deleted-strategy-note" role="status">
+				Its strategy was deleted. This live bot's orders, fills, positions, trade reasons, and the
+				rules it ran are kept.
+			</p>
+		{/if}
+		<EarlierEditNotice
+			deployment={current}
+			{currentFingerprint}
+			current={currentModel}
+			disabled={controlsBlocked || mutating || !lifecycleControlsAvailable(current)}
+			onupdated={(result) => void onBotUpdated(result)}
+		/>
 
 		{#if !controlsAvailable}
 			<p class="contract-note" data-testid="controls-blocked-note" role="status">
@@ -806,11 +867,11 @@
 
 		<div class="grid2 even">
 			<section class="card" aria-labelledby="evidence-title">
-				<div class="card-head"><h2 id="evidence-title">Evidence for this version</h2></div>
+				<div class="card-head"><h2 id="evidence-title">Evidence for this strategy</h2></div>
 				<div class="pad">
 					<p class="evidence-links">
 						{#if evidenceLinks.length === 0}
-							<span class="quiet">No version-scoped evidence for a discretionary deployment.</span>
+							<span class="quiet">No strategy evidence for a discretionary deployment.</span>
 						{:else}
 							{#each evidenceLinks as link (link.href)}
 								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- dynamic cross-route link with query -->
@@ -840,7 +901,7 @@
 							{/each}
 						</ul>
 						<p class="quiet small">
-							Different published versions; their evidence is not mixed into this page.
+							Different rules snapshots; their evidence is not mixed into this page.
 						</p>
 					{/if}
 				</div>
@@ -886,18 +947,18 @@
 
 		<details class="card disclosure" data-testid="config-disclosure">
 			<summary>
-				Exact published configuration
+				Exact rules this bot runs
 				<code data-testid="deployment-fingerprint">{fingerprintText(current)}</code>
 			</summary>
 			<div class="pad">
 				{#if current.strategy_fingerprint === null}
-					<p class="quiet">Discretionary deployments have no published strategy source.</p>
+					<p class="quiet">Discretionary deployments have no strategy rules snapshot.</p>
 				{:else if strategyConfig === null}
 					<p class="quiet" data-testid="strategy-config-loading">Loading configuration…</p>
 				{:else if strategyConfig.kind === 'unavailable'}
 					<p class="contract-note" data-testid="strategy-config-unavailable" role="status">
-						Immutable configuration unavailable ({strategyConfig.reason}). The fingerprint above is
-						the only identity shown; no other version was substituted.
+						Rules snapshot unavailable ({strategyConfig.reason}). The fingerprint above is the only
+						identity shown; the strategy's current edit was not substituted.
 					</p>
 				{:else}
 					<div class="config-summary" data-testid="strategy-config-summary">

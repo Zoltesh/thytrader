@@ -1,6 +1,7 @@
 # 0034: Phase 12 agent orchestration and YOLO confirmation opt-in
 
-- Status: Accepted — superseded in part by [0043](0043-yolo-live-skip-confirm.md)
+- Status: Accepted — superseded in part by [0043](0043-yolo-live-skip-confirm.md); superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Superseded part: the playbook `draft/publish` step. The playbook now runs `--create-strategy` and uses `--strategy-id`; there is no publish.
   (live `--confirm` hard gate)
 - Date: 2026-09-15
 - Relates to: [0012](0012-operator-diagnostics.md), [0013](0013-http-first-agent-clients.md),

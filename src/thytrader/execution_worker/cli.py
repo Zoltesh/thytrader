@@ -19,7 +19,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyPublicationStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.settings_yaml import SettingsStore
@@ -41,7 +41,7 @@ async def run() -> None:
 
     engine = create_engine(settings.database_url)
     store = PostgresExecutionStore(engine)
-    publication_store = PostgresStrategyPublicationStore(engine)
+    publication_store = PostgresStrategyStore(engine)
     risk_store = PostgresRiskPolicyStore(engine)
     memory_store = PostgresExperientialMemoryStore(engine)
     heartbeats = PostgresWorkerHeartbeatStore(engine)

@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.settings_yaml import SettingsStore
     from thytrader.strategies.models import StrategyDefinition
-    from thytrader.strategies.publication import StrategyPublicationStore
+    from thytrader.strategies.snapshots import StrategySnapshotStore
 
 _logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ async def run_execution_worker(
     stop_requested: asyncio.Event,
     *,
     store: ExecutionStore,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotStore,
     market_data: MarketDataService,
     paper_broker: Broker,
     live_broker: Broker | None,
@@ -195,7 +195,7 @@ async def _await_next_cycle(
 async def _run_cycle(
     *,
     store: ExecutionStore,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotStore,
     market_data: MarketDataService,
     paper_broker: Broker,
     live_broker: Broker | None,
@@ -288,7 +288,7 @@ async def _process_one(
     *,
     deployment_id: UUID,
     store: ExecutionStore,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotStore,
     market_data: MarketDataService,
     paper_broker: Broker,
     live_broker: Broker | None,
@@ -907,7 +907,7 @@ async def _strategy_definition(
     snapshot: DeploymentSnapshot,
     *,
     store: ExecutionStore,
-    publication_store: StrategyPublicationStore,
+    publication_store: StrategySnapshotStore,
 ) -> StrategyDefinition | None:
     """Load the published strategy, or pause when identity is missing."""
     fingerprint = snapshot.deployment.strategy_fingerprint

@@ -33,6 +33,8 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -178,10 +180,12 @@ class InMemoryBacktestResultReader:
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[BacktestResultSummaryView, ...]:
         """Return newest-first summary views honoring one optional filter."""
+        del strategy_id
         views = []
         for fingerprint, result in self._results.items():
             if run_fingerprint is not None and result.run_fingerprint != run_fingerprint:
@@ -307,10 +311,12 @@ class UnavailableBacktestResultReader:
         run_fingerprint: str | None = None,
         strategy_fingerprint: str | None = None,
         dataset_fingerprint: str | None = None,
+        strategy_id: UUID | None = None,
         limit: int,
         offset: int,
     ) -> tuple[()]:
         """Raise a redacted unavailability failure."""
+        del strategy_id
         del run_fingerprint, strategy_fingerprint, dataset_fingerprint, limit, offset
         raise BacktestResultUnavailableError("unavailable")
 
@@ -753,12 +759,15 @@ class _ImmediateSubmitter:
 
 def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None:
     """Long runs can queue with HTTP 202 and poll job status."""
+    strategies = InMemoryStrategyStore()
+    snapshot = strategies.seed_definition(create_template_strategy())
     app = create_app(
         Settings(_env_file=None),
         backtest_submitter=_ImmediateSubmitter(),
+        strategy_store=strategies,
     )
     payload = {
-        "strategy_fingerprint": "sha256:" + "a" * 64,
+        "strategy_id": str(snapshot.definition.strategy_id),
         "dataset_fingerprint": "sha256:" + "b" * 64,
         "evaluation_start": "2026-08-01T00:00:00Z",
         "evaluation_end": "2026-08-02T00:00:00Z",
@@ -773,6 +782,7 @@ def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None
         accepted = client.post("/api/v1/backtests?async=true", json=payload)
         assert accepted.status_code == 202, accepted.text
         job_id = accepted.json()["job_id"]
+        assert accepted.json()["strategy_fingerprint"] == snapshot.strategy_fingerprint
         polled = client.get(f"/api/v1/backtests/jobs/{job_id}")
         assert polled.status_code == 200, polled.text
         body = polled.json()

@@ -22,15 +22,14 @@ from thytrader.execution_worker.service import (
     _pause_five_minute_live_if_feed_down,
     _user_feed_connected,
 )
-from thytrader.strategies.authoring import create_reference_draft
-from thytrader.strategies.models import StrategyDefinition, StrategyStatus, strategy_fingerprint
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 
 def _published(*, timeframe: str) -> StrategyDefinition:
     """Return a published reference strategy on one execution clock."""
-    draft = create_reference_draft(now=datetime(2026, 1, 1, tzinfo=UTC))
+    draft = create_template_strategy(now=datetime(2026, 1, 1, tzinfo=UTC))
     payload = draft.model_dump(mode="python")
-    payload["status"] = StrategyStatus.PUBLISHED.value
     payload["timeframe"] = timeframe
     return StrategyDefinition.model_validate(payload)
 

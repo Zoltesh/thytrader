@@ -84,7 +84,7 @@ def test_skip_records_live_tier_on_runtime_category() -> None:
 def test_skip_fails_closed_without_audit_store() -> None:
     """YOLO cannot skip confirmation when audit storage is disabled."""
     settings = Settings(yolo_enabled=True, yolo_tiers=(YoloTier.RESEARCH,), _env_file=None)
-    request = SkippedConfirmationRequest(tier=YoloTier.RESEARCH, command="create-draft")
+    request = SkippedConfirmationRequest(tier=YoloTier.RESEARCH, command="create-strategy")
     with pytest.raises(AuditEventUnavailableError, match="cannot skip"):
         asyncio.run(
             record_skipped_confirmation(

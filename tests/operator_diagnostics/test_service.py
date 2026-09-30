@@ -35,33 +35,46 @@ from thytrader.persistence.worker_heartbeats import (
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, StudyCatalogSummary
-from thytrader.strategies.authoring import DisabledStrategyDraftStore, StrategyDraft
-from thytrader.strategies.publication import DisabledStrategyPublicationStore
+from thytrader.strategies.library import DisabledStrategyStore
+from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 
 if TYPE_CHECKING:
-    from thytrader.strategies.models import StrategyDefinition
+    from uuid import UUID
+
+    from thytrader.strategies.library import StrategyDocument, StrategyRecord
 
 
-class _RecordingDraftStore(DisabledStrategyDraftStore):
-    """Count mutations so operator reads cannot hide a write."""
+class _RecordingStrategyStore(InMemoryStrategyStore):
+    """Fail closed on writes while allowing empty strategy lists."""
 
     def __init__(self) -> None:
-        """Start with a zero create counter."""
+        """Start with zero mutation calls."""
+        super().__init__()
         self.create_calls = 0
 
-    async def list_drafts(self) -> tuple[StrategyDraft, ...]:
-        """Return no drafts without recording a mutation."""
-        return ()
-
-    async def create_draft(self, definition: StrategyDefinition) -> StrategyDraft:
-        """Count accidental creates."""
+    async def create(
+        self, document: StrategyDocument, *, strategy_id: UUID, created_at: datetime
+    ) -> StrategyRecord:
+        """Count forbidden mutations."""
+        del document, strategy_id, created_at
         self.create_calls += 1
-        return await super().create_draft(definition)
+        message = "operator routes must not create strategies"
+        raise RuntimeError(message)
+
+    async def save(
+        self, strategy_id: UUID, document: StrategyDocument, *, expected_revision: int
+    ) -> StrategyRecord:
+        """Count forbidden saves."""
+        del strategy_id, document, expected_revision
+        self.create_calls += 1
+        message = "operator routes must not save strategies"
+        raise RuntimeError(message)
 
 
 def _diagnostics(
     *,
-    drafts: DisabledStrategyDraftStore | None = None,
+    drafts: InMemoryStrategyStore | None = None,
     settings: Settings | None = None,
     heartbeat_store: DisabledWorkerHeartbeatStore | InMemoryWorkerHeartbeatStore | None = None,
     research_studies: InMemoryResearchStudyCatalog | None = None,
@@ -72,8 +85,8 @@ def _diagnostics(
         portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
-        publications=DisabledStrategyPublicationStore(),
-        drafts=drafts or DisabledStrategyDraftStore(),
+        publications=DisabledStrategySnapshotStore(),
+        strategies_store=drafts or DisabledStrategyStore(),
         backtests=DisabledBacktestResultStore(),
         execution=DisabledExecutionStore(),
         audit=InMemoryAuditEventStore(),
@@ -123,7 +136,7 @@ def test_exchange_reports_demo_permissions_without_balances() -> None:
 
 def test_health_does_not_create_strategy_drafts() -> None:
     """Read-only health must not call draft creation."""
-    drafts = _RecordingDraftStore()
+    drafts = _RecordingStrategyStore()
     asyncio.run(_diagnostics(drafts=drafts).health())
     assert drafts.create_calls == 0
 
@@ -342,8 +355,8 @@ def _split_state_diagnostics(execution: InMemoryExecutionStore) -> OperatorDiagn
         portfolio=PortfolioService(DemoExchangeAccount(), demo=True),
         market_data_state=DisabledMarketDataWorkerStateStore(),
         history=InMemoryPortfolioHistoryStore(),
-        publications=DisabledStrategyPublicationStore(),
-        drafts=DisabledStrategyDraftStore(),
+        publications=DisabledStrategySnapshotStore(),
+        strategies_store=DisabledStrategyStore(),
         backtests=DisabledBacktestResultStore(),
         execution=execution,
         audit=InMemoryAuditEventStore(),

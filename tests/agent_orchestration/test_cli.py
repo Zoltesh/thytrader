@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 from unittest.mock import patch
 
@@ -121,7 +122,7 @@ def test_run_sequences_operator_and_data_clis(
     assert not any("--mode" in argv and "live" in argv for _, argv in calls)
 
 
-def test_run_create_draft_forwards_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_create_strategy_forwards_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
     """Playbook forwards --confirm to research instead of inventing HTTP."""
     research_calls: list[list[str]] = []
 
@@ -151,11 +152,11 @@ def test_run_create_draft_forwards_confirm(monkeypatch: pytest.MonkeyPatch) -> N
         patch("thytrader.agent_orchestration.cli.sys.stdout"),
         pytest.raises(SystemExit) as raised,
     ):
-        main(["run", "--create-draft", "--confirm"])
+        main(["run", "--create-strategy", "--confirm"])
     assert raised.value.code == EXIT_HEALTHY
     assert research_calls
     assert "--confirm" in research_calls[0]
-    assert "create-draft" in research_calls[0]
+    assert "create-strategy" in research_calls[0]
     assert "live" not in research_calls[0]
 
 
@@ -184,7 +185,7 @@ def test_run_paper_uses_runtime_paper_mode(monkeypatch: pytest.MonkeyPatch) -> N
         "GET /health/ready": matching_ready_payload(),
         "GET /api/v1/agent-orchestration": orchestration_status_payload(),
     }
-    fingerprint = "sha256:" + "a" * 64
+    strategy_id = "11111111-1111-7111-8111-111111111111"
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch("thytrader.agent_orchestration.cli.sys.stdout"),
@@ -195,8 +196,8 @@ def test_run_paper_uses_runtime_paper_mode(monkeypatch: pytest.MonkeyPatch) -> N
                 "run",
                 "--paper-cash",
                 "10000",
-                "--strategy-fingerprint",
-                fingerprint,
+                "--strategy-id",
+                strategy_id,
                 "--confirm",
             ]
         )
@@ -204,6 +205,7 @@ def test_run_paper_uses_runtime_paper_mode(monkeypatch: pytest.MonkeyPatch) -> N
     assert "--mode" in runtime_calls[0]
     mode_index = runtime_calls[0].index("--mode")
     assert runtime_calls[0][mode_index + 1] == "paper"
+    assert runtime_calls[0][runtime_calls[0].index("--strategy-id") + 1] == strategy_id
     assert "live" not in runtime_calls[0]
     assert "--i-understand-live" not in runtime_calls[0]
 
@@ -238,7 +240,7 @@ def test_run_paper_with_live_yolo_still_never_starts_live(
             yolo_tiers=("data", "research", "paper", "live"),
         ),
     }
-    fingerprint = "sha256:" + "a" * 64
+    strategy_id = "11111111-1111-7111-8111-111111111111"
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch("thytrader.agent_orchestration.cli.sys.stdout"),
@@ -249,8 +251,8 @@ def test_run_paper_with_live_yolo_still_never_starts_live(
                 "run",
                 "--paper-cash",
                 "10000",
-                "--strategy-fingerprint",
-                fingerprint,
+                "--strategy-id",
+                strategy_id,
             ]
         )
     assert raised.value.code == EXIT_HEALTHY
@@ -260,3 +262,51 @@ def test_run_paper_with_live_yolo_still_never_starts_live(
     assert runtime_calls[0][mode_index + 1] == "paper"
     assert "live" not in runtime_calls[0]
     assert "--i-understand-live" not in runtime_calls[0]
+
+
+def test_run_fills_the_created_strategy_into_a_backtest_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A backtest file without strategy_id runs against the strategy created in the same run."""
+    research_calls: list[list[str]] = []
+    submitted: list[dict[str, object]] = []
+    created_id = "11111111-1111-7111-8111-111111111111"
+
+    def fake_operator(argv: list[str] | None) -> None:
+        del argv
+        raise SystemExit(0)
+
+    def fake_data(argv: list[str] | None) -> None:
+        del argv
+        sys.stdout.write('{"targets":[]}\n')
+
+    def fake_research(argv: list[str] | None) -> None:
+        assert argv is not None
+        research_calls.append(list(argv))
+        if argv[0] == "create-strategy":
+            sys.stdout.write(f'{{"strategy_id":"{created_id}"}}\n')
+        else:
+            file_path = Path(argv[argv.index("--file") + 1])
+            submitted.append(json.loads(file_path.read_text(encoding="utf-8")))
+            sys.stdout.write('{"strategy_fingerprint":"sha256:' + "e" * 64 + '"}\n')
+        raise SystemExit(0)
+
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.operator_main", fake_operator)
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.data_main", fake_data)
+    monkeypatch.setattr("thytrader.agent_orchestration.cli.research_main", fake_research)
+    backtest = tmp_path / "backtest.json"
+    backtest.write_text(json.dumps({"dataset_fingerprint": "sha256:" + "d" * 64}))
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch("thytrader.agent_orchestration.cli.sys.stdout"),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["run", "--create-strategy", "--backtest-file", str(backtest), "--confirm"])
+    assert raised.value.code == EXIT_HEALTHY
+    assert [call[0] for call in research_calls] == ["create-strategy", "submit-backtest"]
+    assert submitted == [{"dataset_fingerprint": "sha256:" + "d" * 64, "strategy_id": created_id}]
+    assert json.loads(backtest.read_text()) == {"dataset_fingerprint": "sha256:" + "d" * 64}

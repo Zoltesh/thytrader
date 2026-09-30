@@ -3,11 +3,12 @@
  *
  * Nothing here adds a backend contract: risk policy (`GET /api/v1/risk-policy`),
  * portfolio (`GET /api/v1/portfolio`), the operator runtime report's
- * user-order feed (`GET /api/v1/operator/runtime`), and strategy source /
- * history for resolving which strategy owns a fingerprint.
+ * user-order feed (`GET /api/v1/operator/runtime`), and the snapshot lookup
+ * (`GET /api/v1/strategies/snapshots/{fingerprint}`) for resolving which
+ * strategy owns a fingerprint.
  */
 import type { Portfolio } from './portfolio';
-import { fetchStrategyHistory, fetchStrategySource } from './strategies';
+import { fetchStrategySnapshot } from './strategies';
 import type { RiskPolicySnapshot, UserOrderFeedState } from './strategy-workspace';
 
 async function readJson<T>(path: string): Promise<T> {
@@ -38,21 +39,24 @@ export async function fetchUserOrderFeed(): Promise<{ state: UserOrderFeedState 
 	return body.payload?.user_order_feed ?? null;
 }
 
+export type StrategyOwner =
+	| { kind: 'owned'; strategyId: string }
+	/** The snapshot exists but its strategy was deleted (a kept live history). */
+	| { kind: 'deleted'; strategyName: string | null }
+	| { kind: 'unknown' };
+
 /**
- * The strategy that publishes `fingerprint`, or null when it cannot be proven.
+ * The strategy that owns snapshot `fingerprint` (old fingerprint deep links).
  *
- * The source record names a `strategy_id`, but only a fingerprint listed in
- * that strategy's published history counts (derived sweep candidates share
- * the id without being versions of it).
+ * Resolved by the snapshot lookup only; nothing is guessed from names.
  */
-export async function resolveStrategyOwner(fingerprint: string): Promise<string | null> {
+export async function resolveStrategyOwner(fingerprint: string): Promise<StrategyOwner> {
 	try {
-		const source = await fetchStrategySource(fingerprint);
-		const history = await fetchStrategyHistory(source.strategy_id);
-		return history.versions.some((version) => version.strategy_fingerprint === fingerprint)
-			? source.strategy_id
-			: null;
+		const snapshot = await fetchStrategySnapshot(fingerprint);
+		return snapshot.strategy_id === null
+			? { kind: 'deleted', strategyName: snapshot.strategy_name }
+			: { kind: 'owned', strategyId: snapshot.strategy_id };
 	} catch {
-		return null;
+		return { kind: 'unknown' };
 	}
 }

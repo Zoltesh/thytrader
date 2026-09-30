@@ -63,14 +63,13 @@ async function mockInventory(page: import('@playwright/test').Page, rows: unknow
 							name: 'UNI trend',
 							product_id: 'UNI-USDC',
 							timeframe: '1h',
-							latest_version: 2,
-							status: 'published',
-							latest_fingerprint: 'sha256:abc',
-							published_versions: [{ version: 2, strategy_fingerprint: 'sha256:abc' }],
-							archived: false,
+							revision: 2,
+							valid: true,
+							current_fingerprint: 'sha256:abc',
 							summary: '',
 							backtest: null,
-							paper_live: { paper: null, live: null },
+							paper_live: { paper: 'running', live: 'running' },
+							active_deployment_count: 2,
 							created_at: '2026-09-01T00:00:00Z',
 							updated_at: '2026-09-01T00:00:00Z'
 						}
@@ -139,15 +138,16 @@ test('Portfolio groups bots, filters by mode, and keeps lifecycle contract gatin
 	// Rows: name + version from the library by exact fingerprint, market with its own quote.
 	const running = page.locator('[data-group="running"]').getByTestId('bot-row');
 	await expect(running).toHaveCount(2);
-	const paperRow = running.filter({ hasText: 'UNI trend' });
-	await expect(paperRow).toContainText('v2');
+	const paperRow = running.filter({ hasText: 'UNI / USD' });
+	await expect(paperRow.first()).toContainText('Current rules');
 	await expect(paperRow).toContainText('UNI / USD');
 	await expect(paperRow).toContainText('+18.40 USD');
 	await expect(paperRow.getByRole('link')).toHaveAttribute('href', `/deployments/${deploymentId}`);
 	const liveRow = running.filter({ hasText: 'ETH / USDC' });
 	await expect(liveRow.locator('.chip.live')).toHaveText('LIVE');
-	// An unresolved fingerprint shows the fingerprint, never an invented name.
-	await expect(liveRow).toContainText('Strategy sha256:other');
+	// A bot on other rules of the same strategy says "Earlier edit", never a version number.
+	await expect(liveRow).toContainText('UNI trend');
+	await expect(liveRow).toContainText('Earlier edit');
 	// List rows stay inventory: lifecycle mutations live on the detail page.
 	await expect(page.getByRole('button', { name: /Pause|Stop…|Resume/ })).toHaveCount(0);
 
@@ -253,4 +253,24 @@ test('an empty trailing page is distinct from an empty inventory', async ({ page
 	await page.getByRole('button', { name: 'Back to first page' }).click();
 	await expect(page.getByTestId('bot-row')).toHaveCount(50);
 	await expect(page.getByTestId('trailing-empty-page')).toHaveCount(0);
+});
+
+test('Portfolio labels a kept live bot of a deleted strategy', async ({ page }) => {
+	await mockInventory(page, [
+		deploymentFixture({
+			id: liveId,
+			mode: 'live',
+			status: 'stopped',
+			strategy_id: null,
+			strategy_deleted: true,
+			strategy_name: 'Old breakout',
+			strategy_fingerprint: 'sha256:gone',
+			paper_starting_cash: null
+		})
+	]);
+	await page.goto('/deployments');
+	const row = page.locator('[data-group="stopped"]').getByTestId('bot-row');
+	await expect(row).toContainText('Old breakout (deleted strategy)');
+	await expect(row).not.toContainText('Current rules');
+	await expect(row).not.toContainText('Earlier edit');
 });

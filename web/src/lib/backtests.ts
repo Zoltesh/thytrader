@@ -53,7 +53,9 @@ export type CostAssumptions = {
 export type BacktestSummaryEntry = {
 	result_fingerprint: string;
 	run_fingerprint: string;
+	/** Snapshot of the rules this run used. */
 	strategy_fingerprint: string;
+	strategy_id?: string | null;
 	dataset_fingerprint: string;
 	engine_contract_version: EngineContractVersion;
 	published_at: string;
@@ -377,6 +379,7 @@ export type BacktestListQuery = {
 	limit?: number;
 	offset?: number;
 	strategy_fingerprint?: string;
+	strategy_id?: string;
 };
 
 export function formatBacktestListBound(
@@ -423,6 +426,9 @@ export async function fetchBacktests(
 	}
 	if (query.strategy_fingerprint !== undefined) {
 		params.set('strategy_fingerprint', query.strategy_fingerprint);
+	}
+	if (query.strategy_id !== undefined) {
+		params.set('strategy_id', query.strategy_id);
 	}
 	const search = params.toString();
 	const response = await fetch(
@@ -509,6 +515,26 @@ export async function fetchAllBacktestsForFingerprint(
 			offset,
 			strategy_fingerprint: strategyFingerprint
 		});
+		rows.push(...listing.entries);
+		if (listing.returned < pageSize || listing.has_more === false) return rows;
+		offset += listing.returned;
+	}
+	return rows;
+}
+
+/**
+ * Every published result for one strategy (`?strategy_id=`), newest first,
+ * across all of its snapshots. Follows bounded offset pages.
+ */
+export async function fetchAllBacktestsForStrategy(
+	strategyId: string,
+	pageSize = 50,
+	maxPages = 20
+): Promise<BacktestSummaryEntry[]> {
+	const rows: BacktestSummaryEntry[] = [];
+	let offset = 0;
+	for (let page = 0; page < maxPages; page += 1) {
+		const listing = await fetchBacktests({ limit: pageSize, offset, strategy_id: strategyId });
 		rows.push(...listing.entries);
 		if (listing.returned < pageSize || listing.has_more === false) return rows;
 		offset += listing.returned;

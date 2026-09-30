@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import type { CoinbaseCredentialsStatus } from './credentials';
 import type { Deployment } from './deployments';
 import type { Portfolio } from './portfolio';
-import type { StrategyLibraryEntry, StrategyVersionHistoryEntry } from './strategies';
+import type { StrategyLibraryEntry } from './strategies';
 import {
+	invalidStartReason,
+	isStrategyFingerprint,
 	latestSignalExplanation,
 	libraryPipeline,
-	libraryVersionLabel,
 	livePreflight,
 	paperEvidenceText,
 	pipelineSummary,
-	resolveWorkspaceVersion,
+	rulesLabel,
+	rulesState,
 	shortStrategyFingerprint,
 	stageFromRouteId,
 	timeframeMinutes,
@@ -21,31 +23,19 @@ import {
 const fpA = `sha256:${'a'.repeat(64)}`;
 const fpB = `sha256:${'b'.repeat(64)}`;
 
-function version(n: number, fingerprint: string): StrategyVersionHistoryEntry {
-	return {
-		version: n,
-		strategy_fingerprint: fingerprint,
-		published: true,
-		archived: false,
-		archived_at: null,
-		backtest: null
-	};
-}
-
 function entry(overrides: Partial<StrategyLibraryEntry> = {}): StrategyLibraryEntry {
 	return {
 		strategy_id: 's-1',
 		name: 'Trend',
 		product_id: 'BTC-USDC',
 		timeframe: '1h',
-		latest_version: 1,
-		status: 'draft',
-		latest_fingerprint: null,
-		published_versions: [],
-		archived: false,
+		revision: 1,
+		valid: true,
+		current_fingerprint: fpA,
 		summary: '',
 		backtest: null,
-		paper_live: { paper: 'unavailable', live: 'unavailable' },
+		paper_live: { paper: 'none', live: 'none' },
+		active_deployment_count: 0,
 		created_at: '2026-09-01T00:00:00Z',
 		updated_at: '2026-09-01T00:00:00Z',
 		...overrides
@@ -53,15 +43,13 @@ function entry(overrides: Partial<StrategyLibraryEntry> = {}): StrategyLibraryEn
 }
 
 describe('workspace routes', () => {
-	it('builds stage URLs with an optional exact version and a Test-only result', () => {
+	it('builds stage URLs with a Test-only result and never a version', () => {
 		expect(workspaceHref('s 1', 'build')).toBe('/strategies/s%201');
-		expect(workspaceHref('s', 'test', { version: fpA, result: fpB })).toBe(
-			`/strategies/s/test?version=${encodeURIComponent(fpA)}&result=${encodeURIComponent(fpB)}`
+		expect(workspaceHref('s', 'test', { result: fpB })).toBe(
+			`/strategies/s/test?result=${encodeURIComponent(fpB)}`
 		);
-		expect(workspaceHref('s', 'run', { version: null, result: fpB })).toBe('/strategies/s/run');
-		expect(workspaceHref('s', 'why', { version: fpA })).toBe(
-			`/strategies/s/why?version=${encodeURIComponent(fpA)}`
-		);
+		expect(workspaceHref('s', 'run', { result: fpB })).toBe('/strategies/s/run');
+		expect(workspaceHref('s', 'why')).toBe('/strategies/s/why');
 	});
 
 	it('maps route ids to stages', () => {
@@ -69,65 +57,47 @@ describe('workspace routes', () => {
 		expect(stageFromRouteId('/strategies/[id]/run')).toBe('run');
 		expect(stageFromRouteId('/strategies')).toBeNull();
 	});
+
+	it('recognizes old fingerprint deep links', () => {
+		expect(isStrategyFingerprint(fpA)).toBe(true);
+		expect(isStrategyFingerprint('01985cf0-7b60-7000-8000-000000000003')).toBe(false);
+		expect(isStrategyFingerprint(null)).toBe(false);
+	});
 });
 
-describe('resolveWorkspaceVersion fails closed', () => {
-	const versions = [version(1, fpA), version(2, fpB)];
-
-	it('defaults to the latest published version without a query', () => {
-		expect(resolveWorkspaceVersion(null, versions)).toEqual({
-			status: 'default',
-			entry: versions[1]
-		});
+describe('current rules vs earlier edit', () => {
+	it('compares a row snapshot with the current fingerprint', () => {
+		expect(rulesState(fpA, fpA)).toBe('current');
+		expect(rulesState(fpB, fpA)).toBe('earlier');
+		expect(rulesLabel('current')).toBe('Current rules');
+		expect(rulesLabel('earlier')).toBe('Earlier edit');
 	});
 
-	it('honors an exact fingerprint of this strategy', () => {
-		expect(resolveWorkspaceVersion(fpA, versions)).toEqual({ status: 'exact', entry: versions[0] });
+	it('never calls a row current when either side is unknown', () => {
+		expect(rulesState(fpA, null)).toBe('unknown');
+		expect(rulesState(null, fpA)).toBe('unknown');
 	});
 
-	it('never substitutes the latest for a foreign fingerprint', () => {
-		const foreign = `sha256:${'d'.repeat(64)}`;
-		expect(resolveWorkspaceVersion(foreign, versions)).toEqual({
-			status: 'invalid',
-			entry: null,
-			requested: foreign
-		});
-		expect(resolveWorkspaceVersion(foreign, []).status).toBe('invalid');
-	});
-
-	it('reports none for a draft-only strategy', () => {
-		expect(resolveWorkspaceVersion(null, [])).toEqual({ status: 'none', entry: null });
+	it('explains why starts are blocked while the definition is invalid', () => {
+		expect(invalidStartReason(1)).toContain('1 problem.');
+		expect(invalidStartReason(3)).toContain('3 problems');
+		expect(invalidStartReason(0)).toContain('1 problem');
 	});
 });
 
 describe('library pipeline', () => {
-	it('shows an open draft over earlier published history, not one status', () => {
-		const steps = libraryPipeline(
-			entry({
-				status: 'draft',
-				latest_version: 4,
-				published_versions: [{ version: 3, strategy_fingerprint: fpA }]
-			})
-		);
+	it('shows Build as active while the saved definition has problems', () => {
+		const steps = libraryPipeline(entry({ valid: false, current_fingerprint: null }));
 		expect(steps.map((step) => step.state)).toEqual(['active', 'none', 'none', 'none']);
-		expect(steps[0].detail).toBe('draft open · published earlier');
-		expect(
-			libraryVersionLabel(
-				entry({
-					latest_version: 4,
-					published_versions: [{ version: 3, strategy_fingerprint: fpA }]
-				})
-			)
-		).toBe('v3 · draft v4');
+		expect(steps[0].detail).toBe('definition has problems');
 	});
 
 	it('derives Test from an attached backtest and Paper / Live from runtime status', () => {
 		const steps = libraryPipeline(
 			entry({
-				status: 'published',
-				latest_fingerprint: fpA,
 				backtest: {
 					result_fingerprint: fpB,
+					strategy_fingerprint: fpA,
 					published_at: '2026-09-02T00:00:00Z',
 					summary: {
 						initial_equity: '1',
@@ -142,31 +112,22 @@ describe('library pipeline', () => {
 			})
 		);
 		expect(steps.map((step) => [step.stage, step.state, step.detail])).toEqual([
-			['Build', 'done', 'published'],
+			['Build', 'done', 'rules valid'],
 			['Test', 'done', 'has a backtest'],
 			['Paper', 'paper', 'running'],
 			['Live', 'done', 'stopped']
 		]);
 		expect(pipelineSummary(steps)).toBe(
-			'Build: published; Test: has a backtest; Paper: running; Live: stopped'
+			'Build: rules valid; Test: has a backtest; Paper: running; Live: stopped'
 		);
 	});
 
-	it('marks live running with the live state and archived versions as archived', () => {
-		const steps = libraryPipeline(
-			entry({
-				status: 'archived',
-				latest_fingerprint: fpA,
-				paper_live: { paper: 'paused', live: 'running' }
-			})
-		);
-		expect(steps[0].detail).toBe('archived');
+	it('marks live running with the live state and never shows version pills', () => {
+		const steps = libraryPipeline(entry({ paper_live: { paper: 'paused', live: 'running' } }));
+		expect(steps.map((step) => step.stage)).toEqual(['Build', 'Test', 'Paper', 'Live']);
 		expect(steps[2]).toEqual({ stage: 'Paper', state: 'paper', detail: 'paused' });
 		expect(steps[3]).toEqual({ stage: 'Live', state: 'live', detail: 'running' });
-		expect(libraryVersionLabel(entry({ status: 'archived', latest_version: 2 }))).toBe(
-			'Archived v2'
-		);
-		expect(libraryVersionLabel(entry({ status: 'draft', latest_version: 1 }))).toBe('Draft v1');
+		expect(pipelineSummary(steps)).not.toMatch(/\bv\d/);
 	});
 });
 
@@ -328,7 +289,7 @@ describe('workspace formatting helpers', () => {
 			{ ledger: null }
 		] as unknown as Deployment[];
 		expect(paperEvidenceText(deployments)).toMatch(
-			/^Paper: 2 deployments of this version, 6 closed trades\./
+			/^Paper: 2 deployments of this strategy, 6 closed trades\./
 		);
 	});
 });

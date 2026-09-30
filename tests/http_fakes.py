@@ -80,7 +80,7 @@ def orchestration_status_payload(
         "yolo_tiers": list(yolo_tiers),
         "live_hard_gate": True,
         "live_authority": False,
-        "playbook_sequence": ["data_healthy", "draft_publish", "backtest", "optional_paper"],
+        "playbook_sequence": ["data_healthy", "strategy", "backtest", "optional_paper"],
     }
 
 

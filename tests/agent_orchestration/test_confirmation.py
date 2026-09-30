@@ -76,13 +76,13 @@ def test_yolo_skip_records_then_returns() -> None:
             error_type=RuntimeError,
             base_url="http://127.0.0.1:8200",
             tier=YoloTier.RESEARCH,
-            command="create-draft",
+            command="create-strategy",
         )
     preflight.assert_called_once_with("http://127.0.0.1:8200")
     skip.assert_called_once_with(
         "http://127.0.0.1:8200",
         tier=YoloTier.RESEARCH,
-        command="create-draft",
+        command="create-strategy",
     )
 
 

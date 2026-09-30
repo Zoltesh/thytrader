@@ -7,10 +7,8 @@ const fingerprintB = `sha256:${'b'.repeat(64)}`;
 const strategyDraft = {
 	schema_version: '1.0',
 	strategy_id: '01a0ad42-0000-0000-0000-000000000000',
-	version: 2,
 	name: 'UNI trend config',
 	description: null,
-	status: 'published',
 	created_at: '2026-09-01T00:00:00Z',
 	instrument: { product_id: 'UNI-USDC', base_currency: 'UNI', quote_currency: 'USDC' },
 	timeframe: '2h',
@@ -57,6 +55,15 @@ const strategyDraft = {
 	metadata: { tags: [], notes: [] }
 };
 
+/** Another edit of the same rules (fast EMA 12 instead of 20). */
+const earlierDraft = {
+	...strategyDraft,
+	indicators: [
+		{ id: 'ema_fast', kind: 'ema', input: 'close', parameters: { period: 12 } },
+		{ id: 'ema_slow', kind: 'ema', input: 'close', parameters: { period: 50 } }
+	]
+};
+
 const performanceReport = {
 	schema_version: 'thytrader-operator-report-v1',
 	report_kind: 'performance',
@@ -78,11 +85,42 @@ const performanceReport = {
 	}
 };
 
+function snapshotBody(strategy: object = strategyDraft, fingerprint = fingerprintA) {
+	return {
+		strategy_fingerprint: fingerprint,
+		strategy_id: strategyDraft.strategy_id,
+		strategy_name: strategyDraft.name,
+		strategy,
+		created_at: '2026-09-20T00:00:00Z',
+		is_current: true
+	};
+}
+
+/** The owning strategy's current record; `current` is its current rules fingerprint. */
+function strategyRecord(current: string | null = fingerprintA, strategy: object = strategyDraft) {
+	return {
+		strategy_id: strategyDraft.strategy_id,
+		name: strategyDraft.name,
+		revision: 3,
+		created_at: strategyDraft.created_at,
+		updated_at: '2026-09-25T00:00:00Z',
+		document: strategy,
+		strategy: current === null ? null : strategy,
+		validation: { valid: current !== null, issues: [] },
+		current_fingerprint: current,
+		summary: null,
+		product_id: 'UNI-USDC',
+		timeframe: '2h'
+	};
+}
+
 function detailDeployment(overrides: Record<string, unknown> = {}) {
 	return {
 		id: deploymentId,
 		strategy_fingerprint: fingerprintA,
 		strategy_id: '01a0ad42-0000-0000-0000-000000000000',
+		strategy_name: 'UNI trend config',
+		strategy_deleted: false,
 		kind: 'strategy',
 		timeframe: '2h',
 		product_id: 'UNI-USDC',
@@ -127,9 +165,14 @@ async function mockDetailRoutes(
 		orders?: { orders: unknown[]; next_cursor: string | null };
 		fills?: { fills: unknown[]; next_cursor: string | null };
 		strategySource?: { status: number; body: unknown };
+		/** Current record of the owning strategy (default: current rules = fingerprintA). */
+		record?: unknown;
 		inventory?: unknown[];
 	} = {}
 ) {
+	await page.route(`**/api/v1/strategies/${strategyDraft.strategy_id}`, (route) =>
+		route.fulfill({ json: overrides.record ?? strategyRecord() })
+	);
 	await page.route(`**/api/v1/deployments/${deploymentId}`, (route) =>
 		route.fulfill({ json: overrides.deployment ?? detailDeployment() })
 	);
@@ -174,8 +217,12 @@ async function mockDetailRoutes(
 			return route.fulfill({ json: { ...body, limit: 50, returned: body.fills.length } });
 		}
 	);
-	await page.route('**/api/v1/strategies/source/*', (route) => {
-		const source = overrides.strategySource ?? { status: 200, body: { strategy: strategyDraft } };
+	await page.route('**/api/v1/strategies/snapshots/*', (route) => {
+		const requested = decodeURIComponent(route.request().url().split('/snapshots/')[1] ?? '');
+		const source = overrides.strategySource ?? {
+			status: 200,
+			body: snapshotBody(requested === fingerprintA ? strategyDraft : earlierDraft, requested)
+		};
 		return route.fulfill({ status: source.status, json: source.body });
 	});
 }
@@ -197,7 +244,7 @@ test.describe('deployment detail', () => {
 		});
 		await page.goto(`/deployments/${deploymentId}`);
 
-		// Header: published name, mode chip, version pill pinned to the exact fingerprint.
+		// Header: strategy name, mode chip, rules pill linking the strategy workspace.
 		await expect(page.getByRole('heading', { level: 1, name: 'UNI trend config' })).toBeVisible();
 		await expect(page.getByTestId('breadcrumb')).toHaveText(/Portfolio\s*\/\s*Bot/);
 		await expect(page.getByRole('link', { name: '← Portfolio' })).toHaveAttribute(
@@ -206,11 +253,9 @@ test.describe('deployment detail', () => {
 		);
 		await expect(page.getByTestId('mode-chip')).toHaveText('Paper');
 		const pill = page.getByTestId('version-pill');
-		await expect(pill).toHaveText('v2 →');
-		await expect(pill).toHaveAttribute(
-			'href',
-			`/strategies/${strategyDraft.strategy_id}/run?version=${encodeURIComponent(fingerprintA)}`
-		);
+		await expect(pill).toHaveText('Current rules →');
+		await expect(pill).toHaveAttribute('href', `/strategies/${strategyDraft.strategy_id}/run`);
+		await expect(page.getByTestId('earlier-edit-notice')).toHaveCount(0);
 		await expect(page.getByTestId('bot-lede')).toContainText('UNI / USDC · 2h · running');
 		await expect(page.getByTestId('bot-lede')).toContainText('worker lease held');
 		await expect(page.getByTestId('deployment-fingerprint')).toHaveText(fingerprintA);
@@ -234,20 +279,24 @@ test.describe('deployment detail', () => {
 		await expect(config.getByText(/atr_multiple/)).toBeVisible();
 	});
 
-	test('shows an explicit unavailable state when the source API cannot load the config', async ({
+	test('shows an explicit unavailable state when the snapshot cannot load the config', async ({
 		page
 	}) => {
 		await mockDetailRoutes(page, {
-			strategySource: { status: 404, body: { detail: 'Published strategy was not found.' } }
+			deployment: detailDeployment({ strategy_name: null }),
+			strategySource: {
+				status: 404,
+				body: { detail: { code: 'strategy_snapshot_not_found', message: 'Not found.' } }
+			}
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		// Without the source the heading falls back to the market, never another version's name.
+		// Without the snapshot or a captured name the heading falls back to the market.
 		await expect(page.getByRole('heading', { level: 1, name: 'UNI / USDC' })).toBeVisible();
 		await page.getByTestId('config-disclosure').locator('summary').click();
 		const unavailable = page.getByTestId('strategy-config-unavailable');
 		await expect(unavailable).toBeVisible();
-		await expect(unavailable).toContainText('Immutable configuration unavailable');
-		await expect(unavailable).toContainText('no other version was substituted');
+		await expect(unavailable).toContainText('Rules snapshot unavailable');
+		await expect(unavailable).toContainText("the strategy's current edit was not substituted");
 		// The fingerprint stays as the identity; nothing else was selected.
 		await expect(page.getByTestId('deployment-fingerprint')).toHaveText(fingerprintA);
 	});
@@ -348,8 +397,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -409,8 +458,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -441,7 +490,7 @@ test.describe('deployment detail', () => {
 		);
 	});
 
-	test('evidence links are exact-version scoped and never claim completeness', async ({ page }) => {
+	test('evidence links point at the strategy and never claim completeness', async ({ page }) => {
 		await mockDetailRoutes(page);
 		await page.goto(`/deployments/${deploymentId}`);
 		const links = page.getByTestId('evidence-link');
@@ -449,11 +498,11 @@ test.describe('deployment detail', () => {
 		await expect(links.first()).toBeVisible();
 		await expect(page.getByTestId('evidence-link').first()).toHaveAttribute(
 			'href',
-			`/strategies/${strategyDraft.strategy_id}/test?version=${encodeURIComponent(fingerprintA)}`
+			`/strategies/${strategyDraft.strategy_id}/test`
 		);
 		await expect(page.getByTestId('evidence-link').nth(1)).toHaveAttribute(
 			'href',
-			`/strategies/${strategyDraft.strategy_id}/why?version=${encodeURIComponent(fingerprintA)}`
+			`/strategies/${strategyDraft.strategy_id}/why`
 		);
 		await expect(page.getByText(/not a comprehensive record/)).toBeVisible();
 	});
@@ -506,8 +555,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -568,8 +617,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -617,8 +666,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -684,8 +733,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -747,8 +796,8 @@ test.describe('deployment detail', () => {
 			(url) => url.pathname === '/api/v1/operator/performance',
 			(route) => route.fulfill({ json: performanceReport })
 		);
-		await page.route('**/api/v1/strategies/source/*', (route) =>
-			route.fulfill({ json: { strategy: strategyDraft } })
+		await page.route('**/api/v1/strategies/snapshots/*', (route) =>
+			route.fulfill({ json: snapshotBody() })
 		);
 		await page.route(
 			(url) => url.pathname === `/api/v1/deployments/${deploymentId}/orders`,
@@ -779,7 +828,89 @@ test.describe('deployment detail', () => {
 		await expect(page.getByRole('button', { name: 'Resume entries…' })).toBeEnabled();
 	});
 
-	test('other versions of the same strategy are separated, not mixed in', async ({ page }) => {
+	test('a bot on an earlier edit says so and offers a guided update', async ({ page }) => {
+		const replacementId = '01a0ad72-0000-0000-0000-0000000000ff';
+		const calls: string[] = [];
+		let created: Record<string, unknown> | null = null;
+		await mockDetailRoutes(page, { record: strategyRecord(fingerprintB, earlierDraft) });
+		await page.route(`**/api/v1/deployments/${deploymentId}/stop**`, async (route) => {
+			calls.push(`stop${new URL(route.request().url()).search}`);
+			await route.fulfill({ json: detailDeployment({ status: 'stopped' }) });
+		});
+		await page.route(
+			(url) => url.pathname === '/api/v1/deployments',
+			async (route) => {
+				if (route.request().method() !== 'POST') return route.fallback();
+				calls.push('start');
+				created = route.request().postDataJSON() as Record<string, unknown>;
+				await route.fulfill({
+					status: 201,
+					json: detailDeployment({ id: replacementId, strategy_fingerprint: fingerprintB })
+				});
+			}
+		);
+		await page.route(`**/api/v1/deployments/${replacementId}`, (route) =>
+			route.fulfill({
+				json: detailDeployment({ id: replacementId, strategy_fingerprint: fingerprintB })
+			})
+		);
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('version-pill')).toHaveText('Earlier edit →');
+		const notice = page.getByTestId('earlier-edit-notice');
+		await expect(notice).toContainText('This bot is running an earlier edit');
+		await expect(notice).toContainText('Editing the strategy never changes a running bot');
+		await notice.getByRole('button', { name: 'What changed' }).click();
+		const diff = notice.getByTestId('snapshot-diff');
+		await expect(diff).toContainText('20');
+		await expect(diff).toContainText('12');
+		await notice.getByRole('button', { name: 'Update bot…' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Update bot to the current rules?' });
+		await expect(dialog).toContainText('two separate actions');
+		await dialog.getByRole('button', { name: 'Stop and start paper bot' }).click();
+		await expect.poll(() => calls).toEqual(['stop', 'start']);
+		expect(created).toMatchObject({
+			strategy_id: strategyDraft.strategy_id,
+			mode: 'paper',
+			paper_starting_cash: '10000'
+		});
+		await expect(page).toHaveURL(new RegExp(`/deployments/${replacementId}$`));
+	});
+
+	test('a kept live bot of a deleted strategy is labelled and keeps its history', async ({
+		page
+	}) => {
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'live',
+				status: 'stopped',
+				strategy_id: null,
+				strategy_deleted: true,
+				strategy_name: 'Old breakout',
+				paper_starting_cash: null
+			}),
+			strategySource: {
+				status: 200,
+				body: { ...snapshotBody({ ...strategyDraft, name: 'Old breakout' }), strategy_id: null }
+			}
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(
+			page.getByRole('heading', { level: 1, name: 'Old breakout (deleted strategy)' })
+		).toBeVisible();
+		await expect(page.getByTestId('deleted-strategy-note')).toContainText(
+			'Its strategy was deleted'
+		);
+		await expect(page.getByTestId('version-pill')).toHaveCount(0);
+		await expect(page.getByTestId('earlier-edit-notice')).toHaveCount(0);
+		await expect(page.getByTestId('evidence-link')).toHaveAttribute(
+			'href',
+			`/backtests?strategy_fingerprint=${encodeURIComponent(fingerprintA)}`
+		);
+	});
+
+	test('other rules snapshots of the same strategy are separated, not mixed in', async ({
+		page
+	}) => {
 		const otherVersion = detailDeployment({
 			id: '01a0ad72-0000-0000-0000-000000000001',
 			strategy_fingerprint: fingerprintB
