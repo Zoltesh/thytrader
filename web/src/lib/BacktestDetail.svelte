@@ -311,7 +311,7 @@
 		padding: 0;
 		border: 0;
 		background: transparent;
-		color: #5ce1b5;
+		color: var(--accent);
 		cursor: pointer;
 		font-size: 13px;
 	}
@@ -326,7 +326,7 @@
 	p,
 	.heading p {
 		margin: 0;
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.provenance,
@@ -335,20 +335,20 @@
 	.equity-panel,
 	.ledger,
 	.metrics article {
-		border: 1px solid #232b2d;
+		border: 1px solid var(--line);
 		border-radius: 13px;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		background: var(--surface);
 	}
 	.provenance {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 12px;
 		padding: 14px 18px;
-		color: #849093;
+		color: var(--faint);
 		font-size: 11px;
 	}
 	code {
-		color: #b8e8d8;
+		color: var(--code);
 	}
 	.metrics {
 		display: grid;
@@ -362,7 +362,7 @@
 		gap: 8px;
 	}
 	small {
-		color: #718083;
+		color: var(--faint);
 		font-size: 11px;
 	}
 	.metrics strong {
@@ -374,14 +374,14 @@
 		letter-spacing: -0.04em;
 	}
 	.metrics span {
-		color: #849093;
+		color: var(--faint);
 		font-size: 11px;
 	}
 	.gain {
-		color: #5ce1b5;
+		color: var(--accent);
 	}
 	.loss {
-		color: #ed8b8b;
+		color: var(--neg);
 	}
 	.benchmark-panel {
 		overflow: hidden;
@@ -390,14 +390,14 @@
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 1px;
-		background: #232b2d;
+		background: var(--hover);
 	}
 	.benchmark-grid article {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
 		padding: 18px;
-		background: rgba(12, 16, 18, 0.95);
+		background: var(--surface);
 	}
 	.benchmark-grid strong {
 		font:
@@ -409,7 +409,7 @@
 	}
 	.benchmark-grid span,
 	.benchmark-evidence {
-		color: #849093;
+		color: var(--faint);
 		font-size: 11px;
 	}
 	.benchmark-evidence {
@@ -417,28 +417,28 @@
 		flex-wrap: wrap;
 		gap: 8px 18px;
 		padding: 14px 18px;
-		border-top: 1px solid #232b2d;
+		border-top: 1px solid var(--line);
 	}
 	.assumptions {
 		padding: 15px 18px;
 		display: grid;
 		gap: 7px;
-		color: #8f9d9f;
+		color: var(--muted);
 		font-size: 12px;
 		line-height: 1.5;
 	}
 	.assumptions strong {
-		color: #e9edf1;
+		color: var(--text);
 	}
 	.panel-heading {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		padding: 20px 22px;
-		border-bottom: 1px solid #232b2d;
+		border-bottom: 1px solid var(--line);
 	}
 	.panel-heading > span {
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.equity-chart {
@@ -452,7 +452,7 @@
 		border-collapse: collapse;
 	}
 	th {
-		color: #657174;
+		color: var(--faint);
 		font:
 			500 10px ui-monospace,
 			SFMono-Regular,
@@ -469,8 +469,8 @@
 	}
 	td {
 		padding: 14px 18px;
-		border-top: 1px solid #1d2426;
-		color: #aeb9bb;
+		border-top: 1px solid var(--line);
+		color: var(--muted);
 		text-align: right;
 		font:
 			400 12px ui-monospace,
@@ -489,17 +489,17 @@
 	}
 	.empty p {
 		margin: 0 0 6px;
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 14px;
 	}
 	.empty small {
-		color: #697578;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.skeleton {
 		height: 60px;
 		border-radius: 8px;
-		background: linear-gradient(90deg, #151c1e, #20292b, #151c1e);
+		background: linear-gradient(90deg, var(--surface-2), var(--hover), var(--surface-2));
 		background-size: 200%;
 		animation: shimmer 1.4s infinite;
 	}

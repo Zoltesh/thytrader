@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { onMount } from 'svelte';
 	import { AUDIT_EVENT_LIST_LIMIT, fetchAuditEvents, type AuditEventItem } from '$lib/audit';
 	import { formatUtcTimestamp } from '$lib/time';
@@ -30,20 +31,18 @@
 </svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Operational audit log</p>
-			<h1>Audit trail</h1>
+	<PageHead eyebrow="Operational audit log" title="Audit trail">
+		{#snippet intro()}
 			<p class="lede">
 				Append-only operational history of worker snapshots, connections, and health transitions.
 				This page shows the latest {AUDIT_EVENT_LIST_LIMIT} events; it is not the complete trail.
 			</p>
-		</div>
+		{/snippet}
 		<button class="refresh" type="button" onclick={loadEvents} disabled={loading}>
 			<span class:spinning={loading}>↻</span>
 			{loading ? 'Refreshing…' : 'Refresh audit log'}
 		</button>
-	</section>
+	</PageHead>
 
 	{#if error}
 		<div class="error-banner" role="alert">
@@ -110,44 +109,6 @@
 </main>
 
 <style>
-	.hero {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 1rem;
-	}
-	.eyebrow {
-		font-size: 0.8125rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #a0aec0;
-		margin: 0 0 0.25rem 0;
-	}
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 0.5rem 0;
-		color: #f7fafc;
-	}
-	.lede {
-		color: #a0aec0;
-		margin: 0;
-	}
-	.refresh {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: #2b6cb0;
-		color: #fff;
-		border: none;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		cursor: pointer;
-		font-weight: 600;
-	}
-	.refresh:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
 	.spinning {
 		display: inline-block;
 		animation: spin 1s linear infinite;
@@ -158,9 +119,9 @@
 		}
 	}
 	.error-banner {
-		background: #742a2a;
-		border: 1px solid #e53e3e;
-		color: #fff;
+		background: var(--danger-soft);
+		border: 1px solid var(--danger-line);
+		color: var(--text);
 		padding: 1rem;
 		border-radius: 0.375rem;
 		display: flex;
@@ -175,8 +136,8 @@
 		font-size: 0.875rem;
 	}
 	.error-banner button {
-		background: #fff;
-		color: #742a2a;
+		background: transparent;
+		color: var(--neg);
 		border: none;
 		padding: 0.375rem 0.75rem;
 		border-radius: 0.25rem;
@@ -185,23 +146,23 @@
 	}
 	.loading-card,
 	.empty-state {
-		background: #1a202c;
-		border: 1px solid #2d3748;
+		background: var(--surface);
+		border: 1px solid var(--line);
 		border-radius: 0.5rem;
 		padding: 2rem;
 		text-align: center;
 	}
 	.empty-state h3 {
 		margin: 0 0 0.5rem 0;
-		color: #f7fafc;
+		color: var(--text);
 	}
 	.empty-state p {
 		margin: 0;
-		color: #a0aec0;
+		color: var(--muted);
 	}
 	.skeleton {
 		height: 1.5rem;
-		background: #2d3748;
+		background: var(--surface-2);
 		margin-bottom: 0.75rem;
 		border-radius: 0.25rem;
 	}
@@ -210,24 +171,24 @@
 		margin: 0 auto 1rem auto;
 	}
 	.audit-panel {
-		background: #1a202c;
-		border: 1px solid #2d3748;
+		background: var(--surface);
+		border: 1px solid var(--line);
 		border-radius: 0.5rem;
 		overflow: hidden;
 	}
 	.panel-heading {
 		padding: 1rem 1.5rem;
-		border-bottom: 1px solid #2d3748;
+		border-bottom: 1px solid var(--line-2);
 	}
 	.panel-heading h2 {
 		margin: 0;
 		font-size: 1.25rem;
-		color: #f7fafc;
+		color: var(--text);
 	}
 	.panel-heading p {
 		margin: 0.25rem 0 0 0;
 		font-size: 0.875rem;
-		color: #a0aec0;
+		color: var(--muted);
 	}
 	.table-wrap {
 		overflow-x: auto;
@@ -239,15 +200,15 @@
 		font-size: 0.875rem;
 	}
 	th {
-		background: #2d3748;
-		color: #e2e8f0;
+		background: var(--surface-2);
+		color: var(--text);
 		padding: 0.75rem 1rem;
 		font-weight: 600;
 	}
 	td {
 		padding: 0.75rem 1rem;
-		border-bottom: 1px solid #2d3748;
-		color: #e2e8f0;
+		border-bottom: 1px solid var(--line-2);
+		color: var(--text);
 	}
 	tr:last-child td {
 		border-bottom: none;
@@ -261,20 +222,20 @@
 		text-transform: uppercase;
 	}
 	.badge.category {
-		background: #2b6cb0;
-		color: #ebf8ff;
+		background: var(--info-soft);
+		color: var(--info);
 	}
 	.badge.outcome.success {
-		background: #22543d;
-		color: #9ae6b4;
+		background: var(--accent-soft);
+		color: var(--pos);
 	}
 	.badge.outcome.failure {
-		background: #742a2a;
-		color: #feb2b2;
+		background: var(--danger-soft);
+		color: var(--neg);
 	}
 	.badge.outcome.info {
-		background: #4a5568;
-		color: #e2e8f0;
+		background: var(--surface-2);
+		color: var(--text);
 	}
 	.detail-cell {
 		max-width: 350px;
@@ -282,7 +243,7 @@
 	}
 	code {
 		font-family: monospace;
-		background: #2d3748;
+		background: var(--surface-2);
 		padding: 0.125rem 0.25rem;
 		border-radius: 0.25rem;
 		font-size: 0.8125rem;

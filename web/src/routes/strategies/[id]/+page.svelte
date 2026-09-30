@@ -968,13 +968,13 @@
 		justify-content: space-between;
 		gap: 16px;
 		padding: 14px 17px;
-		border: 1px solid #315849;
+		border: 1px solid var(--accent-line);
 		border-radius: 10px;
-		background: #10241d;
+		background: var(--accent-soft);
 	}
 	.read-only-banner p {
 		margin: 4px 0 0;
-		color: #a7c6b6;
+		color: var(--muted);
 		font-size: 13px;
 	}
 	.builder-head {
@@ -992,14 +992,14 @@
 		flex-wrap: wrap;
 	}
 	.dirty-pill {
-		color: #f0c987;
+		color: var(--warn);
 		font-size: 12px;
-		border: 1px solid #5c4a2f;
+		border: 1px solid var(--warn-line);
 		border-radius: 999px;
 		padding: 3px 10px;
 	}
 	.saved {
-		color: #83d5a3;
+		color: var(--pos);
 		font-size: 12px;
 	}
 	.builder-grid {
@@ -1015,9 +1015,9 @@
 		margin-bottom: 12px;
 	}
 	.section-tab {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		background: transparent;
-		color: #aeb9bb;
+		color: var(--muted);
 		border-radius: 999px;
 		padding: 7px 13px;
 		font: inherit;
@@ -1025,13 +1025,13 @@
 		cursor: pointer;
 	}
 	.section-tab.active {
-		background: #1d2b26;
-		color: #9fe0bd;
-		border-color: #2f5c44;
+		background: var(--accent-soft);
+		color: var(--pos);
+		border-color: var(--accent-line);
 	}
 	.panel {
-		background: var(--card, #141b1c);
-		border: 1px solid #303a3c;
+		background: var(--surface);
+		border: 1px solid var(--line-2);
 		border-radius: 12px;
 		padding: 20px 22px;
 		display: grid;
@@ -1040,22 +1040,22 @@
 	.panel h2 {
 		margin: 0;
 		font-size: 16px;
-		color: #edf3f3;
+		color: var(--text);
 	}
 	label {
 		display: grid;
 		gap: 6px;
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 12px;
 	}
 	input,
 	select,
 	textarea {
 		width: 100%;
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
-		background: #101617;
-		color: #edf3f3;
+		background: var(--surface);
+		color: var(--text);
 		padding: 9px 11px;
 		font: inherit;
 	}
@@ -1068,15 +1068,15 @@
 		gap: 14px;
 	}
 	.hint {
-		color: #77888b;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.warn {
-		color: #f0c987;
+		color: var(--warn);
 		font-size: 12px;
 	}
 	.ok {
-		color: #83d5a3;
+		color: var(--pos);
 		font-size: 13px;
 	}
 	.indicator-row {
@@ -1086,10 +1086,10 @@
 		align-items: end;
 	}
 	.secondary {
-		border: 1px solid #455457;
+		border: 1px solid var(--line-strong);
 		border-radius: 8px;
 		background: transparent;
-		color: #d8e1e2;
+		color: var(--text);
 		padding: 8px 11px;
 		font: inherit;
 		font-size: 12px;
@@ -1098,8 +1098,8 @@
 	.refresh {
 		border: none;
 		border-radius: 8px;
-		background: #2f6f52;
-		color: #eafff3;
+		background: var(--accent);
+		color: var(--accent-ink);
 		padding: 10px 14px;
 		font: inherit;
 		font-size: 13px;
@@ -1114,7 +1114,7 @@
 		gap: 8px;
 	}
 	.rule-node {
-		border-left: 2px solid #2c3839;
+		border-left: 2px solid var(--line-2);
 		padding-left: 12px;
 	}
 	.rule-group-head {
@@ -1126,7 +1126,7 @@
 	}
 	.group-kind {
 		font-weight: 700;
-		color: #9fe0bd;
+		color: var(--pos);
 		letter-spacing: 0.08em;
 		font-size: 12px;
 	}
@@ -1142,7 +1142,7 @@
 		min-width: 110px;
 	}
 	.operand-name {
-		color: #9fe0bd;
+		color: var(--pos);
 		font-size: 12px;
 		padding: 0 2px;
 	}
@@ -1150,38 +1150,43 @@
 		margin-top: 6px;
 	}
 	.inspector {
-		background: var(--card, #141b1c);
-		border: 1px solid #303a3c;
+		background: var(--surface);
+		border: 1px solid var(--line-2);
 		border-radius: 12px;
 		padding: 18px 20px;
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 14px;
 		position: sticky;
-		top: 16px;
+		top: calc(var(--topbar-height) + 16px);
+	}
+	.inspector-block {
+		min-width: 0;
+		overflow-x: auto;
 	}
 	.inspector h2 {
 		margin: 0;
 		font-size: 14px;
-		color: #edf3f3;
+		color: var(--text);
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 	}
 	.inspector-block h3 {
 		margin: 0 0 6px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
 	.inspector-block p {
 		margin: 0;
 		font-size: 13px;
-		color: #d8e1e2;
+		color: var(--text);
 	}
 	.problems {
 		margin: 0;
 		padding-left: 16px;
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 12px;
 		display: grid;
 		gap: 4px;

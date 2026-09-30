@@ -151,8 +151,8 @@
 
 <style>
 	.history-panel {
-		border: 1px solid #232b2d;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		border: 1px solid var(--line);
+		background: var(--surface);
 		border-radius: 13px;
 		overflow: hidden;
 		margin-top: 16px;
@@ -162,7 +162,7 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 22px 24px;
-		border-bottom: 1px solid #232b2d;
+		border-bottom: 1px solid var(--line);
 	}
 	h2 {
 		margin: 0;
@@ -171,21 +171,21 @@
 	.panel-heading p,
 	.gap-note {
 		margin: 5px 0 0;
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.range-controls {
 		display: flex;
 		gap: 4px;
 		padding: 3px;
-		background: #101617;
+		background: var(--surface);
 		border-radius: 7px;
 	}
 	.range-controls button {
 		border: 0;
 		border-radius: 5px;
 		background: transparent;
-		color: #849093;
+		color: var(--faint);
 		cursor: pointer;
 		font:
 			600 11px ui-monospace,
@@ -195,11 +195,11 @@
 		padding: 6px 8px;
 	}
 	.range-controls button.active {
-		background: #263436;
-		color: #b8e8d8;
+		background: var(--hover);
+		color: var(--code);
 	}
 	.range-controls button:focus-visible {
-		outline: 2px solid #b8e8d8;
+		outline: 2px solid var(--accent);
 		outline-offset: 2px;
 	}
 	.worker-status {
@@ -207,42 +207,42 @@
 		align-items: center;
 		gap: 7px;
 		padding: 10px 24px;
-		border-bottom: 1px solid #232b2d;
-		color: #8f9d9f;
+		border-bottom: 1px solid var(--line);
+		color: var(--muted);
 		font-size: 12px;
 	}
 	.worker-status.stale {
-		color: #edbb70;
-		background: rgba(139, 94, 30, 0.1);
+		color: var(--warn);
+		background: var(--warn-soft);
 	}
 	.worker-dot {
 		width: 7px;
 		height: 7px;
 		border-radius: 50%;
-		background: #5ce1b5;
+		background: var(--accent);
 	}
 	.worker-status.stale .worker-dot {
-		background: #edbb70;
+		background: var(--warn);
 	}
 	.stats {
 		display: flex;
 		gap: 24px;
 		padding: 16px 24px;
-		border-bottom: 1px solid #232b2d;
+		border-bottom: 1px solid var(--line);
 	}
 	.stat {
 		display: flex;
 		flex-direction: column;
 	}
 	.stat small {
-		color: #657174;
+		color: var(--faint);
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		margin-bottom: 4px;
 	}
 	.stat strong {
-		color: #edf3f3;
+		color: var(--text);
 		font:
 			500 15px ui-monospace,
 			SFMono-Regular,
@@ -250,10 +250,10 @@
 			monospace;
 	}
 	.stat.gain strong {
-		color: #5ce1b5;
+		color: var(--accent);
 	}
 	.stat.loss strong {
-		color: #f18f8f;
+		color: var(--neg);
 	}
 	.chart-area {
 		padding: 20px 24px;
@@ -264,11 +264,11 @@
 	}
 	.chart-empty p {
 		margin: 0 0 6px;
-		color: #849093;
+		color: var(--faint);
 		font-size: 14px;
 	}
 	.chart-empty small {
-		color: #697578;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.chart-skeleton {

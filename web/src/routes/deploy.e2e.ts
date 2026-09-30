@@ -1,6 +1,6 @@
 import { expect, test } from '../e2e/harness';
 
-test('deploy is a first-class workstation page with a strategy picker', async ({ page }) => {
+test('deploy folds under Strategies and keeps its strategy picker', async ({ page }) => {
 	await page.route('**/api/v1/strategies**', async (route) => {
 		await route.fulfill({ json: { strategies: [] } });
 	});
@@ -9,9 +9,9 @@ test('deploy is a first-class workstation page with a strategy picker', async ({
 	await expect(page.getByText('Loading the strategy library…')).toBeVisible();
 	await expect(page.getByText('No strategies yet')).toBeVisible();
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-	await expect(nav.getByRole('link', { name: 'Deploy', exact: true })).toHaveAttribute(
-		'href',
-		'/deploy'
+	await expect(nav.getByRole('link', { name: 'Strategies' })).toHaveAttribute(
+		'aria-current',
+		'page'
 	);
-	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
+	await expect(page.getByTestId('breadcrumb')).toHaveText(/Strategies\s*\/\s*Deploy/);
 });

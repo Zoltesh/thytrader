@@ -759,7 +759,7 @@
 	.back-link {
 		display: inline-block;
 		margin-bottom: 18px;
-		color: #9fd9ff;
+		color: var(--info);
 		font-size: 13px;
 		text-decoration: none;
 	}
@@ -777,7 +777,7 @@
 	}
 	.identity-facts span {
 		display: block;
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
@@ -788,20 +788,20 @@
 			SFMono-Regular,
 			Consolas,
 			monospace;
-		color: #dce4e5;
+		color: var(--text);
 	}
 	.version-evidence {
 		display: flex;
 		align-items: baseline;
 		flex-wrap: wrap;
 		gap: 10px 14px;
-		border: 1px solid #223033;
+		border: 1px solid var(--line);
 		border-radius: 8px;
-		background: #0d1416;
+		background: var(--surface);
 		padding: 12px 14px;
 	}
 	.version-evidence > span {
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
@@ -815,13 +815,13 @@
 		display: grid;
 		gap: 6px;
 		font-size: 13px;
-		color: #d8e1e2;
+		color: var(--text);
 	}
 	.config-summary p {
 		margin: 0;
 	}
 	.config-rule {
-		color: #e9edf1;
+		color: var(--text);
 	}
 	.config-facts {
 		display: flex;
@@ -833,7 +833,7 @@
 		display: grid;
 	}
 	.config-facts dt {
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
@@ -845,10 +845,10 @@
 			SFMono-Regular,
 			Consolas,
 			monospace;
-		color: #dce4e5;
+		color: var(--text);
 	}
 	.config-section {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 11px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
@@ -867,8 +867,8 @@
 		margin-bottom: 12px;
 	}
 	.panel {
-		border: 1px solid #232b2d;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		border: 1px solid var(--line);
+		background: var(--surface);
 		border-radius: 13px;
 		padding: 18px 20px;
 		margin-bottom: 12px;
@@ -876,24 +876,24 @@
 	.panel h2 {
 		margin: 0 0 10px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
 	.panel p {
 		margin: 0;
 		font-size: 13px;
-		color: #d8e1e2;
+		color: var(--text);
 	}
 	.quiet {
-		color: #8d999c;
+		color: var(--muted);
 	}
 	.problem {
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 13px;
 	}
 	.contract-note {
-		color: #b39b72;
+		color: var(--warn);
 		font-size: 12px;
 	}
 	.provenance-note,
@@ -907,7 +907,7 @@
 		flex-wrap: wrap;
 	}
 	.evidence-links a {
-		color: #9fd9ff;
+		color: var(--info);
 		text-decoration: none;
 	}
 	.evidence-links a:hover {
@@ -918,7 +918,7 @@
 		align-items: center;
 		gap: 10px;
 		margin-top: 10px;
-		color: #7d8a8d;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.table-scroll {
@@ -933,10 +933,10 @@
 	td {
 		text-align: left;
 		padding: 6px 10px 6px 0;
-		border-bottom: 1px solid #232d2e;
+		border-bottom: 1px solid var(--line);
 	}
 	th {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-weight: 500;
 		font-size: 11px;
 	}
@@ -959,7 +959,7 @@
 		gap: 8px;
 	}
 	.other-list a {
-		color: #9fd9ff;
+		color: var(--info);
 		font-size: 13px;
 		text-decoration: none;
 	}
@@ -972,25 +972,25 @@
 		justify-content: space-between;
 		padding: 14px 17px;
 		border-radius: 10px;
-		border: 1px solid #6b5a2c;
-		background: #241d10;
+		border: 1px solid var(--warn-line);
+		background: var(--warn-soft);
 		margin-bottom: 18px;
 	}
 	.warn-banner p {
 		margin: 4px 0 0;
-		color: #d8c79a;
+		color: var(--warn);
 		font-size: 13px;
 	}
 	.ok-banner {
 		padding: 12px 17px;
 		border-radius: 10px;
-		border: 1px solid #315849;
-		background: #10241d;
+		border: 1px solid var(--accent-line);
+		background: var(--accent-soft);
 		margin-bottom: 18px;
 	}
 	.ok-banner p {
 		margin: 0;
-		color: #8ea79f;
+		color: var(--muted);
 		font-size: 13px;
 	}
 	.visually-hidden {
@@ -1002,9 +1002,9 @@
 		white-space: nowrap;
 	}
 	.bar-button {
-		border: 1px solid #303a3c;
-		background: #151b1d;
-		color: #dce4e5;
+		border: 1px solid var(--line-2);
+		background: var(--surface-2);
+		color: var(--text);
 		border-radius: 8px;
 		padding: 7px 12px;
 		font: inherit;
@@ -1012,11 +1012,11 @@
 		cursor: pointer;
 	}
 	.bar-button:hover:not(:disabled) {
-		border-color: #5ce1b5;
+		border-color: var(--accent);
 	}
 	.bar-danger {
-		color: #f0a3a3;
-		border-color: #5c3232;
+		color: var(--neg);
+		border-color: var(--danger-line);
 	}
 	.bar-button:disabled {
 		opacity: 0.5;

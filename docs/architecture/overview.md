@@ -40,10 +40,19 @@ Execution worker ------------------------+
 ### Web application
 
 - SvelteKit, Svelte 5, and strict TypeScript ([ADR 0001](../decisions/0001-sveltekit-frontend.md)).
-- Desktop-first responsive interface. Shared workstation chrome (brand, primary
-  navigation, context pill) lives in the root layout so route pages render body
-  content only. The context pill is a static environment label, not a health
-  signal. Primary nav stays reachable on narrow desktop widths.
+- Desktop-first responsive interface. Shared workstation chrome lives in the root layout, so route
+  pages render body content only (a compact `PageHead` plus the page)
+  ([ADR 0079](../decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)):
+  - A left rail with four destinations (Home `/`, Strategies `/strategies`, Portfolio
+    `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Audit log, Journal,
+    Memory & why-trade). Research, Backtests, and Deploy are current under Strategies. The rail
+    collapses to icons on narrow desktop widths.
+  - A top bar with a breadcrumb, a ⌘K / Ctrl+K command palette (navigation only), an Agent toggle,
+    and a theme toggle.
+  - An Agent side panel hosting `OperatorChatPanel`, the same component as `/chat`, on every route.
+  - Design tokens: CSS custom properties in `web/src/app.css` for `:root` (dark) and
+    `[data-theme='light']`. An inline boot script in `app.html` sets the theme before first paint.
+    Components use tokens, never raw hex. Geist / Geist Mono are bundled locally.
 - The UI is required and must stay capable; it is **not** the completeness bar for a new
   capability ([ADR 0030](../decisions/0030-agent-e2e-primary-surface.md)).
 - TradingView Lightweight Charts (canvas) renders portfolio history and backtest equity. Portfolio gaps stay visible on a wall-clock time scale with no Y interpolation; backtest equity is labeled as mark-to-model research evidence. Market-data diagnostics stay non-charted.

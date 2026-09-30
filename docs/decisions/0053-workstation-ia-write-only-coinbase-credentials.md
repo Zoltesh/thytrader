@@ -1,6 +1,8 @@
 # 0053: Workstation IA and write-only Coinbase credentials
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0079](0079-four-destination-shell-agent-panel-palette-tokens.md)
+  (Research, Deploy, and Journals are no longer top-level nav destinations; Chat is the Agent side
+  panel with `/chat` kept as its full-page view; credential decisions unchanged)
 - Date: 2026-09-16
 - Relates to: [0001](0001-sveltekit-frontend.md),
   [0006](0006-credential-permission-acceptance.md),

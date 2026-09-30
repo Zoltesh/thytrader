@@ -174,8 +174,9 @@ read-only.
 
 ## In-app operator chat
 
-Loopback UI: `/chat`. HTTP: `/api/v1/operator-chat`
-([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)). The user pastes **their** LLM API
+Loopback UI: the **Agent** side panel on every page, or `/chat` as the full page (same component,
+[ADR 0079](../../docs/decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)). HTTP:
+`/api/v1/operator-chat` ([ADR 0051](../../docs/decisions/0051-in-app-operator-chat.md)). The user pastes **their** LLM API
 key into the API process (`PUT /api/v1/operator-chat/credentials`). That is **not** the Coinbase
 secrets surface (`/settings` and `thytrader-runtime` show/set/clear-coinbase-credentials). Status
 never returns `api_key`. Coinbase keys never go to the browser.

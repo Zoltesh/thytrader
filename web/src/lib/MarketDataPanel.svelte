@@ -285,17 +285,17 @@
 <style>
 	.market-data-panel {
 		margin-top: 16px;
-		border: 1px solid #232b2d;
+		border: 1px solid var(--line);
 		border-radius: 13px;
 		overflow: hidden;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		background: var(--surface);
 	}
 	.panel-heading {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		padding: 22px 24px;
-		border-bottom: 1px solid #232b2d;
+		border-bottom: 1px solid var(--line);
 	}
 	h2 {
 		margin: 0;
@@ -304,14 +304,14 @@
 	.panel-heading p,
 	.market-empty small {
 		margin: 5px 0 0;
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.quality-status {
-		border: 1px solid #315849;
+		border: 1px solid var(--accent-line);
 		border-radius: 999px;
 		padding: 4px 8px;
-		color: #5ce1b5;
+		color: var(--accent);
 		font-size: 11px;
 	}
 	.status-badges {
@@ -327,28 +327,28 @@
 		text-transform: capitalize;
 	}
 	.freshness-badge.fresh {
-		background: #143329;
-		color: #5ce1b5;
-		border: 1px solid #28544a;
+		background: var(--accent-soft);
+		color: var(--accent);
+		border: 1px solid var(--accent-line);
 	}
 	.freshness-badge.stale {
-		background: #3e2614;
-		color: #edbb70;
-		border: 1px solid #76552d;
+		background: var(--warn-soft);
+		color: var(--warn);
+		border: 1px solid var(--warn-line);
 	}
 	.freshness-badge.unknown {
-		background: #232b2d;
-		color: #839194;
-		border: 1px solid #384548;
+		background: var(--hover);
+		color: var(--faint);
+		border: 1px solid var(--line-2);
 	}
 	.quality-status.warning,
 	.market-detail.warning,
 	.range-badge.warning {
-		color: #edbb70;
+		color: var(--warn);
 	}
 	.quality-status.warning,
 	.range-badge.warning {
-		border-color: #76552d;
+		border-color: var(--warn-line);
 	}
 	.market-summary {
 		display: grid;
@@ -362,13 +362,13 @@
 		gap: 6px;
 	}
 	.market-summary small {
-		color: #657174;
+		color: var(--faint);
 		font-size: 10px;
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
 	}
 	.market-summary strong {
-		color: #e8eeee;
+		color: var(--text);
 		font:
 			500 13px ui-monospace,
 			SFMono-Regular,
@@ -377,18 +377,18 @@
 	}
 	.range-summary {
 		padding: 14px 24px;
-		border-top: 1px solid #232b2d;
+		border-top: 1px solid var(--line);
 	}
 	.range-unavailable {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 12px;
-		color: #edbb70;
+		color: var(--warn);
 		font-size: 12px;
 	}
 	.range-unavailable span {
-		color: #8f9d9f;
+		color: var(--muted);
 	}
 	.range-header {
 		display: flex;
@@ -397,14 +397,14 @@
 		margin-bottom: 12px;
 	}
 	.range-header span:first-child {
-		color: #8f9d9f;
+		color: var(--muted);
 		font-size: 12px;
 	}
 	.range-badge {
-		border: 1px solid #315849;
+		border: 1px solid var(--accent-line);
 		border-radius: 999px;
 		padding: 3px 8px;
-		color: #5ce1b5;
+		color: var(--accent);
 		font-size: 11px;
 	}
 	.range-grid {
@@ -418,13 +418,13 @@
 		gap: 4px;
 	}
 	.range-grid small {
-		color: #657174;
+		color: var(--faint);
 		font-size: 10px;
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
 	}
 	.range-grid strong {
-		color: #e8eeee;
+		color: var(--text);
 		font:
 			500 13px ui-monospace,
 			SFMono-Regular,
@@ -436,18 +436,18 @@
 		align-items: center;
 		gap: 8px;
 		padding: 12px 24px;
-		border-top: 1px solid #232b2d;
-		color: #8f9d9f;
+		border-top: 1px solid var(--line);
+		color: var(--muted);
 		font-size: 12px;
 	}
 	.quality-dot {
 		width: 7px;
 		height: 7px;
 		border-radius: 50%;
-		background: #5ce1b5;
+		background: var(--accent);
 	}
 	.warning .quality-dot {
-		background: #edbb70;
+		background: var(--warn);
 	}
 	.market-empty,
 	.market-loading {
@@ -456,13 +456,13 @@
 	}
 	.market-empty p {
 		margin: 0 0 6px;
-		color: #849093;
+		color: var(--faint);
 		font-size: 14px;
 	}
 	.skeleton {
 		height: 55px;
 		border-radius: 8px;
-		background: linear-gradient(90deg, #151c1e, #20292b, #151c1e);
+		background: linear-gradient(90deg, var(--surface-2), var(--hover), var(--surface-2));
 		background-size: 200%;
 		animation: shimmer 1.4s infinite;
 	}

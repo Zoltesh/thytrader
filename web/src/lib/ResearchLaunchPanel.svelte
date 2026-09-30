@@ -1008,21 +1008,21 @@
 	.view-block h3 {
 		margin: 0 0 6px;
 		font-size: 12px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
 	.view-block p {
 		margin: 0;
 		font-size: 13px;
-		color: #d8e1e2;
+		color: var(--text);
 	}
 	.view-note {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 13px;
 	}
 	.view-problem {
-		color: #f0a3a3;
+		color: var(--neg);
 		font-size: 13px;
 	}
 	.launch-grid {
@@ -1037,10 +1037,10 @@
 	}
 	.launch-grid input,
 	.launch-grid select {
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 7px;
-		background: #101617;
-		color: #edf3f3;
+		background: var(--surface);
+		color: var(--text);
 		padding: 7px 9px;
 		font: inherit;
 		font-size: 12px;
@@ -1052,10 +1052,10 @@
 		line-height: 1.35;
 	}
 	.field-note {
-		color: #77888b;
+		color: var(--faint);
 	}
 	.field-error {
-		color: #f0a3a3;
+		color: var(--neg);
 	}
 	.fee-source-row {
 		display: flex;
@@ -1066,20 +1066,20 @@
 	.fee-source-chip {
 		display: inline-flex;
 		align-items: center;
-		border: 1px solid #303a3c;
+		border: 1px solid var(--line-2);
 		border-radius: 999px;
 		padding: 4px 10px;
 		font-size: 11px;
-		color: #aeb9bb;
-		background: #101617;
+		color: var(--muted);
+		background: var(--surface);
 	}
 	.fee-source-chip.custom {
-		color: #d8e1e2;
-		border-color: #3d4a4c;
+		color: var(--text);
+		border-color: var(--line-strong);
 	}
 	.fee-source-chip.stale {
-		color: #e0c48a;
-		border-color: #5c4e2f;
+		color: var(--warn);
+		border-color: var(--warn-line);
 	}
 	.fee-source-action {
 		font-size: 12px;
@@ -1089,7 +1089,7 @@
 		justify-self: start;
 	}
 	.version-block {
-		border: 1px solid #232d2e;
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 10px 12px;
 		margin-bottom: 10px;
@@ -1097,7 +1097,7 @@
 	.version-block h4 {
 		margin: 0 0 8px;
 		font-size: 11px;
-		color: #aeb9bb;
+		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -1110,10 +1110,10 @@
 	.results-table td {
 		text-align: left;
 		padding: 5px 8px 5px 0;
-		border-bottom: 1px solid #232d2e;
+		border-bottom: 1px solid var(--line);
 	}
 	.results-table th {
-		color: #aeb9bb;
+		color: var(--muted);
 		font-weight: 500;
 		font-size: 11px;
 	}
@@ -1121,15 +1121,15 @@
 		border-bottom: none;
 	}
 	.results-table td a {
-		color: #7fd0f0;
+		color: var(--info);
 	}
 	.comparison-table {
 		margin: 10px 0 16px;
 	}
 	.secondary {
-		color: #dce4e5;
-		background: #151b1d;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface-2);
+		border: 1px solid var(--line-2);
 		border-radius: 9px;
 		padding: 6px 10px;
 		cursor: pointer;

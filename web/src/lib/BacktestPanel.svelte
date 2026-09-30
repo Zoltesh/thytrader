@@ -136,17 +136,17 @@
 
 <style>
 	.backtest-panel {
-		border: 1px solid #232b2d;
+		border: 1px solid var(--line);
 		border-radius: 13px;
 		overflow: hidden;
-		background: linear-gradient(145deg, rgba(20, 26, 28, 0.95), rgba(12, 16, 18, 0.95));
+		background: var(--surface);
 	}
 	.panel-heading {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		padding: 22px 24px;
-		border-bottom: 1px solid #232b2d;
+		border-bottom: 1px solid var(--line);
 	}
 	h2 {
 		margin: 0;
@@ -156,22 +156,22 @@
 	.page-controls > span,
 	.empty small {
 		margin: 5px 0 0;
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.page-controls {
 		display: flex;
 		align-items: center;
 		gap: 18px;
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 12px;
 	}
 	.page-controls select {
 		margin-left: 8px;
 		padding: 6px;
-		color: #dce4e5;
-		background: #151b1d;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface-2);
+		border: 1px solid var(--line-2);
 		border-radius: 6px;
 	}
 	.table-wrap {
@@ -182,7 +182,7 @@
 		border-collapse: collapse;
 	}
 	th {
-		color: #657174;
+		color: var(--faint);
 		font:
 			500 10px ui-monospace,
 			SFMono-Regular,
@@ -201,8 +201,8 @@
 	}
 	td {
 		padding: 14px 18px;
-		border-top: 1px solid #1d2426;
-		color: #aeb9bb;
+		border-top: 1px solid var(--line);
+		color: var(--muted);
 		text-align: right;
 		font:
 			400 12px ui-monospace,
@@ -219,25 +219,25 @@
 		border: 0;
 		padding: 0;
 		background: transparent;
-		color: #b8e8d8;
+		color: var(--code);
 		text-align: left;
 		cursor: pointer;
 		font: inherit;
 	}
 	td button:hover {
-		color: #fff;
+		color: var(--text);
 	}
 	td button small,
 	td.engine small {
 		display: block;
 		margin-top: 4px;
-		color: #657174;
+		color: var(--faint);
 	}
 	.gain {
-		color: #5ce1b5;
+		color: var(--accent);
 	}
 	.loss {
-		color: #ed8b8b;
+		color: var(--neg);
 	}
 	.empty {
 		padding: 35px 24px;
@@ -245,29 +245,29 @@
 	}
 	.empty p {
 		margin: 0 0 6px;
-		color: #aeb9bb;
+		color: var(--muted);
 		font-size: 14px;
 	}
 	.bound-note,
 	.pager {
 		padding: 12px 18px;
-		color: #778386;
+		color: var(--faint);
 		font-size: 12px;
 	}
 	.bound-note {
 		margin: 0;
-		border-top: 1px solid #1d2426;
+		border-top: 1px solid var(--line);
 	}
 	.pager {
 		display: flex;
 		justify-content: flex-end;
 		gap: 10px;
-		border-top: 1px solid #1d2426;
+		border-top: 1px solid var(--line);
 	}
 	.pager button {
-		color: #dce4e5;
-		background: #151b1d;
-		border: 1px solid #303a3c;
+		color: var(--text);
+		background: var(--surface-2);
+		border: 1px solid var(--line-2);
 		border-radius: 8px;
 		padding: 8px 12px;
 		cursor: pointer;
@@ -279,7 +279,7 @@
 	.skeleton {
 		height: 55px;
 		border-radius: 8px;
-		background: linear-gradient(90deg, #151c1e, #20292b, #151c1e);
+		background: linear-gradient(90deg, var(--surface-2), var(--hover), var(--surface-2));
 		background-size: 200%;
 		animation: shimmer 1.4s infinite;
 	}

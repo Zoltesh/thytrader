@@ -127,8 +127,13 @@ test('settings keeps YAML/YOLO and saves Coinbase secrets without echoing them',
 
 	await page.goto('/settings');
 	const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-	await expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
+	// Settings lives in the System group, which auto-expands on System pages.
+	await expect(nav.getByRole('button', { name: 'System' })).toHaveAttribute(
+		'aria-expanded',
+		'true'
+	);
 	await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+	await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
 	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 	await expect(page.getByRole('region', { name: 'YAML settings and YOLO' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Coinbase credentials' })).toBeVisible();

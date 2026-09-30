@@ -4,10 +4,7 @@ declare global {
 	namespace App {
 		// interface Error {}
 		// interface Locals {}
-		interface PageData {
-			/** Static environment/context pill in the shared topbar. Not a health signal. */
-			contextLabel: string;
-		}
+		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}
 	}

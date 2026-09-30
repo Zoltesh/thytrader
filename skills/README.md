@@ -82,7 +82,8 @@ notification, and fail-closed experiential training from attributed local journa
 
 ## In-app operator chat
 
-Loopback `/chat` plus `/api/v1/operator-chat` ([ADR 0051](../docs/decisions/0051-in-app-operator-chat.md)).
+Loopback Agent side panel (every page) or `/chat` (full page), plus `/api/v1/operator-chat`
+([ADR 0051](../docs/decisions/0051-in-app-operator-chat.md), [ADR 0079](../docs/decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)).
 The user pastes **their** LLM API key (not Coinbase). The chat uses the lane HTTP contracts above
 with the same confirmation and understand-live gates. `uv run thytrader-operator chat-status` is
 HTTP-only and never prints the key. Chat is not a seventh skill lane.

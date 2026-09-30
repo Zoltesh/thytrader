@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHead from '$lib/PageHead.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -219,10 +220,8 @@
 <svelte:head><title>Backtests · ThyTrader</title></svelte:head>
 
 <main>
-	<section class="hero">
-		<div>
-			<p class="eyebrow">Research evidence</p>
-			<h1>Backtests</h1>
+	<PageHead eyebrow="Research evidence" title="Backtests">
+		{#snippet intro()}
 			<p class="lede">Immutable historical simulations with disclosed assumptions.</p>
 			{#if strategyFilter !== null}
 				<p class="lede">
@@ -230,7 +229,7 @@
 					<a href={resolve('/backtests')}>Show all backtests</a>
 				</p>
 			{/if}
-		</div>
+		{/snippet}
 		<button
 			class="refresh"
 			type="button"
@@ -247,7 +246,7 @@
 					? 'Reload list'
 					: 'Refresh results'}</button
 		>
-	</section>
+	</PageHead>
 	{#if selectedFingerprint !== null}<BacktestDetail
 			detail={selected}
 			{benchmark}
