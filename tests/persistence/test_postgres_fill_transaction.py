@@ -135,6 +135,8 @@ async def test_postgres_fill_transaction_applies_an_entry_fill() -> None:
             loaded, fill=replace(fill, id=uuid7(utc_now())), order=order, store=store
         )
         assert replayed.snapshot.position is not None
-        assert (await store.get_deployment(created.id)).position.quantity == Decimal("1")
+        after_replay = (await store.get_deployment(created.id)).position
+        assert after_replay is not None
+        assert after_replay.quantity == Decimal("1")
     finally:
         await dispose(engine)
