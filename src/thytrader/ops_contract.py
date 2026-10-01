@@ -43,8 +43,8 @@ from thytrader.research.models import BACKTEST_ENGINE
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v42"
-EXPECTED_SCHEMA_REVISION = "0049"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v43"
+EXPECTED_SCHEMA_REVISION = "0050"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
