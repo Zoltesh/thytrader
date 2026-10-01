@@ -28,8 +28,9 @@ portfolio/fees reports, derived backtest performance metrics, paginated
 strategy/result listings, batched strategy-library enrichment reads,
 promotion evidence, the strategy model (mutable root strategies,
 automatic snapshots, hard delete; ADR 0082), the explicit
-`i_understand_live` HTTP acknowledgement on live start/resume/place-order, or supported
-spot quote currencies change.
+`i_understand_live` HTTP acknowledgement on live start/resume/place-order, supported
+spot quote currencies, or the market-data provider-history floor (``history_floor_at``,
+Alembic 0051) change.
 """
 
 from __future__ import annotations
@@ -43,8 +44,8 @@ from thytrader.research.models import BACKTEST_ENGINE
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v43"
-EXPECTED_SCHEMA_REVISION = "0050"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v44"
+EXPECTED_SCHEMA_REVISION = "0051"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)

@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0050`):
+Current checkout (Alembic `0051`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v43` |
-| `expected_schema_revision` | `0050` |
+| `id` | `thytrader-ops-contract-v44` |
+| `expected_schema_revision` | `0051` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
@@ -46,7 +46,7 @@ Current checkout (Alembic `0050`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v43
+    id thytrader-ops-contract-v44
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -76,7 +76,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0050
+    expected_schema_revision 0051
   }
   class HealthPayload {
     api_probed

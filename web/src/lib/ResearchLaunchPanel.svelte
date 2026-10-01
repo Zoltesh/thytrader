@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { formatPercent, optionalSpreadStress } from '$lib/backtests';
 	import BacktestModelDisclosure from '$lib/BacktestModelDisclosure.svelte';
+	import DataReadinessPanel from '$lib/workspace/DataReadinessPanel.svelte';
 	import { productIdQuote } from '$lib/deployment-detail';
 	import {
 		RESEARCH_FEE_ENGINE_NOTE,
@@ -482,7 +483,9 @@
 				<label class="f"
 					>Verified {model.htf_filter.timeframe} HTF dataset
 					<select bind:value={launchForm.htf_dataset_fingerprint}>
-						<option value="">Select a verified {model.htf_filter.timeframe} dataset</option>
+						<option value=""
+							>Select a verified {productId} {model.htf_filter.timeframe} dataset</option
+						>
 						{#each htfLaunchDatasets() as dataset (dataset.content_fingerprint)}
 							<option value={dataset.content_fingerprint}
 								>{dataset.timeframe} · {formatUtcInputValue(new Date(dataset.starts_at)).replace(
@@ -506,7 +509,7 @@
 							};
 						}}
 					>
-						<option value="">Select a verified {timeframe} dataset</option>
+						<option value="">Select a verified {productId} {timeframe} dataset</option>
 						{#each extraLaunchDatasets(timeframe) as dataset (dataset.content_fingerprint)}
 							<option value={dataset.content_fingerprint}
 								>{dataset.timeframe} · {formatUtcInputValue(new Date(dataset.starts_at)).replace(
@@ -566,19 +569,14 @@
 			<p class="field-note">Loading verified datasets…</p>
 		{:else if launchDatasetError}
 			<p class="field-error" role="alert">{launchDatasetError}</p>
-		{:else if decisionLaunchDatasets().length === 0}
-			<p class="field-note">No verified {model.timeframe} datasets match this market.</p>
 		{/if}
-		{#if model.htf_filter && htfLaunchDatasets().length === 0}
-			<p class="field-note">
-				No verified {model.htf_filter.timeframe} HTF dataset for this market.
-			</p>
-		{/if}
-		{#each extraLaunchTimeframes() as timeframe (timeframe)}
-			{#if extraLaunchDatasets(timeframe).length === 0}
-				<p class="field-note">No verified {timeframe} dataset for this market.</p>
-			{/if}
-		{/each}
+		<DataReadinessPanel
+			{strategyId}
+			{model}
+			datasets={launchDatasetsLoading || launchDatasetError !== null ? null : launchDatasets}
+			context="test"
+			onRefresh={() => void loadLaunchDatasets()}
+		/>
 		<div class="fee-source-row">
 			<span
 				class="fee-source-chip"

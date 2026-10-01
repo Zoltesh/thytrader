@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from thytrader.data_control.service import worker_state_payload
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
@@ -18,6 +19,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerAttempt,
     MarketDataWorkerError,
     MarketDataWorkerFailure,
+    MarketDataWorkerState,
     MarketDataWorkerStatus,
     MarketDataWorkerSuccess,
 )
@@ -984,7 +986,8 @@ def test_ingest_once_rejects_incomplete_report_without_publishing(tmp_path: Path
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
         complete_report = _report(starts_at=ends_at - timedelta(hours=3), candle_count=3)
-        service = _StubRangeService([replace(complete_report, complete=False)])
+        incomplete = replace(complete_report, complete=False)
+        service = _StubRangeService([incomplete, incomplete])
         state_store = InMemoryMarketDataWorkerStateStore()
 
         await ingest_once(
@@ -1001,6 +1004,7 @@ def test_ingest_once_rejects_incomplete_report_without_publishing(tmp_path: Path
         assert state is not None
         assert state.status is MarketDataWorkerStatus.FAILED
         assert state.failure_code == "incomplete_range"
+        assert len(service.requests) == 2, "one fetch plus one confirmation re-fetch"
         assert not (tmp_path / "manifests").exists()
 
     asyncio.run(exercise())
@@ -1980,5 +1984,243 @@ def test_ingest_once_touches_heartbeat_between_chunks(tmp_path: Path) -> None:
             max_chunks=2,
         )
         assert heartbeats.touches >= 3
+
+    asyncio.run(exercise())
+
+
+async def _drive_worker_cycles(
+    *,
+    service: _CompleteWindowService,
+    dataset_store: DatasetStore,
+    state_store: InMemoryMarketDataWorkerStateStore,
+    product_id: str,
+    timeframe: CandleInterval,
+    lookback_hours: int,
+    now: datetime,
+    cycles: int,
+) -> None:
+    """Run bounded two-chunk worker cycles one second apart, like the supervised loop."""
+    for index in range(cycles):
+        await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider="coinbase",
+            product_id=product_id,
+            lookback_hours=lookback_hours,
+            now=now + timedelta(seconds=index),
+            timeframe=timeframe,
+            max_chunks=2,
+        )
+
+
+def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
+    tmp_path: Path,
+) -> None:
+    """A provider hole before the island start must not freeze the 4h island.
+
+    Reproduces the stuck 2h/4h watches: the worker records a history floor at the
+    island start and extends forward to the latest closed bar without interpolating.
+    """
+
+    async def exercise() -> None:
+        interval = CandleInterval.FOUR_HOURS
+        hole = datetime(2025, 10, 25, 8, tzinfo=UTC)
+        island_start = datetime(2025, 10, 26, tzinfo=UTC)
+        frozen_end = datetime(2025, 11, 5, 4, tzinfo=UTC)
+        service = _CompleteWindowService(missing=frozenset({hole}))
+        dataset_store = DatasetStore(tmp_path)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        lookback = int((frozen_end - island_start) / timedelta(hours=1))
+        await _drive_worker_cycles(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            product_id="BTC-USD",
+            timeframe=interval,
+            lookback_hours=lookback,
+            now=frozen_end + timedelta(minutes=1),
+            cycles=8,
+        )
+        frozen = await state_store.get("coinbase", "BTC-USD", interval)
+        assert frozen is not None
+        assert frozen.covered_starts_at == island_start
+        assert frozen.covered_ends_at == frozen_end
+
+        later = datetime(2025, 11, 19, 16, 1, tzinfo=UTC)
+        closed_end = interval.align_closed_end(later)
+        service.requests.clear()
+        await _drive_worker_cycles(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            product_id="BTC-USD",
+            timeframe=interval,
+            lookback_hours=8760,
+            now=later,
+            cycles=12,
+        )
+        state = await state_store.get("coinbase", "BTC-USD", interval)
+        assert state is not None
+        assert state.complete is True
+        assert state.covered_starts_at == island_start
+        assert state.history_floor_at == island_start
+        assert state.covered_ends_at == closed_end
+        assert state.maintenance_kind == "incremental"
+        hole_probes = [request for request in service.requests if request[2] <= hole < request[3]]
+        assert len(hole_probes) == 2, "one hole probe plus one confirmation, never a loop"
+        assert (
+            island_covers_watch(
+                covered_starts_at=state.covered_starts_at,
+                covered_ends_at=state.covered_ends_at,
+                island_complete=True,
+                lookback_hours=8760,
+                interval=interval,
+                closed_end=closed_end,
+                history_floor_at=state.history_floor_at,
+            )
+            is True
+        )
+        verified = dataset_store.load_candles(state.content_fingerprint or "")
+        assert verified[0].starts_at == island_start
+        assert all(candle.starts_at != hole for candle in verified)
+
+    asyncio.run(exercise())
+
+
+def test_new_watch_with_mid_lookback_hole_reaches_latest_bar(tmp_path: Path) -> None:
+    """A new watch whose lookback crosses a provider hole still reaches the latest bar.
+
+    Reproduces the BTC-USDC 4h reset: the newest island after the hole is kept and
+    extended rather than pinned in prefix backfill.
+    """
+
+    async def exercise() -> None:
+        interval = CandleInterval.FOUR_HOURS
+        now = datetime(2025, 11, 10, 16, 1, tzinfo=UTC)
+        closed_end = interval.align_closed_end(now)
+        hole = datetime(2025, 10, 25, 8, tzinfo=UTC)
+        service = _CompleteWindowService(missing=frozenset({hole}))
+        dataset_store = DatasetStore(tmp_path)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await _drive_worker_cycles(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            product_id="BTC-USDC",
+            timeframe=interval,
+            lookback_hours=24 * 40,
+            now=now,
+            cycles=30,
+        )
+        state = await state_store.get("coinbase", "BTC-USDC", interval)
+        assert state is not None
+        assert state.covered_starts_at == datetime(2025, 10, 26, tzinfo=UTC)
+        assert state.covered_ends_at == closed_end
+        assert state.history_floor_at == datetime(2025, 10, 26, tzinfo=UTC)
+
+    asyncio.run(exercise())
+
+
+def test_island_floor_is_ignored_when_it_does_not_match_island_start() -> None:
+    """A stale floor from an older island must not mark a later, shorter island complete."""
+    closed_end = datetime(2026, 8, 3, tzinfo=UTC)
+    assert (
+        island_covers_watch(
+            covered_starts_at=datetime(2026, 8, 2, tzinfo=UTC),
+            covered_ends_at=closed_end,
+            island_complete=True,
+            lookback_hours=72,
+            interval=CandleInterval.ONE_HOUR,
+            closed_end=closed_end,
+            history_floor_at=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+        is False
+    )
+
+
+def test_chunk_incomplete_warning_names_target_and_bounds(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Operators must see which product, timeframe and chunk failed, without secrets."""
+
+    async def exercise() -> None:
+        hole = datetime(2026, 7, 29, 12, tzinfo=UTC)
+        await ingest_once(
+            service=_CompleteWindowService(missing=frozenset({hole})),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=datetime(2026, 7, 31, 0, 5, tzinfo=UTC),
+        )
+
+    with caplog.at_level("WARNING", logger="thytrader.market_data_worker.service"):
+        asyncio.run(exercise())
+    messages = [record.getMessage() for record in caplog.records]
+    incomplete = [message for message in messages if "code=chunk_incomplete" in message]
+    assert incomplete
+    assert "product_id=ETH-USD" in incomplete[0]
+    assert "timeframe=1h" in incomplete[0]
+    assert "starts_at=2026-07-28T23:00:00+00:00" in incomplete[0]
+    assert "ends_at=2026-07-30T00:00:00+00:00" in incomplete[0]
+    assert "received=24" in incomplete[0]
+    assert "expected=25" in incomplete[0]
+
+
+def test_worker_state_rejects_history_floor_away_from_island_start() -> None:
+    """A floor that does not sit at the island start is forged state and must fail closed."""
+    start = datetime(2026, 8, 2, tzinfo=UTC)
+    end = datetime(2026, 8, 3, tzinfo=UTC)
+    with pytest.raises(MarketDataWorkerError, match="history floor"):
+        MarketDataWorkerState(
+            provider="coinbase",
+            product_id="BTC-USD",
+            timeframe=CandleInterval.ONE_HOUR,
+            status=MarketDataWorkerStatus.SUCCEEDED,
+            last_attempt_at=end,
+            last_success_at=end,
+            requested_starts_at=start,
+            requested_ends_at=end,
+            covered_starts_at=start,
+            covered_ends_at=end,
+            expected_candle_count=24,
+            received_candle_count=24,
+            gap_count=0,
+            missing_intervals=0,
+            complete=True,
+            content_fingerprint="sha256:" + "d" * 64,
+            failure_code=None,
+            failure_message=None,
+            consecutive_failures=0,
+            updated_at=end,
+            history_floor_at=start - timedelta(days=1),
+        )
+
+
+def test_worker_state_payload_reports_history_floor(tmp_path: Path) -> None:
+    """Data-lane status payloads expose the floor and count the watch complete from it."""
+
+    async def exercise() -> None:
+        interval = CandleInterval.FOUR_HOURS
+        now = datetime(2025, 11, 10, 16, 1, tzinfo=UTC)
+        state_store = InMemoryMarketDataWorkerStateStore()
+        await _drive_worker_cycles(
+            service=_CompleteWindowService(
+                missing=frozenset({datetime(2025, 10, 25, 8, tzinfo=UTC)})
+            ),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            product_id="BTC-USD",
+            timeframe=interval,
+            lookback_hours=24 * 40,
+            now=now,
+            cycles=30,
+        )
+        state = await state_store.get("coinbase", "BTC-USD", interval)
+        payload = worker_state_payload(state, lookback_hours=24 * 40, interval=interval, now=now)
+        assert payload["history_floor_at"] == "2025-10-26T00:00:00+00:00"
+        assert payload["watch_complete"] is True
 
     asyncio.run(exercise())

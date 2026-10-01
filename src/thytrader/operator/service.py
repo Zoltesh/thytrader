@@ -2496,6 +2496,7 @@ def _coverage_row(
         else None
     )
     covered_start = _coverage_start(state, manifest)
+    history_floor_at = state.history_floor_at if state is not None else None
     watch_complete = (
         island_covers_watch(
             covered_starts_at=covered_start,
@@ -2506,6 +2507,7 @@ def _coverage_row(
             closed_end=closed_end,
             product_id=product_id,
             now=now,
+            history_floor_at=history_floor_at,
         )
         if lookback_hours is not None
         else None
@@ -2537,6 +2539,7 @@ def _coverage_row(
         watch_sparsity=watch_sparsity,
         watch_expected_candle_count=watch_expected,
         watch_status=_watch_status(watch_complete),
+        history_floor_at=history_floor_at,
     )
 
 

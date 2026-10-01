@@ -7,6 +7,7 @@
 	 * and execution preferences. `readonly` renders an immutable published
 	 * definition in the same layout with every control disabled.
 	 */
+	import { untrack } from 'svelte';
 	import {
 		defaultHtfFilter,
 		EXECUTION_TIMEFRAMES,
@@ -23,19 +24,23 @@
 		type ConditionDraft,
 		type IndicatorDraft
 	} from '$lib/strategies';
+	import type { BuildSection } from '$lib/strategy-workspace';
 
 	let {
 		model = $bindable(),
 		readonly = false,
+		initialSection = null,
 		onchange
 	}: {
 		model: BuilderModel;
 		readonly?: boolean;
+		/** Section to open first (for example from a Test-stage "change this clock" link). */
+		initialSection?: BuildSection | null;
 		/** Called after every edit (marks dirty and re-validates in the parent). */
 		onchange: () => void;
 	} = $props();
 
-	let activeSection = $state('overview');
+	let activeSection = $state<string>(untrack(() => initialSection) ?? 'overview');
 
 	const sections = [
 		{ id: 'overview', label: 'Overview' },
@@ -389,9 +394,22 @@
 						checked={model.htf_filter !== null}
 						onchange={(event) => toggleHtfFilter((event.currentTarget as HTMLInputElement).checked)}
 					/>
-					Enable higher-timeframe filter
+					Enable higher-timeframe filter (optional)
 				</label>
+				{#if model.htf_filter === null}
+					<div class="hint">
+						Off by default. A higher-timeframe filter AND-s entry with a coarser clock and needs a
+						verified dataset for that clock too.
+					</div>
+				{/if}
 				{#if model.htf_filter}
+					<button
+						class="secondary"
+						type="button"
+						data-testid="remove-htf-filter"
+						onclick={() => toggleHtfFilter(false)}
+						>Remove higher-timeframe filter ({model.htf_filter.timeframe})</button
+					>
 					<div class="grid-two">
 						<label
 							>HTF timeframe

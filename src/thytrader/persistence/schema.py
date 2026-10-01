@@ -89,6 +89,12 @@ market_data_worker_state = Table(
     Column("maintenance_kind", String(32), nullable=False, server_default="initial_backfill"),
     Column("enabled", Boolean(), nullable=False, server_default="true"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "history_floor_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Confirmed provider hole directly before the island; prefix backfill stops here.",
+    ),
 )
 
 market_data_watchlist = Table(

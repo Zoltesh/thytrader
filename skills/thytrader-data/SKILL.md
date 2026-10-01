@@ -63,6 +63,7 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 | List the watchlist | `uv run thytrader-data watchlist-list` |
 | Watch a product/timeframe | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --confirm` |
 | Watch disabled (no ingest until enabled) | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --disabled --confirm` |
+| Watch a USDC/USDT quote | `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 2h --lookback-hours 8760 --confirm` |
 | Queue ingest (CLI polls the worker) | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
 | Queue ingest without polling | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --no-wait --confirm` |
 | Classify missing bars | `uv run thytrader-data inspect-gaps --product-id ETH-USD --timeframe 5m` |
@@ -70,6 +71,8 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
 
+`watch-add` accepts USD, USDC, and USDT spot products. The web Test/Run **Download data** action uses
+the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation.
 Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days). Sub-daily clocks (`1m`,
 `5m`, `15m`, `30m`, `1h`) may be set up to 2,160 hours (90 days). Slower venue clocks (`2h`,
 `4h`, `6h`, `1d`) may be set up to 8,760 hours (365 days) for low-trade-count research
@@ -82,7 +85,18 @@ can cover a 365-day lookback (1,460 bars). Daily ingest can cover a 365-day look
 Initial
 backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
 days stay holes. When lookback starts before an existing complete island, the worker prepends
-complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. `inspect-gaps` classifies
+complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. When Coinbase confirms a
+hole directly before the island (still incomplete on one re-fetch), the worker records
+`history_floor_at` (the island start), stops prepending, and keeps extending forward;
+`watch_complete` is then true from that floor. Status payloads (`ingest`, `fill-gaps`, catalog
+rows, `GET /api/v1/market-data/ingestion`) report `history_floor_at`; when it is set, coverage
+legitimately starts there and earlier bars cannot be published without interpolation. No command
+is needed to clear it: it resets itself when the island start changes. Superseded dataset
+revisions are garbage-collected by the worker (bounded, audited, every 6 h). It never deletes a
+fingerprint that any stored record references, or the newest revision. Operators can run a
+one-shot pass with `docker compose exec market-data-worker /app/.venv/bin/thytrader-market-data-retention`
+(dry run) and add `--confirm` to delete. That command is an operator repair step, not a lane
+mutation; agents should report backlog rather than run it. `inspect-gaps` classifies
 holes across the **watch** window, not only the current island, and never interpolates.
 
 `complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that

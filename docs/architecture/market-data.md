@@ -29,7 +29,14 @@ The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, 1d, 
 backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
 are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
 island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
-the first hole. Latest verified coverage is the newest contiguous complete island. `complete` describes only that
+the first hole. A prefix chunk that is still incomplete on an immediate confirmation re-fetch is a
+confirmed provider hole: the worker records `history_floor_at` equal to the island start (worker
+state column, Alembic 0051), stops prepending, and resumes forward incremental extension. Without
+the floor, prefix backfill would retry the same hole every cycle and the island would never extend
+forward (the 2026-09-17 2h/4h freeze: Coinbase lacks two BTC-USD 2h bars on 2026-05-08 and one 4h
+bar on 2025-10-25 for every product). `watch_complete` treats a floor at the island start as the
+watch start. The floor clears whenever the island start changes (a newer island after a forward
+hole), and stays put once the sliding lookback passes it. Latest verified coverage is the newest contiguous complete island. `complete` describes only that
 island. `watch_complete` is the agent completion decision: it is true only when the complete island
 spans the configured half-open watch window. Catalog, ingest status, gap inspection, and operator
 data-catalog payloads put `watch_complete` on the decision surface before `complete`.
@@ -166,11 +173,44 @@ The internal writer is deliberately not an API mutation endpoint. Confirmation-g
 `thytrader-market-data-worker` process is the only component that turns validated provider ranges into
 durable datasets. It is distinct from `thytrader-worker`, which records portfolio valuation history.
 
+## Superseded-revision retention
+
+Every ingest chunk publishes a new cumulative revision, and `extend` reuses unchanged day
+partitions, so superseded manifests accumulate (40,704 manifests / 1.1 GB on 2026-10-01). The
+market-data worker, which is the only writer of the dataset volume, runs a bounded retention pass
+at startup and every 6 hours (`thytrader.market_data.dataset_retention`). A truncated pass runs
+again on the next cycle. A manifest is deleted only when all of these hold:
+
+- No persisted record references it. Every text and JSON column in the schema is scanned in SQL
+  for `sha256:<64 hex>` tokens in one read-only snapshot: strategy dataset bindings, run specs,
+  backtest results, study and job payloads, worker state, audit details, and any future table.
+- It is not maximal for its provider/product/timeframe: another manifest covers its whole range
+  (wider, or the same range published later). The newest revision and the final revision of every
+  older island are always kept.
+- The earliest covering manifest was published at least 24 hours ago. A reader that resolved it as
+  latest just before supersession has time to bind it.
+- The covering maximal revision passes full verification (files present, hashes match).
+
+Manifests are unpublished first. A Parquet file is removed only when no surviving manifest lists
+it, and empty day directories are pruned. An unreadable manifest, a failed reference scan, or a
+concurrent pass (advisory lock `.retention.lock` in the dataset root) aborts the pass with nothing
+deleted. Each pass logs `market_data_dataset_retention` with counts. Passes that delete or abort
+append a `market_data` / `dataset_retention` audit event. No candles are rewritten or interpolated.
+
+The worker clears the existing backlog by itself, at most 5,000 manifests per pass. For an
+immediate one-shot repair, run `docker compose exec market-data-worker
+/app/.venv/bin/thytrader-market-data-retention` (a dry run that prints a JSON report), then add
+`--confirm` to delete. `--max-manifests` (default 50,000) and `--grace-hours` (default 24) bound
+the run.
+
 ## Worker lifecycle and durable diagnostics
 
 The market-data worker aligns each cycle to the last complete bar of the watch timeframe. Its first
 cycle requests a bounded lookback. Later cycles plan from durable verified coverage: forward
-incremental (one-bar overlap), or prefix backfill when the watch starts before the island.
+incremental (one-bar overlap), or prefix backfill when the watch starts before the island and no
+`history_floor_at` sits at the island start. Incomplete-chunk warnings carry
+`product_id`, `timeframe`, `direction` (`forward` / `prefix`), `starts_at`, `ends_at`, `expected`,
+`received`, and `missing_intervals`; `market_data_history_floor_recorded` logs each new floor.
 After restart, the worker first honors any persisted retry deadline and verifies
 the current immutable dataset before trusting durable coverage. Later cycles inside the same covered
 window update scheduling diagnostics without provider or dataset I/O when the island already covers

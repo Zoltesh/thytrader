@@ -82,7 +82,7 @@ async def add_watch_target(
     enabled: bool,
     now: datetime,
 ) -> MarketDataWatchTarget:
-    """Validate a USD spot product and upsert one watchlist row."""
+    """Validate a USD, USDC, or USDT spot product and upsert one watchlist row."""
     interval = require_interval(timeframe)
     await _require_spot_product(market_data, product_id)
     provider = ingestion_provider(settings)
@@ -261,6 +261,7 @@ async def inspect_gaps(
         closed_end=ends_at,
         product_id=product_id,
         now=now,
+        history_floor_at=None if state is None else state.history_floor_at,
     )
     return GapInspection(
         starts_at=starts_at,
@@ -525,6 +526,7 @@ def worker_state_payload(
                 closed_end=closed_end,
                 product_id=state.product_id,
                 now=now or datetime.now(UTC),
+                history_floor_at=state.history_floor_at,
             )
         else:
             watch_complete = False
@@ -545,6 +547,9 @@ def worker_state_payload(
             state.covered_starts_at.isoformat() if state.covered_starts_at else None
         ),
         "covered_ends_at": state.covered_ends_at.isoformat() if state.covered_ends_at else None,
+        "history_floor_at": (
+            state.history_floor_at.isoformat() if state.history_floor_at else None
+        ),
         "content_fingerprint": state.content_fingerprint,
         "expected_candle_count": state.expected_candle_count,
         "received_candle_count": state.received_candle_count,

@@ -98,6 +98,7 @@ class IngestionStateResponse(BaseModel):
     next_attempt_at: datetime | None
     dataset_revision: int
     maintenance_kind: Literal["initial_backfill", "incremental", "prefix_backfill"] | None
+    history_floor_at: datetime | None = None
 
 
 class FreshnessResponse(BaseModel):
@@ -303,6 +304,7 @@ def _to_response(
         closed_end=expected_boundary,
         product_id=state.product_id,
         now=now,
+        history_floor_at=state.history_floor_at,
     )
     coverage_status: Literal["complete", "gap_detected", "unavailable"] = (
         "unavailable"
@@ -337,6 +339,7 @@ def _to_response(
         next_attempt_at=next_attempt_at,
         dataset_revision=state.dataset_revision,
         maintenance_kind=state.maintenance_kind.value,
+        history_floor_at=state.history_floor_at,
     )
 
 

@@ -27,15 +27,37 @@ export const WORKSPACE_STAGES: readonly { id: WorkspaceStage; label: string }[] 
 	{ id: 'why', label: 'Why' }
 ];
 
-/** Workspace URL for one stage. `result` is only emitted on Test. */
+/** Builder sections a link can open directly (`?section=` on the Build stage). */
+export const BUILD_SECTIONS = [
+	'overview',
+	'market',
+	'indicators',
+	'entry',
+	'exits',
+	'sizing',
+	'limits',
+	'execution'
+] as const;
+
+export type BuildSection = (typeof BUILD_SECTIONS)[number];
+
+/** A known builder section from an untrusted `?section=` value, or null. */
+export function parseBuildSection(value: string | null): BuildSection | null {
+	return (BUILD_SECTIONS as readonly string[]).includes(value ?? '')
+		? (value as BuildSection)
+		: null;
+}
+
+/** Workspace URL for one stage. `result` is only emitted on Test, `section` only on Build. */
 export function workspaceHref(
 	strategyId: string,
 	stage: WorkspaceStage,
-	options: { result?: string | null } = {}
+	options: { result?: string | null; section?: BuildSection | null } = {}
 ): `/strategies/${string}` {
 	const base = `/strategies/${encodeURIComponent(strategyId)}${stage === 'build' ? '' : `/${stage}`}`;
 	const params = new URLSearchParams();
 	if (options.result && stage === 'test') params.set('result', options.result);
+	if (options.section && stage === 'build') params.set('section', options.section);
 	const query = params.toString();
 	return `${base}${query === '' ? '' : `?${query}`}` as `/strategies/${string}`;
 }

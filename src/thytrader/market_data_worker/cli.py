@@ -18,10 +18,12 @@ from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import ensure_default_watch_target
 from thytrader.market_data_worker.feed import run_public_market_feed
+from thytrader.market_data_worker.retention import DatasetRetentionRunner
 from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
+from thytrader.persistence.postgres_dataset_references import PostgresDatasetReferenceSource
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
@@ -94,6 +96,11 @@ async def run() -> None:
                 watchlist=watchlist,
                 heartbeat_store=heartbeats,
                 settings_store=store,
+                retention=DatasetRetentionRunner(
+                    root=settings.market_data_dataset_root,
+                    references=PostgresDatasetReferenceSource(engine),
+                    audit_store=audit_store,
+                ),
             ),
             run_public_market_feed(
                 stop_requested,

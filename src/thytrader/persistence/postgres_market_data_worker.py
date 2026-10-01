@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from thytrader.market_data.models import CandleInterval
@@ -87,6 +87,7 @@ class PostgresMarketDataWorkerStateStore:
             next_retry_at=attempt.next_attempt_at,
             dataset_revision=int(success.advances_revision),
             enabled=True,
+            history_floor_at=success.history_floor_at,
             updated_at=attempt.attempted_at,
         )
         statement = statement.on_conflict_do_update(
@@ -114,6 +115,7 @@ class PostgresMarketDataWorkerStateStore:
                 + int(success.advances_revision),
                 "maintenance_kind": attempt.maintenance_kind.value,
                 "enabled": True,
+                "history_floor_at": _history_floor_update(success),
                 "updated_at": attempt.attempted_at,
             },
             where=and_(
@@ -214,6 +216,14 @@ class PostgresMarketDataWorkerStateStore:
         return result.rowcount > 0
 
 
+def _history_floor_update(success: MarketDataWorkerSuccess) -> object:
+    """Mirror ``resolve_history_floor`` in SQL: keep a prior floor only at the new start."""
+    if success.history_floor_at is not None:
+        return success.history_floor_at
+    column = market_data_worker_state.c.history_floor_at
+    return case((column == success.covered_starts_at, column), else_=None)
+
+
 def _attempt_values(attempt: MarketDataWorkerAttempt) -> dict[str, object]:
     """Map stable attempt identity and bounds to database values."""
     return {
@@ -258,6 +268,7 @@ def _to_state(row: Row[tuple[object, ...]]) -> MarketDataWorkerState:
             dataset_revision=cast("int", values["dataset_revision"]),
             maintenance_kind=MarketDataMaintenanceKind(cast("str", values["maintenance_kind"])),
             enabled=cast("bool", values["enabled"]),
+            history_floor_at=cast("datetime | None", values["history_floor_at"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         message = "Market-data worker state has malformed persisted state."
