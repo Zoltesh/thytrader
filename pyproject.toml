@@ -23,6 +23,7 @@ dependencies = [
 thytrader-api = "thytrader.api.cli:main"
 thytrader-worker = "thytrader.worker.cli:main"
 thytrader-market-data-worker = "thytrader.market_data_worker.cli:main"
+thytrader-market-data-retention = "thytrader.market_data_worker.retention:main"
 thytrader-execution-worker = "thytrader.execution_worker.cli:main"
 thytrader-operator = "thytrader.operator.cli:main"
 thytrader-research = "thytrader.research.mutation_cli:main"

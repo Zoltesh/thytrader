@@ -606,6 +606,17 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "THYTRADER_SNAPSHOT_INTERVAL_SECONDS" not in content
 
 
+def test_history_floor_migration_follows_stop_first_reset() -> None:
+    """The fifty-first migration adds the nullable provider-history floor after 0050."""
+    content = Path("alembic/versions/0051_market_data_history_floor.py").read_text(encoding="utf-8")
+    assert 'revision = "0051"' in content
+    assert 'down_revision = "0050"' in content
+    assert '"history_floor_at"' in content
+    assert "nullable=True" in content
+    column = metadata.tables["market_data_worker_state"].c.history_floor_at
+    assert column.nullable is True
+
+
 def test_stop_first_migration_resets_research_rows_after_unified_model() -> None:
     """The fiftieth migration deletes take-profit-first research rows after 0049."""
     content = Path("alembic/versions/0050_stop_first_research_reset.py").read_text(encoding="utf-8")

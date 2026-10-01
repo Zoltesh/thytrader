@@ -241,3 +241,90 @@ def test_postgres_rejects_attempt_planned_from_stale_failure_snapshot() -> None:
             await dispose(first_engine)
 
     asyncio.run(exercise())
+
+
+def test_postgres_history_floor_survives_extension_and_clears_on_new_island() -> None:
+    """The provider-history floor persists while the island start holds, then clears."""
+
+    async def exercise() -> None:
+        if _TEST_DATABASE_URL is None:
+            raise AssertionError("PostgreSQL integration URL was not configured.")
+        engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        store = PostgresMarketDataWorkerStateStore(engine)
+        provider = f"floor-{uuid4().hex[:20]}"
+        product_id = "BTC-USD"
+        timeframe = CandleInterval.FOUR_HOURS
+        floor = datetime(2025, 10, 26, tzinfo=UTC)
+        base_at = datetime(2025, 11, 1, 0, 5, tzinfo=UTC)
+
+        def attempt(offset_minutes: int) -> MarketDataWorkerAttempt:
+            return MarketDataWorkerAttempt(
+                provider=provider,
+                product_id=product_id,
+                timeframe=timeframe,
+                attempted_at=base_at + timedelta(minutes=offset_minutes),
+                requested_starts_at=floor,
+                requested_ends_at=datetime(2025, 11, 1, tzinfo=UTC),
+            )
+
+        def success(
+            current: MarketDataWorkerAttempt,
+            starts_at: datetime,
+            ends_at: datetime,
+            history_floor_at: datetime | None,
+        ) -> MarketDataWorkerSuccess:
+            count = int((ends_at - starts_at) / timeframe.duration)
+            return MarketDataWorkerSuccess(
+                attempt=current,
+                covered_starts_at=starts_at,
+                covered_ends_at=ends_at,
+                expected_candle_count=count,
+                received_candle_count=count,
+                gap_count=0,
+                missing_intervals=0,
+                content_fingerprint="sha256:" + "c" * 64,
+                history_floor_at=history_floor_at,
+            )
+
+        try:
+            first = attempt(0)
+            assert await store.record_attempt(first) is True
+            await store.record_success(
+                success(first, floor, datetime(2025, 10, 28, tzinfo=UTC), floor)
+            )
+            recorded = await store.get(provider, product_id, timeframe)
+            assert recorded is not None
+            assert recorded.history_floor_at == floor
+
+            extended = attempt(1)
+            assert await store.record_attempt(extended) is True
+            await store.record_success(
+                success(extended, floor, datetime(2025, 10, 30, tzinfo=UTC), None)
+            )
+            kept = await store.get(provider, product_id, timeframe)
+            assert kept is not None
+            assert kept.history_floor_at == floor
+
+            jumped = attempt(2)
+            assert await store.record_attempt(jumped) is True
+            await store.record_success(
+                success(
+                    jumped,
+                    datetime(2025, 10, 31, tzinfo=UTC),
+                    datetime(2025, 11, 1, tzinfo=UTC),
+                    None,
+                )
+            )
+            cleared = await store.get(provider, product_id, timeframe)
+            assert cleared is not None
+            assert cleared.history_floor_at is None
+        finally:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    delete(market_data_worker_state).where(
+                        market_data_worker_state.c.provider == provider,
+                    )
+                )
+            await dispose(engine)
+
+    asyncio.run(exercise())

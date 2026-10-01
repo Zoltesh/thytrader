@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from thytrader.market_data.datasets import DatasetManifest, DatasetStore
+    from thytrader.market_data_worker.retention import DatasetRetentionRunner
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.settings_yaml import SettingsStore
 
@@ -117,6 +118,7 @@ async def ingest_once(
         closed_end=ends_at,
         product_id=product_id,
         now=now,
+        history_floor_at=None if prior is None else prior.history_floor_at,
     )
     should_reconcile = not skip_reconcile and watch_complete
     if should_reconcile and await _reconcile_current_coverage(
@@ -258,8 +260,13 @@ async def run_market_data_worker(
     timeframe: CandleInterval = CandleInterval.ONE_HOUR,
     heartbeat_store: WorkerHeartbeatStore | None = None,
     settings_store: SettingsStore | None = None,
+    retention: DatasetRetentionRunner | None = None,
 ) -> None:
-    """Run scheduled ingestion until a supervisor requests graceful shutdown."""
+    """Run scheduled ingestion until a supervisor requests graceful shutdown.
+
+    When ``retention`` is attached, a bounded superseded-revision pass runs between
+    ingest cycles (this loop is the dataset volume's only writer).
+    """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     verified_targets: set[tuple[str, CandleInterval]] = set()
@@ -295,6 +302,8 @@ async def run_market_data_worker(
                 heartbeat_store=heartbeat_store,
                 now_factory=now_factory,
             )
+            if retention is not None and not stop_requested.is_set():
+                await retention.maybe_run(now_factory())
             if stop_requested.is_set() or wait_seconds is None:
                 continue
             with contextlib.suppress(TimeoutError):
@@ -370,6 +379,25 @@ def bounded_lookback_start(
     return starts_at
 
 
+def watch_lookback_start(
+    closed_end: datetime,
+    lookback_hours: int,
+    interval: CandleInterval,
+    covered_starts_at: datetime | None,
+    history_floor_at: datetime | None,
+) -> datetime:
+    """Return the oldest bar the watch still needs, clamped to a confirmed provider floor."""
+    lookback_start = bounded_lookback_start(closed_end, lookback_hours, interval)
+    if (
+        history_floor_at is not None
+        and covered_starts_at is not None
+        and history_floor_at == covered_starts_at
+        and lookback_start < history_floor_at
+    ):
+        return history_floor_at
+    return lookback_start
+
+
 def watch_expected_candle_count(
     lookback_hours: int, interval: CandleInterval, ends_at: datetime
 ) -> int:
@@ -388,16 +416,24 @@ def island_covers_watch(
     closed_end: datetime,
     product_id: str = "",
     now: datetime | None = None,
+    history_floor_at: datetime | None = None,
 ) -> bool:
     """True when the latest complete island spans the full watch lookback.
 
     When candle freshness is still ``fresh`` and coverage is only one closed bar
     behind ``closed_end``, treat the watch as complete so large grids do not flip
     on every boundary while the single worker is elsewhere.
+
+    A ``history_floor_at`` equal to the island start means the provider has a
+    confirmed hole directly before the island, so the island satisfies the
+    lookback from that floor. Earlier bars cannot be published without
+    interpolation.
     """
     if not island_complete or covered_starts_at is None or covered_ends_at is None:
         return False
-    lookback_start = bounded_lookback_start(closed_end, lookback_hours, interval)
+    lookback_start = watch_lookback_start(
+        closed_end, lookback_hours, interval, covered_starts_at, history_floor_at
+    )
     if covered_starts_at > lookback_start:
         return False
     if covered_ends_at >= closed_end:
@@ -448,7 +484,9 @@ async def _reconcile_current_coverage(
     del service
     if prior is None or not prior.complete or prior.covered_ends_at is None:
         return False
-    lookback_start = bounded_lookback_start(ends_at, lookback_hours, timeframe)
+    lookback_start = watch_lookback_start(
+        ends_at, lookback_hours, timeframe, prior.covered_starts_at, prior.history_floor_at
+    )
     covered_start = prior.covered_starts_at or prior.covered_ends_at
     if lookback_start < covered_start:
         return False
@@ -547,9 +585,16 @@ def _plan_range(
     lookback_hours: int,
     timeframe: CandleInterval,
 ) -> tuple[datetime, MarketDataMaintenanceKind]:
-    """Choose initial backfill, prefix backfill, or one-bar overlap incremental extension."""
+    """Choose initial backfill, prefix backfill, or one-bar overlap incremental extension.
+
+    A confirmed provider-history floor at the island start ends prefix backfill, so
+    the island extends forward instead of retrying the same incomplete prefix day.
+    """
     lookback_start = bounded_lookback_start(ends_at, lookback_hours, timeframe)
     if prior is not None and prior.complete and prior.covered_ends_at is not None:
+        lookback_start = watch_lookback_start(
+            ends_at, lookback_hours, timeframe, prior.covered_starts_at, prior.history_floor_at
+        )
         covered_start = prior.covered_starts_at
         if covered_start is not None and lookback_start < covered_start:
             return lookback_start, MarketDataMaintenanceKind.PREFIX_BACKFILL
@@ -768,14 +813,14 @@ async def _ingest_one_chunk(
             "Market-data worker cannot represent a chunk overlap start.",
         )
     try:
-        report = await fetch_historical_range(
+        report = await _fetch_confirmed_chunk(
             service, product_id, timeframe, fetch_start, chunk_end, closed_end
         )
-    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
+    except Exception as error:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
+        _log_provider_unavailable(product_id, timeframe, fetch_start, chunk_end, error)
         return _ChunkProgress(newest, island_fingerprint, "provider_unavailable")
     if not _matches_complete_request(report, fetch_start, chunk_end):
-        _logger.warning("market_data_ingestion_failed code=chunk_incomplete")
+        _log_chunk_incomplete(product_id, timeframe, fetch_start, chunk_end, report, "forward")
         return _ChunkProgress(newest, None, "incomplete")
     verified = _persist_complete_range(
         dataset_store=dataset_store,
@@ -848,7 +893,15 @@ async def _ingest_prefix_backfill(
         island_fingerprint = progress.island_fingerprint
         if progress.status == "incomplete":
             if newest is not None:
-                await _record_island_success(state_store, attempt, newest)
+                floor = _parse_manifest_instant(newest.starts_at)
+                _logger.warning(
+                    "market_data_history_floor_recorded product_id=%s timeframe=%s "
+                    "history_floor_at=%s",
+                    product_id,
+                    timeframe.value,
+                    floor.isoformat(),
+                )
+                await _record_island_success(state_store, attempt, newest, history_floor_at=floor)
                 return
             await _record_failure(
                 state_store,
@@ -906,14 +959,14 @@ async def _ingest_one_prefix_chunk(
 ) -> _ChunkProgress:
     """Fetch one prefix day plus one overlapping island bar and prepend when complete."""
     try:
-        report = await fetch_historical_range(
+        report = await _fetch_confirmed_chunk(
             service, product_id, timeframe, chunk_start, fetch_end, closed_end
         )
-    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
+    except Exception as error:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
+        _log_provider_unavailable(product_id, timeframe, chunk_start, fetch_end, error)
         return _ChunkProgress(newest, island_fingerprint, "provider_unavailable")
     if not _matches_complete_request(report, chunk_start, fetch_end):
-        _logger.warning("market_data_ingestion_failed code=chunk_incomplete")
+        _log_chunk_incomplete(product_id, timeframe, chunk_start, fetch_end, report, "prefix")
         return _ChunkProgress(newest, island_fingerprint, "incomplete")
     verified = _persist_complete_range(
         dataset_store=dataset_store,
@@ -952,21 +1005,94 @@ async def _record_island_success(
     state_store: MarketDataWorkerStateStore,
     attempt: MarketDataWorkerAttempt,
     verified: DatasetManifest,
+    *,
+    history_floor_at: datetime | None = None,
 ) -> None:
     """Record worker coverage for the newest complete contiguous published island."""
     await state_store.record_success(
         MarketDataWorkerSuccess(
             attempt=attempt,
-            covered_starts_at=datetime.fromisoformat(verified.starts_at.replace("Z", "+00:00")),
-            covered_ends_at=datetime.fromisoformat(verified.ends_at.replace("Z", "+00:00")),
+            covered_starts_at=_parse_manifest_instant(verified.starts_at),
+            covered_ends_at=_parse_manifest_instant(verified.ends_at),
             expected_candle_count=verified.expected_candle_count,
             received_candle_count=verified.received_candle_count,
             gap_count=verified.gap_count,
             missing_intervals=verified.missing_intervals,
             content_fingerprint=verified.content_fingerprint,
+            history_floor_at=history_floor_at,
         )
     )
     _logger.info("market_data_ingestion_succeeded")
+
+
+def _parse_manifest_instant(value: str) -> datetime:
+    """Parse one manifest ISO instant into an aware UTC datetime."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+async def _fetch_confirmed_chunk(
+    service: HistoricalRangeService,
+    product_id: str,
+    timeframe: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+    closed_end: datetime,
+) -> CandleRangeReport:
+    """Fetch one chunk, re-fetching once when the first report is incomplete.
+
+    The confirmation keeps a transient short page from being recorded as a provider
+    hole. Missing bars are never filled.
+    """
+    report = await fetch_historical_range(
+        service, product_id, timeframe, starts_at, ends_at, closed_end
+    )
+    if _matches_complete_request(report, starts_at, ends_at):
+        return report
+    return await fetch_historical_range(
+        service, product_id, timeframe, starts_at, ends_at, closed_end
+    )
+
+
+def _log_chunk_incomplete(
+    product_id: str,
+    timeframe: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+    report: CandleRangeReport,
+    direction: Literal["forward", "prefix"],
+) -> None:
+    """Warn with the target and exact chunk bounds; candle values and secrets stay out."""
+    _logger.warning(
+        "market_data_ingestion_failed code=chunk_incomplete product_id=%s timeframe=%s "
+        "direction=%s starts_at=%s ends_at=%s expected=%d received=%d missing_intervals=%d",
+        product_id,
+        timeframe.value,
+        direction,
+        starts_at.isoformat(),
+        ends_at.isoformat(),
+        report.requested_candle_count,
+        report.quality.candle_count,
+        report.quality.missing_intervals,
+    )
+
+
+def _log_provider_unavailable(
+    product_id: str,
+    timeframe: CandleInterval,
+    starts_at: datetime,
+    ends_at: datetime,
+    error: Exception,
+) -> None:
+    """Warn with target, bounds and exception class only; provider messages may carry URLs."""
+    _logger.warning(
+        "market_data_ingestion_failed code=provider_unavailable product_id=%s timeframe=%s "
+        "starts_at=%s ends_at=%s error_type=%s",
+        product_id,
+        timeframe.value,
+        starts_at.isoformat(),
+        ends_at.isoformat(),
+        type(error).__name__,
+    )
 
 
 async def _cycle_targets(
@@ -1031,6 +1157,7 @@ async def _ingest_due_targets(
             closed_end=closed_end,
             product_id=target.product_id,
             now=cycle_now,
+            history_floor_at=None if prior is None else prior.history_floor_at,
         )
         skip_reconcile = prior is not None and prior.complete and not covers
         if _in_backoff(prior, cycle_now) and not requested:
@@ -1067,6 +1194,7 @@ async def _ingest_due_targets(
                     closed_end=closed_end,
                     product_id=target.product_id,
                     now=cycle_now,
+                    history_floor_at=state_after.history_floor_at,
                 )
                 if watch_done:
                     await watchlist.clear_ingest_request(

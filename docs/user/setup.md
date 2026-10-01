@@ -85,7 +85,7 @@ marks snapshot cadence as behind when the latest persisted observation is more t
 sampling intervals old. Gaps remain visible rather than being interpolated.
 
 The dashboard includes **Data-source diagnostics**: a read-only connection and candle-integrity
-check for a selected USD spot product. It shows request-time validation plus the separate worker's
+check for a selected USD, USDC, or USDT spot product. It shows request-time validation plus the separate worker's
 durable coverage and failure state; it is **not** a price chart, trading signal, profitability
 result, or trading-readiness claim. It uses Coinbase data when credentials are configured, or
 deterministic demo data otherwise.

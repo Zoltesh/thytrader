@@ -10,6 +10,7 @@ import {
 	libraryPipeline,
 	livePreflight,
 	paperEvidenceText,
+	parseBuildSection,
 	pipelineSummary,
 	rulesLabel,
 	rulesState,
@@ -50,6 +51,14 @@ describe('workspace routes', () => {
 		);
 		expect(workspaceHref('s', 'run', { result: fpB })).toBe('/strategies/s/run');
 		expect(workspaceHref('s', 'why')).toBe('/strategies/s/why');
+	});
+
+	it('opens a builder section only on Build and rejects unknown sections', () => {
+		expect(workspaceHref('s', 'build', { section: 'entry' })).toBe('/strategies/s?section=entry');
+		expect(workspaceHref('s', 'test', { section: 'entry' })).toBe('/strategies/s/test');
+		expect(parseBuildSection('indicators')).toBe('indicators');
+		expect(parseBuildSection('nope')).toBeNull();
+		expect(parseBuildSection(null)).toBeNull();
 	});
 
 	it('maps route ids to stages', () => {

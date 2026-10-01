@@ -19,13 +19,21 @@ from thytrader.data_control.client import (
     list_watchlist,
 )
 from thytrader.data_control.models import DataControlError
-from thytrader.market_data.models import DATASET_TIMEFRAMES
+from thytrader.market_data.lookback import max_watch_lookback_hours
+from thytrader.market_data.models import DATASET_TIMEFRAMES, CandleInterval
+from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _CONFIRM_HELP = "Required for watchlist and ingest mutations."
+_SPOT_QUOTES_TEXT = ", ".join(SPOT_QUOTE_CURRENCIES[:-1]) + f", or {SPOT_QUOTE_CURRENCIES[-1]}"
+_LOOKBACK_HELP = (
+    "Watch window in hours (default 168). Ceiling: "
+    f"{max_watch_lookback_hours(CandleInterval.ONE_HOUR)} for 1m-1h, "
+    f"{max_watch_lookback_hours(CandleInterval.ONE_DAY)} for 2h, 4h, 6h, and 1d."
+)
 
 
 def _shared_options() -> argparse.ArgumentParser:
@@ -61,10 +69,10 @@ def _parser() -> argparse.ArgumentParser:
     watch_add = subparsers.add_parser(
         "watch-add",
         parents=[trailing],
-        help="Watch one USD spot product and timeframe.",
+        help=f"Watch one {_SPOT_QUOTES_TEXT} spot product and timeframe.",
     )
     _target_args(watch_add)
-    watch_add.add_argument("--lookback-hours", type=int, default=168)
+    watch_add.add_argument("--lookback-hours", type=int, default=168, help=_LOOKBACK_HELP)
     watch_add.add_argument("--disabled", action="store_true", help="Store the target as disabled.")
     watch_add.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     ingest_cmd = subparsers.add_parser(

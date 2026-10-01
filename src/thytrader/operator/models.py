@@ -604,6 +604,9 @@ class DatasetCoverageRow(_FrozenModel):
     published island itself has zero gaps. ``watch_status`` restates
     ``watch_complete`` as an operator noun so ``worker_status=succeeded``
     (latest chunk only) cannot be misread as a finished backfill.
+    ``history_floor_at`` is set when the provider has a confirmed hole directly
+    before the island: coverage legitimately starts there and the watch counts
+    as complete from that floor (missing bars are never interpolated).
     """
 
     provider: str | None
@@ -628,6 +631,7 @@ class DatasetCoverageRow(_FrozenModel):
     watch_sparsity: Literal["none", "unknown", "gapped"] | None = None
     watch_expected_candle_count: int | None = None
     watch_status: Literal["complete", "backfilling", "unknown"] | None = None
+    history_floor_at: datetime | None = None
 
 
 class DataCatalogPayload(_FrozenModel):

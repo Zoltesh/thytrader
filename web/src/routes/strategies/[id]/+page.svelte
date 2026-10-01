@@ -9,6 +9,7 @@
 	 * with unsaved edits asks first (in-app navigation and browser unload).
 	 */
 	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import {
@@ -22,6 +23,7 @@
 		type StrategyRecord
 	} from '$lib/strategies';
 	import { validateDefinition } from '$lib/strategy-insight';
+	import { parseBuildSection } from '$lib/strategy-workspace';
 	import BuildInspector from '$lib/workspace/BuildInspector.svelte';
 	import DefinitionForm from '$lib/workspace/DefinitionForm.svelte';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
@@ -44,6 +46,8 @@
 	let leaving = false;
 
 	const record = $derived(workspace.record);
+	/** `?section=` opens a builder section directly (Test-stage "change this clock" links). */
+	const initialSection = $derived(parseBuildSection(page.url.searchParams.get('section')));
 	const savedIssues = $derived(record?.validation.issues ?? []);
 	const savedValid = $derived(record?.validation.valid === true);
 
@@ -250,7 +254,7 @@
 	{/if}
 	{#if !rawMode && model}
 		<div class="build-grid">
-			<DefinitionForm bind:model onchange={onEdit} />
+			<DefinitionForm bind:model {initialSection} onchange={onEdit} />
 			<BuildInspector {model} {validationErrors}>
 				{#snippet actions()}
 					{@render saveControls()}

@@ -45,7 +45,9 @@
 		fetchUserOrderFeed
 	} from '$lib/workspace-data';
 	import DeploymentRuntimeRow from '$lib/workspace/DeploymentRuntimeRow.svelte';
+	import DataReadinessPanel from '$lib/workspace/DataReadinessPanel.svelte';
 	import PaperStartForm from '$lib/workspace/PaperStartForm.svelte';
+	import { listDatasets, type Dataset } from '$lib/strategies';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
 
 	const workspace = useWorkspace();
@@ -78,6 +80,21 @@
 	const activeLive = $derived(live.filter((deployment) => deployment.status !== 'stopped'));
 	const controlsBlocked = $derived(mutating || outcomeUnknown);
 
+	/** Latest verified datasets, used to name clocks the worker does not cover yet. */
+	let runDatasets = $state<Dataset[] | null>(null);
+	let datasetRequest = 0;
+
+	async function loadRunDatasets(): Promise<void> {
+		const requestId = ++datasetRequest;
+		try {
+			const datasets = await listDatasets();
+			if (requestId === datasetRequest) runDatasets = datasets;
+		} catch {
+			/* readiness stays unknown; starting is still gated server-side */
+			if (requestId === datasetRequest) runDatasets = null;
+		}
+	}
+
 	$effect(() => {
 		const key = workspace.strategyId;
 		void key;
@@ -97,6 +114,12 @@
 		const current = model;
 		if (current === null) return;
 		untrack(() => void loadPreflight(current.product_id, current.timeframe));
+	});
+
+	$effect(() => {
+		const key = workspace.strategyId;
+		void key;
+		untrack(() => void loadRunDatasets());
 	});
 
 	async function loadDeployments(): Promise<boolean> {
@@ -292,6 +315,15 @@
 			</div>
 			<button type="button" onclick={() => void loadDeployments()}>Retry</button>
 		</div>
+	{/if}
+	{#if model && canStart}
+		<DataReadinessPanel
+			strategyId={workspace.strategyId}
+			{model}
+			datasets={runDatasets}
+			context="run"
+			onRefresh={() => void loadRunDatasets()}
+		/>
 	{/if}
 	<div class="run-grid">
 		<section class="card run-card" aria-labelledby="paper-title" data-testid="paper-card">

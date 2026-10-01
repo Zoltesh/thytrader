@@ -126,6 +126,17 @@ a promise, and there is no Deploy or Start-paper button on them.
 Starting a backtest never starts paper or live trading. Backtests require a verified dataset
 fingerprint and remain deterministic research artifacts.
 
+**Missing data.** Test and Run list every clock the strategy reads (execution timeframe, the
+optional higher-timeframe filter, and any per-indicator timeframe). When a clock has no verified
+dataset, or its newest bar is stale, the panel names it exactly (for example
+"No verified BTC-USDC × 2h dataset yet"). **Download data…** asks for confirmation, then adds the
+product × timeframe to the watchlist (2,160 h lookback up to 1h, 8,760 h for 2h and slower; a
+longer existing lookback is kept) and queues a no-wait ingest through the same data-lane endpoints
+as `thytrader-data watch-add` / `ingest`. Progress shows received versus expected candles and
+refreshes the dataset choices when the watch completes. For the higher-timeframe filter or an extra
+indicator clock, a **Change or remove … in Build** link opens the Build stage at that section; the
+higher-timeframe filter is optional and off by default.
+
 ### Backtests
 
 Open `/backtests` to inspect immutable result summaries across all strategies. An old
@@ -328,6 +339,9 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 
 Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Missing candles are
 never interpolated. One ingest queue keeps walking until `watch_complete` or a durable failure.
+If Coinbase itself has no complete history before some date (a real exchange-side hole), the
+worker records `history_floor_at`, keeps extending to the latest bar, and reports the watch as
+complete from that floor. Backtests can use the covered range; earlier bars are never invented.
 `inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
 stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 

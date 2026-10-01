@@ -52,7 +52,13 @@ class MarketDataWorkerAttempt:
 
 @dataclass(frozen=True, slots=True)
 class MarketDataWorkerSuccess:
-    """Verified publication facts recorded after manifest read-back succeeds."""
+    """Verified publication facts recorded after manifest read-back succeeds.
+
+    ``history_floor_at`` is set only when prefix backfill has confirmed that the
+    provider cannot serve a complete bar range immediately before the island start.
+    When it is ``None`` the store keeps a prior floor only while it still equals the
+    new ``covered_starts_at``; any other island start clears it.
+    """
 
     attempt: MarketDataWorkerAttempt
     covered_starts_at: datetime
@@ -63,6 +69,7 @@ class MarketDataWorkerSuccess:
     missing_intervals: int
     content_fingerprint: str
     advances_revision: bool = True
+    history_floor_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +84,13 @@ class MarketDataWorkerFailure:
 
 @dataclass(frozen=True, slots=True)
 class MarketDataWorkerState:
-    """Latest durable ingestion outcome plus last verified coverage evidence."""
+    """Latest durable ingestion outcome plus last verified coverage evidence.
+
+    ``history_floor_at`` records a confirmed provider hole directly before the
+    island: prefix backfill stops there, coverage legitimately starts at the floor,
+    and the worker extends forward instead of retrying the hole. It always equals
+    ``covered_starts_at`` when present.
+    """
 
     provider: str
     product_id: str
@@ -104,6 +117,7 @@ class MarketDataWorkerState:
     dataset_revision: int = 0
     maintenance_kind: MarketDataMaintenanceKind = MarketDataMaintenanceKind.INITIAL_BACKFILL
     enabled: bool = True
+    history_floor_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Reject malformed durable timestamp facts before they can influence worker decisions."""
@@ -132,14 +146,25 @@ def validate_market_data_worker_state(state: MarketDataWorkerState) -> MarketDat
         ("updated_at", state.updated_at),
         ("expected_ends_at", state.expected_ends_at),
         ("next_retry_at", state.next_retry_at),
+        ("history_floor_at", state.history_floor_at),
     )
     for field_name, value in timestamps:
         if value is not None:
             _require_utc_timestamp(value, field_name)
     _require_ordered_timestamps(state)
     _validate_coverage(state)
+    _validate_history_floor(state)
     _validate_failure_lifecycle(state)
     return state
+
+
+def _validate_history_floor(state: MarketDataWorkerState) -> None:
+    """Require a recorded provider-history floor to sit exactly at the island start."""
+    if state.history_floor_at is None:
+        return
+    if state.covered_starts_at is None or state.history_floor_at != state.covered_starts_at:
+        message = "Market-data worker state has a history floor away from its island start."
+        raise MarketDataWorkerError(message)
 
 
 def _require_utc_timestamp(value: object, field_name: str) -> None:
@@ -289,6 +314,17 @@ def _validate_failure_lifecycle(state: MarketDataWorkerState) -> None:
         raise MarketDataWorkerError(message)
 
 
+def resolve_history_floor(
+    success: MarketDataWorkerSuccess, prior_floor: datetime | None
+) -> datetime | None:
+    """Return the floor a success records: an explicit floor, or a prior one still at the start."""
+    if success.history_floor_at is not None:
+        return success.history_floor_at
+    if prior_floor is not None and prior_floor == success.covered_starts_at:
+        return prior_floor
+    return None
+
+
 @runtime_checkable
 class MarketDataWorkerStateStore(Protocol):
     """Persist and read the latest state for each ingestion target."""
@@ -397,6 +433,7 @@ class InMemoryMarketDataWorkerStateStore:
             dataset_revision=prior.dataset_revision if prior is not None else 0,
             maintenance_kind=attempt.maintenance_kind,
             enabled=True,
+            history_floor_at=prior.history_floor_at if prior is not None else None,
         )
         return True
 
@@ -445,6 +482,9 @@ class InMemoryMarketDataWorkerStateStore:
             + int(success.advances_revision),
             maintenance_kind=attempt.maintenance_kind,
             enabled=True,
+            history_floor_at=resolve_history_floor(
+                success, prior.history_floor_at if prior is not None else None
+            ),
         )
 
     async def record_failure(self, failure: MarketDataWorkerFailure) -> None:
@@ -487,6 +527,7 @@ class InMemoryMarketDataWorkerStateStore:
             dataset_revision=prior.dataset_revision if prior is not None else 0,
             maintenance_kind=attempt.maintenance_kind,
             enabled=True,
+            history_floor_at=prior.history_floor_at if prior is not None else None,
         )
 
     async def get(

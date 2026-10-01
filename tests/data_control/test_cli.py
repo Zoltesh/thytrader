@@ -48,6 +48,30 @@ def test_watch_add_help_lists_venue_clocks(
     assert "per-indicator" in collapsed
 
 
+def test_data_help_names_every_supported_spot_quote(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Top-level help must not describe watch-add as USD-only when USDC/USDT are supported."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+    assert raised.value.code == 0
+    collapsed = " ".join(capsys.readouterr().out.split())
+    assert "Watch one USD, USDC, or USDT spot product and timeframe." in collapsed
+    assert "Watch one USD spot product" not in collapsed
+
+
+def test_watch_add_help_states_lookback_ceilings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Watch-add help must state the per-timeframe lookback ceilings the API enforces."""
+    with pytest.raises(SystemExit) as raised:
+        main(["watch-add", "--help"])
+    assert raised.value.code == 0
+    collapsed = " ".join(capsys.readouterr().out.split())
+    assert "2160 for 1m-1h" in collapsed
+    assert "8760 for 2h, 4h, 6h, and 1d" in collapsed
+
+
 def test_watch_add_without_confirm_does_not_mutate() -> None:
     """Omitting --confirm in Safe mode exits after the YOLO probe, before ingest HTTP."""
     handlers = {

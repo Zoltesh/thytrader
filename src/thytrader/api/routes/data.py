@@ -65,7 +65,7 @@ async def put_watch_target(
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
 ) -> dict[str, object]:
-    """Upsert one USD spot product and timeframe onto the ingestion watchlist."""
+    """Upsert one USD, USDC, or USDT spot product and timeframe onto the ingestion watchlist."""
     try:
         target = await add_watch_target(
             store=store,
