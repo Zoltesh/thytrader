@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -274,3 +275,98 @@ async def test_fill_transaction_keeps_venue_reported_total_without_double_count(
     assert result.fills[0].economics_applied_at is not None
     assert result.position is not None
     assert result.deployment.cash == Decimal("10000") - Decimal("200") - Decimal("0.2")
+
+
+class _EntryWithChildBroker(_LookupBroker):
+    """Venue double: a filled entry that reports an open attached TP/SL child."""
+
+    def __init__(self, entry: SubmitResult, child: SubmitResult, fills: tuple[Fill, ...]) -> None:
+        """Bind distinct GET-order snapshots for the entry and its child."""
+        super().__init__(entry)
+        self._child = child
+        self._fills = fills
+
+    async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
+        """Return the child snapshot for the child id, else the entry snapshot."""
+        del client_order_id
+        return self._child if venue_order_id == self._child.venue_order_id else self._result
+
+    async def list_fills(self, *, product_id: str, order_id: str | None = None) -> tuple[Fill, ...]:
+        """Return entry fills only; the child has not traded."""
+        del product_id
+        return self._fills if order_id == self._result.venue_order_id else ()
+
+
+@pytest.mark.anyio
+async def test_reconcile_adopts_the_venue_reported_attached_child() -> None:
+    """A filled entry whose create response omitted the attached TP/SL child learns it here.
+
+    First supervised live trade: Coinbase reported ``attached_order_id`` only on GET order,
+    so the entry was stored without its child and the worker tried to rest a second
+    bracket (rejected for insufficient funds) instead of recognizing venue protection.
+    """
+    store = InMemoryExecutionStore()
+    now = utc_now()
+    deployment_id = uuid7(now)
+    order = Order(
+        id=uuid7(now),
+        deployment_id=deployment_id,
+        intent_id=uuid7(now),
+        client_order_id="client-attached",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("1"),
+        status=OrderStatus.OPEN,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("100"),
+        venue_order_id="venue-entry",
+        product_id="BTC-USD",
+    )
+    await _snapshot_with_order(store, order)
+    pending = await store.get_deployment(deployment_id)
+    await store.save_deployment(
+        replace(
+            pending.deployment,
+            pending_stop_price=Decimal("90"),
+            pending_target_price=Decimal("120"),
+            timeframe="1h",
+        )
+    )
+    snapshot = await store.get_deployment(deployment_id)
+    entry_fill = Fill(
+        id=uuid7(now),
+        deployment_id=deployment_id,
+        order_id=order.id,
+        venue_fill_id="vf-attached",
+        price=Decimal("100"),
+        quantity=Decimal("1"),
+        fee=Decimal("0.1"),
+        filled_at=now,
+        venue_order_id="venue-entry",
+    )
+    result = await reconcile_open_orders(
+        snapshot,
+        broker=_EntryWithChildBroker(
+            SubmitResult(
+                status=OrderStatus.FILLED,
+                venue_order_id="venue-entry",
+                filled_quantity=Decimal("1"),
+                fill_price=Decimal("100"),
+                attached_child_venue_order_id="venue-child",
+            ),
+            SubmitResult(status=OrderStatus.OPEN, venue_order_id="venue-child"),
+            (entry_fill,),
+        ),
+        store=store,
+        product_id="BTC-USD",
+    )
+    stored = await store.get_deployment(deployment_id)
+    entry = next(item for item in stored.orders if item.id == order.id)
+    assert entry.attached_child_venue_order_id == "venue-child"
+    assert result.deployment.status is DeploymentStatus.RUNNING
+    child = next(item for item in stored.orders if item.venue_order_id == "venue-child")
+    assert child.kind is OrderKind.TRIGGER_BRACKET
+    assert child.status is OrderStatus.OPEN
+    assert child.parent_order_id == order.id
+    assert result.position is not None

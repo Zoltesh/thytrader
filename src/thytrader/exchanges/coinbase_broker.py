@@ -102,6 +102,7 @@ class CoinbaseRestBroker:
                 venue_order_id=venue_id,
                 reject_reason="observation_pending",
             )
+        attached_child_id = attached_child_id or observed.attached_child_venue_order_id
         if attached_child_id is not None:
             return SubmitResult(
                 status=observed.status,
@@ -433,6 +434,9 @@ def _submit_from_order_json(payload: Mapping[str, Any], fallback_id: str) -> Sub
         filled_quantity=filled,
         reject_reason=reason,
         fill_price=avg,
+        # Coinbase reports an entry's attached TP/SL child here (empty string when none);
+        # the create response does not always carry it.
+        attached_child_venue_order_id=_text(payload.get("attached_order_id")),
     )
 
 

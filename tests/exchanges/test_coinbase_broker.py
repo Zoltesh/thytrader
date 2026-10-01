@@ -258,6 +258,31 @@ async def test_create_order_reads_success_response_order_id() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_order_reports_the_attached_child_order() -> None:
+    """GET order carries the attached TP/SL child id; an empty string means none."""
+    path = "/api/v3/brokerage/orders/historical/venue-entry"
+    transport = FakeTransport(
+        gets={
+            path: [
+                {
+                    "order": {
+                        "order_id": "venue-entry",
+                        "status": "FILLED",
+                        "attached_order_id": "child-1",
+                    }
+                },
+                {"order": {"order_id": "venue-entry", "status": "FILLED", "attached_order_id": ""}},
+            ]
+        }
+    )
+    broker = CoinbaseRestBroker(transport)
+    first = await broker.get_order(venue_order_id="venue-entry", client_order_id="c")
+    second = await broker.get_order(venue_order_id="venue-entry", client_order_id="c")
+    assert first.attached_child_venue_order_id == "child-1"
+    assert second.attached_child_venue_order_id is None
+
+
+@pytest.mark.anyio
 async def test_get_order_resolves_client_order_id_when_venue_id_is_missing() -> None:
     """Ambiguous submits are looked up from historical spot orders by client id."""
     batch = "/api/v3/brokerage/orders/historical/batch"
