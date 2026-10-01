@@ -223,6 +223,24 @@ The worker never re-submits an order automatically
   `coinbase_http_400:INVALID_ARGUMENT` (audit `order_submit_rejected`). The book returns to flat
   and keeps running; fix the cause (size, permissions, product) before the next entry. A rejected
   protective bracket still pauses the book because the position is unprotected.
+- **Repeated protective rejections are latched.** A live bracket or marketable exit that Coinbase
+  rejects (for example `INSUFFICIENT_FUND`) pauses once with `mismatch_detail` starting
+  `PROTECTIVE_SUBMIT_REJECTED:` (audit `protective_submit_latched`, one per real rejection).
+  Identical re-submits back off 1, 2, 4 … minutes (capped at 30); after 5 identical rejections the
+  worker waits for `resume` before one more attempt. A changed stop, target, or quantity starts
+  fresh. Check Coinbase balances and holds before resuming; do not place manual orders.
+- **Exit ordering on live.** Before any exit or protection the worker learns the entry's
+  venue-attached TP/SL child. Time, stop, and flatten exits cancel known protective children first.
+  Coinbase cancels asynchronously: an accepted cancel shows the order still `open` with
+  `reject_reason` `cancel_pending`; the worker re-checks it with GET order each poll (no re-cancel)
+  and sends the exit once it is gone. That wait is not a pause. A `FILLED` exit whose REST fills
+  lag keeps the book `pending_exit` until the fills are ingested; nothing else is sent meanwhile.
+- **Stop with flatten.** While a flatten is pending no new protective bracket is rested. The book
+  stays `stopped` throughout (a fault records `mismatch_detail` but never flips it to `paused`) and
+  ends `stopped` / `flat` with no `mismatch_detail` (audit `flatten_settled` when it had to
+  correct a paused or faulted book). A paused book whose position-only fault (for example
+  `Live bracket could not be rested on an open position.`) no longer applies because it is flat
+  shows `Position is flat and no orders are working; …` instead.
 - **Ambiguous outcome.** Timeouts, HTTP 408/409/429/5xx, and transport failures leave the order
   `unknown` with no venue id (audit `order_submit_unconfirmed`, operator finding
   `UNKNOWN_ORDERS`). Every poll the worker looks it up at Coinbase by `client_order_id` (same

@@ -40,11 +40,11 @@
 	const canOlder = $derived(pageFull && bound?.has_more !== false);
 </script>
 
-<section class="backtest-panel" aria-label="Published backtests">
+<section class="backtest-panel" aria-label="Saved backtests">
 	<div class="panel-heading">
 		<div>
-			<h2>Published backtests</h2>
-			<p>Immutable historical simulations · not evidence of future profit</p>
+			<h2>Saved backtests</h2>
+			<p>Historical simulations of strategy snapshots · not evidence of future profit</p>
 		</div>
 		<div class="page-controls">
 			<label
@@ -72,10 +72,10 @@
 		<div class="empty">
 			{#if (bound?.offset ?? 0) > 0}
 				<p>No further results at offset {bound?.offset}.</p>
-				<small>Newer immutable results remain on the previous page.</small>
+				<small>Newer results remain on the previous page.</small>
 			{:else}
-				<p>No backtest results are published yet.</p>
-				<small>Run a backtest from the CLI to inspect its immutable result here.</small>
+				<p>No backtest results are saved yet.</p>
+				<small>Run a backtest from a strategy's Test stage to inspect its saved result here.</small>
 			{/if}
 		</div>
 	{:else}
@@ -84,7 +84,7 @@
 				<thead
 					><tr
 						><th>Strategy</th><th>Return</th><th>Final equity</th><th>Trades</th><th>Win rate</th
-						><th>Max drawdown</th><th>Published</th></tr
+						><th>Max drawdown</th><th>Saved</th></tr
 					></thead
 				>
 				<tbody>
@@ -119,7 +119,7 @@
 		</div>
 		{#if canOlder}
 			<p class="bound-note" data-testid="backtest-list-truncated">
-				This page is full ({bound?.limit} newest-first). Older immutable results may exist.
+				This page is full ({bound?.limit} newest-first). Older results may exist.
 			</p>
 		{/if}
 		{#if canOlder || canNewer}

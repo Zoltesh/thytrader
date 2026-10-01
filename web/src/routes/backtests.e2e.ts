@@ -100,9 +100,7 @@ test('deployment evidence filters backtest pages to the exact strategy version',
 		}
 	);
 	await page.goto(`/backtests?strategy_fingerprint=${encodeURIComponent(strategyFingerprint)}`);
-	await expect(
-		page.getByText('Filtered to published strategy version', { exact: false })
-	).toBeVisible();
+	await expect(page.getByText('Filtered to strategy snapshot', { exact: false })).toBeVisible();
 	await expect
 		.poll(() => requested.at(-1))
 		.toContain(`strategy_fingerprint=${encodeURIComponent(strategyFingerprint)}`);
@@ -232,7 +230,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	});
 	await page.goto('/backtests');
 	await expect(page.getByRole('heading', { name: 'Backtests', exact: true })).toBeVisible();
-	await expect(page.getByText('Published backtests')).toBeVisible();
+	await expect(page.getByText('Saved backtests')).toBeVisible();
 	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 1 (newest)');
 	await expect(page.getByRole('columnheader', { name: 'Engine' })).toHaveCount(0);
 	await expect(page.getByTestId('backtest-list-spread')).toHaveText('spread $0.10 recorded');
@@ -244,13 +242,11 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
-	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
-	await expect(
-		page.getByRole('button', { name: /Refresh published backtest results/ })
-	).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /Reload saved backtest list/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Refresh saved backtest results/ })).toHaveCount(0);
 	await expect(
 		page.getByText(
-			'Historical evidence only · immutable published result · this page cannot submit orders or regenerate the run.'
+			'Historical evidence only · saved backtest result of a strategy snapshot · this page cannot submit orders or regenerate the run.'
 		)
 	).toBeVisible();
 	await expect(page.getByText('2026-08-01 03:00:00 UTC')).toBeVisible();
@@ -468,7 +464,7 @@ test('explains an empty result list', async ({ page }) => {
 		async (route) => route.fulfill({ json: { entries: [], limit: 50, offset: 0, returned: 0 } })
 	);
 	await page.goto('/backtests');
-	await expect(page.getByText('No backtest results are published yet.')).toBeVisible();
+	await expect(page.getByText('No backtest results are saved yet.')).toBeVisible();
 });
 
 test('renders immutable detail before a slow benchmark finishes', async ({ page }) => {
@@ -706,11 +702,11 @@ test('keeps ?result= in sync on select and clear', async ({ page }) => {
 	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
 	await page.getByRole('button', { name: '← All backtests' }).click();
-	await expect(page.getByText('Published backtests')).toBeVisible();
+	await expect(page.getByText('Saved backtests')).toBeVisible();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBeNull();
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect.poll(() => new URL(page.url()).searchParams.get('result')).toBe(fingerprint);
-	await expect(page.getByRole('button', { name: /Reload published backtest list/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Reload saved backtest list/ })).toBeVisible();
 });
 
 test('discloses a full newest-first page and can load older results', async ({ page }) => {
@@ -742,7 +738,7 @@ test('discloses a full newest-first page and can load older results', async ({ p
 	await page.goto('/backtests');
 	await expect(page.getByTestId('backtest-list-bound')).toHaveText('Showing 10 (newest)');
 	await expect(page.getByTestId('backtest-list-truncated')).toContainText(
-		'Older immutable results may exist'
+		'Older results may exist'
 	);
 	await page.getByRole('button', { name: 'Older' }).click();
 	await expect(page.getByTestId('backtest-list-bound')).toHaveText(

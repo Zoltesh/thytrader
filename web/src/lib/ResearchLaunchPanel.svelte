@@ -53,7 +53,7 @@
 		model: BuilderModel;
 		/** Fingerprint the launch snapshot gets ('' blocks launch). */
 		currentFingerprint: string;
-		/** Called with the new result fingerprint after a single backtest is published. */
+		/** Called with the new result fingerprint after a single backtest completes and is saved. */
 		onBacktestLaunched: (resultFingerprint: string) => void;
 	} = $props();
 

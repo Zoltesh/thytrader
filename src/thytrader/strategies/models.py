@@ -888,7 +888,12 @@ def atr_trailing_stop(exits: ExitDefinition) -> AtrTrailingStop | None:
 
 
 class ExecutionPreferences(_FrozenModel):
-    """Declare venue-neutral execution preferences for later runtimes."""
+    """Declare venue-neutral execution preferences for later runtimes.
+
+    Entries are always post-only maker limits in backtest, paper, and live.
+    ``marketable_limit`` is retired: it parses only so persisted snapshots keep verifying
+    byte-for-byte, and the strategy library rejects it on save (``authoring_issues``).
+    """
 
     entry_preference: Literal["maker_only", "marketable_limit"]
     max_entry_wait_bars: int = Field(ge=1, le=50)

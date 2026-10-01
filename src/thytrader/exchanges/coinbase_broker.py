@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
@@ -13,7 +14,7 @@ from thytrader.exchanges.rest_transport import (
     SignedHttpTransport,
     json_object,
 )
-from thytrader.execution.broker import BrokerError, SubmitResult
+from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, SubmitResult
 from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
@@ -37,14 +38,32 @@ _DEFINITE_CREATE_REJECTIONS = frozenset({400, 401, 403, 404, 422})
 # Recovery lookups scan orders created from this long before the local submit instant,
 # which absorbs clock skew between this host and Coinbase.
 _CLIENT_LOOKUP_LEAD = timedelta(minutes=5)
+# Coinbase acknowledges a cancel before the order leaves the book (CANCEL_QUEUED or OPEN on
+# an immediate GET). Re-check a few times, briefly, then report the cancel as still pending
+# so the runtime re-checks next cycle instead of storming the venue or assuming failure.
+_CANCEL_CONFIRM_ATTEMPTS = 3
+_DEFAULT_CANCEL_CONFIRM_DELAY_SECONDS = 0.5
+_TERMINAL_STATUSES = frozenset({OrderStatus.CANCELED, OrderStatus.FILLED, OrderStatus.REJECTED})
+# Coinbase refuses a second cancel while the first is still being processed.
+_DUPLICATE_CANCEL = "DUPLICATE_CANCEL_REQUEST"
 
 
 class CoinbaseRestBroker:
     """Create, cancel, and observe spot orders through REST v3 JSON only."""
 
-    def __init__(self, transport: SignedHttpTransport) -> None:
-        """Bind the broker to a signed JSON HTTP transport."""
+    def __init__(
+        self,
+        transport: SignedHttpTransport,
+        *,
+        cancel_confirm_delay_seconds: float = _DEFAULT_CANCEL_CONFIRM_DELAY_SECONDS,
+    ) -> None:
+        """Bind the broker to a signed JSON HTTP transport.
+
+        ``cancel_confirm_delay_seconds`` spaces the bounded GET re-checks after a cancel;
+        hermetic tests pass zero.
+        """
         self._transport = transport
+        self._cancel_confirm_delay = cancel_confirm_delay_seconds
 
     async def place_order(
         self,
@@ -138,15 +157,32 @@ class CoinbaseRestBroker:
             raise BrokerError("Coinbase create-order request failed.") from error
 
     async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
-        """POST batch cancel, then GET the resulting order."""
+        """POST batch cancel, then confirm the order's status with bounded GET re-checks.
+
+        Coinbase cancels asynchronously: an accepted cancel can still GET as OPEN or
+        CANCEL_QUEUED. A result still active after the bounded re-checks keeps its active
+        status with ``reject_reason`` ``cancel_pending`` (or ``cancel_failed:<reason>`` when
+        Coinbase refused the cancel), so the runtime waits and re-checks next cycle.
+        """
         del client_order_id
         try:
-            await asyncio.to_thread(
+            payload = await asyncio.to_thread(
                 self._transport.post, _CANCEL_PATH, {"order_ids": [venue_order_id]}
             )
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase cancel-order request failed.") from error
-        return await self.get_order(venue_order_id=venue_order_id, client_order_id=venue_order_id)
+        failure = _cancel_failure_reason(payload, venue_order_id)
+        observed = await self.get_order(venue_order_id=venue_order_id, client_order_id="")
+        for _attempt in range(1, _CANCEL_CONFIRM_ATTEMPTS):
+            if observed.status in _TERMINAL_STATUSES:
+                return observed
+            await asyncio.sleep(self._cancel_confirm_delay)
+            observed = await self.get_order(venue_order_id=venue_order_id, client_order_id="")
+        if observed.status in _TERMINAL_STATUSES:
+            return observed
+        accepted = failure is None or failure == _DUPLICATE_CANCEL
+        reason = CANCEL_PENDING_REASON if accepted else f"cancel_failed:{failure}"
+        return replace(observed, reject_reason=reason[:500])
 
     async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """GET /orders/historical/{order_id}, resolving client ids when needed."""
@@ -372,6 +408,23 @@ def _http_reject_reason(error: CoinbaseHttpStatusError) -> str:
     return reason
 
 
+def _cancel_failure_reason(payload: Mapping[str, Any], venue_order_id: str) -> str | None:
+    """Return Coinbase's batch-cancel failure reason for one order, or None when accepted.
+
+    The documented body is ``{"results": [{"success", "failure_reason", "order_id"}]}``;
+    an accepted cancel carries the placeholder ``UNKNOWN_CANCEL_FAILURE_REASON``. A missing
+    or unrecognized result reads as ``unrecognized_response``; GET order stays the truth.
+    """
+    for item in _object_list(payload.get("results")):
+        reported = _text(item.get("order_id"))
+        if reported is not None and reported != venue_order_id:
+            continue
+        if item.get("success") is True:
+            return None
+        return _text(item.get("failure_reason")) or "cancel_rejected"
+    return "unrecognized_response"
+
+
 def _order_configuration(
     kind: OrderKind,
     quantity: Decimal,
@@ -445,7 +498,11 @@ def _status_from_coinbase(status: str | None) -> OrderStatus:
     normalized = (status or "").upper()
     mapping = {
         "PENDING": OrderStatus.PENDING,
+        "QUEUED": OrderStatus.PENDING,
         "OPEN": OrderStatus.OPEN,
+        # Still on the book while Coinbase processes a cancel or edit; it can still fill.
+        "CANCEL_QUEUED": OrderStatus.OPEN,
+        "EDIT_QUEUED": OrderStatus.OPEN,
         "FILLED": OrderStatus.FILLED,
         "CANCELLED": OrderStatus.CANCELED,
         "CANCELED": OrderStatus.CANCELED,

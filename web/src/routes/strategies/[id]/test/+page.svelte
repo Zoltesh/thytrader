@@ -176,8 +176,11 @@
 	}
 
 	async function onBacktestLaunched(result: string): Promise<void> {
-		await goto(resolve(workspaceHref(workspace.strategyId, 'test', { result })));
+		// Start the list reload first so `rowsLoading` covers the window where the
+		// new detail can land before the list knows the new row (no false
+		// "does not belong to this strategy" flash).
 		void loadRows();
+		await goto(resolve(workspaceHref(workspace.strategyId, 'test', { result })));
 	}
 </script>
 
@@ -273,7 +276,7 @@
 						<th scope="col" class="num">Max DD</th>
 						<th scope="col" class="num">Trades</th>
 						<th scope="col" class="num">Win rate</th>
-						<th scope="col">Published</th>
+						<th scope="col">Saved</th>
 						<th scope="col"><span class="sr-only">Open</span></th>
 					</tr>
 				</thead>
@@ -301,7 +304,7 @@
 								><a
 									href={resolve(resultHref(row))}
 									aria-current={row.result_fingerprint === resultFingerprint ? 'true' : undefined}
-									aria-label="Inspect result published {formatUtcTimestamp(row.published_at)}"
+									aria-label="Inspect result saved {formatUtcTimestamp(row.published_at)}"
 									>Inspect</a
 								></td
 							>

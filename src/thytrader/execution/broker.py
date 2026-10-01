@@ -15,6 +15,10 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle
 
 
+CANCEL_PENDING_REASON = "cancel_pending"
+"""Reject-reason marker on a still-active order whose venue cancel was accepted, not done."""
+
+
 class BrokerError(RuntimeError):
     """Report a venue or paper-broker failure without leaking credentials."""
 
