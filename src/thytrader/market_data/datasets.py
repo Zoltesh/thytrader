@@ -88,6 +88,10 @@ class DatasetStore:
         self._root = root
         self._catalog_lock = RLock()
         self._verified_cache: dict[Path, tuple[tuple[_FileIdentity, ...], DatasetManifest]] = {}
+        # Ranking metadata per manifest path, keyed by (st_size, st_mtime_ns). Manifests are
+        # content-addressed and never rewritten in place, so a stat match means the parsed
+        # metadata is still exact; deep verification still runs through _verified_cache.
+        self._candidate_cache: dict[Path, tuple[tuple[int, int], _DatasetCatalogCandidate]] = {}
 
     def write(
         self,
@@ -173,15 +177,14 @@ class DatasetStore:
         for path in manifests.glob("*.json"):
             seen.add(path)
             try:
-                candidate = self._load_catalog_candidate(path)
+                candidate = self._cached_catalog_candidate(path)
             except DatasetStoreError:
                 self._verified_cache.pop(path, None)
+                self._candidate_cache.pop(path, None)
                 continue
             key = (candidate.provider, candidate.product_id, candidate.timeframe)
             candidates.setdefault(key, []).append(candidate)
-        for cached_path in list(self._verified_cache):
-            if cached_path not in seen:
-                del self._verified_cache[cached_path]
+        self._prune_catalog_caches(seen)
 
         latest: list[DatasetManifest] = []
         for key in sorted(candidates):
@@ -194,6 +197,30 @@ class DatasetStore:
                     latest.append(verified)
                     break
         return tuple(latest)
+
+    def _prune_catalog_caches(self, seen: set[Path]) -> None:
+        """Drop cached verification and ranking entries for manifests no longer on disk."""
+        for cached_path in list(self._verified_cache):
+            if cached_path not in seen:
+                del self._verified_cache[cached_path]
+        for cached_path in list(self._candidate_cache):
+            if cached_path not in seen:
+                del self._candidate_cache[cached_path]
+
+    def _cached_catalog_candidate(self, manifest_path: Path) -> _DatasetCatalogCandidate:
+        """Return ranking metadata, re-parsing the manifest only when its stat identity changes."""
+        try:
+            stat = manifest_path.stat()
+        except OSError as error:
+            message = "Dataset verification failed while reading its manifest."
+            raise DatasetStoreError(message) from error
+        stamp = (stat.st_size, stat.st_mtime_ns)
+        cached = self._candidate_cache.get(manifest_path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        candidate = self._load_catalog_candidate(manifest_path)
+        self._candidate_cache[manifest_path] = (stamp, candidate)
+        return candidate
 
     def _load_catalog_candidate(self, manifest_path: Path) -> _DatasetCatalogCandidate:
         """Validate only metadata needed to rank one deep-verification candidate."""
