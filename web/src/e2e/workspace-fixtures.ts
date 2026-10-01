@@ -498,6 +498,27 @@ export async function mockBacktestDetail(
 				}
 			});
 		}
+		const costs = {
+			maker_fee_rate: '0.004',
+			taker_fee_rate: '0.006',
+			fixed_slippage_bps: '5',
+			spread_bps: '0'
+		};
+		// Mirror the API: the detail route defaults to `detail=summary`, a bounded
+		// projection without `result`, trades, or the equity curve.
+		if (new URL(url).searchParams.get('detail') !== 'full') {
+			return route.fulfill({
+				json: {
+					result_fingerprint: result,
+					run_fingerprint: `sha256:${'e'.repeat(64)}`,
+					strategy_fingerprint: strategyFingerprint,
+					dataset_fingerprint: datasetFingerprint,
+					summary: backtestSummary,
+					costs,
+					metrics: null
+				}
+			});
+		}
 		return route.fulfill({
 			json: {
 				result_fingerprint: result,
@@ -512,12 +533,7 @@ export async function mockBacktestDetail(
 					equity_curve: curve,
 					trades: []
 				},
-				costs: {
-					maker_fee_rate: '0.004',
-					taker_fee_rate: '0.006',
-					fixed_slippage_bps: '5',
-					spread_bps: '0'
-				}
+				costs
 			}
 		});
 	});

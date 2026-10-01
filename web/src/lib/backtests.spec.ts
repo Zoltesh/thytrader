@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	backtestListPageIsFull,
+	fetchBacktest,
 	formatBacktestListBound,
 	formatFillFee,
 	formatListSpreadCue,
@@ -61,10 +62,10 @@ describe('backtest presentation', () => {
 				fixed_slippage_bps: '10'
 			})
 		).toBe(
-			'maker 0.10% · taker 0.20% · fixed slippage 10 bps on taker exits (published research-run CostAssumptions, not observed Coinbase fees)'
+			'maker 0.10% · taker 0.20% · fixed slippage 10 bps on taker exits (modeled research-run cost assumptions, not observed Coinbase fees)'
 		);
 		expect(formatPublishedCosts(null)).toBe(
-			'Published maker/taker fee rates and fixed_slippage_bps are not included in this response.'
+			'Recorded maker/taker fee rates and fixed_slippage_bps are not included in this response.'
 		);
 		expect(formatPublishedCosts({ maker_fee_rate: '0.001' })).toContain('taker fee not recorded');
 	});
@@ -119,5 +120,31 @@ describe('backtest presentation', () => {
 		expect(parseResultFingerprintParam(fingerprint)).toBe(fingerprint);
 		expect(parseResultFingerprintParam('sha256:not-a-fingerprint')).toBeNull();
 		expect(parseResultFingerprintParam(null)).toBeNull();
+	});
+});
+
+describe('fetchBacktest', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('requests the full document so the detail view gets metrics and equity', async () => {
+		// Regression: the route defaults to `detail=summary`, which has no `result`,
+		// so the Test-stage result card rendered only its header after a run.
+		const fingerprint = `sha256:${'a'.repeat(64)}`;
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ result_fingerprint: fingerprint, result: {} }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' }
+				})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await fetchBacktest(fingerprint);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [requested] = fetchMock.mock.calls[0] as unknown as [string];
+		const url = new URL(requested, 'http://localhost');
+		expect(url.pathname).toBe(`/api/v1/backtests/${encodeURIComponent(fingerprint)}`);
+		expect(url.searchParams.get('detail')).toBe('full');
 	});
 });

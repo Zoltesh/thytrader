@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from thytrader.execution.audit_scope import record_execution_audit
-from thytrader.execution.broker import ClientOrderLookup
+from thytrader.execution.broker import BrokerError, ClientOrderLookup
 from thytrader.execution.fill_ledger import (
     applied_fill_quantity,
     fill_economics_complete,
@@ -271,6 +271,37 @@ async def _ingest_fills(
         )
         current = result.snapshot
     return current
+
+
+async def ingest_order_fills(
+    snapshot: DeploymentSnapshot,
+    *,
+    order: Order,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str,
+    cooldown_bars: int = 0,
+) -> DeploymentSnapshot:
+    """List one order's venue fills and apply the unseen ones; never pauses.
+
+    Used right after a live marketable exit reports FILLED: Coinbase fills can lag the
+    order status, so an empty or failed listing leaves the order for the next cycle.
+    """
+    if not order.venue_order_id:
+        return snapshot
+    try:
+        remote_fills = await broker.list_fills(product_id=product_id, order_id=order.venue_order_id)
+    except BrokerError:
+        return snapshot
+    known = {fill.venue_fill_id for fill in snapshot.fills}
+    return await _ingest_fills(
+        snapshot,
+        order=order,
+        remote_fills=remote_fills,
+        store=store,
+        known=known,
+        cooldown_bars=cooldown_bars,
+    )
 
 
 async def import_attached_children(

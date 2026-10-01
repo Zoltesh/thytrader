@@ -395,3 +395,25 @@ test('rule rows read as IF / AND rows and nested groups keep their keyword', asy
 	await expect(page.getByText('ANY', { exact: true })).toBeVisible();
 	await expect(page.getByTestId('workspace-save-state')).toContainText('unsaved changes');
 });
+
+test('entry preference offers only maker-only entries, even for a legacy draft', async ({
+	page
+}) => {
+	const legacyDraft = {
+		...draft,
+		execution: { ...draft.execution, entry_preference: 'marketable_limit' }
+	};
+	const issue = { loc: 'execution.entry_preference', message: 'Input should be maker_only' };
+	await mockDraftStorage(
+		page,
+		record(legacyDraft, 1, { validation: { valid: false, issues: [issue] } })
+	);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Execution preferences' }).click();
+	const select = page.getByLabel('Entry preference');
+	await expect(select.locator('option')).toHaveText(['Maker only']);
+	await expect(select.locator('option[value="marketable_limit"]')).toHaveCount(0);
+	await expect(page.getByText('Entries are always post-only maker limit orders.')).toBeVisible();
+	// The backend validation issue explains the retired value; the form never offers it.
+	await expect(page.getByTestId('saved-validation')).toContainText('Input should be maker_only');
+});

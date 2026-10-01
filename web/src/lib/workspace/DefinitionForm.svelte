@@ -4,8 +4,8 @@
 	 *
 	 * Section navigation plus the rule rows: indicators, the ALL / ANY / NOT
 	 * entry tree, the optional higher-timeframe filter, exits, sizing, limits,
-	 * and execution preferences. `readonly` renders an immutable published
-	 * definition in the same layout with every control disabled.
+	 * and execution preferences. `readonly` renders a strategy
+	 * snapshot's definition in the same layout with every control disabled.
 	 */
 	import { untrack } from 'svelte';
 	import {
@@ -291,7 +291,7 @@
 	</nav>
 	<fieldset class="definition" disabled={readonly}>
 		<legend class="sr-only"
-			>{readonly ? 'Published definition (read-only)' : 'Draft definition'}</legend
+			>{readonly ? 'Strategy definition (read-only)' : 'Strategy definition'}</legend
 		>
 		{#if activeSection === 'overview'}
 			<section class="panel">
@@ -570,9 +570,9 @@
 					>Entry preference
 					<select bind:value={model.execution.entry_preference} onchange={markDirty}>
 						<option value="maker_only">Maker only</option>
-						<option value="marketable_limit">Marketable limit</option>
 					</select></label
 				>
+				<div class="hint">Entries are always post-only maker limit orders.</div>
 				<div class="grid-two">
 					<label
 						>Max entry wait (bars)

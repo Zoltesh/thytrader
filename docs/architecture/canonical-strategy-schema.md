@@ -457,9 +457,15 @@ A schema declaring a stop is not proof a venue-native stop exists or guarantees 
 
 | Field | Allowed values | Default |
 |-------|---------------|---------|
-| `entry_preference` | `maker_only`, `marketable_limit` | `maker_only` |
+| `entry_preference` | `maker_only` | `maker_only` |
 | `max_entry_wait_bars` | 1–50 | 2 |
 | `on_unfilled_entry` | `cancel`, `reprice` | `cancel` |
+
+Entries are post-only maker limits in backtest, paper, and live. `marketable_limit` is retired: it
+was accepted but never honored (every runtime rested a post-only entry). The model still parses it
+so persisted snapshots keep verifying byte-for-byte, but the strategy library stores a document
+that uses it as invalid (issue at `execution.entry_preference`), so it cannot be snapshotted,
+backtested, or deployed until it is changed to `maker_only`.
 
 Emergency exits are governed by risk policy, not execution preference. They may be taker/marketable
 when capital protection requires it.

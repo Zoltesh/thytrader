@@ -65,6 +65,7 @@ from thytrader.strategies.library import (
     StrategySnapshotNotFoundError,
     StrategyStorageUnavailableError,
     StrategyValidation,
+    authoring_issues,
     evaluate_document,
     parse_document_text,
     validation_from_json,
@@ -457,6 +458,12 @@ def _record_from_row(row: RowMapping) -> StrategyRecord:
     if bool(row["is_valid"]):
         definition = _verified_definition(cast("str", row["document"]), fingerprint)
         validation = StrategyValidation()
+        retired = authoring_issues(definition)
+        if retired:
+            # Saved before the value was retired: still verifies, but cannot run again.
+            definition = None
+            fingerprint = None
+            validation = StrategyValidation(issues=retired)
     revision = row["revision"]
     if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
         raise StrategyStorageUnavailableError("Stored strategy revision is invalid.")

@@ -184,7 +184,10 @@ Saving or backtesting a strategy is not deploying it. Deploy, pause, resume, and
 the Run stage or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
 **managed shutdown**: protective brackets stay and residual exposure stays in account-level risk
 until the book is flat. Pass `--flatten` only when the operator asked to marketably exit then cancel
-remainders. Pause still maintains attached-child protection; it does not reset daily-loss or
+remainders. A flatten cancels protective orders first (waiting on Coinbase's asynchronous cancel
+without pausing), never rests a new bracket, and ends `stopped` / `flat`. A live bracket or exit
+that Coinbase rejects pauses once (`PROTECTIVE_SUBMIT_REJECTED: …`) and identical retries back off
+instead of repeating every poll. Pause still maintains attached-child protection; it does not reset daily-loss or
 drawdown baselines. Live books size from allocated capital or venue available quote, not ledger
 `cash`. `GET /api/v1/deployments` and `thytrader-runtime show` expose a `capital` block
 (`allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`,

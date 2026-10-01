@@ -80,7 +80,10 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 - **Maker-limit entries rest.** A matched completed-candle signal rests a post-only limit at that
   close. A later candle fills it only if its low (high for shorts) trades through, at the limit,
   maker fee, no slippage. It rests up to `execution.max_entry_wait_bars` candles, then cancels or
-  reprices per `on_unfilled_entry`.
+  reprices per `on_unfilled_entry`. Entries are post-only maker limits everywhere (backtest,
+  paper, live): `execution.entry_preference` must be `maker_only`. A save with the retired
+  `marketable_limit` is stored invalid with an issue at `execution.entry_preference` and cannot be
+  backtested or deployed until it is changed to `maker_only`.
 - **Stops and targets on bar extremes.** On the fill candle only the stop can trigger (stop-first).
   From the next candle the take-profit rests. The stop is always checked first: a candle that
   touches both the stop and the take-profit is resolved as the stop (conservative; paper does the

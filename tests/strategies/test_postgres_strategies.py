@@ -55,7 +55,11 @@ from thytrader.strategies.library import (
     bulk_delete_strategies,
     create_strategy_from_definition,
 )
-from thytrader.strategies.models import canonical_strategy_bytes, strategy_fingerprint
+from thytrader.strategies.models import (
+    StrategyDefinition,
+    canonical_strategy_bytes,
+    strategy_fingerprint,
+)
 from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:
@@ -718,6 +722,49 @@ def test_research_jobs_list_newest_first_for_one_strategy() -> None:
             result = await store.delete(record.strategy_id)
             assert result.counts.research_jobs == 1
             assert await jobs.get(created.job_id) is None
+        finally:
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_legacy_marketable_limit_row_cannot_run_but_its_snapshot_still_verifies() -> None:
+    """A row saved valid before the value was retired reads invalid; old snapshots load."""
+
+    async def exercise() -> None:
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        try:
+            record = await _template(store)
+            assert record.definition is not None
+            payload = record.definition.model_dump(mode="python")
+            payload["execution"]["entry_preference"] = "marketable_limit"
+            legacy = StrategyDefinition.model_validate(payload)
+            canonical = canonical_strategy_bytes(legacy).decode("utf-8")
+            fingerprint = strategy_fingerprint(legacy)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    strategies.update()
+                    .where(strategies.c.strategy_id == str(record.strategy_id))
+                    .values(document=canonical, is_valid=True, current_fingerprint=fingerprint)
+                )
+                await connection.execute(
+                    strategy_snapshots.insert().values(
+                        strategy_fingerprint=fingerprint,
+                        strategy_id=str(record.strategy_id),
+                        canonical_definition=canonical,
+                        created_at=_NOW,
+                    )
+                )
+            loaded = await store.get(record.strategy_id)
+            assert loaded.definition is None
+            assert [issue.loc for issue in loaded.validation.issues] == [
+                "execution.entry_preference"
+            ]
+            with pytest.raises(StrategyInvalidError):
+                await store.snapshot(record.strategy_id)
+            assert (await store.load(fingerprint)).definition == legacy
+            await store.delete(record.strategy_id)
         finally:
             await dispose(engine)
 

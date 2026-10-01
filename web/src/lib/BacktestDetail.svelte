@@ -44,9 +44,9 @@
 		error?: string | null;
 		/** Label of the button that leaves this detail view. */
 		backLabel?: string;
-		/** `v3` when the owning strategy version is known (workspace Test stage). */
+		/** `Current rules` / `Earlier edit` when the result's snapshot is known (workspace Test stage). */
 		versionLabel?: string | null;
-		/** Publication time of this result when the caller's list knows it. */
+		/** When this result was saved, if the caller's list knows it. */
 		publishedAt?: string | null;
 		onBack: () => void;
 	} = $props();
@@ -84,8 +84,8 @@
 		<button type="button" class="back" onclick={onBack}>{backLabel}</button>
 	</div>
 	<p class="evidence-only">
-		Historical evidence only · immutable published result · this page cannot submit orders or
-		regenerate the run.
+		Historical evidence only · saved backtest result of a strategy snapshot · this page cannot
+		submit orders or regenerate the run.
 	</p>
 	{#if loading}<div class="empty"><div class="skeleton"></div></div>
 	{:else if error}<div class="empty">

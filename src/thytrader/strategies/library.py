@@ -354,6 +354,9 @@ def evaluate_document(
         definition = StrategyDefinition.model_validate(normalized)
     except ValidationError as error:
         return _invalid_evaluation(normalized, error, fallback_name)
+    retired = authoring_issues(definition)
+    if retired:
+        return _issue_evaluation(normalized, retired, fallback_name)
     canonical = canonical_strategy_bytes(definition).decode("utf-8")
     return EvaluatedDocument(
         document=parse_document_text(canonical),
@@ -367,6 +370,25 @@ def evaluate_document(
     )
 
 
+RETIRED_ENTRY_PREFERENCE_MESSAGE = (
+    "entry_preference 'marketable_limit' is not supported: backtest, paper, and live entries "
+    "are always post-only maker limits. Use 'maker_only'."
+)
+
+
+def authoring_issues(definition: StrategyDefinition) -> tuple[ValidationIssue, ...]:
+    """Return issues for schema values kept only so stored snapshots still verify.
+
+    ``execution.entry_preference = "marketable_limit"`` was accepted but never honored
+    (every runtime rested post-only maker entries). Persisted snapshots that carry it still
+    parse byte-for-byte, but a document using it cannot be saved valid, backtested, or
+    deployed.
+    """
+    if definition.execution.entry_preference == "marketable_limit":
+        return (ValidationIssue("execution.entry_preference", RETIRED_ENTRY_PREFERENCE_MESSAGE),)
+    return ()
+
+
 def _invalid_evaluation(
     document: StrategyDocument, error: ValidationError, fallback_name: str
 ) -> EvaluatedDocument:
@@ -378,6 +400,13 @@ def _invalid_evaluation(
         )
         for item in error.errors(include_url=False)[:MAX_VALIDATION_ISSUES]
     )
+    return _issue_evaluation(document, issues, fallback_name)
+
+
+def _issue_evaluation(
+    document: StrategyDocument, issues: tuple[ValidationIssue, ...], fallback_name: str
+) -> EvaluatedDocument:
+    """Store one document as invalid with the given issues."""
     return EvaluatedDocument(
         document=document,
         stored_text=_sorted_json(document),

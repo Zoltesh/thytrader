@@ -252,8 +252,8 @@
 	<PageHead eyebrow="Research evidence" title="Backtests">
 		{#snippet intro()}
 			<p class="lede">
-				Immutable historical simulations with disclosed assumptions. Running backtests and reading
-				one strategy's results now happen on each strategy's Test stage.
+				Saved historical simulations with disclosed assumptions. Running backtests and reading one
+				strategy's results now happen on each strategy's Test stage.
 				<a href={resolve('/strategies')}>Open a strategy</a>
 			</p>
 			{#if redirecting}<p class="lede" role="status">
@@ -261,7 +261,7 @@
 				</p>{/if}
 			{#if strategyFilter !== null}
 				<p class="lede">
-					Filtered to published strategy version <code>{strategyFilter}</code>.
+					Filtered to strategy snapshot <code>{strategyFilter}</code>.
 					<a href={resolve('/backtests')}>Show all backtests</a>
 				</p>
 			{/if}
@@ -272,8 +272,8 @@
 			onclick={loadList}
 			disabled={listingLoading}
 			aria-label={inspecting
-				? 'Reload published backtest list without changing this immutable result'
-				: 'Refresh published backtest results'}
+				? 'Reload saved backtest list without changing the open result'
+				: 'Refresh saved backtest results'}
 			><span class:spinning={listingLoading}>↻</span>{listingLoading
 				? inspecting
 					? 'Reloading list…'

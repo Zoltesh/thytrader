@@ -253,7 +253,7 @@ export function spreadStressBps(costs?: CostAssumptions | null): string | null {
 
 export function formatPublishedCosts(costs?: CostAssumptions | null): string {
 	if (!costs) {
-		return 'Published maker/taker fee rates and fixed_slippage_bps are not included in this response.';
+		return 'Recorded maker/taker fee rates and fixed_slippage_bps are not included in this response.';
 	}
 	const maker = isRecordedDecimal(costs.maker_fee_rate)
 		? `maker ${formatDisplayFeeRate(costs.maker_fee_rate)}`
@@ -264,7 +264,7 @@ export function formatPublishedCosts(costs?: CostAssumptions | null): string {
 	const slippage = isRecordedDecimal(costs.fixed_slippage_bps)
 		? `fixed slippage ${costs.fixed_slippage_bps} bps on taker exits`
 		: 'fixed_slippage_bps not recorded';
-	return `${maker} · ${taker} · ${slippage} (published research-run CostAssumptions, not observed Coinbase fees)`;
+	return `${maker} · ${taker} · ${slippage} (modeled research-run cost assumptions, not observed Coinbase fees)`;
 }
 
 /**
@@ -371,10 +371,15 @@ export async function fetchBacktest(
 	resultFingerprint: string,
 	signal?: AbortSignal
 ): Promise<BacktestDetail> {
-	const response = await fetch(`/api/v1/backtests/${encodeURIComponent(resultFingerprint)}`, {
-		headers: { Accept: 'application/json' },
-		signal
-	});
+	// The route defaults to `detail=summary` (no `result`, trades, or equity curve);
+	// the detail view needs the full document.
+	const response = await fetch(
+		`/api/v1/backtests/${encodeURIComponent(resultFingerprint)}?detail=full`,
+		{
+			headers: { Accept: 'application/json' },
+			signal
+		}
+	);
 	if (!response.ok) {
 		const body = (await response.json().catch(() => ({}))) as ApiError;
 		throw new Error(body.detail?.message ?? 'Backtest result is unavailable.');
@@ -419,9 +424,9 @@ export async function fetchBacktestMetrics(
 }
 
 /**
- * Every published result for one exact strategy fingerprint, newest first.
+ * Every saved result for one exact strategy snapshot fingerprint, newest first.
  *
- * Follows offset pages (bounded) so a version's evidence list never silently
+ * Follows offset pages (bounded) so a snapshot's evidence list never silently
  * stops at the first page.
  */
 export async function fetchAllBacktestsForFingerprint(
@@ -445,7 +450,7 @@ export async function fetchAllBacktestsForFingerprint(
 }
 
 /**
- * Every published result for one strategy (`?strategy_id=`), newest first,
+ * Every saved result for one strategy (`?strategy_id=`), newest first,
  * across all of its snapshots. Follows bounded offset pages.
  */
 export async function fetchAllBacktestsForStrategy(

@@ -72,7 +72,7 @@ classDiagram
     time_exit
   }
   class ExecutionPreferences {
-    entry_preference maker_only|marketable_limit
+    entry_preference maker_only
     max_entry_wait_bars
     on_unfilled_entry cancel|reprice
   }
