@@ -58,7 +58,7 @@ are evidence, not readiness: **Build** (the saved definition is valid), **Test**
 deployed). Clicking a row opens that strategy's workspace; the latest-backtest link opens that
 result on its Test stage.
 
-From the library you can create the conservative reference strategy, **Clone** a strategy into a new
+From the library you can create a strategy from a template on any **Market** (a Coinbase spot product such as `BTC-USDC` or `BTC-USD`; the field remembers your last choice and starts at `BTC-USDC`) and **Clock**. Product and timeframe stay editable later under Build → Market and data. You can also **Clone** a strategy into a new
 identity, **Import** a strategy definition JSON as a new strategy (older exports that still carry
 `version` / `status` import fine; those keys are ignored), and **Delete** strategies. Tick rows (or
 the header checkbox to select every row on the page) and choose **Delete N strategies…**; a single
