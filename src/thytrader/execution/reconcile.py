@@ -273,6 +273,20 @@ async def _ingest_fills(
     return current
 
 
+async def import_attached_children(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str | None,
+    cooldown_bars: int = 0,
+) -> DeploymentSnapshot:
+    """Public entry for importing venue attached children not yet tracked locally."""
+    return await _import_attached_children(
+        snapshot, broker=broker, store=store, product_id=product_id, cooldown_bars=cooldown_bars
+    )
+
+
 async def _import_attached_children(
     snapshot: DeploymentSnapshot,
     *,

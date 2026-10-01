@@ -480,3 +480,85 @@ async def test_paper_rejects_trigger_bracket_submit() -> None:
             price=Decimal("120"),
             stop_trigger_price=Decimal("90"),
         )
+
+
+@dataclass
+class _VenueAttachedBroker(_RecordingBroker):
+    """Venue that reports the entry's attached child only on GET order."""
+
+    async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
+        """Report the attached child on the entry; the child itself is resting."""
+        del client_order_id
+        if venue_order_id == "attached-entry":
+            return SubmitResult(
+                status=OrderStatus.FILLED,
+                venue_order_id=venue_order_id,
+                filled_quantity=Decimal("0.01"),
+                attached_child_venue_order_id="attached-child",
+            )
+        return SubmitResult(status=OrderStatus.OPEN, venue_order_id=venue_order_id)
+
+
+@pytest.mark.anyio
+async def test_filled_attached_entry_learns_its_child_before_resting_a_second_oco() -> None:
+    """An entry stored without its child id adopts the venue's child instead of re-bracketing.
+
+    First supervised live trade: the second bracket was rejected INSUFFICIENT_FUND every
+    cycle because the attached child already held the base.
+    """
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    broker = _VenueAttachedBroker()
+    snapshot = await _live_open(
+        store,
+        strategy,
+        last_evaluated_bar=_candle(1).starts_at,
+        entered_bar=_candle(1).starts_at,
+        bars_held=1,
+    )
+    now = utc_now()
+    entry = Order(
+        id=uuid7(now),
+        deployment_id=snapshot.deployment.id,
+        intent_id=uuid7(now),
+        client_order_id="attached-entry",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        stop_trigger_price=Decimal("90"),
+        take_profit_price=Decimal("120"),
+        status=OrderStatus.FILLED,
+        venue_order_id="attached-entry",
+        filled_quantity=Decimal("0.01"),
+        created_at=now,
+        updated_at=now,
+    )
+    await store.save_order(entry)
+    await store.save_fill(
+        Fill(
+            id=uuid7(now),
+            deployment_id=snapshot.deployment.id,
+            order_id=entry.id,
+            venue_fill_id="attached-entry-fill",
+            price=Decimal("100"),
+            quantity=Decimal("0.01"),
+            fee=Decimal("0"),
+            filled_at=_candle(1).starts_at,
+        )
+    )
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    updated = await process_closed_bar(
+        snapshot,
+        strategy=strategy,
+        product=_product(),
+        candles=(_candle(0), _candle(1), _candle(2)),
+        broker=broker,
+        store=store,
+    )
+    assert broker.placed == []
+    assert updated.deployment.phase is RuntimePhase.PENDING_EXIT
+    assert any(
+        order.venue_order_id == "attached-child" and order.status is OrderStatus.OPEN
+        for order in updated.orders
+    )

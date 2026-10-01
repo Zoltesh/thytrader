@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.attached import (
     attached_entry_covers as _attached_entry_covers,
+    filled_attached_entry,
     remaining_quantity,
 )
 from thytrader.execution.broker import BrokerError
@@ -44,6 +45,7 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
+from thytrader.execution.reconcile import import_attached_children
 from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
 from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
@@ -775,6 +777,43 @@ async def _protect_open_position(
     )
 
 
+async def _adopt_venue_attached_child(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str,
+) -> DeploymentSnapshot:
+    """Learn an attached TP/SL child the venue reports for an already-filled entry.
+
+    Coinbase may report ``attached_order_id`` only on GET order. Without it the open
+    position looks unprotected and a second bracket would be rejected because the base
+    is already on hold by the attached child. Ask the venue once before resting anything.
+    """
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    entry = filled_attached_entry(snapshot, position)
+    if entry is None or entry.attached_child_venue_order_id or not entry.venue_order_id:
+        return snapshot
+    try:
+        observed = await broker.get_order(
+            venue_order_id=entry.venue_order_id, client_order_id=entry.client_order_id
+        )
+    except BrokerError:
+        return snapshot
+    child_id = observed.attached_child_venue_order_id
+    if not child_id:
+        return snapshot
+    await store.save_order(
+        replace(entry, attached_child_venue_order_id=child_id, updated_at=utc_now())
+    )
+    refreshed = await store.get_deployment(snapshot.deployment.id)
+    return await import_attached_children(
+        refreshed, broker=broker, store=store, product_id=product_id
+    )
+
+
 async def _ensure_live_bracket(
     snapshot: DeploymentSnapshot,
     *,
@@ -784,6 +823,9 @@ async def _ensure_live_bracket(
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
     """Rest one venue OCO bracket, replacing it when the working stop ratchets."""
+    snapshot = await _adopt_venue_attached_child(
+        snapshot, broker=broker, store=store, product_id=product.product_id
+    )
     position = snapshot.position
     if position is None:
         return snapshot
