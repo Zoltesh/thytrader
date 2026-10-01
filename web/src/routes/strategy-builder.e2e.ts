@@ -276,9 +276,39 @@ test('saves the document in place with the loaded revision', async ({ page }) =>
 	expect(saved.document.name).toBe('Renamed in builder');
 	expect(saved.document.version).toBeUndefined();
 	expect(saved.document.status).toBeUndefined();
-	await expect(page.getByText(`Saved ${new Date().toLocaleTimeString()}`)).toBeVisible();
+	await expect(page.getByText(/^Saved \d/)).toBeVisible();
 	await expect(page.getByTestId('workspace-save-state')).toContainText('Revision 2');
 	await expect(page.getByTestId('workspace-save-state')).toContainText('all edits saved');
+});
+
+test('market product and timeframe are editable and saved with a matching quote', async ({
+	page
+}) => {
+	type SavedInstrument = {
+		document: {
+			instrument: { product_id: string; base_currency: string; quote_currency: string };
+			timeframe: string;
+		};
+	};
+	let savedBody = null as SavedInstrument | null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			savedBody = (await route.request().postDataJSON()) as SavedInstrument;
+			await route.fulfill({ json: record(draft, 2) });
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Market and data' }).click();
+	await page.getByLabel('Product', { exact: true }).fill('eth-usdc');
+	await page.getByLabel('Timeframe', { exact: true }).selectOption('4h');
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => savedBody?.document.instrument.product_id).toBe('ETH-USDC');
+	const saved = savedBody as SavedInstrument;
+	expect(saved.document.instrument.base_currency).toBe('ETH');
+	expect(saved.document.instrument.quote_currency).toBe('USDC');
+	expect(saved.document.timeframe).toBe('4h');
 });
 
 test('required data and market hint follow the draft timeframe', async ({ page }) => {

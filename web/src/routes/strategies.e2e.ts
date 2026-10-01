@@ -334,7 +334,30 @@ test('creates a reference strategy from the chosen template and clock', async ({
 	await page.getByRole('button', { name: 'New strategy' }).click();
 	await expect.poll(() => createUrl).toContain('template=rsi-mean-reversion');
 	expect(createUrl).toContain('timeframe=4h');
+	expect(createUrl).toContain('product_id=BTC-USDC');
 	await expect(page.getByRole('link', { name: 'Recovered BTC trend draft' })).toBeVisible();
+});
+
+test('new strategy uses the chosen market and remembers it', async ({ page }) => {
+	const createUrls: string[] = [];
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		if (route.request().method() === 'POST') {
+			createUrls.push(route.request().url());
+			await route.fulfill({ status: 201, json: record() });
+			return;
+		}
+		await route.fulfill({ json: { strategies: [libraryEntry] } });
+	});
+	await page.goto('/strategies');
+	await page.waitForSelector('table tbody tr');
+	await expect(page.getByLabel('Market', { exact: true })).toHaveValue('BTC-USDC');
+	await page.getByLabel('Market', { exact: true }).fill('eth-usd');
+	await page.getByRole('button', { name: 'New strategy' }).click();
+	await expect.poll(() => createUrls.length).toBe(1);
+	expect(createUrls[0]).toContain('product_id=ETH-USD');
+	await page.reload();
+	await page.waitForSelector('table tbody tr');
+	await expect(page.getByLabel('Market', { exact: true })).toHaveValue('ETH-USD');
 });
 
 test('clones a strategy by id and refreshes the library', async ({ page }) => {

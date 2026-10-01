@@ -9,6 +9,7 @@
 	 */
 	import {
 		defaultHtfFilter,
+		EXECUTION_TIMEFRAMES,
 		validHtfTimeframes,
 		INDICATOR_KIND_OPTIONS,
 		IDENTITY_INPUT_OPTIONS,
@@ -59,6 +60,14 @@
 
 	function markDirty(): void {
 		onchange();
+	}
+
+	/** Edit the Coinbase product id (`BASE-QUOTE`); the base currency follows the id. */
+	function setProduct(raw: string): void {
+		const productId = raw.trim().toUpperCase();
+		model.product_id = productId;
+		model.base_currency = productId.split('-')[0] ?? '';
+		markDirty();
 	}
 
 	/** Row keyword for a child of a group: IF for the first, then AND / OR. */
@@ -293,25 +302,43 @@
 					></textarea></label
 				>
 				<div class="hint">
-					Identity note: the name is part of the immutable published fingerprint.
+					Saving updates this strategy in place. Backtests and bots keep the exact rules they
+					started with.
 				</div>
 			</section>
 		{:else if activeSection === 'market'}
 			<section class="panel">
 				<h2>Market and data</h2>
 				<div class="grid-two">
-					<label>Product<input value={model.product_id} disabled /></label>
-					<label>Timeframe<input value={model.timeframe} disabled /></label>
+					<label
+						>Product
+						<input
+							value={model.product_id}
+							spellcheck="false"
+							autocomplete="off"
+							placeholder="BTC-USDC"
+							oninput={(event) => setProduct(event.currentTarget.value)}
+						/></label
+					>
+					<label
+						>Timeframe
+						<select aria-label="Timeframe" bind:value={model.timeframe} onchange={markDirty}>
+							{#each EXECUTION_TIMEFRAMES as clock (clock)}
+								<option value={clock}>{clock}</option>
+							{/each}
+						</select></label
+					>
 				</div>
 				<label
 					>Warmup bars (required history before signals)
 					<input type="number" min="1" bind:value={model.warmup_bars} oninput={markDirty} /></label
 				>
 				<div class="hint">
-					This release trades Coinbase USD spot. Research, paper, and live use any ingested venue
-					clock (this strategy uses {model.timeframe} candles). Sub-hour live requires a connected user-order
-					feed. Optional HTF filters may use a strictly coarser integer-multiple venue clock; paper and
-					live evaluate those strategies on last-completed HTF bars.
+					Coinbase spot, quoted in the product's own currency (for example USD or USDC). Research,
+					paper, and live use any ingested venue clock (this strategy uses {model.timeframe} candles).
+					Sub-hour live requires a connected user-order feed. Optional HTF filters may use a strictly
+					coarser integer-multiple venue clock; paper and live evaluate those strategies on last-completed
+					HTF bars.
 				</div>
 			</section>
 		{:else if activeSection === 'indicators'}

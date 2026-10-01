@@ -53,6 +53,25 @@
 	let importHint = $state<string | null>(null);
 	let draftTemplate = $state('ema-trend');
 	let draftTimeframe = $state('1h');
+	const PRODUCT_STORAGE_KEY = 'thytrader.newStrategyProduct';
+	let draftProduct = $state(readStoredProduct());
+
+	/** Last market used for New strategy (per viewer); BTC-USDC matches the default USDC policy. */
+	function readStoredProduct(): string {
+		try {
+			return globalThis.localStorage?.getItem(PRODUCT_STORAGE_KEY) || 'BTC-USDC';
+		} catch {
+			return 'BTC-USDC';
+		}
+	}
+
+	function rememberProduct(productId: string): void {
+		try {
+			globalThis.localStorage?.setItem(PRODUCT_STORAGE_KEY, productId);
+		} catch {
+			// Storage is a convenience only.
+		}
+	}
 
 	/** Selected strategy ids on the current page. */
 	let selected = $state<string[]>([]);
@@ -142,7 +161,13 @@
 		pendingAction = 'create';
 		error = null;
 		try {
-			await createStrategy({ template: draftTemplate, timeframe: draftTimeframe });
+			const productId = draftProduct.trim().toUpperCase();
+			await createStrategy({
+				template: draftTemplate,
+				product_id: productId,
+				timeframe: draftTimeframe
+			});
+			rememberProduct(productId);
 			await loadLibrary();
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not create a strategy.';
@@ -329,6 +354,17 @@
 					<option value="macd-trend">MACD trend</option>
 					<option value="bollinger-mean-reversion">Bollinger mean reversion</option>
 				</select></label
+			>
+			<label class="template-picker"
+				>Market
+				<input
+					class="product-input"
+					bind:value={draftProduct}
+					spellcheck="false"
+					autocomplete="off"
+					placeholder="BTC-USDC"
+					disabled={pendingAction !== null}
+				/></label
 			>
 			<label class="template-picker"
 				>Clock
@@ -845,5 +881,9 @@
 	}
 	.kept {
 		color: var(--muted);
+	}
+	.product-input {
+		width: 9rem;
+		text-transform: uppercase;
 	}
 </style>
