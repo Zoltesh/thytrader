@@ -515,13 +515,12 @@ class PostgresExecutionStore:
                     .values(economics_applied_at=stamped.economics_applied_at)
                 )
                 next_revision = deployment.revision + 1
+                deployment_values = _mutable_deployment_values(projected.deployment)
+                deployment_values["revision"] = next_revision
                 await connection.execute(
                     deployments.update()
                     .where(deployments.c.id == deployment_id)
-                    .values(
-                        **_mutable_deployment_values(projected.deployment),
-                        revision=next_revision,
-                    )
+                    .values(deployment_values)
                 )
                 product_id = order.product_id or deployment.product_id
                 await connection.execute(
