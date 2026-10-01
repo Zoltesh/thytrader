@@ -324,6 +324,36 @@ async def test_list_fills_paginates_until_the_cursor_is_exhausted() -> None:
 
 
 @pytest.mark.anyio
+async def test_order_scoped_list_fills_sends_only_order_ids() -> None:
+    """Coinbase rejects order_ids with other filters (HTTP 400), so none are sent with it."""
+    transport = FakeTransport(
+        gets={
+            _FILLS_PATH: [
+                _fills_page(
+                    _fill_json(trade_id="t1", order_id="o1", product_id="BTC-USDC"),
+                )
+            ]
+        }
+    )
+    fills = await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USDC", order_id="o1")
+    assert [fill.venue_fill_id for fill in fills] == ["t1"]
+    params = transport.calls[0][2]
+    assert params["order_ids"] == ["o1"]
+    assert "product_ids" not in params
+    assert "product_types" not in params
+
+
+@pytest.mark.anyio
+async def test_order_scoped_list_fills_still_rejects_a_different_product() -> None:
+    """Dropping the server-side product filter keeps the local product check fail-closed."""
+    transport = FakeTransport(
+        gets={_FILLS_PATH: [_fills_page(_fill_json(trade_id="t1", product_id="BTC-USD"))]}
+    )
+    with pytest.raises(BrokerError):
+        await CoinbaseRestBroker(transport).list_fills(product_id="BTC-USDC", order_id="o1")
+
+
+@pytest.mark.anyio
 async def test_list_fills_rejects_has_next_true_without_a_cursor() -> None:
     """An extra has_next flag still cannot continue the stream without a cursor."""
     transport = FakeTransport(

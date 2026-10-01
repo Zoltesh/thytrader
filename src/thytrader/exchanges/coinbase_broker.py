@@ -459,14 +459,18 @@ def _fills_query_params(
     order_id: str | None,
     cursor: str | None,
 ) -> dict[str, object]:
-    """Build documented List Fills query parameters for one Coinbase spot product."""
-    params: dict[str, object] = {
-        "product_ids": [product_id],
-        "product_types": ["SPOT"],
-        "limit": 100,
-    }
+    """Build documented List Fills query parameters for one Coinbase spot product.
+
+    Coinbase rejects ``order_ids`` combined with any other filter (HTTP 400 "cannot pass
+    order_ids with other filters"), so an order-scoped query sends only ``order_ids``.
+    Every returned fill is still checked locally for the expected order, product, and spot
+    trade type, failing closed on any mismatch.
+    """
+    params: dict[str, object]
     if order_id is not None:
-        params["order_ids"] = [order_id]
+        params = {"order_ids": [order_id], "limit": 100}
+    else:
+        params = {"product_ids": [product_id], "product_types": ["SPOT"], "limit": 100}
     if cursor:
         params["cursor"] = cursor
     return params
