@@ -1084,3 +1084,49 @@ def test_dataset_store_rejects_manifest_with_negative_counts(tmp_path: Path) -> 
 
     with pytest.raises(DatasetStoreError, match="inconsistent"):
         store.load_verified(written.manifest_path)
+
+
+def test_dataset_store_latest_listing_parses_each_manifest_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeated latest listings reuse ranking metadata instead of re-parsing every manifest."""
+    publishing_store = DatasetStore(tmp_path)
+    first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
+    extended = publishing_store.extend(
+        first.content_fingerprint, _extension_report(datetime.now(UTC))
+    )
+    store = DatasetStore(tmp_path)
+    parsed: list[Path] = []
+    original = DatasetStore._load_catalog_candidate
+
+    def record_parse(self: DatasetStore, manifest_path: Path) -> object:
+        """Record each manifest parse before delegating to the production loader."""
+        parsed.append(manifest_path)
+        return original(self, manifest_path)
+
+    monkeypatch.setattr(DatasetStore, "_load_catalog_candidate", record_parse)
+
+    first_listing = store.list_latest_verified()
+    second_listing = store.list_latest_verified()
+
+    assert [entry.content_fingerprint for entry in first_listing] == [extended.content_fingerprint]
+    assert second_listing == first_listing
+    assert sorted(parsed) == sorted([first.manifest_path, extended.manifest_path])
+
+
+def test_dataset_store_latest_listing_sees_a_newly_published_revision(tmp_path: Path) -> None:
+    """The ranking cache must not hide a revision published after the first listing."""
+    publishing_store = DatasetStore(tmp_path)
+    first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
+    store = DatasetStore(tmp_path)
+    assert [entry.content_fingerprint for entry in store.list_latest_verified()] == [
+        first.content_fingerprint
+    ]
+
+    extended = publishing_store.extend(
+        first.content_fingerprint, _extension_report(datetime.now(UTC))
+    )
+
+    assert [entry.content_fingerprint for entry in store.list_latest_verified()] == [
+        extended.content_fingerprint
+    ]
