@@ -125,3 +125,8 @@ which traded first. Resolving it as the take-profit flattered results. Both cand
 `tp_before_stop_same_bar` → `stop_before_tp_same_bar`. Live is unaffected: Coinbase's OCO
 bracket decides what actually fills. The fill-bar rule is unchanged (only the stop is eligible).
 
+
+Migration `0050` deletes every research row computed under the retired take-profit-first rule.
+Those rows carried the retired validity code and failed reverification, which made the bounded
+backtest list answer 503. The ops contract moves to `thytrader-ops-contract-v43` (expected schema
+revision `0050`).

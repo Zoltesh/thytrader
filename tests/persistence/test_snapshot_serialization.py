@@ -606,6 +606,15 @@ def test_compose_yaml_defines_a_migration_gated_full_stack() -> None:
     assert "THYTRADER_SNAPSHOT_INTERVAL_SECONDS" not in content
 
 
+def test_stop_first_migration_resets_research_rows_after_unified_model() -> None:
+    """The fiftieth migration deletes take-profit-first research rows after 0049."""
+    content = Path("alembic/versions/0050_stop_first_research_reset.py").read_text(encoding="utf-8")
+    assert 'revision = "0050"' in content
+    assert 'down_revision = "0049"' in content
+    assert "stop_before_tp_same_bar" in content
+    assert "published_backtest_results" in content
+
+
 def test_unified_backtest_migration_follows_strategy_root_model() -> None:
     """The forty-ninth migration collapses the engines (ADR 0083) after 0048."""
     content = Path("alembic/versions/0049_unified_backtest_model.py").read_text(encoding="utf-8")
