@@ -13,10 +13,11 @@ and can stop on the fill bar. This kernel reproduces that loop over completed OH
 3. On the fill bar only the stop is eligible: the take-profit rests after the fill bar,
    as in the worker. The stop is a marketable exit at ``min(open, stop)`` (``max`` for
    shorts) with the **taker** fee and fixed slippage.
-4. On later bars a resting take-profit that the bar touches fills first, at the target
-   with the maker fee (the worker matches resting orders before managing the position).
-   Otherwise the stop is checked against the bar extreme, the ATR trail ratchets after
-   that check, and a reached ``max_bars_held`` time exit sells at the close as a taker.
+4. On later bars the stop is checked first against the bar extreme: when one bar touches
+   both the stop and the resting take-profit, the stop wins (the candle cannot say which
+   traded first, so the conservative exit is assumed; paper does the same). Otherwise a
+   touched take-profit fills at the target with the maker fee, the ATR trail ratchets,
+   and a reached ``max_bars_held`` time exit sells at the close as a taker.
 5. Equity marks at each evaluation close. The bar at ``evaluation.ends_at`` only
    liquidates open inventory at its **open** as a taker (``evaluation_end``); no entry,
    take-profit, or stop is processed there.
@@ -376,13 +377,19 @@ def _process_bar(
     bar_duration: timedelta,
     trades: list[BacktestTrade],
 ) -> Decimal:
-    """Match the resting entry, then the resting take-profit, then manage the open position."""
+    """Match the resting entry, then manage the open position (stop first), then the target.
+
+    When one bar touches both the stop and a resting take-profit, the candle cannot say
+    which traded first, so the stop wins: ``_manage_position`` runs before the target.
+    """
     if book.cooldown_bars > 0:
         book.cooldown_bars -= 1
     cash = _match_entry(book, candle, offset=offset, strategy=strategy, costs=costs, cash=cash)
-    trade, cash = _match_take_profit(
-        book, candle, costs=costs, cash=cash, bar_duration=bar_duration
-    )
+    trade, cash = _stop_out(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
+    if trade is None:
+        trade, cash = _match_take_profit(
+            book, candle, costs=costs, cash=cash, bar_duration=bar_duration
+        )
     if trade is None:
         trade, cash = _manage_position(
             book,
@@ -438,6 +445,37 @@ def _match_entry(
     book.pending = None
     book.cooldown_bars = max(strategy.entry.cooldown_bars, 1)
     return cash
+
+
+def _stop_out(
+    book: _Book,
+    candle: Candle,
+    *,
+    costs: _Costs,
+    cash: Decimal,
+    bar_duration: timedelta,
+) -> tuple[BacktestTrade | None, Decimal]:
+    """Exit a position whose take-profit is resting when the bar trades through the stop.
+
+    The fill bar is handled by ``_manage_position`` (the target is not resting yet). This
+    runs before the target match so a bar touching both exits is conservatively a stop.
+    """
+    position = book.position
+    if position is None or not position.take_profit_resting:
+        return None, cash
+    if not _stop_hit(position, candle, costs.fill_model):
+        return None, cash
+    trade, cash = _close_position(
+        position,
+        candle,
+        cash=cash,
+        quote=_taker_exit_quote(position, _stop_reference(position, candle, costs), costs),
+        reason="stop_loss",
+        fee_rate=costs.taker_fee_rate,
+        bar_duration=bar_duration,
+    )
+    book.position = None
+    return trade, cash
 
 
 def _match_take_profit(

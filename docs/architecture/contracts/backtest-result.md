@@ -77,7 +77,7 @@ flowchart TD
 Results carry `engine` and no `broker` block; the run's `costs` (including
 `spread_bps`) is the only cost authority. A zero `spread_bps` produces bytes
 identical to omitting it. Every summary carries `validity_limits`
-(`maker_touch_full_fill`, `tp_before_stop_same_bar`, plus `spot_short_synthetic`
+(`maker_touch_full_fill`, `stop_before_tp_same_bar`, plus `spot_short_synthetic`
 for shorts). The equity curve has one point per evaluation close plus one
 terminal point at `evaluation.ends_at`. The simulator does not create an order
 intent.

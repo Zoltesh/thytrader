@@ -396,6 +396,45 @@ async def test_stop_still_fires_while_take_profit_is_resting() -> None:
 
 
 @pytest.mark.anyio
+async def test_paper_stop_wins_when_a_bar_touches_both_stop_and_take_profit() -> None:
+    """A bar through both exits cannot show which traded first, so paper assumes the stop."""
+    store = InMemoryExecutionStore()
+    strategy = _always_entry_strategy()
+    filled, window = await _filled_long(store, strategy)
+    assert filled.position is not None
+    assert filled.deployment.phase is RuntimePhase.PENDING_EXIT
+    stop = filled.position.stop_price
+    target = filled.position.target_price
+    assert target is not None
+    resting_tp = [
+        order
+        for order in filled.orders
+        if order.status is OrderStatus.OPEN and order.kind.value != "marketable"
+    ]
+    assert resting_tp, "the take-profit should be resting before the wide bar"
+    wide = _next_bar(
+        window,
+        open_=stop + Decimal("1"),
+        high=target + Decimal("5"),
+        low=stop - Decimal("5"),
+        close=stop + Decimal("1"),
+    )
+    exited = await process_closed_bar(
+        filled,
+        strategy=strategy,
+        product=_product(),
+        candles=(*window, wide),
+        broker=PaperBroker(),
+        store=store,
+    )
+    assert exited.position is None
+    assert exited.deployment.phase is RuntimePhase.FLAT
+    assert any(order.kind.value == "marketable" for order in exited.orders)
+    tp_ids = {order.id for order in resting_tp}
+    assert all(fill.order_id not in tp_ids for fill in exited.fills)
+
+
+@pytest.mark.anyio
 async def test_paused_deployment_still_exits_on_stop() -> None:
     """Pause blocks new entries but still evaluates protective exits."""
     store = InMemoryExecutionStore()

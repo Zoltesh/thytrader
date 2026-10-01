@@ -46,7 +46,7 @@ describe('backtest model disclosure', () => {
 
 	it('explains disclosed validity limits and keeps unknown codes visible', () => {
 		expect(formatValidityLimit('maker_touch_full_fill')).toContain('fill completely');
-		expect(formatValidityLimit('tp_before_stop_same_bar')).toContain('before the stop');
+		expect(formatValidityLimit('stop_before_tp_same_bar')).toContain('stop is assumed');
 		expect(formatValidityLimit('spot_short_synthetic')).toContain('synthetic');
 		expect(formatValidityLimit('new_code')).toBe('Modeling limit: new_code');
 	});

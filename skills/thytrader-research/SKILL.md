@@ -82,8 +82,9 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   maker fee, no slippage. It rests up to `execution.max_entry_wait_bars` candles, then cancels or
   reprices per `on_unfilled_entry`.
 - **Stops and targets on bar extremes.** On the fill candle only the stop can trigger (stop-first).
-  From the next candle the take-profit rests; a candle that touches it fills at the target (maker)
-  before the stop is checked, as paper and live do. Stops fill as takers at the stop or the worse
+  From the next candle the take-profit rests. The stop is always checked first: a candle that
+  touches both the stop and the take-profit is resolved as the stop (conservative; paper does the
+  same). Otherwise a touched take-profit fills at the target (maker). Stops fill as takers at the stop or the worse
   gapped open; ATR trailing ratchets after the check. Time exits sell at the close.
 - **End of window.** Open inventory sells at the open of the `evaluation_end` candle; nothing else
   happens on that candle.
@@ -92,7 +93,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   **stress**: taker exits cross half of it, stops trigger and positions mark on the stressed
   bid/ask, maker fills stay at the limit. Compare the same strategy at 0 / 10 / 25 / 50 bps.
 - **Honesty.** Candles do not show queue position: a touched limit is assumed to fill fully.
-  Every summary lists `validity_limits` (`maker_touch_full_fill`, `tp_before_stop_same_bar`, and
+  Every summary lists `validity_limits` (`maker_touch_full_fill`, `stop_before_tp_same_bar`, and
   `spot_short_synthetic` for shorts); read them before any deployment claim. Backtests are
   simulated research evidence, never paper or live fills.
 

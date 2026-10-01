@@ -239,8 +239,8 @@ def test_stop_is_checked_first_on_the_fill_bar_even_when_the_target_is_also_touc
     assert trade.exit.price == "7.992"
 
 
-def test_resting_take_profit_matches_before_the_stop_on_later_bars() -> None:
-    """After the fill bar, a touched resting target fills first, as paper and live match it."""
+def test_stop_wins_when_a_later_bar_touches_both_stop_and_take_profit() -> None:
+    """A bar touching both exits cannot show which traded first, so the stop is assumed."""
     strategy = _strategy()
     candles = _bars(
         *_WARMUP,
@@ -252,11 +252,28 @@ def test_resting_take_profit_matches_before_the_stop_on_later_bars() -> None:
     result = simulate_backtest(_run(strategy, evaluation_hours=3), strategy, candles)
 
     trade = result.trades[0]
-    assert trade.exit.reason == "take_profit"
+    assert trade.exit.reason == "stop_loss"
     assert trade.exit.candle_starts_at == _hour(4)
+    assert trade.exit.fee_rate != "0.001"
+    assert "stop_before_tp_same_bar" in (result.summary.validity_limits or ())
+
+
+def test_take_profit_still_fills_when_the_stop_is_not_touched() -> None:
+    """A later bar that reaches the target without trading through the stop exits at the target."""
+    strategy = _strategy()
+    candles = _bars(
+        *_WARMUP,
+        _SIGNAL,
+        ("14", "15", "13.5", "14"),
+        ("14", "40", "13", "20"),
+        ("20", "21", "19", "20"),
+    )
+    result = simulate_backtest(_run(strategy, evaluation_hours=3), strategy, candles)
+
+    trade = result.trades[0]
+    assert trade.exit.reason == "take_profit"
     assert trade.exit.price == "26"
     assert trade.exit.fee_rate == "0.001"
-    assert "tp_before_stop_same_bar" in (result.summary.validity_limits or ())
 
 
 def test_stop_gapped_through_exits_at_the_adverse_open_with_taker_slippage() -> None:
@@ -350,7 +367,7 @@ def test_every_result_discloses_its_validity_limits() -> None:
     strategy = _strategy()
     result = simulate_backtest(_run(strategy), strategy, _candles())
 
-    assert result.summary.validity_limits == ("maker_touch_full_fill", "tp_before_stop_same_bar")
+    assert result.summary.validity_limits == ("maker_touch_full_fill", "stop_before_tp_same_bar")
 
 
 def test_short_rests_a_sell_limit_and_stops_on_the_fill_bar_spike() -> None:

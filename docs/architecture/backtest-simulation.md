@@ -85,14 +85,16 @@ simulator runs this fixed sequence:
    reaches `execution.max_entry_wait_bars`, `on_unfilled_entry=cancel` drops it and starts at
    least one bar of cooldown, and `reprice` re-rests it at this bar's close (same quantity,
    stop, and target).
-2. **Resting take-profit.** From the bar after the fill bar, a take-profit rests at the target.
-   If this bar touches it (`high >= target`, `low <= target` for shorts) it fills at the target
-   with the maker fee. This runs **before** the stop check, as the worker matches resting orders
-   before managing the position; results disclose it as `tp_before_stop_same_bar`.
-3. **Stop.** If the bar's executable extreme trades through the working stop, the position exits
-   as a taker at `min(open, stop)` (`max` for shorts: a gap fills at the worse open), with the
-   taker fee and `fixed_slippage_bps`. On the **fill bar** the stop is the only eligible exit
-   (stop-first): the take-profit is not resting yet.
+2. **Stop (always first).** If the bar's executable extreme trades through the working stop, the
+   position exits as a taker at `min(open, stop)` (`max` for shorts: a gap fills at the worse
+   open), with the taker fee and `fixed_slippage_bps`. This is checked **before** the take-profit
+   on every bar: a candle that touches both cannot say which traded first, so the conservative
+   exit is assumed. Paper applies the same rule; live is decided by Coinbase. Results disclose
+   it as `stop_before_tp_same_bar`. On the **fill bar** the stop is the only eligible exit: the
+   take-profit is not resting yet.
+3. **Resting take-profit.** From the bar after the fill bar, a take-profit rests at the target.
+   If the stop did not trigger and this bar touches the target (`high >= target`, `low <= target`
+   for shorts), it fills at the target with the maker fee.
 4. **Trailing.** Enabled ATR trailing ratchets after the stop check, sharing the paper/live
    ratchet (`thytrader.execution.trailing`); the fill bar records the trail extreme without
    raising the stop. Disabled trailing is a no-op.
@@ -178,7 +180,7 @@ gross profit/loss, win rate, profit factor when losses exist, average win/loss w
 absolute and fractional maximum drawdown, exposure and evaluation bars, `total_spread_cost` when
 spread stress is active, and `validity_limits` — always `maker_touch_full_fill` (candles do not
 show queue position, so a touched limit is assumed to fill completely) and
-`tp_before_stop_same_bar`, plus `spot_short_synthetic` for short strategies. It does not invent
+`stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies. It does not invent
 annualization or Sharpe-like statistics inside canonical bytes; those live on the derived
 `thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)),
 and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.
