@@ -69,6 +69,8 @@ async def reconcile_open_orders(
         snapshot = _merge_overlay(snapshot, scoped, order_product)
         if snapshot.deployment.status is DeploymentStatus.PAUSED:
             return snapshot
+    # Re-read so attached child ids adopted while reconciling entries this cycle are seen.
+    snapshot = await store.get_deployment(snapshot.deployment.id)
     snapshot = await _import_attached_children(
         snapshot, broker=broker, store=store, product_id=product_id, cooldown_bars=cooldown_bars
     )
@@ -130,6 +132,11 @@ async def _reconcile_one_order(
         status=result.status,
         filled_quantity=result.filled_quantity,
         reject_reason=result.reject_reason,
+        # Keep a known attached child; otherwise adopt the one the venue now reports, so an
+        # entry whose create response omitted it is still recognized as venue-protected.
+        attached_child_venue_order_id=(
+            order.attached_child_venue_order_id or result.attached_child_venue_order_id
+        ),
         updated_at=utc_now(),
     )
     await store.save_order(updated)
