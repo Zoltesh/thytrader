@@ -74,7 +74,7 @@ export function backtestModelAssumptions(
 			key: 'stops_and_targets',
 			label: 'Stops and targets on bar extremes',
 			detail:
-				'On the fill candle only the stop can trigger (stop first); the take-profit rests from the next candle. On later candles a touched resting take-profit fills at the target before the stop is checked, as paper and live match resting orders first. Stops fill as takers at the stop or the worse open on a gap.'
+				'On the fill candle only the stop can trigger (stop first); the take-profit rests from the next candle. On every candle the stop is checked first: if a candle touches both the stop and the take-profit, the stop is assumed, because a candle cannot show which traded first (paper does the same). Otherwise a touched take-profit fills at the target. Stops fill as takers at the stop or the worse open on a gap.'
 		},
 		{
 			key: 'time_exit',
@@ -132,12 +132,12 @@ export function backtestModelAssumptions(
 
 /** Modeling-limit codes every result discloses in `summary.validity_limits`. */
 export type ValidityLimitCode =
-	'maker_touch_full_fill' | 'tp_before_stop_same_bar' | 'spot_short_synthetic';
+	'maker_touch_full_fill' | 'stop_before_tp_same_bar' | 'spot_short_synthetic';
 
 const VALIDITY_LIMIT_TEXT: Record<ValidityLimitCode, string> = {
 	maker_touch_full_fill: 'A touched maker limit is assumed to fill completely (no queue position).',
-	tp_before_stop_same_bar:
-		'After the fill candle, a touched resting take-profit fills before the stop is checked.',
+	stop_before_tp_same_bar:
+		'When one candle touches both the stop and the take-profit, the stop is assumed (conservative).',
 	spot_short_synthetic: 'Spot shorts are synthetic: no borrow, margin, or funding is modeled.'
 };
 

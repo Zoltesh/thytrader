@@ -79,7 +79,7 @@ export const backtestSummary = {
 	maximum_drawdown_fraction: '0.072',
 	exposure_bars: 400,
 	evaluation_bars: 1680,
-	validity_limits: ['maker_touch_full_fill', 'tp_before_stop_same_bar']
+	validity_limits: ['maker_touch_full_fill', 'stop_before_tp_same_bar']
 };
 
 /** An earlier edit of the same strategy (the rules an older run or bot used). */

@@ -40,7 +40,8 @@ stored backtest, so no historical evidence depends on the old identities.
 semantics documented in [backtest simulation](../architecture/backtest-simulation.md): resting
 post-only entries at the signal close (maker fee, no slippage, touch-through fill), the entry
 wait with cancel/reprice, a stop-only fill bar, resting take-profit matched before the stop on
-later bars, bar-extreme stops at `min(open, stop)` with taker fee and fixed slippage, ATR
+later bars (amended 2026-10-01: the stop is now checked before the take-profit on every bar, in
+backtests and paper; see the amendment below), bar-extreme stops at `min(open, stop)` with taker fee and fixed slippage, ATR
 trailing after the stop check, taker time exits at the close, taker liquidation at the open of
 the `evaluation.ends_at` bar with no other processing there, shorts, multi-instrument shared
 cash in `product_id` order, pyramiding, the `decimal64-half-even-v1` context, deterministic
@@ -115,3 +116,12 @@ rejected stays allowed, because operator agents need that migration hint.
 - **Ignore a stale `engine_contract_version` instead of rejecting it.** Rejected: silently
   returning maker-model numbers to a caller that asked for next-open fills is worse than a clear
   422.
+
+## Amendment (2026-10-01): stop before take-profit on every bar
+
+When one candle touches both the working stop and a resting take-profit, the candle cannot show
+which traded first. Resolving it as the take-profit flattered results. Both candle simulations
+(backtest and paper) now resolve it as the **stop**. The disclosed validity code is renamed
+`tp_before_stop_same_bar` → `stop_before_tp_same_bar`. Live is unaffected: Coinbase's OCO
+bracket decides what actually fills. The fill-bar rule is unchanged (only the stop is eligible).
+

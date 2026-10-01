@@ -25,7 +25,7 @@ const summary = {
 	exposure_bars: 1,
 	evaluation_bars: 2,
 	total_spread_cost: '0.10',
-	validity_limits: ['maker_touch_full_fill', 'tp_before_stop_same_bar']
+	validity_limits: ['maker_touch_full_fill', 'stop_before_tp_same_bar']
 };
 
 test('requests bounded backtest pages with configurable size', async ({ page }) => {

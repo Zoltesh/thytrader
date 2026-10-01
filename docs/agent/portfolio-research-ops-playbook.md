@@ -79,7 +79,7 @@ decision clock — ingest extras explicitly with `thytrader-data`.
 13. Confirm `validation.valid` is true with `uv run thytrader-research show-strategy --strategy-id UUID`;
     an invalid saved definition makes the backtest fail with HTTP 422 `strategy_invalid`.
 14. `uv run thytrader-research submit-backtest --file request.json --confirm`
-15. Read `validity_limits` (`maker_touch_full_fill`, `tp_before_stop_same_bar`, and
+15. Read `validity_limits` (`maker_touch_full_fill`, `stop_before_tp_same_bar`, and
     `spot_short_synthetic` for shorts) on backtest summaries before claiming paper/live parity
     ([ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md)).
 

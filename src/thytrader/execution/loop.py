@@ -209,6 +209,7 @@ async def process_closed_bar(
         store=store,
         cooldown_bars=strategy.entry.cooldown_bars,
         timeframe=deployment.timeframe or strategy.timeframe,
+        stop_first=deployment.mode is not DeploymentMode.LIVE,
     )
     snapshot = await _manage_position(
         snapshot,
@@ -287,10 +288,18 @@ async def _match_resting_orders(
     store: ExecutionStore,
     cooldown_bars: int,
     timeframe: str | None = None,
+    stop_first: bool = False,
 ) -> DeploymentSnapshot:
-    """Apply paper or local fills for resting limits against the closed candle."""
+    """Apply paper or local fills for resting limits against the closed candle.
+
+    With ``stop_first`` (paper), a resting take-profit is not matched on a candle that also
+    trades through the position's stop: the candle cannot show which traded first, so the
+    stop exit in position management wins (the same rule as the backtest model, ADR 0083).
+    """
     for order in snapshot.orders:
         if order.status is not OrderStatus.OPEN:
+            continue
+        if stop_first and _stop_preempts_take_profit(snapshot, order=order, candle=candle):
             continue
         fill = broker.match_open_order(order, candle)
         if fill is None:
@@ -305,6 +314,21 @@ async def _match_resting_orders(
         )
         snapshot = result.snapshot
     return await store.get_deployment(snapshot.deployment.id)
+
+
+def _stop_preempts_take_profit(
+    snapshot: DeploymentSnapshot, *, order: Order, candle: Candle
+) -> bool:
+    """Return whether this resting take-profit must yield to a stop the candle also hit."""
+    intent = next((item for item in snapshot.intents if item.id == order.intent_id), None)
+    if intent is None or intent.purpose is not IntentPurpose.TAKE_PROFIT:
+        return False
+    position = snapshot.position
+    if position is None:
+        return False
+    if order.product_id and position.product_id and order.product_id != position.product_id:
+        return False
+    return paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price)
 
 
 async def apply_fill(
