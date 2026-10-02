@@ -311,27 +311,23 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
         },
         StrategyTemplateId.SQUEEZE_BREAKOUT: {
             "warmup_bars": 21,
-            "indicator_ids": (
-                "close",
-                "bands",
-                "channel",
-                "prior_bands",
-                "prior_channel",
-                "atr",
-            ),
+            "indicator_ids": ("close", "bands", "channel", "atr"),
             "defaults": {
                 "bands.period": "20",
                 "bands.stdev_multiplier": "2",
                 "channel.period": "20",
                 "channel.atr_period": "10",
                 "channel.multiplier": "1.5",
-                "prior_bands.offset": "1",
-                "prior_channel.offset": "1",
                 **_SHARED_DEFAULTS,
             },
-            # The prior_* declarations must keep the same parameters as bands/channel, so
-            # only exits and sizing are advertised as independent axes.
-            "sweepable_axes": _SHARED_AXES,
+            "sweepable_axes": (
+                {"indicator_id": "bands", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "bands", "parameter": "stdev_multiplier"},
+                {"indicator_id": "channel", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "channel", "parameter": "atr_period", "range": [2, 100]},
+                {"indicator_id": "channel", "parameter": "multiplier"},
+                *_SHARED_AXES,
+            ),
         },
         StrategyTemplateId.EMA_TREND_HOLD: {
             "warmup_bars": 100,
@@ -841,21 +837,19 @@ def _squeeze_breakout(
             _close(),
             _bands("bands", offset=None),
             _keltner("channel", offset=None),
-            _bands("prior_bands", offset=1),
-            _keltner("prior_channel", offset=1),
             _atr(),
         ),
         when=AllCondition(
             all=(
                 ComparisonCondition(
-                    left=IndicatorOperand(indicator="prior_bands", series="upper"),
+                    left=IndicatorOperand(indicator="bands", series="upper", offset=1),
                     operator=ComparisonOperator.LT,
-                    right=IndicatorOperand(indicator="prior_channel", series="upper"),
+                    right=IndicatorOperand(indicator="channel", series="upper", offset=1),
                 ),
                 ComparisonCondition(
-                    left=IndicatorOperand(indicator="prior_bands", series="lower"),
+                    left=IndicatorOperand(indicator="bands", series="lower", offset=1),
                     operator=ComparisonOperator.GT,
-                    right=IndicatorOperand(indicator="prior_channel", series="lower"),
+                    right=IndicatorOperand(indicator="channel", series="lower", offset=1),
                 ),
                 ComparisonCondition(
                     left=IndicatorOperand(indicator="close"),

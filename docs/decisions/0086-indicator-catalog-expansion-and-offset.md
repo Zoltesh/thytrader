@@ -1,6 +1,6 @@
 # 0086: Wider indicator catalog, registry-rendered builder catalog, and indicator bar lag
 
-- Status: Accepted
+- Status: Accepted — operand-level-lag deferral superseded by [0099](0099-operand-level-indicator-offsets.md)
 - Date: 2026-10-02
 - Extends: [0005](0005-canonical-strategy-schema.md) (two input tuples and the optional
   `offset` declaration field), [0008](0008-deterministic-signal-evaluation.md) (new formula

@@ -46,7 +46,7 @@ IndicatorId = Annotated[
     str,
     Field(
         strict=True,
-        pattern=r"^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,31})?$",
+        pattern=r"^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,31})?(?:@(?:[1-9]|[1-9]\d|[1-4]\d{2}|500))?$",
     ),
 ]
 IndicatorDecimalText = Annotated[

@@ -243,6 +243,15 @@ declaration on bar `t` is the unlagged value from bar `t - offset` of the indica
 `offset` bars are undefined and nothing later than bar `t` is read. Warmup is the base warmup plus
 `offset`. `offset: 0` normalizes to omitted and canonical JSON omits it. Trace keys do not change.
 
+Indicator operands may also set `offset` (strict integer 0–500; [ADR 0099](../decisions/0099-operand-level-indicator-offsets.md)).
+The evaluator materializes these reads on the native indicator clock, after the declaration lag
+and before merging into the decision clock. This includes reference instruments, extra clocks,
+and HTF-filter indicators. Missing history stays undefined. Positive operand lags add trace keys
+`id@N` or `id.series@N` alongside the original outputs; omitted/zero lags leave old traces intact.
+Crossovers compare both lagged reads at current and previous decision closes. Warmup includes the
+maximum operand lag per indicator across entry, signal-exit, and filter rules, and is recomputed
+for parameter candidates and all dataset coverage checks.
+
 ### Reference-instrument indicators (`source`)
 
 An indicator with `source: <id>` ([ADR 0096](../decisions/0096-reference-instruments.md)) is

@@ -14,6 +14,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     lockstep_product_ids,
     reference_data_requirements,
+    strategy_indicator_operands,
     unbound_indicator_timeframes,
 )
 
@@ -22,7 +23,11 @@ if TYPE_CHECKING:
 
     from thytrader.market_data.datasets import DatasetManifest
     from thytrader.research.models import AdditionalInstrumentDataset, ResearchRunSpecification
-    from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
+    from thytrader.strategies.models import (
+        IndicatorDefinition,
+        IndicatorOperand,
+        StrategyDefinition,
+    )
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -262,7 +267,9 @@ def _require_indicator_timeframe_datasets(
                 evaluation_starts_at=specification.evaluation.starts_at,
                 evaluation_ends_at=specification.evaluation.ends_at,
                 timeframe=binding.timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(groups[binding.timeframe]),
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    groups[binding.timeframe], operands=strategy_indicator_operands(definition)
+                ),
             )
         except ValueError as error:
             raise ResearchRunPublicationError(
@@ -315,6 +322,7 @@ def _require_additional_instrument_datasets(
             additional_indicator_manifests=additional_indicator_manifests,
             required_extra_clocks=required_extra_clocks,
             groups=groups,
+            operands=strategy_indicator_operands(definition),
         )
 
 
@@ -412,6 +420,7 @@ def _require_additional_extra_tf_coverage(
     additional_indicator_manifests: dict[str, dict[str, DatasetManifest]],
     required_extra_clocks: tuple[str, ...],
     groups: Mapping[str, tuple[IndicatorDefinition, ...]],
+    operands: tuple[IndicatorOperand, ...],
 ) -> None:
     """Require extra-TF datasets for one extra product iff the strategy declares those clocks."""
     declared_clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
@@ -441,7 +450,9 @@ def _require_additional_extra_tf_coverage(
                 evaluation_starts_at=specification.evaluation.starts_at,
                 evaluation_ends_at=specification.evaluation.ends_at,
                 timeframe=clock.timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    groups[clock.timeframe], operands=operands
+                ),
             )
         except ValueError as error:
             raise ResearchRunPublicationError(

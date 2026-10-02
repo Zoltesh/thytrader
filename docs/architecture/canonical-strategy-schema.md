@@ -172,6 +172,15 @@ bars of the indicator's own clock, for example the previous bar's 20-bar high
 Warmup adds `offset`. `constant` must omit it. `offset: 0` normalizes to omitted, and canonical
 JSON omits it, so existing fingerprints stay stable.
 
+An **operand** can independently read an earlier value of the same declaration:
+`{"indicator":"bands","series":"upper","offset":1}`. Operand offsets are strict integers
+0–500 and lag completed bars on the indicator's own clock before alignment. They add to any
+declaration offset. Zero is omitted from canonical JSON; literals reject offsets and constants
+reject positive offsets. Warmup includes the largest operand lag for each indicator across entry,
+signal-exit, and HTF-filter rules. Missing history is undefined, including under NOT. This lets
+parameter sweeps update current and prior reads together without duplicate declarations
+([ADR 0099](../decisions/0099-operand-level-indicator-offsets.md)).
+
 ### V1 indicator catalog
 
 | Kind | Input | Required parameters | Output | Minimum warmup |

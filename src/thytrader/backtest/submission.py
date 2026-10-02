@@ -51,6 +51,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     lockstep_product_ids,
     reference_data_requirements,
+    strategy_indicator_operands,
     unbound_indicator_timeframes,
 )
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError
@@ -62,7 +63,11 @@ if TYPE_CHECKING:
 
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.products import SpotQuoteCurrency
-    from thytrader.strategies.models import IndicatorDefinition, StrategyDefinition
+    from thytrader.strategies.models import (
+        IndicatorDefinition,
+        IndicatorOperand,
+        StrategyDefinition,
+    )
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -709,7 +714,9 @@ def _intersect_indicator_omitted_window(
         clip_start, clip_end = _closed_bar_clip_from_manifest(
             manifest,
             clock_timeframe=binding.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(groups[binding.timeframe]),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                groups[binding.timeframe], operands=strategy_indicator_operands(strategy.definition)
+            ),
             decision_timeframe=strategy.definition.timeframe,
         )
         clipped_start, clipped_end = _clip_evaluation_window(
@@ -810,7 +817,9 @@ def _clip_additional_extra_tf_window(
         clip_start, clip_end = _closed_bar_clip_from_manifest(
             clock_manifest,
             clock_timeframe=clock.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                groups[clock.timeframe], operands=strategy_indicator_operands(strategy.definition)
+            ),
             decision_timeframe=strategy.definition.timeframe,
         )
         clipped_start, clipped_end = _clip_evaluation_window(
@@ -1033,7 +1042,9 @@ def _require_indicator_timeframe_window(
             evaluation_starts_at=evaluation_start,
             evaluation_ends_at=evaluation_end,
             timeframe=binding.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(groups[binding.timeframe]),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                groups[binding.timeframe], operands=strategy_indicator_operands(definition)
+            ),
         )
         starts_at = _manifest_instant(manifest.starts_at)
         ends_at = _manifest_instant(manifest.ends_at)
@@ -1169,6 +1180,7 @@ def _require_additional_instrument_window(
             evaluation_end=evaluation_end,
             required_clocks=required_clocks,
             groups=groups,
+            operands=strategy_indicator_operands(definition),
         )
 
 
@@ -1259,6 +1271,7 @@ def _require_additional_extra_tf_window(
     evaluation_end: datetime,
     required_clocks: tuple[str, ...],
     groups: Mapping[str, tuple[IndicatorDefinition, ...]],
+    operands: tuple[IndicatorOperand, ...],
 ) -> None:
     """Confirm extra-TF datasets for one extra product match the published clocks."""
     clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
@@ -1286,7 +1299,9 @@ def _require_additional_extra_tf_window(
             evaluation_starts_at=evaluation_start,
             evaluation_ends_at=evaluation_end,
             timeframe=clock.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(groups[clock.timeframe]),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                groups[clock.timeframe], operands=operands
+            ),
         )
         clock_start = _manifest_instant(clock_manifest.starts_at)
         clock_end = _manifest_instant(clock_manifest.ends_at)

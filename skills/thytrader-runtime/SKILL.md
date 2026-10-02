@@ -397,6 +397,14 @@ venue-request budget that can only ever deny a **new entry**, never a cancellati
 `--max-entry-orders-per-minute` itself now counts only entry-purpose orders, so recent protective
 activity no longer exhausts it and blocks an unrelated new entry.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
+
+Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
+([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
+`thytrader-ops-contract-v59` with `indicator_operand_offset_runtimes` including the deployment
+mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
+and require extra warmup. Missing history remains undefined. Decision journals expose lagged
+values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research
+lane; start/resume and live acknowledgement gates stay the same.
 Optional `--note` is frozen onto the why-trade record at persist. Later review notes use
 `thytrader-memory add-trade-reason-note --confirm` (YOLO never covers that lane).
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without

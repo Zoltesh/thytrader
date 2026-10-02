@@ -32,6 +32,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
     strategy_fingerprint,
+    strategy_indicator_operands,
 )
 from thytrader.strategies.snapshots import StrategySnapshot
 
@@ -765,15 +766,24 @@ def _cover_warmup(
     decision = decision_clock_indicators(definition)
     payload["data_requirements"]["warmup_bars"] = max(
         floor,
-        extra_indicator_timeframe_warmup(decision),
+        extra_indicator_timeframe_warmup(
+            decision, operands=strategy_indicator_operands(definition)
+        ),
     )
     htf = definition.htf_filter
     if htf is not None:
-        needed = extra_indicator_timeframe_warmup(htf.indicators)
+        needed = extra_indicator_timeframe_warmup(
+            htf.indicators, operands=strategy_indicator_operands(definition)
+        )
         groups = dict(extra_indicator_timeframe_groups(definition))
         shared = groups.get(htf.timeframe)
         if shared:
-            needed = max(needed, extra_indicator_timeframe_warmup(shared))
+            needed = max(
+                needed,
+                extra_indicator_timeframe_warmup(
+                    shared, operands=strategy_indicator_operands(definition)
+                ),
+            )
         payload["htf_filter"]["data_requirements"]["warmup_bars"] = max(htf_floor, needed)
     return StrategyDefinition.model_validate(payload)
 

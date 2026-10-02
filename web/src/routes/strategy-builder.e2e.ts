@@ -92,6 +92,27 @@ async function mockDraftStorage(
 	});
 }
 
+test('saves and reloads independent operand offsets', async ({ page }) => {
+	let current = record();
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			const body = (await route.request().postDataJSON()) as { document: typeof draft };
+			current = record(body.document, 2);
+		}
+		await route.fulfill({ json: current });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	await page.getByLabel('Left operand offset (bars ago)').first().fill('2');
+	await expect(page.locator('.dirty-pill')).toBeVisible();
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(page.getByTestId('workspace-save-state')).toContainText('Revision 2');
+	await page.reload();
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	await expect(page.getByLabel('Left operand offset (bars ago)').first()).toHaveValue('2');
+	await expect(page.getByLabel('Right operand offset (bars ago)').first()).toHaveValue('0');
+});
+
 test('loads a draft into the builder with sections, rule tree, and inspector summary', async ({
 	page
 }) => {

@@ -39,13 +39,14 @@ from thytrader.strategies.models import (
     indicator_offset,
     indicator_output_series,
     indicator_value_keys,
+    operand_value_key,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from thytrader.market_data.models import Candle
-    from thytrader.strategies.models import IndicatorDefinition
+    from thytrader.strategies.models import IndicatorDefinition, IndicatorOperand
 
 _ENGINE_CONTEXT = Context(
     prec=64,
@@ -65,14 +66,25 @@ class IndicatorCalculationError(ValueError):
 def calculate_indicator_rows(
     indicators: Sequence[IndicatorDefinition],
     candles: Sequence[Candle],
+    *,
+    operands: Sequence[IndicatorOperand] = (),
 ) -> tuple[dict[str, Decimal | None], ...]:
-    """Calculate each declared indicator sequentially for every supplied candle."""
+    """Calculate declared outputs and requested operand lags on their native closed bars."""
     rows = [dict[str, Decimal | None]() for _candle in candles]
     with localcontext(_ENGINE_CONTEXT):
         for indicator in indicators:
             keyed_rows = _keyed_indicator_values(indicator, candles)
             for row, keyed in zip(rows, keyed_rows, strict=True):
                 row.update(keyed)
+    known = {indicator.id for indicator in indicators}
+    for operand in operands:
+        offset = operand.offset
+        if offset is None or operand.indicator not in known:
+            continue
+        base_key = operand_value_key(operand.model_copy(update={"offset": None}))
+        key = operand_value_key(operand)
+        for index, row in enumerate(rows):
+            row[key] = None if index < offset else rows[index - offset].get(base_key)
     return tuple(rows)
 
 

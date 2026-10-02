@@ -59,7 +59,8 @@ start; ADR 0096), or runtime parity and observability (paper's backtest same-bar
 precedence, ``position_state`` / ``exit_in_flight``, and the paper/live entry-fill
 comparison in the operator ``portfolios`` report; ADR 0097), or the library origin filter,
 paper ``protection_status``, last-bar book marks, and per-portfolio fill comparisons (ADR
-0098) change. Concurrency is the
+0098), or operand-level indicator offsets across research, paper, and live (ADR 0099)
+change. Concurrency is the
 deployment's ``research_worker_count`` and is reported by operator health, not compiled
 into this contract.
 """
@@ -86,7 +87,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v58"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v59"
 EXPECTED_SCHEMA_REVISION = "0059"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -224,6 +225,7 @@ def expected_ops_contract() -> dict[str, object]:
         "htf_filter_runtimes": list(HTF_FILTER_RUNTIMES),
         "indicator_timeframe_runtimes": list(INDICATOR_TIMEFRAME_RUNTIMES),
         "indicator_offset_runtimes": list(INDICATOR_OFFSET_RUNTIMES),
+        "indicator_operand_offset_runtimes": list(INDICATOR_OFFSET_RUNTIMES),
         "signal_exit_runtimes": list(SIGNAL_EXIT_RUNTIMES),
         "reference_instrument_runtimes": list(REFERENCE_INSTRUMENT_RUNTIMES),
         "max_reference_instruments": MAX_REFERENCE_INSTRUMENTS,

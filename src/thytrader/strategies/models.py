@@ -686,6 +686,20 @@ class IndicatorOperand(_FrozenModel):
         pattern=r"^[a-z][a-z0-9_]{0,31}$",
         exclude_if=lambda value: value is None,
     )
+    offset: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_INDICATOR_OFFSET,
+        exclude_if=lambda value: value is None,
+        description="Additional lag in completed bars of the referenced indicator's own clock.",
+        strict=True,
+    )
+
+    @field_validator("offset")
+    @classmethod
+    def normalize_zero_offset(cls, value: int | None) -> int | None:
+        """Omit a zero lag so existing operands keep their canonical bytes."""
+        return None if value == 0 else value
 
 
 def indicator_output_series(kind: IndicatorKind) -> tuple[str, ...] | None:
@@ -703,9 +717,20 @@ def indicator_value_keys(indicator: IndicatorDefinition) -> tuple[str, ...]:
 
 def operand_value_key(operand: IndicatorOperand) -> str:
     """Return the evaluator key addressed by one indicator operand."""
-    if operand.series is None:
-        return operand.indicator
-    return f"{operand.indicator}.{operand.series}"
+    key = operand.indicator if operand.series is None else f"{operand.indicator}.{operand.series}"
+    return key if operand.offset is None else f"{key}@{operand.offset}"
+
+
+def condition_indicator_operands(condition: ConditionNode) -> tuple[IndicatorOperand, ...]:
+    """Return distinct indicator reads in a bounded rule tree, in encounter order."""
+    return tuple(
+        dict.fromkeys(
+            operand
+            for comparison in _comparison_conditions(condition)
+            for operand in (comparison.left, comparison.right)
+            if isinstance(operand, IndicatorOperand)
+        )
+    )
 
 
 class LiteralOperand(_FrozenModel):
@@ -1163,8 +1188,11 @@ def _omit_absent_operand_series(node: object) -> None:
         return
     for key in ("left", "right"):
         operand = node.get(key)
-        if isinstance(operand, dict) and operand.get("series") is None:
-            operand.pop("series", None)
+        if isinstance(operand, dict):
+            if operand.get("series") is None:
+                operand.pop("series", None)
+            if not operand.get("offset"):
+                operand.pop("offset", None)
     for children_key in ("all", "any"):
         children = node.get(children_key)
         if isinstance(children, list):
@@ -1187,6 +1215,8 @@ def _omit_absent_signal_exit(exits: object) -> None:
 
 def _require_operand_series(operand: IndicatorOperand, indicator: IndicatorDefinition) -> None:
     """Require series on multi-output kinds and forbid it on single-output kinds."""
+    if indicator.kind is IndicatorKind.CONSTANT and operand.offset is not None:
+        raise ValueError("constant operand must omit offset")
     outputs = indicator_output_series(indicator.kind)
     if outputs is None:
         if operand.series is not None:
@@ -1317,7 +1347,9 @@ class HigherTimeframeFilter(_FrozenModel):
         }
         if not required_fields.issubset(self.data_requirements.required_fields):
             raise ValueError("HTF required_fields must include every HTF indicator input")
-        required_warmup = max(_indicator_min_warmup(indicator) for indicator in self.indicators)
+        required_warmup = extra_indicator_timeframe_warmup(
+            self.indicators, operands=condition_indicator_operands(self.when)
+        )
         if self.data_requirements.warmup_bars < required_warmup:
             raise ValueError("HTF warmup_bars must cover the longest HTF indicator period")
         _require_bounded_condition_tree(self.when)
@@ -1696,8 +1728,8 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     }
     if not required_fields.issubset(definition.data_requirements.required_fields):
         raise ValueError("required_fields must include every indicator input")
-    required_warmup = max(
-        (_indicator_min_warmup(indicator) for indicator in decision_indicators), default=1
+    required_warmup = extra_indicator_timeframe_warmup(
+        decision_indicators, operands=strategy_indicator_operands(definition)
     )
     if definition.data_requirements.warmup_bars < required_warmup:
         raise ValueError("warmup_bars must cover the longest indicator period")
@@ -1863,7 +1895,9 @@ def reference_data_requirements(
             reference_id=reference.id,
             product_id=reference.product_id,
             timeframe=reference.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                indicators, operands=strategy_indicator_operands(definition)
+            ),
             required_fields=extra_indicator_required_fields(indicators),
         )
         for reference, indicators in reference_indicator_groups(definition)
@@ -1915,9 +1949,23 @@ def unbound_indicator_timeframes(definition: StrategyDefinition) -> tuple[str, .
     )
 
 
-def extra_indicator_timeframe_warmup(indicators: tuple[IndicatorDefinition, ...]) -> int:
-    """Return closed-bar warmup for one extra-TF indicator group."""
-    return max(_indicator_min_warmup(indicator) for indicator in indicators)
+def extra_indicator_timeframe_warmup(
+    indicators: tuple[IndicatorDefinition, ...],
+    *,
+    operands: tuple[IndicatorOperand, ...] = (),
+) -> int:
+    """Return native-clock warmup including the largest operand lag for each indicator."""
+    return max(
+        (
+            _indicator_min_warmup(indicator)
+            + max(
+                (operand.offset or 0 for operand in operands if operand.indicator == indicator.id),
+                default=0,
+            )
+            for indicator in indicators
+        ),
+        default=1,
+    )
 
 
 def extra_indicator_required_fields(
@@ -1958,7 +2006,9 @@ def _require_htf_coverage_for_shared_indicator_clock(definition: StrategyDefinit
     shared = groups.get(htf_filter.timeframe)
     if shared is None:
         return
-    needed_warmup = extra_indicator_timeframe_warmup(shared)
+    needed_warmup = extra_indicator_timeframe_warmup(
+        shared, operands=strategy_indicator_operands(definition)
+    )
     if htf_filter.data_requirements.warmup_bars < needed_warmup:
         raise ValueError("HTF warmup_bars must cover extra indicators on the HTF timeframe")
     needed_fields = extra_indicator_required_fields(shared)
@@ -1994,12 +2044,43 @@ def expanded_data_requirements(
         requirements.append(
             TimeframeDataRequirement(
                 timeframe=timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(indicators),
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    indicators, operands=strategy_indicator_operands(definition)
+                ),
                 required_fields=extra_indicator_required_fields(indicators),
                 role="indicator",
             )
         )
     return tuple(requirements)
+
+
+def strategy_indicator_operands(definition: StrategyDefinition) -> tuple[IndicatorOperand, ...]:
+    """Collect entry, signal-exit, and filter operands for calculation and warmup."""
+    conditions: list[ConditionNode] = [definition.entry.when]
+    exit_condition = signal_exit_condition(definition.exits)
+    if exit_condition is not None:
+        conditions.append(exit_condition)
+    if definition.htf_filter is not None:
+        conditions.append(definition.htf_filter.when)
+    return tuple(
+        dict.fromkeys(
+            operand for node in conditions for operand in condition_indicator_operands(node)
+        )
+    )
+
+
+def strategy_indicator_value_keys(definition: StrategyDefinition) -> tuple[str, ...]:
+    """Keep historical trace keys and append distinct lagged operand evidence keys."""
+    keys = tuple(
+        key
+        for indicator in decision_and_filter_indicators(definition)
+        for key in indicator_value_keys(indicator)
+    )
+    return keys + tuple(
+        operand_value_key(operand)
+        for operand in strategy_indicator_operands(definition)
+        if operand.offset is not None
+    )
 
 
 def decision_and_filter_indicators(

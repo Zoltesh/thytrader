@@ -1063,9 +1063,9 @@
 			)}
 		{:else}
 			{@const comparison = condition as {
-				left: { indicator?: string; series?: string; literal?: string };
+				left: { indicator?: string; series?: string; literal?: string; offset?: number };
 				operator: string;
-				right: { indicator?: string; series?: string; literal?: string };
+				right: { indicator?: string; series?: string; literal?: string; offset?: number };
 			}}
 			<div class="rule-comparison">
 				<span class="kw">{depth === 0 ? 'IF' : rowKeyword(parent, index)}</span>
@@ -1077,6 +1077,27 @@
 				>
 					{@render operandOptions(indicators)}
 				</select>
+				{#if comparison.left.indicator !== undefined && indicators.find((item) => item.id === comparison.left.indicator)?.kind !== 'constant'}
+					<label
+						title="Completed bars of this indicator's timeframe; adds to its indicator offset."
+					>
+						Bars ago
+						<input
+							type="number"
+							min="0"
+							max={MAX_INDICATOR_OFFSET}
+							step="1"
+							aria-label="Left operand offset (bars ago)"
+							value={comparison.left.offset ?? 0}
+							oninput={(event) => {
+								const offset = Number(event.currentTarget.value);
+								if (offset === 0) delete comparison.left.offset;
+								else comparison.left.offset = offset;
+								markDirty();
+							}}
+						/>
+					</label>
+				{/if}
 				{#if comparison.left.indicator === undefined}
 					<input
 						class="literal"
@@ -1105,6 +1126,27 @@
 				</select>
 				{#if comparison.right.indicator !== undefined}
 					<span class="operand-name">{operandLabel(comparison.right)}</span>
+					{#if indicators.find((item) => item.id === comparison.right.indicator)?.kind !== 'constant'}
+						<label
+							title="Completed bars of this indicator's timeframe; adds to its indicator offset."
+						>
+							Bars ago
+							<input
+								type="number"
+								min="0"
+								max={MAX_INDICATOR_OFFSET}
+								step="1"
+								aria-label="Right operand offset (bars ago)"
+								value={comparison.right.offset ?? 0}
+								oninput={(event) => {
+									const offset = Number(event.currentTarget.value);
+									if (offset === 0) delete comparison.right.offset;
+									else comparison.right.offset = offset;
+									markDirty();
+								}}
+							/>
+						</label>
+					{/if}
 				{:else}
 					<input
 						class="literal"

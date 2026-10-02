@@ -42,7 +42,6 @@ from thytrader.strategies.models import (
     LiteralOperand,
     NotCondition,
     StrategyDefinition,
-    decision_and_filter_indicators,
     decision_clock_indicators,
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
@@ -52,6 +51,8 @@ from thytrader.strategies.models import (
     reference_instruments,
     signal_exit_condition,
     strategy_fingerprint,
+    strategy_indicator_operands,
+    strategy_indicator_value_keys,
     unbound_indicator_timeframes,
 )
 
@@ -96,7 +97,9 @@ def evaluate_signal_trace(
     extra_candles = dict(indicator_timeframe_candles or {})
     try:
         indicator_rows = calculate_indicator_rows(
-            decision_clock_indicators(strategy), engine_candles
+            decision_clock_indicators(strategy),
+            engine_candles,
+            operands=strategy_indicator_operands(strategy),
         )
     except (DecimalException, IndicatorCalculationError) as error:
         raise SignalEvaluationError(
@@ -116,8 +119,7 @@ def evaluate_signal_trace(
         evaluation_ends_at=specification.evaluation.ends_at,
     )
     htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
-    declared = decision_and_filter_indicators(strategy)
-    indicator_ids = tuple(key for indicator in declared for key in indicator_value_keys(indicator))
+    indicator_ids = strategy_indicator_value_keys(strategy)
     exit_condition = signal_exit_condition(strategy.exits)
     records: list[SignalTraceRecord] = []
     for index, (candle, values) in enumerate(zip(engine_candles, indicator_rows, strict=True)):
@@ -227,7 +229,9 @@ def calculate_htf_indicator_rows(
     )
     selected = _required_htf_candles(expected_starts, htf_candles)
     try:
-        rows = calculate_indicator_rows(htf_filter.indicators, selected)
+        rows = calculate_indicator_rows(
+            htf_filter.indicators, selected, operands=strategy_indicator_operands(strategy)
+        )
     except (DecimalException, IndicatorCalculationError) as error:
         raise SignalEvaluationError(
             "HTF indicator calculation failed under the deterministic Decimal contract."
@@ -258,11 +262,15 @@ def calculate_extra_indicator_rows(
             evaluation_starts_at=evaluation_starts_at,
             evaluation_ends_at=evaluation_ends_at,
             timeframe=timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                indicators, operands=strategy_indicator_operands(strategy)
+            ),
         )
         selected = _required_htf_candles(expected_starts, selected_candles)
         try:
-            computed = calculate_indicator_rows(indicators, selected)
+            computed = calculate_indicator_rows(
+                indicators, selected, operands=strategy_indicator_operands(strategy)
+            )
         except (DecimalException, IndicatorCalculationError) as error:
             raise SignalEvaluationError(
                 "Indicator-timeframe calculation failed under the deterministic Decimal contract."
@@ -305,14 +313,18 @@ def calculate_reference_indicator_rows(
                 evaluation_starts_at=evaluation_starts_at,
                 evaluation_ends_at=evaluation_ends_at,
                 timeframe=reference.timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(indicators),
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    indicators, operands=strategy_indicator_operands(strategy)
+                ),
             ),
             strict=strict,
         )
         if selected is None:
             continue
         try:
-            computed = calculate_indicator_rows(indicators, selected)
+            computed = calculate_indicator_rows(
+                indicators, selected, operands=strategy_indicator_operands(strategy)
+            )
         except (DecimalException, IndicatorCalculationError) as error:
             raise SignalEvaluationError(
                 "Reference indicator calculation failed under the deterministic Decimal contract."

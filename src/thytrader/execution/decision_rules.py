@@ -33,12 +33,11 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorOperand,
     NotCondition,
-    decision_and_filter_indicators,
     indicator_offset,
-    indicator_value_keys,
     operand_value_key,
     reference_instruments,
     signal_exit_condition,
+    strategy_indicator_value_keys,
 )
 
 if TYPE_CHECKING:
@@ -162,7 +161,7 @@ class OperandLabeler:
         indicator_clock = indicator.timeframe or clock
         if indicator_clock is not None and indicator_clock != self._timeframe:
             text = f"{text} [{indicator_clock}]"
-        offset = indicator_offset(indicator)
+        offset = indicator_offset(indicator) + (operand.offset or 0)
         if offset:
             text = f"{text} ({offset} bar{'' if offset == 1 else 's'} ago)"
         return text[:_LABEL_LIMIT]
@@ -268,11 +267,7 @@ def signal_record(
     """Reuse the research ``SignalTraceRecord`` shape for this bar's indicator values."""
     if evaluation.candle_starts_at is None:
         return None
-    keys = tuple(
-        key
-        for indicator in decision_and_filter_indicators(strategy)
-        for key in indicator_value_keys(indicator)
-    )
+    keys = strategy_indicator_value_keys(strategy)
     if not keys:
         return None
     values = tuple(

@@ -171,6 +171,15 @@ multi-series indicator's outputs under its name, for example `Supertrend(10, 3) 
 market). New templates in the library — **Donchian breakout**, **Supertrend trend**, **Squeeze
 breakout**, and **Z-score mean reversion** — start from these kinds.
 
+Each indicator side of a condition has its own **Left/Right operand offset (bars ago)** field
+(0–500). Zero reads the current value; one reads the previous completed bar on that indicator's
+clock, so a daily indicator's offset is in daily bars even when the strategy decides hourly.
+This adds to any indicator declaration offset. Use the same indicator with different operand
+offsets to compare current and prior values; the new squeeze template does this so sweeping its
+band/channel parameters updates both reads together. Increase warmup to cover the longest lag;
+Build's checks include entry and signal-exit reads. Backtests and bots use the same interpretation
+([ADR 0099](../decisions/0099-operand-level-indicator-offsets.md)).
+
 **Snapshots.** Starting a backtest, study, or bot takes an automatic snapshot of the saved rules
 (a `sha256:` fingerprint). Every result and bot row shows **Current rules** when it used the rules
 you have now, or **Earlier edit** when the strategy changed since; **What changed** shows a

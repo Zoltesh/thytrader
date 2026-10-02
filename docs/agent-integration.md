@@ -96,7 +96,14 @@ grouped by `category` (trend, momentum, volatility, volume, statistical, price),
 ([ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md),
 [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md)). Any declaration except
 `constant` may add `offset` (0–500 completed bars of its own clock) to read an earlier bar, for
-example the previous bar's Donchian channel for a breakout. Do not invent unlisted kinds.
+example the previous bar's Donchian channel for a breakout. Indicator operands independently
+accept strict integer `offset` 0–500, for example `{"indicator":"bands","series":"upper","offset":1}`.
+Use one declaration for current/prior reads to keep parameter sweeps synchronized. Lags count
+completed native-clock bars before alignment and add to declaration offsets. Warmup includes
+the maximum operand lag per indicator across entry, signal-exit, and filter rules. Literals reject
+offsets; constants reject positive offsets; omitted/zero preserve canonical bytes. Decision and
+research traces add `id@N` / `id.series@N` for positive operand lags
+([ADR 0099](decisions/0099-operand-level-indicator-offsets.md)). Do not invent unlisted kinds.
 - `thytrader-data` — watchlist, ingest, inspect-gaps, fill-gaps (`--confirm` on mutations; `watch-add`, `ingest`, and `fill-gaps` POSTs send installation Bearer when a token is resolvable). `ingest` and `fill-gaps` only queue work for an existing watch: an unwatched product/timeframe is HTTP 409 naming `watch-add`, and no watch is created. `watch-add --lookback-hours` ceilings run from 2160 (90 days) at `1m` to 87600 (10 years) at `2h`-`1d` ([ADR 0085](decisions/0085-fast-research-ingest.md)).
 - `thytrader-research` — strategy list/show/create/save/import/clone/delete/bulk-delete and snapshot reads, backtests and composed studies by `strategy_id`, and persisted study catalog reads (`--confirm` on mutations). Multi-instrument documents bind extra products through `additional_instrument_datasets` on submit-backtest JSON (lexicographic `product_id`; omitted when empty) ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Omitting both `evaluation_start` and `evaluation_end` on `submit-backtest` fills the common LTF+HTF (and extra-clock) covered intersection. `show-result` reports the snapshot's strategy clock, including `2h` and `4h`.
 - `thytrader-runtime` — paper/live start, pause, resume, stop, on-demand place-order, and write-only Coinbase credential show/set/clear (`--confirm` unless YOLO covers that tier; live also `--i-understand-live`; `--side` long or short). Default stop is managed shutdown (keep protective brackets and residual occupancy); `--flatten` / `?flatten=true` marketably exits ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Paper start/place-order may pass `--maker-fee-rate` / `--taker-fee-rate` (documented assumptions; omitted paper uses `0.001` / `0.002`; live rejects the flags). Credential set/clear always need `--confirm` and `--private-key-file` (never a CLI secret). YOLO never covers credentials. Setting credentials does not arm live trading. `set-risk-policy --allow-intra-strategy-pyramiding` is required for paper/live same-side adds when the strategy also enables pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)). Live start and live `place-order` require a published risk policy; the compiled default cannot arm live (`LIVE_REQUIRES_PUBLISHED_POLICY`). Optional `--max-daily-loss-quote` / `--max-portfolio-exposure-quote` add absolute quote ceilings alongside the matching fraction, and optional `--max-venue-order-actions-per-minute` adds a combined entry+cancel budget that can only deny a new entry, never a cancellation or protective submission ([ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)). `list` / `show` return every product book (`positions`, `instrument_runtimes`, product-tagged orders/fills, `book_totals`). The singular `position` field is compatibility-only and always includes `product_id`; read `positions` for inventory ([ADR 0060](decisions/0060-multi-book-deployment-api.md)). `protection_status` is classified from verified attached-child coverage and venue-visible exits (`flat` / `covered` / `unprotected` / `unknown`); missing children are unprotected, not unknown ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md)). Read `position_state` (`flat` / `entering` / `open_protected` / `open_unprotected` / `open_unverified` / `exiting`) and `exit_in_flight` on the deployment and each `positions[]` row rather than the raw `phase`: `phase: pending_exit` includes an open book whose TP/SL merely rests (`open_protected`); only `exiting` means an exit is being sent ([ADR 0097](decisions/0097-runtime-parity-and-observability.md)). Paper resolves a same-bar exit tie exactly like the backtest: stop, then touched TP, then signal exit, then time exit. Default `stop` is managed shutdown; pass `--flatten` or `?flatten=true` only to marketably exit then cancel remainders. Pause still maintains protection and does not reset breaker baselines. Operator `runtime` reports `lifecycle_command`, latches, `revision`, and `worker_lease_held`; `thytrader-runtime show` reports a `capital` block (`allocated_capital`, `venue_available_quote`, reserved/inventory/equity fields) separately from ledger `cash` ([ADR 0065](decisions/0065-deployment-capital-accounting-http.md)).
@@ -260,7 +267,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v58` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v59` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -276,8 +283,10 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md),
 [ADR 0096](decisions/0096-reference-instruments.md),
 [ADR 0097](decisions/0097-runtime-parity-and-observability.md),
-[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md); `backtest_engine:
-"thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, `signal_exit_runtimes`,
+[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md),
+[ADR 0099](decisions/0099-operand-level-indicator-offsets.md); `backtest_engine:
+"thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`,
+`indicator_operand_offset_runtimes`, `signal_exit_runtimes`,
 `reference_instrument_runtimes`, and `max_reference_instruments`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
 `study_budgets`; `take_profit_kinds`, `live_protection_kinds`,

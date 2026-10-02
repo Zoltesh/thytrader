@@ -377,8 +377,17 @@ Configurable kinds accept one of open/high/low/close/volume; locked kinds take e
 series. Any declaration except `constant` may add `offset` (0–500): it reads the value from that
 many completed bars earlier on the indicator's own clock and adds `offset` to warmup — for example
 `{"kind": "donchian", "input": ["high", "low"], "parameters": {"period": 20}, "offset": 1}` is the
-previous bar's channel for a breakout. To compare an indicator with its own earlier value, declare it
-twice (once with `offset`). Do not invent unlisted kinds or pass through a TA library.
+previous bar's channel for a breakout. An indicator operand may independently add a strict integer
+`offset` (0–500), for example `{"indicator":"bands","series":"upper","offset":1}`.
+It reads completed bars on that indicator's own clock before decision-clock alignment and adds
+to any declaration offset. Use one declaration for current and prior reads so parameter sweeps
+keep both synchronized. Literals reject offsets; `constant` rejects positive offsets. Zero is
+omitted from canonical JSON. Include the largest operand lag in warmup, including signal exits
+and HTF-filter rules. The server derives extra-clock/reference warmup and validates supplied
+decision/filter warmup. Save/import with the existing confirmation gates; require ops contract
+v59 for operand lags. New squeeze templates expose `bands.period`, `bands.stdev_multiplier`,
+`channel.period`, `channel.atr_period`, and `channel.multiplier` axes using these shared reads.
+Do not invent unlisted kinds or pass through a TA library.
 Optional per-indicator `timeframe` on LTF-list indicators must be a coarser integer-multiple venue
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a

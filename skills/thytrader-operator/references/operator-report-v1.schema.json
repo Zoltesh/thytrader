@@ -102,7 +102,14 @@
       "properties": {
         "ops_contract": {
           "type": ["object", "null"],
-          "description": "Health only. Missing or unequal to this CLI means a stale Compose image."
+          "description": "Health only. Missing or unequal to this CLI means a stale Compose image.",
+          "properties": {
+            "indicator_operand_offset_runtimes": {
+              "type": "array",
+              "items": { "enum": ["research", "paper", "live"] },
+              "description": "Native-clock operand offsets; advertised by ops contract v59."
+            }
+          }
         },
         "applied_schema_revision": {
           "type": ["string", "null"]

@@ -263,7 +263,8 @@ export type ComparisonOperatorValue =
 	| 'crosses_above'
 	| 'crosses_below';
 
-export type OperandDraft = { indicator: string; series?: string } | { literal: string };
+export type OperandDraft =
+	{ indicator: string; series?: string; offset?: number } | { literal: string };
 
 export type ConditionDraft =
 	| { left: OperandDraft; operator: ComparisonOperatorValue; right: OperandDraft }

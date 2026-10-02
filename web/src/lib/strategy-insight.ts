@@ -68,9 +68,32 @@ export function conditionToText(condition: ConditionDraft): string {
 
 function operandText(operand: OperandDraft): string {
 	if ('literal' in operand) return operand.literal;
-	return operand.series === undefined
-		? operand.indicator
-		: `${operand.indicator}.${operand.series}`;
+	const text =
+		operand.series === undefined ? operand.indicator : `${operand.indicator}.${operand.series}`;
+	return operand.offset
+		? `${text} (${operand.offset} bar${operand.offset === 1 ? '' : 's'} ago)`
+		: text;
+}
+
+/** Largest requested native-clock lag of one indicator in a rule tree. */
+function conditionOperandOffset(condition: ConditionDraft, id: string): number {
+	if ('left' in condition) {
+		return Math.max(
+			0,
+			...[condition.left, condition.right].map((operand) =>
+				'indicator' in operand && operand.indicator === id && isValidOffset(operand.offset)
+					? (operand.offset ?? 0)
+					: 0
+			)
+		);
+	}
+	if ('not' in condition) return conditionOperandOffset(condition.not, id);
+	const children = 'all' in condition ? condition.all : condition.any;
+	return Math.max(0, ...children.map((child) => conditionOperandOffset(child, id)));
+}
+
+function maximumOperandOffset(conditions: ConditionDraft[], id: string): number {
+	return Math.max(0, ...conditions.map((condition) => conditionOperandOffset(condition, id)));
 }
 
 function renderConditionChild(child: ConditionDraft, parentJoiner: string): string {
@@ -286,6 +309,8 @@ export function validateDefinition(model: BuilderModel): string[] {
 	const ids = new Set(model.indicators.map((indicator) => indicator.id));
 	if (ids.size !== model.indicators.length) problems.push('Indicator identifiers must be unique.');
 	const warmupNeeded = new Map<string, number>();
+	const conditions = [model.entry.when];
+	if (model.exits.signal_exit !== undefined) conditions.push(model.exits.signal_exit.when);
 	for (const indicator of model.indicators) {
 		if (!INDICATOR_ID_PATTERN.test(indicator.id)) {
 			problems.push(
@@ -301,7 +326,10 @@ export function validateDefinition(model: BuilderModel): string[] {
 		}
 		const sourced = indicator.source !== undefined && indicator.source !== '';
 		if (clock === model.timeframe && !sourced) {
-			warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
+			warmupNeeded.set(
+				indicator.id,
+				indicatorWarmupBars(indicator) + maximumOperandOffset(conditions, indicator.id)
+			);
 		}
 	}
 	problems.push(...validateReferenceInstruments(model));
@@ -312,7 +340,9 @@ export function validateDefinition(model: BuilderModel): string[] {
 		);
 	}
 	if (model.htf_filter !== null) {
-		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe, model.indicators));
+		problems.push(
+			...validateHtfFilter(model.htf_filter, ids, model.timeframe, model.indicators, conditions)
+		);
 	}
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(model.warmup_bars) < warmupRequirement) {
@@ -393,7 +423,8 @@ function validateHtfFilter(
 	filter: HtfFilterDraft,
 	decisionIds: Set<string>,
 	decisionTimeframe: string,
-	decisionIndicators: IndicatorDraft[]
+	decisionIndicators: IndicatorDraft[],
+	decisionConditions: ConditionDraft[]
 ): string[] {
 	const problems: string[] = [];
 	if (!validHtfTimeframes(decisionTimeframe).includes(filter.timeframe)) {
@@ -423,14 +454,20 @@ function validateHtfFilter(
 		if (indicator.timeframe !== undefined && indicator.timeframe !== '') {
 			problems.push(`HTF indicator "${indicator.id}" must omit timeframe.`);
 		}
-		warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
+		warmupNeeded.set(
+			indicator.id,
+			indicatorWarmupBars(indicator) + conditionOperandOffset(filter.when, indicator.id)
+		);
 	}
 	problems.push(...validateCondition(filter.when, filter.indicators, 'HTF filter'));
 	const extraOnHtf = decisionIndicators.filter(
 		(indicator) => resolvedIndicatorTimeframe(indicator, decisionTimeframe) === filter.timeframe
 	);
 	for (const indicator of extraOnHtf) {
-		warmupNeeded.set(`ltf:${indicator.id}`, indicatorWarmupBars(indicator));
+		warmupNeeded.set(
+			`ltf:${indicator.id}`,
+			indicatorWarmupBars(indicator) + maximumOperandOffset(decisionConditions, indicator.id)
+		);
 	}
 	const warmupRequirement = Math.max(0, ...warmupNeeded.values());
 	if (Number(filter.warmup_bars) < warmupRequirement) {
@@ -540,6 +577,15 @@ function validateOperandSeries(
 	}
 	const indicator = byId.get(operand.indicator);
 	if (indicator === undefined) return;
+	if (operand.offset !== undefined) {
+		if (!isValidOffset(operand.offset)) {
+			problems.push(
+				`${label} operand offset must be a whole number between 0 and ${MAX_INDICATOR_OFFSET}.`
+			);
+		} else if (indicator.kind === 'constant' && operand.offset !== 0) {
+			problems.push(`${label} constant operand must omit offset.`);
+		}
+	}
 	const outputs = INDICATOR_OUTPUT_SERIES[indicator.kind as IndicatorKindValue];
 	if (outputs === undefined) {
 		if (operand.series !== undefined) {

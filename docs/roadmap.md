@@ -677,6 +677,20 @@ Ops contract `thytrader-ops-contract-v58`; Alembic stays `0059`.
 
 **Deferred:** net-of-fee unrealized PnL, origin counts on the library control, and an explicit
 paper/live link (twins still match by snapshot fingerprint).
+## Operand-level indicator offsets — ✅ Shipped
+
+[ADR 0099](decisions/0099-operand-level-indicator-offsets.md) adds independent operand offsets
+(0–500 completed native-clock bars) across entry, signal-exit, and HTF-filter conditions. Warmup
+and dataset coverage include operand lags in research, parameter candidates, paper, and live.
+The builder saves these reads; traces and journals expose their exact lagged values. New squeeze
+templates share current/prior Bollinger and Keltner definitions and offer their parameter axes,
+so optimization keeps prior-bar parameters synchronized. Existing snapshots remain unchanged.
+
+Ops contract `thytrader-ops-contract-v59`; Alembic stays `0059`.
+
+**Exit gate met:** hand-calculated lag/crossover, undefined history, clock alignment, runtime/
+research parity, fingerprints, squeeze candidate warmup, and builder save/reload regressions.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`
@@ -746,7 +760,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Published-strategy same-side adds are [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) | On-demand scale-in remains out |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only; ranged newest-first ingest (350-bar pages, fair per-cycle budgets, 429 backoff) with research lookbacks from 90 days (1m) to 10 years (2h-1d), watched-only ingest, and sub-second catalog listings; ops contract v45 / Alembic 0052 ([ADR 0085](decisions/0085-fast-research-ingest.md)); thin markets keep confirmed no-trade bars as flat bars, with listing-only floors ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)) | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
-| Indicators | 53-kind fail-closed catalog through [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md) (trend, momentum, volatility, volume, statistical, and price kinds with series ids; per-declaration `offset` bar lag); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough; operand-level lag |
+| Indicators | 53-kind fail-closed catalog through [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md) (trend, momentum, volatility, volume, statistical, and price kinds with series ids; per-declaration and per-operand `offset` bar lag ([ADR 0099](decisions/0099-operand-level-indicator-offsets.md))); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)); auto-bound catalog datasets, omitted study bounds, cross-market variants from one strategy, and 64-candidate async sweeps ([ADR 0089](decisions/0089-agent-research-ergonomics.md)) | Further composed research remaining destination |
 | Deploy | Concurrent paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); one document may cover multiple Coinbase USD spot products with optional intra-strategy pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)) | Extra exchanges stay out |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |

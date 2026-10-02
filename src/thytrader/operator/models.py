@@ -122,6 +122,7 @@ class OpsContractPayload(_FrozenModel):
     htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_timeframe_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_offset_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    indicator_operand_offset_runtimes: tuple[Literal["research", "paper", "live"], ...]
     signal_exit_runtimes: tuple[Literal["research", "paper", "live"], ...]
     reference_instrument_runtimes: tuple[Literal["research", "paper", "live"], ...]
     max_reference_instruments: int = Field(ge=1)

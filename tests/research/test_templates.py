@@ -12,7 +12,8 @@ from thytrader.strategies.models import (
     IndicatorOperand,
     LiteralOperand,
     decision_clock_indicators,
-    indicator_min_warmup,
+    extra_indicator_timeframe_warmup,
+    strategy_indicator_operands,
 )
 from thytrader.strategies.templates import (
     StrategyTemplateId,
@@ -77,8 +78,8 @@ def test_blueprints_describe_the_built_document(template: StrategyTemplateId) ->
     blueprint = template_blueprint(template)
     declared = {indicator.id for indicator in draft.indicators}
     assert blueprint["warmup_bars"] == draft.data_requirements.warmup_bars
-    assert blueprint["warmup_bars"] == max(
-        indicator_min_warmup(indicator) for indicator in decision_clock_indicators(draft)
+    assert blueprint["warmup_bars"] == extra_indicator_timeframe_warmup(
+        decision_clock_indicators(draft), operands=strategy_indicator_operands(draft)
     )
     assert set(blueprint["indicator_ids"]) == declared
     for key in blueprint["defaults"]:
@@ -102,8 +103,8 @@ def test_catalog_templates_use_the_wider_indicator_catalog() -> None:
         IndicatorKind.ADX,
     }
     squeeze = create_template_strategy(template="squeeze-breakout")
-    lagged = {item.id: item.offset for item in squeeze.indicators if item.offset is not None}
-    assert lagged == {"prior_bands": 1, "prior_channel": 1}
+    lagged = {item.indicator for item in strategy_indicator_operands(squeeze) if item.offset == 1}
+    assert lagged == {"bands", "channel"}
     zscore = create_template_strategy(template="zscore-mean-reversion", timeframe="4h")
     assert zscore.timeframe == "4h"
     assert {item.kind for item in zscore.indicators} >= {

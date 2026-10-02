@@ -70,6 +70,7 @@ from thytrader.strategies.models import (
     lockstep_product_ids,
     reference_data_requirements,
     signal_exit_condition,
+    strategy_indicator_operands,
 )
 
 if TYPE_CHECKING:
@@ -1621,7 +1622,9 @@ async def _closed_indicator_timeframe_windows(
             market_data,
             product_id=covered_product,
             timeframe=timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            warmup_bars=extra_indicator_timeframe_warmup(
+                indicators, operands=strategy_indicator_operands(strategy)
+            ),
             deploy_anchor=deploy_anchor,
             as_of_closed_start=as_of_closed_start,
         )

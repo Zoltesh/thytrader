@@ -134,7 +134,7 @@ class DecisionOperand(_FrozenDecisionModel):
 
     kind: Literal["indicator", "literal"]
     label: str = Field(min_length=1, max_length=120)
-    key: str | None = Field(default=None, max_length=96)
+    key: str | None = Field(default=None, max_length=101)
     value: DecisionDecimal | None = None
     previous_value: DecisionDecimal | None = None
 

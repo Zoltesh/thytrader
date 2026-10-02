@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toBuilderModel, type BuilderModel, type StrategyDefinition } from './strategies';
 import { semanticDiff } from './strategy-diff';
-import { plainEnglishSummary, validateDefinition } from './strategy-insight';
+import { conditionToText, plainEnglishSummary, validateDefinition } from './strategy-insight';
 
 const definition = {
 	schema_version: '1.0',
@@ -64,6 +64,59 @@ const definition = {
 function model(): BuilderModel {
 	return toBuilderModel(structuredClone(definition), 1);
 }
+
+describe('operand offsets', () => {
+	it('adds operand lag to declaration warmup and preserves it through document loading', () => {
+		const builder = model();
+		builder.entry.when = {
+			all: [
+				{
+					left: { indicator: 'close' },
+					operator: 'crosses_above',
+					right: { indicator: 'channel', series: 'upper', offset: 2 }
+				}
+			]
+		};
+		expect(validateDefinition(builder)).toContain(
+			'Warmup must cover the longest indicator period (at least 23 bars).'
+		);
+		builder.warmup_bars = 23;
+		expect(validateDefinition(builder)).toEqual([]);
+		expect(conditionToText(builder.entry.when)).toContain('channel.upper (2 bars ago)');
+	});
+
+	it.each([-1, 501, 0.5])('rejects invalid operand lag %s', (offset) => {
+		const builder = model();
+		builder.entry.when = {
+			all: [
+				{
+					left: { indicator: 'close', offset },
+					operator: 'greater_than',
+					right: { literal: '0' }
+				}
+			]
+		};
+		expect(validateDefinition(builder).join(' ')).toContain(
+			'operand offset must be a whole number'
+		);
+	});
+
+	it('includes exit-rule operand lag in warmup', () => {
+		const builder = model();
+		builder.exits.signal_exit = {
+			when: {
+				all: [
+					{
+						left: { indicator: 'channel', series: 'lower', offset: 5 },
+						operator: 'greater_than',
+						right: { literal: '0' }
+					}
+				]
+			}
+		};
+		expect(validateDefinition(builder).join(' ')).toContain('at least 26 bars');
+	});
+});
 
 describe('plainEnglishSummary', () => {
 	it('quotes sizing in the product quote currency', () => {

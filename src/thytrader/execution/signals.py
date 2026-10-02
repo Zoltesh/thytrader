@@ -23,6 +23,7 @@ from thytrader.strategies.models import (
     decision_clock_indicators,
     reference_instruments,
     signal_exit_condition,
+    strategy_indicator_operands,
 )
 
 if TYPE_CHECKING:
@@ -163,7 +164,11 @@ def _latest_merged_values(
         evaluation_ends_at=current_close,
         strict=False,
     )
-    rows = calculate_indicator_rows(decision_clock_indicators(strategy), candles)
+    rows = calculate_indicator_rows(
+        decision_clock_indicators(strategy),
+        candles,
+        operands=strategy_indicator_operands(strategy),
+    )
     return overlay_indicator_timeframe_values(
         strategy,
         latest,
