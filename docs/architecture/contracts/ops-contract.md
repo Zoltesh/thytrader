@@ -8,13 +8,17 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0053`):
+Current checkout (Alembic `0054`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v47` |
-| `expected_schema_revision` | `0053` |
+| `id` | `thytrader-ops-contract-v48` |
+| `expected_schema_revision` | `0054` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
+| `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)) |
+| `portfolio_modes` | `paper`, `live` |
+| `portfolio_backtest_contract` | `thytrader-portfolio-backtest-v1` |
+| `max_concurrent_portfolio_backtests` | `1` |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
 | `max_concurrent_research_jobs` | `2` |
@@ -49,7 +53,7 @@ Current checkout (Alembic `0053`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v47
+    id thytrader-ops-contract-v48
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -73,6 +77,10 @@ classDiagram
     deployment_capital_fields
     breaker_latch_reset
     strategy_model
+    portfolio_model
+    portfolio_modes
+    portfolio_backtest_contract
+    max_concurrent_portfolio_backtests
     async_backtest_job_statuses
     research_job_statuses
     max_concurrent_research_jobs
@@ -82,7 +90,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0053
+    expected_schema_revision 0054
   }
   class HealthPayload {
     api_probed

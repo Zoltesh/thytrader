@@ -532,3 +532,19 @@ def test_operator_data_catalog_timeout_names_the_call_instead_of_failing_generic
     assert "/api/v1/operator/data-catalog" in message
     assert "failed safely" not in message
     assert capsys.readouterr().out == ""
+
+
+def test_operator_local_portfolios_degrades_without_a_database(
+    capsys: pytest.CaptureFixture[str],
+    stub_coinbase: type[_StubCoinbaseRestClient],
+) -> None:
+    """Without PostgreSQL the portfolios report is degraded, never an empty success."""
+    del stub_coinbase
+    with pytest.raises(SystemExit) as raised:
+        main(["--local", "portfolios"])
+    assert raised.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["report_kind"] == "portfolios"
+    assert payload["payload"]["portfolio_storage"] == "unavailable"
+    assert payload["payload"]["portfolio_backtest_contract"] == "thytrader-portfolio-backtest-v1"
+    assert payload["components"][0]["reason_code"] == "PORTFOLIO_STORAGE_UNAVAILABLE"

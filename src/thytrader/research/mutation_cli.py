@@ -788,6 +788,7 @@ def _bulk_item_payload(item: BulkDeletionItem) -> dict[str, object]:
             "paper_deployments": counts.paper_deployments,
             "live_deployments_kept": counts.live_deployments_kept,
             "allocations_removed": counts.allocations_removed,
+            "portfolio_sleeves": counts.portfolio_sleeves,
         },
         "risk_policy_republished": item.risk_policy_republished,
     }

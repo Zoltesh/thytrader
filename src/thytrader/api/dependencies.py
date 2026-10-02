@@ -26,6 +26,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
+from thytrader.portfolios.store import PortfolioBacktestStore, PortfolioStorage, PortfolioStore
 from thytrader.research.catalog import ResearchStudyCatalog
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
@@ -53,6 +54,33 @@ def get_portfolio_service(request: Request) -> PortfolioService:
         message = "Portfolio service is unavailable."
         raise TypeError(message)
     return service
+
+
+def get_portfolio_store(request: Request) -> PortfolioStore:
+    """Return the portfolio (sleeves, limits, manager, journal) store from application state."""
+    store = getattr(request.app.state, "portfolio_store", None)
+    if not isinstance(store, PortfolioStore):
+        message = "Portfolio store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_portfolio_backtest_store(request: Request) -> PortfolioBacktestStore:
+    """Return the portfolio backtest job and result store from application state."""
+    store = getattr(request.app.state, "portfolio_store", None)
+    if not isinstance(store, PortfolioBacktestStore):
+        message = "Portfolio backtest store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_portfolio_storage(request: Request) -> PortfolioStorage:
+    """Return the store that serves both portfolio and portfolio-backtest contracts."""
+    store = getattr(request.app.state, "portfolio_store", None)
+    if not isinstance(store, PortfolioStorage):
+        message = "Portfolio storage is unavailable."
+        raise TypeError(message)
+    return store
 
 
 def get_market_data_service(request: Request) -> MarketDataService:

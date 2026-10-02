@@ -652,3 +652,28 @@ def test_unified_backtest_migration_follows_strategy_root_model() -> None:
     assert 'down_revision = "0048"' in content
     assert "ADR 0083" in content
     assert 'drop_column("published_research_studies", "engine_contract_version")' in content
+
+
+def test_portfolios_migration_follows_the_bar_decision_journal() -> None:
+    """The fifty-fourth migration adds the portfolio tables (ADR 0088) after 0053."""
+    content = Path("alembic/versions/0054_portfolios_foundation.py").read_text(encoding="utf-8")
+    assert 'revision = "0054"' in content
+    assert 'down_revision = "0053"' in content
+    assert "ADR 0088" in content
+    for table in (
+        "portfolios",
+        "portfolio_sleeves",
+        "portfolio_journal_entries",
+        "portfolio_backtest_jobs",
+        "published_portfolio_backtests",
+    ):
+        assert f'"{table}"' in content
+        assert table in metadata.tables
+    sleeve_keys = {
+        key.target_fullname: key.ondelete
+        for key in metadata.tables["portfolio_sleeves"].foreign_keys
+    }
+    assert sleeve_keys == {
+        "portfolios.portfolio_id": "CASCADE",
+        "strategies.strategy_id": "CASCADE",
+    }

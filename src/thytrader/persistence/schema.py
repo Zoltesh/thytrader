@@ -1179,6 +1179,216 @@ Index(
 
 Index("ix_bar_decisions_bar_starts_at", bar_decisions.c.bar_starts_at)
 
+_FRACTION_REGEX = "'^(0|[1-9][0-9]*)([.][0-9]{1,4})?$'"
+_QUOTE_REGEX = "'^(0|[1-9][0-9]*)([.][0-9]{1,8})?$'"
+
+portfolios = Table(
+    "portfolios",
+    metadata,
+    Column("portfolio_id", String(36), primary_key=True, comment="UUIDv7 portfolio identity."),
+    Column("name", String(120), nullable=False),
+    Column("mode", String(8), nullable=False, comment="paper or live; fixed at creation."),
+    Column("quote_currency", String(8), nullable=False, comment="Fixed at creation."),
+    Column("capital_quote", String(64), nullable=False, comment="Canonical decimal text."),
+    Column("cash_reserve_fraction", String(16), nullable=False),
+    Column("max_total_exposure_fraction", String(16), nullable=False),
+    Column("max_per_asset_fraction", String(16), nullable=False),
+    Column("daily_loss_quote", String(64), nullable=True),
+    Column("max_drawdown_fraction", String(16), nullable=True),
+    Column("manager_mandate", Text(), nullable=False, server_default=""),
+    Column("manager_may_rebalance", Boolean(), nullable=False, server_default="false"),
+    Column("manager_max_weight_change_per_week", String(16), nullable=False),
+    Column("manager_may_pause_sleeves", Boolean(), nullable=False, server_default="false"),
+    Column("manager_may_propose_sleeves", Boolean(), nullable=False, server_default="false"),
+    Column("revision", BigInteger(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_portfolios_mode"),
+    CheckConstraint("quote_currency IN ('USD', 'USDC', 'USDT')", name="ck_portfolios_quote"),
+    CheckConstraint("revision > 0", name="ck_portfolios_revision_positive"),
+    CheckConstraint(f"capital_quote ~ {_QUOTE_REGEX}", name="ck_portfolios_capital_format"),
+    CheckConstraint(
+        f"cash_reserve_fraction ~ {_FRACTION_REGEX}", name="ck_portfolios_reserve_format"
+    ),
+    CheckConstraint(
+        f"max_total_exposure_fraction ~ {_FRACTION_REGEX} "
+        f"AND max_per_asset_fraction ~ {_FRACTION_REGEX} "
+        f"AND manager_max_weight_change_per_week ~ {_FRACTION_REGEX}",
+        name="ck_portfolios_limit_formats",
+    ),
+    CheckConstraint(
+        f"(daily_loss_quote IS NULL OR daily_loss_quote ~ {_QUOTE_REGEX}) "
+        f"AND (max_drawdown_fraction IS NULL OR max_drawdown_fraction ~ {_FRACTION_REGEX})",
+        name="ck_portfolios_optional_limit_formats",
+    ),
+)
+
+Index("ix_portfolios_created", portfolios.c.created_at.asc(), portfolios.c.portfolio_id.asc())
+
+portfolio_sleeves = Table(
+    "portfolio_sleeves",
+    metadata,
+    Column("sleeve_id", String(36), primary_key=True, comment="UUIDv7 sleeve identity."),
+    Column("portfolio_id", String(36), nullable=False),
+    Column("strategy_id", String(36), nullable=False),
+    Column("weight_fraction", String(16), nullable=False),
+    Column("note", String(280), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["portfolio_id"],
+        ["portfolios.portfolio_id"],
+        ondelete="CASCADE",
+        name="fk_portfolio_sleeves_portfolio_id",
+    ),
+    ForeignKeyConstraint(
+        ["strategy_id"],
+        ["strategies.strategy_id"],
+        ondelete="CASCADE",
+        name="fk_portfolio_sleeves_strategy_id",
+    ),
+    UniqueConstraint("portfolio_id", "strategy_id", name="ux_portfolio_sleeves_strategy"),
+    CheckConstraint(
+        f"weight_fraction ~ {_FRACTION_REGEX}", name="ck_portfolio_sleeves_weight_format"
+    ),
+)
+
+Index("ix_portfolio_sleeves_strategy_id", portfolio_sleeves.c.strategy_id)
+
+portfolio_journal_entries = Table(
+    "portfolio_journal_entries",
+    metadata,
+    Column(
+        "sequence",
+        BigInteger(),
+        primary_key=True,
+        autoincrement=True,
+        comment="Monotonic append order.",
+    ),
+    Column("entry_id", UUID(), nullable=False, unique=True),
+    Column("portfolio_id", String(36), nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("actor", String(16), nullable=False),
+    Column("channel", String(16), nullable=False),
+    Column("summary", String(500), nullable=False),
+    Column("detail", Text(), nullable=False, comment="Canonical JournalDetail JSON."),
+    Column("revision", BigInteger(), nullable=False),
+    ForeignKeyConstraint(
+        ["portfolio_id"],
+        ["portfolios.portfolio_id"],
+        ondelete="CASCADE",
+        name="fk_portfolio_journal_portfolio_id",
+    ),
+    CheckConstraint(
+        "kind IN ("
+        "'created', 'settings_changed', 'sleeve_added', 'sleeve_updated', 'sleeve_removed', "
+        "'weights_changed', 'limits_changed', 'manager_changed', 'backtest_run'"
+        ")",
+        name="ck_portfolio_journal_kind",
+    ),
+    CheckConstraint(
+        "actor IN ('operator', 'system', 'manager')", name="ck_portfolio_journal_actor"
+    ),
+    CheckConstraint("channel IN ('browser', 'api', 'system')", name="ck_portfolio_journal_channel"),
+    CheckConstraint("revision > 0", name="ck_portfolio_journal_revision_positive"),
+)
+
+Index(
+    "ix_portfolio_journal_portfolio_sequence",
+    portfolio_journal_entries.c.portfolio_id,
+    portfolio_journal_entries.c.sequence.desc(),
+)
+
+portfolio_backtest_jobs = Table(
+    "portfolio_backtest_jobs",
+    metadata,
+    Column("job_id", UUID(), primary_key=True),
+    Column("portfolio_id", String(36), nullable=False),
+    Column("portfolio_revision", BigInteger(), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("payload", Text(), nullable=False, comment="Resolved PortfolioBacktestPlan JSON."),
+    Column("actor", String(16), nullable=False),
+    Column("channel", String(16), nullable=False),
+    Column("evaluation_start", DateTime(timezone=True), nullable=False),
+    Column("evaluation_end", DateTime(timezone=True), nullable=False),
+    Column("sleeve_count", Integer(), nullable=False),
+    Column("progress_current", Integer(), nullable=False, server_default="0"),
+    Column("progress_total", Integer(), nullable=False, server_default="0"),
+    Column("error_message", String(256), nullable=True),
+    Column("failed_detail", String(500), nullable=True),
+    Column("result_fingerprint", String(71), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["portfolio_id"],
+        ["portfolios.portfolio_id"],
+        ondelete="CASCADE",
+        name="fk_portfolio_backtest_jobs_portfolio_id",
+    ),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
+        name="ck_portfolio_backtest_jobs_status",
+    ),
+    CheckConstraint(
+        "actor IN ('operator', 'system', 'manager')", name="ck_portfolio_backtest_jobs_actor"
+    ),
+    CheckConstraint(
+        "channel IN ('browser', 'api', 'system')", name="ck_portfolio_backtest_jobs_channel"
+    ),
+    CheckConstraint(
+        "progress_current >= 0 AND progress_total >= 0 AND sleeve_count > 0",
+        name="ck_portfolio_backtest_jobs_counts",
+    ),
+    CheckConstraint(
+        f"result_fingerprint IS NULL OR result_fingerprint ~ {_FINGERPRINT_REGEX}",
+        name="ck_portfolio_backtest_jobs_result_format",
+    ),
+)
+
+Index(
+    "ix_portfolio_backtest_jobs_status_created",
+    portfolio_backtest_jobs.c.status,
+    portfolio_backtest_jobs.c.created_at.asc(),
+)
+
+Index(
+    "ix_portfolio_backtest_jobs_portfolio_created",
+    portfolio_backtest_jobs.c.portfolio_id,
+    portfolio_backtest_jobs.c.created_at.desc(),
+)
+
+published_portfolio_backtests = Table(
+    "published_portfolio_backtests",
+    metadata,
+    Column("result_fingerprint", String(71), primary_key=True),
+    Column("portfolio_id", String(36), nullable=False),
+    Column("portfolio_revision", BigInteger(), nullable=False),
+    Column("evaluation_start", DateTime(timezone=True), nullable=False),
+    Column("evaluation_end", DateTime(timezone=True), nullable=False),
+    Column("listing", Text(), nullable=False, comment="PortfolioBacktestListing JSON."),
+    Column("canonical_result", Text(), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["portfolio_id"],
+        ["portfolios.portfolio_id"],
+        ondelete="CASCADE",
+        name="fk_published_portfolio_backtests_portfolio_id",
+    ),
+    CheckConstraint(
+        f"result_fingerprint ~ {_FINGERPRINT_REGEX}",
+        name="ck_published_portfolio_backtests_fingerprint_format",
+    ),
+)
+
+Index(
+    "ix_published_portfolio_backtests_portfolio_published",
+    published_portfolio_backtests.c.portfolio_id,
+    published_portfolio_backtests.c.published_at.desc(),
+    published_portfolio_backtests.c.result_fingerprint.asc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "audit_events",
@@ -1198,8 +1408,13 @@ __all__ = [
     "market_feed_state",
     "metadata",
     "order_intents",
+    "portfolio_backtest_jobs",
+    "portfolio_journal_entries",
+    "portfolio_sleeves",
     "portfolio_snapshots",
+    "portfolios",
     "published_backtest_results",
+    "published_portfolio_backtests",
     "published_research_run_specs",
     "published_research_studies",
     "published_risk_policies",

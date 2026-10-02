@@ -86,6 +86,7 @@ from thytrader.operator.models import (
     PerformanceReport,
     PortfolioPayload,
     PortfolioReport,
+    PortfoliosReport,
     ProductsPayload,
     ProductsReport,
     ProductSummary,
@@ -111,6 +112,7 @@ from thytrader.operator.models import (
     UserOrderFeedPayload,
     current_ops_contract,
 )
+from thytrader.operator.portfolios_report import build_portfolios_report
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
 from thytrader.persistence.backtest_results import (
@@ -181,6 +183,7 @@ if TYPE_CHECKING:
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
     from thytrader.portfolio.models import PortfolioAsset
     from thytrader.portfolio.service import PortfolioService
+    from thytrader.portfolios.store import PortfolioStorage
     from thytrader.runtime import RuntimeState
     from thytrader.strategies.library import StrategyStore
     from thytrader.strategies.snapshots import StrategySnapshotStore
@@ -213,6 +216,7 @@ class OperatorDiagnostics:
     memory_store: ExperientialMemoryStore | None = None
     research_studies: ResearchStudyCatalog | None = None
     decision_store: DecisionJournalStore | None = None
+    portfolios: PortfolioStorage | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -435,6 +439,10 @@ class OperatorDiagnostics:
                 suggestion_fetched_at=suggestion.fetched_at,
             ),
         )
+
+    async def portfolios_report(self) -> PortfoliosReport:
+        """List portfolios with sleeves, allocation, limits, and the newest backtest."""
+        return await build_portfolios_report(self.portfolios)
 
     async def market_data_report(
         self,

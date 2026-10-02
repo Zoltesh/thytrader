@@ -31,6 +31,9 @@ you are operating a **running** instance (not changing source).
 **Is:** local-first, Coinbase-first research and trading. You keep the keys server-side. Missing
 candles are never interpolated. Live stays off until you arm it.
 
+Group strategies into **portfolios** — sleeves with their own capital weights, a cash reserve, and
+shared limits — and backtest them together before anything trades as a portfolio.
+
 You can:
 
 1. **Go 100% human** — browser and CLIs, same confirmation gates any actor faces.

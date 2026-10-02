@@ -107,6 +107,8 @@ export type StrategyDeletionCounts = {
 	paper_deployments: number;
 	live_deployments_kept: number;
 	allocations_removed: number;
+	/** Portfolio sleeves removed (each journaled in its portfolio; ADR 0088). */
+	portfolio_sleeves?: number;
 };
 
 export type StrategyDeletionResult = {
@@ -1074,7 +1076,12 @@ export function deletionCountsText(counts: StrategyDeletionCounts): string[] {
 		[counts.research_jobs, 'research job', 'research jobs'],
 		[counts.paper_deployments, 'paper bot (with its ledger)', 'paper bots (with their ledgers)'],
 		[counts.snapshots, 'rules snapshot', 'rules snapshots'],
-		[counts.allocations_removed, 'risk-policy allocation', 'risk-policy allocations']
+		[counts.allocations_removed, 'risk-policy allocation', 'risk-policy allocations'],
+		[
+			counts.portfolio_sleeves ?? 0,
+			'portfolio sleeve (journaled in its portfolio)',
+			'portfolio sleeves (journaled in their portfolios)'
+		]
 	];
 	const lines = parts
 		.filter(([count]) => count > 0)

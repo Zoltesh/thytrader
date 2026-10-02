@@ -35,6 +35,7 @@ from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
+from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
@@ -44,6 +45,7 @@ from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeart
 from thytrader.persistence.worker_heartbeats import DisabledWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.portfolios.store import DisabledPortfolioStore
 from thytrader.research.catalog import DisabledResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore
@@ -89,6 +91,7 @@ async def operator_diagnostics(
             memory_store=PostgresExperientialMemoryStore(engine),
             research_studies=PostgresResearchStudyCatalog(engine),
             decision_store=PostgresDecisionJournalStore(engine),
+            portfolios=PostgresPortfolioStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -110,6 +113,7 @@ async def operator_diagnostics(
             memory_store=DisabledExperientialMemoryStore(),
             research_studies=DisabledResearchStudyCatalog(),
             decision_store=DisabledDecisionJournalStore(),
+            portfolios=DisabledPortfolioStore(),
         )
     try:
         yield diagnostics

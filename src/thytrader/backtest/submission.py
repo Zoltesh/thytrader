@@ -319,6 +319,33 @@ class PostgresBacktestSubmitter:
             raise BacktestSubmissionError("Backtest submission is unavailable.") from error
 
 
+def resolve_backtest_window(
+    request: BacktestSubmissionRequest,
+    strategy: StrategySnapshot,
+    dataset_store: DatasetStore,
+) -> tuple[datetime, datetime]:
+    """Check one submission's bindings and window exactly as ``submit`` would, publishing nothing.
+
+    Omitted dates resolve to the common coverage of every bound dataset (decision, HTF,
+    extra clocks, extra products); supplied dates are verified against it. Rejections use
+    :class:`BacktestSubmissionRejectedError` with the same messages as ``submit``. Portfolio
+    backtests use this to intersect sleeve windows before any child run is published.
+    """
+    try:
+        filled = _with_evaluation_window(request, strategy, dataset_store)
+        _validate_submission_assumptions(
+            filled, quote_currency=strategy.definition.instrument.quote_currency
+        )
+    except ValueError as error:
+        if isinstance(error, BacktestSubmissionRejectedError):
+            raise
+        raise BacktestSubmissionRejectedError(str(error)) from error
+    _require_htf_request(filled, strategy.definition)
+    _require_indicator_dataset_request(filled, strategy.definition)
+    _require_additional_instrument_request(filled, strategy.definition)
+    return _filled_window(filled)
+
+
 def _with_evaluation_window(
     request: BacktestSubmissionRequest,
     strategy: StrategySnapshot,

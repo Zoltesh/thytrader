@@ -1,17 +1,18 @@
 <script lang="ts">
 	/**
-	 * Portfolio (`/deployments`): every bot on this workstation, one row per
-	 * deployment, grouped Needs attention · Running · Paused · Stopped.
+	 * Portfolio (`/deployments`): portfolios (sleeves of strategies under shared
+	 * limits, ADR 0088) on top, then "All bots": every bot on this workstation,
+	 * one row per deployment, grouped Needs attention · Running · Paused · Stopped.
 	 *
-	 * The list is the bounded, offset-paged inventory. Header counts and money
+	 * The bot list is the bounded, offset-paged inventory. Header counts and money
 	 * come from the full inventory (followed page by page) and are never
 	 * invented: money is shown per mode and quote currency, else `—` with the
-	 * reason. Multi-strategy portfolios are not built yet; this page says so.
+	 * reason. Portfolio deployment is not built yet; each bot still runs alone.
 	 */
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
-	import PageHead from '$lib/PageHead.svelte';
 	import Segmented from '$lib/Segmented.svelte';
+	import PortfolioWorkspace from '$lib/portfolios/PortfolioWorkspace.svelte';
 	import {
 		GROUP_ORDER,
 		MODE_FILTERS,
@@ -133,21 +134,29 @@
 <svelte:head><title>Portfolio · ThyTrader</title></svelte:head>
 
 <main>
-	<PageHead
-		title="Portfolio"
-		lede="Every bot on this workstation. Each runs the rules its strategy had when it started, with its own capital; open one for orders, fills, and why it traded."
-	>
-		<Segmented
-			label="Show bots by mode"
-			options={filterOptions}
-			value={filter}
-			onchange={(next) => (filter = next)}
-			testId="portfolio-filter"
-		/>
-		<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
-	</PageHead>
+	<PortfolioWorkspace {inventory} />
 
-	<section class="card idbar" aria-label="Portfolio summary" data-testid="portfolio-metrics">
+	<div class="bots-head">
+		<div>
+			<h2 id="all-bots">All bots</h2>
+			<p class="bots-lede">
+				Every bot on this workstation. Each runs the rules its strategy had when it started, with
+				its own capital; open one for orders, fills, and why it traded.
+			</p>
+		</div>
+		<div class="bots-actions">
+			<Segmented
+				label="Show bots by mode"
+				options={filterOptions}
+				value={filter}
+				onchange={(next) => (filter = next)}
+				testId="portfolio-filter"
+			/>
+			<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
+		</div>
+	</div>
+
+	<section class="card idbar" aria-label="Bot summary" data-testid="portfolio-metrics">
 		<div class="counts">
 			<div class="metric">
 				<div class="l">Running</div>
@@ -187,7 +196,7 @@
 			</p>
 		{/if}
 		<p class="coming" data-testid="portfolio-coming">
-			Portfolios with shared capital and a manager agent are coming. Today each bot stands alone.
+			Deploying a portfolio arrives next. Until then each bot below runs on its own capital.
 		</p>
 	</section>
 
@@ -334,6 +343,29 @@
 {/snippet}
 
 <style>
+	.bots-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 12px 16px;
+		margin: 32px 0 12px;
+		padding-top: 20px;
+		border-top: 1px solid var(--line);
+	}
+	.bots-head h2 {
+		font-size: var(--fs-lg);
+	}
+	.bots-lede {
+		margin: 4px 0 0;
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.bots-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-left: auto;
+	}
 	.idbar {
 		display: flex;
 		flex-wrap: wrap;

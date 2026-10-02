@@ -21,6 +21,7 @@ _RUNTIME_SKILL = _ROOT / "skills" / "thytrader-runtime" / "SKILL.md"
 _DATA_SKILL = _ROOT / "skills" / "thytrader-data" / "SKILL.md"
 _PLAYBOOK_SKILL = _ROOT / "skills" / "thytrader-playbook" / "SKILL.md"
 _MEMORY_SKILL = _ROOT / "skills" / "thytrader-memory" / "SKILL.md"
+_PORTFOLIO_SKILL = _ROOT / "skills" / "thytrader-portfolio" / "SKILL.md"
 
 
 def test_operator_skill_matches_application_schema_and_routes() -> None:
@@ -51,6 +52,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/portfolio",
         "/fees",
         "/decisions",
+        "/portfolios",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
@@ -72,8 +74,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v47" in skill
-    assert "0053" in skill
+    assert "thytrader-ops-contract-v48" in skill
+    assert "0054" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
@@ -301,3 +303,41 @@ def test_committed_json_schema_matches_envelope_contract() -> None:
     assert "payload" in required
     assert schema["properties"]["schema_version"]["const"] == SCHEMA_VERSION
     assert set(schema["properties"]["report_kind"]["enum"]) == set(REPORT_KINDS)
+
+
+def test_portfolio_skill_requires_confirm_and_denies_deployment() -> None:
+    """The portfolio lane is confirmation-gated, names every command, and cannot deploy."""
+    skill = _PORTFOLIO_SKILL.read_text(encoding="utf-8")
+    assert "thytrader-portfolio" in skill
+    assert "--confirm" in skill
+    assert "YOLO never" in skill
+    for command in (
+        "list",
+        "show",
+        "create",
+        "update",
+        "add-sleeve",
+        "remove-sleeve",
+        "set-weights",
+        "backtest",
+        "show-backtest",
+        "list-backtests",
+        "journal",
+    ):
+        assert f"thytrader-portfolio {command}" in skill, command
+    for code in (
+        "portfolio_revision_conflict",
+        "portfolio_allocation_exceeded",
+        "portfolio_sleeve_quote_mismatch",
+        "portfolio_backtest_rejected",
+    ):
+        assert code in skill, code
+    assert "/api/v1/portfolios" in skill
+    assert "thytrader-portfolio-backtest-v1" in skill
+    assert "not simulated" in skill
+    assert "cannot deploy" in skill.lower()
+    assert "do not edit" in skill.lower()
+    assert "0088-portfolio-model-and-portfolio-backtest" in skill
+    assert (_ROOT / "ops" / ".cursor" / "skills" / "thytrader-portfolio").resolve() == (
+        _PORTFOLIO_SKILL.parent.resolve()
+    )

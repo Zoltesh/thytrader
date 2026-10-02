@@ -165,7 +165,7 @@ test('Portfolio groups bots, filters by mode, and keeps lifecycle contract gatin
 		'never totalled with real money'
 	);
 	await expect(page.getByTestId('portfolio-coming')).toContainText(
-		'Portfolios with shared capital and a manager agent are coming'
+		'Deploying a portfolio arrives next'
 	);
 	// Portfolio is not live exposure by itself.
 	await expect(page.getByTestId('live-strip')).toHaveCount(0);

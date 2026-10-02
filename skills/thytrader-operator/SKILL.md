@@ -56,6 +56,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus research-only suggested maker/taker) |
+| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, newest portfolio backtest; `deployable: false`). Edit portfolios with `thytrader-portfolio` (ADR 0088) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
@@ -147,9 +148,10 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v47`,
-   Alembic revision `0053`, `decision_journals` `paper`/`live` (per-bar decision timeline;
-   [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v48`,
+   Alembic revision `0054`, `decision_journals` `paper`/`live` (per-bar decision timeline;
+   [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `portfolio_model` (sleeves, shared limits, manager settings, journal,
+   portfolio backtest; [ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
    [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
    [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
    deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and

@@ -21,6 +21,7 @@ from thytrader.api.dependencies import (
     get_market_data_watchlist_store,
     get_memory_store,
     get_portfolio_service,
+    get_portfolio_storage,
     get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
@@ -52,6 +53,7 @@ from thytrader.operator.models import (
     MonitorReport,
     PerformanceReport,
     PortfolioReport,
+    PortfoliosReport,
     ProductsReport,
     ReconciliationReport,
     RiskReport,
@@ -67,6 +69,7 @@ from thytrader.persistence.backtest_results import BacktestResultReader  # noqa:
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore  # noqa: TC001
 from thytrader.portfolio.service import PortfolioService  # noqa: TC001
+from thytrader.portfolios.store import PortfolioStorage  # noqa: TC001
 from thytrader.research.catalog import ResearchStudyCatalog  # noqa: TC001
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
@@ -96,6 +99,7 @@ def get_operator_diagnostics(
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
     research_studies: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
     decision_store: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
+    portfolios: Annotated[PortfolioStorage, Depends(get_portfolio_storage)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -119,6 +123,7 @@ def get_operator_diagnostics(
         memory_store=memory_store,
         research_studies=research_studies,
         decision_store=decision_store,
+        portfolios=portfolios,
     )
 
 
@@ -256,6 +261,14 @@ async def get_operator_fees(
 ) -> FeesReport:
     """Return the current fee tier and research-only suggested maker/taker rates."""
     return await diagnostics.fees_report()
+
+
+@router.get("/portfolios", response_model=PortfoliosReport)
+async def get_operator_portfolios(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> PortfoliosReport:
+    """List portfolios with sleeves, allocation, limits, manager settings, newest backtest."""
+    return await diagnostics.portfolios_report()
 
 
 @router.get("/trade-reasons", response_model=TradeReasonsReport)

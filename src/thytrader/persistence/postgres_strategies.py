@@ -30,6 +30,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.persistence.postgres_portfolio_rows import (
+    count_strategy_sleeves,
+    remove_strategy_sleeves_in,
+)
 from thytrader.persistence.postgres_risk import load_active_policy_in, publish_policy_in
 from thytrader.persistence.schema import (
     deployments,
@@ -301,6 +305,9 @@ class PostgresStrategyStore:
                 if blocking:
                     raise StrategyDeletionBlockedError(blocking)
                 counts = await _deletion_counts(connection, target.strategy_id)
+                await remove_strategy_sleeves_in(
+                    connection, target.strategy_id, occurred_at=_journal_instant()
+                )
                 await _delete_paper_books(connection, target.strategy_id)
                 await _delete_research(connection, target.strategy_id)
                 await _delete_unreferenced_snapshots(connection, target.strategy_id)
@@ -633,6 +640,7 @@ async def _deletion_counts(connection: AsyncConnection, strategy_id: str) -> Str
         paper_deployments=await _count(connection, books("paper")),
         live_deployments_kept=await _count(connection, books("live")),
         allocations_removed=await _allocation_count(connection, UUID(strategy_id)),
+        portfolio_sleeves=await count_strategy_sleeves(connection, strategy_id),
     )
 
 
@@ -738,6 +746,12 @@ def _validate_fingerprint(value: str, *, label: str) -> None:
     """Reject malformed content identities before filesystem or SQL lookup."""
     if _FINGERPRINT_PATTERN.fullmatch(value) is None:
         raise StrategySnapshotError(f"Invalid {label} fingerprint.")
+
+
+def _journal_instant() -> datetime:
+    """The UTC millisecond the portfolio journal records for a deletion's sleeve removals."""
+    now = datetime.now(UTC)
+    return now.replace(microsecond=(now.microsecond // 1_000) * 1_000)
 
 
 def _require_utc(value: datetime) -> None:
