@@ -21,6 +21,7 @@ from thytrader.research.parameter_sweep import (
     stitch_oos_equity,
     validate_parameter_axes_candidate_budget,
 )
+from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     AllCondition,
     ComparisonCondition,
@@ -391,3 +392,52 @@ def test_sizing_axis_includes_target_in_canonical_json() -> None:
     payload = axis.model_dump(mode="json")
     assert payload["target"] == "sizing"
     assert "indicator_id" not in payload
+
+
+def test_offset_axis_lags_a_declaration_and_recomputes_warmup() -> None:
+    """A bar-lag axis writes the declaration's offset and covers warmup + offset."""
+    base = create_template_strategy(template="donchian-breakout")
+    axes = (ParameterAxis(indicator_id="channel", parameter="offset", values=("1", "3")),)
+    candidates = derive_parameter_candidates(
+        base, axes, base_fingerprint=strategy_fingerprint(base)
+    )
+    offsets = [
+        next(item.offset for item in candidate.definition.indicators if item.id == "channel")
+        for candidate in candidates
+    ]
+    assert offsets == [1, 3]
+    warmups = [candidate.definition.data_requirements.warmup_bars for candidate in candidates]
+    assert warmups == [21, 23]
+
+
+def test_offset_axis_zero_drops_the_lag_and_constants_reject_it() -> None:
+    """Offset 0 means the current bar; a constant can never be lagged."""
+    base = create_template_strategy(template="donchian-breakout")
+    current = apply_parameter_cell(
+        base, (("channel", "offset", "0"),), base_fingerprint=strategy_fingerprint(base)
+    )
+    assert next(item.offset for item in current.indicators if item.id == "channel") is None
+    supertrend = create_template_strategy(template="supertrend-trend")
+    with pytest.raises(ValueError, match="constant must omit offset"):
+        apply_parameter_cell(
+            supertrend,
+            (("zero", "offset", "1"),),
+            base_fingerprint=strategy_fingerprint(supertrend),
+        )
+
+
+def test_new_catalog_parameters_are_sweepable_axes() -> None:
+    """Multipliers, ATR periods, and Ichimoku windows are legal indicator axes."""
+    base = create_template_strategy(template="supertrend-trend")
+    derived = apply_parameter_cell(
+        base,
+        (("trend", "multiplier", "2.5"), ("trend", "period", "14")),
+        base_fingerprint=strategy_fingerprint(base),
+    )
+    trend = next(item for item in derived.indicators if item.id == "trend")
+    assert trend.parameters.model_dump(mode="json") == {"period": 14, "multiplier": "2.5"}
+    for parameter in ("atr_period", "tenkan_period", "kijun_period", "senkou_b_period", "step"):
+        axis = ParameterAxis(indicator_id="x", parameter=parameter, values=("2", "3"))
+        assert axis.parameter == parameter
+    with pytest.raises(ValueError, match=r"parameter_axes\.parameter must be one of"):
+        ParameterAxis(indicator_id="x", parameter="lookahead", values=("1", "2"))

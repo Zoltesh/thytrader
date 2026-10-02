@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from thytrader.strategies.models import (
     AllCondition,
+    AnyCondition,
     AtrMultipleStop,
     BollingerIndicatorParameters,
     ComparisonCondition,
     ComparisonOperator,
+    ConstantIndicatorParameters,
     DataRequirements,
     DisabledTrailingStop,
     EmptyIndicatorParameters,
@@ -22,6 +24,7 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorOperand,
     IndicatorParameters,
+    KeltnerIndicatorParameters,
     LiteralOperand,
     MacdIndicatorParameters,
     PortfolioLimits,
@@ -29,10 +32,12 @@ from thytrader.strategies.models import (
     RiskFractionSizing,
     StrategyDefinition,
     StrategyMetadata,
+    SupertrendIndicatorParameters,
     TimeExit,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from uuid import UUID
 
     from thytrader.market_data.models import DatasetTimeframe
@@ -56,6 +61,10 @@ class StrategyTemplateId(StrEnum):
     RSI_MEAN_REVERSION = "rsi-mean-reversion"
     MACD_TREND = "macd-trend"
     BOLLINGER_MEAN_REVERSION = "bollinger-mean-reversion"
+    DONCHIAN_BREAKOUT = "donchian-breakout"
+    SUPERTREND_TREND = "supertrend-trend"
+    SQUEEZE_BREAKOUT = "squeeze-breakout"
+    ZSCORE_MEAN_REVERSION = "zscore-mean-reversion"
 
 
 def template_catalog() -> tuple[dict[str, str], ...]:
@@ -82,6 +91,38 @@ def template_catalog() -> tuple[dict[str, str], ...]:
             "id": StrategyTemplateId.BOLLINGER_MEAN_REVERSION.value,
             "name": "Bollinger mean reversion",
             "description": "Long when close is at or below the lower band; ATR stop and target.",
+        },
+        {
+            "id": StrategyTemplateId.DONCHIAN_BREAKOUT.value,
+            "name": "Donchian breakout",
+            "description": (
+                "Long when close crosses above the prior 20-bar Donchian high (offset 1); "
+                "ATR stop and reward/risk target."
+            ),
+        },
+        {
+            "id": StrategyTemplateId.SUPERTREND_TREND.value,
+            "name": "Supertrend trend",
+            "description": (
+                "Long when Supertrend(10, 3) flips to an uptrend and ADX(14) is at least 20; "
+                "ATR stop and reward/risk target."
+            ),
+        },
+        {
+            "id": StrategyTemplateId.SQUEEZE_BREAKOUT.value,
+            "name": "Squeeze breakout",
+            "description": (
+                "Long when close crosses above the upper Bollinger band right after the bands "
+                "sat inside the Keltner channel (prior-bar squeeze); ATR stop and target."
+            ),
+        },
+        {
+            "id": StrategyTemplateId.ZSCORE_MEAN_REVERSION.value,
+            "name": "Z-score mean reversion",
+            "description": (
+                "Long when the 20-bar close z-score is at or below -2 in a ranging regime "
+                "(ADX below 20 or Choppiness above 61.8); ATR stop and target."
+            ),
         },
     )
 
@@ -193,10 +234,103 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
                 {"target": "sizing", "parameter": "risk_fraction"},
             ),
         },
+        **_catalog_template_blueprints(),
     }
     blueprint = dict(blueprints[template_id])
     blueprint["id"] = template_id.value
     return blueprint
+
+
+_SHARED_DEFAULTS: dict[str, str] = {
+    "atr.period": "14",
+    "sizing.risk_fraction": "0.005",
+    "exits.initial_stop_multiple": "2",
+    "exits.take_profit_multiple": "2",
+    "exits.max_bars_held": "96",
+}
+_SHARED_AXES: tuple[dict[str, object], ...] = (
+    {"target": "exits", "parameter": "initial_stop_multiple"},
+    {"target": "exits", "parameter": "take_profit_multiple"},
+    {"target": "exits", "parameter": "max_bars_held"},
+    {"target": "sizing", "parameter": "risk_fraction"},
+)
+
+
+def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
+    """Return blueprints for the templates built on the wider indicator catalog."""
+    return {
+        StrategyTemplateId.DONCHIAN_BREAKOUT: {
+            "warmup_bars": 21,
+            "indicator_ids": ("close", "channel", "atr"),
+            "defaults": {"channel.period": "20", "channel.offset": "1", **_SHARED_DEFAULTS},
+            "sweepable_axes": (
+                {"indicator_id": "channel", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "channel", "parameter": "offset", "range": [1, 500]},
+                *_SHARED_AXES,
+            ),
+        },
+        StrategyTemplateId.SUPERTREND_TREND: {
+            "warmup_bars": 27,
+            "indicator_ids": ("trend", "zero", "adx", "atr"),
+            "defaults": {
+                "trend.period": "10",
+                "trend.multiplier": "3",
+                "adx.period": "14",
+                "entry.literal.adx_gte": "20",
+                **_SHARED_DEFAULTS,
+            },
+            "sweepable_axes": (
+                {"indicator_id": "trend", "parameter": "period", "range": [2, 100]},
+                {"indicator_id": "trend", "parameter": "multiplier"},
+                {"target": "entry_literal", "indicator_id": "adx", "parameter": "literal"},
+                *_SHARED_AXES,
+            ),
+        },
+        StrategyTemplateId.SQUEEZE_BREAKOUT: {
+            "warmup_bars": 21,
+            "indicator_ids": (
+                "close",
+                "bands",
+                "channel",
+                "prior_bands",
+                "prior_channel",
+                "atr",
+            ),
+            "defaults": {
+                "bands.period": "20",
+                "bands.stdev_multiplier": "2",
+                "channel.period": "20",
+                "channel.atr_period": "10",
+                "channel.multiplier": "1.5",
+                "prior_bands.offset": "1",
+                "prior_channel.offset": "1",
+                **_SHARED_DEFAULTS,
+            },
+            # The prior_* declarations must keep the same parameters as bands/channel, so
+            # only exits and sizing are advertised as independent axes.
+            "sweepable_axes": _SHARED_AXES,
+        },
+        StrategyTemplateId.ZSCORE_MEAN_REVERSION: {
+            "warmup_bars": 27,
+            "indicator_ids": ("z", "adx", "chop", "atr"),
+            "defaults": {
+                "z.period": "20",
+                "adx.period": "14",
+                "chop.period": "14",
+                "entry.literal.z_lte": "-2",
+                "entry.literal.adx_lt": "20",
+                "entry.literal.chop_gt": "61.8",
+                **_SHARED_DEFAULTS,
+            },
+            "sweepable_axes": (
+                {"indicator_id": "z", "parameter": "period", "range": [2, 500]},
+                {"target": "entry_literal", "indicator_id": "z", "parameter": "literal"},
+                {"target": "entry_literal", "indicator_id": "adx", "parameter": "literal"},
+                {"target": "entry_literal", "indicator_id": "chop", "parameter": "literal"},
+                *_SHARED_AXES,
+            ),
+        },
+    }
 
 
 def build_template_definition(
@@ -208,13 +342,7 @@ def build_template_definition(
     timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
     """Return one validated draft for the selected template."""
-    if template_id is StrategyTemplateId.EMA_TREND:
-        return _ema_trend(strategy_id, created_at, instrument, timeframe)
-    if template_id is StrategyTemplateId.RSI_MEAN_REVERSION:
-        return _rsi_mean_reversion(strategy_id, created_at, instrument, timeframe)
-    if template_id is StrategyTemplateId.MACD_TREND:
-        return _macd_trend(strategy_id, created_at, instrument, timeframe)
-    return _bollinger_mean_reversion(strategy_id, created_at, instrument, timeframe)
+    return _TEMPLATE_BUILDERS[template_id](strategy_id, created_at, instrument, timeframe)
 
 
 def _ema_trend(
@@ -388,6 +516,239 @@ def _bollinger_mean_reversion(
     )
 
 
+def _donchian_breakout(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """Long when close crosses above the previous 20-bar Donchian high (offset 1)."""
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "Donchian breakout"),
+        description="Donchian channel breakout research template; not trading authority.",
+        warmup_bars=21,
+        indicators=(
+            _close(),
+            IndicatorDefinition(
+                id="channel",
+                kind=IndicatorKind.DONCHIAN,
+                input=("high", "low"),
+                parameters=IndicatorParameters(period=20),
+                offset=1,
+            ),
+            _atr(),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="close"),
+                    operator=ComparisonOperator.CROSSES_ABOVE,
+                    right=IndicatorOperand(indicator="channel", series="upper"),
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.DONCHIAN_BREAKOUT.value),
+    )
+
+
+def _supertrend_trend(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """Long when Supertrend flips up (direction crosses 0) while ADX shows a trend."""
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "Supertrend trend"),
+        description="Supertrend trend-following research template; not trading authority.",
+        warmup_bars=27,
+        indicators=(
+            IndicatorDefinition(
+                id="trend",
+                kind=IndicatorKind.SUPERTREND,
+                input=("high", "low", "close"),
+                parameters=SupertrendIndicatorParameters(period=10, multiplier="3"),
+            ),
+            IndicatorDefinition(
+                id="zero",
+                kind=IndicatorKind.CONSTANT,
+                parameters=ConstantIndicatorParameters(value="0"),
+            ),
+            _adx(),
+            _atr(),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="trend", series="direction"),
+                    operator=ComparisonOperator.CROSSES_ABOVE,
+                    right=IndicatorOperand(indicator="zero"),
+                ),
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="adx", series="adx"),
+                    operator=ComparisonOperator.GTE,
+                    right=LiteralOperand(literal="20"),
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.SUPERTREND_TREND.value),
+    )
+
+
+def _squeeze_breakout(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """Long on an upper-band breakout right after Bollinger sat inside Keltner."""
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "Squeeze breakout"),
+        description="Bollinger/Keltner squeeze breakout research template; not trading authority.",
+        warmup_bars=21,
+        indicators=(
+            _close(),
+            _bands("bands", offset=None),
+            _keltner("channel", offset=None),
+            _bands("prior_bands", offset=1),
+            _keltner("prior_channel", offset=1),
+            _atr(),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="prior_bands", series="upper"),
+                    operator=ComparisonOperator.LT,
+                    right=IndicatorOperand(indicator="prior_channel", series="upper"),
+                ),
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="prior_bands", series="lower"),
+                    operator=ComparisonOperator.GT,
+                    right=IndicatorOperand(indicator="prior_channel", series="lower"),
+                ),
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="close"),
+                    operator=ComparisonOperator.CROSSES_ABOVE,
+                    right=IndicatorOperand(indicator="bands", series="upper"),
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.SQUEEZE_BREAKOUT.value),
+    )
+
+
+def _zscore_mean_reversion(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """Long on a -2 close z-score when ADX or Choppiness says the market is ranging."""
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "Z-score mean reversion"),
+        description="Z-score mean-reversion research template; not trading authority.",
+        warmup_bars=27,
+        indicators=(
+            IndicatorDefinition(
+                id="z",
+                kind=IndicatorKind.ZSCORE,
+                input="close",
+                parameters=IndicatorParameters(period=20),
+            ),
+            _adx(),
+            IndicatorDefinition(
+                id="chop",
+                kind=IndicatorKind.CHOPPINESS,
+                input=("high", "low", "close"),
+                parameters=IndicatorParameters(period=14),
+            ),
+            _atr(),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="z"),
+                    operator=ComparisonOperator.LTE,
+                    right=LiteralOperand(literal="-2"),
+                ),
+                AnyCondition(
+                    any=(
+                        ComparisonCondition(
+                            left=IndicatorOperand(indicator="adx", series="adx"),
+                            operator=ComparisonOperator.LT,
+                            right=LiteralOperand(literal="20"),
+                        ),
+                        ComparisonCondition(
+                            left=IndicatorOperand(indicator="chop"),
+                            operator=ComparisonOperator.GT,
+                            right=LiteralOperand(literal="61.8"),
+                        ),
+                    )
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.ZSCORE_MEAN_REVERSION.value),
+    )
+
+
+def _close() -> IndicatorDefinition:
+    """Identity close used as a crossover operand."""
+    return IndicatorDefinition(
+        id="close",
+        kind=IndicatorKind.IDENTITY,
+        input="close",
+        parameters=EmptyIndicatorParameters(),
+    )
+
+
+def _adx() -> IndicatorDefinition:
+    """ADX(14) trend-strength filter."""
+    return IndicatorDefinition(
+        id="adx",
+        kind=IndicatorKind.ADX,
+        input=("high", "low", "close"),
+        parameters=IndicatorParameters(period=14),
+    )
+
+
+def _bands(indicator_id: str, *, offset: int | None) -> IndicatorDefinition:
+    """Bollinger(20, 2) on close, optionally lagged."""
+    return IndicatorDefinition(
+        id=indicator_id,
+        kind=IndicatorKind.BOLLINGER,
+        input="close",
+        parameters=BollingerIndicatorParameters(period=20, stdev_multiplier="2"),
+        offset=offset,
+    )
+
+
+def _keltner(indicator_id: str, *, offset: int | None) -> IndicatorDefinition:
+    """Keltner(20, ATR 10, 1.5) channel, optionally lagged."""
+    return IndicatorDefinition(
+        id=indicator_id,
+        kind=IndicatorKind.KELTNER,
+        input=("high", "low", "close"),
+        parameters=KeltnerIndicatorParameters(period=20, atr_period=10, multiplier="1.5"),
+        offset=offset,
+    )
+
+
 def _atr() -> IndicatorDefinition:
     """Shared ATR(14) used by every template's initial stop."""
     return IndicatorDefinition(
@@ -452,6 +813,21 @@ def _draft(
         ),
         metadata=StrategyMetadata(tags=tags, notes=()),
     )
+
+
+_TEMPLATE_BUILDERS: dict[
+    StrategyTemplateId,
+    Callable[[UUID, datetime, Instrument, DatasetTimeframe], StrategyDefinition],
+] = {
+    StrategyTemplateId.EMA_TREND: _ema_trend,
+    StrategyTemplateId.RSI_MEAN_REVERSION: _rsi_mean_reversion,
+    StrategyTemplateId.MACD_TREND: _macd_trend,
+    StrategyTemplateId.BOLLINGER_MEAN_REVERSION: _bollinger_mean_reversion,
+    StrategyTemplateId.DONCHIAN_BREAKOUT: _donchian_breakout,
+    StrategyTemplateId.SUPERTREND_TREND: _supertrend_trend,
+    StrategyTemplateId.SQUEEZE_BREAKOUT: _squeeze_breakout,
+    StrategyTemplateId.ZSCORE_MEAN_REVERSION: _zscore_mean_reversion,
+}
 
 
 def _template_name(product_id: str, timeframe: str, kind_label: str) -> str:

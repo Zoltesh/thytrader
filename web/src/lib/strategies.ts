@@ -1,3 +1,21 @@
+import templatesDocument from '$lib/generated/strategy-templates.json';
+import {
+	INDICATOR_CATALOG,
+	catalogEntry,
+	defaultParameters,
+	findCatalogEntry,
+	indicatorDisplayLabel,
+	isValidOffset,
+	isValidParameterValue,
+	operandDisplayLabel,
+	parameterProblems,
+	readParameter,
+	writeParameter,
+	type IndicatorCatalogEntry,
+	type IndicatorField,
+	type IndicatorKindValue,
+	type IndicatorParameters
+} from '$lib/indicator-catalog';
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 
 /**
@@ -131,66 +149,31 @@ export type StrategySnapshot = {
 	is_current: boolean;
 };
 
-export type IdentityInput = 'open' | 'high' | 'low' | 'close' | 'volume';
+/** One OHLCV field: an identity source or a configurable rolling input. */
+export type IdentityInput = IndicatorField;
+
+export type { IndicatorKindValue, IndicatorParameters } from './indicator-catalog';
 
 export type IndicatorInput =
-	IdentityInput | ['high', 'low', 'close'] | ['high', 'low', 'close', 'volume'];
+	| IdentityInput
+	| ['high', 'low', 'close']
+	| ['high', 'low', 'close', 'volume']
+	| ['high', 'low']
+	| ['close', 'volume'];
 
-export type IndicatorKindValue =
-	| 'ema'
-	| 'sma'
-	| 'rsi'
-	| 'atr'
-	| 'volume_sma'
-	| 'highest'
-	| 'lowest'
-	| 'stdev'
-	| 'stdev_sample'
-	| 'roc'
-	| 'williams_r'
-	| 'cci'
-	| 'wma'
-	| 'momentum'
-	| 'mfi'
-	| 'macd'
-	| 'bollinger'
-	| 'stochastic'
-	| 'adx'
-	| 'identity'
-	| 'constant';
+/** Kind picker options in catalog order (generated from the Python registry). */
+export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label: string }[] =
+	INDICATOR_CATALOG.map((entry) => ({ kind: entry.kind, label: entry.label }));
 
-export const INDICATOR_KIND_OPTIONS: readonly { kind: IndicatorKindValue; label: string }[] = [
-	{ kind: 'ema', label: 'EMA' },
-	{ kind: 'sma', label: 'SMA' },
-	{ kind: 'rsi', label: 'RSI' },
-	{ kind: 'atr', label: 'ATR' },
-	{ kind: 'volume_sma', label: 'Volume SMA' },
-	{ kind: 'highest', label: 'Highest' },
-	{ kind: 'lowest', label: 'Lowest' },
-	{ kind: 'stdev', label: 'Stdev' },
-	{ kind: 'stdev_sample', label: 'Sample stdev' },
-	{ kind: 'roc', label: 'ROC' },
-	{ kind: 'williams_r', label: 'Williams %R' },
-	{ kind: 'cci', label: 'CCI' },
-	{ kind: 'wma', label: 'WMA' },
-	{ kind: 'momentum', label: 'Momentum' },
-	{ kind: 'mfi', label: 'MFI' },
-	{ kind: 'macd', label: 'MACD' },
-	{ kind: 'bollinger', label: 'Bollinger' },
-	{ kind: 'stochastic', label: 'Stochastic' },
-	{ kind: 'adx', label: 'ADX' },
-	{ kind: 'identity', label: 'OHLCV' },
-	{ kind: 'constant', label: 'Constant' }
-];
-
+/** Declared series of every multi-output kind; single-output kinds are absent. */
 export const INDICATOR_OUTPUT_SERIES: Readonly<
 	Partial<Record<IndicatorKindValue, readonly string[]>>
-> = {
-	macd: ['macd', 'signal', 'histogram'],
-	bollinger: ['middle', 'upper', 'lower'],
-	stochastic: ['k', 'd'],
-	adx: ['adx', 'plus_di', 'minus_di']
-};
+> = Object.fromEntries(
+	INDICATOR_CATALOG.filter((entry) => entry.outputs.length > 0).map((entry) => [
+		entry.kind,
+		entry.outputs
+	])
+);
 
 export const IDENTITY_INPUT_OPTIONS: readonly { value: IdentityInput; label: string }[] = [
 	{ value: 'open', label: 'Open' },
@@ -209,17 +192,35 @@ export type IndicatorDraft = {
 	kind: IndicatorKindValue;
 	input?: IndicatorInput;
 	timeframe?: string;
-	parameters: {
-		period?: number;
-		value?: string;
-		fast_period?: number;
-		slow_period?: number;
-		signal_period?: number;
-		stdev_multiplier?: string;
-		k_period?: number;
-		d_period?: number;
-	};
+	/** Bar lag on the indicator's own clock (1 = previous completed bar); omit for now. */
+	offset?: number;
+	parameters: IndicatorParameters;
 };
+
+/** One New-strategy template from the research template catalog. */
+export type StrategyTemplateOption = { id: string; name: string; description: string };
+
+function parseTemplateOptions(raw: unknown): StrategyTemplateOption[] {
+	if (raw === null || typeof raw !== 'object' || !('templates' in raw)) {
+		throw new Error('Generated strategy template catalog is invalid.');
+	}
+	const templates = raw.templates;
+	if (!Array.isArray(templates)) throw new Error('Generated strategy templates must be a list.');
+	return templates.map((item: unknown) => {
+		if (item === null || typeof item !== 'object') {
+			throw new Error('Generated strategy template must be an object.');
+		}
+		const { id, name, description } = item as Record<string, unknown>;
+		if (typeof id !== 'string' || typeof name !== 'string' || typeof description !== 'string') {
+			throw new Error('Generated strategy template needs id, name, and description.');
+		}
+		return { id, name, description };
+	});
+}
+
+/** Research templates the library's New-strategy picker offers (generated from Python). */
+export const STRATEGY_TEMPLATE_OPTIONS: readonly StrategyTemplateOption[] =
+	parseTemplateOptions(templatesDocument);
 
 export type ComparisonOperatorValue =
 	| 'greater_than'
@@ -327,66 +328,48 @@ const TIMEFRAME_SECONDS: Record<ExecutionTimeframe, number> = {
 	'1d': 86_400
 };
 
-const CONFIGURABLE_ROLLING_KINDS: ReadonlySet<IndicatorKindValue> = new Set([
-	'ema',
-	'sma',
-	'wma',
-	'highest',
-	'lowest',
-	'stdev',
-	'stdev_sample',
-	'roc',
-	'momentum'
-]);
-
-function defaultRollingInput(kind: IndicatorKindValue): IdentityInput {
-	if (kind === 'highest') return 'high';
-	if (kind === 'lowest') return 'low';
-	return 'close';
+function isIdentityInput(value: unknown): value is IdentityInput {
+	return typeof value === 'string' && (IDENTITY_INPUTS as readonly string[]).includes(value);
 }
 
-function lockedIndicatorInput(kind: IndicatorKindValue): IndicatorInput {
-	if (
-		kind === 'atr' ||
-		kind === 'williams_r' ||
-		kind === 'cci' ||
-		kind === 'stochastic' ||
-		kind === 'adx'
-	) {
-		return ['high', 'low', 'close'];
-	}
-	if (kind === 'mfi') return ['high', 'low', 'close', 'volume'];
-	if (kind === 'volume_sma') return 'volume';
-	if (CONFIGURABLE_ROLLING_KINDS.has(kind)) return defaultRollingInput(kind);
-	return 'close';
+const LOCKED_TUPLE_INPUTS: readonly IndicatorInput[] = [
+	['high', 'low', 'close'],
+	['high', 'low', 'close', 'volume'],
+	['high', 'low'],
+	['close', 'volume']
+];
+
+/** The canonical locked input of one kind (a fresh copy for field tuples). */
+function lockedInputFor(entry: IndicatorCatalogEntry): IndicatorInput {
+	const locked = entry.default_input;
+	if (typeof locked === 'string') return locked;
+	const match = LOCKED_TUPLE_INPUTS.find(
+		(candidate) =>
+			Array.isArray(candidate) &&
+			locked !== null &&
+			candidate.length === locked.length &&
+			candidate.every((field, index) => field === locked[index])
+	);
+	if (match === undefined) throw new Error(`No locked input for indicator kind ${entry.kind}.`);
+	return structuredClone(match);
 }
 
-function selectedRollingInput(indicator: IndicatorDraft): IdentityInput {
-	return typeof indicator.input === 'string' && IDENTITY_INPUTS.includes(indicator.input)
-		? indicator.input
-		: defaultRollingInput(indicator.kind);
+function selectedRollingInput(
+	indicator: IndicatorDraft,
+	entry: IndicatorCatalogEntry
+): IdentityInput {
+	if (isIdentityInput(indicator.input)) return indicator.input;
+	return isIdentityInput(entry.default_input) ? entry.default_input : 'close';
 }
 
+/** True for rolling kinds that read one author-selected OHLCV field (identity excluded). */
 export function isConfigurableRollingKind(kind: IndicatorKindValue): boolean {
-	return CONFIGURABLE_ROLLING_KINDS.has(kind);
+	return kind !== 'identity' && findCatalogEntry(kind)?.input_mode === 'configurable';
 }
 
-function indicatorPeriodMax(kind: IndicatorKindValue): number {
-	return kind === 'rsi' ||
-		kind === 'atr' ||
-		kind === 'williams_r' ||
-		kind === 'cci' ||
-		kind === 'mfi' ||
-		kind === 'adx'
-		? 100
-		: 500;
-}
-
-function clampPeriod(value: number | undefined, maximum: number, fallback: number): number {
-	if (typeof value === 'number' && Number.isInteger(value) && value >= 2) {
-		return Math.min(value, maximum);
-	}
-	return fallback;
+/** Quote currency for labels: `USDC` for `BTC-USDC`, or `quote` while the id is incomplete. */
+export function quoteLabelFor(productId: string): string {
+	return quoteCurrencyFor(productId.trim().toUpperCase(), 'quote');
 }
 
 /** Build a comparison operand for the first declared indicator, including series when required. */
@@ -417,177 +400,141 @@ function indicatorOperand(indicator: IndicatorDraft, series: string | undefined)
 	return { indicator: indicator.id, series };
 }
 
-/** Expand multi-series kinds into one selectable operand per output. */
-export function operandChoices(indicators: IndicatorDraft[]): { key: string; label: string }[] {
-	const choices: { key: string; label: string }[] = [];
+/**
+ * One operand select option. `group` is set for multi-series kinds (the indicator's
+ * readable label and id) so the form can render their series as an `<optgroup>`.
+ */
+export type OperandChoice = { key: string; label: string; group?: string };
+
+/**
+ * Expand multi-series kinds into one selectable operand per output, labelled
+ * readably (`Supertrend(10, 3) · direction`). Keys stay `indicator:<id>[.<series>]`.
+ * Labels that would repeat get ` — <id>` appended so every option stays distinct.
+ */
+export function operandChoices(indicators: IndicatorDraft[]): OperandChoice[] {
+	const choices: (OperandChoice & { id: string })[] = [];
 	for (const indicator of indicators) {
 		const series = INDICATOR_OUTPUT_SERIES[indicator.kind];
 		if (series === undefined) {
-			choices.push({ key: `indicator:${indicator.id}`, label: indicator.id });
+			choices.push({
+				id: indicator.id,
+				key: `indicator:${indicator.id}`,
+				label: operandDisplayLabel(indicator)
+			});
 			continue;
 		}
+		const group = `${indicatorDisplayLabel(indicator)} — ${indicator.id}`;
 		for (const name of series) {
 			choices.push({
+				id: indicator.id,
 				key: `indicator:${indicator.id}.${name}`,
-				label: `${indicator.id}.${name}`
+				label: operandDisplayLabel(indicator, name),
+				group
 			});
 		}
 	}
-	choices.push({ key: 'literal', label: 'literal value' });
-	return choices;
+	const counts = new Map<string, number>();
+	for (const choice of choices) counts.set(choice.label, (counts.get(choice.label) ?? 0) + 1);
+	const labelled: OperandChoice[] = choices.map(({ id, key, label, group }) => ({
+		key,
+		label: (counts.get(label) ?? 0) > 1 ? `${label} — ${id}` : label,
+		...(group === undefined ? {} : { group })
+	}));
+	labelled.push({ key: 'literal', label: 'literal value' });
+	return labelled;
 }
 
-/** Align one builder indicator with the kind's locked input and parameter shape. */
+/**
+ * Align one builder indicator with its kind: the input the kind accepts, every
+ * declared parameter (a same-named value carries over only when it is valid for the
+ * new kind and the kind's constraints still hold; otherwise the catalog default),
+ * and no timeframe or offset on kinds that cannot take them.
+ */
 export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
-	if (indicator.kind === 'identity') {
-		indicator.input = IDENTITY_INPUTS.includes(indicator.input as IdentityInput)
-			? (indicator.input as IdentityInput)
-			: 'close';
-		indicator.parameters = {};
-		return;
-	}
-	if (indicator.kind === 'constant') {
-		const previous = indicator.parameters.value;
+	const entry = catalogEntry(indicator.kind);
+	if (entry.input_mode === 'none') {
 		delete indicator.input;
-		delete indicator.timeframe;
-		indicator.parameters = {
-			value: previous !== undefined && previous.length > 0 ? previous : '50'
-		};
-		return;
+	} else if (entry.input_mode === 'configurable') {
+		indicator.input = selectedRollingInput(indicator, entry);
+	} else {
+		indicator.input = lockedInputFor(entry);
 	}
-	if (indicator.kind === 'macd') {
-		indicator.input = 'close';
-		const fast = clampPeriod(indicator.parameters.fast_period, 500, 12);
-		const slow = clampPeriod(indicator.parameters.slow_period, 500, 26);
-		indicator.parameters = {
-			fast_period: fast,
-			slow_period: slow > fast ? slow : Math.min(500, fast + 1),
-			signal_period: clampPeriod(indicator.parameters.signal_period, 500, 9)
-		};
-		return;
+	if (!entry.supports_timeframe) delete indicator.timeframe;
+	if (!entry.supports_offset) delete indicator.offset;
+	const carried: IndicatorParameters = {};
+	for (const spec of entry.parameters) {
+		const previous = readParameter(indicator.parameters, spec.name);
+		if (
+			(typeof previous === 'number' || typeof previous === 'string') &&
+			isValidParameterValue(spec, previous)
+		) {
+			writeParameter(carried, spec.name, previous);
+		} else if (spec.default !== null) {
+			writeParameter(carried, spec.name, spec.default);
+		}
 	}
-	if (indicator.kind === 'bollinger') {
-		indicator.input = 'close';
-		const previousMultiplier = indicator.parameters.stdev_multiplier;
-		indicator.parameters = {
-			period: clampPeriod(indicator.parameters.period, 500, 20),
-			stdev_multiplier:
-				previousMultiplier !== undefined && previousMultiplier.length > 0 ? previousMultiplier : '2'
-		};
-		return;
-	}
-	if (indicator.kind === 'stochastic') {
-		indicator.input = ['high', 'low', 'close'];
-		indicator.parameters = {
-			k_period: clampPeriod(indicator.parameters.k_period, 100, 14),
-			d_period: clampPeriod(indicator.parameters.d_period, 500, 3)
-		};
-		return;
-	}
-	if (isConfigurableRollingKind(indicator.kind)) {
-		indicator.input = selectedRollingInput(indicator);
-		const previousPeriod = indicator.parameters.period;
-		const maximum = indicatorPeriodMax(indicator.kind);
-		const period =
-			typeof previousPeriod === 'number' && Number.isInteger(previousPeriod) && previousPeriod >= 2
-				? Math.min(previousPeriod, maximum)
-				: 50;
-		indicator.parameters = { period };
-		return;
-	}
-	indicator.input = lockedIndicatorInput(indicator.kind);
-	const previousPeriod = indicator.parameters.period;
-	const maximum = indicatorPeriodMax(indicator.kind);
-	const period =
-		typeof previousPeriod === 'number' && Number.isInteger(previousPeriod) && previousPeriod >= 2
-			? Math.min(previousPeriod, maximum)
-			: 50;
-	indicator.parameters = { period };
+	indicator.parameters =
+		parameterProblems(indicator.kind, carried, '').length === 0
+			? carried
+			: defaultParameters(indicator.kind);
 }
 
-/** Canonical indicator payload for saving a strategy. */
+function serializedInput(
+	indicator: IndicatorDraft,
+	entry: IndicatorCatalogEntry
+): IndicatorInput | undefined {
+	if (entry.input_mode === 'none') return undefined;
+	if (entry.input_mode === 'configurable') return selectedRollingInput(indicator, entry);
+	return indicator.input ?? lockedInputFor(entry);
+}
+
+function serializedParameters(
+	indicator: IndicatorDraft,
+	entry: IndicatorCatalogEntry
+): IndicatorParameters {
+	const parameters: IndicatorParameters = {};
+	for (const spec of entry.parameters) {
+		const value = readParameter(indicator.parameters, spec.name);
+		if (typeof value === 'number' || (typeof value === 'string' && value !== '')) {
+			writeParameter(parameters, spec.name, value);
+		} else if (!spec.optional && spec.default !== null) {
+			writeParameter(parameters, spec.name, spec.default);
+		}
+	}
+	return parameters;
+}
+
+/**
+ * Canonical indicator payload for saving a strategy. Optional parameters are
+ * omitted when blank, `timeframe` only appears for an extra clock, and `offset`
+ * only appears when it is a positive bar lag on a kind that accepts one.
+ */
 export function serializeIndicator(
 	indicator: IndicatorDraft,
 	decisionTimeframe?: string
 ): IndicatorDraft {
+	const entry = findCatalogEntry(indicator.kind);
+	if (entry === undefined) return indicator;
 	const extraTimeframe =
 		decisionTimeframe !== undefined &&
-		indicator.kind !== 'constant' &&
+		entry.supports_timeframe &&
 		indicator.timeframe !== undefined &&
 		indicator.timeframe !== '' &&
 		indicator.timeframe !== decisionTimeframe
 			? indicator.timeframe
 			: undefined;
-	if (indicator.kind === 'constant') {
-		return {
-			id: indicator.id,
-			kind: 'constant',
-			parameters: { value: indicator.parameters.value ?? '0' }
-		};
-	}
-	if (indicator.kind === 'identity') {
-		return {
-			id: indicator.id,
-			kind: 'identity',
-			input: IDENTITY_INPUTS.includes(indicator.input as IdentityInput)
-				? (indicator.input as IdentityInput)
-				: 'close',
-			parameters: {},
-			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
-		};
-	}
-	if (indicator.kind === 'macd') {
-		return {
-			id: indicator.id,
-			kind: 'macd',
-			input: 'close',
-			parameters: {
-				fast_period: indicator.parameters.fast_period ?? 12,
-				slow_period: indicator.parameters.slow_period ?? 26,
-				signal_period: indicator.parameters.signal_period ?? 9
-			},
-			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
-		};
-	}
-	if (indicator.kind === 'bollinger') {
-		return {
-			id: indicator.id,
-			kind: 'bollinger',
-			input: 'close',
-			parameters: {
-				period: indicator.parameters.period ?? 20,
-				stdev_multiplier: indicator.parameters.stdev_multiplier ?? '2'
-			},
-			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
-		};
-	}
-	if (indicator.kind === 'stochastic') {
-		return {
-			id: indicator.id,
-			kind: 'stochastic',
-			input: ['high', 'low', 'close'],
-			parameters: {
-				k_period: indicator.parameters.k_period ?? 14,
-				d_period: indicator.parameters.d_period ?? 3
-			},
-			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
-		};
-	}
-	if (isConfigurableRollingKind(indicator.kind)) {
-		return {
-			id: indicator.id,
-			kind: indicator.kind,
-			input: selectedRollingInput(indicator),
-			parameters: { period: indicator.parameters.period ?? 2 },
-			...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
-		};
-	}
+	const offset =
+		entry.supports_offset && isValidOffset(indicator.offset) && indicator.offset > 0
+			? indicator.offset
+			: undefined;
+	const input = serializedInput(indicator, entry);
 	return {
 		id: indicator.id,
 		kind: indicator.kind,
-		input: indicator.input ?? lockedIndicatorInput(indicator.kind),
-		parameters: { period: indicator.parameters.period ?? 2 },
-		...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe })
+		...(input === undefined ? {} : { input }),
+		parameters: serializedParameters(indicator, entry),
+		...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe }),
+		...(offset === undefined ? {} : { offset })
 	};
 }
 

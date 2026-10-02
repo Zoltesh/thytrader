@@ -214,6 +214,38 @@ def test_operator_local_indicators_and_products_are_healthy(
         "adx",
         "identity",
         "constant",
+        "dema",
+        "tema",
+        "hma",
+        "kama",
+        "vwma",
+        "supertrend",
+        "parabolic_sar",
+        "aroon",
+        "ichimoku",
+        "vortex",
+        "linear_regression",
+        "trix",
+        "stochastic_rsi",
+        "ppo",
+        "ultimate_oscillator",
+        "awesome_oscillator",
+        "cmo",
+        "tsi",
+        "keltner",
+        "donchian",
+        "bollinger_percent_b",
+        "bollinger_bandwidth",
+        "natr",
+        "choppiness",
+        "historical_volatility",
+        "obv",
+        "cmf",
+        "accumulation_distribution",
+        "vwap",
+        "force_index",
+        "zscore",
+        "percent_rank",
     }
     by_kind = {item["kind"]: item for item in indicators["payload"]["indicators"]}
     assert by_kind["highest"]["inputs"] == ["open", "high", "low", "close", "volume"]
@@ -251,6 +283,28 @@ def test_operator_local_indicators_and_products_are_healthy(
     assert by_kind["identity"]["period_min"] is None
     assert by_kind["constant"]["inputs"] == []
     assert by_kind["constant"]["parameter_kind"] == "value"
+    assert by_kind["constant"]["supports_offset"] is False
+    assert by_kind["supertrend"]["outputs"] == ["value", "direction"]
+    assert by_kind["supertrend"]["category"] == "trend"
+    assert by_kind["supertrend"]["inputs"] == ["high", "low", "close"]
+    assert [item["name"] for item in by_kind["supertrend"]["parameters"]] == [
+        "period",
+        "multiplier",
+    ]
+    assert by_kind["supertrend"]["parameters"][1]["default"] == "3"
+    assert by_kind["ichimoku"]["outputs"] == ["tenkan", "kijun", "senkou_a", "senkou_b"]
+    assert by_kind["ichimoku"]["default_warmup_bars"] == 52
+    assert by_kind["donchian"]["inputs"] == ["high", "low"]
+    assert by_kind["obv"]["inputs"] == ["close", "volume"]
+    assert by_kind["historical_volatility"]["parameters"][1]["optional"] is True
+    assert {item["category"] for item in indicators["payload"]["indicators"]} == {
+        "trend",
+        "momentum",
+        "volatility",
+        "volume",
+        "statistical",
+        "price",
+    }
 
     with pytest.raises(SystemExit) as raised:
         main(["--local", "products"])

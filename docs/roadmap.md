@@ -367,6 +367,21 @@ and Bollinger bands are unchanged.
 **Exit gate met:** kinds named in the ADR, implemented in the registry and evaluator, referenced from
 conditions, and listed in operator `indicators` plus the then-current engine matrix.
 
+## Indicator catalog expansion and bar lag — ✅ Shipped
+
+Thirty-two more fail-closed kinds join the registry
+([ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md)): trend (DEMA, TEMA, Hull,
+KAMA, VWMA, Supertrend, Parabolic SAR, Aroon, Ichimoku without displacement, Vortex, linear
+regression, TRIX), momentum (stochastic RSI, PPO, Ultimate and Awesome oscillators, CMO, TSI),
+volatility (Keltner, Donchian, Bollinger %B and bandwidth, NATR, Choppiness, historical
+volatility), volume (OBV, Chaikin Money Flow, A/D line, rolling VWAP, Force Index), and
+statistical (z-score, percent rank). Any declaration may lag by `offset` bars. One Python registry
+renders the operator `indicators` report and the builder catalog; four templates use the new kinds.
+
+**Exit gate met:** every kind is validated, implemented in the shared calculator, cross-checked
+against TA-Lib or an independent Decimal reference, documented with its warmup and edge cases,
+and usable in research, paper, live, HTF filters, extra indicator clocks, sweeps, and the builder.
+
 ## Paper deploy fee fields — ✅ Shipped
 
 Paper strategy deploy and new paper discretionary books persist Decimal maker/taker assumptions
@@ -498,7 +513,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Published-strategy same-side adds are [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) | On-demand scale-in remains out |
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only; ranged newest-first ingest (350-bar pages, fair per-cycle budgets, 429 backoff) with research lookbacks from 90 days (1m) to 10 years (2h-1d), watched-only ingest, and sub-second catalog listings; ops contract v45 / Alembic 0052 ([ADR 0085](decisions/0085-fast-research-ingest.md)) | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
-| Indicators | Fail-closed catalog through [ADR 0047](decisions/0047-wider-fail-closed-indicator-catalog.md) (`stochastic`/`adx` series ids, configurable rolling inputs, `stdev_sample`); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough |
+| Indicators | 53-kind fail-closed catalog through [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md) (trend, momentum, volatility, volume, statistical, and price kinds with series ids; per-declaration `offset` bar lag); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough; operand-level lag |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)) | Further composed research remaining destination |
 | Deploy | Concurrent paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); one document may cover multiple Coinbase USD spot products with optional intra-strategy pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)) | Extra exchanges stay out |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |

@@ -1,0 +1,1283 @@
+{
+  "schema": "thytrader-indicator-catalog-v1",
+  "warmup_examples": {
+    "ema": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "sma": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "rsi": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 16
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 18
+      }
+    ],
+    "atr": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 14
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 17
+      }
+    ],
+    "volume_sma": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "highest": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "lowest": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "stdev": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "stdev_sample": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "roc": [
+      {
+        "parameters": {
+          "period": 10
+        },
+        "offset": 0,
+        "warmup_bars": 11
+      },
+      {
+        "parameters": {
+          "period": 11
+        },
+        "offset": 0,
+        "warmup_bars": 12
+      },
+      {
+        "parameters": {
+          "period": 10
+        },
+        "offset": 3,
+        "warmup_bars": 14
+      }
+    ],
+    "williams_r": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 14
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 17
+      }
+    ],
+    "cci": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "wma": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "momentum": [
+      {
+        "parameters": {
+          "period": 10
+        },
+        "offset": 0,
+        "warmup_bars": 11
+      },
+      {
+        "parameters": {
+          "period": 11
+        },
+        "offset": 0,
+        "warmup_bars": 12
+      },
+      {
+        "parameters": {
+          "period": 10
+        },
+        "offset": 3,
+        "warmup_bars": 14
+      }
+    ],
+    "mfi": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 16
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 18
+      }
+    ],
+    "macd": [
+      {
+        "parameters": {
+          "fast_period": 12,
+          "slow_period": 26,
+          "signal_period": 9
+        },
+        "offset": 0,
+        "warmup_bars": 34
+      },
+      {
+        "parameters": {
+          "fast_period": 13,
+          "slow_period": 27,
+          "signal_period": 10
+        },
+        "offset": 0,
+        "warmup_bars": 36
+      },
+      {
+        "parameters": {
+          "fast_period": 12,
+          "slow_period": 26,
+          "signal_period": 9
+        },
+        "offset": 3,
+        "warmup_bars": 37
+      }
+    ],
+    "bollinger": [
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "stochastic": [
+      {
+        "parameters": {
+          "k_period": 14,
+          "d_period": 3
+        },
+        "offset": 0,
+        "warmup_bars": 16
+      },
+      {
+        "parameters": {
+          "k_period": 15,
+          "d_period": 4
+        },
+        "offset": 0,
+        "warmup_bars": 18
+      },
+      {
+        "parameters": {
+          "k_period": 14,
+          "d_period": 3
+        },
+        "offset": 3,
+        "warmup_bars": 19
+      }
+    ],
+    "adx": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 27
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 29
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 30
+      }
+    ],
+    "identity": [
+      {
+        "parameters": {},
+        "offset": 0,
+        "warmup_bars": 1
+      },
+      {
+        "parameters": {},
+        "offset": 0,
+        "warmup_bars": 1
+      },
+      {
+        "parameters": {},
+        "offset": 3,
+        "warmup_bars": 4
+      }
+    ],
+    "constant": [
+      {
+        "parameters": {
+          "value": "50"
+        },
+        "offset": 0,
+        "warmup_bars": 1
+      },
+      {
+        "parameters": {
+          "value": "50"
+        },
+        "offset": 0,
+        "warmup_bars": 1
+      }
+    ],
+    "dema": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 39
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 41
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 42
+      }
+    ],
+    "tema": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 58
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 61
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 61
+      }
+    ],
+    "hma": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 23
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 24
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 26
+      }
+    ],
+    "kama": [
+      {
+        "parameters": {
+          "period": 10,
+          "fast_period": 2,
+          "slow_period": 30
+        },
+        "offset": 0,
+        "warmup_bars": 11
+      },
+      {
+        "parameters": {
+          "period": 11,
+          "fast_period": 3,
+          "slow_period": 31
+        },
+        "offset": 0,
+        "warmup_bars": 12
+      },
+      {
+        "parameters": {
+          "period": 10,
+          "fast_period": 2,
+          "slow_period": 30
+        },
+        "offset": 3,
+        "warmup_bars": 14
+      }
+    ],
+    "vwma": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "supertrend": [
+      {
+        "parameters": {
+          "period": 10,
+          "multiplier": "3"
+        },
+        "offset": 0,
+        "warmup_bars": 10
+      },
+      {
+        "parameters": {
+          "period": 11,
+          "multiplier": "3"
+        },
+        "offset": 0,
+        "warmup_bars": 11
+      },
+      {
+        "parameters": {
+          "period": 10,
+          "multiplier": "3"
+        },
+        "offset": 3,
+        "warmup_bars": 13
+      }
+    ],
+    "parabolic_sar": [
+      {
+        "parameters": {
+          "step": "0.02",
+          "max_step": "0.2"
+        },
+        "offset": 0,
+        "warmup_bars": 2
+      },
+      {
+        "parameters": {
+          "step": "0.02",
+          "max_step": "0.2"
+        },
+        "offset": 0,
+        "warmup_bars": 2
+      },
+      {
+        "parameters": {
+          "step": "0.02",
+          "max_step": "0.2"
+        },
+        "offset": 3,
+        "warmup_bars": 5
+      }
+    ],
+    "aroon": [
+      {
+        "parameters": {
+          "period": 25
+        },
+        "offset": 0,
+        "warmup_bars": 26
+      },
+      {
+        "parameters": {
+          "period": 26
+        },
+        "offset": 0,
+        "warmup_bars": 27
+      },
+      {
+        "parameters": {
+          "period": 25
+        },
+        "offset": 3,
+        "warmup_bars": 29
+      }
+    ],
+    "ichimoku": [
+      {
+        "parameters": {
+          "tenkan_period": 9,
+          "kijun_period": 26,
+          "senkou_b_period": 52
+        },
+        "offset": 0,
+        "warmup_bars": 52
+      },
+      {
+        "parameters": {
+          "tenkan_period": 10,
+          "kijun_period": 27,
+          "senkou_b_period": 53
+        },
+        "offset": 0,
+        "warmup_bars": 53
+      },
+      {
+        "parameters": {
+          "tenkan_period": 9,
+          "kijun_period": 26,
+          "senkou_b_period": 52
+        },
+        "offset": 3,
+        "warmup_bars": 55
+      }
+    ],
+    "vortex": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 16
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 18
+      }
+    ],
+    "linear_regression": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "trix": [
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 44
+      },
+      {
+        "parameters": {
+          "period": 16
+        },
+        "offset": 0,
+        "warmup_bars": 47
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 3,
+        "warmup_bars": 47
+      }
+    ],
+    "stochastic_rsi": [
+      {
+        "parameters": {
+          "rsi_period": 14,
+          "stoch_period": 14,
+          "k_period": 3,
+          "d_period": 3
+        },
+        "offset": 0,
+        "warmup_bars": 32
+      },
+      {
+        "parameters": {
+          "rsi_period": 15,
+          "stoch_period": 15,
+          "k_period": 4,
+          "d_period": 4
+        },
+        "offset": 0,
+        "warmup_bars": 36
+      },
+      {
+        "parameters": {
+          "rsi_period": 14,
+          "stoch_period": 14,
+          "k_period": 3,
+          "d_period": 3
+        },
+        "offset": 3,
+        "warmup_bars": 35
+      }
+    ],
+    "ppo": [
+      {
+        "parameters": {
+          "fast_period": 12,
+          "slow_period": 26,
+          "signal_period": 9
+        },
+        "offset": 0,
+        "warmup_bars": 34
+      },
+      {
+        "parameters": {
+          "fast_period": 13,
+          "slow_period": 27,
+          "signal_period": 10
+        },
+        "offset": 0,
+        "warmup_bars": 36
+      },
+      {
+        "parameters": {
+          "fast_period": 12,
+          "slow_period": 26,
+          "signal_period": 9
+        },
+        "offset": 3,
+        "warmup_bars": 37
+      }
+    ],
+    "ultimate_oscillator": [
+      {
+        "parameters": {
+          "short_period": 7,
+          "medium_period": 14,
+          "long_period": 28
+        },
+        "offset": 0,
+        "warmup_bars": 29
+      },
+      {
+        "parameters": {
+          "short_period": 8,
+          "medium_period": 15,
+          "long_period": 29
+        },
+        "offset": 0,
+        "warmup_bars": 30
+      },
+      {
+        "parameters": {
+          "short_period": 7,
+          "medium_period": 14,
+          "long_period": 28
+        },
+        "offset": 3,
+        "warmup_bars": 32
+      }
+    ],
+    "awesome_oscillator": [
+      {
+        "parameters": {
+          "fast_period": 5,
+          "slow_period": 34
+        },
+        "offset": 0,
+        "warmup_bars": 34
+      },
+      {
+        "parameters": {
+          "fast_period": 6,
+          "slow_period": 35
+        },
+        "offset": 0,
+        "warmup_bars": 35
+      },
+      {
+        "parameters": {
+          "fast_period": 5,
+          "slow_period": 34
+        },
+        "offset": 3,
+        "warmup_bars": 37
+      }
+    ],
+    "cmo": [
+      {
+        "parameters": {
+          "period": 9
+        },
+        "offset": 0,
+        "warmup_bars": 10
+      },
+      {
+        "parameters": {
+          "period": 10
+        },
+        "offset": 0,
+        "warmup_bars": 11
+      },
+      {
+        "parameters": {
+          "period": 9
+        },
+        "offset": 3,
+        "warmup_bars": 13
+      }
+    ],
+    "tsi": [
+      {
+        "parameters": {
+          "long_period": 25,
+          "short_period": 13,
+          "signal_period": 13
+        },
+        "offset": 0,
+        "warmup_bars": 50
+      },
+      {
+        "parameters": {
+          "long_period": 26,
+          "short_period": 14,
+          "signal_period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 53
+      },
+      {
+        "parameters": {
+          "long_period": 25,
+          "short_period": 13,
+          "signal_period": 13
+        },
+        "offset": 3,
+        "warmup_bars": 53
+      }
+    ],
+    "keltner": [
+      {
+        "parameters": {
+          "period": 20,
+          "atr_period": 10,
+          "multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21,
+          "atr_period": 11,
+          "multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20,
+          "atr_period": 10,
+          "multiplier": "2"
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "donchian": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "bollinger_percent_b": [
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "bollinger_bandwidth": [
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21,
+          "stdev_multiplier": "2"
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20,
+          "stdev_multiplier": "2"
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "natr": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 14
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 17
+      }
+    ],
+    "choppiness": [
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 14
+      },
+      {
+        "parameters": {
+          "period": 15
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 3,
+        "warmup_bars": 17
+      }
+    ],
+    "historical_volatility": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 22
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 24
+      }
+    ],
+    "obv": [
+      {
+        "parameters": {
+          "signal_period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "signal_period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "signal_period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "cmf": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "accumulation_distribution": [
+      {
+        "parameters": {
+          "signal_period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "signal_period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "signal_period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "vwap": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "force_index": [
+      {
+        "parameters": {
+          "period": 13
+        },
+        "offset": 0,
+        "warmup_bars": 14
+      },
+      {
+        "parameters": {
+          "period": 14
+        },
+        "offset": 0,
+        "warmup_bars": 15
+      },
+      {
+        "parameters": {
+          "period": 13
+        },
+        "offset": 3,
+        "warmup_bars": 17
+      }
+    ],
+    "zscore": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 20
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 23
+      }
+    ],
+    "percent_rank": [
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 0,
+        "warmup_bars": 21
+      },
+      {
+        "parameters": {
+          "period": 21
+        },
+        "offset": 0,
+        "warmup_bars": 22
+      },
+      {
+        "parameters": {
+          "period": 20
+        },
+        "offset": 3,
+        "warmup_bars": 24
+      }
+    ]
+  }
+}

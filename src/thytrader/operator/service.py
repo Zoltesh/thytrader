@@ -54,6 +54,7 @@ from thytrader.market_data_worker.service import island_covers_watch, watch_expe
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
+from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.models import (
     PORTFOLIO_REDACTION,
     STANDARD_REDACTION,
@@ -71,7 +72,6 @@ from thytrader.operator.models import (
     FeesReport,
     HealthPayload,
     HealthReport,
-    IndicatorCatalogEntry,
     IndicatorsPayload,
     IndicatorsReport,
     MarketDataPayload,
@@ -132,7 +132,7 @@ from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.settings_yaml import default_settings_path
 from thytrader.strategies.library import StrategyLibraryError
-from thytrader.strategies.models import IndicatorKind, covered_product_ids
+from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.snapshots import StrategySnapshotError
 
 
@@ -545,7 +545,7 @@ class OperatorDiagnostics:
     async def indicators(self) -> IndicatorsReport:
         """List implemented indicator kinds; do not invent unsupported studies."""
         now = datetime.now(UTC)
-        entries = _indicator_entries()
+        entries = indicator_catalog_entries()
         component = ComponentReport(
             name="indicators",
             status=ReportStatus.HEALTHY,
@@ -2281,146 +2281,6 @@ def _catalog_provider(settings: Settings) -> str:
     if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
         return "demo"
     return "coinbase"
-
-
-_CONFIGURABLE_ROLLING_INPUTS: tuple[str, ...] = ("open", "high", "low", "close", "volume")
-
-
-def _indicator_entries() -> tuple[IndicatorCatalogEntry, ...]:
-    """Describe implemented indicator kinds and their canonical bounds."""
-    return (
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.EMA.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.SMA.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.RSI.value,
-            inputs=("close",),
-            period_min=2,
-            period_max=100,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.ATR.value,
-            inputs=("high", "low", "close"),
-            period_min=2,
-            period_max=100,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.VOLUME_SMA.value,
-            inputs=("volume",),
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.HIGHEST.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.LOWEST.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.STDEV.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.STDEV_SAMPLE.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.ROC.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.WILLIAMS_R.value,
-            inputs=("high", "low", "close"),
-            period_min=2,
-            period_max=100,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.CCI.value,
-            inputs=("high", "low", "close"),
-            period_min=2,
-            period_max=100,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.WMA.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.MOMENTUM.value,
-            inputs=_CONFIGURABLE_ROLLING_INPUTS,
-            period_min=2,
-            period_max=500,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.MFI.value,
-            inputs=("high", "low", "close", "volume"),
-            period_min=2,
-            period_max=100,
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.MACD.value,
-            inputs=("close",),
-            parameter_kind="macd",
-            period_min=2,
-            period_max=500,
-            outputs=("macd", "signal", "histogram"),
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.BOLLINGER.value,
-            inputs=("close",),
-            parameter_kind="bollinger",
-            period_min=2,
-            period_max=500,
-            outputs=("middle", "upper", "lower"),
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.STOCHASTIC.value,
-            inputs=("high", "low", "close"),
-            parameter_kind="stochastic",
-            period_min=2,
-            period_max=500,
-            outputs=("k", "d"),
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.ADX.value,
-            inputs=("high", "low", "close"),
-            period_min=2,
-            period_max=100,
-            outputs=("adx", "plus_di", "minus_di"),
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.IDENTITY.value,
-            inputs=("open", "high", "low", "close", "volume"),
-            parameter_kind="none",
-        ),
-        IndicatorCatalogEntry(
-            kind=IndicatorKind.CONSTANT.value,
-            inputs=(),
-            parameter_kind="value",
-        ),
-    )
 
 
 def _merge_coverage_rows(

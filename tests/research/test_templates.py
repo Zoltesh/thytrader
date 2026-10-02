@@ -11,8 +11,14 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorOperand,
     LiteralOperand,
+    indicator_min_warmup,
 )
-from thytrader.strategies.templates import StrategyTemplateId, parse_template_id, template_catalog
+from thytrader.strategies.templates import (
+    StrategyTemplateId,
+    parse_template_id,
+    template_blueprint,
+    template_catalog,
+)
 
 
 def test_default_template_matches_historical_ema_reference() -> None:
@@ -61,3 +67,46 @@ def test_unknown_template_is_rejected() -> None:
         parse_template_id("stochastic")
     ids = {item["id"] for item in template_catalog()}
     assert ids == {item.value for item in StrategyTemplateId}
+
+
+@pytest.mark.parametrize("template", list(StrategyTemplateId), ids=lambda item: item.value)
+def test_blueprints_describe_the_built_document(template: StrategyTemplateId) -> None:
+    """Blueprint warmup, ids, and axes match what create-strategy actually builds."""
+    draft = create_template_strategy(template=template.value, product_id="ETH-USDC")
+    blueprint = template_blueprint(template)
+    declared = {indicator.id for indicator in draft.indicators}
+    assert blueprint["warmup_bars"] == draft.data_requirements.warmup_bars
+    assert blueprint["warmup_bars"] == max(
+        indicator_min_warmup(indicator) for indicator in draft.indicators
+    )
+    assert set(blueprint["indicator_ids"]) == declared
+    for key in blueprint["defaults"]:
+        prefix = key.split(".", 1)[0]
+        assert prefix in declared | {"entry", "sizing", "exits"}, key
+    for axis in blueprint["sweepable_axes"]:
+        indicator_id = axis.get("indicator_id")
+        assert indicator_id is None or indicator_id in declared, axis
+
+
+def test_catalog_templates_use_the_wider_indicator_catalog() -> None:
+    """The new templates reference new kinds, series ids, and prior-bar offsets."""
+    donchian = create_template_strategy(template="donchian-breakout")
+    channel = next(item for item in donchian.indicators if item.id == "channel")
+    assert channel.kind is IndicatorKind.DONCHIAN
+    assert channel.offset == 1
+    supertrend = create_template_strategy(template="supertrend-trend")
+    assert {item.kind for item in supertrend.indicators} >= {
+        IndicatorKind.SUPERTREND,
+        IndicatorKind.CONSTANT,
+        IndicatorKind.ADX,
+    }
+    squeeze = create_template_strategy(template="squeeze-breakout")
+    lagged = {item.id: item.offset for item in squeeze.indicators if item.offset is not None}
+    assert lagged == {"prior_bands": 1, "prior_channel": 1}
+    zscore = create_template_strategy(template="zscore-mean-reversion", timeframe="4h")
+    assert zscore.timeframe == "4h"
+    assert {item.kind for item in zscore.indicators} >= {
+        IndicatorKind.ZSCORE,
+        IndicatorKind.CHOPPINESS,
+    }
+    assert "Z-score mean reversion" in zscore.name

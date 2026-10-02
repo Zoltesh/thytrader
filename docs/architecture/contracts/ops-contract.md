@@ -12,7 +12,7 @@ Current checkout (Alembic `0052`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v45` |
+| `id` | `thytrader-ops-contract-v46` |
 | `expected_schema_revision` | `0052` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
@@ -29,6 +29,8 @@ Current checkout (Alembic `0052`):
 | `paper_timeframes` / `live_timeframes` | `1m` `5m` `15m` `30m` `1h` `2h` `4h` `6h` `1d` |
 | `htf_filter_runtimes` | `research`, `paper`, `live` |
 | `indicator_timeframe_runtimes` | `research`, `paper`, `live` |
+| `indicator_offset_runtimes` | `research`, `paper`, `live` — per-declaration bar lag ([ADR 0086](../../decisions/0086-indicator-catalog-expansion-and-offset.md)) |
+| `indicator_kinds` | the 53 implemented kinds in operator `indicators` order (`ema` … `constant`, then `dema` … `percent_rank`, ADR 0086) |
 | `position_sides` | `long`, `short` |
 | `attached_entry_brackets` | `paper`, `live` |
 | `paper_deploy_fee_fields` | `maker_fee_rate`, `taker_fee_rate` |
@@ -46,13 +48,15 @@ Current checkout (Alembic `0052`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v45
+    id thytrader-ops-contract-v46
     max_historical_interval_count
     backtest_engine
     paper_timeframes
     live_timeframes
     htf_filter_runtimes
     indicator_timeframe_runtimes
+    indicator_offset_runtimes
+    indicator_kinds
     position_sides
     attached_entry_brackets
     paper_deploy_fee_fields

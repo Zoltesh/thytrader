@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { INDICATOR_KINDS } from './indicator-catalog';
 import {
+	applyIndicatorKindDefaults,
 	builderModelFromRecord,
 	bulkOutcomeText,
 	deletionCountsText,
 	latestDatasets,
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
+	INDICATOR_OUTPUT_SERIES,
+	isConfigurableRollingKind,
 	operandChoices,
+	quoteLabelFor,
+	STRATEGY_TEMPLATE_OPTIONS,
+	type IndicatorDraft,
 	parseIndicatorOperandKey,
 	researchWindowHint,
 	StrategyApiError,
@@ -226,31 +233,37 @@ describe('strategyErrorCode', () => {
 });
 
 describe('indicator kind picker', () => {
-	it('lists shipped kinds including MACD and Bollinger series', () => {
-		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toEqual([
-			'ema',
-			'sma',
-			'rsi',
-			'atr',
-			'volume_sma',
-			'highest',
-			'lowest',
-			'stdev',
-			'stdev_sample',
-			'roc',
-			'williams_r',
-			'cci',
-			'wma',
-			'momentum',
-			'mfi',
-			'macd',
-			'bollinger',
-			'stochastic',
-			'adx',
-			'identity',
-			'constant'
+	it('lists every catalog kind in catalog order with the historical labels', () => {
+		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toEqual([...INDICATOR_KINDS]);
+		expect(INDICATOR_KIND_OPTIONS.slice(0, 21).map((option) => option.label)).toEqual([
+			'EMA',
+			'SMA',
+			'RSI',
+			'ATR',
+			'Volume SMA',
+			'Highest',
+			'Lowest',
+			'Stdev',
+			'Sample stdev',
+			'ROC',
+			'Williams %R',
+			'CCI',
+			'WMA',
+			'Momentum',
+			'MFI',
+			'MACD',
+			'Bollinger',
+			'Stochastic',
+			'ADX',
+			'OHLCV',
+			'Constant'
 		]);
-		expect(INDICATOR_KIND_OPTIONS.map((option) => option.kind)).toContain('macd');
+		expect(INDICATOR_OUTPUT_SERIES.supertrend).toEqual(['value', 'direction']);
+		expect(INDICATOR_OUTPUT_SERIES.ichimoku).toEqual(['tenkan', 'kijun', 'senkou_a', 'senkou_b']);
+		expect(INDICATOR_OUTPUT_SERIES.ema).toBeUndefined();
+		expect(isConfigurableRollingKind('zscore')).toBe(true);
+		expect(isConfigurableRollingKind('identity')).toBe(false);
+		expect(isConfigurableRollingKind('rsi')).toBe(false);
 	});
 
 	it('serializes identity without period and constant without input', () => {
@@ -512,5 +525,210 @@ describe('builder multi-instrument pass-through', () => {
 		expect(quoteCurrencyFor('BTC-USDC')).toBe('USDC');
 		expect(quoteCurrencyFor('UNI-USD')).toBe('USD');
 		expect(quoteCurrencyFor('malformed', 'USDC')).toBe('USDC');
+		expect(quoteLabelFor('eth-usdc')).toBe('USDC');
+		expect(quoteLabelFor('BTC-')).toBe('quote');
+		expect(quoteLabelFor('BTC')).toBe('quote');
+	});
+});
+
+describe('catalog-driven indicator drafts', () => {
+	it('serializes new kinds with locked field tuples and declared parameters only', () => {
+		expect(
+			serializeIndicator({
+				id: 'trend',
+				kind: 'supertrend',
+				input: ['high', 'low', 'close'],
+				parameters: { period: 10, multiplier: '3' }
+			})
+		).toEqual({
+			id: 'trend',
+			kind: 'supertrend',
+			input: ['high', 'low', 'close'],
+			parameters: { period: 10, multiplier: '3' }
+		});
+		expect(
+			serializeIndicator({
+				id: 'channel',
+				kind: 'donchian',
+				input: ['high', 'low'],
+				parameters: { period: 20 }
+			})
+		).toEqual({
+			id: 'channel',
+			kind: 'donchian',
+			input: ['high', 'low'],
+			parameters: { period: 20 }
+		});
+		expect(
+			serializeIndicator({
+				id: 'flow',
+				kind: 'obv',
+				input: ['close', 'volume'],
+				parameters: { signal_period: 20 }
+			})
+		).toEqual({
+			id: 'flow',
+			kind: 'obv',
+			input: ['close', 'volume'],
+			parameters: { signal_period: 20 }
+		});
+	});
+
+	it('omits a blank optional parameter and keeps a set one', () => {
+		const base: IndicatorDraft = {
+			id: 'hv',
+			kind: 'historical_volatility',
+			input: 'close',
+			parameters: { period: 20 }
+		};
+		expect(serializeIndicator(base).parameters).toEqual({ period: 20 });
+		expect(
+			serializeIndicator({ ...base, parameters: { period: 20, annualization_periods: 365 } })
+				.parameters
+		).toEqual({ period: 20, annualization_periods: 365 });
+	});
+
+	it('emits offset only as a positive bar lag on kinds that take one', () => {
+		const prior: IndicatorDraft = {
+			id: 'prior_high',
+			kind: 'highest',
+			input: 'high',
+			offset: 1,
+			parameters: { period: 20 }
+		};
+		expect(serializeIndicator(prior)).toEqual({
+			id: 'prior_high',
+			kind: 'highest',
+			input: 'high',
+			parameters: { period: 20 },
+			offset: 1
+		});
+		expect(serializeIndicator({ ...prior, offset: 0 })).not.toHaveProperty('offset');
+		expect(serializeIndicator({ ...prior, offset: 2.5 })).not.toHaveProperty('offset');
+		expect(
+			serializeIndicator({ id: 'level', kind: 'constant', offset: 3, parameters: { value: '30' } })
+		).toEqual({ id: 'level', kind: 'constant', parameters: { value: '30' } });
+	});
+
+	it('switches kinds with catalog defaults, carrying only valid same-named parameters', () => {
+		const indicator: IndicatorDraft = {
+			id: 'x',
+			kind: 'sma',
+			input: 'high',
+			timeframe: '',
+			offset: 2,
+			parameters: { period: 50 }
+		};
+		indicator.kind = 'ema';
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator).toMatchObject({ input: 'high', offset: 2, parameters: { period: 50 } });
+
+		indicator.kind = 'supertrend';
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator.input).toEqual(['high', 'low', 'close']);
+		expect(indicator.parameters).toEqual({ period: 50, multiplier: '3' });
+
+		indicator.kind = 'rsi';
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator.input).toBe('close');
+		expect(indicator.parameters).toEqual({ period: 50 });
+
+		indicator.kind = 'cmo';
+		indicator.parameters = { period: 400 };
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator.parameters).toEqual({ period: 9 });
+
+		indicator.kind = 'kama';
+		indicator.parameters = { period: 10, fast_period: 40, slow_period: 30 };
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator.parameters).toEqual({ period: 10, fast_period: 2, slow_period: 30 });
+
+		indicator.kind = 'constant';
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator).not.toHaveProperty('input');
+		expect(indicator).not.toHaveProperty('timeframe');
+		expect(indicator).not.toHaveProperty('offset');
+		expect(indicator.parameters).toEqual({ value: '50' });
+
+		indicator.kind = 'identity';
+		applyIndicatorKindDefaults(indicator);
+		expect(indicator.input).toBe('close');
+		expect(indicator.parameters).toEqual({});
+	});
+
+	it('labels operands readably and groups multi-series indicators', () => {
+		const choices = operandChoices([
+			{
+				id: 'trend',
+				kind: 'supertrend',
+				input: ['high', 'low', 'close'],
+				parameters: { period: 10, multiplier: '3' }
+			},
+			{ id: 'fast', kind: 'sma', input: 'high', parameters: { period: 50 } },
+			{ id: 'close', kind: 'identity', input: 'close', parameters: {} },
+			{
+				id: 'prior',
+				kind: 'donchian',
+				input: ['high', 'low'],
+				offset: 1,
+				parameters: { period: 20 }
+			},
+			{ id: 'zero', kind: 'constant', parameters: { value: '0' } }
+		]);
+		expect(choices).toEqual([
+			{
+				key: 'indicator:trend.value',
+				label: 'Supertrend(10, 3) · value',
+				group: 'Supertrend(10, 3) — trend'
+			},
+			{
+				key: 'indicator:trend.direction',
+				label: 'Supertrend(10, 3) · direction',
+				group: 'Supertrend(10, 3) — trend'
+			},
+			{ key: 'indicator:fast', label: 'SMA(50, high)' },
+			{ key: 'indicator:close', label: 'close' },
+			{
+				key: 'indicator:prior.upper',
+				label: 'Donchian(20) · upper · 1 bar ago',
+				group: 'Donchian(20) · 1 bar ago — prior'
+			},
+			{
+				key: 'indicator:prior.middle',
+				label: 'Donchian(20) · middle · 1 bar ago',
+				group: 'Donchian(20) · 1 bar ago — prior'
+			},
+			{
+				key: 'indicator:prior.lower',
+				label: 'Donchian(20) · lower · 1 bar ago',
+				group: 'Donchian(20) · 1 bar ago — prior'
+			},
+			{ key: 'indicator:zero', label: '0' },
+			{ key: 'literal', label: 'literal value' }
+		]);
+	});
+
+	it('disambiguates repeated operand labels with the indicator id', () => {
+		const labels = operandChoices([
+			{ id: 'a', kind: 'ema', input: 'close', parameters: { period: 20 } },
+			{ id: 'b', kind: 'ema', input: 'close', parameters: { period: 20 } }
+		]).map((choice) => choice.label);
+		expect(labels).toEqual(['EMA(20) — a', 'EMA(20) — b', 'literal value']);
+	});
+
+	it('offers every research template, starting with the EMA reference', () => {
+		expect(STRATEGY_TEMPLATE_OPTIONS[0]?.id).toBe('ema-trend');
+		expect(STRATEGY_TEMPLATE_OPTIONS.map((template) => template.id)).toEqual(
+			expect.arrayContaining([
+				'rsi-mean-reversion',
+				'macd-trend',
+				'bollinger-mean-reversion',
+				'donchian-breakout',
+				'supertrend-trend',
+				'squeeze-breakout',
+				'zscore-mean-reversion'
+			])
+		);
+		expect(STRATEGY_TEMPLATE_OPTIONS.every((template) => template.description !== '')).toBe(true);
 	});
 });

@@ -234,6 +234,189 @@ TA-library `adx`.
 Trace and evaluator keys are `{id}.adx`, `{id}.plus_di`, and `{id}.minus_di`. Conditions must name
 one of those series.
 
+### Indicator bar lag (`offset`)
+
+Any declaration except `constant` may set `offset` (integer 0–500,
+[ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)). Every output of that
+declaration on bar `t` is the unlagged value from bar `t - offset` of the indicator's own clock
+(the decision clock, an extra per-indicator timeframe, or the HTF filter clock). The first
+`offset` bars are undefined and nothing later than bar `t` is read. Warmup is the base warmup plus
+`offset`. `offset: 0` normalizes to omitted and canonical JSON omits it. Trace keys do not change.
+
+### Wider catalog (ADR 0086)
+
+Shared rules for the kinds below: every window includes the current completed bar unless stated;
+sums are oldest-first left folds from exact zero; an EMA is the shipped SMA-seeded recurrence
+`((period - 1) * previous + 2 * value) / (period + 1)`. When an EMA smooths a series that has
+undefined values (EMA of EMA, a signal line), it seeds from the mean of the first `period`
+defined values, and an undefined value yields undefined output without advancing the recurrence.
+True range is the shipped ATR true range (`high - low` on the first bar). Operations are listed
+in evaluation order. `Decimal.ln`, `Decimal.log10`, and `Decimal.sqrt` are correctly rounded in the
+engine context. These kinds are not TA-library identities, although development cross-checked
+each against TA-Lib where TA-Lib implements the same formula.
+
+#### DEMA, TEMA, and Hull MA
+
+`dema = 2 * E1 - E2` and `tema = (3 * E1 - 3 * E2) + E3`, where `E1 = EMA(source, period)`,
+`E2 = EMA(E1, period)`, and `E3 = EMA(E2, period)`. `hma = WMA(2 * WMA(source, period // 2) -
+WMA(source, period), isqrt(period))` with the shipped WMA fold (a WMA of period 1 is the value).
+First values: `2 * period - 1`, `3 * period - 2`, and `period + isqrt(period) - 1` bars.
+
+#### KAMA
+
+The source on bar `period - 1` seeds KAMA and is not reported. From bar `period` on:
+`er = abs(x - x[period]) / sum(abs(x[i] - x[i - 1]))` over the last `period` changes; a zero sum
+(flat window) is `er = 1`, as in TA-Lib. `fast = 2 / (fast_period + 1)`,
+`slow = 2 / (slow_period + 1)`, `sc = (er * (fast - slow) + slow) ** 2`, and
+`kama = previous + sc * (x - previous)`. First value after `period + 1` bars.
+
+#### VWMA
+
+`sum(close * volume) / sum(volume)` over the window. Zero window volume is undefined.
+
+#### Supertrend
+
+Series `value` and `direction`. `ATR` is the shipped Wilder ATR(`period`); `mid = (high + low) /
+2`; basic bands are `mid ± multiplier * ATR`. On the first ATR bar the final bands are the basic
+bands and the trend is down (`direction = -1`). Afterwards the final upper band becomes the basic
+upper band only when that is lower than the previous final upper band or the previous close was
+above it; the final lower band symmetrically. A down trend flips up when `close > final upper`; an
+up trend flips down when `close < final lower`. `value` is the final lower band in an up trend and
+the final upper band in a down trend. This is TradingView's `ta.supertrend` with the direction
+sign flipped (1 = up). First values after `period` bars.
+
+#### Parabolic SAR
+
+A port of TA-Lib `SAR` in Decimal. Bar 1 decides the start: short only when `low[0] - low[1]` is
+positive and greater than `high[1] - high[0]`; otherwise long. A long starts with SAR `low[0]` and
+extreme point `high[1]` (short: `high[0]` and `low[1]`), acceleration `step`. On each bar from 1:
+a long whose `low <= SAR` reverses — it reports `max(extreme, prior high, high)`, resets
+acceleration to `step`, and moves the extreme to the bar's low; otherwise it reports the SAR, and a
+new high raises the extreme and acceleration (`min(acceleration + step, max_step)`). The next SAR
+is `SAR + acceleration * (extreme - SAR)`, clamped to at most the prior and current lows (long) or
+at least the prior and current highs (short). On bar 1 the "prior" bar is bar 1 itself. Shorts are
+symmetric. The first SAR is reported on bar 1 (warmup 2). A bar that touches the SAR reverses, so a
+perfectly flat series alternates while the SAR stays at the price.
+
+#### Aroon
+
+Over the last `period + 1` bars: `up = 100 * (period - bars since the highest high) / period`,
+`down` likewise from the lowest low, `oscillator = up - down`. Ties pick the most recent bar, so a
+flat window reads `100`, `100`, `0`. First values after `period + 1` bars.
+
+#### Ichimoku
+
+`tenkan`, `kijun`, and `senkou_b` are `(highest high + lowest low) / 2` over their windows;
+`senkou_a = (tenkan + kijun) / 2`. Values are reported on the bar whose data produced them: no
+forward displacement, no chikou (a displaced value at the current bar would need future data;
+chikou at bar `t` is `close`). The chart's current cloud is the same declaration with
+`offset: kijun_period`. First values after each window; warmup is the longest window.
+
+#### Vortex
+
+For each of the last `period` bars that have a previous bar: `VM+ = abs(high - prior low)`,
+`VM- = abs(low - prior high)`, and the shipped true range. `plus = sum(VM+) / sum(TR)` and
+`minus = sum(VM-) / sum(TR)`. A zero true-range sum is undefined. First values after
+`period + 1` bars.
+
+#### Linear regression
+
+Least squares over the window with `x = 0` (oldest) to `period - 1` (current):
+`slope = (n * Sxy - Sx * Sy) / (n * Sxx - Sx ** 2)`, `intercept = (Sy - slope * Sx) / n`, and
+`value = intercept + slope * (n - 1)` (the line's value on the current bar). `Sx`, `Sxx`, and the
+divisor are exact integers; `Sy` and `Sxy` are oldest-first folds. Matches TA-Lib `LINEARREG` and
+`LINEARREG_SLOPE`. First values after `period` bars.
+
+#### TRIX
+
+`100 * (E3 - E3[1]) / E3[1]` for `E3 = EMA(EMA(EMA(close)))`. A zero previous `E3` is undefined.
+First value after `3 * period - 1` bars.
+
+#### Stochastic RSI
+
+`raw = 100 * (RSI - lowest RSI) / (highest RSI - lowest RSI)` over the last `stoch_period`
+shipped RSI(`rsi_period`) values; an RSI range at or below `1e-30` counts as zero and is
+undefined (on flat prices both Wilder averages decay together, so RSI is constant up to 64-digit
+rounding, and dividing by that noise would produce arbitrary readings). `k` is the SMA of `raw` over
+`k_period` (1 means none) and `d` the SMA of `k` over `d_period`; any undefined value in an SMA
+window is undefined. Warmup `rsi_period + stoch_period + k_period + d_period - 2`.
+
+#### PPO
+
+`ppo = 100 * (EMA fast - EMA slow) / EMA slow` (a zero slow EMA is undefined), `signal` is the
+EMA of `ppo` over `signal_period`, and `histogram = ppo - signal`. Warmup matches MACD.
+
+#### Ultimate Oscillator
+
+For bars with a previous close: `BP = close - min(low, prior close)` and
+`TR = max(high, prior close) - min(low, prior close)`. Each window average is `sum(BP) / sum(TR)`
+over the short, medium, and long windows, and `UO = 100 * (4 * short + 2 * medium + long) / 7`.
+A zero true-range sum in any window is undefined (TA-Lib instead drops that term). First value
+after `long_period + 1` bars.
+
+#### Awesome Oscillator
+
+`SMA(median, fast_period) - SMA(median, slow_period)` with `median = (high + low) / 2`.
+
+#### CMO
+
+`100 * (gains - losses) / (gains + losses)` over the last `period` closing changes, with gains and
+losses as plain sums (Chande's definition, not TA-Lib's Wilder smoothing). No change in the
+window is undefined. First value after `period + 1` bars.
+
+#### TSI
+
+`tsi = 100 * EMA(EMA(change, long_period), short_period) / EMA(EMA(abs(change), long_period),
+short_period)` where `change = close - prior close` (undefined on the first bar). A zero
+denominator is undefined. `signal` is the EMA of `tsi` over `signal_period`. Warmup
+`long_period + short_period + signal_period - 1`.
+
+#### Keltner and Donchian channels
+
+Keltner: `middle = EMA(close, period)`, `upper/lower = middle ± multiplier * ATR(atr_period)`.
+Donchian: `upper` is the highest high and `lower` the lowest low over the window (current bar
+included), `middle = (upper + lower) / 2`. Use `offset: 1` for the previous bar's channel.
+
+#### Bollinger %B and bandwidth
+
+On the shipped Bollinger bands (SMA middle, population stdev): `%B = (close - lower) / (upper -
+lower)` (equal bands are undefined) and `bandwidth = (upper - lower) / middle` as a fraction.
+
+#### NATR and Choppiness
+
+`natr = 100 * ATR(period) / close`. `choppiness = 100 * log10(sum(TR) / (highest high - lowest
+low)) / log10(period)` over the window; a zero high-low range is undefined.
+
+#### Historical volatility
+
+`100 *` the sample (N − 1) stdev of the last `period` values of `ln(close / prior close)` (the
+ratio is rounded to the engine context first), using the shipped sample-stdev fold. With
+`annualization_periods` the result is multiplied by its square root; without it the value is per
+bar. A non-positive close makes its returns undefined. First value after `period + 1` bars.
+
+#### OBV and accumulation/distribution
+
+OBV is `0` on the first bar and then adds the bar's volume on a higher close, subtracts it on a
+lower close, and keeps it on an equal close. The A/D line is the running sum of
+`((close - low) - (high - close)) / (high - low) * volume`, with `0` for a zero-range bar. Both are
+cumulative from the first supplied bar, so the level depends on where the series starts; `signal`
+(SMA over `signal_period`) gives start-independent crossovers.
+
+#### CMF, rolling VWAP, and force index
+
+CMF: `sum(multiplier * volume) / sum(volume)` over the window with the A/D multiplier. Rolling
+VWAP: `sum(typical * volume) / sum(volume)` with `typical = (high + low + close) / 3`; crypto has
+no session, so it is a window of `period` bars. Zero window volume is undefined for both. Force
+index: the EMA over `period` of `(close - prior close) * volume`, first defined after
+`period + 1` bars.
+
+#### Z-score and percent rank
+
+`zscore = (source - SMA) / population stdev` over the window (a zero stdev is undefined), so a
+z-score of ±m sits on Bollinger bands with multiplier m. `percent_rank = 100 * count / period`,
+where `count` is how many of the previous `period` values (current bar excluded) are at or below
+the current value. First values after `period` and `period + 1` bars.
+
 ### EMA
 
 EMA consumes one author-selected OHLCV field. The first value is the arithmetic mean of the first

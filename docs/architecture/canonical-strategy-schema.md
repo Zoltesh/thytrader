@@ -160,6 +160,17 @@ decision clock; canonical JSON omits it when absent so existing fingerprints sta
 must omit `timeframe`. HTF-filter indicators must omit `timeframe`. Stop and trailing ATR stay on
 the decision clock.
 
+Optional `offset` (integer 0–500) lags every output of one declaration by that many completed
+bars of the indicator's own clock, for example the previous bar's 20-bar high
+([ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)):
+
+```json
+{ "id": "prior_high", "kind": "highest", "input": "high", "parameters": { "period": 20 }, "offset": 1 }
+```
+
+Warmup adds `offset`. `constant` must omit it. `offset: 0` normalizes to omitted, and canonical
+JSON omits it, so existing fingerprints stay stable.
+
 ### V1 indicator catalog
 
 | Kind | Input | Required parameters | Output | Minimum warmup |
@@ -185,32 +196,73 @@ the decision clock.
 | `adx` | `high, low, close` | `period` (2–100) | series `adx`, `plus_di`, `minus_di` | `2 * period - 1` |
 | `identity` | one of `open`, `high`, `low`, `close`, `volume` | `{}` | that candle field | `1` |
 | `constant` | omitted | `value` (plain decimal) | that level on every bar | `1` |
+| `dema` / `tema` | one OHLCV field | `period` (2–500) | single value | `2 * period - 1` / `3 * period - 2` |
+| `hma` | one OHLCV field | `period` (2–500) | Hull MA | `period + floor(sqrt(period)) - 1` |
+| `kama` | one OHLCV field | `period` (2–100), `fast_period` (2–100), `slow_period` (3–500; fast < slow) | single value | `period + 1` |
+| `vwma` | `close, volume` | `period` (2–500) | single value | `period` |
+| `supertrend` | `high, low, close` | `period` (2–100), `multiplier` (`> 0`, `≤ 10`) | series `value`, `direction` (1 up, −1 down) | `period` |
+| `parabolic_sar` | `high, low` | `step`, `max_step` (decimals, `0 < step ≤ max_step ≤ 1`) | single value | `2` |
+| `aroon` | `high, low` | `period` (2–500) | series `up`, `down`, `oscillator` | `period + 1` |
+| `ichimoku` | `high, low` | `tenkan_period` < `kijun_period` < `senkou_b_period` (2–500) | series `tenkan`, `kijun`, `senkou_a`, `senkou_b` (no displacement, no chikou) | longest window |
+| `vortex` | `high, low, close` | `period` (2–500) | series `plus`, `minus` | `period + 1` |
+| `linear_regression` | one OHLCV field | `period` (2–500) | series `value`, `slope` | `period` |
+| `trix` | `close` | `period` (2–500) | single value | `3 * period - 1` |
+| `stochastic_rsi` | `close` | `rsi_period`, `stoch_period` (2–100), `k_period`, `d_period` (1–100) | series `k`, `d` | `rsi + stoch + k + d - 2` |
+| `ppo` | `close` | `fast_period`, `slow_period`, `signal_period` (as MACD) | series `ppo`, `signal`, `histogram` | `slow_period + signal_period - 1` |
+| `ultimate_oscillator` | `high, low, close` | `short_period` < `medium_period` < `long_period` (2–100) | 0–100 | `long_period + 1` |
+| `awesome_oscillator` | `high, low` | `fast_period` < `slow_period` (2–500) | single value | `slow_period` |
+| `cmo` | `close` | `period` (2–100) | −100 to 100 | `period + 1` |
+| `tsi` | `close` | `long_period`, `short_period` (< long), `signal_period` (2–500) | series `tsi`, `signal` | `long + short + signal - 1` |
+| `keltner` | `high, low, close` | `period` (2–500), `atr_period` (2–100), `multiplier` (`> 0`, `≤ 10`) | series `upper`, `middle`, `lower` | `max(period, atr_period)` |
+| `donchian` | `high, low` | `period` (2–500) | series `upper`, `middle`, `lower` | `period` |
+| `bollinger_percent_b` / `bollinger_bandwidth` | `close` | as `bollinger` | single value | `period` |
+| `natr` | `high, low, close` | `period` (2–100) | ATR % of close | `period` |
+| `choppiness` | `high, low, close` | `period` (2–500) | 0–100 | `period` |
+| `historical_volatility` | `close` | `period` (2–500), optional `annualization_periods` (1–525600) | percent | `period + 1` |
+| `obv` | `close, volume` | `signal_period` (2–500) | series `obv`, `signal` | `signal_period` |
+| `accumulation_distribution` | `high, low, close, volume` | `signal_period` (2–500) | series `ad`, `signal` | `signal_period` |
+| `cmf` / `vwap` | `high, low, close, volume` | `period` (2–500) | single value | `period` |
+| `force_index` | `close, volume` | `period` (2–500) | single value | `period + 1` |
+| `zscore` | one OHLCV field | `period` (2–500) | single value | `period` |
+| `percent_rank` | one OHLCV field | `period` (2–500) | 0–100 | `period + 1` |
 
 Rules:
 
 - IDs must be unique within a strategy. Indicator ids cannot contain `.`.
 - Single-source `input` must be one of: `open`, `high`, `low`, `close`, `volume`. Configurable
-  rolling kinds (`ema`, `sma`, `wma`, `highest`, `lowest`, `stdev`, `stdev_sample`, `roc`,
-  `momentum`) accept any one of those fields. RSI stays locked to `close`; `volume_sma` to
-  `volume`; `macd` and `bollinger` to `close`. ATR, `williams_r`, `cci`, `stochastic`, and `adx`
-  use the canonical ordered array `["high", "low", "close"]`. `mfi` uses
-  `["high", "low", "close", "volume"]`. `identity` selects exactly one of those single-source fields.
+  kinds (`ema`, `sma`, `wma`, `highest`, `lowest`, `stdev`, `stdev_sample`, `roc`, `momentum`,
+  `dema`, `tema`, `hma`, `kama`, `linear_regression`, `zscore`, `percent_rank`) accept any one of
+  those fields. RSI stays locked to `close`; `volume_sma` to `volume`; `macd`, `bollinger`, `trix`,
+  `stochastic_rsi`, `ppo`, `cmo`, `tsi`, `bollinger_percent_b`, `bollinger_bandwidth`, and
+  `historical_volatility` to `close`. Tuple inputs use one canonical ordered array per kind:
+  `["high", "low", "close"]` (ATR, `williams_r`, `cci`, `stochastic`, `adx`, `supertrend`,
+  `vortex`, `ultimate_oscillator`, `keltner`, `natr`, `choppiness`), `["high", "low"]`
+  (`parabolic_sar`, `aroon`, `ichimoku`, `awesome_oscillator`, `donchian`), `["close", "volume"]`
+  (`vwma`, `obv`, `force_index`), and `["high", "low", "close", "volume"]` (`mfi`, `cmf`,
+  `accumulation_distribution`, `vwap`). `identity` selects exactly one single-source field.
   `constant` omits `input` and declares `parameters.value`.
-- Parameters are decimal strings for monetary fields, constant levels, and Bollinger
-  `stdev_multiplier`; integers for periods. MACD declares `fast_period`, `slow_period`, and
-  `signal_period`. Stochastic declares `k_period` and `d_period`. Identity parameters are the empty object.
-- Multi-series kinds (`macd`, `bollinger`, `stochastic`, `adx`) emit named outputs. Conditions must
-  set operand `series` to one of that kind's declared names. Single-output operands **must omit**
-  `series`. Canonical JSON omits `series` when absent so already-published single-output fingerprints
-  stay stable ([ADR 0032](../decisions/0032-phase-9-macd-bollinger.md),
+- Parameters are decimal strings for monetary fields, constant levels, band multipliers
+  (`stdev_multiplier`, `multiplier`), and Parabolic SAR `step` / `max_step`; integers for periods.
+  Every parameter is required except `historical_volatility.annualization_periods`. Ordering rules
+  (`fast_period < slow_period`, `tenkan_period < kijun_period < senkou_b_period`,
+  `short_period < medium_period < long_period`, TSI `short_period < long_period`,
+  `step <= max_step`) fail closed. Identity parameters are the empty object.
+- Multi-series kinds (`macd`, `bollinger`, `stochastic`, `adx`, `supertrend`, `aroon`, `ichimoku`,
+  `vortex`, `linear_regression`, `stochastic_rsi`, `ppo`, `tsi`, `keltner`, `donchian`, `obv`,
+  `accumulation_distribution`) emit named outputs. Conditions must set operand `series` to one of
+  that kind's declared names. Single-output operands **must omit** `series`. Canonical JSON omits
+  `series` when absent so already-published single-output fingerprints stay stable
+  ([ADR 0032](../decisions/0032-phase-9-macd-bollinger.md),
   [ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)).
 - An indicator with insufficient warmup data produces no value (not zero, not an error); conditions
-  referencing an undefined value evaluate to no-signal.
+  referencing an undefined value evaluate to no-signal. A zero divisor is undefined unless the
+  formula documents a convention ([signal evaluation](signal-evaluation.md)).
 
 No broad TA-library passthrough is allowed. Every supported indicator has a defined specification,
-warmup requirement, and invalid-data behavior. Further catalog kinds remain out until they have
-their own contract
-([ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md)).
+warmup requirement, and invalid-data behavior; the operator `indicators` report lists each kind's
+parameters, bounds, builder defaults, outputs, and warmup formula
+([ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md),
+[ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)).
 Per-indicator timeframes are shipped ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
 ## Conditions

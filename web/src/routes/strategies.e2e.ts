@@ -702,3 +702,22 @@ test('surfaces a controlled error banner when the library cannot load', async ({
 	await expect(page.getByRole('alert')).toContainText('Strategy lifecycle storage is unavailable.');
 	await expect(page.getByRole('button', { name: 'Retry library load' })).toBeVisible();
 });
+
+test('the template picker offers every research template', async ({ page }) => {
+	await mockLibrary(page, [libraryEntry]);
+	await page.goto('/strategies');
+	const picker = page.getByLabel('Template');
+	await expect(picker).toHaveValue('ema-trend');
+	await expect(picker.locator('option')).toHaveText([
+		'EMA trend',
+		'RSI mean reversion',
+		'MACD trend',
+		'Bollinger mean reversion',
+		'Donchian breakout',
+		'Supertrend trend',
+		'Squeeze breakout',
+		'Z-score mean reversion'
+	]);
+	await picker.selectOption('donchian-breakout');
+	await expect(picker).toHaveValue('donchian-breakout');
+});

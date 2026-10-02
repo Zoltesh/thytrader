@@ -25,8 +25,11 @@ path is trustworthy.
 Accepted destination ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)). Not all
 of this is shipped; the [roadmap](../roadmap.md) sequences remaining destination.
 [ADR 0046](../decisions/0046-shipped-vs-remaining-0031-destination.md) restates that venue clocks
-and on-demand SL/TP **are** implemented. Multi-instrument documents and a wider indicator catalog
-are not. Do not treat those remainders as already shipped.
+and on-demand SL/TP **are** implemented. Multi-instrument documents
+([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.md)) and the wider indicator
+catalog ([ADR 0047](../decisions/0047-wider-fail-closed-indicator-catalog.md),
+[ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md): 53 fail-closed kinds and a
+per-declaration bar lag) have shipped since. Do not treat the remaining destination as shipped.
 
 - **Coinbase-first.** Coinbase Advanced Trade REST v3 and WebSockets, spot only, until this path is
   trustworthy. Other venues later.

@@ -87,8 +87,11 @@ MACD/Bollinger conditions use series ids. Optional per-indicator timeframes
 are shipped in research, paper, and live. Paper and live consume the same LTF catalog, extra-TF
 overlay, and HTF filter.
 `POST /api/v1/strategies` accepts an explicit template id (`ema-trend` default;
-`rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`). Templates are starting strategies, not
-proven edges.
+`rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`, and the wider-catalog templates
+`donchian-breakout`, `supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion` from
+[ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)). Templates are starting
+strategies, not proven edges. Indicator declarations may lag by `offset` bars (prior-bar channels,
+"crossed since" patterns) in research, paper, and live alike.
 
 The per-strategy workspace ([ADR 0080](../decisions/0080-per-strategy-workspace-build-test-run-why.md),
 amended by [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) has Build,

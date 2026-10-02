@@ -64,7 +64,7 @@ from thytrader.strategies.library import (
     parse_document,
 )
 from thytrader.strategies.snapshots import StrategySnapshotError
-from thytrader.strategies.templates import template_catalog
+from thytrader.strategies.templates import StrategyTemplateId, template_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -193,8 +193,9 @@ def _add_strategy_commands(
         "--template",
         default="ema-trend",
         help=(
-            "Template id from list-templates: ema-trend (default), rsi-mean-reversion, "
-            "macd-trend, or bollinger-mean-reversion."
+            "Template id from list-templates (default ema-trend): "
+            + ", ".join(item.value for item in StrategyTemplateId)
+            + "."
         ),
     )
     create.add_argument(

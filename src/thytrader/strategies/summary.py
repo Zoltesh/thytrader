@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from thytrader.strategies.indicator_catalog import indicator_kind_spec
 from thytrader.strategies.models import (
     AllCondition,
     AnyCondition,
@@ -20,17 +21,23 @@ from thytrader.strategies.models import (
     NotCondition,
     StochasticIndicatorParameters,
     StrategyDefinition,
+    indicator_offset,
 )
 
 
 def strategy_summary(definition: StrategyDefinition) -> str:
-    """Render a bounded human-readable outline from validated strategy semantics."""
+    """Render a bounded human-readable outline from validated strategy semantics.
+
+    The notional range is labeled with the instrument's quote currency (USD, USDC,
+    USDT) rather than a dollar sign, so stablecoin strategies read correctly.
+    """
     entry_summary = _entry_rule_summary(definition)
     risk_text = _shift_decimal_text(definition.sizing.risk_fraction, places=2)
     return (
         f"{definition.instrument.product_id} · {definition.timeframe} · {entry_summary} · "
         f"{risk_text}% risk · "
-        f"${definition.sizing.min_quote_notional}-${definition.sizing.max_quote_notional}"
+        f"{definition.sizing.min_quote_notional}-{definition.sizing.max_quote_notional} "
+        f"{definition.instrument.quote_currency}"
     )
 
 
@@ -51,7 +58,21 @@ def _condition_summary(
         return f"NOT ({_condition_summary(condition.not_, indicators)})"
     children = condition.all if isinstance(condition, AllCondition) else condition.any
     joiner = " AND " if isinstance(condition, AllCondition) else " OR "
-    return joiner.join(_condition_summary(child, indicators) for child in children)
+    return joiner.join(_child_summary(child, joiner, indicators) for child in children)
+
+
+def _child_summary(
+    child: ComparisonCondition | AllCondition | AnyCondition | NotCondition,
+    parent_joiner: str,
+    indicators: dict[str, IndicatorDefinition],
+) -> str:
+    """Parenthesize a nested group whose joiner differs, so A AND (B OR C) stays exact."""
+    text = _condition_summary(child, indicators)
+    if isinstance(child, AllCondition) and parent_joiner != " AND ":
+        return f"({text})"
+    if isinstance(child, AnyCondition) and parent_joiner != " OR ":
+        return f"({text})"
+    return text
 
 
 def _comparison_summary(
@@ -92,6 +113,33 @@ _PERIOD_KIND_LABELS: dict[IndicatorKind, str] = {
     IndicatorKind.RSI: "RSI",
     IndicatorKind.ROC: "ROC",
 }
+_HISTORICAL_SUMMARY_KINDS = frozenset(
+    {
+        IndicatorKind.EMA,
+        IndicatorKind.SMA,
+        IndicatorKind.RSI,
+        IndicatorKind.ATR,
+        IndicatorKind.VOLUME_SMA,
+        IndicatorKind.HIGHEST,
+        IndicatorKind.LOWEST,
+        IndicatorKind.STDEV,
+        IndicatorKind.ROC,
+        IndicatorKind.WILLIAMS_R,
+        IndicatorKind.CCI,
+        IndicatorKind.IDENTITY,
+        IndicatorKind.CONSTANT,
+        IndicatorKind.WMA,
+        IndicatorKind.MOMENTUM,
+        IndicatorKind.MFI,
+        IndicatorKind.MACD,
+        IndicatorKind.BOLLINGER,
+        IndicatorKind.STDEV_SAMPLE,
+        IndicatorKind.STOCHASTIC,
+        IndicatorKind.ADX,
+    }
+)
+_CATALOG_LABELED_KINDS = frozenset(IndicatorKind) - _HISTORICAL_SUMMARY_KINDS
+"""Kinds summarized as ``Label(parameters) series``; historical kinds keep their wording."""
 
 
 def _multi_series_indicator_label(
@@ -135,7 +183,19 @@ def _indicator_operand_summary(
     operand: IndicatorOperand,
     indicator: IndicatorDefinition,
 ) -> str:
-    """Render one indicator reference, including multi-series ids when declared."""
+    """Render one indicator reference, including multi-series ids and any bar lag."""
+    text = _unlagged_operand_summary(operand, indicator)
+    offset = indicator_offset(indicator)
+    if offset == 0:
+        return text
+    return f"{text} ({offset} bar{'' if offset == 1 else 's'} ago)"
+
+
+def _unlagged_operand_summary(
+    operand: IndicatorOperand,
+    indicator: IndicatorDefinition,
+) -> str:
+    """Render one indicator reference without its declared bar lag."""
     if isinstance(indicator.parameters, IndicatorParameters):
         period_label = _PERIOD_KIND_LABELS.get(indicator.kind)
         if period_label is not None:
@@ -145,9 +205,27 @@ def _indicator_operand_summary(
         return multi_series
     if indicator.kind is IndicatorKind.IDENTITY:
         return str(indicator.input)
+    if indicator.kind in _CATALOG_LABELED_KINDS:
+        return _catalog_operand_label(operand, indicator)
     if operand.series is None:
         return operand.indicator
     return f"{operand.indicator}.{operand.series}"
+
+
+def _catalog_operand_label(operand: IndicatorOperand, indicator: IndicatorDefinition) -> str:
+    """Render ``Label(parameters) series`` for kinds added with the wider catalog."""
+    spec = indicator_kind_spec(indicator.kind)
+    declared = indicator.parameters.model_dump(mode="json")
+    values = [
+        str(declared[parameter.name])
+        for parameter in spec.parameters
+        if declared.get(parameter.name) is not None
+    ]
+    configurable_source = isinstance(indicator.input, str) and spec.input_mode == "configurable"
+    if configurable_source and indicator.input != "close":
+        values.insert(0, str(indicator.input))
+    label = f"{spec.label}({', '.join(values)})"
+    return label if operand.series is None else f"{label} {operand.series}"
 
 
 def _shift_decimal_text(value: str, *, places: int) -> str:

@@ -1,8 +1,15 @@
 import {
-	IDENTITY_INPUT_OPTIONS,
+	MAX_INDICATOR_OFFSET,
+	findCatalogEntry,
+	indicatorWarmupBars,
+	inputMatchesKind,
+	isValidOffset,
+	parameterProblems
+} from './indicator-catalog';
+import {
 	INDICATOR_OUTPUT_SERIES,
 	extraIndicatorTimeframes,
-	isConfigurableRollingKind,
+	quoteLabelFor,
 	resolvedIndicatorTimeframe,
 	validHtfTimeframes,
 	type BuilderModel,
@@ -12,8 +19,6 @@ import {
 	type IndicatorKindValue,
 	type OperandDraft
 } from './strategies';
-
-const IDENTITY_INPUTS = new Set<string>(IDENTITY_INPUT_OPTIONS.map((option) => option.value));
 
 export const OPERATOR_LABELS: Record<string, string> = {
 	crosses_above: 'crosses above',
@@ -73,6 +78,7 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 }
 
 export function plainEnglishSummary(model: BuilderModel): string {
+	const quote = quoteLabelFor(model.product_id);
 	const entryText = conditionToText(model.entry.when);
 	const htf =
 		model.htf_filter === null
@@ -80,7 +86,7 @@ export function plainEnglishSummary(model: BuilderModel): string {
 			: ` HTF filter on ${model.htf_filter.timeframe}: ${conditionToText(model.htf_filter.when)}.`;
 	return [
 		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.${htf}`,
-		`Risk ${model.sizing.risk_fraction} of equity per trade between $${model.sizing.min_quote_notional} and $${model.sizing.max_quote_notional}.`,
+		`Risk ${model.sizing.risk_fraction} of equity per trade between ${model.sizing.min_quote_notional} ${quote} and ${model.sizing.max_quote_notional} ${quote}.`,
 		`Initial stop ${model.exits.initial_stop.multiple}× ATR, take profit at ${model.exits.take_profit.multiple}× risk, time exit after ${model.exits.time_exit.max_bars_held} bars.`
 	].join(' ');
 }
@@ -118,179 +124,43 @@ type IndicatorLike = {
 	kind: string;
 	input?: unknown;
 	timeframe?: string;
-	parameters: {
-		period?: number;
-		value?: string;
-		fast_period?: number;
-		slow_period?: number;
-		signal_period?: number;
-		stdev_multiplier?: string;
-		k_period?: number;
-		d_period?: number;
-	};
+	offset?: unknown;
+	parameters: object;
 };
 
-function indicatorInputMatchesKind(indicator: IndicatorLike): boolean {
-	if (indicator.kind === 'constant') return indicator.input === undefined;
-	if (
-		indicator.kind === 'identity' ||
-		isConfigurableRollingKind(indicator.kind as IndicatorKindValue)
-	) {
-		return typeof indicator.input === 'string' && IDENTITY_INPUTS.has(indicator.input);
-	}
-	if (
-		indicator.kind === 'atr' ||
-		indicator.kind === 'williams_r' ||
-		indicator.kind === 'cci' ||
-		indicator.kind === 'stochastic' ||
-		indicator.kind === 'adx'
-	) {
-		return (
-			Array.isArray(indicator.input) &&
-			indicator.input.length === 3 &&
-			indicator.input[0] === 'high' &&
-			indicator.input[1] === 'low' &&
-			indicator.input[2] === 'close'
-		);
-	}
-	if (indicator.kind === 'mfi') {
-		return (
-			Array.isArray(indicator.input) &&
-			indicator.input.length === 4 &&
-			indicator.input[0] === 'high' &&
-			indicator.input[1] === 'low' &&
-			indicator.input[2] === 'close' &&
-			indicator.input[3] === 'volume'
-		);
-	}
-	if (indicator.kind === 'volume_sma') return indicator.input === 'volume';
-	return indicator.input === 'close';
-}
-
-function indicatorPeriodMax(kind: string): number {
-	return kind === 'rsi' ||
-		kind === 'atr' ||
-		kind === 'williams_r' ||
-		kind === 'cci' ||
-		kind === 'mfi' ||
-		kind === 'adx'
-		? 100
-		: 500;
-}
-
-function indicatorWarmupBars(indicator: IndicatorLike): number {
-	if (indicator.kind === 'identity' || indicator.kind === 'constant') return 1;
-	if (indicator.kind === 'macd') {
-		const slow = Number(indicator.parameters.slow_period);
-		const signal = Number(indicator.parameters.signal_period);
-		return slow + signal - 1;
-	}
-	if (indicator.kind === 'stochastic') {
-		const kPeriod = Number(indicator.parameters.k_period);
-		const dPeriod = Number(indicator.parameters.d_period);
-		return kPeriod + dPeriod - 1;
-	}
-	if (indicator.kind === 'adx') {
-		return 2 * Number(indicator.parameters.period) - 1;
-	}
-	const period = Number(indicator.parameters.period);
-	return indicator.kind === 'rsi' ||
-		indicator.kind === 'roc' ||
-		indicator.kind === 'momentum' ||
-		indicator.kind === 'mfi'
-		? period + 1
-		: period;
-}
-
+/**
+ * Catalog-driven shape checks for one declaration: the kind exists, the input is
+ * what the kind accepts, every parameter is in bounds and its constraints hold, and
+ * timeframe / offset only appear on kinds that take them.
+ */
 function validateIndicatorShape(indicator: IndicatorLike, label: string): string[] {
+	const subject = `${label} "${indicator.id}"`;
+	const entry = findCatalogEntry(indicator.kind);
+	if (entry === undefined) {
+		return [`${subject} uses an unknown indicator kind "${indicator.kind}".`];
+	}
 	const problems: string[] = [];
-	if (!indicatorInputMatchesKind(indicator)) {
+	if (!inputMatchesKind(entry, indicator.input)) {
 		problems.push(
-			`${label} "${indicator.id}" has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
+			`${subject} has the wrong input for ${indicator.kind}; switch kinds or re-add it.`
 		);
 	}
-	if (indicator.kind === 'identity') {
-		if (indicator.parameters.period !== undefined || indicator.parameters.value !== undefined) {
-			problems.push(`${label} "${indicator.id}" identity parameters must be empty.`);
-		}
-		return problems;
+	problems.push(...parameterProblems(entry.kind, indicator.parameters, subject));
+	if (
+		!entry.supports_timeframe &&
+		indicator.timeframe !== undefined &&
+		indicator.timeframe !== ''
+	) {
+		problems.push(`${subject} ${indicator.kind} must omit timeframe.`);
 	}
-	if (indicator.kind === 'constant') {
-		const value = indicator.parameters.value;
-		if (value === undefined || !DECIMAL_PATTERN.test(value)) {
-			problems.push(`${label} "${indicator.id}" constant value must be a plain decimal number.`);
-		}
-		if (indicator.parameters.period !== undefined) {
-			problems.push(`${label} "${indicator.id}" constant must omit period.`);
-		}
-		if (indicator.timeframe !== undefined && indicator.timeframe !== '') {
-			problems.push(`${label} "${indicator.id}" constant must omit timeframe.`);
-		}
-		return problems;
-	}
-	if (indicator.kind === 'macd') {
-		const fast = Number(indicator.parameters.fast_period);
-		const slow = Number(indicator.parameters.slow_period);
-		const signal = Number(indicator.parameters.signal_period);
-		if (!Number.isInteger(fast) || fast < 2 || fast > 500) {
+	if (indicator.offset !== undefined && indicator.offset !== null) {
+		if (!entry.supports_offset) {
+			problems.push(`${subject} ${indicator.kind} must omit offset.`);
+		} else if (!isValidOffset(indicator.offset)) {
 			problems.push(
-				`${label} "${indicator.id}" MACD fast period must be an integer between 2 and 500.`
+				`${subject} offset must be a whole number of bars between 0 and ${MAX_INDICATOR_OFFSET}.`
 			);
 		}
-		if (!Number.isInteger(slow) || slow < 2 || slow > 500) {
-			problems.push(
-				`${label} "${indicator.id}" MACD slow period must be an integer between 2 and 500.`
-			);
-		}
-		if (!Number.isInteger(signal) || signal < 2 || signal > 500) {
-			problems.push(
-				`${label} "${indicator.id}" MACD signal period must be an integer between 2 and 500.`
-			);
-		}
-		if (Number.isInteger(fast) && Number.isInteger(slow) && fast >= slow) {
-			problems.push(`${label} "${indicator.id}" MACD fast period must be less than slow period.`);
-		}
-		return problems;
-	}
-	if (indicator.kind === 'bollinger') {
-		const period = Number(indicator.parameters.period);
-		if (!Number.isInteger(period) || period < 2 || period > 500) {
-			problems.push(`${label} "${indicator.id}" period must be an integer between 2 and 500.`);
-		}
-		const multiplier = indicator.parameters.stdev_multiplier;
-		if (multiplier === undefined || !DECIMAL_PATTERN.test(multiplier)) {
-			problems.push(
-				`${label} "${indicator.id}" Bollinger stdev multiplier must be a plain decimal number.`
-			);
-		} else {
-			const parsed = Number(multiplier);
-			if (parsed <= 0 || parsed > 10) {
-				problems.push(
-					`${label} "${indicator.id}" Bollinger stdev multiplier must be greater than 0 and at most 10.`
-				);
-			}
-		}
-		return problems;
-	}
-	if (indicator.kind === 'stochastic') {
-		const kPeriod = Number(indicator.parameters.k_period);
-		const dPeriod = Number(indicator.parameters.d_period);
-		if (!Number.isInteger(kPeriod) || kPeriod < 2 || kPeriod > 100) {
-			problems.push(
-				`${label} "${indicator.id}" stochastic %K period must be an integer between 2 and 100.`
-			);
-		}
-		if (!Number.isInteger(dPeriod) || dPeriod < 2 || dPeriod > 500) {
-			problems.push(
-				`${label} "${indicator.id}" stochastic %D period must be an integer between 2 and 500.`
-			);
-		}
-		return problems;
-	}
-	const period = Number(indicator.parameters.period);
-	const maximum = indicatorPeriodMax(indicator.kind);
-	if (!Number.isInteger(period) || period < 2 || period > maximum) {
-		problems.push(`${label} "${indicator.id}" period must be an integer between 2 and ${maximum}.`);
 	}
 	return problems;
 }

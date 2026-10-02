@@ -222,7 +222,7 @@ def test_study_plan_rejects_the_removed_engine_selector() -> None:
 
 
 def test_templates_catalog_lists_fail_closed_ids() -> None:
-    """Agents can discover the four research draft templates."""
+    """Agents can discover every research draft template."""
     client, _, _ = _client()
     with client:
         response = client.get("/api/v1/research/templates")
@@ -233,6 +233,10 @@ def test_templates_catalog_lists_fail_closed_ids() -> None:
         "rsi-mean-reversion",
         "macd-trend",
         "bollinger-mean-reversion",
+        "donchian-breakout",
+        "supertrend-trend",
+        "squeeze-breakout",
+        "zscore-mean-reversion",
     }
 
 

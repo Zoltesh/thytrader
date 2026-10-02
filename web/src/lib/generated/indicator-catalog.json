@@ -1,0 +1,2286 @@
+{
+  "schema": "thytrader-indicator-catalog-v1",
+  "indicators": [
+    {
+      "kind": "ema",
+      "label": "EMA",
+      "category": "trend",
+      "summary": "Exponential moving average, seeded by the SMA of the first period values.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "EMA window; smoothing is 2 / (period + 1)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "sma",
+      "label": "SMA",
+      "category": "trend",
+      "summary": "Arithmetic mean of the last period values.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "rsi",
+      "label": "RSI",
+      "category": "momentum",
+      "summary": "Wilder relative strength index (0 to 100) over period closing changes.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Closing changes in the Wilder average."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 15,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "atr",
+      "label": "ATR",
+      "category": "volatility",
+      "summary": "Wilder average true range. Initial and trailing stops reference an ATR.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "True ranges in the Wilder average."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 14,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "volume_sma",
+      "label": "Volume SMA",
+      "category": "volume",
+      "summary": "Arithmetic mean of volume over period bars.",
+      "inputs": [
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": "volume",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "highest",
+      "label": "Highest",
+      "category": "price",
+      "summary": "Highest value of the source over period bars, current bar included.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "high",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "lowest",
+      "label": "Lowest",
+      "category": "price",
+      "summary": "Lowest value of the source over period bars, current bar included.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "low",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "stdev",
+      "label": "Stdev",
+      "category": "volatility",
+      "summary": "Population standard deviation of the source over period bars.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "stdev_sample",
+      "label": "Sample stdev",
+      "category": "volatility",
+      "summary": "Sample (N - 1) standard deviation of the source over period bars.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "roc",
+      "label": "ROC",
+      "category": "momentum",
+      "summary": "Percent change versus the value exactly period bars ago.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 10,
+          "optional": false,
+          "help": "Lookback in bars."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 11,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "williams_r",
+      "label": "Williams %R",
+      "category": "momentum",
+      "summary": "Close within the period high-low range: -100 at the low, 0 at the high.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 14,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "cci",
+      "label": "CCI",
+      "category": "momentum",
+      "summary": "Commodity channel index of typical price (Lambert constant 0.015).",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "wma",
+      "label": "WMA",
+      "category": "trend",
+      "summary": "Linearly weighted moving average; the newest bar weighs period.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "momentum",
+      "label": "Momentum",
+      "category": "momentum",
+      "summary": "Source minus the source exactly period bars ago.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 10,
+          "optional": false,
+          "help": "Lookback in bars."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 11,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "mfi",
+      "label": "MFI",
+      "category": "volume",
+      "summary": "Money flow index (0 to 100): volume-weighted RSI of typical price.",
+      "inputs": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Typical-price changes in the window."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 15,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "macd",
+      "label": "MACD",
+      "category": "momentum",
+      "summary": "EMA(fast) - EMA(slow) with an EMA signal line and histogram.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "macd",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "fast_period",
+          "label": "Fast period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 499,
+          "exclusive_minimum": false,
+          "default": 12,
+          "optional": false,
+          "help": "Fast EMA window."
+        },
+        {
+          "name": "slow_period",
+          "label": "Slow period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 26,
+          "optional": false,
+          "help": "Slow EMA window."
+        },
+        {
+          "name": "signal_period",
+          "label": "Signal period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 9,
+          "optional": false,
+          "help": "EMA of the line."
+        }
+      ],
+      "constraints": [
+        "fast_period < slow_period"
+      ],
+      "outputs": [
+        "macd",
+        "signal",
+        "histogram"
+      ],
+      "warmup": "slow_period + signal_period - 1",
+      "default_warmup_bars": 34,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "bollinger",
+      "label": "Bollinger",
+      "category": "volatility",
+      "summary": "SMA middle band with bands a multiple of population stdev away.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "bollinger",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "SMA and population-stdev window (current bar included)."
+        },
+        {
+          "name": "stdev_multiplier",
+          "label": "Stdev multiplier",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "10",
+          "exclusive_minimum": true,
+          "default": "2",
+          "optional": false,
+          "help": "Band distance in population standard deviations."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "middle",
+        "upper",
+        "lower"
+      ],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "stochastic",
+      "label": "Stochastic",
+      "category": "momentum",
+      "summary": "Fast stochastic: %K is close within the high-low range, %D its SMA.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "stochastic",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "k_period",
+          "label": "%K period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "High-low window."
+        },
+        {
+          "name": "d_period",
+          "label": "%D period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 3,
+          "optional": false,
+          "help": "SMA of %K."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "k",
+        "d"
+      ],
+      "warmup": "k_period + d_period - 1",
+      "default_warmup_bars": 16,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "adx",
+      "label": "ADX",
+      "category": "trend",
+      "summary": "Wilder ADX trend strength with +DI and -DI.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Wilder smoothing period."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "adx",
+        "plus_di",
+        "minus_di"
+      ],
+      "warmup": "2 * period - 1",
+      "default_warmup_bars": 27,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "identity",
+      "label": "OHLCV",
+      "category": "price",
+      "summary": "Copies one candle field (open, high, low, close, or volume).",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "none",
+      "period_min": null,
+      "period_max": null,
+      "parameters": [],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "1",
+      "default_warmup_bars": 1,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "constant",
+      "label": "Constant",
+      "category": "price",
+      "summary": "A fixed level on every bar, for example an RSI threshold to cross.",
+      "inputs": [],
+      "input_mode": "none",
+      "default_input": null,
+      "parameter_kind": "value",
+      "period_min": null,
+      "period_max": null,
+      "parameters": [
+        {
+          "name": "value",
+          "label": "Value",
+          "value_type": "decimal",
+          "minimum": null,
+          "maximum": null,
+          "exclusive_minimum": false,
+          "default": "50",
+          "optional": false,
+          "help": "Exact decimal level, for example 30 or -0.5."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "1",
+      "default_warmup_bars": 1,
+      "supports_timeframe": false,
+      "supports_offset": false
+    },
+    {
+      "kind": "dema",
+      "label": "DEMA",
+      "category": "trend",
+      "summary": "Double EMA, 2 * EMA - EMA(EMA): less lag than a plain EMA.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Window of both chained EMAs."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "2 * period - 1",
+      "default_warmup_bars": 39,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "tema",
+      "label": "TEMA",
+      "category": "trend",
+      "summary": "Triple EMA, 3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA)).",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Window of all three chained EMAs."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "3 * period - 2",
+      "default_warmup_bars": 58,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "hma",
+      "label": "Hull MA",
+      "category": "trend",
+      "summary": "Hull moving average: WMA(2 * WMA(n/2) - WMA(n), √n), with n/2 and √n floored.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Hull length n."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + floor(sqrt(period)) - 1",
+      "default_warmup_bars": 23,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "kama",
+      "label": "KAMA",
+      "category": "trend",
+      "summary": "Kaufman adaptive MA: moves fast in efficient trends, slowly in noise.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "kama",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 10,
+          "optional": false,
+          "help": "Efficiency-ratio lookback in price changes."
+        },
+        {
+          "name": "fast_period",
+          "label": "Fast period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 2,
+          "optional": false,
+          "help": "EMA-equivalent period of the fastest smoothing."
+        },
+        {
+          "name": "slow_period",
+          "label": "Slow period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 30,
+          "optional": false,
+          "help": "EMA-equivalent period of the slowest smoothing."
+        }
+      ],
+      "constraints": [
+        "fast_period < slow_period"
+      ],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 11,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "vwma",
+      "label": "VWMA",
+      "category": "trend",
+      "summary": "Volume-weighted moving average of close.",
+      "inputs": [
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "supertrend",
+      "label": "Supertrend",
+      "category": "trend",
+      "summary": "ATR band that trails the trend; direction is 1 (up) or -1 (down).",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "supertrend",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "ATR period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 10,
+          "optional": false,
+          "help": "Wilder ATR period."
+        },
+        {
+          "name": "multiplier",
+          "label": "Multiplier",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "10",
+          "exclusive_minimum": true,
+          "default": "3",
+          "optional": false,
+          "help": "ATR multiple for the bands."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "value",
+        "direction"
+      ],
+      "warmup": "period",
+      "default_warmup_bars": 10,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "parabolic_sar",
+      "label": "Parabolic SAR",
+      "category": "trend",
+      "summary": "Wilder stop-and-reverse that accelerates toward the trend's extreme point.",
+      "inputs": [
+        "high",
+        "low"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low"
+      ],
+      "parameter_kind": "parabolic_sar",
+      "period_min": null,
+      "period_max": null,
+      "parameters": [
+        {
+          "name": "step",
+          "label": "Step",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "1",
+          "exclusive_minimum": true,
+          "default": "0.02",
+          "optional": false,
+          "help": "Acceleration start and increment per new extreme."
+        },
+        {
+          "name": "max_step",
+          "label": "Max step",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "1",
+          "exclusive_minimum": true,
+          "default": "0.2",
+          "optional": false,
+          "help": "Acceleration cap (at least step)."
+        }
+      ],
+      "constraints": [
+        "step <= max_step"
+      ],
+      "outputs": [],
+      "warmup": "2",
+      "default_warmup_bars": 2,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "aroon",
+      "label": "Aroon",
+      "category": "trend",
+      "summary": "Bars since the period high and low, scaled 0 to 100, and their difference.",
+      "inputs": [
+        "high",
+        "low"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 25,
+          "optional": false,
+          "help": "Lookback; the window holds period + 1 bars."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "up",
+        "down",
+        "oscillator"
+      ],
+      "warmup": "period + 1",
+      "default_warmup_bars": 26,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "ichimoku",
+      "label": "Ichimoku",
+      "category": "trend",
+      "summary": "Conversion, base, and leading-span midpoints on the current bar (no displacement).",
+      "inputs": [
+        "high",
+        "low"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low"
+      ],
+      "parameter_kind": "ichimoku",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "tenkan_period",
+          "label": "Tenkan period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 498,
+          "exclusive_minimum": false,
+          "default": 9,
+          "optional": false,
+          "help": "Conversion line."
+        },
+        {
+          "name": "kijun_period",
+          "label": "Kijun period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 499,
+          "exclusive_minimum": false,
+          "default": 26,
+          "optional": false,
+          "help": "Base line."
+        },
+        {
+          "name": "senkou_b_period",
+          "label": "Senkou B period",
+          "value_type": "integer",
+          "minimum": 4,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 52,
+          "optional": false,
+          "help": "Leading span B midpoint window."
+        }
+      ],
+      "constraints": [
+        "tenkan_period < kijun_period < senkou_b_period"
+      ],
+      "outputs": [
+        "tenkan",
+        "kijun",
+        "senkou_a",
+        "senkou_b"
+      ],
+      "warmup": "max(tenkan_period, kijun_period, senkou_b_period)",
+      "default_warmup_bars": 52,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "vortex",
+      "label": "Vortex",
+      "category": "trend",
+      "summary": "Upward (VI+) and downward (VI-) vortex movement over true range.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Previous-bar comparisons in each sum."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "plus",
+        "minus"
+      ],
+      "warmup": "period + 1",
+      "default_warmup_bars": 15,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "linear_regression",
+      "label": "Linear regression",
+      "category": "trend",
+      "summary": "Least-squares line over period bars: endpoint value and slope per bar.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "value",
+        "slope"
+      ],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "trix",
+      "label": "TRIX",
+      "category": "trend",
+      "summary": "Percent change of a triple-smoothed EMA of close.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 15,
+          "optional": false,
+          "help": "Window of each of the three EMAs."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "3 * period - 1",
+      "default_warmup_bars": 44,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "stochastic_rsi",
+      "label": "Stochastic RSI",
+      "category": "momentum",
+      "summary": "Stochastic of RSI (0 to 100) with SMA-smoothed %K and %D.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "stochastic_rsi",
+      "period_min": 1,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "rsi_period",
+          "label": "RSI period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Wilder RSI."
+        },
+        {
+          "name": "stoch_period",
+          "label": "Stochastic period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "RSI high-low window."
+        },
+        {
+          "name": "k_period",
+          "label": "%K smoothing",
+          "value_type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 3,
+          "optional": false,
+          "help": "SMA of the raw stochastic RSI (1 = none)."
+        },
+        {
+          "name": "d_period",
+          "label": "%D smoothing",
+          "value_type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 3,
+          "optional": false,
+          "help": "SMA of %K."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "k",
+        "d"
+      ],
+      "warmup": "rsi_period + stoch_period + k_period + d_period - 2",
+      "default_warmup_bars": 32,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "ppo",
+      "label": "PPO",
+      "category": "momentum",
+      "summary": "Percentage price oscillator: 100 * (EMA fast - EMA slow) / EMA slow, with signal.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "macd",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "fast_period",
+          "label": "Fast period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 499,
+          "exclusive_minimum": false,
+          "default": 12,
+          "optional": false,
+          "help": "Fast EMA window."
+        },
+        {
+          "name": "slow_period",
+          "label": "Slow period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 26,
+          "optional": false,
+          "help": "Slow EMA window."
+        },
+        {
+          "name": "signal_period",
+          "label": "Signal period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 9,
+          "optional": false,
+          "help": "EMA of the line."
+        }
+      ],
+      "constraints": [
+        "fast_period < slow_period"
+      ],
+      "outputs": [
+        "ppo",
+        "signal",
+        "histogram"
+      ],
+      "warmup": "slow_period + signal_period - 1",
+      "default_warmup_bars": 34,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "ultimate_oscillator",
+      "label": "Ultimate Oscillator",
+      "category": "momentum",
+      "summary": "Buying pressure over true range in three windows, weighted 4:2:1 (0 to 100).",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "ultimate_oscillator",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "short_period",
+          "label": "Short period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 98,
+          "exclusive_minimum": false,
+          "default": 7,
+          "optional": false,
+          "help": "Shortest window, weight 4."
+        },
+        {
+          "name": "medium_period",
+          "label": "Medium period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 99,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Middle window, weight 2."
+        },
+        {
+          "name": "long_period",
+          "label": "Long period",
+          "value_type": "integer",
+          "minimum": 4,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 28,
+          "optional": false,
+          "help": "Longest window, weight 1."
+        }
+      ],
+      "constraints": [
+        "short_period < medium_period < long_period"
+      ],
+      "outputs": [],
+      "warmup": "long_period + 1",
+      "default_warmup_bars": 29,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "awesome_oscillator",
+      "label": "Awesome Oscillator",
+      "category": "momentum",
+      "summary": "SMA(fast) - SMA(slow) of the median price (high + low) / 2.",
+      "inputs": [
+        "high",
+        "low"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low"
+      ],
+      "parameter_kind": "awesome_oscillator",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "fast_period",
+          "label": "Fast period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 499,
+          "exclusive_minimum": false,
+          "default": 5,
+          "optional": false,
+          "help": "Fast median SMA."
+        },
+        {
+          "name": "slow_period",
+          "label": "Slow period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 34,
+          "optional": false,
+          "help": "Slow median SMA."
+        }
+      ],
+      "constraints": [
+        "fast_period < slow_period"
+      ],
+      "outputs": [],
+      "warmup": "slow_period",
+      "default_warmup_bars": 34,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "cmo",
+      "label": "CMO",
+      "category": "momentum",
+      "summary": "Chande momentum oscillator (-100 to 100) from summed gains and losses.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 9,
+          "optional": false,
+          "help": "Closing changes in the sums."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 10,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "tsi",
+      "label": "TSI",
+      "category": "momentum",
+      "summary": "True strength index: double-smoothed momentum over its absolute value, with signal.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "tsi",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "long_period",
+          "label": "Long period",
+          "value_type": "integer",
+          "minimum": 3,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 25,
+          "optional": false,
+          "help": "First EMA smoothing."
+        },
+        {
+          "name": "short_period",
+          "label": "Short period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 499,
+          "exclusive_minimum": false,
+          "default": 13,
+          "optional": false,
+          "help": "Second EMA smoothing."
+        },
+        {
+          "name": "signal_period",
+          "label": "Signal period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 13,
+          "optional": false,
+          "help": "EMA of TSI."
+        }
+      ],
+      "constraints": [
+        "short_period < long_period"
+      ],
+      "outputs": [
+        "tsi",
+        "signal"
+      ],
+      "warmup": "long_period + short_period + signal_period - 1",
+      "default_warmup_bars": 50,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "keltner",
+      "label": "Keltner",
+      "category": "volatility",
+      "summary": "EMA middle line with bands an ATR multiple away.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "keltner",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "EMA window of close for the middle line."
+        },
+        {
+          "name": "atr_period",
+          "label": "ATR period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 10,
+          "optional": false,
+          "help": "Wilder ATR period for the band distance."
+        },
+        {
+          "name": "multiplier",
+          "label": "Multiplier",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "10",
+          "exclusive_minimum": true,
+          "default": "2",
+          "optional": false,
+          "help": "ATR multiple for the bands."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "upper",
+        "middle",
+        "lower"
+      ],
+      "warmup": "max(period, atr_period)",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "donchian",
+      "label": "Donchian",
+      "category": "volatility",
+      "summary": "Highest high, lowest low, and their midpoint over period bars, current bar included.",
+      "inputs": [
+        "high",
+        "low"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "upper",
+        "middle",
+        "lower"
+      ],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "bollinger_percent_b",
+      "label": "Bollinger %B",
+      "category": "volatility",
+      "summary": "Close position within the Bollinger bands: 0 at the lower band, 1 at the upper.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "bollinger",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "SMA and population-stdev window (current bar included)."
+        },
+        {
+          "name": "stdev_multiplier",
+          "label": "Stdev multiplier",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "10",
+          "exclusive_minimum": true,
+          "default": "2",
+          "optional": false,
+          "help": "Band distance in population standard deviations."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "bollinger_bandwidth",
+      "label": "Bollinger bandwidth",
+      "category": "volatility",
+      "summary": "Bollinger band width as a fraction of the middle band: (upper - lower) / middle.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "bollinger",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "SMA and population-stdev window (current bar included)."
+        },
+        {
+          "name": "stdev_multiplier",
+          "label": "Stdev multiplier",
+          "value_type": "decimal",
+          "minimum": "0",
+          "maximum": "10",
+          "exclusive_minimum": true,
+          "default": "2",
+          "optional": false,
+          "help": "Band distance in population standard deviations."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "natr",
+      "label": "NATR",
+      "category": "volatility",
+      "summary": "Normalized ATR: Wilder ATR as a percent of close.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 100,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 100,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Wilder ATR period."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 14,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "choppiness",
+      "label": "Choppiness",
+      "category": "volatility",
+      "summary": "100 * log10(ΣTR / range) / log10(period): near 100 choppy, near 0 trending.",
+      "inputs": [
+        "high",
+        "low",
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 14,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 14,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "historical_volatility",
+      "label": "Historical volatility",
+      "category": "volatility",
+      "summary": "Sample stdev of close log returns, in percent; annualized only when asked.",
+      "inputs": [
+        "close"
+      ],
+      "input_mode": "locked",
+      "default_input": "close",
+      "parameter_kind": "historical_volatility",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Log returns in the sample."
+        },
+        {
+          "name": "annualization_periods",
+          "label": "Annualization periods",
+          "value_type": "integer",
+          "minimum": 1,
+          "maximum": 525600,
+          "exclusive_minimum": false,
+          "default": null,
+          "optional": true,
+          "help": "Bars per year to scale by √ (365 daily, 8760 hourly); empty = per bar."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 21,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "obv",
+      "label": "OBV",
+      "category": "volume",
+      "summary": "On-balance volume, cumulative from the first supplied bar, with an SMA signal line.",
+      "inputs": [
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "signal",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "signal_period",
+          "label": "Signal period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "SMA of OBV."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "obv",
+        "signal"
+      ],
+      "warmup": "signal_period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "cmf",
+      "label": "Chaikin Money Flow",
+      "category": "volume",
+      "summary": "Money-flow volume over volume for period bars (-1 to 1).",
+      "inputs": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "accumulation_distribution",
+      "label": "A/D line",
+      "category": "volume",
+      "summary": "Accumulation/distribution: cumulative money-flow volume with an SMA signal line.",
+      "inputs": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "signal",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "signal_period",
+          "label": "Signal period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "SMA of A/D."
+        }
+      ],
+      "constraints": [],
+      "outputs": [
+        "ad",
+        "signal"
+      ],
+      "warmup": "signal_period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "vwap",
+      "label": "Rolling VWAP",
+      "category": "volume",
+      "summary": "Volume-weighted typical price over the last period bars (crypto has no session).",
+      "inputs": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "force_index",
+      "label": "Force index",
+      "category": "volume",
+      "summary": "EMA of (close - previous close) * volume.",
+      "inputs": [
+        "close",
+        "volume"
+      ],
+      "input_mode": "locked",
+      "default_input": [
+        "close",
+        "volume"
+      ],
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 13,
+          "optional": false,
+          "help": "EMA window of the raw force."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 14,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "zscore",
+      "label": "Z-score",
+      "category": "statistical",
+      "summary": "(source - SMA) / population stdev over period bars.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Bars in the rolling window (current bar included)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period",
+      "default_warmup_bars": 20,
+      "supports_timeframe": true,
+      "supports_offset": true
+    },
+    {
+      "kind": "percent_rank",
+      "label": "Percent rank",
+      "category": "statistical",
+      "summary": "Percent of the previous period values at or below the current value.",
+      "inputs": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "input_mode": "configurable",
+      "default_input": "close",
+      "parameter_kind": "period",
+      "period_min": 2,
+      "period_max": 500,
+      "parameters": [
+        {
+          "name": "period",
+          "label": "Period",
+          "value_type": "integer",
+          "minimum": 2,
+          "maximum": 500,
+          "exclusive_minimum": false,
+          "default": 20,
+          "optional": false,
+          "help": "Previous values compared (current bar excluded)."
+        }
+      ],
+      "constraints": [],
+      "outputs": [],
+      "warmup": "period + 1",
+      "default_warmup_bars": 21,
+      "supports_timeframe": true,
+      "supports_offset": true
+    }
+  ]
+}
