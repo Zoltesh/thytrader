@@ -231,7 +231,10 @@ ordered by increasing duration, each distinct from LTF and HTF). Ingest every cl
 htf_dataset_fingerprint?, indicator_dataset_fingerprints?}` per extra covered product, ordered by
 `product_id`. Each extra product needs a complete dataset on the decision clock plus the HTF and
 extra-TF clocks the document declares. Identities must be unique and distinct from the primary
-LTF/HTF/extra-TF fingerprints. `dataset_fingerprint` remains the primary instrument. All of these
+LTF/HTF/extra-TF fingerprints. `dataset_fingerprint` remains the primary instrument. A fingerprint
+whose product or timeframe the document does not cover is refused with HTTP 422
+`backtest_window_rejected` naming that dataset and the covered products/timeframes (async jobs fail
+with the same message). Fix the binding; do not retry. All of these
 fingerprints are optional: see **Datasets bind automatically** below. Backtests evaluate
 last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.

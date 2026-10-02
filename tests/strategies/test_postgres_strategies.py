@@ -60,7 +60,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     strategy_fingerprint,
 )
-from thytrader.strategies.snapshots import StrategySnapshotError
+from thytrader.strategies.snapshots import StrategyDatasetMismatchError, StrategySnapshotError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -633,6 +633,77 @@ def test_bindings_and_derived_snapshots_belong_to_their_strategy(tmp_path: Path)
                     )
                 ).scalar_one()
             assert remaining == 0
+        finally:
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_multi_instrument_documents_bind_every_covered_product(tmp_path: Path) -> None:
+    """An additional instrument's dataset binds; a product the document omits does not."""
+
+    async def exercise() -> None:
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        datasets = DatasetStore(tmp_path)
+        starts_at = datetime(2026, 7, 29, 15, tzinfo=UTC)
+        candles = tuple(
+            Candle(
+                starts_at=starts_at + timedelta(hours=index),
+                open=Decimal(100),
+                high=Decimal(110),
+                low=Decimal(90),
+                close=Decimal(105),
+                volume=Decimal("12.5"),
+            )
+            for index in range(3)
+        )
+        report = analyze_range(
+            candles,
+            CandleInterval.ONE_HOUR,
+            starts_at,
+            starts_at + timedelta(hours=3),
+            now=starts_at + timedelta(hours=3),
+        )
+        primary = datasets.write("coinbase", "BTC-USD", report)
+        extra = datasets.write("coinbase", "ETH-USD", report)
+        uncovered = datasets.write("coinbase", "SOL-USD", report)
+        try:
+            template = create_template_strategy(product_id="BTC-USD")
+            definition = StrategyDefinition.model_validate(
+                {
+                    **template.model_dump(mode="json"),
+                    "additional_instruments": [
+                        {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"}
+                    ],
+                }
+            )
+            record = await create_strategy_from_definition(store, definition)
+            snapshot = await store.snapshot(record.strategy_id)
+            for manifest in (primary, extra):
+                binding = await store.bind_dataset(
+                    snapshot.strategy_fingerprint,
+                    manifest.content_fingerprint,
+                    dataset_store=datasets,
+                    bound_at=_NOW,
+                )
+                assert binding.dataset_fingerprint == manifest.content_fingerprint
+                loaded = await store.load_binding(
+                    snapshot.strategy_fingerprint,
+                    manifest.content_fingerprint,
+                    dataset_store=datasets,
+                )
+                assert loaded == binding
+            with pytest.raises(StrategyDatasetMismatchError, match="SOL-USD 1h") as rejected:
+                await store.bind_dataset(
+                    snapshot.strategy_fingerprint,
+                    uncovered.content_fingerprint,
+                    dataset_store=datasets,
+                    bound_at=_NOW,
+                )
+            assert "BTC-USD, ETH-USD" in str(rejected.value)
+            assert isinstance(rejected.value, StrategySnapshotError)
+            await store.delete(record.strategy_id)
         finally:
             await dispose(engine)
 
