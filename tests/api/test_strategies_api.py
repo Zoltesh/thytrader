@@ -15,6 +15,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionResult,
 )
 from thytrader.config import Settings
+from thytrader.research.jobs import ResearchExecutionMode
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import (
     create_strategy_from_definition,
@@ -57,6 +58,7 @@ def _app(store: InMemoryStrategyStore, submitter: RecordingSubmitter | None = No
         Settings(_env_file=None),
         strategy_store=store,
         backtest_submitter=submitter or RecordingSubmitter(),
+        research_execution=ResearchExecutionMode.IN_PROCESS,
     )
     return TestClient(app)
 
@@ -214,7 +216,10 @@ def test_import_and_clone_create_new_identities(client: TestClient) -> None:
 def test_backtest_start_snapshots_current_rules_and_returns_the_fingerprint(
     store: InMemoryStrategyStore,
 ) -> None:
-    """The server snapshots strategy_id and hands the submitter the exact fingerprint."""
+    """The server snapshots strategy_id and hands the submitter the exact fingerprint.
+
+    Since ADR 0092 a synchronous submit is a research job too, so both submits are listed.
+    """
     record = _seed(store)
     submitter = RecordingSubmitter()
     with _app(store, submitter) as client:
@@ -231,8 +236,9 @@ def test_backtest_start_snapshots_current_rules_and_returns_the_fingerprint(
     assert queued.status_code == 202
     assert queued.json()["strategy_fingerprint"] == record.current_fingerprint
     assert jobs.status_code == 200
-    assert jobs.json()["returned"] == 1
-    assert jobs.json()["jobs"][0]["strategy_id"] == str(record.strategy_id)
+    assert jobs.json()["returned"] == 2
+    assert {job["strategy_id"] for job in jobs.json()["jobs"]} == {str(record.strategy_id)}
+    assert "completed" in {job["status"] for job in jobs.json()["jobs"]}
 
 
 def test_invalid_definition_blocks_backtest_and_deployment_starts(

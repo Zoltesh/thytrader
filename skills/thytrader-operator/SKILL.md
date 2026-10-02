@@ -158,12 +158,21 @@ the 5-second ingest-request poll; it heartbeats between ingest cells and UTC-day
 ([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
+Health also grades the research worker pool (`research_worker` component,
+`payload.research_workers`; [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)): how
+many research workers are configured and live, each worker's state, current job, and `rss_bytes`,
+and queue depth (`queue.queued`, `queue.running`, `queue.oldest_queued_age_seconds`). A research
+job in `queued` is waiting for a free worker, not failed. `RESEARCH_WORKER_MISSING` or
+`RESEARCH_WORKER_STALE` mean queued research cannot start; recommend `make run` only when the user
+asked to restart. Field details: [report schemas](references/report-schemas.md).
+
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v51`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v52`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0056`, `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
+   Alembic revision `0057`, `research_worker_pool` (leased research worker pool;
+   [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
    `trigger_bracket`/`stop_limit`, `backtest_diagnostics`, `fee_suggestion_source`
    `coinbase_account` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)),
    `decision_journals` `paper`/`live` (per-bar decision timeline;

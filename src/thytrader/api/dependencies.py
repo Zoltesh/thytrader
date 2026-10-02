@@ -24,6 +24,7 @@ from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
+from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.portfolios.store import PortfolioBacktestStore, PortfolioStorage, PortfolioStore
@@ -292,6 +293,17 @@ def get_notification_sender(request: Request) -> NotificationSender:
         message = "Notification sender is unavailable."
         raise TypeError(message)
     return sender
+
+
+def get_research_queue(request: Request) -> PostgresResearchQueue | None:
+    """Return the research worker queue reader when PostgreSQL was initialized."""
+    queue = getattr(request.app.state, "research_queue", None)
+    if queue is None:
+        return None
+    if not isinstance(queue, PostgresResearchQueue):
+        message = "Research queue is unavailable."
+        raise TypeError(message)
+    return queue
 
 
 def get_database_engine(request: Request) -> AsyncEngine | None:

@@ -21,6 +21,10 @@ if TYPE_CHECKING:
     from thytrader.research.study_start import ResearchStudyStartRequest
     from thytrader.strategies.library import StrategyDocument
 
+# A synchronous submit waits server-side for at most ``research_sync_wait_seconds``
+# (default 25 s) and then answers 202 with the job, so the client allows a margin.
+_SYNC_SUBMIT_TIMEOUT_SECONDS = 60.0
+
 
 def create_strategy(
     base_url: str,
@@ -195,9 +199,12 @@ def submit_backtest(
             method="POST",
             url=url,
             payload=request.model_dump(mode="json"),
+            timeout=_SYNC_SUBMIT_TIMEOUT_SECONDS,
         ),
         "submit-backtest response",
     )
+    if not async_submission and "job_id" in body:
+        return _sync_wait_elapsed(body)
     if async_submission:
         keys: tuple[str, ...] = (
             "job_id",
@@ -287,12 +294,14 @@ def submit_study(
                 method="POST",
                 url=url,
                 payload=request.model_dump(mode="json"),
-                timeout=5.0,
+                timeout=5.0 if async_submission else _SYNC_SUBMIT_TIMEOUT_SECONDS,
             ),
             "submit-study response",
         )
     except AgentHttpError as error:
         raise _ambiguous_study_error(request, error) from error
+    if not async_submission and "job_id" in body:
+        return _sync_wait_elapsed(body)
     if async_submission:
         return _encode(
             {
@@ -310,6 +319,31 @@ def submit_study(
             }
         )
     return _encode(body)
+
+
+def _sync_wait_elapsed(body: dict[str, object]) -> str:
+    """Report a synchronous submit the research worker had not finished (HTTP 202).
+
+    The API waited ``sync_wait_seconds`` and handed back the queued or running job
+    (ADR 0092); the job keeps running. Poll it rather than submitting again.
+    """
+    keys = (
+        "job_id",
+        "kind",
+        "status",
+        "strategy_id",
+        "strategy_fingerprint",
+        "bound_datasets",
+        "evaluation_start",
+        "evaluation_end",
+        "sync_wait_seconds",
+    )
+    payload: dict[str, object] = {key: body.get(key) for key in keys if key in body}
+    payload["next_action"] = (
+        f"thytrader-research show-research-job --job-id {body.get('job_id')} "
+        "(the research worker is still running it; do not resubmit)"
+    )
+    return _encode(payload)
 
 
 def _ambiguous_study_error(
@@ -392,6 +426,16 @@ def show_research_job(base_url: str, job_id: str) -> str:
     body = _as_object(
         request_json(method="GET", url=f"{base_url}/api/v1/research/jobs/{job_id}"),
         "research job",
+    )
+    return _encode(body)
+
+
+def list_research_jobs(base_url: str, strategy_id: UUID, limit: int) -> str:
+    """GET one strategy's newest research jobs (sync and async, every status)."""
+    query = urlencode({"strategy_id": str(strategy_id), "limit": limit})
+    body = _as_object(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/jobs?{query}"),
+        "research jobs",
     )
     return _encode(body)
 

@@ -68,7 +68,7 @@ Inspect or stop without Make:
 
 ```bash
 docker compose ps
-docker compose logs -f api worker market-data-worker execution-worker web
+docker compose logs -f api worker market-data-worker execution-worker research-worker web
 docker compose down
 ```
 
@@ -140,8 +140,15 @@ uv run thytrader-api
 uv run thytrader-worker
 uv run thytrader-market-data-worker
 uv run thytrader-execution-worker
+uv run thytrader-research-worker
 cd web && npm ci && npm run dev -- --open
 ```
+
+Backtests, studies, and portfolio backtests run only in `thytrader-research-worker`, which needs
+`THYTRADER_DATABASE_URL` ([ADR 0092](../decisions/0092-research-worker-pool.md)). Without it
+research jobs stay `queued` and operator health reports `RESEARCH_WORKER_MISSING`.
+`THYTRADER_RESEARCH_WORKER_COUNT` (default 2) sets how many jobs run at once; each worker process
+uses roughly 100–150 MB.
 
 For a user-managed PostgreSQL instance, set `THYTRADER_DATABASE_URL` in ignored `.env`, apply the
 explicit migration, then start the API and workers as separate processes:
@@ -152,6 +159,7 @@ uv run thytrader-api
 uv run thytrader-worker
 uv run thytrader-market-data-worker
 uv run thytrader-execution-worker
+uv run thytrader-research-worker
 ```
 
 Contributor quality gates live in [contributor documentation](../contributing.md).

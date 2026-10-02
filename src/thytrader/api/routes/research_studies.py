@@ -27,12 +27,15 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.research_binding import dataset_resolver, datasets_missing_http_error
-from thytrader.api.strategy_http import strategy_http_error
-from thytrader.backtest.submission import (
-    BacktestSubmissionError,
-    BacktestSubmissionRejectedError,
-    BacktestSubmitter,
+from thytrader.api.research_execution import (
+    get_research_execution,
+    is_terminal,
+    require_research_execution,
+    sync_failure,
+    wait_for_job,
 )
+from thytrader.api.strategy_http import strategy_http_error
+from thytrader.backtest.submission import BacktestSubmitter  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.models import ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
@@ -51,14 +54,17 @@ from thytrader.research.dataset_binding import (
     DatasetsMissingError,
 )
 from thytrader.research.jobs import (
+    ResearchExecutionMode,
     ResearchJobAcceptedResponse,
     ResearchJobListResponse,
     ResearchJobRecord,
+    ResearchJobStatus,
     ResearchJobStore,
 )
 from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
 from thytrader.research.studies import (
     ASYNC_STUDY_BUDGET,
+    SYNC_STUDY_BUDGET,
     ResearchStudy,
     ResearchStudyError,
     ResearchStudyPlan,
@@ -89,6 +95,7 @@ from thytrader.strategies.templates import parse_template_id, template_blueprint
 
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 _logger = logging.getLogger(__name__)
+_STUDY_UNAVAILABLE = "Research study submission is unavailable."
 
 
 class StrategyTemplateEntry(BaseModel):
@@ -281,58 +288,84 @@ async def submit_research_study(
     publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    execution: Annotated[ResearchExecutionMode, Depends(get_research_execution)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> ResearchStudySubmitResponse | Response:
-    """Snapshot every named strategy, then submit or reuse the study's child backtests.
+    """Snapshot every named strategy, plan within budget, and queue the study.
 
-    A synchronous submit allows at most 8 candidates and 128 child windows. An async
-    job (``?async=true``) is planned against the larger async budget before it is
-    queued, so an oversized or infeasible study fails here instead of in the worker.
+    A synchronous submit allows at most 8 candidates and 128 child windows; an async
+    job (``?async=true``) may use the larger async budget. Either is planned here, so an
+    oversized or infeasible study fails with 422 before it is queued. The research
+    worker runs the children (ADR 0092); a synchronous submit waits up to
+    ``research_sync_wait_seconds`` and answers 201 with the study, or 202 with the
+    still-running job.
     """
     bound = await _bound_study(start, strategies, publications, datasets, runtime)
     request = bound.request
-    if async_submission:
-        try:
-            await service.plan(request, budget=ASYNC_STUDY_BUDGET)
-        except StudyPlanningError as error:
-            raise _planning_http_error(error) from None
-        except (ResearchStudyError, StrategySnapshotError) as error:
-            _logger.warning("research_study_queue_failed error_class=%s", type(error).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Research study submission is unavailable.",
-            ) from None
-        primary = start.primary_strategy_id()
-        record = await job_store.create_study(request, strategy_id=primary)
-        body = ResearchJobAcceptedResponse(
-            job_id=record.job_id,
-            kind=record.kind,
-            status=record.status,
-            strategy_id=primary,
-            strategy_fingerprint=record.strategy_fingerprint,
-            bound_datasets=bound.bound_datasets,
-            evaluation_start=request.evaluation_start,
-            evaluation_end=request.evaluation_end,
-        )
-        return Response(
-            content=body.model_dump_json(),
-            status_code=status.HTTP_202_ACCEPTED,
-            media_type="application/json",
-        )
+    budget = ASYNC_STUDY_BUDGET if async_submission else SYNC_STUDY_BUDGET
     try:
-        study = await service.submit(request)
+        await service.plan(request, budget=budget)
     except StudyPlanningError as error:
         raise _planning_http_error(error) from None
-    except BacktestSubmissionRejectedError as rejected:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={"code": "backtest_window_rejected", "message": str(rejected)},
-        ) from None
-    except (ResearchStudyError, BacktestSubmissionError, StrategySnapshotError) as error:
-        _logger.warning("research_study_submit_failed error_class=%s", type(error).__name__)
+    except (ResearchStudyError, StrategySnapshotError) as error:
+        _logger.warning("research_study_queue_failed error_class=%s", type(error).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Research study submission is unavailable.",
+            detail=_STUDY_UNAVAILABLE,
+        ) from None
+    require_research_execution(execution, detail=_STUDY_UNAVAILABLE)
+    primary = start.primary_strategy_id()
+    record = await job_store.create_study(request, strategy_id=primary)
+    waited: float | None = None
+    if not async_submission:
+        waited = runtime.settings.research_sync_wait_seconds
+        finished = await wait_for_job(job_store, record.job_id, timeout_seconds=waited)
+        if finished is not None and is_terminal(finished):
+            return await _completed_study(finished, catalog, bound)
+    body = ResearchJobAcceptedResponse(
+        job_id=record.job_id,
+        kind=record.kind,
+        status=record.status,
+        strategy_id=primary,
+        strategy_fingerprint=record.strategy_fingerprint,
+        bound_datasets=bound.bound_datasets,
+        evaluation_start=request.evaluation_start,
+        evaluation_end=request.evaluation_end,
+        sync_wait_seconds=waited,
+    )
+    return Response(
+        content=body.model_dump_json(),
+        status_code=status.HTTP_202_ACCEPTED,
+        media_type="application/json",
+    )
+
+
+async def _completed_study(
+    finished: ResearchJobRecord,
+    catalog: ResearchStudyCatalog,
+    bound: BoundStudyStart,
+) -> ResearchStudySubmitResponse:
+    """Answer a finished synchronous study exactly as the inline submit did.
+
+    The worker persisted the study in the catalog; the response is that canonical
+    document plus the binding echo (the same reload the plan-dedupe path returns).
+    """
+    if finished.status is not ResearchJobStatus.COMPLETED or finished.study_fingerprint is None:
+        raise sync_failure(finished, unavailable_detail=_STUDY_UNAVAILABLE)
+    try:
+        study = ResearchStudy.model_validate_json(await catalog.load(finished.study_fingerprint))
+    except (
+        StudyCatalogNotFoundError,
+        StudyCatalogUnavailableError,
+        StudyCatalogIntegrityError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        _logger.warning("research_study_reload_failed error_class=%s", type(error).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_STUDY_UNAVAILABLE,
         ) from None
     return ResearchStudySubmitResponse.model_validate({**dict(study), **_echo(bound)})
 

@@ -15,7 +15,7 @@ own the semantics.
 | `thytrader.persistence.postgres_portfolio_rows` | In-transaction row mapping, plan application, and the strategy-deletion hook (no backtest imports, so `postgres_strategies` can call it) |
 | `thytrader.persistence.postgres_portfolios` | `PostgresPortfolioStore`: transactions, row locks, revision-guarded writes, job queue, canonical results |
 | `thytrader.portfolios.planning` | Snapshot sleeves, bind datasets, resolve and intersect windows (`backtest.submission.resolve_backtest_window`) |
-| `thytrader.portfolios.jobs` | `PortfolioBacktestRunner` in the API process: run children through `BacktestSubmitter`, combine off the event loop |
+| `thytrader.portfolios.jobs` | `PortfolioBacktestRunner` in the research worker ([ADR 0092](../decisions/0092-research-worker-pool.md)): run children through `BacktestSubmitter`, combine off the event loop |
 | `thytrader.portfolios.combine` | Union grid, forward fill, drawdown, idle capital, correlation, overlap, equal-weight basket |
 | `thytrader.portfolios.backtest` | Request, plan, result, listing, and job contracts; canonical bytes and fingerprint |
 | `thytrader.portfolios.views` | HTTP response models shared by the routes and the CLI |
@@ -37,7 +37,7 @@ own the semantics.
 `portfolios` (one row, `revision > 0`, mode/quote CHECKs), `portfolio_sleeves` (FK to portfolios
 and strategies, both `ON DELETE CASCADE`; unique `(portfolio_id, strategy_id)`),
 `portfolio_journal_entries` (append-only; `sequence` gives append order),
-`portfolio_backtest_jobs` (queue; plan JSON payload), `published_portfolio_backtests` (canonical
+`portfolio_backtest_jobs` (queue; plan JSON payload; lease columns from Alembic 0057), `published_portfolio_backtests` (canonical
 result JSON plus a listing row). Decimals are canonical text with format CHECKs.
 
 Alembic 0056 adds `deployments.portfolio_id` (FK `ON DELETE SET NULL`, partial index; set at
@@ -96,8 +96,10 @@ locks the strategy row (`FOR UPDATE`) and then each portfolio in `portfolio_id` 
 ## Backtest flow
 
 `POST /backtests` plans synchronously (422 `portfolio_backtest_rejected` on any sleeve problem)
-and queues the plan. The runner claims one job at a time, submits each dated child request
-(published and deduplicated like any backtest), reloads the verified child results, loads the
-basket candles from the finest-clock sleeve per primary product, combines, stores the canonical
-result, journals `backtest_run`, and completes the job. Restarted APIs requeue running jobs; jobs
+and queues the plan. A research worker process claims the job under a lease (ADR 0092), submits
+each dated child request (published and deduplicated like any backtest), reloads the verified child
+results, loads the basket candles from the finest-clock sleeve per primary product, combines,
+stores the canonical result, journals `backtest_run`, and completes the job. Portfolio backtests
+share the research worker pool with backtests and studies, so `THYTRADER_RESEARCH_WORKER_COUNT`
+bounds how many run at once. A job whose worker died is re-queued after its lease expires; jobs
 expire after 24 hours.

@@ -471,6 +471,15 @@ base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the `THYTRADER_A
 `"$THYTRADER_API_BASE_URL"` for raw `curl`. When a command fails it says what failed (HTTP status and
 API error code, timeout, unreachable origin, or a dropped connection) and what to do next.
 
+Backtests, studies, and portfolio backtests run in the `research-worker` service that `make run`
+starts, never in the API, so heavy research does not slow the UI or other commands
+([ADR 0092](../decisions/0092-research-worker-pool.md)). It runs
+`THYTRADER_RESEARCH_WORKER_COUNT` jobs at once (default 2, memory-safe on an 8 GB machine); more
+wait as `queued`. A synchronous run that takes longer than about 25 s comes back as its queued or
+running job (the UI keeps polling it for you; the CLI prints `next_action`). `uv run
+thytrader-operator health` shows whether the research workers are live, each worker's memory
+(`rss_bytes`), and how many jobs are queued or running and for how long the oldest has waited.
+
 ```bash
 uv run thytrader-operator health
 uv run thytrader-research list-strategies

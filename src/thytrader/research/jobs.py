@@ -1,4 +1,10 @@
-"""Durable async research jobs for long-running backtests and composed studies."""
+"""Durable research jobs for backtests and composed studies (ADR 0092).
+
+Every backtest and study, synchronous or ``?async=true``, is a row in ``research_jobs``.
+The ``research-worker`` service claims rows with ``FOR UPDATE SKIP LOCKED`` and a
+renewed lease, so research never runs inside the API process. The in-memory store and
+:class:`ResearchJobRunner` remain only as the in-process test harness.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +29,7 @@ from thytrader.research.dataset_binding import BoundDataset  # noqa: TC001 - Pyd
 from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyRequest,
+    StudyBudgetError,
     StudyFailedPhase,
     StudyPlanningError,
     plan_fingerprint,
@@ -33,9 +40,10 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-MAX_CONCURRENT_RESEARCH_JOBS = 2
 RESEARCH_JOB_EXPIRY_HOURS = 24
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
+_BACKTEST_UNAVAILABLE = "Backtest submission is unavailable."
+_STUDY_UNAVAILABLE = "Research study submission is unavailable."
 
 
 class ResearchJobKind(StrEnum):
@@ -56,6 +64,42 @@ class ResearchJobStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class ResearchJobErrorCode(StrEnum):
+    """Why a research job failed, in the vocabulary its synchronous route answers with.
+
+    A synchronous submit waits for the job and maps these codes back to the HTTP
+    status it returned before research moved to the worker: the ``*_rejected`` and
+    ``study_budget_exceeded`` codes are caller input (422); the others are 503.
+    """
+
+    BACKTEST_WINDOW_REJECTED = "backtest_window_rejected"
+    STUDY_WINDOW_REJECTED = "study_window_rejected"
+    STUDY_BUDGET_EXCEEDED = "study_budget_exceeded"
+    RESEARCH_UNAVAILABLE = "research_unavailable"
+    RESEARCH_WORKER_LOST = "research_worker_lost"
+
+
+class ResearchExecutionMode(StrEnum):
+    """Who executes queued research jobs for one API process.
+
+    ``research_worker`` is every PostgreSQL install: the API only validates, queues,
+    and waits. ``in_process`` is the test harness that runs the queue inside the app.
+    ``unavailable`` means no PostgreSQL and no harness, so research submissions 503.
+    """
+
+    RESEARCH_WORKER = "research_worker"
+    IN_PROCESS = "in_process"
+    UNAVAILABLE = "unavailable"
+
+
+class ResearchJobLeaseLostError(RuntimeError):
+    """Signal that a worker no longer holds the lease of the job it was running.
+
+    Another worker re-queued or re-claimed the job (the lease expired), so the
+    caller must stop writing to it and abandon the attempt.
+    """
+
+
 class ResearchJobRecord(BaseModel):
     """One async research submission tracked until completion."""
 
@@ -70,8 +114,10 @@ class ResearchJobRecord(BaseModel):
     progress_current: int = Field(default=0, ge=0)
     progress_total: int = Field(default=1, ge=0)
     error_message: str | None = None
+    error_code: ResearchJobErrorCode | None = None
     failed_phase: str | None = None
     failed_detail: str | None = None
+    attempts: int = Field(default=0, ge=0)
     run_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     result_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     study_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -89,7 +135,9 @@ class ResearchJobAcceptedResponse(BaseModel):
     server chose from the catalog (ADR 0089). ``evaluation_start`` and
     ``evaluation_end`` are a study's evaluation window (filled from common dataset
     coverage when omitted); a backtest leaves them null because its omitted window
-    is filled when the job runs.
+    is filled when the job runs. ``sync_wait_seconds`` is set only when a synchronous
+    submit waited that long for the research worker and returned the still-queued or
+    still-running job instead (ADR 0092); it is null for ``?async=true``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -102,6 +150,7 @@ class ResearchJobAcceptedResponse(BaseModel):
     bound_datasets: tuple[BoundDataset, ...] = ()
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
+    sync_wait_seconds: float | None = Field(default=None, ge=0)
 
 
 class ResearchJobListResponse(BaseModel):
@@ -123,34 +172,14 @@ def primary_strategy_fingerprint(request: ResearchStudyRequest) -> str:
     raise StudyPlanningError("Study request names no strategy snapshot.")
 
 
-class ResearchJobStore(Protocol):
-    """Durable queue for async backtests and composed studies."""
+class ResearchJobExecutionStore(Protocol):
+    """The writes one job execution makes: status, progress, outcome, and cancel checks.
 
-    async def create_backtest(
-        self, request: BacktestSubmissionRequest, *, strategy_id: UUID
-    ) -> ResearchJobRecord:
-        """Insert one queued backtest job owned by ``strategy_id``."""
-        ...
-
-    async def create_study(
-        self, request: ResearchStudyRequest, *, strategy_id: UUID
-    ) -> ResearchJobRecord:
-        """Insert one queued study job owned by its primary ``strategy_id``."""
-        ...
-
-    async def list_for_strategy(
-        self, strategy_id: UUID, *, limit: int
-    ) -> tuple[ResearchJobRecord, ...]:
-        """Return the strategy's newest jobs first."""
-        ...
-
-    async def get(self, job_id: UUID) -> ResearchJobRecord | None:
-        """Return one job record when it exists."""
-        ...
-
-    async def claim_next(self) -> tuple[UUID, ResearchJobKind, str] | None:
-        """Claim the oldest queued job when capacity allows."""
-        ...
+    A research worker passes a lease-fenced store here: every write also requires that
+    the worker still holds the job's lease and raises :class:`ResearchJobLeaseLostError`
+    when it does not, so a worker whose lease expired can never overwrite the attempt
+    that replaced it.
+    """
 
     async def mark_running(self, job_id: UUID) -> ResearchJobRecord:
         """Transition one job to running."""
@@ -193,12 +222,47 @@ class ResearchJobStore(Protocol):
         error_message: str,
         failed_phase: str | None = None,
         failed_detail: str | None = None,
+        error_code: ResearchJobErrorCode | None = None,
     ) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure with optional detail."""
+        """Persist a caller-visible or redacted failure with optional detail and code."""
         ...
 
     async def mark_cancelled(self, job_id: UUID) -> ResearchJobRecord:
         """Persist one cancelled job."""
+        ...
+
+    async def is_cancel_requested(self, job_id: UUID) -> bool:
+        """Return whether cancellation was requested for one job."""
+        ...
+
+
+class ResearchJobStore(ResearchJobExecutionStore, Protocol):
+    """Durable queue for backtests and composed studies."""
+
+    async def create_backtest(
+        self, request: BacktestSubmissionRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
+        """Insert one queued backtest job owned by ``strategy_id``."""
+        ...
+
+    async def create_study(
+        self, request: ResearchStudyRequest, *, strategy_id: UUID
+    ) -> ResearchJobRecord:
+        """Insert one queued study job owned by its primary ``strategy_id``."""
+        ...
+
+    async def list_for_strategy(
+        self, strategy_id: UUID, *, limit: int
+    ) -> tuple[ResearchJobRecord, ...]:
+        """Return the strategy's newest jobs first."""
+        ...
+
+    async def get(self, job_id: UUID) -> ResearchJobRecord | None:
+        """Return one job record when it exists."""
+        ...
+
+    async def claim_next(self) -> tuple[UUID, ResearchJobKind, str] | None:
+        """Claim the oldest queued job for the in-process harness."""
         ...
 
     async def cancel(self, job_id: UUID) -> ResearchJobRecord:
@@ -210,7 +274,7 @@ class ResearchJobStore(Protocol):
         ...
 
     async def recover_interrupted(self) -> int:
-        """Requeue running jobs after API restart."""
+        """Requeue running jobs whose executor is gone."""
         ...
 
     async def load_backtest_request(self, job_id: UUID) -> BacktestSubmissionRequest:
@@ -221,19 +285,14 @@ class ResearchJobStore(Protocol):
         """Load the queued study payload for one job."""
         ...
 
-    async def is_cancel_requested(self, job_id: UUID) -> bool:
-        """Return whether cancellation was requested for one job."""
-        ...
-
 
 @dataclass
 class InMemoryResearchJobStore:
-    """Track async research jobs for tests and API-only installs."""
+    """Track research jobs for the in-process test harness and database-less installs."""
 
     _records: dict[UUID, ResearchJobRecord] = field(default_factory=dict)
     _payloads: dict[UUID, str] = field(default_factory=dict)
     _cancelled: set[UUID] = field(default_factory=set)
-    _running_count: int = 0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def create_backtest(
@@ -298,10 +357,8 @@ class InMemoryResearchJobStore:
             return self._records.get(job_id)
 
     async def claim_next(self) -> tuple[UUID, ResearchJobKind, str] | None:
-        """Claim the oldest queued job when capacity allows."""
+        """Claim the oldest queued job: mark it running and count the attempt."""
         async with self._lock:
-            if self._running_count >= MAX_CONCURRENT_RESEARCH_JOBS:
-                return None
             queued = sorted(
                 (
                     (job_id, record)
@@ -313,7 +370,13 @@ class InMemoryResearchJobStore:
             if not queued:
                 return None
             job_id, record = queued[0]
-            self._running_count += 1
+            self._records[job_id] = record.model_copy(
+                update={
+                    "status": ResearchJobStatus.RUNNING,
+                    "attempts": record.attempts + 1,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
             return job_id, record.kind, self._payloads[job_id]
 
     async def mark_running(self, job_id: UUID) -> ResearchJobRecord:
@@ -343,8 +406,6 @@ class InMemoryResearchJobStore:
         result_fingerprint: str,
     ) -> ResearchJobRecord:
         """Persist successful backtest completion fingerprints."""
-        async with self._lock:
-            self._running_count = max(0, self._running_count - 1)
         return await self._replace(
             job_id,
             status=ResearchJobStatus.COMPLETED,
@@ -360,8 +421,6 @@ class InMemoryResearchJobStore:
         plan_fingerprint: str,
     ) -> ResearchJobRecord:
         """Persist successful study completion fingerprints."""
-        async with self._lock:
-            self._running_count = max(0, self._running_count - 1)
         return await self._replace(
             job_id,
             status=ResearchJobStatus.COMPLETED,
@@ -376,22 +435,20 @@ class InMemoryResearchJobStore:
         error_message: str,
         failed_phase: str | None = None,
         failed_detail: str | None = None,
+        error_code: ResearchJobErrorCode | None = None,
     ) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure with optional detail."""
-        async with self._lock:
-            self._running_count = max(0, self._running_count - 1)
+        """Persist a caller-visible or redacted failure with optional detail and code."""
         return await self._replace(
             job_id,
             status=ResearchJobStatus.FAILED,
             error_message=error_message[:256],
+            error_code=error_code,
             failed_phase=failed_phase[:32] if failed_phase is not None else None,
             failed_detail=failed_detail[:500] if failed_detail is not None else None,
         )
 
     async def mark_cancelled(self, job_id: UUID) -> ResearchJobRecord:
         """Persist one cancelled job."""
-        async with self._lock:
-            self._running_count = max(0, self._running_count - 1)
         return await self._replace(job_id, status=ResearchJobStatus.CANCELLED)
 
     async def cancel(self, job_id: UUID) -> ResearchJobRecord:
@@ -428,8 +485,6 @@ class InMemoryResearchJobStore:
                     ResearchJobStatus.RUNNING,
                 }:
                     continue
-                if record.status is ResearchJobStatus.RUNNING:
-                    self._running_count = max(0, self._running_count - 1)
                 self._records[job_id] = record.model_copy(
                     update={
                         "status": ResearchJobStatus.EXPIRED,
@@ -441,10 +496,9 @@ class InMemoryResearchJobStore:
         return expired
 
     async def recover_interrupted(self) -> int:
-        """Requeue running jobs after API restart."""
+        """Requeue running jobs when the in-process harness restarts."""
         recovered = 0
         async with self._lock:
-            self._running_count = 0
             for job_id, record in list(self._records.items()):
                 if record.status is not ResearchJobStatus.RUNNING:
                     continue
@@ -487,6 +541,7 @@ class InMemoryResearchJobStore:
         *,
         status: ResearchJobStatus,
         error_message: str | None = None,
+        error_code: ResearchJobErrorCode | None = None,
         failed_phase: str | None = None,
         failed_detail: str | None = None,
         run_fingerprint: str | None = None,
@@ -502,25 +557,22 @@ class InMemoryResearchJobStore:
             if current is None:
                 message = f"Research job {job_id} was not found."
                 raise KeyError(message)
+            optional: dict[str, object | None] = {
+                "error_message": error_message,
+                "error_code": error_code,
+                "run_fingerprint": run_fingerprint,
+                "result_fingerprint": result_fingerprint,
+                "study_fingerprint": study_fingerprint,
+                "plan_fingerprint": plan_fingerprint,
+                "progress_current": progress_current,
+                "progress_total": progress_total,
+            }
             updates: dict[str, object] = {
                 "status": status,
                 "updated_at": datetime.now(UTC),
+                **{key: value for key, value in optional.items() if value is not None},
+                **_record_failure_updates(failed_phase, failed_detail),
             }
-            if error_message is not None:
-                updates["error_message"] = error_message
-            updates.update(_record_failure_updates(failed_phase, failed_detail))
-            if run_fingerprint is not None:
-                updates["run_fingerprint"] = run_fingerprint
-            if result_fingerprint is not None:
-                updates["result_fingerprint"] = result_fingerprint
-            if study_fingerprint is not None:
-                updates["study_fingerprint"] = study_fingerprint
-            if plan_fingerprint is not None:
-                updates["plan_fingerprint"] = plan_fingerprint
-            if progress_current is not None:
-                updates["progress_current"] = progress_current
-            if progress_total is not None:
-                updates["progress_total"] = progress_total
             updated = current.model_copy(update=updates)
             self._records[job_id] = updated
             if status is ResearchJobStatus.CANCELLED:
@@ -529,12 +581,16 @@ class InMemoryResearchJobStore:
 
 
 async def run_backtest_job(
-    store: ResearchJobStore,
+    store: ResearchJobExecutionStore,
     submitter: BacktestSubmitter,
     job_id: UUID,
     request: BacktestSubmissionRequest,
 ) -> None:
-    """Execute one queued backtest and update job status."""
+    """Execute one queued backtest and record its outcome with a failure code.
+
+    Raises:
+        ResearchJobLeaseLostError: The worker lost the job's lease; nothing was written.
+    """
     try:
         if await store.is_cancel_requested(job_id):
             await store.mark_cancelled(job_id)
@@ -548,21 +604,39 @@ async def run_backtest_job(
             run_fingerprint=result.run_fingerprint,
             result_fingerprint=result.result_fingerprint,
         )
+    except ResearchJobLeaseLostError:
+        raise
     except BacktestSubmissionRejectedError as rejected:
-        await store.mark_failed(job_id, error_message=str(rejected))
+        await store.mark_failed(
+            job_id,
+            error_message=str(rejected),
+            error_code=ResearchJobErrorCode.BACKTEST_WINDOW_REJECTED,
+        )
     except BacktestSubmissionError:
-        await store.mark_failed(job_id, error_message="Backtest submission is unavailable.")
+        await store.mark_failed(
+            job_id,
+            error_message=_BACKTEST_UNAVAILABLE,
+            error_code=ResearchJobErrorCode.RESEARCH_UNAVAILABLE,
+        )
     except Exception:  # noqa: BLE001 - background jobs must not leak internal failures
-        await store.mark_failed(job_id, error_message="Backtest submission is unavailable.")
+        await store.mark_failed(
+            job_id,
+            error_message=_BACKTEST_UNAVAILABLE,
+            error_code=ResearchJobErrorCode.RESEARCH_UNAVAILABLE,
+        )
 
 
 async def run_study_job(
-    store: ResearchJobStore,
+    store: ResearchJobExecutionStore,
     service: ResearchStudyService,
     job_id: UUID,
     request: ResearchStudyRequest,
 ) -> None:
-    """Execute one queued composed study and update job status."""
+    """Execute one queued composed study and record its outcome with a failure code.
+
+    Raises:
+        ResearchJobLeaseLostError: The worker lost the job's lease; nothing was written.
+    """
     try:
         if await store.is_cancel_requested(job_id):
             await store.mark_cancelled(job_id)
@@ -585,12 +659,15 @@ async def run_study_job(
             study_fingerprint=study.study_fingerprint,
             plan_fingerprint=plan_fp,
         )
+    except ResearchJobLeaseLostError:
+        raise
     except StudyPlanningError as error:
         await store.mark_failed(
             job_id,
             error_message=str(error),
             failed_phase=StudyFailedPhase.PLAN.value,
             failed_detail=str(error),
+            error_code=_planning_error_code(error),
         )
     except BacktestSubmissionRejectedError as rejected:
         await store.mark_failed(
@@ -598,24 +675,43 @@ async def run_study_job(
             error_message=str(rejected),
             failed_phase=StudyFailedPhase.SUBMIT_CHILDREN.value,
             failed_detail=str(rejected),
+            error_code=ResearchJobErrorCode.BACKTEST_WINDOW_REJECTED,
         )
     except ResearchStudyError as error:
-        if "cancelled" in str(error).lower():
-            await store.mark_cancelled(job_id)
-            return
-        await store.mark_failed(
-            job_id,
-            error_message=str(error),
-            failed_phase=error.failed_phase,
-            failed_detail=(str(error.__cause__) if error.__cause__ is not None else None),
-        )
+        await _record_study_error(store, job_id, error)
     except Exception as error:  # noqa: BLE001 - background jobs must not leak internal failures
         await store.mark_failed(
             job_id,
-            error_message="Research study submission is unavailable.",
+            error_message=_STUDY_UNAVAILABLE,
             failed_phase=StudyFailedPhase.UNKNOWN.value,
             failed_detail=str(error),
+            error_code=ResearchJobErrorCode.RESEARCH_UNAVAILABLE,
         )
+
+
+async def _record_study_error(
+    store: ResearchJobExecutionStore, job_id: UUID, error: ResearchStudyError
+) -> None:
+    """Record a study-service failure, or the cancellation it reports."""
+    if isinstance(error.__cause__, ResearchJobLeaseLostError):
+        raise error.__cause__
+    if "cancelled" in str(error).lower():
+        await store.mark_cancelled(job_id)
+        return
+    await store.mark_failed(
+        job_id,
+        error_message=str(error),
+        failed_phase=error.failed_phase,
+        failed_detail=(str(error.__cause__) if error.__cause__ is not None else None),
+        error_code=ResearchJobErrorCode.RESEARCH_UNAVAILABLE,
+    )
+
+
+def _planning_error_code(error: StudyPlanningError) -> ResearchJobErrorCode:
+    """Name a planning rejection the way the synchronous study route does."""
+    if isinstance(error, StudyBudgetError):
+        return ResearchJobErrorCode.STUDY_BUDGET_EXCEEDED
+    return ResearchJobErrorCode.STUDY_WINDOW_REJECTED
 
 
 def _record_failure_updates(
@@ -633,11 +729,17 @@ def _record_failure_updates(
 
 @dataclass(frozen=True, slots=True)
 class ResearchJobRunner:
-    """Poll a durable queue and execute research jobs with admission limits."""
+    """In-process test harness: poll one store and run its jobs one at a time.
+
+    Production never starts this. Every PostgreSQL install runs research in the
+    ``research-worker`` service (ADR 0092); ``create_app`` starts this runner only when
+    a test passes ``research_execution=ResearchExecutionMode.IN_PROCESS``.
+    """
 
     store: ResearchJobStore
     submitter: BacktestSubmitter
     study_service: ResearchStudyService | None
+    poll_seconds: float = 0.5
 
     async def run_forever(self, stop_event: asyncio.Event) -> None:
         """Process queued jobs until the stop event is set."""
@@ -645,7 +747,7 @@ class ResearchJobRunner:
             await self.store.expire_stale()
             claimed = await self.store.claim_next()
             if claimed is None:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(self.poll_seconds)
                 continue
             job_id, kind, _payload = claimed
             if kind is ResearchJobKind.BACKTEST:
@@ -657,8 +759,9 @@ class ResearchJobRunner:
             else:
                 await self.store.mark_failed(
                     job_id,
-                    error_message="Research study submission is unavailable.",
+                    error_message=_STUDY_UNAVAILABLE,
                     failed_phase=StudyFailedPhase.UNKNOWN.value,
+                    error_code=ResearchJobErrorCode.RESEARCH_UNAVAILABLE,
                 )
 
     async def start(self, stop_event: asyncio.Event) -> asyncio.Task[None]:

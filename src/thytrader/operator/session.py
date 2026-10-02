@@ -36,6 +36,7 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
+from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
@@ -92,6 +93,7 @@ async def operator_diagnostics(
             research_studies=PostgresResearchStudyCatalog(engine),
             decision_store=PostgresDecisionJournalStore(engine),
             portfolios=PostgresPortfolioStore(engine),
+            research_queue=PostgresResearchQueue(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(

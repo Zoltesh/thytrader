@@ -6,7 +6,12 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
+from thytrader.backtest.submission import (
+    BacktestSubmissionError,
+    BacktestSubmissionRejectedError,
+    BacktestSubmissionRequest,
+    BacktestSubmissionResult,
+)
 from thytrader.research.jobs import (
     InMemoryResearchJobStore,
     ResearchJobStatus,
@@ -151,5 +156,59 @@ def test_in_memory_job_store_expires_stale_jobs() -> None:
         assert expired == 1
         assert polled is not None
         assert polled.status is ResearchJobStatus.EXPIRED
+
+    asyncio.run(_scenario())
+
+
+class _FailingSubmitter:
+    """Raise one configured submission failure."""
+
+    def __init__(self, error: Exception) -> None:
+        """Remember the failure to raise."""
+        self._error = error
+
+    async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
+        """Refuse the request with the configured failure."""
+        del request
+        raise self._error
+
+
+def test_claim_marks_the_job_running_and_counts_the_attempt() -> None:
+    """Claiming is the start of an attempt: running, attempts + 1, oldest first."""
+    store = InMemoryResearchJobStore()
+
+    async def _scenario() -> None:
+        first = await store.create_backtest(_backtest_request(), strategy_id=_STRATEGY_ID)
+        await store.create_backtest(_backtest_request(), strategy_id=_STRATEGY_ID)
+        claimed = await store.claim_next()
+        assert claimed is not None
+        assert claimed[0] == first.job_id
+        record = await store.get(first.job_id)
+        assert record is not None
+        assert record.status is ResearchJobStatus.RUNNING
+        assert record.attempts == 1
+
+    asyncio.run(_scenario())
+
+
+def test_backtest_failures_record_the_code_the_sync_route_answers_with() -> None:
+    """A rejected window is caller input; any other failure is research_unavailable."""
+    store = InMemoryResearchJobStore()
+
+    async def _scenario() -> None:
+        for error, code in (
+            (BacktestSubmissionRejectedError("bad window"), "backtest_window_rejected"),
+            (BacktestSubmissionError("down"), "research_unavailable"),
+            (RuntimeError("bug"), "research_unavailable"),
+        ):
+            record = await store.create_backtest(_backtest_request(), strategy_id=_STRATEGY_ID)
+            await run_backtest_job(
+                store, _FailingSubmitter(error), record.job_id, _backtest_request()
+            )
+            failed = await store.get(record.job_id)
+            assert failed is not None
+            assert failed.status is ResearchJobStatus.FAILED
+            assert failed.error_code is not None
+            assert failed.error_code.value == code
 
     asyncio.run(_scenario())

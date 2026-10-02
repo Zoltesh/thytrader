@@ -39,9 +39,13 @@ portfolio backtest contract; ADR 0088, Alembic 0054), research dataset auto-bind
 cross-market product variants, the sync/async study budgets, the operator ``products``
 constraint fields (ADR 0089), optional take-profit (``take_profit.kind: none``), live
 stop-only protection (``stop_limit``), backtest diagnostics, account-rate fee
-suggestions, the HTTP signal-trace route (Alembic 0055, ADR 0090), or portfolio deployment
+suggestions, the HTTP signal-trace route (Alembic 0055, ADR 0090), portfolio deployment
 (sleeve bots tagged with ``portfolio_id``, portfolio limits in the risk gate, portfolio
-breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056) change.
+breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056), or the
+research worker pool (leased claims, crash re-queue, process recycling, the synchronous
+long-poll with its 202 fallback, research-job error codes, and health queue depth; Alembic
+0057, ADR 0092) change. Concurrency is the deployment's ``research_worker_count`` and is
+reported by operator health, not compiled into this contract.
 """
 
 from __future__ import annotations
@@ -53,7 +57,6 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.models import (
     BREAKER_REASONS,
-    MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
     PORTFOLIO_BACKTEST_CONTRACT,
     PORTFOLIO_BRIEFING_CONTRACT,
     PORTFOLIO_MODES,
@@ -66,8 +69,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v51"
-EXPECTED_SCHEMA_REVISION = "0056"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v52"
+EXPECTED_SCHEMA_REVISION = "0057"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -116,8 +119,15 @@ RESEARCH_JOB_STATUSES: tuple[str, ...] = (
     "cancelled",
     "expired",
 )
-MAX_CONCURRENT_RESEARCH_JOBS = 2
 RESEARCH_JOB_EXPIRY_HOURS = 24
+RESEARCH_WORKER_POOL: tuple[str, ...] = (
+    "lease_claim",
+    "crash_requeue",
+    "process_recycle",
+    "sync_long_poll",
+    "job_error_codes",
+    "health_queue_depth",
+)
 CATALOG_HEALTH: tuple[str, ...] = (
     "bounded_gap_inspection",
     "ingest_self_complete",
@@ -189,8 +199,8 @@ def expected_ops_contract() -> dict[str, object]:
         "fee_suggestion_source": FEE_SUGGESTION_SOURCE,
         "async_backtest_job_statuses": list(RESEARCH_JOB_STATUSES),
         "research_job_statuses": list(RESEARCH_JOB_STATUSES),
-        "max_concurrent_research_jobs": MAX_CONCURRENT_RESEARCH_JOBS,
         "research_job_expiry_hours": RESEARCH_JOB_EXPIRY_HOURS,
+        "research_worker_pool": list(RESEARCH_WORKER_POOL),
         "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
         "catalog_health": list(CATALOG_HEALTH),
         "bounded_deployment_reads": list(BOUNDED_DEPLOYMENT_READS),
@@ -200,7 +210,6 @@ def expected_ops_contract() -> dict[str, object]:
         "portfolio_model": list(PORTFOLIO_MODEL),
         "portfolio_modes": list(PORTFOLIO_MODES_FIELD),
         "portfolio_backtest_contract": PORTFOLIO_BACKTEST_CONTRACT_ID,
-        "max_concurrent_portfolio_backtests": MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
         "research_dataset_autobind": list(RESEARCH_DATASET_AUTOBIND),
         "study_budgets": {mode: dict(limits) for mode, limits in STUDY_BUDGETS.items()},
         "portfolio_deployment": list(PORTFOLIO_DEPLOYMENT_ACTIONS),

@@ -19,7 +19,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
     get_backtest_result_store,
-    get_backtest_submitter,
     get_dataset_store,
     get_research_job_store,
     get_runtime_state,
@@ -27,6 +26,13 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.research_binding import dataset_resolver, datasets_missing_http_error
+from thytrader.api.research_execution import (
+    get_research_execution,
+    is_terminal,
+    require_research_execution,
+    sync_failure,
+    wait_for_job,
+)
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
@@ -38,12 +44,7 @@ from thytrader.backtest.models import (
     backtest_benchmark_fingerprint,
     backtest_result_fingerprint,
 )
-from thytrader.backtest.submission import (
-    BacktestStartRequest,
-    BacktestSubmissionError,
-    BacktestSubmissionRejectedError,
-    BacktestSubmitter,
-)
+from thytrader.backtest.submission import BacktestStartRequest  # noqa: TC001 - FastAPI body.
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
@@ -61,12 +62,15 @@ from thytrader.persistence.backtest_results import (
 )
 from thytrader.research.dataset_binding import (
     BoundDataset,
+    DatasetResolver,
     DatasetsMissingError,
     bind_backtest_datasets,
 )
 from thytrader.research.jobs import (
+    ResearchExecutionMode,
     ResearchJobAcceptedResponse,
     ResearchJobRecord,
+    ResearchJobStatus,
     ResearchJobStore,
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
@@ -90,6 +94,7 @@ router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_BACKTEST_UNAVAILABLE = "Backtest submission is unavailable."
 _MAX_LIMIT = 100
 _BACKTEST_NOT_FOUND_ERRORS = (BacktestBenchmarkNotFoundError, BacktestResultNotFoundError)
 
@@ -270,18 +275,21 @@ def _list_offset(*, offset: int, cursor: str | None) -> int:
 )
 async def submit_backtest(
     start: BacktestStartRequest,
-    submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
     strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
+    execution: Annotated[ResearchExecutionMode, Depends(get_research_execution)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> BacktestSubmissionResponse | Response:
-    """Snapshot the strategy's current rules and run one historical simulation.
+    """Snapshot the strategy's current rules and queue one historical simulation.
 
     The strategy must currently validate (422 ``strategy_invalid`` otherwise). Omitted
     datasets bind to the newest complete catalog dataset per clock (422
-    ``datasets_missing`` when none is cataloged). No paper or live authority is granted.
+    ``datasets_missing`` when none is cataloged). The research worker runs the job
+    (ADR 0092); a synchronous submit waits up to ``research_sync_wait_seconds`` and
+    answers 201 with the result, or 202 with the still-running job. No paper or live
+    authority is granted.
     """
     snapshot = await snapshot_for_start(strategies, start.strategy_id)
     resolver = dataset_resolver(datasets, runtime)
@@ -293,44 +301,50 @@ async def submit_backtest(
         request = bound.submission(snapshot.strategy_fingerprint)
     except ValidationError as error:
         raise RequestValidationError(error.errors()) from None
-    if async_submission:
-        record = await job_store.create_backtest(request, strategy_id=start.strategy_id)
-        body = ResearchJobAcceptedResponse(
-            job_id=record.job_id,
-            kind=record.kind,
-            status=record.status,
-            strategy_id=start.strategy_id,
-            strategy_fingerprint=snapshot.strategy_fingerprint,
-            bound_datasets=resolver.bindings(),
-        )
-        return Response(
-            content=body.model_dump_json(),
-            status_code=status.HTTP_202_ACCEPTED,
-            media_type="application/json",
-        )
-    try:
-        result = await submitter.submit(request)
-    except BacktestSubmissionRejectedError as rejected:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "code": "backtest_window_rejected",
-                "message": str(rejected),
-            },
-        ) from None
-    except BacktestSubmissionError as error:
-        _logger.warning("backtest_submission_failed error_class=%s", type(error.__cause__).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Backtest submission is unavailable.",
-        ) from None
-    return BacktestSubmissionResponse(
-        run_fingerprint=result.run_fingerprint,
-        result_fingerprint=result.result_fingerprint,
+    require_research_execution(execution, detail=_BACKTEST_UNAVAILABLE)
+    record = await job_store.create_backtest(request, strategy_id=start.strategy_id)
+    waited: float | None = None
+    if not async_submission:
+        waited = runtime.settings.research_sync_wait_seconds
+        finished = await wait_for_job(job_store, record.job_id, timeout_seconds=waited)
+        if finished is not None and is_terminal(finished):
+            return _completed_backtest(finished, start, snapshot.strategy_fingerprint, resolver)
+    body = ResearchJobAcceptedResponse(
+        job_id=record.job_id,
+        kind=record.kind,
+        status=record.status,
         strategy_id=start.strategy_id,
         strategy_fingerprint=snapshot.strategy_fingerprint,
         bound_datasets=resolver.bindings(),
+        sync_wait_seconds=waited,
     )
+    return Response(
+        content=body.model_dump_json(),
+        status_code=status.HTTP_202_ACCEPTED,
+        media_type="application/json",
+    )
+
+
+def _completed_backtest(
+    finished: ResearchJobRecord,
+    start: BacktestStartRequest,
+    strategy_fingerprint: str,
+    resolver: DatasetResolver,
+) -> BacktestSubmissionResponse:
+    """Answer a finished synchronous backtest exactly as the inline submit did."""
+    if (
+        finished.status is ResearchJobStatus.COMPLETED
+        and finished.run_fingerprint is not None
+        and finished.result_fingerprint is not None
+    ):
+        return BacktestSubmissionResponse(
+            run_fingerprint=finished.run_fingerprint,
+            result_fingerprint=finished.result_fingerprint,
+            strategy_id=start.strategy_id,
+            strategy_fingerprint=strategy_fingerprint,
+            bound_datasets=resolver.bindings(),
+        )
+    raise sync_failure(finished, unavailable_detail=_BACKTEST_UNAVAILABLE)
 
 
 @router.get("/jobs/{job_id}", response_model=ResearchJobRecord)

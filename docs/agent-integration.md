@@ -224,6 +224,20 @@ carries each product's `price_increment`, `base_increment`, `quote_increment`, `
 `quote_min_size`, `status`, and `alias`, and `watch-add` answers an unverifiable product catalog with
 a retryable HTTP 503 instead of a false "not enabled" 400.
 
+Research runs in the `research-worker` service, never in the API
+([ADR 0092](decisions/0092-research-worker-pool.md)). Every backtest, study, and portfolio backtest
+is a durable job: `queued` (waiting for one of `THYTRADER_RESEARCH_WORKER_COUNT` workers, default
+2), then `running` under a renewed lease, then `completed`, `failed`, `cancelled`, or `expired`.
+`?async=true` answers 202 at once. A synchronous `POST /api/v1/backtests` or
+`POST /api/v1/research/studies` waits up to `THYTRADER_RESEARCH_SYNC_WAIT_SECONDS` (25 s) and then
+answers 201 with the same body as before, the same 422 (`backtest_window_rejected`,
+`study_window_rejected`, `study_budget_exceeded`) or 503, or 202 with the still-running job and
+`sync_wait_seconds`; poll `GET /api/v1/research/jobs/{job_id}` and never resubmit a running job.
+Job records carry `attempts` (claims; a crashed worker's job is re-queued, at most 3 attempts) and
+`error_code` (`research_worker_lost` when a job crashed its worker every time).
+`thytrader-research list-research-jobs --strategy-id` lists a strategy's jobs. Queue depth,
+per-worker RSS, and worker liveness are in operator health `payload.research_workers`.
+
 Agent CLIs resolve the API base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
 `THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (default `127.0.0.1:8200`; installs may override
 the port), so scripts and raw `curl` calls should use `"$THYTRADER_API_BASE_URL"` rather than a
@@ -244,7 +258,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v51` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v52` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -253,12 +267,14 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0088](decisions/0088-portfolio-model-and-portfolio-backtest.md),
 [ADR 0089](decisions/0089-agent-research-ergonomics.md),
 [ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md),
-[ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md); `backtest_engine:
+[ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md),
+[ADR 0092](decisions/0092-research-worker-pool.md); `backtest_engine:
 "thytrader-backtest"`; `indicator_kinds` and `indicator_offset_runtimes`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
 `study_budgets`; `take_profit_kinds`, `live_protection_kinds`,
 `backtest_diagnostics`, `fee_suggestion_source`; `portfolio_deployment`, `portfolio_breakers`,
-`portfolio_proposal_kinds`, `portfolio_briefing_contract`; expected Alembic revision `0056`).
+`portfolio_proposal_kinds`, `portfolio_briefing_contract`; `research_worker_pool`; expected
+Alembic revision `0057`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
 `exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase

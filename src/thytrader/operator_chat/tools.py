@@ -554,7 +554,9 @@ _TOOLS: tuple[ChatTool, ...] = (
         name="research_submit_backtest",
         description=(
             "Backtest a strategy's current rules: payload names strategy_id plus dataset and "
-            "cost assumptions; the response returns the snapshot strategy_fingerprint."
+            "cost assumptions; the response returns the snapshot strategy_fingerprint. The "
+            "research worker runs it; a long run answers HTTP 202 with job_id instead, so poll "
+            "research_show_job rather than submitting again."
         ),
         lane=ChatLane.RESEARCH,
         method="POST",
@@ -583,7 +585,8 @@ _TOOLS: tuple[ChatTool, ...] = (
         name="research_submit_study",
         description=(
             "Submit a composed OOS / walk-forward / sweep / WFO study naming strategies by "
-            "strategy_id (candidate_strategy_ids, markets[].strategy_id)."
+            "strategy_id (candidate_strategy_ids, markets[].strategy_id). A long study answers "
+            "HTTP 202 with job_id; poll research_show_job rather than submitting again."
         ),
         lane=ChatLane.RESEARCH,
         method="POST",
@@ -594,6 +597,22 @@ _TOOLS: tuple[ChatTool, ...] = (
         live_ack="never",
         properties={"payload": _JSON_OBJECT},
         required=("payload",),
+    ),
+    ChatTool(
+        name="research_show_job",
+        description=(
+            "Show one research job (backtest or study): status (queued = waiting for a free "
+            "research worker), progress, attempts, error_code, and result fingerprints."
+        ),
+        lane=ChatLane.RESEARCH,
+        method="GET",
+        path="/api/v1/research/jobs/{job_id}",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={"job_id": _UUID},
+        required=("job_id",),
     ),
     ChatTool(
         name="runtime_list",

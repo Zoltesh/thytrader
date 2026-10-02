@@ -59,8 +59,11 @@ A study runs one of two ways ([ADR 0089](../decisions/0089-agent-research-ergono
 
 | Mode | Candidates (sweep / WFO) | Child windows | How |
 |---|---|---|---|
-| Synchronous | ≤ 8 | ≤ 128 | `submit-study --confirm` (HTTP 201) runs every child inside the request |
-| Async job | ≤ 64 | ≤ 512 | `submit-study --async --confirm` (HTTP 202) runs in the research worker |
+| Synchronous | ≤ 8 | ≤ 128 | `submit-study --confirm` queues the study and waits up to `THYTRADER_RESEARCH_SYNC_WAIT_SECONDS` (25 s): HTTP 201 with the study, or 202 with the still-running job |
+| Async job | ≤ 64 | ≤ 512 | `submit-study --async --confirm` (HTTP 202) queues it at once |
+
+Both modes run in the research worker ([ADR 0092](../decisions/0092-research-worker-pool.md));
+the API never runs a child backtest. A queued study waits for a free research worker.
 
 A synchronous submit over budget is HTTP 422 `study_budget_exceeded` naming `--async`. An async
 submit is planned (snapshots, derived candidates, dataset bounds, window budget) before it is

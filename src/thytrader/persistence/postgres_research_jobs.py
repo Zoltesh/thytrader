@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+import os
+import socket
+from typing import TYPE_CHECKING, Final, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.backtest.submission import BacktestSubmissionRequest
+from thytrader.persistence.postgres_research_queue import (
+    PostgresResearchQueue,
+    ResearchQueueUnavailableError,
+)
 from thytrader.persistence.schema import research_jobs
 from thytrader.research.jobs import (
-    MAX_CONCURRENT_RESEARCH_JOBS,
     RESEARCH_JOB_EXPIRY_HOURS,
+    ResearchJobErrorCode,
     ResearchJobKind,
+    ResearchJobLeaseLostError,
     ResearchJobRecord,
     ResearchJobStatus,
     primary_strategy_fingerprint,
@@ -27,16 +34,38 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
+_TERMINAL: Final = frozenset(
+    {
+        ResearchJobStatus.COMPLETED,
+        ResearchJobStatus.FAILED,
+        ResearchJobStatus.CANCELLED,
+        ResearchJobStatus.EXPIRED,
+    }
+)
+_HARNESS_LEASE_SECONDS: Final = 3_600.0
+_HARNESS_MAX_ATTEMPTS: Final = 3
+
+
 class ResearchJobUnavailableError(RuntimeError):
     """Signal that durable research-job storage is disabled or unreachable."""
 
 
 class PostgresResearchJobStore:
-    """Durable queue for async backtests and composed studies."""
+    """Durable queue for backtests and composed studies.
 
-    def __init__(self, engine: AsyncEngine) -> None:
-        """Bind the store to a managed async engine."""
+    Bound to a ``lease_owner`` (see :meth:`leased`), every execution write also
+    requires that the row is still running under that owner's lease and raises
+    :class:`ResearchJobLeaseLostError` otherwise; a terminal write clears the lease.
+    """
+
+    def __init__(self, engine: AsyncEngine, *, lease_owner: str | None = None) -> None:
+        """Bind the store to a managed async engine and an optional lease fence."""
         self._engine = engine
+        self._lease_owner = lease_owner
+
+    def leased(self, lease_owner: str) -> PostgresResearchJobStore:
+        """Return a store whose execution writes are fenced by ``lease_owner``."""
+        return PostgresResearchJobStore(self._engine, lease_owner=lease_owner)
 
     async def create_backtest(
         self, request: BacktestSubmissionRequest, *, strategy_id: UUID
@@ -125,33 +154,22 @@ class PostgresResearchJobStore:
         return _record_from_row(row)
 
     async def claim_next(self) -> tuple[UUID, ResearchJobKind, str] | None:
-        """Claim the oldest queued job when capacity allows."""
-        running_count = await self._running_count()
-        if running_count >= MAX_CONCURRENT_RESEARCH_JOBS:
-            return None
-        statement = (
-            select(research_jobs.c.job_id, research_jobs.c.kind, research_jobs.c.payload)
-            .where(research_jobs.c.status == ResearchJobStatus.QUEUED.value)
-            .order_by(research_jobs.c.created_at.asc())
-            .limit(1)
-        )
+        """Claim the oldest queued job for the in-process harness under a long lease.
+
+        Production workers claim through :class:`PostgresResearchQueue` instead; this
+        exists so the in-process test harness can drive a PostgreSQL store.
+        """
+        owner = f"in-process/{socket.gethostname()[:48]}/{os.getpid()}"
         try:
-            async with self._engine.begin() as connection:
-                row = (await connection.execute(statement)).one_or_none()
-                if row is None:
-                    return None
-                job_id = cast("UUID", row[0])
-                await connection.execute(
-                    update(research_jobs)
-                    .where(research_jobs.c.job_id == job_id)
-                    .values(
-                        status=ResearchJobStatus.RUNNING.value,
-                        updated_at=datetime.now(UTC),
-                    )
-                )
-        except SQLAlchemyError as error:
+            claimed = await PostgresResearchQueue(self._engine).claim(
+                owner, lease_seconds=_HARNESS_LEASE_SECONDS, order=("research_jobs",)
+            )
+        except ResearchQueueUnavailableError as error:
             raise ResearchJobUnavailableError("Research jobs are unavailable.") from error
-        return job_id, ResearchJobKind(cast("str", row[1])), cast("str", row[2])
+        if claimed is None:
+            return None
+        kind = ResearchJobKind(claimed.kind)
+        return claimed.job_id, kind, await self._payload(claimed.job_id)
 
     async def mark_running(self, job_id: UUID) -> ResearchJobRecord:
         """Transition one job to running."""
@@ -209,12 +227,14 @@ class PostgresResearchJobStore:
         error_message: str,
         failed_phase: str | None = None,
         failed_detail: str | None = None,
+        error_code: ResearchJobErrorCode | None = None,
     ) -> ResearchJobRecord:
-        """Persist a caller-visible or redacted failure with optional detail."""
+        """Persist a caller-visible or redacted failure with optional detail and code."""
         return await self._replace(
             job_id,
             status=ResearchJobStatus.FAILED,
             error_message=error_message[:256],
+            error_code=error_code,
             failed_phase=failed_phase[:32] if failed_phase is not None else None,
             failed_detail=failed_detail[:500] if failed_detail is not None else None,
         )
@@ -265,19 +285,19 @@ class PostgresResearchJobStore:
         return int(result.rowcount or 0)
 
     async def recover_interrupted(self) -> int:
-        """Requeue running jobs after API restart."""
-        now = datetime.now(UTC)
-        statement = (
-            update(research_jobs)
-            .where(research_jobs.c.status == ResearchJobStatus.RUNNING.value)
-            .values(status=ResearchJobStatus.QUEUED.value, updated_at=now)
-        )
+        """Requeue running jobs whose lease expired (never a live worker's job).
+
+        Before ADR 0092 this re-queued every running row at API startup. With a worker
+        pool that would steal live jobs, so only rows with an expired or missing lease
+        are swept.
+        """
         try:
-            async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
-        except SQLAlchemyError as error:
+            counts = await PostgresResearchQueue(self._engine).requeue_expired(
+                max_attempts=_HARNESS_MAX_ATTEMPTS, queues=("research_jobs",)
+            )
+        except ResearchQueueUnavailableError as error:
             raise ResearchJobUnavailableError("Research jobs are unavailable.") from error
-        return int(result.rowcount or 0)
+        return counts.total
 
     async def load_backtest_request(self, job_id: UUID) -> BacktestSubmissionRequest:
         """Load the queued backtest payload for one job."""
@@ -314,24 +334,13 @@ class PostgresResearchJobStore:
             raise KeyError(message)
         return cast("str", row[0])
 
-    async def _running_count(self) -> int:
-        """Count currently running jobs."""
-        statement = select(func.count()).where(
-            research_jobs.c.status == ResearchJobStatus.RUNNING.value
-        )
-        try:
-            async with self._engine.connect() as connection:
-                row = (await connection.execute(statement)).scalar_one()
-        except SQLAlchemyError as error:
-            raise ResearchJobUnavailableError("Research jobs are unavailable.") from error
-        return int(row)
-
     async def _replace(
         self,
         job_id: UUID,
         *,
         status: ResearchJobStatus,
         error_message: str | None = None,
+        error_code: ResearchJobErrorCode | None = None,
         failed_phase: str | None = None,
         failed_detail: str | None = None,
         run_fingerprint: str | None = None,
@@ -342,10 +351,11 @@ class PostgresResearchJobStore:
         progress_total: int | None = None,
         cancel_requested: bool | None = None,
     ) -> ResearchJobRecord:
-        """Update one job row."""
+        """Update one job row, fenced by this store's lease owner when it has one."""
         values = _replacement_values(
             status=status,
             error_message=error_message,
+            error_code=error_code,
             failed_phase=failed_phase,
             failed_detail=failed_detail,
             run_fingerprint=run_fingerprint,
@@ -356,12 +366,22 @@ class PostgresResearchJobStore:
             progress_total=progress_total,
             cancel_requested=cancel_requested,
         )
-        statement = update(research_jobs).where(research_jobs.c.job_id == job_id).values(**values)
+        statement = update(research_jobs).where(research_jobs.c.job_id == job_id)
+        if self._lease_owner is not None:
+            statement = statement.where(
+                research_jobs.c.lease_owner == self._lease_owner,
+                research_jobs.c.status == ResearchJobStatus.RUNNING.value,
+            )
+            if status in _TERMINAL:
+                values.update(lease_owner=None, lease_expires_at=None)
         try:
             async with self._engine.begin() as connection:
-                await connection.execute(statement)
+                result = await connection.execute(statement.values(**values))
         except SQLAlchemyError as error:
             raise ResearchJobUnavailableError("Research jobs are unavailable.") from error
+        if self._lease_owner is not None and not result.rowcount:
+            message = f"Research job {job_id} is no longer leased to this worker."
+            raise ResearchJobLeaseLostError(message)
         record = await self.get(job_id)
         if record is None:
             raise ResearchJobUnavailableError("Research jobs are unavailable.")
@@ -385,6 +405,7 @@ def _replacement_values(
     *,
     status: ResearchJobStatus,
     error_message: str | None,
+    error_code: ResearchJobErrorCode | None,
     failed_phase: str | None,
     failed_detail: str | None,
     run_fingerprint: str | None,
@@ -395,29 +416,37 @@ def _replacement_values(
     progress_total: int | None,
     cancel_requested: bool | None,
 ) -> dict[str, object]:
-    """Build column updates for one research-job row."""
+    """Build column updates for one research-job row (``None`` leaves a column alone)."""
     values: dict[str, object] = {
         "status": status.value,
         "updated_at": datetime.now(UTC),
     }
     if error_message is not None:
         values["error_message"] = error_message[:256]
+    if error_code is not None:
+        values["error_code"] = error_code.value
     values.update(_failure_values(failed_phase, failed_detail))
-    if run_fingerprint is not None:
-        values["run_fingerprint"] = run_fingerprint
-    if result_fingerprint is not None:
-        values["result_fingerprint"] = result_fingerprint
-    if study_fingerprint is not None:
-        values["study_fingerprint"] = study_fingerprint
-    if plan_fingerprint is not None:
-        values["plan_fingerprint"] = plan_fingerprint
-    if progress_current is not None:
-        values["progress_current"] = progress_current
-    if progress_total is not None:
-        values["progress_total"] = progress_total
-    if cancel_requested is not None:
-        values["cancel_requested"] = cancel_requested
+    optional: dict[str, object | None] = {
+        "run_fingerprint": run_fingerprint,
+        "result_fingerprint": result_fingerprint,
+        "study_fingerprint": study_fingerprint,
+        "plan_fingerprint": plan_fingerprint,
+        "progress_current": progress_current,
+        "progress_total": progress_total,
+        "cancel_requested": cancel_requested,
+    }
+    values.update({key: value for key, value in optional.items() if value is not None})
     return values
+
+
+def _error_code(value: object) -> ResearchJobErrorCode | None:
+    """Narrow a stored error code; unknown legacy values read as absent."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return ResearchJobErrorCode(value)
+    except ValueError:
+        return None
 
 
 def _record_from_row(row: RowMapping) -> ResearchJobRecord:
@@ -432,8 +461,10 @@ def _record_from_row(row: RowMapping) -> ResearchJobRecord:
         progress_current=cast("int", row["progress_current"]),
         progress_total=cast("int", row["progress_total"]),
         error_message=cast("str | None", row.get("error_message")),
+        error_code=_error_code(row.get("error_code")),
         failed_phase=cast("str | None", row.get("failed_phase")),
         failed_detail=cast("str | None", row.get("failed_detail")),
+        attempts=cast("int", row.get("attempts") or 0),
         run_fingerprint=cast("str | None", row.get("run_fingerprint")),
         result_fingerprint=cast("str | None", row.get("result_fingerprint")),
         study_fingerprint=cast("str | None", row.get("study_fingerprint")),

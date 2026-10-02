@@ -148,8 +148,18 @@ class OpsContractPayload(_FrozenModel):
         Literal["queued", "running", "completed", "failed", "cancelled", "expired"],
         ...,
     ]
-    max_concurrent_research_jobs: int = Field(ge=1)
     research_job_expiry_hours: int = Field(ge=1)
+    research_worker_pool: tuple[
+        Literal[
+            "lease_claim",
+            "crash_requeue",
+            "process_recycle",
+            "sync_long_poll",
+            "job_error_codes",
+            "health_queue_depth",
+        ],
+        ...,
+    ]
     spot_quote_currencies: tuple[Literal["USD", "USDC", "USDT"], ...]
     catalog_health: tuple[str, ...]
     bounded_deployment_reads: tuple[Literal["list", "summary", "fills", "orders"], ...]
@@ -171,7 +181,6 @@ class OpsContractPayload(_FrozenModel):
     ]
     portfolio_modes: tuple[Literal["paper", "live"], ...]
     portfolio_backtest_contract: str = Field(min_length=1, max_length=64)
-    max_concurrent_portfolio_backtests: int = Field(ge=1)
     research_dataset_autobind: tuple[Literal["backtest", "study"], ...]
     study_budgets: dict[Literal["sync", "async"], dict[Literal["candidates", "windows"], int]]
     portfolio_deployment: tuple[
@@ -190,6 +199,50 @@ def current_ops_contract() -> OpsContractPayload:
     return OpsContractPayload.model_validate(expected_ops_contract())
 
 
+class ResearchQueueReport(_FrozenModel):
+    """Queued and running research jobs, and how long the oldest queued one has waited.
+
+    ``queued`` jobs wait for a free research worker; ``running`` jobs hold a worker.
+    """
+
+    queued: int = Field(ge=0)
+    running: int = Field(ge=0)
+    oldest_queued_at: datetime | None = None
+    oldest_queued_age_seconds: float | None = Field(default=None, ge=0)
+
+
+class ResearchWorkerReport(_FrozenModel):
+    """One research worker process's latest self-report (ADR 0092)."""
+
+    slot: int = Field(ge=0)
+    pid: int = Field(ge=1)
+    state: Literal["starting", "idle", "running", "stopping"]
+    live: bool
+    job_id: UUID | None = None
+    job_kind: Literal["backtest", "study", "portfolio_backtest"] | None = None
+    jobs_completed: int = Field(ge=0)
+    rss_bytes: int | None = Field(default=None, ge=0)
+    started_at: datetime
+    heartbeat_at: datetime
+    heartbeat_age_seconds: float = Field(ge=0)
+
+
+class ResearchWorkersPayload(_FrozenModel):
+    """Research worker pool liveness and queue depth (ADR 0092).
+
+    ``configured_workers`` is the pool size the workers report (null until one has
+    reported); ``live_workers`` heartbeated recently. ``queue`` sums both queues;
+    ``research_jobs`` holds backtests and studies, ``portfolio_backtests`` the rest.
+    """
+
+    configured_workers: int | None = Field(default=None, ge=1)
+    live_workers: int = Field(ge=0)
+    queue: ResearchQueueReport
+    research_jobs: ResearchQueueReport
+    portfolio_backtests: ResearchQueueReport
+    workers: tuple[ResearchWorkerReport, ...]
+
+
 class HealthPayload(_FrozenModel):
     """Process coverage included in the health report."""
 
@@ -198,6 +251,7 @@ class HealthPayload(_FrozenModel):
     coinbase_credentials_configured: bool
     ops_contract: OpsContractPayload | None = None
     applied_schema_revision: str | None = None
+    research_workers: ResearchWorkersPayload | None = None
 
 
 class HealthReport(OperatorEnvelope):

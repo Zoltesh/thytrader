@@ -25,6 +25,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
+from thytrader.research.jobs import ResearchExecutionMode
 from thytrader.research.models import (
     CapitalAssumptions,
     CostAssumptions,
@@ -753,6 +754,7 @@ def test_async_backtest_submission_returns_job_and_polls_to_completion() -> None
         Settings(_env_file=None),
         backtest_submitter=_ImmediateSubmitter(),
         strategy_store=strategies,
+        research_execution=ResearchExecutionMode.IN_PROCESS,
     )
     payload = {
         "strategy_id": str(snapshot.definition.strategy_id),
@@ -787,6 +789,7 @@ def test_backtest_submission_rejects_removed_engine_selector(legacy_engine: str)
         Settings(_env_file=None),
         backtest_submitter=_ImmediateSubmitter(),
         strategy_store=strategies,
+        research_execution=ResearchExecutionMode.IN_PROCESS,
     )
     payload = {
         "strategy_id": str(snapshot.definition.strategy_id),

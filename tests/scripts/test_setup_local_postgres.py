@@ -171,6 +171,7 @@ def test_stack_commands_migrate_before_starting_long_running_services() -> None:
             "worker",
             "market-data-worker",
             "execution-worker",
+            "research-worker",
             "web",
         ],
     )

@@ -21,6 +21,7 @@ from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
 from thytrader.research.http import find_study_by_request
+from thytrader.research.jobs import ResearchExecutionMode
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
@@ -168,6 +169,7 @@ def _client(
         backtest_result_store=_StudyResults(),
         research_study_catalog=InMemoryResearchStudyCatalog(),
         dataset_store=dataset_store or _CoveringDatasetStore(),
+        research_execution=ResearchExecutionMode.IN_PROCESS,
     )
     return TestClient(app), publications, submitter
 
