@@ -24,6 +24,14 @@ class DataControlError(RuntimeError):
     """Report a redacted data-control failure without trading authority."""
 
 
+class UnwatchedTargetError(DataControlError):
+    """Refuse ingest for a product/timeframe that has no watchlist row (HTTP 409).
+
+    Ingest only queues work for an existing watch; it never invents a lookback. The
+    message names the ``watch-add`` command that creates the watch explicitly.
+    """
+
+
 class GapCause(StrEnum):
     """Why a requested bar is absent from local complete coverage."""
 
@@ -55,7 +63,7 @@ class WatchTargetRequest(_FrozenModel):
 
 
 class IngestRequest(_FrozenModel):
-    """Run one complete-only ingest for a watched or named target."""
+    """Queue complete-only ingest for one watched target (unwatched targets are refused)."""
 
     product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)

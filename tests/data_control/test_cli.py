@@ -68,8 +68,25 @@ def test_watch_add_help_states_lookback_ceilings(
         main(["watch-add", "--help"])
     assert raised.value.code == 0
     collapsed = " ".join(capsys.readouterr().out.split())
-    assert "2160 for 1m-1h" in collapsed
-    assert "8760 for 2h, 4h, 6h, and 1d" in collapsed
+    assert "1m 2160 (90 days)" in collapsed
+    assert "5m 8760 (1 year)" in collapsed
+    assert "15m 17520 (2 years)" in collapsed
+    assert "30m 26280 (3 years)" in collapsed
+    assert "1h 43800 (5 years)" in collapsed
+    assert "2h, 4h, 6h, 1d 87600 (10 years)" in collapsed
+
+
+@pytest.mark.parametrize("command", ["ingest", "fill-gaps"])
+def test_ingest_help_states_that_the_target_must_be_watched(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    """Ingest never creates a watch, so its help must point agents at watch-add first."""
+    with pytest.raises(SystemExit) as raised:
+        main([command, "--help"])
+    assert raised.value.code == 0
+    collapsed = " ".join(capsys.readouterr().out.split())
+    assert "must already be watched (run watch-add first)" in collapsed
+    assert "HTTP 409" in collapsed
 
 
 def test_watch_add_without_confirm_does_not_mutate() -> None:

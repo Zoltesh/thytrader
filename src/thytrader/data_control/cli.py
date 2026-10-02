@@ -19,8 +19,8 @@ from thytrader.data_control.client import (
     list_watchlist,
 )
 from thytrader.data_control.models import DataControlError
-from thytrader.market_data.lookback import max_watch_lookback_hours
-from thytrader.market_data.models import DATASET_TIMEFRAMES, CandleInterval
+from thytrader.market_data.lookback import describe_watch_lookback_ceilings
+from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 
@@ -30,9 +30,13 @@ if TYPE_CHECKING:
 _CONFIRM_HELP = "Required for watchlist and ingest mutations."
 _SPOT_QUOTES_TEXT = ", ".join(SPOT_QUOTE_CURRENCIES[:-1]) + f", or {SPOT_QUOTE_CURRENCIES[-1]}"
 _LOOKBACK_HELP = (
-    "Watch window in hours (default 168). Ceiling: "
-    f"{max_watch_lookback_hours(CandleInterval.ONE_HOUR)} for 1m-1h, "
-    f"{max_watch_lookback_hours(CandleInterval.ONE_DAY)} for 2h, 4h, 6h, and 1d."
+    "Watch window in hours (default 168). Per-timeframe ceilings in hours: "
+    f"{describe_watch_lookback_ceilings()}. Coinbase may hold less history; the worker "
+    "then records history_floor_at instead of interpolating."
+)
+_WATCH_REQUIRED_HELP = (
+    "The product/timeframe must already be watched (run watch-add first); an unwatched "
+    "target is refused with HTTP 409 and no watch is created."
 )
 
 
@@ -78,7 +82,12 @@ def _parser() -> argparse.ArgumentParser:
     ingest_cmd = subparsers.add_parser(
         "ingest",
         parents=[trailing],
-        help="Queue complete-only ingest for the market-data worker.",
+        help="Queue complete-only ingest for a watched target.",
+        description=(
+            "Queue complete-only ingest for the market-data worker. The worker fetches "
+            "provider pages of up to 350 bars, newest first, and publishes complete "
+            f"coverage across the watch lookback. {_WATCH_REQUIRED_HELP}"
+        ),
     )
     _target_args(ingest_cmd)
     ingest_cmd.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
@@ -103,6 +112,10 @@ def _parser() -> argparse.ArgumentParser:
         "fill-gaps",
         parents=[trailing],
         help="Re-run complete-only ingest. Does not interpolate missing bars.",
+        description=(
+            "Queue continuation ingest that skips the current-island reconcile. "
+            f"Does not interpolate missing bars. {_WATCH_REQUIRED_HELP}"
+        ),
     )
     _target_args(fill)
     fill.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)

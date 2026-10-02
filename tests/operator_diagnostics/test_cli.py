@@ -9,7 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.http_fakes import matching_ready_payload, stale_ready_payload, urlopen_ready_then
+from tests.http_fakes import (
+    json_urlopen_response,
+    matching_ready_payload,
+    stale_ready_payload,
+    urlopen_ready_then,
+)
 from thytrader import __version__
 from thytrader.operator.cli import main
 from thytrader.operator.models import (
@@ -448,3 +453,28 @@ def test_operator_chat_status_is_http_only_and_omits_the_key(
     assert payload["llm_configured"] is True
     assert payload["coinbase_credentials_in_chat"] is False
     assert "api_key" not in payload
+
+
+def test_operator_data_catalog_timeout_names_the_call_instead_of_failing_generically(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A slow data-catalog read says it timed out instead of "failed safely"."""
+    ready = matching_ready_payload()
+
+    def slow_catalog(request: object, timeout: object = None) -> object:
+        url = request if isinstance(request, str) else getattr(request, "full_url", "")
+        if str(url).endswith("/health/ready"):
+            del timeout
+            return json_urlopen_response(ready)
+        raise TimeoutError("timed out")
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=slow_catalog),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["data-catalog"])
+    message = str(raised.value)
+    assert "Timed out after" in message
+    assert "/api/v1/operator/data-catalog" in message
+    assert "failed safely" not in message
+    assert capsys.readouterr().out == ""

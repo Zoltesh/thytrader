@@ -81,8 +81,11 @@ observed Coinbase fees. Pass `--maker-fee-rate` / `--taker-fee-rate` through `th
 when the operator wants a different paper schedule.
 
 `--timeframe` may be any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`,
-`6h`, `1d`; default `1h`). This playbook watches only that decision clock. Extra HTF or
-per-indicator clocks still need `thytrader-data` ingest.
+`6h`, `1d`; default `1h`). This playbook watches only that decision clock, adding the watch with
+`--lookback-hours` (default 168; per-timeframe ceilings run from 2160 at `1m` to 87600 at
+`2h`-`1d`, see `thytrader-data`) when `--ensure-watch` or `--ingest` finds it missing. Extra HTF or
+per-indicator clocks still need `thytrader-data watch-add` and then `ingest`; `ingest` alone
+refuses an unwatched target with HTTP 409.
 
 Underlying HTTP used by this CLI:
 

@@ -15,12 +15,7 @@
  * (reported as `history_floor_at`).
  */
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
-import {
-	EXECUTION_TIMEFRAMES,
-	extraIndicatorTimeframes,
-	type BuilderModel,
-	type Dataset
-} from '$lib/strategies';
+import { extraIndicatorTimeframes, type BuilderModel, type Dataset } from '$lib/strategies';
 import { timeframeMinutes } from '$lib/strategy-workspace';
 
 /** Why a strategy needs one clock. */
@@ -69,9 +64,28 @@ type WatchTarget = {
 	enabled: boolean;
 };
 
-/** Sub-daily fast clocks share the 90-day watch ceiling; slower clocks allow 365 days. */
-const FAST_WATCH_LOOKBACK_HOURS = 2160;
-const EXTENDED_WATCH_LOOKBACK_HOURS = 8760;
+const HOURS_PER_DAY = 24;
+const HOURS_PER_YEAR = 365 * HOURS_PER_DAY;
+
+/**
+ * Per-timeframe watch lookback ceilings the data API enforces (ADR 0085): 1m 90 days,
+ * 5m 1 year, 15m 2 years, 30m 3 years, 1h 5 years, 2h-1d 10 years. Coinbase may hold
+ * less history; the worker then reports `history_floor_at` instead of interpolating.
+ */
+export const WATCH_LOOKBACK_CEILING_HOURS: Readonly<Record<string, number>> = {
+	'1m': 90 * HOURS_PER_DAY,
+	'5m': HOURS_PER_YEAR,
+	'15m': 2 * HOURS_PER_YEAR,
+	'30m': 3 * HOURS_PER_YEAR,
+	'1h': 5 * HOURS_PER_YEAR,
+	'2h': 10 * HOURS_PER_YEAR,
+	'4h': 10 * HOURS_PER_YEAR,
+	'6h': 10 * HOURS_PER_YEAR,
+	'1d': 10 * HOURS_PER_YEAR
+};
+
+/** The most conservative ceiling, for a clock the table does not list. */
+const FALLBACK_WATCH_LOOKBACK_HOURS = 90 * HOURS_PER_DAY;
 
 /** A dataset is stale when it ends more than this many bars (and at least 2h) before now. */
 const STALE_BARS = 3;
@@ -177,11 +191,20 @@ export function readinessMessage(readiness: ClockReadiness): string | null {
 
 /** Default watch lookback for a clock (the per-timeframe ceiling the API enforces). */
 export function defaultWatchLookbackHours(timeframe: string): number {
-	const fast = EXECUTION_TIMEFRAMES.slice(
-		0,
-		EXECUTION_TIMEFRAMES.indexOf('2h')
-	) as readonly string[];
-	return fast.includes(timeframe) ? FAST_WATCH_LOOKBACK_HOURS : EXTENDED_WATCH_LOOKBACK_HOURS;
+	return WATCH_LOOKBACK_CEILING_HOURS[timeframe] ?? FALLBACK_WATCH_LOOKBACK_HOURS;
+}
+
+/** Spell a lookback in whole years or days when it divides evenly, for dialog copy. */
+export function describeLookbackHours(hours: number): string {
+	if (hours % HOURS_PER_YEAR === 0) {
+		const years = hours / HOURS_PER_YEAR;
+		return years === 1 ? '1 year' : `${years} years`;
+	}
+	if (hours % HOURS_PER_DAY === 0) {
+		const days = hours / HOURS_PER_DAY;
+		return days === 1 ? '1 day' : `${days} days`;
+	}
+	return `${hours} hours`;
 }
 
 /**

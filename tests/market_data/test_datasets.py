@@ -753,17 +753,23 @@ def test_dataset_store_load_verified_detects_manifested_parquet_tampering(tmp_pa
 
 
 class _RecordingDatasetStore(DatasetStore):
-    """Record deep verification work while preserving the real store behavior."""
+    """Record deep verification and catalog checks while preserving real store behavior."""
 
     def __init__(self, root: Path) -> None:
-        """Configure the store and an ordered verification ledger."""
+        """Configure the store and ordered verification and catalog-check ledgers."""
         super().__init__(root)
         self.verified_paths: list[Path] = []
+        self.catalog_paths: list[Path] = []
 
     def load_verified(self, manifest_path: Path) -> DatasetManifest:
         """Record each deep verification before delegating to the real boundary."""
         self.verified_paths.append(manifest_path)
         return super().load_verified(manifest_path)
+
+    def _catalog_entry(self, manifest_path: Path) -> DatasetManifest | None:
+        """Record each catalog-grade revision check before delegating."""
+        self.catalog_paths.append(manifest_path)
+        return super()._catalog_entry(manifest_path)
 
 
 class _MutationAfterVerificationStore(DatasetStore):
@@ -832,8 +838,8 @@ class _ConcurrentCatalogStore(DatasetStore):
         self._active = 0
         self._probe_lock = Lock()
 
-    def load_verified(self, manifest_path: Path) -> DatasetManifest:
-        """Pause verification and report if a second catalog call enters concurrently."""
+    def _catalog_entry(self, manifest_path: Path) -> DatasetManifest | None:
+        """Pause the catalog check and report if a second catalog call enters concurrently."""
         with self._probe_lock:
             self._active += 1
             if self._active > 1:
@@ -841,8 +847,8 @@ class _ConcurrentCatalogStore(DatasetStore):
             self.first_started.set()
         try:
             if not self.release.wait(timeout=2):
-                raise TimeoutError("test did not release dataset verification")
-            return super().load_verified(manifest_path)
+                raise TimeoutError("test did not release the catalog check")
+            return super()._catalog_entry(manifest_path)
         finally:
             with self._probe_lock:
                 self._active -= 1
@@ -867,10 +873,10 @@ def test_dataset_store_serializes_shared_catalog_cache_access(tmp_path: Path) ->
     assert len(second_result) == 1
 
 
-def test_dataset_store_latest_listing_deep_verifies_only_newest_revision_per_market(
+def test_dataset_store_latest_listing_checks_only_newest_revision_without_deep_reads(
     tmp_path: Path,
 ) -> None:
-    """Latest discovery must not deep-read superseded cumulative revisions."""
+    """Latest discovery checks only the newest revision per market and decodes no Parquet."""
     publishing_store = DatasetStore(tmp_path)
     first = publishing_store.write("coinbase", "BTC-USD", _complete_report())
     extended = publishing_store.extend(
@@ -885,8 +891,9 @@ def test_dataset_store_latest_listing_deep_verifies_only_newest_revision_per_mar
         extended.content_fingerprint,
         ethereum.content_fingerprint,
     }
-    assert set(store.verified_paths) == {extended.manifest_path, ethereum.manifest_path}
-    assert first.manifest_path not in store.verified_paths
+    assert set(store.catalog_paths) == {extended.manifest_path, ethereum.manifest_path}
+    assert first.manifest_path not in store.catalog_paths
+    assert store.verified_paths == [], "catalog listings never deep-verify Parquet rows"
 
 
 def test_dataset_store_latest_listing_skips_superseded_revision_file_lists(
@@ -930,7 +937,9 @@ def test_dataset_store_latest_listing_falls_back_from_corrupt_newest_revision(
     latest = store.list_latest_verified()
 
     assert [entry.content_fingerprint for entry in latest] == [first.content_fingerprint]
-    assert store.verified_paths == [extended.manifest_path, first.manifest_path]
+    assert store.catalog_paths == [extended.manifest_path, first.manifest_path]
+    with pytest.raises(DatasetStoreError, match="verification"):
+        store.load_manifest(extended.content_fingerprint)
 
 
 def test_dataset_store_latest_listing_returns_one_revision_per_market(tmp_path: Path) -> None:
@@ -1130,3 +1139,107 @@ def test_dataset_store_latest_listing_sees_a_newly_published_revision(tmp_path: 
     assert [entry.content_fingerprint for entry in store.list_latest_verified()] == [
         extended.content_fingerprint
     ]
+
+
+def test_catalog_listing_never_decodes_parquet_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The latest catalog is metadata plus file envelopes; row decoding is for binding only."""
+    written = DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
+
+    def refuse_rows(_path: Path) -> tuple[dict[str, str], ...]:
+        raise AssertionError("catalog listing must not decode Parquet rows")
+
+    monkeypatch.setattr(dataset_module, "_parquet_rows", refuse_rows)
+    latest = DatasetStore(tmp_path).list_latest_verified()
+
+    assert [entry.content_fingerprint for entry in latest] == [written.content_fingerprint]
+
+
+def test_catalog_listing_rejects_a_truncated_parquet_file(tmp_path: Path) -> None:
+    """A file missing its trailing Parquet magic is not listed, even if its size is plausible."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    payload = written.files[0].read_bytes()
+    written.files[0].write_bytes(payload[:-4] + b"XXXX")
+
+    assert DatasetStore(tmp_path).list_latest_verified() == ()
+
+
+def test_catalog_listing_rejects_a_file_outside_its_market(tmp_path: Path) -> None:
+    """A manifest may not borrow another market's partition, even an intact one."""
+    store = DatasetStore(tmp_path)
+    bitcoin = store.write("coinbase", "BTC-USD", _complete_report())
+    ethereum = store.write("coinbase", "ETH-USD", _complete_report())
+    body = json.loads(bitcoin.manifest_path.read_text())
+    body["files"] = [ethereum.files[0].relative_to(tmp_path).as_posix()]
+    bitcoin.manifest_path.write_text(json.dumps(body))
+
+    listed = DatasetStore(tmp_path).list_latest_verified()
+
+    assert [entry.product_id for entry in listed] == ["ETH-USD"]
+
+
+def test_verified_load_is_served_from_cache_only_while_bytes_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repeat load skips Parquet decoding; changed bytes force full re-verification."""
+    store = DatasetStore(tmp_path)
+    written = store.write("coinbase", "BTC-USD", _complete_report())
+    reads: list[Path] = []
+    original = dataset_module._parquet_rows
+
+    def counting_rows(file: Path) -> tuple[dict[str, str], ...]:
+        reads.append(file)
+        return original(file)
+
+    monkeypatch.setattr(dataset_module, "_parquet_rows", counting_rows)
+    reader = DatasetStore(tmp_path)
+
+    first = reader.load_manifest(written.content_fingerprint)
+    decoded_once = len(reads)
+    second = reader.load_manifest(written.content_fingerprint)
+    candles = reader.load_candles(written.content_fingerprint)
+
+    assert first == second
+    assert decoded_once == len(written.files)
+    assert len(reads) == decoded_once, "cache hits re-hash files instead of decoding rows"
+    assert [candle.starts_at for candle in candles] == [
+        datetime(2026, 7, 1, hour, tzinfo=UTC) for hour in range(3)
+    ]
+
+    parquet = written.files[0]
+    payload = parquet.read_bytes()
+    state = parquet.stat()
+    parquet.write_bytes(bytes(reversed(payload)))
+    os.utime(parquet, ns=(state.st_atime_ns, state.st_mtime_ns))
+
+    with pytest.raises(DatasetStoreError, match="verification"):
+        reader.load_manifest(written.content_fingerprint)
+    with pytest.raises(DatasetStoreError, match="verification"):
+        reader.load_candles(written.content_fingerprint)
+
+
+def test_zero_candle_budget_keeps_manifests_but_re_verifies_candle_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a candle budget each candle load is a full verification, never a raw re-read."""
+    written = DatasetStore(tmp_path).write("coinbase", "BTC-USD", _complete_report())
+    reads: list[Path] = []
+    original = dataset_module._parquet_rows
+
+    def counting_rows(file: Path) -> tuple[dict[str, str], ...]:
+        reads.append(file)
+        return original(file)
+
+    monkeypatch.setattr(dataset_module, "_parquet_rows", counting_rows)
+    reader = DatasetStore(tmp_path, candle_cache_budget=0)
+
+    reader.load_manifest(written.content_fingerprint)
+    reader.load_manifest(written.content_fingerprint)
+    assert len(reads) == len(written.files)
+    first = reader.load_candles(written.content_fingerprint)
+    second = reader.load_candles(written.content_fingerprint)
+
+    assert first == second
+    assert len(reads) == 3 * len(written.files)

@@ -18,6 +18,7 @@ from thytrader.api.dependencies import (
 from thytrader.data_control.models import (
     DataControlError,
     IngestRequest,
+    UnwatchedTargetError,
     WatchTargetRequest,
     require_interval,
 )
@@ -91,7 +92,7 @@ async def post_ingest(
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
 ) -> dict[str, object]:
-    """Queue complete-only ingest for the market-data worker. Does not write Parquet."""
+    """Queue complete-only ingest for an existing watch (409 when unwatched); no Parquet write."""
     try:
         target, state = await ingest_target(
             watchlist=watchlist,
@@ -241,8 +242,14 @@ async def get_gaps(
 
 
 def _http_error(error: DataControlError) -> HTTPException:
-    """Map data-control failures to client or availability errors."""
+    """Map data-control failures to client, conflict, or availability errors.
+
+    An unwatched ingest target is 409, not 404: agent CLIs read a 404 on a data route
+    while ``/health/ready`` is up as the stale-image signal.
+    """
     message = str(error)
+    if isinstance(error, UnwatchedTargetError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
     code = (
         status.HTTP_503_SERVICE_UNAVAILABLE
         if "unavailable" in message.lower()

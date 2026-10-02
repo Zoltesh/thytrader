@@ -29,13 +29,16 @@ class AgentHttpError(RuntimeError):
 
     ``status`` carries the HTTP status code when the failure came from an
     HTTP error response; transport-level failures leave it ``None`` so callers
-    can distinguish definitive rejections from ambiguous ones.
+    can distinguish definitive rejections from ambiguous ones. ``timed_out`` is
+    True when the client gave up waiting: the request may still be running on
+    the server, so callers must check state before retrying a mutation.
     """
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
-        """Store the message and the optional HTTP status code."""
+    def __init__(self, message: str, *, status: int | None = None, timed_out: bool = False) -> None:
+        """Store the message, the optional HTTP status code, and the timeout flag."""
         super().__init__(message)
         self.status = status
+        self.timed_out = timed_out
 
 
 def default_api_base_url(settings: Settings) -> str:
@@ -127,8 +130,18 @@ def request_json(
         message, status_code = _http_error_message(error.code, error.read(), url=url)
         raise AgentHttpError(message, status=status_code) from error
     except URLError as error:
+        if isinstance(error.reason, TimeoutError):
+            raise AgentHttpError(
+                _timeout_message(method, url, timeout, connected=False), timed_out=True
+            ) from error
         raise AgentHttpError(
             f"ThyTrader API is unreachable at {url}. Start thytrader-api or pass --local."
+        ) from error
+    except TimeoutError as error:
+        # urllib wraps only connect-phase failures in URLError; a server that accepted the
+        # request but answered late raises a bare TimeoutError from the response read.
+        raise AgentHttpError(
+            _timeout_message(method, url, timeout, connected=True), timed_out=True
         ) from error
     if status >= 400:
         message, status_code = _http_error_message(status, raw, url=url)
@@ -139,6 +152,22 @@ def request_json(
         return json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as error:
         raise AgentHttpError("ThyTrader API returned non-JSON.") from error
+
+
+def _timeout_message(method: str, url: str, timeout: float, *, connected: bool) -> str:
+    """Say which call timed out and whether the server may still be running it."""
+    path = urlparse(url).path or "/"
+    call = f"{method.upper()} {path}"
+    if not connected:
+        return (
+            f"Timed out after {timeout:g} s waiting to connect to the ThyTrader API for "
+            f"{call}; it may be busy or restarting. The request was not sent."
+        )
+    return (
+        f"Timed out after {timeout:g} s waiting for the ThyTrader API to answer {call}. "
+        "The request was sent and may still be running on the server; the CLI did not "
+        "retry it. Check state before repeating a mutation."
+    )
 
 
 def _assert_loopback_request_url(url: str) -> None:

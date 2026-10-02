@@ -5,23 +5,27 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from thytrader.market_data.models import (
+    HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
     Candle,
     CandleInterval,
     CandleRangeReport,
     MarketDataPreview,
+    MarketDataRateLimitedError,
     MarketProduct,
 )
 from thytrader.market_data.products import is_spot_product_id, parse_spot_product_id
 from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
-_CANDLE_PAGE_LIMIT = 350
+_CANDLE_PAGE_LIMIT = HISTORICAL_REQUEST_MAX_CANDLES
+_HTTP_TOO_MANY_REQUESTS = 429
 _RECENT_INTERVAL_COUNT = 25
 _MAX_RANGE_INTERVAL_COUNT = MAX_HISTORICAL_INTERVAL_COUNT
 _COINBASE_GRANULARITIES: dict[CandleInterval, str] = {
@@ -137,7 +141,11 @@ class CoinbaseMarketData:
         ends_at: datetime,
         now: datetime,
     ) -> CandleRangeReport:
-        """Retrieve one bounded closed-candle range through non-overlapping Coinbase pages."""
+        """Retrieve one bounded closed-candle range through non-overlapping Coinbase pages.
+
+        An HTTP 429 from either call raises ``MarketDataRateLimitedError`` so callers can
+        back off instead of treating the throttle as missing history.
+        """
         _require_utc(starts_at)
         _require_utc(ends_at)
         _require_utc(now)
@@ -145,19 +153,21 @@ class CoinbaseMarketData:
         if starts_at >= ends_at or ends_at > now or interval_count > _MAX_RANGE_INTERVAL_COUNT:
             message = "Historical range is outside the supported closed-candle request bounds."
             raise CoinbaseMarketDataError(message)
-        product_response = await asyncio.to_thread(self._client.get_product, product_id)
+        product_response = await _rate_limited_call(partial(self._client.get_product, product_id))
         _parse_product(product_response.to_dict())
         candles: list[Candle] = []
         page_start = starts_at
         while page_start < ends_at:
             inclusive_end = _inclusive_page_end(page_start, ends_at, interval.duration)
-            response = await asyncio.to_thread(
-                self._client.get_candles,
-                product_id,
-                str(int(page_start.timestamp())),
-                str(int(inclusive_end.timestamp())),
-                _granularity(interval),
-                _CANDLE_PAGE_LIMIT,
+            response = await _rate_limited_call(
+                partial(
+                    self._client.get_candles,
+                    product_id,
+                    str(int(page_start.timestamp())),
+                    str(int(inclusive_end.timestamp())),
+                    _granularity(interval),
+                    _CANDLE_PAGE_LIMIT,
+                )
             )
             page_candles = _parse_candles(response.to_dict())
             candles.extend(
@@ -174,6 +184,33 @@ class CoinbaseMarketData:
             return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
         except CandleQualityError as error:
             raise CoinbaseMarketDataError(str(error)) from error
+
+
+async def _rate_limited_call(call: Callable[[], CoinbaseResponse]) -> CoinbaseResponse:
+    """Run one blocking SDK call off the event loop, mapping HTTP 429 to a neutral error.
+
+    The provider message is dropped (``from None``): it can echo request URLs, and the
+    worker only needs to know that Coinbase asked it to slow down.
+    """
+    try:
+        return await asyncio.to_thread(call)
+    except Exception as error:
+        if _is_rate_limited(error):
+            message = "Coinbase rate-limited a market-data request."
+            raise MarketDataRateLimitedError(message) from None
+        raise
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    """True when an SDK error carries an HTTP 429 response.
+
+    The official SDK raises ``requests.HTTPError`` with the response attached; this
+    reads it by attribute so the adapter does not depend on ``requests`` directly.
+    The values are untyped SDK data, so the status is narrowed before comparison.
+    """
+    response: object = getattr(error, "response", None)
+    status: object = getattr(response, "status_code", None)
+    return isinstance(status, int) and status == _HTTP_TOO_MANY_REQUESTS
 
 
 def _inclusive_page_end(page_start: datetime, ends_at: datetime, duration: timedelta) -> datetime:

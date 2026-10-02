@@ -86,7 +86,10 @@ async def run() -> None:
             run_market_data_worker(
                 stop_requested,
                 service=service,
-                dataset_store=DatasetStore(settings.market_data_dataset_root),
+                # The writer only re-verifies manifests; it never reads candles back.
+                dataset_store=DatasetStore(
+                    settings.market_data_dataset_root, candle_cache_budget=0
+                ),
                 state_store=state_store,
                 provider=provider,
                 product_id=settings.market_data_worker_product_id,

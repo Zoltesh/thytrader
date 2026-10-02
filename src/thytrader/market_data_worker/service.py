@@ -1,21 +1,34 @@
-"""Core lifecycle for complete-only historical market-data publication."""
+"""Core lifecycle for complete-only historical market-data publication.
+
+Ingest walks fetch interval-aligned provider pages of at most
+``HISTORICAL_REQUEST_MAX_CANDLES`` bars and publish one cumulative revision per walk
+(ADR 0085). Initial backfill starts at the newest closed bar and walks back toward the
+lookback start, so coverage is fresh after the first request. A confirmed provider hole
+directly before the island becomes ``history_floor_at`` and ends the walk. Incremental
+maintenance walks forward from a one-bar overlap. A missing bar always ends a run;
+nothing is interpolated.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import IntEnum, StrEnum
 import logging
 import random
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
 from thytrader.market_data.models import (
+    HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
     CandleInterval,
     CandleRangeReport,
+    MarketDataRateLimitedError,
 )
+from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
     MarketDataWatchlistStore,
@@ -31,15 +44,23 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerSuccess,
     validate_market_data_worker_state,
 )
+from thytrader.market_data_worker.pacing import PROVIDER_REQUEST_PAUSE_SECONDS, ProviderPacer
+from thytrader.market_data_worker.pages import CandlePage, run_end, settle_cutoff, split_page
 
 _logger = logging.getLogger(__name__)
 
-INGEST_CHUNKS_PER_TARGET_CYCLE = 2
+# Fair share of provider requests one target may spend per worker cycle. A target with a
+# pending ``ingest_requested_at`` gets the larger share; every due target is visited
+# each cycle, so a long backfill never starves maintenance of the others.
+INGEST_REQUESTS_PER_TARGET_CYCLE = 8
+INGEST_REQUESTS_PER_REQUESTED_TARGET_CYCLE = 24
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from thytrader.market_data.datasets import DatasetManifest, DatasetStore
+    from thytrader.market_data.models import Candle
+    from thytrader.market_data_worker.pages import CandleRun
     from thytrader.market_data_worker.retention import DatasetRetentionRunner
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.settings_yaml import SettingsStore
@@ -77,6 +98,32 @@ class HourlyRangeService(Protocol):
 type HistoricalRangeService = IntervalRangeService | HourlyRangeService
 
 
+class IngestStop(StrEnum):
+    """Why one ``ingest_once`` call ended; the cycle scheduler reads it."""
+
+    CURRENT = "current"
+    SKIPPED = "skipped"
+    COMPLETE = "complete"
+    BUDGET = "budget"
+    HOLE = "hole"
+    RATE_LIMITED = "rate_limited"
+    FAILED = "failed"
+    STOPPED = "stopped"
+
+
+@dataclass(frozen=True, slots=True)
+class IngestOutcome:
+    """Result of one ``ingest_once`` call: its stop reason and provider requests spent."""
+
+    stop: IngestStop
+    requests: int = 0
+
+    @property
+    def more_work(self) -> bool:
+        """True when the request budget ran out before the planned walk finished."""
+        return self.stop is IngestStop.BUDGET
+
+
 async def _load_validated_state(
     state_store: MarketDataWorkerStateStore,
     provider: str,
@@ -104,9 +151,19 @@ async def ingest_once(
     skip_reconcile: bool = False,
     heartbeat_store: WorkerHeartbeatStore | None = None,
     now_factory: Callable[[], datetime] | None = None,
-    max_chunks: int | None = None,
-) -> None:
-    """Retrieve, verify, and publish complete coverage, chunking initial backfill by UTC day."""
+    max_requests: int | None = None,
+    max_candles_per_request: int = HISTORICAL_REQUEST_MAX_CANDLES,
+    pacer: ProviderPacer | None = None,
+) -> IngestOutcome:
+    """Retrieve, verify, and publish complete coverage in provider-sized pages.
+
+    ``max_requests`` bounds provider calls for this call (a confirmation re-fetch counts);
+    ``None`` walks until the plan is done. ``max_candles_per_request`` defaults to the
+    provider page limit; tests lower it to exercise multi-page walks on small fixtures.
+    ``pacer`` spaces requests across targets; ``None`` uses an unpaced one.
+    """
+    if max_candles_per_request < 2:
+        raise ValueError("A provider page must hold an overlap bar plus one new bar.")
     ends_at = timeframe.align_closed_end(now)
     prior = await _load_validated_state(state_store, provider, product_id, timeframe)
     watch_complete = island_covers_watch(
@@ -136,7 +193,7 @@ async def ingest_once(
         jitter_factory=jitter_factory,
         verify_current_dataset=verify_current_dataset,
     ):
-        return
+        return IngestOutcome(IngestStop.CURRENT)
     starts_at, maintenance_kind = _plan_range(prior, ends_at, lookback_hours, timeframe)
     attempt = MarketDataWorkerAttempt(
         provider=provider,
@@ -155,93 +212,45 @@ async def ingest_once(
         expected_consecutive_failures=prior.consecutive_failures if prior is not None else 0,
     )
     if not await state_store.record_attempt(attempt):
-        return
+        return IngestOutcome(IngestStop.SKIPPED)
     await _touch_market_data_heartbeat(heartbeat_store, now_factory)
-    retry_at = _next_retry_at(
-        attempt.attempted_at,
-        retry_base_seconds,
-        prior.consecutive_failures if prior is not None else 0,
-        jitter_factory(),
-    )
-    if maintenance_kind is MarketDataMaintenanceKind.INCREMENTAL:
-        extend_fingerprint = (
-            prior.content_fingerprint if prior is not None and prior.complete else None
-        )
-        if ends_at - starts_at > timedelta(days=1):
-            await _ingest_chunked_backfill(
-                service=service,
-                dataset_store=dataset_store,
-                state_store=state_store,
-                provider=provider,
-                product_id=product_id,
-                timeframe=timeframe,
-                attempt=attempt,
-                starts_at=starts_at,
-                ends_at=ends_at,
-                retry_at=retry_at,
-                extend_fingerprint=extend_fingerprint,
-                heartbeat_store=heartbeat_store,
-                now_factory=now_factory,
-                max_chunks=max_chunks,
-            )
-        else:
-            await _ingest_planned_range(
-                service=service,
-                dataset_store=dataset_store,
-                state_store=state_store,
-                provider=provider,
-                product_id=product_id,
-                timeframe=timeframe,
-                attempt=attempt,
-                starts_at=starts_at,
-                ends_at=ends_at,
-                extend_fingerprint=extend_fingerprint,
-                retry_at=retry_at,
-            )
-        return
-    if maintenance_kind is MarketDataMaintenanceKind.PREFIX_BACKFILL:
-        if prior is None or prior.content_fingerprint is None or prior.covered_starts_at is None:
-            await _record_failure(
-                state_store,
-                attempt,
-                code="incomplete_range",
-                message="Historical market-data range was incomplete or inconsistent.",
-                next_retry_at=retry_at,
-            )
-            return
-        await _ingest_prefix_backfill(
-            service=service,
-            dataset_store=dataset_store,
-            state_store=state_store,
-            provider=provider,
-            product_id=product_id,
-            timeframe=timeframe,
-            attempt=attempt,
-            lookback_start=starts_at,
-            covered_starts_at=prior.covered_starts_at,
-            closed_end=ends_at,
-            extend_fingerprint=prior.content_fingerprint,
-            retry_at=retry_at,
-            heartbeat_store=heartbeat_store,
-            now_factory=now_factory,
-            max_chunks=max_chunks,
-        )
-        return
-    await _ingest_chunked_backfill(
+    context = _WalkContext(
         service=service,
         dataset_store=dataset_store,
         state_store=state_store,
         provider=provider,
         product_id=product_id,
         timeframe=timeframe,
+        closed_end=ends_at,
         attempt=attempt,
-        starts_at=starts_at,
-        ends_at=ends_at,
-        retry_at=retry_at,
+        retry_at=_next_retry_at(
+            attempt.attempted_at,
+            retry_base_seconds,
+            prior.consecutive_failures if prior is not None else 0,
+            jitter_factory(),
+        ),
+        page_candles=max_candles_per_request,
+        pacer=pacer if pacer is not None else ProviderPacer(),
+        budget=_RequestBudget(max_requests),
         heartbeat_store=heartbeat_store,
         now_factory=now_factory,
-        max_chunks=max_chunks,
     )
+    outcome = await _walk(
+        context,
+        maintenance_kind=maintenance_kind,
+        lookback_start=starts_at,
+        prior=prior,
+        verify_island=verify_current_dataset,
+    )
+    _logger.info(
+        "market_data_ingestion_walk product_id=%s timeframe=%s kind=%s stop=%s requests=%d",
+        product_id,
+        timeframe.value,
+        maintenance_kind.value,
+        outcome.stop.value,
+        outcome.requests,
+    )
+    return outcome
 
 
 async def run_market_data_worker(
@@ -261,15 +270,19 @@ async def run_market_data_worker(
     heartbeat_store: WorkerHeartbeatStore | None = None,
     settings_store: SettingsStore | None = None,
     retention: DatasetRetentionRunner | None = None,
+    request_pause_seconds: float = PROVIDER_REQUEST_PAUSE_SECONDS,
 ) -> None:
     """Run scheduled ingestion until a supervisor requests graceful shutdown.
 
-    When ``retention`` is attached, a bounded superseded-revision pass runs between
-    ingest cycles (this loop is the dataset volume's only writer).
+    One ``ProviderPacer`` spaces every provider request by ``request_pause_seconds`` and
+    makes all targets wait out a rate-limit cooldown together. When ``retention`` is
+    attached, a bounded superseded-revision pass runs between ingest cycles (this loop
+    is the dataset volume's only writer).
     """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     verified_targets: set[tuple[str, CandleInterval]] = set()
+    pacer = ProviderPacer(pause_seconds=request_pause_seconds, stop_requested=stop_requested)
     try:
         while not stop_requested.is_set():
             cycle_now = now_factory()
@@ -301,6 +314,7 @@ async def run_market_data_worker(
                 watchlist=watchlist,
                 heartbeat_store=heartbeat_store,
                 now_factory=now_factory,
+                pacer=pacer,
             )
             if retention is not None and not stop_requested.is_set():
                 await retention.maybe_run(now_factory())
@@ -588,7 +602,7 @@ def _plan_range(
     """Choose initial backfill, prefix backfill, or one-bar overlap incremental extension.
 
     A confirmed provider-history floor at the island start ends prefix backfill, so
-    the island extends forward instead of retrying the same incomplete prefix day.
+    the island extends forward instead of retrying the same incomplete prefix.
     """
     lookback_start = bounded_lookback_start(ends_at, lookback_hours, timeframe)
     if prior is not None and prior.complete and prior.covered_ends_at is not None:
@@ -608,376 +622,537 @@ def _plan_range(
 
 
 @dataclass(frozen=True, slots=True)
-class _ChunkProgress:
-    """Newest published island plus the fingerprint used to extend the current run."""
+class _Island:
+    """The published complete island a walk extends, read from verified worker state."""
 
-    newest: DatasetManifest | None
-    island_fingerprint: str | None
-    status: Literal["ok", "incomplete", "provider_unavailable", "persist_failed"]
-
-
-def _utc_day_chunks(
-    starts_at: datetime, ends_at: datetime
-) -> tuple[tuple[datetime, datetime], ...]:
-    """Split a half-open range into UTC-day windows, oldest first, without interpolation."""
-    if starts_at >= ends_at:
-        return ()
-    chunks: list[tuple[datetime, datetime]] = []
-    cursor = starts_at
-    while cursor < ends_at:
-        day_start = cursor.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        next_day = _safe_shift(
-            day_start,
-            timedelta(days=1),
-            "Market-data worker cannot represent a UTC-day chunk boundary.",
-        )
-        chunk_end = ends_at if next_day >= ends_at else next_day
-        chunks.append((cursor, chunk_end))
-        cursor = chunk_end
-    return tuple(chunks)
+    state: MarketDataWorkerState
+    fingerprint: str
+    starts_at: datetime
+    ends_at: datetime
 
 
-def _chunk_already_published(
-    newest: DatasetManifest | None, chunk_start: datetime, chunk_end: datetime
-) -> bool:
-    """True when this UTC-day window is already inside the published island."""
-    if newest is None:
-        return False
-    island_start = datetime.fromisoformat(newest.starts_at.replace("Z", "+00:00"))
-    island_end = datetime.fromisoformat(newest.ends_at.replace("Z", "+00:00"))
-    return chunk_start >= island_start and chunk_end <= island_end
-
-
-async def _ingest_planned_range(
-    *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    state_store: MarketDataWorkerStateStore,
-    provider: str,
-    product_id: str,
-    timeframe: CandleInterval,
-    attempt: MarketDataWorkerAttempt,
-    starts_at: datetime,
-    ends_at: datetime,
-    extend_fingerprint: str | None,
-    retry_at: datetime,
-) -> None:
-    """Fetch one exact window, publish if complete, otherwise fail closed."""
-    try:
-        report = await fetch_historical_range(
-            service, product_id, timeframe, starts_at, ends_at, ends_at
-        )
-    except Exception:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        await _record_failure(
-            state_store,
-            attempt,
-            code="provider_unavailable",
-            message="Historical market-data retrieval failed.",
-            next_retry_at=retry_at,
-        )
-        _logger.warning("market_data_ingestion_failed code=provider_unavailable")
-        return
-    if not _matches_complete_request(report, starts_at, ends_at):
-        await _record_failure(
-            state_store,
-            attempt,
-            code="incomplete_range",
-            message="Historical market-data range was incomplete or inconsistent.",
-            next_retry_at=retry_at,
-        )
-        _logger.warning("market_data_ingestion_failed code=incomplete_range")
-        return
-    verified = _persist_complete_range(
-        dataset_store=dataset_store,
-        provider=provider,
-        product_id=product_id,
-        extend_fingerprint=extend_fingerprint,
-        report=report,
+def _island_from(prior: MarketDataWorkerState | None) -> _Island | None:
+    """Return the prior complete island, or None when state lacks full coverage evidence."""
+    if (
+        prior is None
+        or not prior.complete
+        or prior.content_fingerprint is None
+        or prior.covered_starts_at is None
+        or prior.covered_ends_at is None
+    ):
+        return None
+    return _Island(
+        state=prior,
+        fingerprint=prior.content_fingerprint,
+        starts_at=prior.covered_starts_at,
+        ends_at=prior.covered_ends_at,
     )
-    if verified is None:
-        await _record_failure(
-            state_store,
-            attempt,
-            code="dataset_persistence_failed",
-            message="Validated market-data publication failed.",
-            next_retry_at=retry_at,
-        )
-        return
-    await _record_island_success(state_store, attempt, verified)
 
 
-async def _ingest_chunked_backfill(
+@dataclass(slots=True)
+class _RequestBudget:
+    """Provider requests one ``ingest_once`` call may still spend; ``None`` is unbounded."""
+
+    limit: int | None
+    spent: int = 0
+
+    def exhausted(self) -> bool:
+        """True when no request may start a new page."""
+        return self.limit is not None and self.spent >= self.limit
+
+
+@dataclass(frozen=True, slots=True)
+class _WalkContext:
+    """Dependencies, claimed attempt, and limits shared by one ingest walk."""
+
+    service: HistoricalRangeService
+    dataset_store: DatasetStore
+    state_store: MarketDataWorkerStateStore
+    provider: str
+    product_id: str
+    timeframe: CandleInterval
+    closed_end: datetime
+    attempt: MarketDataWorkerAttempt
+    retry_at: datetime
+    page_candles: int
+    pacer: ProviderPacer
+    budget: _RequestBudget
+    heartbeat_store: WorkerHeartbeatStore | None
+    now_factory: Callable[[], datetime] | None
+
+    @property
+    def cutoff(self) -> datetime:
+        """Return the instant from which missing bars are not yet confirmed holes."""
+        return settle_cutoff(self.closed_end, self.timeframe)
+
+    @property
+    def page_span(self) -> timedelta:
+        """Return the duration one provider page covers."""
+        return self.timeframe.duration * self.page_candles
+
+    def outcome(self, stop: IngestStop) -> IngestOutcome:
+        """Return the call outcome with the requests this walk spent."""
+        return IngestOutcome(stop, self.budget.spent)
+
+
+async def _walk(
+    context: _WalkContext,
     *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    state_store: MarketDataWorkerStateStore,
-    provider: str,
-    product_id: str,
-    timeframe: CandleInterval,
-    attempt: MarketDataWorkerAttempt,
-    starts_at: datetime,
-    ends_at: datetime,
-    retry_at: datetime,
-    extend_fingerprint: str | None = None,
-    heartbeat_store: WorkerHeartbeatStore | None = None,
-    now_factory: Callable[[], datetime] | None = None,
-    max_chunks: int | None = None,
-) -> None:
-    """Publish complete UTC-day chunks oldest-first; keep the newest contiguous island."""
-    newest: DatasetManifest | None = None
-    island_fingerprint: str | None = extend_fingerprint
-    if island_fingerprint is not None:
-        try:
-            newest = dataset_store.load_manifest(island_fingerprint)
-        except Exception:  # noqa: BLE001
-            newest = None
-            island_fingerprint = None
-    chunks_done = 0
-    for chunk_start, chunk_end in _utc_day_chunks(starts_at, ends_at):
-        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
-        if max_chunks is not None and chunks_done >= max_chunks:
-            break
-        if _chunk_already_published(newest, chunk_start, chunk_end):
-            continue
-        progress = await _ingest_one_chunk(
-            service=service,
-            dataset_store=dataset_store,
-            provider=provider,
-            product_id=product_id,
-            timeframe=timeframe,
-            closed_end=ends_at,
-            chunk_start=chunk_start,
-            chunk_end=chunk_end,
-            island_fingerprint=island_fingerprint,
-            newest=newest,
-        )
-        chunks_done += 1
-        newest = progress.newest
-        island_fingerprint = progress.island_fingerprint
-        if progress.status == "incomplete":
-            island_fingerprint = progress.island_fingerprint
-            continue
-        if progress.status in {"provider_unavailable", "persist_failed"}:
-            if newest is not None:
-                await _record_island_success(state_store, attempt, newest)
-                return
-            code = (
-                "provider_unavailable"
-                if progress.status == "provider_unavailable"
-                else "dataset_persistence_failed"
-            )
-            await _record_failure(
-                state_store,
-                attempt,
-                code=code,
-                message=(
-                    "Historical market-data retrieval failed."
-                    if code == "provider_unavailable"
-                    else "Validated market-data publication failed."
-                ),
-                next_retry_at=retry_at,
-            )
-            return
-    if newest is None:
-        await _record_failure(
-            state_store,
-            attempt,
-            code="incomplete_range",
-            message="Historical market-data range was incomplete or inconsistent.",
-            next_retry_at=retry_at,
-        )
-        _logger.warning("market_data_ingestion_failed code=incomplete_range")
-        return
-    await _record_island_success(state_store, attempt, newest)
-
-
-async def _ingest_one_chunk(
-    *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    provider: str,
-    product_id: str,
-    timeframe: CandleInterval,
-    closed_end: datetime,
-    chunk_start: datetime,
-    chunk_end: datetime,
-    island_fingerprint: str | None,
-    newest: DatasetManifest | None,
-) -> _ChunkProgress:
-    """Fetch one UTC-day chunk and publish it when the provider range is complete."""
-    fetch_start = chunk_start
-    if island_fingerprint is not None:
-        fetch_start = _safe_shift(
-            chunk_start,
-            -timeframe.duration,
-            "Market-data worker cannot represent a chunk overlap start.",
-        )
-    try:
-        report = await _fetch_confirmed_chunk(
-            service, product_id, timeframe, fetch_start, chunk_end, closed_end
-        )
-    except Exception as error:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        _log_provider_unavailable(product_id, timeframe, fetch_start, chunk_end, error)
-        return _ChunkProgress(newest, island_fingerprint, "provider_unavailable")
-    if not _matches_complete_request(report, fetch_start, chunk_end):
-        _log_chunk_incomplete(product_id, timeframe, fetch_start, chunk_end, report, "forward")
-        return _ChunkProgress(newest, None, "incomplete")
-    verified = _persist_complete_range(
-        dataset_store=dataset_store,
-        provider=provider,
-        product_id=product_id,
-        extend_fingerprint=island_fingerprint,
-        report=report,
-    )
-    if verified is None:
-        return _ChunkProgress(newest, island_fingerprint, "persist_failed")
-    return _ChunkProgress(verified, verified.content_fingerprint, "ok")
-
-
-async def _ingest_prefix_backfill(
-    *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    state_store: MarketDataWorkerStateStore,
-    provider: str,
-    product_id: str,
-    timeframe: CandleInterval,
-    attempt: MarketDataWorkerAttempt,
+    maintenance_kind: MarketDataMaintenanceKind,
     lookback_start: datetime,
-    covered_starts_at: datetime,
-    closed_end: datetime,
-    extend_fingerprint: str,
-    retry_at: datetime,
-    heartbeat_store: WorkerHeartbeatStore | None = None,
-    now_factory: Callable[[], datetime] | None = None,
-    max_chunks: int | None = None,
-) -> None:
-    """Prepend complete UTC-day chunks onto an existing island; stop at the first hole."""
-    try:
-        newest = dataset_store.load_manifest(extend_fingerprint)
-    except Exception:  # noqa: BLE001
+    prior: MarketDataWorkerState | None,
+    verify_island: bool,
+) -> IngestOutcome:
+    """Dispatch the claimed attempt to the newest-first or forward page walk."""
+    if maintenance_kind is MarketDataMaintenanceKind.INITIAL_BACKFILL:
+        backward = _BackwardWalk(context, lookback_start, None)
+        return await _finish_backward(context, backward, None, await backward.run())
+    island = _island_from(prior)
+    if island is None:
         await _record_failure(
-            state_store,
-            attempt,
+            context.state_store,
+            context.attempt,
+            code="incomplete_range",
+            message="Historical market-data range was incomplete or inconsistent.",
+            next_retry_at=context.retry_at,
+        )
+        return context.outcome(IngestStop.FAILED)
+    if verify_island and not await _island_verifies(context, island):
+        return context.outcome(IngestStop.FAILED)
+    if maintenance_kind is MarketDataMaintenanceKind.PREFIX_BACKFILL:
+        backward = _BackwardWalk(context, lookback_start, island)
+        return await _finish_backward(context, backward, island, await backward.run())
+    if island.ends_at >= context.closed_end:
+        return await _record_without_publication(context, island, None, IngestStop.CURRENT)
+    forward = _ForwardWalk(context, island)
+    return await _finish_forward(context, forward, island, await forward.run())
+
+
+async def _island_verifies(context: _WalkContext, island: _Island) -> bool:
+    """Deep-verify the island once per process before extending it; record failure if not."""
+    try:
+        context.dataset_store.load_manifest(island.fingerprint)
+    except Exception:  # noqa: BLE001 - an unreadable island must fail closed before fetching.
+        await _record_failure(
+            context.state_store,
+            context.attempt,
             code="dataset_verification_failed",
             message="The current market-data dataset could not be verified.",
-            next_retry_at=retry_at,
+            next_retry_at=context.retry_at,
         )
-        return
-    island_fingerprint: str | None = newest.content_fingerprint
-    chunks = tuple(reversed(_utc_day_chunks(lookback_start, covered_starts_at)))
-    for chunks_done, (chunk_start, chunk_end) in enumerate(chunks):
-        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
-        if max_chunks is not None and chunks_done >= max_chunks:
-            break
-        fetch_end = _safe_shift(
-            chunk_end,
-            timeframe.duration,
-            "Market-data worker cannot represent a prefix overlap end.",
-        )
-        if fetch_end > closed_end:
-            fetch_end = closed_end
-        progress = await _ingest_one_prefix_chunk(
-            service=service,
-            dataset_store=dataset_store,
-            provider=provider,
-            product_id=product_id,
-            timeframe=timeframe,
-            closed_end=closed_end,
-            chunk_start=chunk_start,
-            fetch_end=fetch_end,
-            island_fingerprint=island_fingerprint,
-            newest=newest,
-        )
-        newest = progress.newest
-        island_fingerprint = progress.island_fingerprint
-        if progress.status == "incomplete":
-            if newest is not None:
-                floor = _parse_manifest_instant(newest.starts_at)
-                _logger.warning(
-                    "market_data_history_floor_recorded product_id=%s timeframe=%s "
-                    "history_floor_at=%s",
-                    product_id,
-                    timeframe.value,
-                    floor.isoformat(),
-                )
-                await _record_island_success(state_store, attempt, newest, history_floor_at=floor)
-                return
-            await _record_failure(
-                state_store,
-                attempt,
-                code="incomplete_range",
-                message="Historical market-data range was incomplete or inconsistent.",
-                next_retry_at=retry_at,
-            )
-            return
-        if progress.status in {"provider_unavailable", "persist_failed"}:
-            if newest is not None:
-                await _record_island_success(state_store, attempt, newest)
-                return
-            code = (
-                "provider_unavailable"
-                if progress.status == "provider_unavailable"
-                else "dataset_persistence_failed"
-            )
-            await _record_failure(
-                state_store,
-                attempt,
-                code=code,
-                message=(
-                    "Historical market-data retrieval failed."
-                    if code == "provider_unavailable"
-                    else "Validated market-data publication failed."
-                ),
-                next_retry_at=retry_at,
-            )
-            return
-    if newest is None:
-        await _record_failure(
-            state_store,
-            attempt,
-            code="incomplete_range",
-            message="Historical market-data range was incomplete or inconsistent.",
-            next_retry_at=retry_at,
-        )
-        return
-    await _record_island_success(state_store, attempt, newest)
+        _logger.warning("market_data_ingestion_failed code=dataset_verification_failed")
+        return False
+    return True
 
 
-async def _ingest_one_prefix_chunk(
-    *,
-    service: HistoricalRangeService,
-    dataset_store: DatasetStore,
-    provider: str,
-    product_id: str,
-    timeframe: CandleInterval,
-    closed_end: datetime,
-    chunk_start: datetime,
-    fetch_end: datetime,
-    island_fingerprint: str | None,
-    newest: DatasetManifest | None,
-) -> _ChunkProgress:
-    """Fetch one prefix day plus one overlapping island bar and prepend when complete."""
+async def _request(
+    context: _WalkContext, starts_at: datetime, ends_at: datetime
+) -> CandleRangeReport | IngestStop:
+    """Spend one paced provider request; map throttles and failures to a walk stop."""
+    if not await context.pacer.acquire():
+        return IngestStop.STOPPED
+    context.budget.spent += 1
+    await _touch_market_data_heartbeat(context.heartbeat_store, context.now_factory)
     try:
-        report = await _fetch_confirmed_chunk(
-            service, product_id, timeframe, chunk_start, fetch_end, closed_end
+        report = await fetch_historical_range(
+            context.service,
+            context.product_id,
+            context.timeframe,
+            starts_at,
+            ends_at,
+            context.closed_end,
         )
+    except MarketDataRateLimitedError:
+        cooldown = context.pacer.throttled_by_provider()
+        _logger.warning(
+            "market_data_ingestion_rate_limited product_id=%s timeframe=%s cooldown_seconds=%.1f",
+            context.product_id,
+            context.timeframe.value,
+            cooldown,
+        )
+        return IngestStop.RATE_LIMITED
     except Exception as error:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
-        _log_provider_unavailable(product_id, timeframe, chunk_start, fetch_end, error)
-        return _ChunkProgress(newest, island_fingerprint, "provider_unavailable")
-    if not _matches_complete_request(report, chunk_start, fetch_end):
-        _log_chunk_incomplete(product_id, timeframe, chunk_start, fetch_end, report, "prefix")
-        return _ChunkProgress(newest, island_fingerprint, "incomplete")
-    verified = _persist_complete_range(
-        dataset_store=dataset_store,
-        provider=provider,
-        product_id=product_id,
-        extend_fingerprint=island_fingerprint,
-        report=report,
+        context.pacer.completed()
+        _log_provider_unavailable(context.product_id, context.timeframe, starts_at, ends_at, error)
+        return IngestStop.FAILED
+    context.pacer.completed()
+    return report
+
+
+async def _fetch_page(
+    context: _WalkContext,
+    starts_at: datetime,
+    ends_at: datetime,
+    direction: Literal["forward", "prefix", "initial"],
+) -> CandlePage | IngestStop:
+    """Fetch one page, re-fetching once before acting on a settled or inconsistent hole.
+
+    The confirmation keeps a transient short page from becoming a provider hole. A
+    missing bar inside the settle window is not confirmed: the walk waits for it.
+    """
+    report = await _request(context, starts_at, ends_at)
+    if isinstance(report, IngestStop):
+        return report
+    page = split_page(report, starts_at, ends_at, context.timeframe)
+    if not page.needs_confirmation(context.cutoff):
+        return page
+    confirmed = await _request(context, starts_at, ends_at)
+    if isinstance(confirmed, IngestStop):
+        return confirmed
+    page = split_page(confirmed, starts_at, ends_at, context.timeframe)
+    if not page.complete:
+        _log_chunk_incomplete(
+            context.product_id, context.timeframe, starts_at, ends_at, confirmed, direction
+        )
+    return page
+
+
+class _BackwardWalk:
+    """Newest-first page walk that grows one gap-free segment toward the lookback start.
+
+    Initial backfill (no island) seeds the segment from the first page's newest usable
+    run, so coverage reaches the newest closed bar after one request. Prefix backfill
+    starts one bar past the island start, so the segment overlaps the island. Each older
+    page must end exactly where the segment starts. A settled missing bar directly
+    before the segment ends the walk and becomes the provider-history floor.
+    """
+
+    def __init__(
+        self, context: _WalkContext, lookback_start: datetime, island: _Island | None
+    ) -> None:
+        """Start at the newest closed bar, or one overlap bar past the island start."""
+        self._context = context
+        self._lookback_start = lookback_start
+        self._island = island
+        self._runs: list[CandleRun] = []
+        self.floor: datetime | None = None
+        self._cursor_end = (
+            context.closed_end
+            if island is None
+            else _safe_shift(
+                island.starts_at,
+                context.timeframe.duration,
+                "Market-data worker cannot represent a prefix overlap end.",
+            )
+        )
+
+    async def run(self) -> IngestStop:
+        """Fetch pages until the lookback start, a hole, the budget, or a provider stop."""
+        direction: Literal["prefix", "initial"] = "initial" if self._island is None else "prefix"
+        while self._cursor_end > self._lookback_start:
+            if self._context.budget.exhausted():
+                return IngestStop.BUDGET
+            earliest = _safe_shift(
+                self._cursor_end,
+                -self._context.page_span,
+                "Market-data worker cannot represent a page start.",
+            )
+            page_start = max(self._lookback_start, earliest)
+            page = await _fetch_page(self._context, page_start, self._cursor_end, direction)
+            if isinstance(page, IngestStop):
+                return page
+            stop = self._absorb(page)
+            if stop is not None:
+                return stop
+        return IngestStop.COMPLETE
+
+    def candles(self) -> tuple[Candle, ...]:
+        """Return the assembled segment, oldest first."""
+        return tuple(candle for run in reversed(self._runs) for candle in run)
+
+    def _absorb(self, page: CandlePage) -> IngestStop | None:
+        """Prepend the page's attachable run; return a stop when the segment cannot grow."""
+        run = self._attachable_run(page)
+        if run is None:
+            return self._hole_before(page.ends_at)
+        self._runs.append(run)
+        if run[0].starts_at > page.starts_at:
+            return self._hole_before(run[0].starts_at)
+        self._cursor_end = page.starts_at
+        return None
+
+    def _attachable_run(self, page: CandlePage) -> CandleRun | None:
+        """Pick the newest usable run for initial backfill, otherwise the page's tail run."""
+        if self._island is None and not self._runs:
+            boundary = page.first_unsettled_missing(self._context.cutoff) or page.ends_at
+            return page.newest_run_ending_by(boundary)
+        return page.tail_run()
+
+    def _hole_before(self, boundary: datetime) -> IngestStop:
+        """End the walk at a hole; a settled hole directly before the segment is its floor."""
+        missing_bar = boundary - self._context.timeframe.duration
+        segment_start = self._segment_start()
+        if segment_start is not None and missing_bar < self._context.cutoff:
+            self.floor = segment_start
+        return IngestStop.HOLE
+
+    def _segment_start(self) -> datetime | None:
+        """Return the oldest bar the segment (or its island) currently covers."""
+        if self._runs:
+            return self._runs[-1][0].starts_at
+        if self._island is not None:
+            return self._island.starts_at
+        return None
+
+
+class _ForwardWalk:
+    """Oldest-first page walk from the island's overlap bar to the newest closed bar.
+
+    Runs that continue the island extend it. A settled hole closes the chain; the next
+    run starts a newer detached island whose floor is that hole (the newest contiguous
+    island wins). An unsettled hole near the newest bar stops the walk until a later
+    cycle, so a late candle never discards a long island.
+    """
+
+    def __init__(self, context: _WalkContext, island: _Island) -> None:
+        """Start at the island's last bar so the first page overlaps it."""
+        self._context = context
+        self._cursor = _safe_shift(
+            island.ends_at,
+            -context.timeframe.duration,
+            "Market-data worker cannot represent its incremental range start.",
+        )
+        self._attached: list[Candle] = []
+        self._detached: list[Candle] = []
+        self._chain: Literal["attached", "detached", "closed"] = "attached"
+
+    async def run(self) -> IngestStop:
+        """Fetch pages until the newest closed bar, a hole, the budget, or a provider stop."""
+        while self._cursor < self._context.closed_end:
+            if self._context.budget.exhausted():
+                return IngestStop.BUDGET
+            latest = _safe_shift(
+                self._cursor,
+                self._context.page_span,
+                "Market-data worker cannot represent a page end.",
+            )
+            page_end = min(self._context.closed_end, latest)
+            page = await _fetch_page(self._context, self._cursor, page_end, "forward")
+            if isinstance(page, IngestStop):
+                return page
+            stop = self._absorb(page)
+            if stop is not None:
+                return stop
+            self._cursor = page_end
+        return IngestStop.COMPLETE
+
+    def attached_candles(self) -> tuple[Candle, ...]:
+        """Return the island extension, starting with the overlap bar."""
+        return tuple(self._attached)
+
+    def detached_candles(self) -> tuple[Candle, ...]:
+        """Return the newest island begun after a settled hole, if any."""
+        return tuple(self._detached)
+
+    def _absorb(self, page: CandlePage) -> IngestStop | None:
+        """Append the page's runs, closing the chain at settled holes."""
+        expected = page.starts_at
+        for run in page.runs:
+            if run[0].starts_at > expected and self._close_at(expected) is not None:
+                return IngestStop.HOLE
+            self._append(run)
+            expected = run_end(run, self._context.timeframe)
+        if expected < page.ends_at and self._close_at(expected) is not None:
+            return IngestStop.HOLE
+        return None
+
+    def _close_at(self, missing_bar: datetime) -> IngestStop | None:
+        """Close the chain at a settled hole; return a stop for an unsettled one."""
+        if missing_bar >= self._context.cutoff:
+            return IngestStop.HOLE
+        self._chain = "closed"
+        return None
+
+    def _append(self, run: CandleRun) -> None:
+        """Extend the open chain, or start a newer detached island after a hole."""
+        if self._chain == "attached":
+            self._attached.extend(run)
+        elif self._chain == "detached":
+            self._detached.extend(run)
+        else:
+            self._detached = list(run)
+            self._chain = "detached"
+
+
+async def _finish_backward(
+    context: _WalkContext,
+    walk: _BackwardWalk,
+    island: _Island | None,
+    stop: IngestStop,
+) -> IngestOutcome:
+    """Publish the walked segment as a new island or a prefix revision, then record state."""
+    candles = walk.candles()
+    if candles and (island is None or candles[0].starts_at < island.starts_at):
+        return await _publish_and_record(
+            context,
+            candles,
+            extend_fingerprint=None if island is None else island.fingerprint,
+            history_floor_at=walk.floor,
+            stop=stop,
+        )
+    return await _record_without_publication(context, island, walk.floor, stop)
+
+
+async def _finish_forward(
+    context: _WalkContext,
+    walk: _ForwardWalk,
+    island: _Island,
+    stop: IngestStop,
+) -> IngestOutcome:
+    """Publish a newer detached island or the island's forward extension, then record state."""
+    detached = walk.detached_candles()
+    if detached:
+        return await _publish_and_record(
+            context,
+            detached,
+            extend_fingerprint=None,
+            history_floor_at=detached[0].starts_at,
+            stop=stop,
+        )
+    attached = walk.attached_candles()
+    if attached and run_end(attached, context.timeframe) > island.ends_at:
+        return await _publish_and_record(
+            context,
+            attached,
+            extend_fingerprint=island.fingerprint,
+            history_floor_at=None,
+            stop=stop,
+        )
+    return await _record_without_publication(context, island, None, stop)
+
+
+async def _publish_and_record(
+    context: _WalkContext,
+    candles: Sequence[Candle],
+    *,
+    extend_fingerprint: str | None,
+    history_floor_at: datetime | None,
+    stop: IngestStop,
+) -> IngestOutcome:
+    """Write or extend one complete segment, read it back, and record the verified island."""
+    report = _segment_report(candles, context.timeframe)
+    verified = (
+        None
+        if report is None
+        else _persist_complete_range(
+            dataset_store=context.dataset_store,
+            provider=context.provider,
+            product_id=context.product_id,
+            extend_fingerprint=extend_fingerprint,
+            report=report,
+        )
     )
     if verified is None:
-        return _ChunkProgress(newest, island_fingerprint, "persist_failed")
-    return _ChunkProgress(verified, verified.content_fingerprint, "ok")
+        await _record_failure(
+            context.state_store,
+            context.attempt,
+            code="dataset_persistence_failed",
+            message="Validated market-data publication failed.",
+            next_retry_at=context.retry_at,
+        )
+        return context.outcome(IngestStop.FAILED)
+    floor = (
+        history_floor_at
+        if history_floor_at is not None
+        and history_floor_at == _parse_manifest_instant(verified.starts_at)
+        else None
+    )
+    await _record_island_success(
+        context.state_store, context.attempt, verified, history_floor_at=floor
+    )
+    return context.outcome(stop)
+
+
+def _segment_report(
+    candles: Sequence[Candle], interval: CandleInterval
+) -> CandleRangeReport | None:
+    """Re-analyze one assembled segment as an exact half-open range; None if not complete."""
+    starts_at = candles[0].starts_at
+    ends_at = run_end(candles, interval)
+    report = analyze_range(tuple(candles), interval, starts_at, ends_at, ends_at)
+    if not report.complete:
+        _logger.warning("market_data_ingestion_failed code=segment_incomplete")
+        return None
+    return report
+
+
+async def _record_without_publication(
+    context: _WalkContext,
+    island: _Island | None,
+    history_floor_at: datetime | None,
+    stop: IngestStop,
+) -> IngestOutcome:
+    """Record a walk that published nothing: a failure, unchanged coverage, or shutdown."""
+    if stop is IngestStop.STOPPED:
+        return context.outcome(stop)
+    failure = _failure_for(stop, island)
+    if failure is not None:
+        code, message, retry_at = failure
+        await _record_failure(
+            context.state_store,
+            context.attempt,
+            code=code,
+            message=message,
+            next_retry_at=context.retry_at if retry_at is None else retry_at(context),
+        )
+        return context.outcome(IngestStop.FAILED if stop is IngestStop.COMPLETE else stop)
+    if island is not None:
+        await _record_unchanged_island(context, island, history_floor_at)
+    return context.outcome(stop)
+
+
+type _FailureSpec = tuple[str, str, Callable[[_WalkContext], datetime] | None]
+
+
+def _failure_for(stop: IngestStop, island: _Island | None) -> _FailureSpec | None:
+    """Return the redacted failure a no-publication stop records, or None for success."""
+    if stop is IngestStop.RATE_LIMITED:
+        return (
+            "provider_rate_limited",
+            "Historical market-data provider rate-limited the worker; it is backing off.",
+            _rate_limit_retry_at,
+        )
+    if stop is IngestStop.FAILED:
+        return ("provider_unavailable", "Historical market-data retrieval failed.", None)
+    if island is None:
+        _logger.warning("market_data_ingestion_failed code=incomplete_range")
+        return (
+            "incomplete_range",
+            "Historical market-data range was incomplete or inconsistent.",
+            None,
+        )
+    return None
+
+
+def _rate_limit_retry_at(context: _WalkContext) -> datetime:
+    """Return the retry instant after a throttle: the pacer's cooldown, at least one second."""
+    seconds = max(1.0, context.pacer.cooldown_seconds)
+    return _safe_shift(
+        context.attempt.attempted_at,
+        timedelta(seconds=seconds),
+        "Market-data worker cannot represent its rate-limit retry time.",
+    )
+
+
+async def _record_unchanged_island(
+    context: _WalkContext, island: _Island, history_floor_at: datetime | None
+) -> None:
+    """Record success for an island this walk did not change, optionally adding its floor."""
+    state = island.state
+    await context.state_store.record_success(
+        MarketDataWorkerSuccess(
+            attempt=context.attempt,
+            covered_starts_at=island.starts_at,
+            covered_ends_at=island.ends_at,
+            expected_candle_count=state.expected_candle_count or 0,
+            received_candle_count=state.received_candle_count or 0,
+            gap_count=state.gap_count or 0,
+            missing_intervals=state.missing_intervals or 0,
+            content_fingerprint=island.fingerprint,
+            advances_revision=False,
+            history_floor_at=history_floor_at if history_floor_at == island.starts_at else None,
+        )
+    )
 
 
 def _persist_complete_range(
@@ -1009,6 +1184,13 @@ async def _record_island_success(
     history_floor_at: datetime | None = None,
 ) -> None:
     """Record worker coverage for the newest complete contiguous published island."""
+    if history_floor_at is not None:
+        _logger.warning(
+            "market_data_history_floor_recorded product_id=%s timeframe=%s history_floor_at=%s",
+            attempt.product_id,
+            attempt.timeframe.value,
+            history_floor_at.isoformat(),
+        )
     await state_store.record_success(
         MarketDataWorkerSuccess(
             attempt=attempt,
@@ -1030,38 +1212,15 @@ def _parse_manifest_instant(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
 
-async def _fetch_confirmed_chunk(
-    service: HistoricalRangeService,
-    product_id: str,
-    timeframe: CandleInterval,
-    starts_at: datetime,
-    ends_at: datetime,
-    closed_end: datetime,
-) -> CandleRangeReport:
-    """Fetch one chunk, re-fetching once when the first report is incomplete.
-
-    The confirmation keeps a transient short page from being recorded as a provider
-    hole. Missing bars are never filled.
-    """
-    report = await fetch_historical_range(
-        service, product_id, timeframe, starts_at, ends_at, closed_end
-    )
-    if _matches_complete_request(report, starts_at, ends_at):
-        return report
-    return await fetch_historical_range(
-        service, product_id, timeframe, starts_at, ends_at, closed_end
-    )
-
-
 def _log_chunk_incomplete(
     product_id: str,
     timeframe: CandleInterval,
     starts_at: datetime,
     ends_at: datetime,
     report: CandleRangeReport,
-    direction: Literal["forward", "prefix"],
+    direction: Literal["forward", "prefix", "initial"],
 ) -> None:
-    """Warn with the target and exact chunk bounds; candle values and secrets stay out."""
+    """Warn with the target and exact page bounds; candle values and secrets stay out."""
     _logger.warning(
         "market_data_ingestion_failed code=chunk_incomplete product_id=%s timeframe=%s "
         "direction=%s starts_at=%s ends_at=%s expected=%d received=%d missing_intervals=%d",
@@ -1124,6 +1283,90 @@ async def _cycle_targets(
     )
 
 
+class _TargetPriority(IntEnum):
+    """Cycle order: cheap upkeep of covered watches, requested backfill, other backfill."""
+
+    MAINTENANCE = 0
+    REQUESTED = 1
+    BACKFILL = 2
+
+
+_NO_REQUEST = datetime.min.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetPlan:
+    """One target's scheduling facts for the current cycle."""
+
+    target: MarketDataWatchTarget
+    priority: _TargetPriority
+    in_backoff: bool
+    skip_reconcile: bool
+    closed_end: datetime
+    position: int = field(default=0)
+
+    @property
+    def requested(self) -> bool:
+        """True when an operator queued ingest for this target."""
+        return self.target.ingest_requested_at is not None
+
+    @property
+    def request_budget(self) -> int:
+        """Return the provider requests this target may spend this cycle."""
+        if self.priority is _TargetPriority.REQUESTED:
+            return INGEST_REQUESTS_PER_REQUESTED_TARGET_CYCLE
+        return INGEST_REQUESTS_PER_TARGET_CYCLE
+
+    def sort_key(self) -> tuple[int, datetime, int]:
+        """Order by priority, then oldest request first, then watchlist order."""
+        requested_at = self.target.ingest_requested_at or _NO_REQUEST
+        if self.priority is not _TargetPriority.REQUESTED:
+            requested_at = _NO_REQUEST
+        return (int(self.priority), requested_at, self.position)
+
+
+async def _plan_targets(
+    targets: tuple[MarketDataWatchTarget, ...],
+    state_store: MarketDataWorkerStateStore,
+    cycle_now: datetime,
+) -> tuple[_TargetPlan, ...]:
+    """Classify each target from durable state and return them in cycle priority order."""
+    plans: list[_TargetPlan] = []
+    for position, target in enumerate(targets):
+        prior = await _load_validated_state(
+            state_store, target.provider, target.product_id, target.timeframe
+        )
+        closed_end = target.timeframe.align_closed_end(cycle_now)
+        covers = island_covers_watch(
+            covered_starts_at=None if prior is None else prior.covered_starts_at,
+            covered_ends_at=None if prior is None else prior.covered_ends_at,
+            island_complete=bool(prior is not None and prior.complete),
+            lookback_hours=target.lookback_hours,
+            interval=target.timeframe,
+            closed_end=closed_end,
+            product_id=target.product_id,
+            now=cycle_now,
+            history_floor_at=None if prior is None else prior.history_floor_at,
+        )
+        if covers:
+            priority = _TargetPriority.MAINTENANCE
+        elif target.ingest_requested_at is not None:
+            priority = _TargetPriority.REQUESTED
+        else:
+            priority = _TargetPriority.BACKFILL
+        plans.append(
+            _TargetPlan(
+                target=target,
+                priority=priority,
+                in_backoff=_in_backoff(prior, cycle_now),
+                skip_reconcile=prior is not None and prior.complete and not covers,
+                closed_end=closed_end,
+                position=position,
+            )
+        )
+    return tuple(sorted(plans, key=_TargetPlan.sort_key))
+
+
 async def _ingest_due_targets(
     targets: tuple[MarketDataWatchTarget, ...],
     *,
@@ -1137,71 +1380,106 @@ async def _ingest_due_targets(
     watchlist: MarketDataWatchlistStore | None = None,
     heartbeat_store: WorkerHeartbeatStore | None = None,
     now_factory: Callable[[], datetime] | None = None,
+    pacer: ProviderPacer | None = None,
 ) -> int | None:
-    """Ingest due targets. None means the caller should immediately re-check stop."""
-    for target in targets:
+    """Ingest due targets in priority order. None asks the caller to start the next cycle now.
+
+    Every due target spends at most its request budget, so one long backfill cannot
+    starve the others. When any target ran out of budget with work left, the worker
+    skips its idle wait and starts the next cycle immediately.
+    """
+    shared_pacer = pacer if pacer is not None else ProviderPacer(stop_requested=stop_requested)
+    more_work = False
+    for plan in await _plan_targets(targets, state_store, cycle_now):
         if stop_requested.is_set():
             break
-        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
-        prior = await _load_validated_state(
-            state_store, target.provider, target.product_id, target.timeframe
-        )
-        requested = target.ingest_requested_at is not None
-        closed_end = target.timeframe.align_closed_end(cycle_now)
-        covers = island_covers_watch(
-            covered_starts_at=None if prior is None else prior.covered_starts_at,
-            covered_ends_at=None if prior is None else prior.covered_ends_at,
-            island_complete=bool(prior is not None and prior.complete),
-            lookback_hours=target.lookback_hours,
-            interval=target.timeframe,
-            closed_end=closed_end,
-            product_id=target.product_id,
-            now=cycle_now,
-            history_floor_at=None if prior is None else prior.history_floor_at,
-        )
-        skip_reconcile = prior is not None and prior.complete and not covers
-        if _in_backoff(prior, cycle_now) and not requested:
+        if plan.in_backoff and not plan.requested:
             continue
-        key = (target.product_id, target.timeframe)
-        try:
-            await ingest_once(
-                service=service,
-                dataset_store=dataset_store,
-                state_store=state_store,
-                provider=target.provider,
-                product_id=target.product_id,
-                lookback_hours=target.lookback_hours,
-                now=cycle_now,
-                timeframe=target.timeframe,
-                retry_base_seconds=interval_seconds,
-                verify_current_dataset=key not in verified_targets,
-                skip_reconcile=skip_reconcile,
-                heartbeat_store=heartbeat_store,
-                now_factory=now_factory,
-                max_chunks=INGEST_CHUNKS_PER_TARGET_CYCLE,
-            )
-        finally:
-            if requested and watchlist is not None:
-                state_after = await _load_validated_state(
-                    state_store, target.provider, target.product_id, target.timeframe
-                )
-                watch_done = state_after is not None and island_covers_watch(
-                    covered_starts_at=state_after.covered_starts_at,
-                    covered_ends_at=state_after.covered_ends_at,
-                    island_complete=state_after.complete,
-                    lookback_hours=target.lookback_hours,
-                    interval=target.timeframe,
-                    closed_end=closed_end,
-                    product_id=target.product_id,
-                    now=cycle_now,
-                    history_floor_at=state_after.history_floor_at,
-                )
-                if watch_done:
-                    await watchlist.clear_ingest_request(
-                        target.provider, target.product_id, target.timeframe
-                    )
-        verified_targets.add(key)
+        await _touch_market_data_heartbeat(heartbeat_store, now_factory)
+        outcome = await _ingest_planned_target(
+            plan,
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            interval_seconds=interval_seconds,
+            cycle_now=cycle_now,
+            verified_targets=verified_targets,
+            watchlist=watchlist,
+            heartbeat_store=heartbeat_store,
+            now_factory=now_factory,
+            pacer=shared_pacer,
+        )
+        more_work = more_work or outcome.more_work
+    if more_work and not stop_requested.is_set():
+        return None
     return await _next_wait_seconds(state_store, targets, cycle_now, interval_seconds)
+
+
+async def _ingest_planned_target(
+    plan: _TargetPlan,
+    *,
+    service: HistoricalRangeService,
+    dataset_store: DatasetStore,
+    state_store: MarketDataWorkerStateStore,
+    interval_seconds: int,
+    cycle_now: datetime,
+    verified_targets: set[tuple[str, CandleInterval]],
+    watchlist: MarketDataWatchlistStore | None,
+    heartbeat_store: WorkerHeartbeatStore | None,
+    now_factory: Callable[[], datetime] | None,
+    pacer: ProviderPacer,
+) -> IngestOutcome:
+    """Run one budgeted ``ingest_once`` and clear a satisfied ingest request."""
+    target = plan.target
+    key = (target.product_id, target.timeframe)
+    try:
+        return await ingest_once(
+            service=service,
+            dataset_store=dataset_store,
+            state_store=state_store,
+            provider=target.provider,
+            product_id=target.product_id,
+            lookback_hours=target.lookback_hours,
+            now=cycle_now,
+            timeframe=target.timeframe,
+            retry_base_seconds=interval_seconds,
+            verify_current_dataset=key not in verified_targets,
+            skip_reconcile=plan.skip_reconcile,
+            heartbeat_store=heartbeat_store,
+            now_factory=now_factory,
+            max_requests=plan.request_budget,
+            pacer=pacer,
+        )
+    finally:
+        if plan.requested and watchlist is not None:
+            await _clear_satisfied_request(plan, state_store, watchlist, cycle_now)
+        verified_targets.add(key)
+
+
+async def _clear_satisfied_request(
+    plan: _TargetPlan,
+    state_store: MarketDataWorkerStateStore,
+    watchlist: MarketDataWatchlistStore,
+    cycle_now: datetime,
+) -> None:
+    """Clear ``ingest_requested_at`` once the island spans the watch lookback."""
+    target = plan.target
+    state_after = await _load_validated_state(
+        state_store, target.provider, target.product_id, target.timeframe
+    )
+    watch_done = state_after is not None and island_covers_watch(
+        covered_starts_at=state_after.covered_starts_at,
+        covered_ends_at=state_after.covered_ends_at,
+        island_complete=state_after.complete,
+        lookback_hours=target.lookback_hours,
+        interval=target.timeframe,
+        closed_end=plan.closed_end,
+        product_id=target.product_id,
+        now=cycle_now,
+        history_floor_at=state_after.history_floor_at,
+    )
+    if watch_done:
+        await watchlist.clear_ingest_request(target.provider, target.product_id, target.timeframe)
 
 
 def _in_backoff(state: MarketDataWorkerState | None, now: datetime) -> bool:
@@ -1232,22 +1510,6 @@ async def _next_wait_seconds(
                 max(1, int((state.next_retry_at - now).total_seconds())),
             )
     return max(1, min(wait_seconds, INGEST_REQUEST_POLL_SECONDS))
-
-
-def _matches_complete_request(
-    report: CandleRangeReport,
-    starts_at: datetime,
-    ends_at: datetime,
-) -> bool:
-    """Require the service report to match one exact complete half-open range."""
-    return (
-        report.complete
-        and report.starts_at == starts_at
-        and report.ends_at == ends_at
-        and report.requested_candle_count == report.quality.candle_count
-        and report.quality.gap_count == 0
-        and report.quality.missing_intervals == 0
-    )
 
 
 async def _record_failure(

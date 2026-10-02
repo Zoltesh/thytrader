@@ -251,6 +251,9 @@ half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `eva
 in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
 long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtests?async=true`) and
 poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`.
+A synchronous submit waits 30 s. If it prints `Timed out after 30 s waiting for the ThyTrader API to
+answer POST /api/v1/backtests`, the backtest may still be running: check `list-results` before
+submitting again, or re-run with `--async` ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)).
 Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate`,
 `fixed_slippage_bps`; optional `spread_bps` stress. Never send `engine_contract_version`.
 

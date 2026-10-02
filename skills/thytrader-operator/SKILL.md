@@ -119,8 +119,8 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v44`,
-   Alembic revision `0051`, `backtest_engine` `thytrader-backtest` (one unified backtest model;
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v45`,
+   Alembic revision `0052`, `backtest_engine` `thytrader-backtest` (one unified backtest model;
    [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
    [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
    deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
@@ -132,8 +132,10 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md),
    [ADR 0071](../../docs/decisions/0071-usdc-spot-quote-markets.md),
    [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md),
-   [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md)). Mismatch means rebuild with
-   `make run`.
+   [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md),
+   [ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)). `catalog_health` includes
+   `ranged_backfill`, `explicit_watch_ingest`, and `research_lookback_ceilings`. Mismatch means
+   rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).
@@ -142,7 +144,11 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    (`complete` / `backfilling` / `unknown`) so `worker_status=succeeded` — which describes the
    latest chunk only — cannot be misread as a finished backfill. `sparsity` is island-only; use
    `watch_sparsity` for the configured
-   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
+   lookback. Failed rows expose redacted `failure_code` / `failure_message` ([ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md));
+   `provider_rate_limited` means Coinbase throttled the worker and it is backing off (wait, do not
+   re-queue). The catalog checks each newest revision structurally and caches by file identity, so
+   it answers in well under a second; exact fingerprints are re-verified when a run binds a dataset
+   ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)).
    If `watch_complete` is false, use `thytrader-data inspect-gaps` for
    classified holes. If that report sets `truncated`, the `gap_summary` is partial (time/row budget)
    and is not proof the full watch was scanned ([ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
@@ -157,7 +163,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
    unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
    do not treat a truncated or failed fill page as a complete ledger.
-6. Treat `partial_result_warnings` as incomplete evidence, not as health.
+6. Treat `partial_result_warnings` as incomplete evidence, not as health. A report that fails with
+   `Timed out after N s waiting for the ThyTrader API to answer GET …` hit a busy API, not a
+   failed one; reads are safe to repeat after a short wait.
 7. Separate verified report fields from hypotheses.
 8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Strategy create/save/import/clone/delete and backtests/studies require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
 

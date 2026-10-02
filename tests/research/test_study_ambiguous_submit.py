@@ -125,3 +125,13 @@ def test_find_study_by_request_fails_closed_when_absent() -> None:
         pytest.raises(Exception, match="No persisted study exists"),
     ):
         find_study_by_request("http://127.0.0.1:8000", "sha256:" + "r" * 64)
+
+
+def test_flagged_transport_timeout_is_ambiguous_even_without_the_old_wording() -> None:
+    """The timed_out flag, not message wording, marks a study submit as ambiguous."""
+    error = _ambiguous_study_error(
+        _study_request(),
+        AgentHttpError("The API did not answer POST /api/v1/research/studies.", timed_out=True),
+    )
+    assert "Submit-state is ambiguous" in str(error)
+    assert error.timed_out is True

@@ -112,8 +112,9 @@ market_data_watchlist = Table(
         "timeframe IN ('1h', '5m', '15m', '30m', '6h', '1d', '1m', '2h', '4h')",
         name="ck_market_data_watchlist_timeframe",
     ),
+    # Widest per-timeframe ceiling (ten years); Alembic 0052 and ADR 0085.
     CheckConstraint(
-        "lookback_hours >= 1 AND lookback_hours <= 2160",
+        "lookback_hours >= 1 AND lookback_hours <= 87600",
         name="ck_market_data_watchlist_lookback_hours",
     ),
 )

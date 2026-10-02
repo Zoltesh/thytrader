@@ -72,12 +72,12 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0064](0064-deployment-http-lifecycle-and-breaker-latch-reset.md) | Deployment HTTP ADR 0058 fields, explicit breaker latch reset, operator-chat parity | Accepted |
 | [0065](0065-deployment-capital-accounting-http.md) | Deployment `capital` block on HTTP; ledger cash vs allocated/venue quote | Accepted |
 | [0066](0066-research-ops-contract-v4.md) | Research ops-contract v25 advertises `thytrader-bar-backtest-v4`; stale v1–v3-only 422 hints rebuild | Accepted — superseded in part by 0083 |
-| [0068](0068-slow-timeframe-watch-lookback-and-catalog-ingest.md) | Slow-timeframe 365-day lookback; catalog ingest continuation, gap summaries, failure detail | Accepted |
+| [0068](0068-slow-timeframe-watch-lookback-and-catalog-ingest.md) | Slow-timeframe 365-day lookback; catalog ingest continuation, gap summaries, failure detail | Accepted — superseded in part by 0085 |
 | [0069](0069-async-backtest-jobs-study-summary.md) | Async backtest jobs and bounded study readback; ops contract v27 | Accepted |
 | [0071](0071-usdc-spot-quote-markets.md) | USDC spot quote markets across product, strategy, research, risk, and runtime; ops contract v29 | Accepted |
 | [0074](0074-multi-book-ledger-bounded-reads.md) | Multi-book fill ledger and bounded deployment list/ledger reads; ops contract v32 | Accepted |
 | [0070](0070-mutation-cli-installation-auth.md) | Shared `request_mutation_json()` wires installation Bearer auth on all mutation CLIs | Accepted |
-| [0072](0072-catalog-health-bounded-gaps-self-complete-ingest.md) | Bounded gap inspection, self-complete ingest, heartbeat during ingest; ops v30 / Alembic 0043 | Accepted |
+| [0072](0072-catalog-health-bounded-gaps-self-complete-ingest.md) | Bounded gap inspection, self-complete ingest, heartbeat during ingest; ops v30 / Alembic 0043 | Accepted — superseded in part by 0085 |
 | [0073](0073-durable-research-jobs.md) | Durable bounded research jobs, plan dedupe, compact planner; ops contract v31 / Alembic 0044 | Accepted |
 | [0075](0075-fill-atomic-paper-order-status-and-split-state-fail-closed.md) | Fill-atomic paper order status and split-state fail-closed; ops contract v34 | Accepted |
 | [0076](0076-selectable-spot-quote-currencies.md) | Selectable USD/USDC/USDT spot quotes; ops contract v35 | Accepted |
@@ -89,6 +89,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) | Strategy as the root object: one mutable revision-guarded strategy, automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys, hard delete with live-ledger carve-out; ops contract v41 / Alembic 0048 | Accepted |
 | [0083](0083-unified-backtest-model.md) | One unified backtest model (`engine: "thytrader-backtest"`, corrected maker-limit semantics) replaces the versioned bar-backtest engines; optional `spread_bps` stress on taker legs; no engine selector; `backtest-model` replaces engine-support; ops contract v42 / Alembic 0049 | Accepted |
 | [0084](0084-home-kpis-needs-attention-data-health.md) | Home recomposed from existing endpoints: independently loading KPI tiles, Needs attention aggregated from bots, setup, watched datasets, and research jobs, 1D/1W/1M/3M chart with honest gaps on thinned ranges, compact Holdings, fee tier line, and a Data health disclosure | Accepted |
+| [0085](0085-fast-research-ingest.md) | Ranged newest-first ingest (350-bar pages, fair per-cycle request budgets, paced with 429 backoff), research lookback ceilings (1m 90 d to 2h-1d 10 y), ingest refuses unwatched targets (409), catalog-grade latest listings and a byte-identical verified-dataset cache; ops contract v45 / Alembic 0052 | Accepted |
 
 ## Status values
 

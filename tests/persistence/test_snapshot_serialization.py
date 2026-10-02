@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
+from thytrader.market_data.lookback import MAX_WATCH_LOOKBACK_HOURS
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     InMemoryPortfolioHistoryStore,
@@ -615,6 +616,24 @@ def test_history_floor_migration_follows_stop_first_reset() -> None:
     assert "nullable=True" in content
     column = metadata.tables["market_data_worker_state"].c.history_floor_at
     assert column.nullable is True
+
+
+def test_research_lookback_migration_follows_history_floor() -> None:
+    """The fifty-second migration widens the watchlist lookback CHECK to ten years after 0051."""
+    content = Path("alembic/versions/0052_research_watch_lookback_ceilings.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0052"' in content
+    assert 'down_revision = "0051"' in content
+    assert "lookback_hours <= 87600" in content
+    assert "ADR 0085" in content
+    constraints = {
+        constraint.name: str(getattr(constraint, "sqltext", ""))
+        for constraint in metadata.tables["market_data_watchlist"].constraints
+    }
+    assert constraints["ck_market_data_watchlist_lookback_hours"] == (
+        f"lookback_hours >= 1 AND lookback_hours <= {MAX_WATCH_LOOKBACK_HOURS}"
+    )
 
 
 def test_stop_first_migration_resets_research_rows_after_unified_model() -> None:

@@ -22,16 +22,27 @@ The range endpoint paginates through Coinbase's 350-candle limit using **inclusi
 `page_start` to `inclusive_end + duration`. Exclusive paging dropped the oldest bar on a full 5m
 page. The adapter still validates every candle for UTC alignment, chronological order, OHLC
 consistency, and decimal exactness, and reports expected vs received candle counts, gaps, and a
-binary completeness result. It is bounded to 129,600 candles (90 days at 1m). One-hour watches stay
-`min(requested, 2,160 hours)` and cannot request ranges ending in the future.
+binary completeness result. It is bounded to 129,600 candles (90 days at 1m). Watch lookbacks stay
+within per-timeframe ceilings (`market_data.lookback`, [ADR 0085](../decisions/0085-fast-research-ingest.md)):
+1m 90 days, 5m 1 year, 15m 2 years, 30m 3 years, 1h 5 years, and 2h/4h/6h/1d 10 years, each within
+the 129,600-bar cap. Ranges cannot end in the future. An HTTP 429 from either Coinbase call raises
+the provider-neutral `MarketDataRateLimitedError`.
 
-The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h historical datasets. Initial
-backfill publishes complete UTC-day chunks oldest-first; incomplete days are classified holes and
-are never interpolated. When the watch lookback starts before `covered_starts_at` of a complete
-island, the worker prepends complete UTC-day chunks newest-first (`prefix_backfill`) and stops at
-the first hole. A prefix chunk that is still incomplete on an immediate confirmation re-fetch is a
-confirmed provider hole: the worker records `history_floor_at` equal to the island start (worker
-state column, Alembic 0051), stops prepending, and resumes forward incremental extension. Without
+The worker maintains immutable, fingerprint-addressed 1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, and 4h
+historical datasets ([ADR 0085](../decisions/0085-fast-research-ingest.md)). Every provider request
+is one interval-aligned page of at most 350 bars (`HISTORICAL_REQUEST_MAX_CANDLES`); a page that
+extends a published island carries one overlap bar. Initial backfill starts at the newest closed
+bar and walks back toward the lookback start, so coverage ends at the newest bar after one request;
+when the watch lookback starts before `covered_starts_at` of a complete island, prefix backfill
+(`prefix_backfill`) walks back the same way from the island start. Incremental maintenance walks
+forward from a one-bar overlap. Pages split into gap-free runs; a missing bar ends a run and is
+never interpolated. Each walk publishes one cumulative revision. A missing bar older than the
+settle window (one bar, at least 15 minutes) that is still missing on an immediate confirmation
+re-fetch is a confirmed provider hole. Directly before the walked segment it becomes
+`history_floor_at` at the first bar after the hole (worker state column, Alembic 0051): the worker
+stops prepending and resumes forward incremental extension. In a forward walk it starts a newer
+island after the hole, because the newest contiguous island wins. A missing bar inside the settle
+window is waited for and never recorded, so a late candle cannot discard a long island. Without
 the floor, prefix backfill would retry the same hole every cycle and the island would never extend
 forward (the 2026-09-17 2h/4h freeze: Coinbase lacks two BTC-USD 2h bars on 2026-05-08 and one 4h
 bar on 2025-10-25 for every product). `watch_complete` treats a floor at the island start as the
@@ -47,12 +58,18 @@ publications; they are not a watch-completeness surface.
 not produce `gap_count: 0` for an incomplete watch. Server-side time, probe, and row budgets can
 stop the scan: the payload then sets `truncated` and a partial `gap_summary`
 ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
-`POST /api/v1/data/ingest` queues a watchlist ingest job (HTTP 202) and does not call `ingest_once`.
-The market-data worker is the only publisher. The API Compose volume stays `:ro`. Preview/range
-endpoints remain diagnostics, not strategy inputs. The worker keeps `ingest_requested_at` until
-`watch_complete` or a durable failure, walking a small UTC-day budget per target per cycle and
-touching its heartbeat between cells and chunks so one ingest queue can finish lookback without
-extra `fill-gaps` calls.
+`POST /api/v1/data/ingest` queues an ingest job (HTTP 202) for an existing watch and does not call
+`ingest_once`. An unwatched product/timeframe is HTTP 409 naming `watch-add`; ingest never creates
+a watch or picks a lookback. The market-data worker is the only publisher. The API Compose volume
+stays `:ro`. Preview/range endpoints remain diagnostics, not strategy inputs. The worker keeps
+`ingest_requested_at` until `watch_complete` or a durable failure. Every due target spends at most
+a per-cycle request budget (24 with a pending request, otherwise 8). Covered watches are refreshed
+first, then requested targets (oldest request first), then other backfill, and a target that ran out
+of budget makes the next cycle start without the idle wait. One `ProviderPacer` spaces provider
+calls by 0.25 s; an HTTP 429 sets a shared cooldown (2 s doubling to 60 s), keeps the pages already
+fetched, and records `provider_rate_limited` only when a walk made no progress. The heartbeat is
+touched before every request, so one ingest queue finishes its lookback without extra
+`fill-gaps` calls.
 
 - With Coinbase credentials, it reads current product constraints and a bounded recent candle window
   through the official Coinbase Advanced Trade SDK.
@@ -135,10 +152,15 @@ synchronized last. A manifest at its canonical `manifests/<content-sha256>.json`
 publication marker: a crash can leave undiscoverable orphan files, but it cannot publish a partial
 dataset. Existing unmanifested files cause a safe failure rather than being reused.
 
-`DatasetStore.load_verified()` accepts only a complete 1h manifest at that canonical fingerprint path.
+`DatasetStore.load_verified()` accepts only a complete manifest at that canonical fingerprint path.
 It validates identifier/time/count facts, resolved paths beneath the configured root, and complete
 candle coverage after reading every referenced Parquet file; it then recomputes the fingerprint before
-returning a dataset to a future backtest or worker.
+returning a dataset to a backtest or worker. A successful verification is cached per manifest and
+served again only while the manifest and every Parquet file keep the exact stat identity and SHA-256
+digest captured around it, so a hit never vouches for other bytes. `load_candles()` returns the
+candles decoded during that verification (bounded in memory by `candle_cache_budget`; the worker
+keeps none) instead of re-reading the files afterwards. This removed most of a backtest submit's
+cost: one submit used to verify the same dataset about 14 times.
 
 `DatasetStore.list_verified()` serves full-history browser catalogue listings from the same deep
 verification. Because datasets accumulate and execution consumers must always reread content,
@@ -150,11 +172,19 @@ capture this identity before and after deep verification and cache only an uncha
 missing files, stat failures, or digest mismatches are cache misses. Deep execution loads always
 reread and reverify content regardless of this listing cache.
 
-`DatasetStore.list_latest_verified()` does not deep-verify that cumulative history. It cheaply parses
-only the identity and time bounds needed to group manifest candidates, then deep-verifies the newest
-candidate per provider/product/timeframe. If that candidate is corrupt, discovery continues
-newest-first until it finds a valid prior revision. `GET /api/v1/market-data/datasets/latest` serves
-this bounded catalog to the strategy launch form, while `/datasets` keeps returning every verified
+`DatasetStore.list_latest_verified()` is a catalog-grade listing ([ADR 0085](../decisions/0085-fast-research-ingest.md)).
+It cheaply parses only the identity and time bounds needed to group manifest candidates, then checks
+the newest candidate per provider/product/timeframe structurally: manifest facts and canonical
+content address, safe in-market partition paths without duplicates, every file present, and an
+intact Parquet envelope (magic at both ends). It does not decode rows or recompute fingerprints;
+every path that binds a dataset to a run resolves the exact fingerprint through full verification,
+so a damaged listed revision fails closed there. Entries are cached by the stat identity of the
+manifest and every file, and partition paths and envelopes are cached per file, so a new cumulative
+revision checks only its new partitions. If the newest candidate fails, discovery continues
+newest-first until a prior revision passes. On a production-shaped catalog (87 markets, about 17,000
+partitions) a warm listing takes about 0.2 s and stays under a second while every market publishes
+a new revision each cycle. `GET /api/v1/market-data/datasets/latest` and operator `data-catalog`
+serve this catalog, while `/datasets` keeps returning every deep-verified
 revision so operators can inspect full history and stored results can resolve exact source
 fingerprints. Shared cache access is serialized across concurrent catalog requests, and both
 filesystem-backed routes run in FastAPI's worker thread pool so even a cold full catalog verification
@@ -175,7 +205,7 @@ durable datasets. It is distinct from `thytrader-worker`, which records portfoli
 
 ## Superseded-revision retention
 
-Every ingest chunk publishes a new cumulative revision, and `extend` reuses unchanged day
+Every ingest walk publishes a new cumulative revision, and `extend` reuses unchanged day
 partitions, so superseded manifests accumulate (40,704 manifests / 1.1 GB on 2026-10-01). The
 market-data worker, which is the only writer of the dataset volume, runs a bounded retention pass
 at startup and every 6 hours (`thytrader.market_data.dataset_retention`). A truncated pass runs
@@ -208,9 +238,11 @@ the run.
 The market-data worker aligns each cycle to the last complete bar of the watch timeframe. Its first
 cycle requests a bounded lookback. Later cycles plan from durable verified coverage: forward
 incremental (one-bar overlap), or prefix backfill when the watch starts before the island and no
-`history_floor_at` sits at the island start. Incomplete-chunk warnings carry
-`product_id`, `timeframe`, `direction` (`forward` / `prefix`), `starts_at`, `ends_at`, `expected`,
-`received`, and `missing_intervals`; `market_data_history_floor_recorded` logs each new floor.
+`history_floor_at` sits at the island start. Incomplete-page warnings (`code=chunk_incomplete`)
+carry `product_id`, `timeframe`, `direction` (`initial` / `prefix` / `forward`), `starts_at`,
+`ends_at`, `expected`, `received`, and `missing_intervals`; `market_data_history_floor_recorded`
+logs each new floor, `market_data_ingestion_walk` logs each walk's stop reason and request count,
+and `market_data_ingestion_rate_limited` logs each throttle with its cooldown.
 After restart, the worker first honors any persisted retry deadline and verifies
 the current immutable dataset before trusting durable coverage. Later cycles inside the same covered
 window update scheduling diagnostics without provider or dataset I/O when the island already covers
