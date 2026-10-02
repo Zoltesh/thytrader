@@ -45,6 +45,7 @@ from thytrader.strategies.library import (
     BulkDeletionItem,
     StrategyDeletionCounts,
     StrategyLibraryError,
+    StrategyOrigin,
     StrategyRecord,
     StrategyStore,
     bulk_delete_strategies,
@@ -262,15 +263,18 @@ async def list_strategies(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
     tag: Annotated[str | None, Query(min_length=1, max_length=500)] = None,
+    origin: Annotated[StrategyOrigin, Query()] = StrategyOrigin.ALL,
 ) -> StrategyListResponse:
     """Return one newest-updated-first library page with batched evidence reads.
 
-    ``tag`` keeps only strategies whose ``metadata.tags`` include it; ``total`` and the
-    cursor then cover the matches only (ADR 0094).
+    ``tag`` keeps only strategies whose ``metadata.tags`` include it (ADR 0094).
+    ``origin=research`` keeps strategies tagged ``claude-research`` or ``research-*``;
+    ``origin=operator`` keeps every other strategy (ADR 0098). ``total`` and the cursor
+    then cover the matches only; pass the same filters with ``cursor``.
     """
     start = _cursor_offset(cursor)
     try:
-        page = await store.list_page(limit=limit, offset=start, tag=tag)
+        page = await store.list_page(limit=limit, offset=start, tag=tag, origin=origin)
     except StrategyLibraryError as error:
         raise strategy_http_error(error) from None
     identities = [record.strategy_id for record in page.records]

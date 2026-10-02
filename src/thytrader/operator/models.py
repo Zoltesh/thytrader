@@ -208,12 +208,22 @@ class OpsContractPayload(_FrozenModel):
         ],
         ...,
     ]
-    strategy_library: tuple[Literal["tag_filter", "bulk_delete_by_tag", "clone_name"], ...]
+    strategy_library: tuple[
+        Literal["tag_filter", "bulk_delete_by_tag", "clone_name", "origin_filter"], ...
+    ]
     portfolio_max_sleeves: int = Field(ge=1)
     portfolio_sleeve_operations: tuple[Literal["batch_add"], ...]
     same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
     runtime_observability: tuple[
-        Literal["position_state", "exit_in_flight", "paper_live_fill_comparison"], ...
+        Literal[
+            "position_state",
+            "exit_in_flight",
+            "paper_live_fill_comparison",
+            "paper_protection_covered",
+            "book_marks",
+            "portfolio_fill_comparisons",
+        ],
+        ...,
     ]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 

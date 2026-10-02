@@ -3,6 +3,8 @@ import {
 	CORE,
 	LAB,
 	PROPOSAL,
+	fillComparisonFixture,
+	openBookFixture,
 	SOL,
 	labFixture,
 	mockPortfolioApi,
@@ -367,4 +369,46 @@ test('long portfolio names keep the header usable at 1440 px', async ({ page }) 
 	const lede = await page.locator('.page-head .lede').boundingBox();
 	expect(lede?.height ?? 0).toBeLessThan(80);
 	await expect(page.getByTestId('portfolio-switch').first()).toHaveAttribute('title', names[0]);
+});
+
+test('sleeve rows show each open book and the paper vs live fill panel', async ({ page }) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	const ema = '5eee0000-0000-7000-8000-000000000001';
+	state.bots[ema] = 'running';
+	state.bots['5eee0000-0000-7000-8000-000000000002'] = 'running';
+	state.books[ema] = [openBookFixture()];
+	state.fillComparisons = [fillComparisonFixture('deee0000-0000-7000-8000-000000000001')];
+	await mockPortfolioApi(page, state);
+	await page.goto('/deployments');
+	const book = page.getByTestId('open-book');
+	await expect(book).toHaveCount(1);
+	await expect(book.getByTestId('open-book-state')).toHaveText('Protected');
+	await expect(book.getByTestId('open-book-pnl')).toHaveText('+7.59 USDC');
+	await expect(book.getByTestId('open-book-levels')).toContainText('60,125.5');
+	await expect(book.getByTestId('open-book-levels')).toContainText('TP63,800');
+	await expect(page.getByTestId('sleeve-twin')).toHaveText('Paper twin · fills');
+	const panel = page.getByTestId('paper-live-fills');
+	await expect(panel.getByRole('heading', { name: 'Paper vs live' })).toBeVisible();
+	await expect(panel.getByTestId('plf-row')).toHaveCount(1);
+	await expect(panel.getByTestId('plf-filled')).toHaveText(['4 of 6 filled', '5 of 5 filled']);
+	await expect(panel.getByTestId('plf-slippage')).toHaveText(['0 bps', '+1.8 bps']);
+	await expect(panel.getByTestId('plf-wait')).toHaveText(['1h 59m', '6s']);
+	await expect(panel.getByTestId('plf-gap')).toHaveText('Live fills 1h 59m sooner (median).');
+	await expect(panel.getByRole('link', { name: 'LIVE' })).toHaveAttribute(
+		'href',
+		'/deployments/deee0000-0000-7000-8000-000000000001'
+	);
+});
+
+test('no twins means no paper vs live panel', async ({ page }) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	state.bots['5eee0000-0000-7000-8000-000000000001'] = 'running';
+	await mockPortfolioApi(page, state);
+	await page.goto('/deployments');
+	await expect(page.getByTestId('sleeve-row').first()).toBeVisible();
+	await expect
+		.poll(() => state.calls.some((call) => call.path.endsWith('/fill-comparisons')))
+		.toBe(true);
+	await expect(page.getByTestId('paper-live-fills')).toHaveCount(0);
+	await expect(page.getByTestId('sleeve-twin')).toHaveCount(0);
 });

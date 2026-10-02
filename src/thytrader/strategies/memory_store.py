@@ -25,12 +25,14 @@ from thytrader.strategies.library import (
     StrategyInvalidError,
     StrategyLibraryError,
     StrategyNotFoundError,
+    StrategyOrigin,
     StrategyPage,
     StrategyRecord,
     StrategyRevisionConflictError,
     StrategySnapshotNotFoundError,
     document_tags,
     evaluate_document,
+    matches_origin,
     parse_document_text,
 )
 from thytrader.strategies.models import canonical_strategy_bytes, strategy_fingerprint
@@ -70,14 +72,22 @@ class InMemoryStrategyStore:
         async with self._lock:
             return self._require(strategy_id)
 
-    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
-        """Return one newest-updated-first page, optionally only strategies with ``tag``."""
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        tag: str | None = None,
+        origin: StrategyOrigin = StrategyOrigin.ALL,
+    ) -> StrategyPage:
+        """Return one newest-updated-first page, optionally by ``tag`` and ``origin``."""
         async with self._lock:
             ordered = sorted(
                 (
                     item
                     for item in self._records.values()
-                    if tag is None or tag in document_tags(item.document)
+                    if (tag is None or tag in document_tags(item.document))
+                    and matches_origin(item.document, origin)
                 ),
                 key=lambda item: (-item.updated_at.timestamp(), str(item.strategy_id)),
             )

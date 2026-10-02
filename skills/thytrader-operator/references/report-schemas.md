@@ -40,7 +40,9 @@ stopped live book whose strategy was deleted), the snapshot `strategy_fingerprin
 `strategy_name` (captured at start), and `strategy_deleted`. The `strategies` payload
 uses the same `books[]` on each deployment row. `protection_status` is classified from verified
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
-([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)). Each row also
+([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)); an open paper book is
+always `covered`, matching its `position_state`
+([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each row also
 reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`),
 breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
 `worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and

@@ -155,3 +155,15 @@ def test_reads_need_no_confirm(capsys: pytest.CaptureFixture[str]) -> None:
     )
     assert code == 0
     assert json.loads(out)["total"] == 0
+
+
+def test_fill_comparisons_is_a_read(capsys: pytest.CaptureFixture[str]) -> None:
+    """``fill-comparisons`` GETs the portfolio's paper vs live rows (ADR 0098)."""
+    body = {"portfolio_id": _PID, "comparisons": [], "warnings": []}
+    code, out, _recorder = _run(
+        ["fill-comparisons", "--portfolio-id", _PID],
+        {f"GET /api/v1/portfolios/{_PID}/fill-comparisons": body},
+        capsys,
+    )
+    assert code == 0
+    assert json.loads(out) == body

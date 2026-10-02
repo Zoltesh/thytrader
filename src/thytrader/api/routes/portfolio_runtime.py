@@ -24,6 +24,7 @@ from thytrader.api.dependencies import (
     get_decision_journal_store,
     get_execution_store,
     get_market_data_watchlist_store,
+    get_optional_decision_journal_store,
     get_portfolio_storage,
     get_risk_policy_store,
     get_runtime_state,
@@ -32,6 +33,7 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.routes.portfolios import mutation_context, portfolio_http_error
 from thytrader.data_control.service import ingestion_provider
+from thytrader.execution.book_marks import marks_by_deployment
 from thytrader.execution.decision_store import (
     DecisionJournalStore,  # noqa: TC001 - FastAPI Depends.
 )
@@ -145,9 +147,15 @@ StorageDep = Annotated[PortfolioStorage, Depends(get_portfolio_storage)]
 
 @router.get("/{portfolio_id}/deployment", response_model=PortfolioDeploymentResponse)
 async def get_deployment(
-    portfolio_id: UUID, service: RuntimeDep, storage: StorageDep
+    portfolio_id: UUID,
+    service: RuntimeDep,
+    storage: StorageDep,
+    journal: Annotated[DecisionJournalStore | None, Depends(get_optional_decision_journal_store)],
 ) -> PortfolioDeploymentResponse:
-    """The portfolio's deployment: state, each sleeve's bot, breakers, and exposure."""
+    """The portfolio's deployment: state, each sleeve's bot, breakers, and exposure.
+
+    Each sleeve bot's open books carry a last-bar mark and gross unrealized PnL (ADR 0098).
+    """
     try:
         snapshot = await service.snapshot(portfolio_id)
         pending = await _pending_count(storage, portfolio_id)
@@ -155,7 +163,8 @@ async def get_deployment(
         raise portfolio_http_error(error) from None
     except ExecutionStoreError:
         raise _execution_unavailable() from None
-    return deployment_response(snapshot, pending_proposals=pending)
+    marks = None if journal is None else await marks_by_deployment(journal, snapshot.snapshots)
+    return deployment_response(snapshot, pending_proposals=pending, marks=marks)
 
 
 @router.post("/{portfolio_id}/start", response_model=PortfolioActionResponse)

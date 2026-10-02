@@ -393,6 +393,33 @@ def test_library_filters_by_tag_and_rows_carry_their_tags(store: InMemoryStrateg
     assert none["strategies"] == []
 
 
+def test_library_origin_splits_research_from_operator_strategies(
+    store: InMemoryStrategyStore,
+) -> None:
+    """``?origin=`` keeps claude-research / research-* rows apart from the rest (ADR 0098)."""
+    research = [
+        _seed(store, _tagged(("claude-research", "momentum"))),
+        _seed(store, _tagged(("research-market-variant",))),
+    ]
+    mine = [_seed(store, _tagged(("momentum",))), _seed(store)]
+    with _app(store) as client:
+        found = client.get("/api/v1/strategies?origin=research").json()
+        operator = client.get("/api/v1/strategies?origin=operator").json()
+        everything = client.get("/api/v1/strategies?origin=all").json()
+        both = client.get("/api/v1/strategies?origin=operator&tag=momentum").json()
+        rejected = client.get("/api/v1/strategies?origin=mine")
+    assert {row["strategy_id"] for row in found["strategies"]} == {
+        str(record.strategy_id) for record in research
+    }
+    assert found["total"] == 2
+    assert {row["strategy_id"] for row in operator["strategies"]} == {
+        str(record.strategy_id) for record in mine
+    }
+    assert everything["total"] == 4
+    assert [row["strategy_id"] for row in both["strategies"]] == [str(mine[0].strategy_id)]
+    assert rejected.status_code == 422
+
+
 def test_market_variant_snapshots_never_become_library_rows(
     store: InMemoryStrategyStore,
 ) -> None:

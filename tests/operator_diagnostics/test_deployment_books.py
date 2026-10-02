@@ -120,7 +120,8 @@ def test_operator_books_omit_quantities_and_label_each_product() -> None:
     assert by_product["BTC-USD"].protection_status == "flat"
     assert by_product["ETH-USD"].phase == "open"
     assert by_product["ETH-USD"].side == "short"
-    assert by_product["ETH-USD"].protection_status == "unprotected"
+    # ADR 0098: the paper synthetic stop is cover, so the two fields agree.
+    assert by_product["ETH-USD"].protection_status == "covered"
     # ADR 0097: the paper synthetic stop protects the open book; nothing is exiting.
     assert (by_product["BTC-USD"].position_state, by_product["BTC-USD"].exit_in_flight) == (
         "flat",

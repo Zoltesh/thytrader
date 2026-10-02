@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v57`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v58`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -59,6 +59,7 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 | List stored results and recent jobs | `uv run thytrader-portfolio list-backtests --portfolio-id ID [--limit 10]` |
 | Read the journal | `uv run thytrader-portfolio journal --portfolio-id ID [--limit 50] [--cursor C]` |
 | Deployment state (read-only) | `uv run thytrader-portfolio deployment --portfolio-id ID` |
+| Paper vs live entry fills of sleeves with a twin (read-only) | `uv run thytrader-portfolio fill-comparisons --portfolio-id ID` |
 | Manager briefing (read-only) | `uv run thytrader-portfolio briefing --portfolio-id ID [--decisions-per-sleeve 5] [--journal-limit 20]` |
 | Propose a rebalance | `uv run thytrader-portfolio propose --portfolio-id ID --revision N --kind rebalance --weight ID=0.45 --weight ID=0.35 [--cash-reserve-fraction 0.2] (--rationale TEXT \| --rationale-file PATH) [--evidence KIND=REF ...] --confirm` |
 | Propose pausing or resuming a sleeve | `uv run thytrader-portfolio propose --portfolio-id ID --revision N --kind pause_sleeve\|resume_sleeve --sleeve-id ID --rationale TEXT [--evidence KIND=REF ...] --confirm` |
@@ -218,7 +219,8 @@ and cross-sleeve interactions are **not simulated**. Fills are simulated from ca
 `PUT /api/v1/portfolios/{id}/weights`, `GET /api/v1/portfolios/{id}/journal`,
 `POST/GET /api/v1/portfolios/{id}/backtests`, `GET /api/v1/portfolios/{id}/backtests/jobs[/{job_id}]`,
 `GET /api/v1/portfolios/{id}/backtests/{result_fingerprint}?max_points=`,
-`GET /api/v1/portfolios/{id}/deployment`, `GET /api/v1/portfolios/{id}/briefing`
+`GET /api/v1/portfolios/{id}/deployment`, `GET /api/v1/portfolios/{id}/fill-comparisons`,
+`GET /api/v1/portfolios/{id}/briefing`
 (contract `thytrader-portfolio-briefing-v1`), `GET/POST /api/v1/portfolios/{id}/proposals`,
 `GET /api/v1/portfolios/{id}/proposals/{proposal_id}`, and
 `POST /api/v1/portfolios/{id}/proposals/{proposal_id}/approve|decline` (body `{note?,
@@ -232,8 +234,13 @@ the same routes and its Manager tab shows proposals with Approve / Decline / Ask
 `sleeves[]` row per sleeve; each row's `deployment` field is that sleeve's bot
 (`deployment_id`, `status`, `phase`, `position_state`, `exit_in_flight`, `lifecycle_command`,
 `allocated_capital`, `net_pnl`, `return_fraction`, `drawdown_fraction`, `exposure_quote`,
-`open_books`, `strategy_fingerprint`, `running_current_rules`) or `null` before the sleeve is
-started. Describe a sleeve's book by `position_state`
+`open_books`, `books[]`, `strategy_fingerprint`, `running_current_rules`) or `null` before the
+sleeve is started. Each `books[]` row is one open book: `product_id`, `side`, `quantity`,
+`entry_price`, `stop_price`, `target_price`, `entered_bar`, `position_state`, and `mark_price` /
+`marked_at` / `unrealized_pnl` (the last evaluated bar's close from the decision journal, and gross
+unrealized PnL before exit fees; null without a journaled close;
+[ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Action
+responses list books without marks; read `deployment` for marked books. Describe a sleeve's book by `position_state`
 ([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)): `open_protected`
 means open with its TP/SL (or stop) resting, even though `phase` reads `pending_exit`; only
 `exiting` (`exit_in_flight: true`) means the bot is selling.
@@ -249,3 +256,10 @@ It reports each side's `entries_rested`, `entries_filled`, `entries_expired`, `e
 through the limit, so its waits run to the fill bar's close. Live waits end at the Coinbase fill,
 which is often seconds. Use the comparison to explain why a live sleeve entered and its paper twin
 did not (or entered later). Do not treat the gap as a fault. The report is read-only.
+
+For one portfolio, `uv run thytrader-portfolio fill-comparisons --portfolio-id UUID`
+(`GET /api/v1/portfolios/{id}/fill-comparisons`) returns `{portfolio_id, comparisons[], warnings[]}`
+with the same rows, limited to twins whose paper or live book is a sleeve bot of that portfolio
+(`paper.portfolio_id` / `live.portfolio_id` say which), newest first, at most 10. The Portfolio
+page's Sleeves tab shows them as the "Paper vs live" panel
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).

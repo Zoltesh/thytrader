@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from pydantic import BaseModel, Field
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -29,6 +30,8 @@ from thytrader.api.strategy_http import strategy_http_error
 from thytrader.execution.models import ExecutionStoreError
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.operator.models import PaperLiveFillComparison  # noqa: TC001 - Pydantic field.
+from thytrader.operator.portfolios_report import paper_live_fill_comparisons
 from thytrader.persistence.audit_events import (
     AuditEvent,
     AuditEventCategory,
@@ -283,6 +286,50 @@ async def set_weights(
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
     return await _response(updated, execution)
+
+
+class PortfolioFillComparisonsResponse(BaseModel):
+    """Paper vs live entry fills for twins that are sleeves of one portfolio (ADR 0098).
+
+    Same rows as the operator ``portfolios`` report's ``paper_live_fill_comparisons``
+    (ADR 0097), limited to pairs whose paper or live book is a sleeve bot of this portfolio.
+    """
+
+    portfolio_id: UUID
+    comparisons: tuple[PaperLiveFillComparison, ...]
+    warnings: tuple[str, ...] = Field(
+        default=(), description="Twins skipped because a book could not be read."
+    )
+
+
+@router.get("/{portfolio_id}/fill-comparisons", response_model=PortfolioFillComparisonsResponse)
+async def get_fill_comparisons(
+    portfolio_id: UUID,
+    store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> PortfolioFillComparisonsResponse:
+    """Compare entry fills of paper and live books on the same snapshot as a sleeve."""
+    try:
+        await store.get(portfolio_id)
+    except PortfolioError as error:
+        raise portfolio_http_error(error) from None
+    try:
+        deployments = await execution.list_deployments()
+    except ExecutionStoreError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "execution_storage_unavailable",
+                "message": "Execution storage is unavailable.",
+            },
+        ) from None
+    warnings: list[str] = []
+    comparisons = await paper_live_fill_comparisons(
+        execution, deployments, warnings, portfolio_id=portfolio_id
+    )
+    return PortfolioFillComparisonsResponse(
+        portfolio_id=portfolio_id, comparisons=comparisons, warnings=tuple(warnings)
+    )
 
 
 @router.get("/{portfolio_id}/journal", response_model=JournalListResponse)

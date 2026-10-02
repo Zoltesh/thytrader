@@ -40,6 +40,7 @@
 		marketLabel,
 		otherVersionDeployments,
 		performanceHeadline,
+		productIdQuote,
 		performanceReportText,
 		performanceCurrencySuffix,
 		quoteAmountLabel,
@@ -77,11 +78,18 @@
 		type OperatorPerformanceReport
 	} from '$lib/deployments';
 	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
+	import { bookStateChip, heldText, markTitle, unrealizedText } from '$lib/open-books';
 	import { loadStrategyConfig, type StrategySourceState } from '$lib/strategy-config';
 
 	const id = $derived(pageState.params.id ?? '');
 
 	let deployment = $state<Deployment | null>(null);
+	/** Clock for each open book's held time (ADR 0098); a minute is fine-grained enough. */
+	let now = $state(Date.now());
+	$effect(() => {
+		const clock = setInterval(() => (now = Date.now()), 60_000);
+		return () => clearInterval(clock);
+	});
 	let inventory = $state<Deployment[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
@@ -672,6 +680,16 @@
 				<h2 class="label">Position</h2>
 				<p class="value small">{positionText(positions)}</p>
 				<p class="delta">{protectionText(current, positions)}</p>
+				{#if positions.length === 1}
+					{@const book = positions[0]!}
+					{@const pnl = unrealizedText(book, productIdQuote(book.product_id) ?? '')}
+					{@const held = `held ${heldText(book.entered_bar, now)}`}
+					<p class="delta" data-testid="kpi-position-pnl">
+						{#if pnl !== null}<span class="upnl {pnl.tone}" title={markTitle(book)}
+								>uPnL {pnl.text}</span
+							>{` · ${held}`}{:else}{held}{/if}
+					</p>
+				{/if}
 			</article>
 			<article class="card kpi" data-testid="kpi-latest-bar">
 				<h2 class="label">Latest bar</h2>
@@ -861,11 +879,14 @@
 								<th scope="col" class="num">Entry</th>
 								<th scope="col" class="num">Stop</th>
 								<th scope="col" class="num">Target</th>
+								<th scope="col" class="num">Unrealized</th>
+								<th scope="col" class="num">Held</th>
 								<th scope="col">Protection</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each positions as position (position.product_id)}
+								{@const pnl = unrealizedText(position, productIdQuote(position.product_id) ?? '')}
 								<tr>
 									<td>{position.product_id}</td>
 									<td>{position.side ?? 'long'}</td>
@@ -873,7 +894,20 @@
 									<td class="num">{position.entry_price}</td>
 									<td class="num">{position.stop_price}</td>
 									<td class="num">{position.target_price ?? 'none'}</td>
-									<td data-testid="position-state" title={position.protection_status ?? 'unknown'}
+									<td
+										class="num upnl {pnl?.tone ?? 'muted'}"
+										title={markTitle(position)}
+										data-testid="position-upnl">{pnl?.text ?? '—'}</td
+									>
+									<td
+										class="num muted"
+										title="Entry bar {position.entered_bar.slice(0, 16)} UTC"
+										data-testid="position-held">{heldText(position.entered_bar, now)}</td
+									>
+									<td
+										data-testid="position-state"
+										class="state-cell {bookStateChip(position.position_state).tone}"
+										title={position.protection_status ?? 'unknown'}
 										>{positionStateLabel(position.position_state, {
 											hasTarget: position.target_price !== null
 										}) ??
@@ -1037,6 +1071,34 @@
 />
 
 <style>
+	.upnl {
+		font-variant-numeric: tabular-nums;
+	}
+	.upnl.pos {
+		color: var(--pos);
+	}
+	.upnl.neg {
+		color: var(--neg);
+	}
+	.state-cell::before {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		margin-right: 6px;
+		border-radius: 50%;
+		background: var(--faint);
+		vertical-align: 1px;
+		content: '';
+	}
+	.state-cell.ok::before {
+		background: var(--accent);
+	}
+	.state-cell.warn::before {
+		background: var(--warn);
+	}
+	.state-cell.bad::before {
+		background: var(--neg);
+	}
 	.back-link {
 		display: inline-block;
 		margin-bottom: 14px;

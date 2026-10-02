@@ -9,11 +9,17 @@
 	 * accessible confirmation lists exactly what goes, which strategies are
 	 * blocked by running or paused bots, and that stopped live history is kept.
 	 * Results are shown per strategy, including partial failures.
+	 *
+	 * The library opens on "Mine" (ADR 0098): agent research strategies
+	 * (tagged `claude-research` or `research-*`) sit under "Research" so a burst
+	 * of research never buries the operator's own work. The choice is kept per
+	 * viewer. Row tag chips filter by that tag within the current view.
 	 */
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import Segmented from '$lib/Segmented.svelte';
 	import { compareDecimalStrings, formatPercent } from '$lib/backtests';
 	import { marketLabel } from '$lib/deployment-detail';
 	import {
@@ -27,11 +33,16 @@
 		fetchStrategyPage,
 		formatUtcInputValue,
 		importStrategy,
+		isResearchTag,
+		readStoredOrigin,
+		rememberOrigin,
+		STRATEGY_ORIGIN_OPTIONS,
 		STRATEGY_TEMPLATE_OPTIONS,
 		strategyErrorCode,
 		StrategyApiError,
 		type BulkDeleteItem,
-		type StrategyLibraryEntry
+		type StrategyLibraryEntry,
+		type StrategyOrigin
 	} from '$lib/strategies';
 	import {
 		libraryPipeline,
@@ -46,6 +57,10 @@
 	let pageSize = $state<10 | 25 | 50 | 100>(10);
 	/** Show only strategies whose metadata.tags include this tag (ADR 0094). */
 	let tagFilter = $state<string | null>(null);
+	/** Mine (operator), Research, or All; remembered per viewer (ADR 0098). */
+	let origin = $state<StrategyOrigin>(readStoredOrigin());
+	/** Matches in the current view, from the server's `total`. */
+	let total = $state<number | null>(null);
 	let pageIndex = $state(0);
 	let pageCursors = $state<(string | undefined)[]>([undefined]);
 	let nextCursor = $state<string | null>(null);
@@ -107,7 +122,7 @@
 		loading = true;
 		error = null;
 		try {
-			const page = await fetchStrategyPage(pageSize, pageCursors[pageIndex], tagFilter);
+			const page = await fetchStrategyPage(pageSize, pageCursors[pageIndex], tagFilter, origin);
 			if (requestId !== libraryRequestId) return;
 			if (page.entries.length === 0 && pageIndex > 0) {
 				pageIndex -= 1;
@@ -116,6 +131,7 @@
 			}
 			entries = page.entries;
 			nextCursor = page.nextCursor;
+			total = page.total;
 			const onPage = new Set(page.entries.map((entry) => entry.strategy_id));
 			selected = selected.filter((id) => onPage.has(id));
 		} catch (caught) {
@@ -126,6 +142,14 @@
 		} finally {
 			if (requestId === libraryRequestId) loading = false;
 		}
+	}
+
+	function chooseOrigin(next: StrategyOrigin): void {
+		if (next === origin) return;
+		origin = next;
+		rememberOrigin(next);
+		selected = [];
+		void loadLibrary();
 	}
 
 	function filterByTag(tag: string | null): void {
@@ -443,17 +467,32 @@
 			>
 		</div>
 	{/if}
-	{#if tagFilter !== null}
-		<div class="tag-filter" role="status" data-testid="library-tag-filter">
-			<span>Showing strategies tagged</span>
-			<button
-				class="tag-chip active"
-				type="button"
-				aria-label="Clear the tag filter {tagFilter}"
-				onclick={() => filterByTag(null)}>{tagFilter} ✕</button
+	<div class="library-filters">
+		<Segmented
+			label="Whose strategies"
+			options={STRATEGY_ORIGIN_OPTIONS}
+			value={origin}
+			onchange={chooseOrigin}
+			testId="library-origin"
+		/>
+		{#if tagFilter !== null}
+			<div class="tag-filter" role="status" data-testid="library-tag-filter">
+				<span>Tagged</span>
+				<button
+					class="tag-chip active"
+					type="button"
+					aria-label="Clear the tag filter {tagFilter}"
+					onclick={() => filterByTag(null)}>{tagFilter} ✕</button
+				>
+			</div>
+		{/if}
+		<span class="spacer"></span>
+		{#if total !== null && !loading}
+			<span class="faint view-count" data-testid="library-total"
+				>{total} strateg{total === 1 ? 'y' : 'ies'}</span
 			>
-		</div>
-	{/if}
+		{/if}
+	</div>
 	<section class="card library-card" aria-label="Strategy library">
 		{#if loading}
 			<div class="loading-region" aria-busy="true"><div class="skeleton wide"></div></div>
@@ -461,7 +500,31 @@
 			<div class="library-empty"><p>Could not load strategies. Retry the library load.</p></div>
 		{:else if entries.length === 0 && tagFilter !== null}
 			<div class="library-empty">
-				<p>No strategies are tagged {tagFilter}.</p>
+				<p>
+					No {origin === 'operator'
+						? 'strategies of yours'
+						: origin === 'research'
+							? 'research strategies'
+							: 'strategies'} are tagged {tagFilter}.
+				</p>
+			</div>
+		{:else if entries.length === 0 && origin === 'operator'}
+			<div class="library-empty" data-testid="library-empty-mine">
+				<p>No strategies yet.</p>
+				<p class="empty-hint">
+					Strategies that agent research created (tagged <code>claude-research</code> or
+					<code>research-*</code>) are under
+					<button class="link-btn" type="button" onclick={() => chooseOrigin('research')}
+						>Research</button
+					>. Use <strong>New strategy</strong> above to create your own, or import a strategy definition.
+				</p>
+			</div>
+		{:else if entries.length === 0 && origin === 'research'}
+			<div class="library-empty">
+				<p>No research strategies.</p>
+				<p class="empty-hint">
+					Strategies tagged <code>claude-research</code> or <code>research-*</code> show here.
+				</p>
 			</div>
 		{:else if entries.length === 0}
 			<div class="library-empty">
@@ -525,6 +588,7 @@
 												<button
 													class="tag-chip"
 													class:active={tag === tagFilter}
+													class:research={isResearchTag(tag)}
 													type="button"
 													data-testid="library-tag-chip"
 													title="Show only strategies tagged {tag}"
@@ -803,13 +867,47 @@
 		color: var(--text);
 		background: var(--accent-soft);
 	}
+	.tag-chip.research {
+		border-color: var(--info-line);
+		color: var(--info);
+	}
+	.tag-chip.research:hover,
+	.tag-chip.research.active {
+		border-color: var(--info);
+		background: var(--info-soft);
+		color: var(--text);
+	}
+	.library-filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
+		margin-bottom: var(--space-3);
+	}
+	.library-filters .spacer {
+		flex: 1;
+	}
+	.view-count {
+		font-size: var(--fs-sm);
+		font-variant-numeric: tabular-nums;
+	}
 	.tag-filter {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin-bottom: var(--space-3);
 		color: var(--muted);
 		font-size: var(--fs-sm);
+	}
+	.link-btn {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--accent);
+		font: inherit;
+		cursor: pointer;
+	}
+	.link-btn:hover {
+		text-decoration: underline;
 	}
 	.faint {
 		color: var(--faint);

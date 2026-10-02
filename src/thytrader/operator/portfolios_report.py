@@ -74,7 +74,7 @@ async def build_portfolios_report(
     )
     if page.total > len(digests):
         warnings.append(f"Showing the first {len(digests)} of {page.total} portfolios.")
-    comparisons = await _fill_comparisons(execution, deployments, warnings)
+    comparisons = await paper_live_fill_comparisons(execution, deployments, warnings)
     blocked = [
         f"{digest.name}: {sleeve.strategy_name}"
         for digest in digests
@@ -100,17 +100,26 @@ async def build_portfolios_report(
     )
 
 
-async def _fill_comparisons(
+async def paper_live_fill_comparisons(
     execution: ExecutionStore | None,
     deployments: tuple[Deployment, ...],
     warnings: list[str],
+    *,
+    portfolio_id: UUID | None = None,
 ) -> tuple[PaperLiveFillComparison, ...]:
-    """Compare entry fills of the newest paper/live twins; unreadable twins are skipped."""
+    """Compare entry fills of the newest paper/live twins; unreadable twins are skipped.
+
+    With ``portfolio_id`` only twins with a side that is a sleeve of that portfolio are
+    compared (ADR 0098). At most ``TWIN_LIMIT`` pairs, newest first.
+    """
     if execution is None:
         return ()
     by_id = {item.id: item for item in deployments}
+    twins = paper_live_twins(deployments, limit=len(deployments))
+    if portfolio_id is not None:
+        twins = tuple(twin for twin in twins if _twin_in_portfolio(twin, by_id, portfolio_id))
     rows: list[PaperLiveFillComparison] = []
-    for twin in paper_live_twins(deployments, limit=TWIN_LIMIT):
+    for twin in twins[:TWIN_LIMIT]:
         try:
             paper = await execution.get_deployment(twin.paper_deployment_id)
             live = await execution.get_deployment(twin.live_deployment_id)
@@ -125,6 +134,14 @@ async def _fill_comparisons(
             )
         )
     return tuple(rows)
+
+
+def _twin_in_portfolio(
+    twin: PaperLiveTwin, by_id: dict[UUID, Deployment], portfolio_id: UUID
+) -> bool:
+    """Whether the paper or the live side of ``twin`` is a sleeve bot of ``portfolio_id``."""
+    sides = (by_id.get(twin.paper_deployment_id), by_id.get(twin.live_deployment_id))
+    return any(side is not None and side.portfolio_id == portfolio_id for side in sides)
 
 
 def _comparison(

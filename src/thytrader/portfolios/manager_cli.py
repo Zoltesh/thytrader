@@ -1,7 +1,9 @@
 """Manager-loop commands of the ``thytrader-portfolio`` CLI (ADR 0091).
 
-Read: ``deployment`` (state, sleeve bots, breakers, exposure) and ``briefing`` (everything
-a manager agent reasons from, in one call), ``proposals``, and ``show-proposal``. Mutate
+Read: ``deployment`` (state, sleeve bots and their marked open books, breakers, exposure),
+``fill-comparisons`` (paper vs live entry fills of sleeves with a twin; ADR 0098), and
+``briefing`` (everything a manager agent reasons from, in one call), ``proposals``, and
+``show-proposal``. Mutate
 (always ``--confirm``; YOLO never skips it): ``propose`` (rebalance, pause or resume a
 sleeve, add a sleeve, with a rationale and cited evidence), and ``approve`` / ``decline``
 (a person's decision; ``approve`` of a live resume also needs ``--i-understand-live``).
@@ -47,13 +49,25 @@ def add_manager_commands(
     *,
     confirm_help: str,
 ) -> None:
-    """Register deployment, briefing, propose, proposals, show-proposal, approve, decline."""
+    """Register deployment, fill-comparisons, briefing, propose, proposals, and decisions."""
     deployment = commands.add_parser(
         "deployment",
         parents=[trailing],
-        help="Read-only: the portfolio's state, each sleeve's bot, breakers, and exposure.",
+        help=(
+            "Read-only: the portfolio's state, each sleeve's bot with its open books (entry, "
+            "stop, target, state, last-bar mark and unrealized PnL), breakers, and exposure."
+        ),
     )
     deployment.add_argument("--portfolio-id", required=True)
+    fills = commands.add_parser(
+        "fill-comparisons",
+        parents=[trailing],
+        help=(
+            "Read-only: paper vs live entry fills (rested, filled, expired, bps vs limit, time "
+            "to fill) for paper/live twins of this portfolio's sleeves."
+        ),
+    )
+    fills.add_argument("--portfolio-id", required=True)
     briefing = commands.add_parser(
         "briefing",
         parents=[trailing],
@@ -265,6 +279,9 @@ def _decide(decision: str) -> Callable[[str, argparse.Namespace], object]:
 
 MANAGER_HANDLERS: dict[str, Callable[[str, argparse.Namespace], object]] = {
     "deployment": lambda url, args: client.show_deployment(
+        url, _uuid(args.portfolio_id, "--portfolio-id")
+    ),
+    "fill-comparisons": lambda url, args: client.show_fill_comparisons(
         url, _uuid(args.portfolio_id, "--portfolio-id")
     ),
     "briefing": lambda url, args: client.show_briefing(

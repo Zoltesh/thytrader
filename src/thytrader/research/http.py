@@ -15,6 +15,7 @@ from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.research.mutation import ResearchMutationError
+from thytrader.strategies.library import StrategyOrigin
 
 if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestStartRequest
@@ -211,14 +212,21 @@ def show_snapshot(base_url: str, strategy_fingerprint: str) -> str:
 
 
 def _library_page(
-    base_url: str, *, limit: int, cursor: str | None, tag: str | None
+    base_url: str,
+    *,
+    limit: int,
+    cursor: str | None,
+    tag: str | None,
+    origin: StrategyOrigin = StrategyOrigin.ALL,
 ) -> dict[str, object]:
-    """GET one library page (optionally only strategies tagged ``tag``)."""
+    """GET one library page (optionally only strategies tagged ``tag`` or of ``origin``)."""
     query: dict[str, str] = {"limit": str(limit)}
     if cursor:
         query["cursor"] = cursor
     if tag is not None:
         query["tag"] = tag
+    if origin is not StrategyOrigin.ALL:
+        query["origin"] = origin.value
     return _as_object(
         request_json(method="GET", url=f"{base_url}/api/v1/strategies?{urlencode(query)}"),
         "strategy list",
@@ -231,9 +239,10 @@ def list_strategies(
     limit: int = 50,
     cursor: str | None = None,
     tag: str | None = None,
+    origin: StrategyOrigin = StrategyOrigin.ALL,
 ) -> str:
-    """List one page of the strategy library (newest updated first), optionally by tag."""
-    body = _library_page(base_url, limit=limit, cursor=cursor, tag=tag)
+    """List one page of the strategy library (newest updated first), by tag or origin."""
+    body = _library_page(base_url, limit=limit, cursor=cursor, tag=tag, origin=origin)
     strategies = body.get("strategies")
     if not isinstance(strategies, list):
         raise ResearchMutationError("Strategy library was not a JSON array.")

@@ -1,8 +1,10 @@
 """Observable per-product protection status from a deployment snapshot.
 
-HTTP and operator reports classify cover from verified attached-child tracking
-and venue-visible resting exits. Parent stop/target geometry is never coverage.
-Paper synthetic stops that are not venue-visible appear unprotected.
+HTTP and operator reports classify live cover from verified attached-child tracking
+and venue-visible resting exits. Parent stop/target geometry is never coverage. An
+open paper book is always covered: the worker enforces its stop synthetically on every
+closed bar and any take-profit rests in the paper broker (ADR 0097, ADR 0098), so
+``protection_status`` and ``position_state`` agree on every read, full or bounded.
 
 ``position_state`` and ``exit_in_flight`` (ADR 0097) split the worker's internal
 ``pending_exit`` phase, which is set as soon as any exit order works (including the TP/SL
@@ -109,7 +111,7 @@ def book_exit_in_flight(
         return True
     if position.signal_exit_bar is not None:
         return True
-    closing = OrderSide.BUY if position.side is PositionSide.SHORT else OrderSide.SELL
+    closing = _closing_side(position)
     scoped_product = resolved_product_id(product_id or position.product_id, snapshot.deployment)
     return any(
         order.kind is OrderKind.MARKETABLE
@@ -175,14 +177,14 @@ def book_protection_status(
 ) -> ProtectionStatus:
     """Classify protection for one product book from persisted orders and intents.
 
-    ``unknown`` is only for unreconciled protective orders. A missing or canceled
-    attached child is ``unprotected``, not ``unknown``.
+    Paper books are ``covered`` whether or not a take-profit rests (ADR 0098): the worker
+    enforces the stop synthetically on every closed bar (ADR 0090), the same rule
+    ``book_position_state`` applies. ``unknown`` is only for unreconciled live protective
+    orders. A missing or canceled attached child is ``unprotected``, not ``unknown``.
     """
     if position is None:
         return ProtectionStatus.FLAT
-    if position.target_price is None and snapshot.deployment.mode is DeploymentMode.PAPER:
-        # Paper books without a take-profit rest no order by design (ADR 0090): the
-        # worker enforces the stop synthetically on every closed bar.
+    if snapshot.deployment.mode is DeploymentMode.PAPER:
         return ProtectionStatus.COVERED
     if attached_entry_covers(snapshot, position):
         entry = filled_attached_entry(snapshot, position)
@@ -192,7 +194,7 @@ def book_protection_status(
                 return ProtectionStatus.UNKNOWN
         return ProtectionStatus.COVERED
     scoped_product = resolved_product_id(product_id or position.product_id, snapshot.deployment)
-    protective = _protective_orders(snapshot, scoped_product)
+    protective = _protective_orders(snapshot, scoped_product, closing=_closing_side(position))
     if not protective:
         return ProtectionStatus.UNPROTECTED
     known_working = tuple(
@@ -210,8 +212,21 @@ def working_order_count(orders: tuple[Order, ...]) -> int:
     return sum(1 for order in orders if order.status in _WORKING_STATUSES)
 
 
-def _protective_orders(snapshot: DeploymentSnapshot, product_id: str) -> tuple[Order, ...]:
-    """Return active stop, take-profit, bracket, time-, or signal-exit orders for one product."""
+def _closing_side(position: Position) -> OrderSide:
+    """The order side that reduces this book (sell for a long, buy for a short)."""
+    return OrderSide.BUY if position.side is PositionSide.SHORT else OrderSide.SELL
+
+
+def _protective_orders(
+    snapshot: DeploymentSnapshot, product_id: str, *, closing: OrderSide
+) -> tuple[Order, ...]:
+    """Return active stop, take-profit, bracket, time-, or signal-exit orders for one product.
+
+    Full reads name each order's purpose through its intent. Bounded summary reads carry
+    open orders without intents, so an active closing-side order whose intent is not in the
+    snapshot counts as protective there: only exits and protection reduce an open book.
+    """
+    known_intents = {intent.id for intent in snapshot.intents}
     purposes = {
         intent.id: intent.purpose
         for intent in snapshot.intents
@@ -224,6 +239,7 @@ def _protective_orders(snapshot: DeploymentSnapshot, product_id: str) -> tuple[O
         if order.status not in _ACTIVE_STATUSES:
             continue
         purpose = purposes.get(order.intent_id)
-        if purpose is not None or is_venue_protection(order.kind):
+        unlabeled_exit = order.intent_id not in known_intents and order.side is closing
+        if purpose is not None or is_venue_protection(order.kind) or unlabeled_exit:
             matching.append(order)
     return tuple(matching)

@@ -11,6 +11,7 @@ revision counter; a stale save is rejected, never merged or overwritten.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 import json
 import re
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
@@ -146,6 +147,41 @@ class StrategyRecord:
     timeframe: str | None
 
 
+RESEARCH_TAG = "claude-research"
+"""Tag agent research runs put in ``metadata.tags`` on the strategies they create."""
+RESEARCH_TAG_PREFIX = "research-"
+"""Any ``research-*`` tag (for example ``research-market-variant``) also marks research."""
+
+
+class StrategyOrigin(StrEnum):
+    """Who a library row belongs to, read from its ``metadata.tags``.
+
+    ``research`` rows carry ``claude-research`` or a ``research-*`` tag; ``operator`` rows
+    carry neither. ``all`` applies no origin filter.
+    """
+
+    ALL = "all"
+    OPERATOR = "operator"
+    RESEARCH = "research"
+
+
+def is_research_tag(tag: str) -> bool:
+    """Whether one tag marks agent research (``claude-research`` or ``research-*``)."""
+    return tag == RESEARCH_TAG or tag.startswith(RESEARCH_TAG_PREFIX)
+
+
+def document_origin(document: StrategyDocument) -> StrategyOrigin:
+    """Classify a stored document as research or operator by its tags."""
+    if any(is_research_tag(tag) for tag in document_tags(document)):
+        return StrategyOrigin.RESEARCH
+    return StrategyOrigin.OPERATOR
+
+
+def matches_origin(document: StrategyDocument, origin: StrategyOrigin) -> bool:
+    """Whether a stored document belongs in a library view filtered by ``origin``."""
+    return origin is StrategyOrigin.ALL or document_origin(document) is origin
+
+
 @dataclass(frozen=True, slots=True)
 class StrategyPage:
     """One newest-updated-first page of strategies plus the library total."""
@@ -245,11 +281,19 @@ class StrategyStore(Protocol):
         """Load one strategy or raise :class:`StrategyNotFoundError`."""
         ...
 
-    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        tag: str | None = None,
+        origin: StrategyOrigin = StrategyOrigin.ALL,
+    ) -> StrategyPage:
         """Return one newest-updated-first page and the total count.
 
-        ``tag`` keeps only strategies whose document lists it in ``metadata.tags``;
-        ``total`` then counts the matches (ADR 0094).
+        ``tag`` keeps only strategies whose document lists it in ``metadata.tags``
+        (ADR 0094); ``origin`` keeps only research or only operator strategies (ADR 0098).
+        ``total`` then counts the matches of both filters.
         """
         ...
 
@@ -291,9 +335,16 @@ class DisabledStrategyStore:
         del strategy_id
         raise StrategyStorageUnavailableError("Strategy storage is unavailable.")
 
-    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        tag: str | None = None,
+        origin: StrategyOrigin = StrategyOrigin.ALL,
+    ) -> StrategyPage:
         """Refuse listing without durable storage."""
-        del limit, offset, tag
+        del limit, offset, tag, origin
         raise StrategyStorageUnavailableError("Strategy storage is unavailable.")
 
     async def save(

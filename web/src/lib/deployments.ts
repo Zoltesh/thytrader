@@ -18,6 +18,11 @@ export type DeploymentPosition = {
 	position_state?: PositionState | string;
 	/** True only while this book's exit is being sent; a resting TP/SL is not an exit. */
 	exit_in_flight?: boolean;
+	/** Close of the newest bar the bot evaluated for this product (ADR 0098). */
+	mark_price?: string | null;
+	marked_at?: string | null;
+	/** Gross unrealized PnL at `mark_price`, before exit fees; null without a mark. */
+	unrealized_pnl?: string | null;
 	compatibility_focus?: boolean;
 };
 

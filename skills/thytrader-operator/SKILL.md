@@ -88,7 +88,9 @@ bracket (or stop-only protection) merely rests, which is `open_protected`. Only 
 (`exit_in_flight: true`) means an exit is being sent.
 `protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
 coverage and venue-visible exits, not inferred parent geometry
-([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). Rows also include
+([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). An open paper book is
+always `covered` (its synthetic stop runs every closed bar), so it agrees with `position_state`
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Rows also include
 `lifecycle_command`, breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic
 `revision`, and `worker_lease_held` (boolean only; no holder identity). Latches persist across
 pause and managed shutdown until an explicit operator reset via
@@ -182,7 +184,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v57`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v58`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0059`, `research_worker_pool` (leased research worker pool;
@@ -215,7 +217,9 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    `same_bar_exit_precedence` (`stop`, `take_profit`, `signal_exit`, `time_exit`: paper and the
    backtest resolve a same-bar tie in that order) and `runtime_observability` (`position_state`,
    `exit_in_flight`, `paper_live_fill_comparison`;
-   [ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). Mismatch means
+   [ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md); plus
+   `paper_protection_covered`, `book_marks`, `portfolio_fill_comparisons`, and `strategy_library`
+   `origin_filter`; [ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Mismatch means
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.

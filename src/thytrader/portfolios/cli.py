@@ -113,8 +113,9 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Manage portfolios: sleeves (one strategy each, with a capital weight), the cash "
             "reserve, shared limits, and manager settings; run portfolio backtests; read the "
-            "portfolio journal; act as the manager agent (deployment, briefing, propose, "
-            "proposals) and record a person's approve/decline. Mutations require --confirm. "
+            "portfolio journal; act as the manager agent (deployment, fill-comparisons, "
+            "briefing, propose, proposals) and record a person's approve/decline. Mutations "
+            "require --confirm. "
             "Default transport is the loopback HTTP API. Start, pause, resume, and stop are "
             "thytrader-runtime portfolio-* commands; nothing here places orders."
         ),

@@ -995,14 +995,54 @@ export async function fetchStrategySnapshot(fingerprint: string): Promise<Strate
 	);
 }
 
+/**
+ * Whose strategies a library view shows (ADR 0098). `research` is anything
+ * tagged `claude-research` or `research-*` (agent research runs); `operator`
+ * is everything else (the "Mine" view); `all` applies no origin filter.
+ */
+export type StrategyOrigin = 'operator' | 'research' | 'all';
+
+export const STRATEGY_ORIGIN_OPTIONS: readonly { id: StrategyOrigin; label: string }[] = [
+	{ id: 'operator', label: 'Mine' },
+	{ id: 'research', label: 'Research' },
+	{ id: 'all', label: 'All' }
+];
+
+const ORIGIN_STORAGE_KEY = 'thytrader.strategyLibraryOrigin';
+
+/** Whether one tag marks agent research, matching the server's origin filter. */
+export function isResearchTag(tag: string): boolean {
+	return tag === 'claude-research' || tag.startsWith('research-');
+}
+
+/** The viewer's last library view; defaults to Mine. Storage is a convenience only. */
+export function readStoredOrigin(): StrategyOrigin {
+	try {
+		const stored = globalThis.localStorage?.getItem(ORIGIN_STORAGE_KEY);
+		return stored === 'research' || stored === 'all' || stored === 'operator' ? stored : 'operator';
+	} catch {
+		return 'operator';
+	}
+}
+
+export function rememberOrigin(origin: StrategyOrigin): void {
+	try {
+		globalThis.localStorage?.setItem(ORIGIN_STORAGE_KEY, origin);
+	} catch {
+		// Storage is a convenience only.
+	}
+}
+
 export async function fetchStrategyPage(
 	limit: 10 | 25 | 50 | 100,
 	cursor?: string,
-	tag?: string | null
+	tag?: string | null,
+	origin: StrategyOrigin = 'all'
 ): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null; total: number | null }> {
 	const params = new URLSearchParams({ limit: String(limit) });
 	if (cursor !== undefined) params.set('cursor', cursor);
 	if (tag) params.set('tag', tag);
+	if (origin !== 'all') params.set('origin', origin);
 	const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
 	const hasMore = body.has_more === true;
 	if (hasMore && body.strategies.length === 0) {

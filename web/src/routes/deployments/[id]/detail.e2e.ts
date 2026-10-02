@@ -558,7 +558,42 @@ test.describe('deployment detail', () => {
 		await page.goto(`/deployments/${deploymentId}`);
 		const table = page.getByRole('table', { name: 'Open positions with protection status' });
 		await expect(table.getByRole('cell', { name: 'protected' })).toBeVisible();
-		await expect(table.getByRole('cell', { name: '5' })).toBeVisible();
+		await expect(table.getByRole('cell', { name: '5', exact: true })).toBeVisible();
+	});
+
+	test('each book shows its last-bar unrealized PnL and time held (ADR 0098)', async ({ page }) => {
+		await page.clock.setFixedTime(new Date('2026-09-22T01:30:00Z'));
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [
+					{
+						product_id: 'UNI-USDC',
+						quantity: '5',
+						entry_price: '10',
+						stop_price: '9',
+						target_price: '12',
+						entered_bar: '2026-09-21T20:00:00+00:00',
+						side: 'long',
+						protection_status: 'covered',
+						position_state: 'open_protected',
+						exit_in_flight: false,
+						mark_price: '10.5',
+						marked_at: '2026-09-22T01:00:00+00:00',
+						unrealized_pnl: '2.5'
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-upnl')).toHaveText('+2.50 USDC');
+		await expect(page.getByTestId('position-upnl')).toHaveAttribute(
+			'title',
+			'Marked at 10.5 at the 01:00 UTC bar close; gross, before exit fees.'
+		);
+		await expect(page.getByTestId('position-held')).toHaveText('5h 30m');
+		await expect(page.getByTestId('kpi-position-pnl')).toHaveText('uPnL +2.50 USDC · held 5h 30m');
 	});
 
 	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {
