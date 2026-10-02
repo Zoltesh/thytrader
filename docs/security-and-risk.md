@@ -127,6 +127,13 @@ applies to the stop leg of a TP/SL bracket, so their gap risk equals every other
 ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). The worker
 never invents a take-profit price to obtain a bracket.
 
+A strategy's `exits.signal_exit` rule ([ADR 0093](decisions/0093-signal-based-exits.md)) is a
+risk-reducing marketable exit: it pays the taker fee, it never replaces the mandatory initial stop,
+and it keeps running while a book is paused or under managed shutdown. Live cancels the book's
+protection before the cover, so the position is unprotected between an accepted cancel and the
+sell. A durable position marker keeps every later cycle exiting instead of re-resting protection,
+and the cover follows as soon as the venue confirms the cancel.
+
 ## Idempotency and reconciliation
 
 - Generate a unique client order ID for every intent.

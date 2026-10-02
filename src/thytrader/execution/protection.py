@@ -33,6 +33,7 @@ _PROTECTIVE_PURPOSES = frozenset(
         IntentPurpose.TAKE_PROFIT,
         IntentPurpose.BRACKET,
         IntentPurpose.TIME_EXIT,
+        IntentPurpose.SIGNAL_EXIT,
     }
 )
 
@@ -90,7 +91,7 @@ def working_order_count(orders: tuple[Order, ...]) -> int:
 
 
 def _protective_orders(snapshot: DeploymentSnapshot, product_id: str) -> tuple[Order, ...]:
-    """Return active stop, take-profit, bracket, or time-exit orders for one product."""
+    """Return active stop, take-profit, bracket, time-, or signal-exit orders for one product."""
     purposes = {
         intent.id: intent.purpose
         for intent in snapshot.intents

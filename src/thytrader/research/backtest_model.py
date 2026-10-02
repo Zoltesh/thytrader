@@ -19,6 +19,7 @@ BacktestAssumptionKey = Literal[
     "unfilled_entries",
     "stops_and_targets",
     "time_exit",
+    "signal_exit",
     "evaluation_end",
     "fees",
     "slippage",
@@ -101,6 +102,17 @@ def backtest_model_description() -> BacktestModelDescription:
                 detail="A position held max_bars_held candles sells at that candle's close.",
             ),
             BacktestModelAssumption(
+                key="signal_exit",
+                label="Signal exit at close",
+                detail=(
+                    "With exits.signal_exit, a position sells as a taker at the close of the "
+                    "first completed candle after the fill candle whose exit rule matches, "
+                    "like the time exit (taker fee, slippage, half the spread stress). A stop "
+                    "or take-profit that the same candle touched wins; the signal exit "
+                    "precedes the time exit. Results disclose signal_exit_at_close."
+                ),
+            ),
+            BacktestModelAssumption(
                 key="evaluation_end",
                 label="Liquidation at the window end",
                 detail=(
@@ -112,8 +124,8 @@ def backtest_model_description() -> BacktestModelDescription:
                 key="fees",
                 label="Maker and taker fees",
                 detail=(
-                    "Resting entries and take-profits pay maker_fee_rate; stop, time, and "
-                    "end-of-window exits pay taker_fee_rate. Rates are modeled inputs."
+                    "Resting entries and take-profits pay maker_fee_rate; stop, time, signal, "
+                    "and end-of-window exits pay taker_fee_rate. Rates are modeled inputs."
                 ),
             ),
             BacktestModelAssumption(

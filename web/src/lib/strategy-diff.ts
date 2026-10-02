@@ -183,6 +183,7 @@ const FIELD_LABELS: Record<string, string> = {
 	'exits.initial_stop.multiple': 'Initial stop (ATR multiple)',
 	'exits.take_profit.multiple': 'Take profit (reward/risk)',
 	'exits.time_exit.max_bars_held': 'Time exit (max bars held)',
+	'exits.signal_exit': 'Exit when (signal exit)',
 	'trailing_stop.enabled': 'Trailing stop',
 	'execution.entry_preference': 'Entry preference',
 	'execution.max_entry_wait_bars': 'Max entry wait (bars)',
@@ -286,6 +287,11 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 		'exits.time_exit.max_bars_held',
 		String(before.exits.time_exit.max_bars_held),
 		String(after.exits.time_exit.max_bars_held)
+	);
+	changed(
+		'exits.signal_exit',
+		before.exits.signal_exit === undefined ? 'off' : conditionToText(before.exits.signal_exit.when),
+		after.exits.signal_exit === undefined ? 'off' : conditionToText(after.exits.signal_exit.when)
 	);
 	changed(
 		'trailing_stop.enabled',

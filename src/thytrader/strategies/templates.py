@@ -10,6 +10,7 @@ from thytrader.strategies.models import (
     AllCondition,
     AnyCondition,
     AtrMultipleStop,
+    AtrTrailingStop,
     BollingerIndicatorParameters,
     ComparisonCondition,
     ComparisonOperator,
@@ -27,9 +28,11 @@ from thytrader.strategies.models import (
     KeltnerIndicatorParameters,
     LiteralOperand,
     MacdIndicatorParameters,
+    NoTakeProfit,
     PortfolioLimits,
     RewardRiskTakeProfit,
     RiskFractionSizing,
+    SignalExit,
     StrategyDefinition,
     StrategyMetadata,
     SupertrendIndicatorParameters,
@@ -65,6 +68,7 @@ class StrategyTemplateId(StrEnum):
     SUPERTREND_TREND = "supertrend-trend"
     SQUEEZE_BREAKOUT = "squeeze-breakout"
     ZSCORE_MEAN_REVERSION = "zscore-mean-reversion"
+    EMA_TREND_HOLD = "ema-trend-hold"
 
 
 def template_catalog() -> tuple[dict[str, str], ...]:
@@ -122,6 +126,14 @@ def template_catalog() -> tuple[dict[str, str], ...]:
             "description": (
                 "Long when the 20-bar close z-score is at or below -2 in a ranging regime "
                 "(ADX below 20 or Choppiness above 61.8); ATR stop and target."
+            ),
+        },
+        {
+            "id": StrategyTemplateId.EMA_TREND_HOLD.value,
+            "name": "EMA trend hold",
+            "description": (
+                "Long when EMA(20) crosses above EMA(100); hold until it crosses back below "
+                "(signal exit). 3x ATR initial stop, no take-profit, wide 5x ATR trail."
             ),
         },
     )
@@ -310,6 +322,31 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
             # only exits and sizing are advertised as independent axes.
             "sweepable_axes": _SHARED_AXES,
         },
+        StrategyTemplateId.EMA_TREND_HOLD: {
+            "warmup_bars": 100,
+            "indicator_ids": ("fast", "slow", "atr"),
+            "defaults": {
+                "fast.period": "20",
+                "slow.period": "100",
+                "atr.period": "14",
+                "sizing.risk_fraction": "0.005",
+                "exits.initial_stop_multiple": "3",
+                "exits.take_profit": "none",
+                "exits.trailing_stop_multiple": "5",
+                "exits.max_bars_held": "1000",
+                "exits.signal_exit": "fast crosses below slow",
+            },
+            # The exit rule references the same fast/slow ids as the entry, so a period
+            # axis moves both rules together.
+            "sweepable_axes": (
+                {"indicator_id": "fast", "parameter": "period", "range": [2, 500]},
+                {"indicator_id": "slow", "parameter": "period", "range": [2, 500]},
+                {"target": "exits", "parameter": "initial_stop_multiple"},
+                {"target": "exits", "parameter": "trailing_stop_multiple"},
+                {"target": "exits", "parameter": "max_bars_held"},
+                {"target": "sizing", "parameter": "risk_fraction"},
+            ),
+        },
         StrategyTemplateId.ZSCORE_MEAN_REVERSION: {
             "warmup_bars": 27,
             "indicator_ids": ("z", "adx", "chop", "atr"),
@@ -396,6 +433,76 @@ def _ema_trend(
             )
         ),
         tags=("reference",),
+    )
+
+
+def _ema_trend_hold(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """Hold while EMA(20) stays above EMA(100): enter on the cross up, exit on the cross down.
+
+    The signal exit (ADR 0093) is the primary exit. The 3x ATR initial stop stays
+    mandatory, there is no take-profit, and a wide 5x ATR trail only guards against a
+    crash faster than the slow EMA can turn; drop it with ``{"enabled": false}``.
+    """
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "EMA trend hold"),
+        description=(
+            "Long while EMA(20) holds above EMA(100); exits on the cross back below. "
+            "Research template; not trading authority."
+        ),
+        warmup_bars=100,
+        indicators=(
+            IndicatorDefinition(
+                id="fast",
+                kind=IndicatorKind.EMA,
+                input="close",
+                parameters=IndicatorParameters(period=20),
+            ),
+            IndicatorDefinition(
+                id="slow",
+                kind=IndicatorKind.EMA,
+                input="close",
+                parameters=IndicatorParameters(period=100),
+            ),
+            _atr(),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="fast"),
+                    operator=ComparisonOperator.CROSSES_ABOVE,
+                    right=IndicatorOperand(indicator="slow"),
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.EMA_TREND_HOLD.value),
+        exits=ExitDefinition(
+            initial_stop=AtrMultipleStop(kind="atr_multiple", atr_indicator="atr", multiple="3"),
+            take_profit=NoTakeProfit(kind="none"),
+            trailing_stop=AtrTrailingStop(
+                enabled=True, kind="atr_multiple", atr_indicator="atr", multiple="5"
+            ),
+            time_exit=TimeExit(max_bars_held=1000),
+            signal_exit=SignalExit(
+                when=AllCondition(
+                    all=(
+                        ComparisonCondition(
+                            left=IndicatorOperand(indicator="fast"),
+                            operator=ComparisonOperator.CROSSES_BELOW,
+                            right=IndicatorOperand(indicator="slow"),
+                        ),
+                    )
+                )
+            ),
+        ),
     )
 
 
@@ -771,8 +878,12 @@ def _draft(
     indicators: tuple[IndicatorDefinition, ...],
     when: AllCondition,
     tags: tuple[str, ...],
+    exits: ExitDefinition | None = None,
 ) -> StrategyDefinition:
-    """Assemble shared long-only sizing, exits, and execution for one template."""
+    """Assemble shared long-only sizing, exits, and execution for one template.
+
+    ``exits`` replaces the shared 2x ATR stop / 2R target / 96-bar exits when given.
+    """
     created = created_at.astimezone(UTC)
     return StrategyDefinition(
         schema_version="1.0",
@@ -802,7 +913,8 @@ def _draft(
         portfolio_limits=PortfolioLimits(
             max_strategy_exposure_fraction="0.10", max_concurrent_positions=1
         ),
-        exits=ExitDefinition(
+        exits=exits
+        or ExitDefinition(
             initial_stop=AtrMultipleStop(kind="atr_multiple", atr_indicator="atr", multiple="2"),
             take_profit=RewardRiskTakeProfit(kind="reward_risk", multiple="2"),
             trailing_stop=DisabledTrailingStop(enabled=False),
@@ -827,6 +939,7 @@ _TEMPLATE_BUILDERS: dict[
     StrategyTemplateId.SUPERTREND_TREND: _supertrend_trend,
     StrategyTemplateId.SQUEEZE_BREAKOUT: _squeeze_breakout,
     StrategyTemplateId.ZSCORE_MEAN_REVERSION: _zscore_mean_reversion,
+    StrategyTemplateId.EMA_TREND_HOLD: _ema_trend_hold,
 }
 
 

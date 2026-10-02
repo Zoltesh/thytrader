@@ -73,10 +73,14 @@ export type BacktestFill = {
 	spread_cost?: string | null;
 };
 
+/** Why a simulated position closed; `signal` is the `exits.signal_exit` rule (ADR 0093). */
+export type BacktestExitReason =
+	'stop_loss' | 'take_profit' | 'time_exit' | 'signal' | 'evaluation_end';
+
 export type BacktestTrade = {
 	entry: BacktestFill;
 	exit: BacktestFill & {
-		reason: 'stop_loss' | 'take_profit' | 'time_exit' | 'evaluation_end';
+		reason: BacktestExitReason;
 	};
 	gross_pnl: string;
 	net_pnl: string;
@@ -106,6 +110,9 @@ export type BacktestResult = {
 /** One reason a matched signal rested no entry, with how many signals it stopped. */
 export type BacktestSkipCount = { reason: string; count: number };
 
+/** Closed trades per exit reason (ADR 0093); sums to the result's trade count. */
+export type BacktestExitCount = { reason: BacktestExitReason; count: number };
+
 /**
  * Entry-funnel counters stored beside (never inside) a result (ADR 0090). Null on
  * results published before they were recorded.
@@ -122,6 +129,8 @@ export type BacktestDiagnostics = {
 	entries_size_capped: number;
 	warmup_bars: number;
 	skipped: BacktestSkipCount[];
+	/** Null on diagnostics recorded before exits were counted (ADR 0093). */
+	exit_reasons?: BacktestExitCount[] | null;
 };
 
 export type BacktestDetail = {
@@ -149,6 +158,26 @@ const SKIP_REASON_LABELS: Record<string, string> = {
 	quantity_below_venue_minimum: 'Quantity below the venue minimum',
 	notional_below_venue_minimum: 'Notional below the venue minimum'
 };
+
+const EXIT_REASON_LABELS: Record<BacktestExitReason, string> = {
+	stop_loss: 'stop loss',
+	take_profit: 'take profit',
+	time_exit: 'time exit',
+	signal: 'signal exit',
+	evaluation_end: 'evaluation end'
+};
+
+/** Human label for one trade exit reason (`signal` reads `signal exit`). */
+export function formatExitReason(reason: string): string {
+	return EXIT_REASON_LABELS[reason as BacktestExitReason] ?? reason.replace(/_/g, ' ');
+}
+
+/** `3 signal exit · 2 stop` in a stable order, or [] when exits were not counted. */
+export function exitReasonLines(diagnostics: BacktestDiagnostics): string[] {
+	return (diagnostics.exit_reasons ?? []).map(
+		(item) => `${item.count} ${formatExitReason(item.reason)}`
+	);
+}
 
 /** Human label for one skip reason code; unknown codes are shown verbatim. */
 export function formatSkipReason(reason: string): string {

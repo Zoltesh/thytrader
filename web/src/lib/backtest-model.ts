@@ -16,6 +16,7 @@ export type BacktestAssumptionKey =
 	| 'unfilled_entries'
 	| 'stops_and_targets'
 	| 'time_exit'
+	| 'signal_exit'
 	| 'evaluation_end'
 	| 'fees'
 	| 'slippage'
@@ -82,6 +83,12 @@ export function backtestModelAssumptions(
 			detail: "A position held max_bars_held candles sells at that candle's close."
 		},
 		{
+			key: 'signal_exit',
+			label: 'Signal exit at close',
+			detail:
+				'With exits.signal_exit, a position sells as a taker at the close of the first completed candle after the fill candle whose exit rule matches, like the time exit. A stop or take-profit that the same candle touched wins; the signal exit precedes the time exit.'
+		},
+		{
 			key: 'evaluation_end',
 			label: 'Liquidation at the window end',
 			detail: 'Open inventory is sold at the open of the candle at evaluation end.'
@@ -90,7 +97,7 @@ export function backtestModelAssumptions(
 			key: 'fees',
 			label: 'Maker and taker fees',
 			detail:
-				'Resting entries and take-profits pay the maker fee; stop, time, and end-of-window exits pay the taker fee. Rates are modeled inputs, not observed Coinbase fees.'
+				'Resting entries and take-profits pay the maker fee; stop, time, signal, and end-of-window exits pay the taker fee. Rates are modeled inputs, not observed Coinbase fees.'
 		},
 		{
 			key: 'slippage',

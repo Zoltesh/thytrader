@@ -703,3 +703,18 @@ def test_portfolio_deployment_migration_follows_the_portfolio_foundation() -> No
     for kind in ("deployment_started", "breaker_tripped", "proposal_approved"):
         assert kind in str(getattr(journal, "sqltext", ""))
         assert kind in content
+
+
+def test_signal_exit_migration_follows_the_research_worker_pool() -> None:
+    """The fifty-eighth migration adds the position exit marker and purpose (ADR 0093)."""
+    content = Path("alembic/versions/0058_signal_exits.py").read_text(encoding="utf-8")
+    assert 'revision = "0058"' in content
+    assert 'down_revision = "0057"' in content
+    assert "ADR 0093" in content
+    positions = metadata.tables["execution_positions"]
+    assert "signal_exit_bar" in positions.columns
+    assert positions.columns["signal_exit_bar"].nullable is True
+    reasons = metadata.tables["trade_reason_records"]
+    for name in ("ck_trade_reason_purpose", "ck_trade_reason_signal_kind"):
+        constraint = next(item for item in reasons.constraints if item.name == name)
+        assert "'signal_exit'" in str(getattr(constraint, "sqltext", ""))

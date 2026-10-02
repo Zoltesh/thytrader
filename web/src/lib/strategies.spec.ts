@@ -735,7 +735,8 @@ describe('catalog-driven indicator drafts', () => {
 				'donchian-breakout',
 				'supertrend-trend',
 				'squeeze-breakout',
-				'zscore-mean-reversion'
+				'zscore-mean-reversion',
+				'ema-trend-hold'
 			])
 		);
 		expect(STRATEGY_TEMPLATE_OPTIONS.every((template) => template.description !== '')).toBe(true);

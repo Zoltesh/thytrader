@@ -547,3 +547,49 @@ test('take profit can be none and saves the canonical {kind: none} (ADR 0090)', 
 	await page.getByLabel('Take profit kind').selectOption('reward_risk');
 	await expect(page.getByLabel('Take profit — reward/risk multiple')).toHaveValue('2');
 });
+
+test('exit when mirrors the entry cross, saves exits.signal_exit, and can be removed (ADR 0093)', async ({
+	page
+}) => {
+	let saved = null as { document: { exits: Record<string, unknown> } } | null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			saved = (await route.request().postDataJSON()) as typeof saved;
+			await route.fulfill({ json: record(draft, 2) });
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Exit conditions and protective stops' }).click();
+	const section = page.getByTestId('signal-exit-section');
+	await expect(section).toContainText('The initial stop still guards the position');
+	await expect(page.getByTestId('signal-exit-tree')).toHaveCount(0);
+	await page.getByLabel('Exit when a rule matches (optional)').check();
+	const tree = page.getByTestId('signal-exit-tree');
+	await expect(tree).toBeVisible();
+	await expect(section.getByRole('heading', { name: 'Exit when' })).toBeVisible();
+	await expect(tree.getByLabel('Operator')).toHaveValue('crosses_below');
+	await expect(page.locator('.inspector-block').first()).toContainText(
+		'Exit when fast crosses below slow'
+	);
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect
+		.poll(() => saved?.document.exits.signal_exit)
+		.toEqual({
+			when: {
+				all: [
+					{
+						left: { indicator: 'fast' },
+						operator: 'crosses_below',
+						right: { indicator: 'slow' }
+					}
+				]
+			}
+		});
+	saved = null;
+	await page.getByLabel('Exit when a rule matches (optional)').uncheck();
+	await expect(tree).toHaveCount(0);
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => saved !== null && !('signal_exit' in saved.document.exits)).toBe(true);
+});

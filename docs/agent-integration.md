@@ -258,7 +258,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v52` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v53` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -268,13 +268,14 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0089](decisions/0089-agent-research-ergonomics.md),
 [ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md),
 [ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md),
-[ADR 0092](decisions/0092-research-worker-pool.md); `backtest_engine:
-"thytrader-backtest"`; `indicator_kinds` and `indicator_offset_runtimes`;
+[ADR 0092](decisions/0092-research-worker-pool.md),
+[ADR 0093](decisions/0093-signal-based-exits.md); `backtest_engine:
+"thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, and `signal_exit_runtimes`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
 `study_budgets`; `take_profit_kinds`, `live_protection_kinds`,
 `backtest_diagnostics`, `fee_suggestion_source`; `portfolio_deployment`, `portfolio_breakers`,
 `portfolio_proposal_kinds`, `portfolio_briefing_contract`; `research_worker_pool`; expected
-Alembic revision `0057`).
+Alembic revision `0058`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
 `exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase
@@ -284,6 +285,16 @@ fingerprint); `GET /api/v1/backtests/{fp}/signal-trace` pages the result's entry
 (`thytrader-research-evaluate`); `GET /api/v1/fees` suggests the account's reported Coinbase
 rates (`suggestion_source: coinbase_account`) with the public schedule as context; and the
 decision timeline records geometry/sizing refusals as `skipped` with exact reason codes.
+
+Signal-based exits ([ADR 0093](decisions/0093-signal-based-exits.md)): an optional
+`exits.signal_exit: {"when": <entry-grammar condition tree>}` closes an open position when it
+matches on a closed bar after the fill bar, as a taker at that close (the time-exit convention) in
+backtest, paper, and live. The mandatory initial stop still guards the book and wins a same-bar
+tie. Backtest trades report exit reason `signal`, diagnostics add `exit_reasons`, signal traces add
+`exit_condition`, and results disclose `signal_exit_at_close`. Live cancels protection before the
+marketable cover and keeps exiting through a pending cancel (`signal_exit_bar` on the position);
+decision rows carry `exit_reason: signal` and the evaluated `exit_rule`. Template
+`ema-trend-hold` holds a trend until EMA(20) crosses back below EMA(100).
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

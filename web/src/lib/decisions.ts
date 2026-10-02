@@ -40,7 +40,8 @@ export type DecisionSkipReason =
 	| 'entry_geometry'
 	| 'entry_sizing';
 
-export type DecisionExitReason = 'stop' | 'trail' | 'target' | 'time' | 'flatten';
+/** `signal` is the strategy's `exits.signal_exit` rule (ADR 0093). */
+export type DecisionExitReason = 'stop' | 'trail' | 'target' | 'time' | 'flatten' | 'signal';
 
 export type DecisionAction =
 	'none' | 'intent_created' | 'order_submitted' | 'order_canceled' | 'repriced';
@@ -109,6 +110,8 @@ export type DecisionSignal = {
 	candle_starts_at: string;
 	indicator_values: DecisionIndicatorValue[];
 	entry_condition: RuleOutcome;
+	/** Present only for strategies that declare `exits.signal_exit` (ADR 0093). */
+	exit_condition?: RuleOutcome | null;
 };
 
 export type DecisionRule = {
@@ -117,6 +120,15 @@ export type DecisionRule = {
 	entry: ConditionNode;
 	htf_filter: DecisionHtfFilter | null;
 	signal: DecisionSignal | null;
+};
+
+/**
+ * The evaluated `exits.signal_exit` rule on a bar the book was open (ADR 0093): a
+ * holding bar shows why it did not exit, an exit bar the leaves that matched.
+ */
+export type DecisionExitRule = {
+	outcome: RuleOutcome;
+	condition: ConditionNode;
 };
 
 export type DecisionRisk = {
@@ -135,7 +147,8 @@ export type DecisionPosition = {
 };
 
 /** Why the runtime created an order intent. */
-export type IntentPurpose = 'entry' | 'take_profit' | 'stop' | 'time_exit' | 'bracket';
+export type IntentPurpose =
+	'entry' | 'take_profit' | 'stop' | 'time_exit' | 'bracket' | 'signal_exit';
 
 export type DecisionOrder = {
 	order_id: string;
@@ -189,6 +202,8 @@ export type BarDecision = {
 	fills: DecisionFill[];
 	close_price: string | null;
 	rule: DecisionRule | null;
+	/** Absent on rows written before ADR 0093 and on bars the exit rule was not evaluated. */
+	exit_rule?: DecisionExitRule | null;
 	risk: DecisionRisk | null;
 	position: DecisionPosition | null;
 };
@@ -614,6 +629,8 @@ export function exitReasonLabel(reason: DecisionExitReason): string {
 			return 'time exit';
 		case 'flatten':
 			return 'flatten';
+		case 'signal':
+			return 'signal exit';
 		default: {
 			const unknown: never = reason;
 			return String(unknown).replaceAll('_', ' ');

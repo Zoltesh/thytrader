@@ -40,6 +40,11 @@
       "id": "zscore-mean-reversion",
       "name": "Z-score mean reversion",
       "description": "Long when the 20-bar close z-score is at or below -2 in a ranging regime (ADX below 20 or Choppiness above 61.8); ATR stop and target."
+    },
+    {
+      "id": "ema-trend-hold",
+      "name": "EMA trend hold",
+      "description": "Long when EMA(20) crosses above EMA(100); hold until it crosses back below (signal exit). 3x ATR initial stop, no take-profit, wide 5x ATR trail."
     }
   ]
 }

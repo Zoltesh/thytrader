@@ -97,13 +97,18 @@ class OrderStatus(StrEnum):
 
 
 class IntentPurpose(StrEnum):
-    """Why the runtime created one order intent."""
+    """Why the runtime created one order intent.
+
+    ``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``
+    rule matched on a closed bar (ADR 0093).
+    """
 
     ENTRY = "entry"
     TAKE_PROFIT = "take_profit"
     STOP = "stop"
     TIME_EXIT = "time_exit"
     BRACKET = "bracket"
+    SIGNAL_EXIT = "signal_exit"
 
 
 class LifecycleCommand(StrEnum):
@@ -199,6 +204,10 @@ class Position:
     """One long or short product book held by a deployment.
 
     ``target_price`` is None when the strategy declares no take-profit (ADR 0090).
+    ``signal_exit_bar`` is the UTC start of the closed bar whose ``exits.signal_exit`` rule
+    matched (ADR 0093): the book keeps exiting (protection cancelled, then a marketable
+    cover) on every cycle until it is flat, so a cancel that completes between bars is
+    followed by the exit rather than by freshly rested protection.
     """
 
     deployment_id: UUID
@@ -212,6 +221,7 @@ class Position:
     side: PositionSide = PositionSide.LONG
     product_id: str = ""
     add_count: int = 1
+    signal_exit_bar: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

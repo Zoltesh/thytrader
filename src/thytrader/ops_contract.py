@@ -41,11 +41,14 @@ constraint fields (ADR 0089), optional take-profit (``take_profit.kind: none``),
 stop-only protection (``stop_limit``), backtest diagnostics, account-rate fee
 suggestions, the HTTP signal-trace route (Alembic 0055, ADR 0090), portfolio deployment
 (sleeve bots tagged with ``portfolio_id``, portfolio limits in the risk gate, portfolio
-breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056), or the
+breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056), the
 research worker pool (leased claims, crash re-queue, process recycling, the synchronous
 long-poll with its 202 fallback, research-job error codes, and health queue depth; Alembic
-0057, ADR 0092) change. Concurrency is the deployment's ``research_worker_count`` and is
-reported by operator health, not compiled into this contract.
+0057, ADR 0092), or signal-based exits (``exits.signal_exit`` across research, paper, and
+live; the ``signal`` exit reason, the ``signal_exit`` intent purpose, and the durable
+position exit marker; ADR 0093, Alembic 0058) change. Concurrency is the deployment's
+``research_worker_count`` and is reported by operator health, not compiled into this
+contract.
 """
 
 from __future__ import annotations
@@ -69,8 +72,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v52"
-EXPECTED_SCHEMA_REVISION = "0057"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v53"
+EXPECTED_SCHEMA_REVISION = "0058"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -142,6 +145,7 @@ LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 HTF_FILTER_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_TIMEFRAME_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_OFFSET_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
+SIGNAL_EXIT_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_KINDS: tuple[str, ...] = tuple(kind.value for kind in IndicatorKind)
 POSITION_SIDES: tuple[str, ...] = ("long", "short")
 ATTACHED_ENTRY_BRACKETS: tuple[str, ...] = ("paper", "live")
@@ -178,6 +182,7 @@ def expected_ops_contract() -> dict[str, object]:
         "htf_filter_runtimes": list(HTF_FILTER_RUNTIMES),
         "indicator_timeframe_runtimes": list(INDICATOR_TIMEFRAME_RUNTIMES),
         "indicator_offset_runtimes": list(INDICATOR_OFFSET_RUNTIMES),
+        "signal_exit_runtimes": list(SIGNAL_EXIT_RUNTIMES),
         "indicator_kinds": list(INDICATOR_KINDS),
         "position_sides": list(POSITION_SIDES),
         "attached_entry_brackets": list(ATTACHED_ENTRY_BRACKETS),

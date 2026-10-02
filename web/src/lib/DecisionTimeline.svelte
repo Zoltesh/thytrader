@@ -346,6 +346,19 @@
 		{/if}
 	</section>
 
+	{#if decision.exit_rule}
+		{@const exitRule = decision.exit_rule}
+		<section class="block" aria-labelledby="{idBase}-exit-rule" data-testid="decision-exit-rule">
+			<h3 id="{idBase}-exit-rule">Exit rule</h3>
+			<p class="verdict" data-testid="decision-exit-rule-outcome" data-outcome={exitRule.outcome}>
+				Exit rule {ruleOutcomeLabel(exitRule.outcome)}{exitRule.outcome === 'matched'
+					? ' (sells at this close unless the protective stop already closed the book)'
+					: ''}
+			</p>
+			<div class="tree">{@render conditionTree(exitRule.condition)}</div>
+		</section>
+	{/if}
+
 	<section class="block" aria-labelledby="{idBase}-risk">
 		<h3 id="{idBase}-risk">Risk</h3>
 		{#if decision.risk === null}

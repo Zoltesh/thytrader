@@ -545,6 +545,26 @@ job); operator health with worker liveness, per-worker RSS, and queue depth;
 while four heavy backtests run on two workers; a SIGKILLed worker's job is re-queued and completes;
 the same request through the in-process harness and the worker returns byte-identical bodies.
 
+## Signal-based exits — ✅ Shipped
+
+Strategies can hold a trend until it reverses
+([ADR 0093](decisions/0093-signal-based-exits.md)). An optional `exits.signal_exit` rule tree,
+which uses the entry grammar and operands, closes an open position when it matches on a closed bar
+after the fill bar, as a taker at that close (the time-exit convention), in backtest, paper, and
+live. The mandatory initial stop still guards the position and wins a same-bar tie. The trail,
+take-profit, and time exit still apply. Backtests report exit reason `signal`, `exit_reasons`
+diagnostics, trace `exit_condition`, and the `signal_exit_at_close` validity limit. Live cancels
+protection before the marketable cover and keeps exiting through a pending cancel by using a
+durable position marker. Decision rows show `exit_reason: signal` with the evaluated exit rule.
+The Build stage has an "Exit when" section, and template `ema-trend-hold` (EMA 20/100 cross in and
+out, 3× ATR stop, no take-profit, wide 5× ATR trail) ships for the trend sleeves. Ops contract
+`thytrader-ops-contract-v53` / Alembic `0058`.
+
+**Exit gate met:** golden fingerprints of documents without a rule are unchanged. Kernel tests pin
+the close-time exit, no exit on the fill bar, stop and take-profit precedence, and signal-before-time.
+Paper and fake-broker live tests pin cancel-protection-then-sell, a pending-cancel race that never
+re-rests protection, and a sleeve's allocation freed on exit.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

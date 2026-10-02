@@ -185,7 +185,8 @@ credentials leave those fields blank rather than inventing a tier. An opened res
 few trades?** disclosure (open by default when a result has no trades): signals matched → entries
 rested → filled, entries that expired or were still resting at the end, and how many matched
 signals were skipped and why — for example *Short take-profit would be at or below zero*
-(`target_not_positive`) or *Already in a position*. Results saved before this was recorded say so;
+(`target_not_positive`) or *Already in a position* — plus how positions closed (stop loss, take
+profit, time exit, signal exit, evaluation end). Results saved before this was recorded say so;
 re-run the backtest to record it. Dataset and result-list failures remain visible without hiding
 strategy evidence. Result summaries report the snapshot's strategy clock,
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
@@ -287,7 +288,14 @@ available base and never borrows. When stop and take-profit are known and traili
 attaches those exits to the entry; paper still uses synthetic exits. A strategy whose **Take
 profit** is set to **None** (Build → Exit conditions) exits only on its stop, ATR trail, or time
 exit: paper rests no take-profit, and live protects the position with one Coinbase stop-limit at
-the stop (limit 5% through it, like a bracket's stop leg). The Build stage also lists advisory
+the stop (limit 5% through it, like a bracket's stop leg). **Exit when** (Build → Exit
+conditions, optional) adds a rule built like the entry conditions, for example *fast crosses
+below slow* to hold a trend until it reverses. It is checked on every closed bar after the entry
+filled; when it matches, the bot sells at that bar's close as a taker, like the time exit. The
+initial stop keeps guarding the position until then and wins if the same bar hits it, and the
+trailing stop, take-profit, and time exit still apply. Live cancels the protective order before it
+sells. The bot timeline shows such exits as **signal exit** with the rule that matched, and the
+**EMA trend hold** template starts from this shape. The Build stage also lists advisory
 warnings under the saved definition, such as a short whose take-profit can fall to zero at normal
 volatility; they never block saving or running. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).

@@ -1,4 +1,4 @@
-"""Pure deterministic entry-condition evaluation for immutable research requests."""
+"""Pure deterministic entry- and exit-condition evaluation for immutable research requests."""
 
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     indicator_value_keys,
     operand_value_key,
+    signal_exit_condition,
     strategy_fingerprint,
     unbound_indicator_timeframes,
 )
@@ -70,7 +71,11 @@ def evaluate_signal_trace(
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> SignalTrace:
-    """Evaluate deterministic entry conditions over one exact completed-candle interval."""
+    """Evaluate deterministic entry (and optional signal-exit) conditions over one interval.
+
+    The exit tree reads the same merged decision-clock values as ``entry.when`` and never
+    the HTF filter, which gates entries only (ADR 0093).
+    """
     try:
         specification = ResearchRunSpecification.model_validate(
             specification.model_dump(mode="python")
@@ -101,6 +106,7 @@ def evaluate_signal_trace(
     htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
     declared = decision_and_filter_indicators(strategy)
     indicator_ids = tuple(key for indicator in declared for key in indicator_value_keys(indicator))
+    exit_condition = signal_exit_condition(strategy.exits)
     records: list[SignalTraceRecord] = []
     for index, (candle, values) in enumerate(zip(engine_candles, indicator_rows, strict=True)):
         if candle.starts_at < specification.evaluation.starts_at:
@@ -134,6 +140,11 @@ def evaluate_signal_trace(
                     for key in indicator_ids
                 ),
                 entry_condition=outcome,
+                exit_condition=(
+                    None
+                    if exit_condition is None
+                    else _condition_outcome(exit_condition, merged_values, merged_previous)
+                ),
             )
         )
     return SignalTrace(

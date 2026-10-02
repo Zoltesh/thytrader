@@ -550,6 +550,7 @@ class PostgresExecutionStore:
                             side=position.side.value,
                             add_count=position.add_count,
                             updated_at=position.updated_at,
+                            signal_exit_bar=position.signal_exit_bar,
                         )
                     )
                 refreshed = await _snapshot(
@@ -598,6 +599,7 @@ class PostgresExecutionStore:
                             side=position.side.value,
                             add_count=position.add_count,
                             updated_at=position.updated_at,
+                            signal_exit_bar=position.signal_exit_bar,
                         )
                     )
         except SQLAlchemyError as error:
@@ -893,6 +895,7 @@ def _position_from_row(row: RowMapping) -> Position:
         product_id=row["product_id"] if row["product_id"] is not None else "",
         add_count=int(row["add_count"]) if row["add_count"] is not None else 1,
         updated_at=row["updated_at"],
+        signal_exit_bar=row.get("signal_exit_bar"),
     )
 
 

@@ -464,6 +464,8 @@ def test_create_strategy_help_lists_research_templates(
     assert "macd-trend" in output
     assert "mean-reversion" in output
     assert "bollinger" in output
+    # argparse may wrap the id at a hyphen (``ema-trend- hold`` once whitespace is joined).
+    assert "ema-trend-hold" in output.replace("- ", "-")
 
 
 def test_list_templates_local_does_not_require_a_database(
@@ -477,6 +479,7 @@ def test_list_templates_local_does_not_require_a_database(
     ids = {item["id"] for item in payload["templates"]}
     assert "ema-trend" in ids
     assert "rsi-mean-reversion" in ids
+    assert "ema-trend-hold" in ids
 
 
 def test_submit_study_without_confirm_does_not_submit() -> None:

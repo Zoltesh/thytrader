@@ -3,8 +3,8 @@
 	 * Strategy definition form (the Build stage's left column).
 	 *
 	 * Section navigation plus the rule rows: indicators, the ALL / ANY / NOT
-	 * entry tree, the optional higher-timeframe filter, exits, sizing, limits,
-	 * and execution preferences. `readonly` renders a strategy
+	 * entry tree, the optional higher-timeframe filter, exits (with the optional
+	 * "Exit when" rule tree, ADR 0093), sizing, limits, and execution preferences. `readonly` renders a strategy
 	 * snapshot's definition in the same layout with every control disabled.
 	 */
 	import { untrack } from 'svelte';
@@ -19,6 +19,7 @@
 	} from '$lib/indicator-catalog';
 	import {
 		defaultHtfFilter,
+		defaultSignalExit,
 		EXECUTION_TIMEFRAMES,
 		validHtfTimeframes,
 		IDENTITY_INPUT_OPTIONS,
@@ -184,11 +185,16 @@
 	}
 
 	/** Wrap the root condition itself so the top-level group can be negated. */
-	function toggleRootNot(kind: 'entry' | 'htf'): void {
+	function toggleRootNot(kind: 'entry' | 'htf' | 'exit'): void {
 		if (!model) return;
 		if (kind === 'entry') {
 			const root = model.entry.when;
 			model.entry.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
+		} else if (kind === 'exit') {
+			const signalExit = model.exits.signal_exit;
+			if (signalExit === undefined) return;
+			const root = signalExit.when;
+			signalExit.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
 		} else if (model.htf_filter !== null) {
 			const root = model.htf_filter.when;
 			model.htf_filter.when = 'not' in root ? root.not : ({ not: root } satisfies ConditionDraft);
@@ -359,6 +365,24 @@
 		model.htf_filter.indicators.splice(index, 1);
 		markDirty();
 	}
+
+	/** Add the optional exit rule (mirroring a single-cross entry) or drop it from the document. */
+	function toggleSignalExit(enabled: boolean): void {
+		if (!model) return;
+		if (enabled) {
+			model.exits.signal_exit = defaultSignalExit(model.entry.when, model.indicators);
+		} else {
+			delete model.exits.signal_exit;
+		}
+		markDirty();
+	}
+
+	/** Read-only trailing-stop summary: the ATR trail when enabled, else "disabled". */
+	const trailingStopText = $derived(
+		model.exits.trailing_stop.enabled
+			? `${model.exits.trailing_stop.multiple}× ATR (${model.exits.trailing_stop.atr_indicator})`
+			: 'disabled'
+	);
 
 	function toggleHtfFilter(enabled: boolean): void {
 		if (!model) return;
@@ -618,7 +642,39 @@
 							oninput={markDirty}
 						/></label
 					>
-					<label>Trailing stop<input value="disabled" disabled /></label>
+					<label>Trailing stop<input value={trailingStopText} disabled /></label>
+				</div>
+				<div class="exit-rule" data-testid="signal-exit-section">
+					<label class="cooldown-row"
+						><input
+							type="checkbox"
+							data-testid="signal-exit-toggle"
+							checked={model.exits.signal_exit !== undefined}
+							onchange={(event) =>
+								toggleSignalExit((event.currentTarget as HTMLInputElement).checked)}
+						/>
+						Exit when a rule matches (optional)
+					</label>
+					{#if model.exits.signal_exit}
+						<h3 class="exit-rule-title">Exit when</h3>
+						<div class="rule-tree" data-testid="signal-exit-tree">
+							{@render conditionNode(
+								model.exits.signal_exit.when,
+								model.exits.signal_exit.when,
+								0,
+								model.exits.signal_exit.when,
+								model.indicators,
+								'exit'
+							)}
+						</div>
+					{/if}
+					<p class="hint">
+						Checked on every closed bar after the fill bar while a position is open, using the same
+						indicators as entry. A match sells at that bar's close as a taker, like the time exit.
+						The initial stop still guards the position until then: when a bar trades through the
+						stop, the stop exit wins. The trailing stop, take-profit, and time exit still apply;
+						whichever triggers first closes the position.
+					</p>
 				</div>
 			</section>
 		{:else if activeSection === 'sizing'}
@@ -823,7 +879,7 @@
 	depth: number,
 	root: ConditionDraft,
 	indicators: IndicatorDraft[],
-	kind: 'entry' | 'htf'
+	kind: 'entry' | 'htf' | 'exit'
 )}
 	{@const index = childIndex(condition, parent)}
 	{@const isRoot = isRootGroup(condition, root)}
@@ -1168,6 +1224,17 @@
 	.operand-name {
 		padding: 0 2px;
 		color: var(--accent);
+		font-size: var(--fs-sm);
+	}
+	.exit-rule {
+		display: grid;
+		gap: 8px;
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid var(--line-2);
+	}
+	.exit-rule-title {
+		margin: 0;
 		font-size: var(--fs-sm);
 	}
 	.cooldown-row {

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.decisions import DecisionSkipReason
     from thytrader.execution.geometry import EntrySkipReason
-    from thytrader.execution.signals import LatestEntryEvaluation
+    from thytrader.execution.signals import LatestEntryEvaluation, LatestExitEvaluation
     from thytrader.risk.models import RiskVerdict
 
 
@@ -29,6 +29,7 @@ class DecisionObservations:
 
     entry_gate: DecisionSkipReason | None = None
     evaluation: LatestEntryEvaluation | None = None
+    exit_evaluation: LatestExitEvaluation | None = None
     evaluation_error: str | None = None
     risk_verdicts: list[RiskVerdict] = field(default_factory=list)
     freshness: RiskVerdict | None = None
@@ -76,6 +77,14 @@ def note_evaluation(evaluation: LatestEntryEvaluation) -> None:
     if observations is None:
         return
     observations.evaluation = evaluation
+
+
+def note_exit_evaluation(evaluation: LatestExitEvaluation) -> None:
+    """Record the evaluated ``exits.signal_exit`` rule and the values it read (ADR 0093)."""
+    observations = _SCOPE.get()
+    if observations is None:
+        return
+    observations.exit_evaluation = evaluation
 
 
 def note_evaluation_error(message: str) -> None:

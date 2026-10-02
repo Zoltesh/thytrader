@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 import inspect
+from itertools import pairwise
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.attached import (
@@ -23,6 +24,7 @@ from thytrader.execution.decision_scope import (
     note_entry_skip,
     note_evaluation,
     note_evaluation_error,
+    note_exit_evaluation,
     note_freshness,
     note_risk,
 )
@@ -81,7 +83,12 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import import_attached_children, ingest_order_fills
-from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr, named_atr
+from thytrader.execution.signals import (
+    evaluate_latest_entry_evidence,
+    evaluate_latest_signal_exit,
+    latest_atr,
+    named_atr,
+)
 from thytrader.execution.sizing import (
     SizedEntry,
     size_entry_or_skip,
@@ -106,7 +113,11 @@ from thytrader.risk.models import (
     pauses_risk_increasing,
 )
 from thytrader.risk.portfolio_scope import portfolio_risk_for
-from thytrader.strategies.models import atr_trailing_stop, can_pyramid_add
+from thytrader.strategies.models import (
+    atr_trailing_stop,
+    can_pyramid_add,
+    signal_exit_condition,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -140,8 +151,14 @@ async def maintain_open_inventory(
     candles: Sequence[Candle],
     broker: Broker,
     store: ExecutionStore,
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
-    """Reconcile resting orders and ensure protection between closed bars."""
+    """Reconcile resting orders and ensure protection between closed bars.
+
+    ``htf_candles`` / ``indicator_timeframe_candles`` are only needed when a newly closed
+    bar is processed here and the ``exits.signal_exit`` rule reads extra-TF indicators.
+    """
     if not candles:
         return snapshot
     return await process_closed_bar(
@@ -151,6 +168,8 @@ async def maintain_open_inventory(
         candles=candles,
         broker=bind_paper_broker_fees(broker, snapshot.deployment),
         store=store,
+        htf_candles=htf_candles,
+        indicator_timeframe_candles=indicator_timeframe_candles,
         allow_new_entries=False,
     )
 
@@ -285,6 +304,8 @@ async def process_closed_bar(
         live_base_available=live_base_available,
         risk_policy=policy,
         portfolio=portfolio,
+        htf_candles=htf_candles,
+        indicator_timeframe_candles=indicator_timeframe_candles,
     )
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _apply_circuit_breakers(
@@ -580,8 +601,10 @@ async def _manage_position(
     live_base_available: Decimal | None = None,
     risk_policy: RiskPolicyDefinition | None = None,
     portfolio: Sequence[DeploymentSnapshot] = (),
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
-    """Exit on stop, take-profit fill wait, or time, and expire working entry remainders."""
+    """Exit on stop, take-profit, signal, or time, and expire working entry remainders."""
     if _active_entry(snapshot) is not None:
         snapshot = await _manage_working_entry(
             snapshot,
@@ -611,6 +634,8 @@ async def _manage_position(
         product=product,
         broker=broker,
         store=store,
+        htf_candles=htf_candles,
+        indicator_timeframe_candles=indicator_timeframe_candles,
     )
 
 
@@ -671,11 +696,17 @@ async def _manage_open_position(
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Trail and protect an open book after pending-entry handling.
 
-    Live books first learn any venue-attached TP/SL child of the filled entry, so a time
-    or stop exit in this same cycle cancels that child before selling the base it holds.
+    Live books first learn any venue-attached TP/SL child of the filled entry, so a time,
+    signal, or stop exit in this same cycle cancels that child before selling the base it
+    holds. After the fill bar the ``exits.signal_exit`` rule is evaluated on every closed
+    bar (ADR 0093). The paper stop still wins a same-bar tie (protective stop first), and
+    a match marks the position so every later cycle keeps exiting until the book is flat.
+    A book that is exiting on a signal is not trailed.
     """
     deployment = snapshot.deployment
     position = snapshot.position
@@ -693,14 +724,49 @@ async def _manage_open_position(
         updated = with_runtime(deployment, updated_at=utc_now(), bars_held=bars_held)
         await store.save_deployment(updated)
         snapshot = await store.get_deployment(deployment.id)
-        if snapshot.position is None:
-            return snapshot
+    if snapshot.position is None:
+        return snapshot
+    return await _exit_trail_and_protect(
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        htf_candles=htf_candles,
+        indicator_timeframe_candles=indicator_timeframe_candles,
+    )
+
+
+async def _exit_trail_and_protect(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+    htf_candles: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+) -> DeploymentSnapshot:
+    """Evaluate the exit rule, apply the paper stop first, then mark or trail, and protect."""
+    live = snapshot.deployment.mode is DeploymentMode.LIVE
+    timed_out = snapshot.deployment.bars_held >= strategy.exits.time_exit.max_bars_held
+    snapshot, signal_matched = await _evaluate_signal_exit(
+        snapshot,
+        strategy=strategy,
+        candles=candles,
+        candle=candle,
+        store=store,
+        htf_candles=htf_candles,
+        indicator_timeframe_candles=indicator_timeframe_candles,
+    )
     position = snapshot.position
     if position is None:
         return snapshot
-    live = deployment.mode is DeploymentMode.LIVE
-    timed_out = snapshot.deployment.bars_held >= strategy.exits.time_exit.max_bars_held
-    if not live and not timed_out:
+    if not live and (signal_matched or not timed_out):
         stopped = await _paper_stop_exit_if_hit(
             snapshot,
             strategy=strategy,
@@ -712,9 +778,17 @@ async def _manage_open_position(
         )
         if stopped is not None:
             return stopped
-    snapshot = await _apply_trailing(
-        snapshot, strategy=strategy, candles=candles, candle=candle, product=product, store=store
-    )
+    if signal_matched:
+        snapshot = await _mark_signal_exit(snapshot, candle=candle, store=store)
+    elif position.signal_exit_bar is None:
+        snapshot = await _apply_trailing(
+            snapshot,
+            strategy=strategy,
+            candles=candles,
+            candle=candle,
+            product=product,
+            store=store,
+        )
     return await _protect_open_position(
         snapshot,
         strategy=strategy,
@@ -724,6 +798,70 @@ async def _manage_open_position(
         store=store,
         skip_paper_stop=not live,
     )
+
+
+async def _evaluate_signal_exit(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    candle: Candle,
+    store: ExecutionStore,
+    htf_candles: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+) -> tuple[DeploymentSnapshot, bool]:
+    """Evaluate ``exits.signal_exit`` on this closed bar; True when it matched (ADR 0093).
+
+    Not evaluated on the fill bar, for a book already exiting on a signal, or over a
+    gapped window (indicator values across a gap would be wrong). A failed evaluation is
+    journaled and pauses a running book, like a failed entry evaluation; the protective
+    stop keeps guarding the position either way.
+    """
+    position = snapshot.position
+    if position is None or signal_exit_condition(strategy.exits) is None:
+        return snapshot, False
+    if position.signal_exit_bar is not None or position.entered_bar >= candle.starts_at:
+        return snapshot, False
+    if not _window_contiguous(candles, strategy.timeframe):
+        return snapshot, False
+    try:
+        evaluation = evaluate_latest_signal_exit(
+            strategy, candles, htf_candles, indicator_timeframe_candles
+        )
+    except SignalEvaluationError as error:
+        note_evaluation_error(str(error))
+        if snapshot.deployment.status is DeploymentStatus.RUNNING:
+            return await _pause(snapshot, store=store, detail=str(error)), False
+        return snapshot, False
+    if evaluation is None:
+        return snapshot, False
+    note_exit_evaluation(evaluation)
+    return snapshot, evaluation.outcome is EntryConditionOutcome.MATCHED
+
+
+def _window_contiguous(candles: Sequence[Candle], timeframe: str) -> bool:
+    """Whether the closed-bar window is gap-free on the strategy's decision clock."""
+    step = parse_candle_interval(timeframe).duration
+    return all(later.starts_at - earlier.starts_at == step for earlier, later in pairwise(candles))
+
+
+async def _mark_signal_exit(
+    snapshot: DeploymentSnapshot, *, candle: Candle, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Persist that this book is exiting on its signal before any order is touched.
+
+    The marker lives on the position row, so it survives restarts and disappears with
+    the position: every later cycle (``_due_exit_purpose``) keeps exiting instead of
+    re-resting protection after a venue cancel completes between bars.
+    """
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    await store.save_position(
+        replace(position, signal_exit_bar=candle.starts_at, updated_at=utc_now()),
+        deployment_id=snapshot.deployment.id,
+    )
+    return await store.get_deployment(snapshot.deployment.id)
 
 
 async def _paper_stop_exit_if_hit(
@@ -813,8 +951,9 @@ async def _protect_open_position(
 ) -> DeploymentSnapshot:
     """Apply paper synthetic stops or live venue brackets after trailing.
 
-    A due time exit or a pending flatten exits marketably (cancelling protection first)
-    and never rests new protection.
+    A pending flatten, a matched signal exit (ADR 0093), or a due time exit exits
+    marketably at this bar's close (cancelling protection first) and never rests new
+    protection. The signal exit precedes the time exit when both are due.
     """
     position = snapshot.position
     if position is None:
@@ -828,6 +967,17 @@ async def _protect_open_position(
             broker=broker,
             store=store,
             purpose=IntentPurpose.STOP,
+            price=candle.close,
+        )
+    if position.signal_exit_bar is not None:
+        return await _marketable_exit(
+            snapshot,
+            strategy=strategy,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            purpose=IntentPurpose.SIGNAL_EXIT,
             price=candle.close,
         )
     bars_held = snapshot.deployment.bars_held
@@ -1529,14 +1679,17 @@ def _due_exit_purpose(
 ) -> IntentPurpose | None:
     """Return why a live open book must keep exiting between bars, or None to protect it.
 
-    A pending flatten exits as STOP; a reached ``max_bars_held`` keeps exiting as
-    TIME_EXIT, so a cancel that completes between bars is followed by the exit rather
-    than by a freshly rested bracket. Paper exits only on closed bars.
+    A pending flatten exits as STOP; a position marked by a matched ``exits.signal_exit``
+    rule keeps exiting as SIGNAL_EXIT (ADR 0093); a reached ``max_bars_held`` keeps
+    exiting as TIME_EXIT, so a cancel that completes between bars is followed by the exit
+    rather than by a freshly rested bracket. Paper exits only on closed bars.
     """
     if snapshot.deployment.mode is not DeploymentMode.LIVE or snapshot.position is None:
         return None
     if flatten_requested(snapshot):
         return IntentPurpose.STOP
+    if snapshot.position.signal_exit_bar is not None:
+        return IntentPurpose.SIGNAL_EXIT
     if strategy is None:
         return None
     if snapshot.deployment.bars_held >= strategy.exits.time_exit.max_bars_held:

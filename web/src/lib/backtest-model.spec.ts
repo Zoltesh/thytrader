@@ -23,6 +23,7 @@ describe('backtest model disclosure', () => {
 				'unfilled_entries',
 				'stops_and_targets',
 				'time_exit',
+				'signal_exit',
 				'evaluation_end',
 				'fees',
 				'slippage',

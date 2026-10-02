@@ -19,6 +19,7 @@ from thytrader.execution.decisions import (
     ConditionResult,
     DecisionOperand,
     EntryRuleTrace,
+    ExitRuleTrace,
     HtfFilterTrace,
 )
 from thytrader.research.indicators import canonical_decimal
@@ -36,13 +37,14 @@ from thytrader.strategies.models import (
     indicator_offset,
     indicator_value_keys,
     operand_value_key,
+    signal_exit_condition,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from thytrader.execution.decisions import ConditionTrace
-    from thytrader.execution.signals import LatestEntryEvaluation
+    from thytrader.execution.signals import LatestEntryEvaluation, LatestExitEvaluation
     from thytrader.strategies.indicator_catalog import IndicatorKindSpec
     from thytrader.strategies.models import (
         ConditionNode,
@@ -212,6 +214,25 @@ def entry_rule_trace(
         entry=entry,
         htf_filter=htf_trace,
         signal=signal_record(strategy, evaluation),
+    )
+
+
+def exit_rule_trace(
+    strategy: StrategyDefinition, evaluation: LatestExitEvaluation
+) -> ExitRuleTrace | None:
+    """Explain the evaluated ``exits.signal_exit`` tree of one bar (ADR 0093).
+
+    Returns None when the strategy declares no signal exit or the evaluation had no bar.
+    """
+    condition = signal_exit_condition(strategy.exits)
+    if condition is None or evaluation.candle_starts_at is None:
+        return None
+    labeler = OperandLabeler(strategy.indicators, strategy.timeframe)
+    return ExitRuleTrace(
+        outcome=evaluation.outcome,
+        condition=condition_trace(
+            condition, evaluation.current, evaluation.previous, labeler=labeler
+        ),
     )
 
 
@@ -409,8 +430,11 @@ def unmet_text(node: ConditionTrace) -> str:
     )
 
 
-def met_text(node: ConditionTrace) -> str:
-    """Describe a satisfied rule compactly, e.g. ``RSI(14) 55.2 ≥ 50``."""
+def met_text(node: ConditionTrace, *, fallback: str = "entry rule matched") -> str:
+    """Describe a satisfied rule compactly, e.g. ``RSI(14) 55.2 ≥ 50``.
+
+    ``fallback`` names the rule when no leaf summarizes it (the exit rule passes its own).
+    """
     if isinstance(node, ConditionComparisonTrace):
         return _leaf_values(node)
     leaves = [child for child in node.children if isinstance(child, ConditionComparisonTrace)]
@@ -422,8 +446,8 @@ def met_text(node: ConditionTrace) -> str:
             (child for child in node.children if child.result is ConditionResult.TRUE), None
         )
         if held is not None:
-            return met_text(held)
-    return "entry rule matched"
+            return met_text(held, fallback=fallback)
+    return fallback
 
 
 def _leaf_values(node: ConditionTrace) -> str:
