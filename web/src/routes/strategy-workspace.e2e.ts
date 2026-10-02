@@ -1,3 +1,11 @@
+import {
+	EARLIER_INTENT,
+	ENTRY_INTENT,
+	barDecision,
+	decisionPageBody,
+	mockTradeReasons,
+	tradeReason
+} from '../e2e/decision-fixtures';
 import { expect, test } from '../e2e/harness';
 import {
 	definition,
@@ -110,7 +118,7 @@ test('Clone copies the strategy into a new workspace', async ({ page }) => {
 	await expect(page.getByTestId('workspace-name')).toHaveText('Copy of trend');
 });
 
-test('Why shows the latest completed-bar signal and trade reasons per deployment', async ({
+test('Why shows the decision timeline of every bot with a deployment selector', async ({
 	page
 }) => {
 	await mockStrategy(page);
@@ -126,85 +134,149 @@ test('Why shows the latest completed-bar signal and trade reasons per deployment
 		status: 'stopped'
 	});
 	await mockDeployments(page, () => [paper, live, earlierEdit]);
-	const requested: string[] = [];
-	await page.route('**/api/v1/memory/trade-reasons**', (route) => {
-		const id = new URL(route.request().url()).searchParams.get('deployment_id') ?? '';
-		requested.push(id);
-		const records =
-			id === paper.id
-				? [
-						{
-							schema_version: 'thytrader-trade-reason-v1',
-							id: 'r1',
-							created_at: '2026-09-28T22:00:05Z',
-							origin: 'runtime',
-							intent_id: 'i1',
-							deployment_id: paper.id,
-							deployment_kind: 'strategy',
-							mode: 'paper',
-							product_id: 'BTC-USDC',
-							purpose: 'entry',
-							side: 'buy',
-							strategy: null,
-							signal: {
-								kind: 'strategy_entry',
-								last_signal: 'matched',
-								candle_starts_at: '2026-09-28T22:00:00Z',
-								timeframe: '1h'
-							},
-							risk: {
-								decision: 'allow',
-								reason_code: 'within_limits',
-								detail: '',
-								policy_fingerprint: 'p',
-								policy_source: 'published'
-							},
-							notes: [],
-							reconcile: {
-								order_id: '0199aaaa-0000-0000-0000-000000000001',
-								order_status: 'filled',
-								filled_quantity: '0.0041',
-								reject_reason: null,
-								unknown_timeout: false,
-								ledger_available: true,
-								fills: [
-									{
-										fill_id: 'f1',
-										price: '63412',
-										quantity: '0.0041',
-										fee: '0.26',
-										filled_at: '2026-09-28T23:00:00Z'
-									}
-								]
-							}
-						}
-					]
-				: [];
-		return route.fulfill({ json: { trade_reasons: records } });
-	});
+	const btc = { product_id: 'BTC-USDC', timeframe: '1h', strategy_id: strategyId };
+	const reasonRequests = await mockTradeReasons(page, (id) =>
+		id === paper.id
+			? [
+					tradeReason(paper.id, ENTRY_INTENT, { product_id: 'BTC-USDC', notes: [] }),
+					tradeReason(paper.id, EARLIER_INTENT, {
+						id: 'reason-old',
+						created_at: '2026-09-01T10:00:05Z',
+						product_id: 'BTC-USDC',
+						notes: []
+					})
+				]
+			: []
+	);
+	const rows = [
+		barDecision(paper.id, {
+			...btc,
+			bar_starts_at: '2026-09-29T13:00:00Z',
+			bar_closes_at: '2026-09-29T14:00:00Z',
+			evaluated_at: '2026-09-29T14:00:02Z',
+			outcome: 'entry_signal',
+			reason_code: 'SIGNAL_MATCHED',
+			summary: 'Entry: fast EMA crossed above slow EMA',
+			action: 'intent_created',
+			intent_id: ENTRY_INTENT
+		}),
+		barDecision(live.id, {
+			...btc,
+			mode: 'live',
+			bar_starts_at: '2026-09-29T12:00:00Z',
+			bar_closes_at: '2026-09-29T13:00:00Z',
+			evaluated_at: '2026-09-29T13:00:02Z',
+			outcome: 'error',
+			reason_code: 'DATA_GAP',
+			summary: 'Could not evaluate: market data gap'
+		}),
+		barDecision(earlierEdit.id, {
+			...btc,
+			strategy_fingerprint: fingerprintV2,
+			bar_starts_at: '2026-09-29T11:00:00Z',
+			bar_closes_at: '2026-09-29T12:00:00Z',
+			evaluated_at: '2026-09-29T12:00:02Z'
+		})
+	];
+	const decisionRequests: URLSearchParams[] = [];
+	await page.route(
+		(url) => url.pathname === `/api/v1/strategies/${strategyId}/decisions`,
+		(route) => {
+			const params = new URL(route.request().url()).searchParams;
+			decisionRequests.push(params);
+			const selected = params.get('deployment_id');
+			const outcomes = params.getAll('outcome');
+			const matching = rows.filter(
+				(row) =>
+					(selected === null || row.deployment_id === selected) &&
+					(outcomes.length === 0 || outcomes.includes(String(row.outcome)))
+			);
+			return route.fulfill({
+				json: { strategy_id: strategyId, deployment_id: selected, ...decisionPageBody(matching) }
+			});
+		}
+	);
 
 	await page.goto(`/strategies/${strategyId}/why`);
-	await expect(page.getByTestId('decision-history-note')).toContainText(
-		'Full per-bar decision history is not recorded yet'
+	await expect(page.getByText(/not recorded yet/)).toHaveCount(0);
+	await expect(page.getByTestId('decision-retention-note')).toContainText(
+		"each bot's newest 20,000 decisions, up to 180 days"
 	);
-	const signals = page.getByTestId('latest-signal');
-	await expect(signals).toHaveCount(3);
-	const badges = page.getByTestId('rules-badge');
+
+	// Selector: All bots, then each bot with its rules, latest bar, and next evaluation.
+	const selector = page.getByTestId('decision-deployment-selector');
+	const options = selector.getByTestId('decision-deployment-option');
+	await expect(options).toHaveCount(4);
+	await expect(options.first()).toHaveText(/All bots\s*3/);
+	await expect(options.first()).toHaveAttribute('aria-pressed', 'true');
+	await expect(options.nth(2)).toContainText('LIVE');
+	const badges = selector.getByTestId('rules-badge');
 	await expect(badges.nth(0)).toContainText('Current rules');
 	await expect(badges.nth(2)).toContainText('Earlier edit');
+	const signals = selector.getByTestId('latest-signal');
+	await expect(signals).toHaveCount(3);
 	await expect(signals.first()).toContainText('No trade — conditions did not match');
 	await expect(signals.nth(1)).toContainText('No trade — conditions could not be evaluated');
-	const reason = page.getByTestId('trade-reason');
-	await expect(reason).toContainText('Entry');
-	await expect(reason).toContainText('risk allow (within_limits)');
-	await expect(reason).toContainText('filled · 1 fill');
-	await expect(reason).toContainText('No operator note.');
-	await expect(page.getByTestId('no-trade-reasons').first()).toContainText(
-		'No recorded trade rationale for this deployment'
+	const nextEvaluation = selector.getByTestId('bot-next-evaluation');
+	await expect(nextEvaluation.first()).toHaveText('Next evaluation ≈ 2026-09-29 16:00 UTC');
+	await expect(nextEvaluation.nth(2)).toHaveText(
+		'Stopped: bars are evaluated only while residual exposure remains'
 	);
-	expect(requested.sort()).toEqual([live.id, paper.id, earlierEdit.id].sort());
-	await expect(page.getByRole('link', { name: 'Open bot →' }).first()).toHaveAttribute(
+	await expect(selector.getByRole('link', { name: /Open paper bot/ }).first()).toHaveAttribute(
 		'href',
 		`/deployments/${paper.id}`
 	);
+
+	// All bots: the strategy endpoint without deployment_id; each row names its bot.
+	const timeline = page.getByTestId('why-decisions');
+	await expect(timeline.getByTestId('decision-row')).toHaveCount(3);
+	expect(decisionRequests[0]?.has('deployment_id')).toBe(false);
+	expect(decisionRequests[0]?.get('limit')).toBe('50');
+	await expect(timeline.getByTestId('decision-bot')).toHaveText([
+		'Paper · BTC / USDC · since 2026-09-24',
+		'LIVE · BTC / USDC · since 2026-09-24',
+		'Paper · BTC / USDC · since 2026-09-24'
+	]);
+	// Each bot's trade reasons were read; the linked one joins its row, the other is listed once.
+	await expect
+		.poll(() => [...reasonRequests].sort())
+		.toEqual([live.id, paper.id, earlierEdit.id].sort());
+	const earlier = timeline.getByTestId('earlier-trade-reasons');
+	await expect(earlier.getByTestId('trade-reason')).toHaveCount(1);
+	await expect(earlier.getByTestId('trade-reason')).toHaveAttribute(
+		'data-intent-id',
+		EARLIER_INTENT
+	);
+	const entry = timeline.locator('[data-testid="decision-row"][data-outcome="entry_signal"]');
+	await entry.getByRole('button', { name: /Entry: fast EMA/ }).click();
+	await expect(entry.getByTestId('decision-trade-reason')).toHaveCount(1);
+	await expect(timeline.locator(`[data-intent-id="${ENTRY_INTENT}"]`)).toHaveCount(1);
+
+	// Selecting one bot sends its deployment_id and narrows the timeline to it.
+	await options.nth(2).click();
+	await expect(options.nth(2)).toHaveAttribute('aria-pressed', 'true');
+	await expect(options.first()).toHaveAttribute('aria-pressed', 'false');
+	await expect.poll(() => decisionRequests.at(-1)?.get('deployment_id')).toBe(live.id);
+	await expect(timeline.getByTestId('decision-row')).toHaveCount(1);
+	await expect(timeline.getByTestId('decision-outcome')).toHaveText(['Error']);
+	await expect(timeline.getByTestId('decision-bot')).toHaveCount(0);
+	await expect(page.getByTestId('why-decisions-scope')).toHaveText(
+		'LIVE · BTC / USDC · since 2026-09-24'
+	);
+	await expect(timeline.getByTestId('earlier-trade-reasons')).toHaveCount(0);
+
+	// Filters keep the selected bot.
+	await timeline.getByTestId('decision-filter').getByRole('button', { name: 'Trades' }).click();
+	await expect
+		.poll(() => decisionRequests.at(-1)?.getAll('outcome'))
+		.toEqual(['entry_signal', 'exit']);
+	expect(decisionRequests.at(-1)?.get('deployment_id')).toBe(live.id);
+	await expect(timeline.getByTestId('decision-empty')).toHaveText(
+		'No entries or exits in the journaled decision history.'
+	);
+
+	// Back to all bots.
+	await options.first().click();
+	await expect.poll(() => decisionRequests.at(-1)?.has('deployment_id')).toBe(false);
+	await expect(timeline.getByTestId('decision-outcome')).toHaveText(['Entry']);
 });

@@ -1,22 +1,14 @@
-<script lang="ts" module>
-	import type { TradeReasonRecord } from '$lib/memory';
-
-	export type TradeReasonState =
-		| { status: 'loading' }
-		| { status: 'error'; message: string }
-		| { status: 'ready'; records: TradeReasonRecord[] };
-</script>
-
 <script lang="ts">
 	/**
-	 * "Why it traded" timeline for one deployment, newest first: its latest
-	 * completed-bar signal, then every persisted trade reason
-	 * (`GET /api/v1/memory/trade-reasons?deployment_id=`). Shared by the Why
-	 * stage and bot detail. Full per-bar history is not recorded, so a missing
-	 * reason never becomes "conditions did not match".
+	 * Compact newest-first list of persisted trade reasons
+	 * (`GET /api/v1/memory/trade-reasons`). The decision timeline lists here
+	 * only the reasons no loaded decision row links by `intent_id` — recorded
+	 * before the decision journal existed, discretionary tickets, or bars older
+	 * than the rows loaded so far — so a reason is never rendered twice.
+	 * Joins only what the payload proves: an order is named only through the
+	 * server-composed `reconcile` block.
 	 */
-	import type { Deployment } from '$lib/deployments';
-	import { latestSignalExplanation } from '$lib/strategy-workspace';
+	import type { TradeReasonRecord } from '$lib/memory';
 	import { formatUtcTimestamp } from '$lib/time';
 	import {
 		tradeReasonKindLabel,
@@ -25,75 +17,50 @@
 		tradeReasonTone
 	} from '$lib/trade-reasons';
 
-	let { deployment, reasons }: { deployment: Deployment; reasons: TradeReasonState | undefined } =
-		$props();
-
-	const signal = $derived(latestSignalExplanation(deployment));
+	let {
+		records,
+		label = 'Trade reasons, newest first',
+		deploymentLabel = undefined
+	}: {
+		records: readonly TradeReasonRecord[];
+		/** Accessible name of the list. */
+		label?: string;
+		/** Names the bot of each reason when the list spans several deployments. */
+		deploymentLabel?: (deploymentId: string) => string | null;
+	} = $props();
 </script>
 
-{#snippet when(value: string | null)}
-	{#if value}
-		<time datetime={value} title={formatUtcTimestamp(value)}
-			>{formatUtcTimestamp(value).slice(5, 16)}<span class="utc">&nbsp;UTC</span></time
-		>
-	{:else}
-		—
-	{/if}
-{/snippet}
-
-<ol class="timeline" aria-label="Decisions for this deployment, newest first">
-	<li class="tl latest" data-testid="latest-signal" data-kind={signal.kind}>
-		<div class="t mono">{@render when(deployment.last_evaluated_bar)}</div>
-		<div>
-			<div class="title"><span class="tag">Latest bar</span> {signal.title}</div>
-			<div class="muted">{signal.detail}</div>
-		</div>
-	</li>
-	{#if reasons === undefined || reasons.status === 'loading'}
-		<li class="tl">
-			<div class="t"></div>
-			<div class="muted">Loading trade reasons…</div>
-		</li>
-	{:else if reasons.status === 'error'}
-		<li class="tl" role="alert">
-			<div class="t"></div>
-			<div class="problem">Trade reasons could not be loaded: {reasons.message}</div>
-		</li>
-	{:else if reasons.records.length === 0}
-		<li class="tl" data-testid="no-trade-reasons">
-			<div class="t"></div>
+<ol class="timeline" aria-label={label}>
+	{#each records as record (record.id)}
+		{@const tone = tradeReasonTone(record)}
+		{@const bot = deploymentLabel?.(record.deployment_id) ?? null}
+		<li class="tl" data-testid="trade-reason" data-intent-id={record.intent_id}>
+			<div class="t mono">
+				<time
+					datetime={record.signal.candle_starts_at}
+					title="Bar start {formatUtcTimestamp(record.signal.candle_starts_at)}"
+					>{formatUtcTimestamp(record.signal.candle_starts_at).slice(5, 16)}<span class="utc"
+						>&nbsp;UTC</span
+					></time
+				>
+			</div>
 			<div>
-				<div class="title">No recorded trade rationale for this deployment</div>
-				<div class="muted">
-					This can mean no intent was persisted, or rationale recording was unavailable. Orders
-					cannot be matched to intents from the deployment response.
+				<div class="title">
+					<span class:pos={tone === 'pos'} class:neg={tone === 'neg'} class:muted={tone === 'muted'}
+						>{tradeReasonKindLabel(record)}</span
+					>
+					· {record.side}
+					{record.product_id} · risk {record.risk.decision} ({record.risk.reason_code})
+					{#if bot !== null}<span class="bot">{bot}</span>{/if}
 				</div>
+				<div class="muted">
+					Why this intent was persisted: signal {record.signal.last_signal ?? record.signal.kind}
+					on the completed bar · {record.origin} · {tradeReasonReconcileText(record)}
+				</div>
+				<div class="faint">{tradeReasonNotesText(record)}</div>
 			</div>
 		</li>
-	{:else}
-		{#each reasons.records as record (record.id)}
-			{@const tone = tradeReasonTone(record)}
-			<li class="tl" data-testid="trade-reason">
-				<div class="t mono">{@render when(record.signal.candle_starts_at)}</div>
-				<div>
-					<div class="title">
-						<span
-							class:pos={tone === 'pos'}
-							class:neg={tone === 'neg'}
-							class:muted={tone === 'muted'}>{tradeReasonKindLabel(record)}</span
-						>
-						· {record.side}
-						{record.product_id} · risk {record.risk.decision} ({record.risk.reason_code})
-					</div>
-					<div class="muted">
-						Why this intent was persisted: signal {record.signal.last_signal ?? record.signal.kind}
-						on the completed bar · {record.origin} · {tradeReasonReconcileText(record)}
-					</div>
-					<div class="faint">{tradeReasonNotesText(record)}</div>
-				</div>
-			</li>
-		{/each}
-	{/if}
+	{/each}
 </ol>
 
 <style>
@@ -123,13 +90,11 @@
 	.utc {
 		font-size: var(--fs-xs);
 	}
-	.tag {
-		margin-right: 4px;
+	.bot {
+		margin-left: 6px;
 		color: var(--faint);
 		font-size: var(--fs-xs);
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-weight: 400;
 	}
 	.muted {
 		color: var(--muted);
@@ -143,12 +108,6 @@
 	}
 	.neg {
 		color: var(--neg);
-	}
-	.problem {
-		color: var(--neg);
-	}
-	.latest {
-		background: var(--surface-2);
 	}
 	@media (max-width: 640px) {
 		.tl {

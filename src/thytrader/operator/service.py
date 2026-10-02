@@ -54,6 +54,7 @@ from thytrader.market_data_worker.service import island_covers_watch, watch_expe
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
+from thytrader.operator.decisions import decisions_report
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.models import (
     PORTFOLIO_REDACTION,
@@ -64,6 +65,7 @@ from thytrader.operator.models import (
     DataCatalogPayload,
     DataCatalogReport,
     DatasetCoverageRow,
+    DecisionsReport,
     DeploymentBookSummary,
     DeploymentSummary,
     ExchangePayload,
@@ -161,12 +163,15 @@ def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.config import Settings
+    from thytrader.execution.decision_store import DecisionJournalStore
+    from thytrader.execution.decisions import DecisionOutcome
     from thytrader.execution.ledger import DeploymentLedger
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
@@ -207,6 +212,7 @@ class OperatorDiagnostics:
     user_order_feed: UserOrderFeedStateStore | None = None
     memory_store: ExperientialMemoryStore | None = None
     research_studies: ResearchStudyCatalog | None = None
+    decision_store: DecisionJournalStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, and exchange health."""
@@ -918,6 +924,25 @@ class OperatorDiagnostics:
             partial_result_warnings=tuple(warnings),
             recommended_next_action=recommend_next_action(components),
             payload=TradeReasonsPayload(storage=label, trade_reasons=composed),
+        )
+
+    async def decisions(
+        self,
+        *,
+        deployment_id: UUID | None = None,
+        strategy_id: UUID | None = None,
+        outcomes: Sequence[DecisionOutcome] = (),
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> DecisionsReport:
+        """Return per-bar decisions for one bot, one strategy, or all bots, newest first."""
+        return await decisions_report(
+            self.decision_store,
+            deployment_id=deployment_id,
+            strategy_id=strategy_id,
+            outcomes=outcomes,
+            limit=limit,
+            cursor=cursor,
         )
 
     async def support_bundle(self) -> SupportBundleReport:

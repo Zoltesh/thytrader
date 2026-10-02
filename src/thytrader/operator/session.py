@@ -13,6 +13,7 @@ from coinbase.rest import RESTClient
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.execution.decision_store import DisabledDecisionJournalStore
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.execution.user_feed_state import DisabledUserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
@@ -28,6 +29,7 @@ from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.portfolio_history import DisabledPortfolioHistoryStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
@@ -86,6 +88,7 @@ async def operator_diagnostics(
             user_order_feed=PostgresUserOrderFeedStateStore(engine),
             memory_store=PostgresExperientialMemoryStore(engine),
             research_studies=PostgresResearchStudyCatalog(engine),
+            decision_store=PostgresDecisionJournalStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -106,6 +109,7 @@ async def operator_diagnostics(
             user_order_feed=DisabledUserOrderFeedStateStore(),
             memory_store=DisabledExperientialMemoryStore(),
             research_studies=DisabledResearchStudyCatalog(),
+            decision_store=DisabledDecisionJournalStore(),
         )
     try:
         yield diagnostics

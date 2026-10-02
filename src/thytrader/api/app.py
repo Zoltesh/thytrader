@@ -23,6 +23,7 @@ from thytrader.api.routes.credentials import (
     suppress_credentials_validation_echo,
 )
 from thytrader.api.routes.data import router as data_router
+from thytrader.api.routes.decisions import router as decisions_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
 from thytrader.api.routes.fees import router as fees_router
@@ -49,6 +50,7 @@ from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.exchanges.rest_transport import RestClientTransport
+from thytrader.execution.decision_store import DecisionJournalStore, DisabledDecisionJournalStore
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.store import DisabledExecutionStore, ExecutionStore
 from thytrader.execution.user_feed_state import (
@@ -103,6 +105,7 @@ from thytrader.persistence.portfolio_history import (
 )
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
@@ -177,6 +180,7 @@ def create_app(
     operator_chat_llm: LlmClient | None = None,
     settings_store: SettingsStore | None = None,
     credentials_env_file: Path | None = None,
+    decision_journal_store: DecisionJournalStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -330,6 +334,7 @@ def create_app(
         )
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
+        _app.state.decision_journal_store = _decision_journal_store(decision_journal_store, engine)
 
         study_service = ResearchStudyService(
             publications=_app.state.strategy_snapshot_store,
@@ -400,6 +405,7 @@ def create_app(
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
     app.include_router(deployments_router)
+    app.include_router(decisions_router)
     app.include_router(discretionary_orders_router)
     app.include_router(risk_policy_router)
     app.include_router(research_studies_router)
@@ -447,6 +453,17 @@ def _notification_sender(
     if settings_store is not None:
         return ReloadingNotificationSender(settings_store)
     return notification_sender_from_settings(settings)
+
+
+def _decision_journal_store(
+    external: DecisionJournalStore | None, engine: AsyncEngine | None
+) -> DecisionJournalStore:
+    """Prefer an injected journal, else PostgreSQL when the engine exists, else disabled."""
+    if external is not None:
+        return external
+    if engine is not None:
+        return PostgresDecisionJournalStore(engine)
+    return DisabledDecisionJournalStore()
 
 
 def _init_db_stores(

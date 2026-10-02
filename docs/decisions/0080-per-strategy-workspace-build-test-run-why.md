@@ -1,6 +1,7 @@
 # 0080: Per-strategy workspace (Build · Test · Run · Why)
 
 - Status: Accepted; superseded in part by [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
+- Amended by [0087](0087-per-bar-decision-timeline.md): the Why stage shows the per-bar Decisions timeline across the strategy's deployments with a deployment selector.
 - Superseded part: the `?version=` context, Draft/Published vN pills, version picker, Versions dialog, publish, revise, and archive. Build saves in place; Test/Run start from the current definition; rows show Current rules / Earlier edit; the library gains bulk delete.
 - Date: 2026-09-29
 - Relates to: [0079](0079-four-destination-shell-agent-panel-palette-tokens.md),

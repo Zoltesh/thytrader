@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0052`):
+Current checkout (Alembic `0053`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v46` |
-| `expected_schema_revision` | `0052` |
+| `id` | `thytrader-ops-contract-v47` |
+| `expected_schema_revision` | `0053` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
@@ -39,6 +39,7 @@ Current checkout (Alembic `0052`):
 | `order_rate_limits` | `entry`, `cancel` |
 | `reference_price_collars` | `paper`, `live` |
 | `trade_reason_journals` | `paper`, `live` |
+| `decision_journals` | `paper`, `live` — per-bar decision timeline, `bar_decisions` ([ADR 0087](../../decisions/0087-per-bar-decision-timeline.md)) |
 | `multi_instrument_documents` | `research`, `paper`, `live` |
 | `intra_strategy_pyramiding` | `research`, `paper`, `live` |
 | `lifecycle_commands` | `none`, `stop_new_entries`, `flatten`, `managed_shutdown` |
@@ -48,7 +49,7 @@ Current checkout (Alembic `0052`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v46
+    id thytrader-ops-contract-v47
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -65,6 +66,7 @@ classDiagram
     order_rate_limits
     reference_price_collars
     trade_reason_journals
+    decision_journals
     multi_instrument_documents
     intra_strategy_pyramiding
     lifecycle_commands
@@ -80,7 +82,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0052
+    expected_schema_revision 0053
   }
   class HealthPayload {
     api_probed

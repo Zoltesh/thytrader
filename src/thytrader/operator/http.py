@@ -10,6 +10,7 @@ from thytrader.operator.models import (
     OPERATOR_API_PREFIX,
     ConfigurationReport,
     DataCatalogReport,
+    DecisionsReport,
     ExchangeReport,
     FeesReport,
     HealthReport,
@@ -48,6 +49,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "monitor": MonitorReport,
     "studies": StudiesReport,
     "trade-reasons": TradeReasonsReport,
+    "decisions": DecisionsReport,
     "support-bundle": SupportBundleReport,
     "portfolio": PortfolioReport,
     "fees": FeesReport,
@@ -58,16 +60,19 @@ def fetch_operator_report(
     *,
     base_url: str,
     command: str,
-    query: Mapping[str, str] | None = None,
+    query: Mapping[str, str | tuple[str, ...]] | None = None,
 ) -> OperatorEnvelope:
-    """GET one operator report and validate it against the v1 models."""
+    """GET one operator report and validate it against the v1 models.
+
+    Tuple values become repeated query parameters (for example ``outcome``).
+    """
     model = _REPORT_MODELS.get(command)
     if model is None:
         message = f"unsupported operator command: {command}"
         raise AssertionError(message)
     url = f"{base_url}{OPERATOR_API_PREFIX}/{command}"
     if query:
-        encoded = urlencode({key: value for key, value in query.items() if value})
+        encoded = urlencode({key: value for key, value in query.items() if value}, doseq=True)
         if encoded:
             url = f"{url}?{encoded}"
     payload = request_json(method="GET", url=url)

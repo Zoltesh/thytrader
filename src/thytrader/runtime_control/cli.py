@@ -20,12 +20,14 @@ from thytrader.agent_orchestration.confirmation import (
 from thytrader.agent_orchestration.models import YoloTier
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     clear_coinbase_credentials,
+    list_decisions,
     list_deployments,
     place_discretionary_order,
     reset_breaker_latches,
@@ -80,7 +82,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",
         description=(
-            "Start, pause, resume, or stop paper and live deployments, place "
+            "Start, pause, resume, or stop paper and live deployments, read their "
+            "per-bar decision timeline (decisions, read-only), place "
             "discretionary orders, publish the risk-policy registry, update YAML "
             "non-secret settings (including YOLO), and set or clear write-only "
             "Coinbase credentials, through the loopback HTTP API. Mutations "
@@ -99,6 +102,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     show = subparsers.add_parser("show", parents=[trailing], help="Show one deployment snapshot.")
     show.add_argument("deployment_id", help="Deployment UUID.")
+    _add_decisions_parser(subparsers, trailing)
     start = subparsers.add_parser(
         "start",
         parents=[trailing],
@@ -369,6 +373,47 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_decisions_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Register the read-only per-bar decision timeline command (never mutates)."""
+    decisions = subparsers.add_parser(
+        "decisions",
+        parents=[trailing],
+        help=(
+            "Read-only per-bar decision timeline, newest first: what a paper/live bot "
+            "decided on every completed bar and why (rule values, risk verdict, orders). "
+            "Pass a deployment id, or --strategy-id for all of a strategy's bots."
+        ),
+    )
+    decisions.add_argument(
+        "deployment_id",
+        nargs="?",
+        default=None,
+        help="Deployment UUID (optional with --strategy-id, where it narrows to one bot).",
+    )
+    decisions.add_argument(
+        "--strategy-id", default=None, help="Strategy UUID: decisions across its bots."
+    )
+    decisions.add_argument(
+        "--outcome",
+        action="append",
+        choices=tuple(item.value for item in DecisionOutcome),
+        default=None,
+        help="Repeatable filter, e.g. --outcome entry_signal --outcome exit (trades).",
+    )
+    decisions.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help=f"Page size 1..{DECISION_PAGE_MAX_LIMIT} (default 50).",
+    )
+    decisions.add_argument(
+        "--cursor", default=None, help="next_cursor from the previous page (older rows)."
+    )
+
+
 _RUNTIME_CONFIRM_MESSAGE = (
     "Pass --confirm to change paper or live runtimes, the risk-policy "
     "registry, or YAML settings. Live start, live resume, and live place-order "
@@ -442,6 +487,48 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         settings=settings,
         i_understand_live=live and arguments.i_understand_live,
     )
+
+
+def _read_only_command(arguments: argparse.Namespace, base_url: str) -> object:
+    """List, show, or page decisions without mutating anything."""
+    command = arguments.command
+    if command == "decisions":
+        return _decisions(arguments, base_url)
+    require_matching_ops_contract(base_url)
+    if command == "list":
+        return list_deployments(base_url)
+    return show_deployment(base_url, arguments.deployment_id)
+
+
+def _decisions(arguments: argparse.Namespace, base_url: str) -> object:
+    """Read one decision page; validates ids locally before any HTTP call."""
+    deployment_id = arguments.deployment_id
+    strategy_id = arguments.strategy_id
+    if deployment_id is None and strategy_id is None:
+        raise RuntimeControlError("Pass a deployment id or --strategy-id.")
+    if deployment_id is not None:
+        deployment_id = str(_uuid_argument(deployment_id, "deployment id"))
+    if strategy_id is not None:
+        strategy_id = str(_strategy_uuid(strategy_id))
+    if not 1 <= arguments.limit <= DECISION_PAGE_MAX_LIMIT:
+        raise RuntimeControlError(f"--limit must be between 1 and {DECISION_PAGE_MAX_LIMIT}.")
+    require_matching_ops_contract(base_url)
+    return list_decisions(
+        base_url,
+        deployment_id=deployment_id,
+        strategy_id=strategy_id,
+        outcomes=tuple(arguments.outcome or ()),
+        limit=arguments.limit,
+        cursor=arguments.cursor,
+    )
+
+
+def _uuid_argument(value: str, label: str) -> UUID:
+    """Parse one UUID argument before any HTTP call."""
+    try:
+        return UUID(value)
+    except ValueError as error:
+        raise RuntimeControlError(f"The {label} must be a UUID.") from error
 
 
 def _strategy_uuid(value: str) -> UUID:
@@ -548,12 +635,8 @@ def _run(arguments: argparse.Namespace) -> str:
 def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
-    if command == "list":
-        require_matching_ops_contract(base_url)
-        return list_deployments(base_url)
-    if command == "show":
-        require_matching_ops_contract(base_url)
-        return show_deployment(base_url, arguments.deployment_id)
+    if command in {"list", "show", "decisions"}:
+        return _read_only_command(arguments, base_url)
     if command == "start":
         return _start(arguments, base_url, settings)
     if command == "place-order":

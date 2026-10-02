@@ -59,7 +59,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0051](0051-in-app-operator-chat.md) | Loopback in-app operator chat over gated skill-lane HTTP; user-pasted LLM key distinct from Coinbase | Accepted |
 | [0052](0052-richer-sweep-axes-study-catalog.md) | Richer sweep axes and persisted research-study catalog rows | Accepted |
 | [0053](0053-workstation-ia-write-only-coinbase-credentials.md) | First-class workstation IA plus write-only Coinbase credentials UI/CLI | Accepted — superseded in part by 0079 |
-| [0054](0054-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted |
+| [0054](0054-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted — surfaces amended by 0080, 0081, and 0087 |
 | [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
 | [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted |
 | [0057](0057-atomic-fill-ledger-and-product-isolation.md) | Atomic fill ledger and product isolation | Accepted |
@@ -91,6 +91,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0084](0084-home-kpis-needs-attention-data-health.md) | Home recomposed from existing endpoints: independently loading KPI tiles, Needs attention aggregated from bots, setup, watched datasets, and research jobs, 1D/1W/1M/3M chart with honest gaps on thinned ranges, compact Holdings, fee tier line, and a Data health disclosure | Accepted |
 | [0085](0085-fast-research-ingest.md) | Ranged newest-first ingest (350-bar pages, fair per-cycle request budgets, paced with 429 backoff), research lookback ceilings (1m 90 d to 2h-1d 10 y), ingest refuses unwatched targets (409), catalog-grade latest listings and a byte-identical verified-dataset cache; ops contract v45 / Alembic 0052 | Accepted |
 | [0086](0086-indicator-catalog-expansion-and-offset.md) | 32 more fail-closed indicator kinds (trend, momentum, volatility, volume, statistical), an optional per-declaration `offset` bar lag, one registry rendered into the operator `indicators` report and the builder catalog, four catalog templates, and quote-aware builder copy; ops contract v45 | Accepted |
+| [0087](0087-per-bar-decision-timeline.md) | Durable per-bar decision timeline (`thytrader-bar-decision-v1`, `bar_decisions`) for paper and live bots: outcome, rule values versus thresholds, risk verdict, linked orders; never blocks trading; bounded retention; deployment/strategy HTTP pages, operator `decisions`, `thytrader-runtime decisions`; ops contract v47 / Alembic 0053; amends 0054, 0080, 0081 | Accepted |
 
 ## Status values
 

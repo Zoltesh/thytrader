@@ -309,9 +309,20 @@ state, not proof the worker is healthy), instruction, entry eligibility, and rev
 offers Resume. Four cards show allocated capital and performance equity (the `capital` block; live
 adds venue availability), PnL (operator performance report, with currency, drawdown, and incomplete
 mark caveats; ledger fallback when the report is unavailable), position and protection, and the
-latest completed-bar signal. **Orders & fills** is one card with an Orders / Fills switch; each list
-keeps its own cursor paging. **Why it traded** is a timeline of the latest bar signal and this bot's
-persisted trade reasons; full per-bar decision history is not recorded yet. A latched breaker shows
+latest completed-bar signal; the header also shows **Next evaluation ≈** the close of the bar after
+the last evaluated one. **Orders & fills** is one card with an Orders / Fills switch; each list
+keeps its own cursor paging. **Decisions** is the bot's per-bar timeline
+([ADR 0087](../decisions/0087-per-bar-decision-timeline.md)), newest bar first, with an
+**All / Trades / Blocked / No signal** filter. Each row shows the bar time, an outcome chip (Entry,
+No signal, Holding, Exit, Blocked, Skipped, Error), and a one-line reason such as
+"No trade: RSI(14) 47.21 needs ≥ 50". Expanding a row shows each entry condition as a chip with
+its actual value versus the threshold (ALL / ANY / NOT grouping and the HTF filter when the
+strategy has one; an indicator on another clock reads like "RSI(14) [4h]" and one with a bar
+offset like "Highest(3, high) (1 bar ago)", showing the lagged value), the risk verdict, linked orders and fills, the position at the end of the bar,
+and the bar's trade reason when it persisted an order intent (trade reasons are merged into their
+bar, not listed twice; reasons with no journaled bar, such as those recorded before the journal
+existed, stay below as **Earlier trade reasons**). **Load more** pages older bars. The journal keeps the newest 20,000 decisions per
+bot for up to 180 days; "Decision history is unavailable" means the API has no database. A latched breaker shows
 a banner with **Reset breaker latches…** (its own confirmation). Positions & protection, evidence
 links (**Backtests of this strategy** and **Decisions** open the Test and Why stages), other
 deployments of the same strategy, and the **Capital breakdown** and **Exact configuration** (the
@@ -340,11 +351,16 @@ why-trade records stay below the ticket.
 
 ### Why
 
-A strategy's **Why** stage (`/strategies/{strategy_id}/why`) lists each deployment of the strategy
-(marked Current rules or Earlier edit) with its latest completed-bar signal ("No trade — conditions did not match", "could not be
-evaluated", or matched) and the persisted trade reasons for that deployment (risk decision,
-reconciled order and fills when the reason names one, notes). Full per-bar decision history is not
-recorded yet; "no recorded trade rationale" does not mean the conditions failed. The UI must not
+A strategy's **Why** stage (`/strategies/{strategy_id}/why`) shows the same per-bar Decisions
+timeline across every deployment of the strategy, newest bar first, with a deployment selector
+(**All bots** or one bot, each marked Current rules or Earlier edit) and the same filters and
+expandable rows as bot detail. Every completed bar a paper or live bot processed has a row that
+says what it decided and why: the entry rule's values versus thresholds when it was evaluated, a
+skip reason (cooldown, max open positions, warming up, entry order working, paused, stopped, data
+gap, user-order feed down, catch-up after downtime) when it was not, the risk verdict when an entry
+was blocked, and the exit reason (stop, trail, target, time, flatten) when a position closed.
+Persisted trade reasons (risk decision, reconciled order and fills, notes) appear inside the bar
+that created their intent. The UI must not
 silently relabel a `BASE-USD` book’s PnL as USDC. Performance quote comes from the snapshot's
 instrument (or discretionary product), with unknown provenance shown explicitly.
 Lifecycle controls require the full deployment contract (`lifecycle_command`, both breaker
@@ -399,6 +415,8 @@ uv run thytrader-research submit-study --file study.json --confirm
 uv run thytrader-research list-studies
 uv run thytrader-playbook status
 uv run thytrader-memory status
+uv run thytrader-runtime decisions DEPLOYMENT_UUID --outcome entry_blocked
+uv run thytrader-operator decisions --strategy-id STRATEGY_UUID
 uv run thytrader-runtime show-settings
 uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm
 ```
@@ -408,7 +426,7 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
 | `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations; writes send installation Bearer when a token is resolvable |
 | `thytrader-research` | Strategy create/save/import/clone/delete, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
-| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials | `--confirm`; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
+| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials; read-only `list`, `show`, and per-bar `decisions` | `--confirm` on mutations; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 

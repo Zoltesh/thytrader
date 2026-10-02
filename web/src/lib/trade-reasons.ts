@@ -1,11 +1,47 @@
 /**
  * Shared wording for persisted trade reasons (`thytrader-trade-reason-v1`).
  *
- * Used by the Why stage and the bot detail "Why it traded" timeline. Joins
- * only what the payload proves: a reason names an order only through its
- * server-composed `reconcile` block, never by inference.
+ * Used by the decision timelines on the Why stage and bot detail, which join
+ * a reason onto its decision row by `intent_id`. Joins only what the payload
+ * proves: a reason names an order only through its server-composed
+ * `reconcile` block, never by inference.
  */
 import type { TradeReasonRecord } from './memory';
+
+/** Load state of the persisted trade reasons a page joins onto its decisions. */
+export type TradeReasonState =
+	| { status: 'loading' }
+	| { status: 'error'; message: string }
+	| { status: 'ready'; records: TradeReasonRecord[] };
+
+/**
+ * Combine per-deployment trade-reason loads into one state.
+ *
+ * Loading until every part has answered; an error names the first failure
+ * rather than presenting a partial list as complete; otherwise every record,
+ * newest first and de-duplicated by id. No parts is an empty ready list.
+ */
+export function mergeTradeReasonStates(
+	parts: readonly (TradeReasonState | undefined)[]
+): TradeReasonState {
+	const records: TradeReasonRecord[] = [];
+	const seen = new Set<string>();
+	let loading = false;
+	for (const part of parts) {
+		if (part === undefined || part.status === 'loading') {
+			loading = true;
+			continue;
+		}
+		if (part.status === 'error') return { status: 'error', message: part.message };
+		for (const record of part.records) {
+			if (seen.has(record.id)) continue;
+			seen.add(record.id);
+			records.push(record);
+		}
+	}
+	if (loading) return { status: 'loading' };
+	return { status: 'ready', records: sortTradeReasons(records) };
+}
 
 /** Newest first by persistence time; the input is not mutated. */
 export function sortTradeReasons(records: readonly TradeReasonRecord[]): TradeReasonRecord[] {

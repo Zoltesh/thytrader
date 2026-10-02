@@ -3,6 +3,7 @@
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.ops_contract import (
     BACKTEST_ENGINE_ID,
+    DECISION_JOURNALS,
     EXPECTED_SCHEMA_REVISION,
     EXPERIENTIAL_MODEL_ENGINES,
     HTF_FILTER_RUNTIMES,
@@ -31,14 +32,14 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v46"
+    assert expected["id"] == "thytrader-ops-contract-v47"
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]
     assert isinstance(kinds, list)
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0052"
+    assert expected["expected_schema_revision"] == "0053"
     assert expected["bounded_deployment_reads"] == ["list", "summary", "fills", "orders"]
     assert expected["deployment_ledger_pagination"] == ["cursor"]
     assert expected["multi_book_ledger"] == ["paper", "live"]
@@ -116,6 +117,8 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["reference_price_collars"] == ["paper", "live"]
     assert expected["trade_reason_journals"] == list(TRADE_REASON_JOURNALS)
     assert expected["trade_reason_journals"] == ["paper", "live"]
+    assert expected["decision_journals"] == list(DECISION_JOURNALS)
+    assert expected["decision_journals"] == ["paper", "live"]
     assert expected["multi_instrument_documents"] == list(MULTI_INSTRUMENT_DOCUMENTS)
     assert expected["multi_instrument_documents"] == ["research", "paper", "live"]
     assert expected["intra_strategy_pyramiding"] == list(INTRA_STRATEGY_PYRAMIDING)

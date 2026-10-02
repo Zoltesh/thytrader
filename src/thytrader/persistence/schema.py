@@ -1115,9 +1115,74 @@ Index(
     trade_reason_records.c.created_at.desc(),
 )
 
+bar_decisions = Table(
+    "bar_decisions",
+    metadata,
+    Column("deployment_id", UUID(), primary_key=True),
+    Column("product_id", String(32), primary_key=True),
+    Column(
+        "bar_starts_at",
+        DateTime(timezone=True),
+        primary_key=True,
+        comment="UTC start of the completed decision bar this row explains.",
+    ),
+    Column("strategy_id", UUID(), nullable=True),
+    Column("mode", String(8), nullable=False),
+    Column("timeframe", String(8), nullable=False),
+    Column("evaluated_at", DateTime(timezone=True), nullable=False),
+    Column("outcome", String(16), nullable=False),
+    Column("action", String(24), nullable=False),
+    Column("reason_code", String(64), nullable=False),
+    Column("intent_id", UUID(), nullable=True),
+    Column("summary", String(500), nullable=False),
+    Column(
+        "payload_json",
+        Text(),
+        nullable=False,
+        comment="Canonical thytrader-bar-decision-v1 JSON (rule tree, risk, orders, fills).",
+    ),
+    ForeignKeyConstraint(
+        ["deployment_id"],
+        ["deployments.id"],
+        ondelete="CASCADE",
+        name="fk_bar_decisions_deployment_id",
+    ),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_bar_decisions_mode"),
+    CheckConstraint(
+        "outcome IN ('entry_signal', 'no_signal', 'holding', 'exit', 'entry_blocked', "
+        "'skipped', 'error')",
+        name="ck_bar_decisions_outcome",
+    ),
+    CheckConstraint(
+        "action IN ('none', 'intent_created', 'order_submitted', 'order_canceled', 'repriced')",
+        name="ck_bar_decisions_action",
+    ),
+    CheckConstraint(
+        "timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')",
+        name="ck_bar_decisions_timeframe",
+    ),
+    comment="Bounded per-bar decision journal for paper and live strategy bots (ADR 0087).",
+)
+
+Index(
+    "ix_bar_decisions_deployment_bar_desc",
+    bar_decisions.c.deployment_id,
+    bar_decisions.c.bar_starts_at.desc(),
+    bar_decisions.c.product_id.desc(),
+)
+
+Index(
+    "ix_bar_decisions_strategy_bar_desc",
+    bar_decisions.c.strategy_id,
+    bar_decisions.c.bar_starts_at.desc(),
+)
+
+Index("ix_bar_decisions_bar_starts_at", bar_decisions.c.bar_starts_at)
+
 __all__ = [
     "active_risk_policy",
     "audit_events",
+    "bar_decisions",
     "deployments",
     "execution_fills",
     "execution_instrument_state",

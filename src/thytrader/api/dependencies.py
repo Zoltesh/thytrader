@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
+from thytrader.execution.decision_store import DecisionJournalStore
 from thytrader.execution.store import ExecutionStore
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
@@ -207,6 +208,15 @@ def get_execution_store(request: Request) -> ExecutionStore:
     store = getattr(request.app.state, "execution_store", None)
     if not isinstance(store, ExecutionStore):
         message = "Execution store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_decision_journal_store(request: Request) -> DecisionJournalStore:
+    """Return the per-bar decision journal attached during app startup (ADR 0087)."""
+    store = getattr(request.app.state, "decision_journal_store", None)
+    if not isinstance(store, DecisionJournalStore):
+        message = "Decision journal store is unavailable."
         raise TypeError(message)
     return store
 

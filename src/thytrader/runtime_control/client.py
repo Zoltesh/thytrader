@@ -7,6 +7,7 @@ log request bodies.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import quote, urlencode
 
 from thytrader.agent_http import request_json, request_mutation_json
 
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from thytrader.config import Settings
 
 _DEPLOYMENTS_PREFIX = "/api/v1/deployments"
+_STRATEGIES_PREFIX = "/api/v1/strategies"
 _RISK_POLICY_PREFIX = "/api/v1/risk-policy"
 _SETTINGS_PREFIX = "/api/v1/settings"
 _CREDENTIALS_PREFIX = "/api/v1/credentials/coinbase"
@@ -31,6 +33,37 @@ def list_deployments(base_url: str) -> object:
 def show_deployment(base_url: str, deployment_id: str) -> object:
     """Return one deployment snapshot including orders and fills."""
     return request_json(method="GET", url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}")
+
+
+def list_decisions(
+    base_url: str,
+    *,
+    deployment_id: str | None,
+    strategy_id: str | None,
+    outcomes: tuple[str, ...] = (),
+    limit: int = 50,
+    cursor: str | None = None,
+) -> object:
+    """Return one newest-first page of per-bar decisions for a bot or a strategy (read-only).
+
+    With ``strategy_id`` the page aggregates that strategy's bots; ``deployment_id``
+    then narrows it to one bot. Without ``strategy_id`` it reads one bot's page.
+    """
+    query: dict[str, str | tuple[str, ...]] = {"limit": str(limit)}
+    if outcomes:
+        query["outcome"] = outcomes
+    if cursor:
+        query["cursor"] = cursor
+    if strategy_id is not None:
+        if deployment_id is not None:
+            query["deployment_id"] = deployment_id
+        path = f"{_STRATEGIES_PREFIX}/{quote(strategy_id, safe='')}/decisions"
+    elif deployment_id is not None:
+        path = f"{_DEPLOYMENTS_PREFIX}/{quote(deployment_id, safe='')}/decisions"
+    else:
+        raise RuntimeControlError("Pass a deployment id or --strategy-id.")
+    encoded = urlencode(query, doseq=True)
+    return request_json(method="GET", url=f"{base_url}{path}?{encoded}")
 
 
 def start_deployment(

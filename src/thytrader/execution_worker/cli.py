@@ -16,6 +16,7 @@ from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
+from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
@@ -46,6 +47,7 @@ async def run() -> None:
     memory_store = PostgresExperientialMemoryStore(engine)
     heartbeats = PostgresWorkerHeartbeatStore(engine)
     audit_store = PostgresAuditEventStore(engine)
+    decision_store = PostgresDecisionJournalStore(engine)
     venue_runtime = ExecutionVenueRuntime(settings)
     credential_runtime = WorkerCredentialRuntime(
         settings_store,
@@ -88,6 +90,7 @@ async def run() -> None:
                 settings_store=settings_store,
                 venue_provider=venue_runtime.current,
                 audit_store=audit_store,
+                decision_store=decision_store,
             ),
             run_venue_user_order_feed(
                 stop_requested,

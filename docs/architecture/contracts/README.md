@@ -14,7 +14,7 @@ same change that changes the contract.
 | [Research-run spec](research-run.md) | Immutable research request | `thytrader.research.models.ResearchRunSpecification` |
 | [Backtest result](backtest-result.md) | Immutable simulation evidence | `thytrader.backtest.models.BacktestResult` |
 | [Ops contract](ops-contract.md) | CLI versus running-image identity | `thytrader.ops_contract`, `OpsContractPayload` |
-| [Order intent → risk → broker](execution.md) | Paper/live execution boundary | `OrderIntent`, `RiskPolicyDefinition`, brokers |
+| [Order intent → risk → broker](execution.md) | Paper/live execution boundary and the per-bar decision journal | `OrderIntent`, `RiskPolicyDefinition`, brokers, `BarDecision` |
 | [Other durable payloads](other-payloads.md) | Dataset manifest, risk policy, operator envelope, memory hooks, V1 model, why-trade record | `DatasetManifest`, `RiskPolicyDefinition`, `OperatorEnvelope`, `JournalEntry`, `ExperientialModel`, `TradeReasonRecord` |
 
 ```mermaid
@@ -29,7 +29,8 @@ flowchart LR
   Intent --> Risk["RiskPolicyDefinition"]
   Risk -->|ALLOW| Broker["PaperBroker or CoinbaseBroker"]
   Broker --> Order["Order + Fill"]
-  Health["GET /health/ready"] --> Ops["ops_contract v21"]
+  Deploy --> Decision["BarDecision per closed bar\n(bar_decisions)"]
+  Health["GET /health/ready"] --> Ops["ops_contract v47"]
 ```
 
 Do not dump these diagrams on [docs/README.md](../../README.md).
