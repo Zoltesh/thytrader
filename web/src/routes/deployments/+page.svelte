@@ -196,7 +196,8 @@
 			</p>
 		{/if}
 		<p class="coming" data-testid="portfolio-coming">
-			Deploying a portfolio arrives next. Until then each bot below runs on its own capital.
+			Bots started by a portfolio run as its sleeves under its shared limits; every other bot below
+			runs on its own capital.
 		</p>
 	</section>
 

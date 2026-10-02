@@ -32,7 +32,9 @@ you are operating a **running** instance (not changing source).
 candles are never interpolated. Live stays off until you arm it.
 
 Group strategies into **portfolios** — sleeves with their own capital weights, a cash reserve, and
-shared limits — and backtest them together before anything trades as a portfolio.
+shared limits — backtest them together, then start the portfolio as one bot per sleeve under its
+shared caps and loss stops. A manager agent can propose rebalances and pauses with its reasons;
+you approve or decline anything outside its permissions, and it never places orders.
 
 You can:
 

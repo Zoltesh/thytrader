@@ -107,7 +107,7 @@ export function portfolioFixture(overrides: Json = {}): Json {
 			},
 			largest_asset_within_limit: true
 		},
-		deployable: false,
+		deployable: true,
 		...overrides
 	});
 }
@@ -307,6 +307,10 @@ export type MockState = {
 	results: boolean;
 	conflictOnWeights: boolean;
 	rejectBacktest: boolean;
+	/** Sleeve bot status by sleeve id ('running' | 'paused' | 'stopped'); absent = never started. */
+	bots: Record<string, string>;
+	breakerLatched: boolean;
+	proposals: Json[];
 };
 
 export function newPortfolioState(portfolios: Json[]): MockState {
@@ -317,8 +321,184 @@ export function newPortfolioState(portfolios: Json[]): MockState {
 		jobPolls: 0,
 		results: false,
 		conflictOnWeights: false,
-		rejectBacktest: false
+		rejectBacktest: false,
+		bots: {},
+		breakerLatched: false,
+		proposals: []
 	};
+}
+
+export const PROPOSAL = '0d000000-0000-7000-8000-000000000001';
+
+/** A pending manager proposal to move weight between the two Core sleeves. */
+export function proposalFixture(overrides: Json = {}): Json {
+	return {
+		proposal_id: PROPOSAL,
+		portfolio_id: CORE,
+		kind: 'rebalance',
+		status: 'pending',
+		summary: 'Rebalance: EMA Trend Pullback 50% → 60%; RSI Reversion 33% → 23%.',
+		rationale:
+			"EMA Trend is running at 1.3x its backtested return, while RSI Reversion's win rate (38%) is below its walk-forward range (44-52%).",
+		change: {
+			kind: 'rebalance',
+			weights: [
+				{ sleeve_id: '5eee0000-0000-7000-8000-000000000001', weight_fraction: '0.6' },
+				{ sleeve_id: '5eee0000-0000-7000-8000-000000000002', weight_fraction: '0.23' }
+			]
+		},
+		evidence: [{ kind: 'study', ref: 'sha256:' + 'b'.repeat(64) }],
+		base_revision: 3,
+		submitted_by: 'manager',
+		channel: 'api',
+		approval_reason: 'This is a live portfolio: a rebalance moves real capital and needs approval.',
+		weight_moved: '0.1',
+		created_at: '2026-10-02T14:05:00Z',
+		expires_at: '2026-10-09T14:05:00Z',
+		...overrides
+	};
+}
+
+function sleeveBot(portfolio: Json, item: Json, status: string, latched: boolean): Json {
+	const paperCash = portfolio.mode === 'paper' ? item.capital_quote : null;
+	return {
+		deployment_id: `de${String(item.sleeve_id).slice(2)}`,
+		strategy_id: item.strategy_id,
+		strategy_name: item.strategy_name,
+		status,
+		phase: 'flat',
+		lifecycle_command: status === 'paused' ? 'stop_new_entries' : 'none',
+		mismatch_detail:
+			status === 'paused' && latched
+				? 'PORTFOLIO_DRAWDOWN_STOP: Portfolio equity is 21% below its peak.'
+				: null,
+		allocated_capital: item.capital_quote,
+		paper_starting_cash: paperCash,
+		performance_equity: null,
+		net_pnl: '0',
+		return_fraction: '0',
+		drawdown_fraction: '0',
+		exposure_quote: '0',
+		open_books: 0,
+		strategy_fingerprint: 'sha256:' + 'a'.repeat(64),
+		running_current_rules: true,
+		created_at: '2026-10-02T12:00:00Z',
+		updated_at: '2026-10-02T12:00:00Z'
+	};
+}
+
+/** The GET /deployment body for one portfolio, from the mocked sleeve bot statuses. */
+/** A mock-only product of two decimal strings, rounded to cents. */
+function times(left: unknown, right: unknown): string {
+	return String(Math.round(Number(left) * Number(right) * 100) / 100);
+}
+
+export function deploymentFixture(state: MockState, id: string): Json {
+	const portfolio = find(state, id);
+	const limits = portfolio.limits as Json;
+	const sleeves = (portfolio.sleeves as Json[]).map((item) => {
+		const status = state.bots[String(item.sleeve_id)];
+		return {
+			sleeve_id: item.sleeve_id,
+			strategy_id: item.strategy_id,
+			strategy_name: item.strategy_name,
+			product_id: item.product_id,
+			timeframe: item.timeframe,
+			weight_fraction: item.weight_fraction,
+			target_capital_quote: item.capital_quote,
+			issues: item.issues,
+			deployment:
+				status === undefined ? null : sleeveBot(portfolio, item, status, state.breakerLatched)
+		};
+	});
+	const statuses = sleeves.map((item) => (item.deployment as Json | null)?.status ?? null);
+	const running = statuses.filter((value) => value === 'running').length;
+	const paused = statuses.filter((value) => value === 'paused').length;
+	let deploymentState = 'not_deployed';
+	if (statuses.some((value) => value !== null)) {
+		if (running === sleeves.length) deploymentState = 'running';
+		else if (running > 0) deploymentState = 'partially_running';
+		else if (paused > 0) deploymentState = 'paused';
+		else deploymentState = 'stopped';
+	}
+	return {
+		portfolio_id: id,
+		name: portfolio.name,
+		mode: portfolio.mode,
+		quote_currency: portfolio.quote_currency,
+		capital_quote: portfolio.capital_quote,
+		revision: portfolio.revision,
+		state: deploymentState,
+		sleeves,
+		detached: [],
+		breaker: {
+			latched: state.breakerLatched,
+			reason_code: state.breakerLatched ? 'PORTFOLIO_DRAWDOWN_STOP' : null,
+			detail: state.breakerLatched
+				? 'Portfolio equity is 21% below its peak of 300.00 USDC; its drawdown stop is 20%.'
+				: null,
+			latched_at: state.breakerLatched ? '2026-10-02T15:00:00Z' : null,
+			daily_loss_quote: limits.daily_loss_quote,
+			max_drawdown_fraction: limits.max_drawdown_fraction,
+			run_started_at: deploymentState === 'not_deployed' ? null : '2026-10-02T12:00:00Z',
+			equity: state.breakerLatched ? '237' : portfolio.capital_quote,
+			day_open_equity:
+				deploymentState === 'not_deployed'
+					? null
+					: state.breakerLatched
+						? '249'
+						: portfolio.capital_quote,
+			daily_pnl: state.breakerLatched ? '-12' : '0',
+			high_water_mark_equity: deploymentState === 'not_deployed' ? null : portfolio.capital_quote,
+			drawdown_fraction: state.breakerLatched ? '0.21' : '0',
+			evaluated_at: null
+		},
+		exposure: {
+			total_quote: '0',
+			fraction_of_capital: '0',
+			cap_quote: times(portfolio.capital_quote, limits.max_total_exposure_fraction),
+			asset_cap_quote: times(portfolio.capital_quote, limits.max_per_asset_fraction),
+			assets: []
+		},
+		pending_proposals: state.proposals.filter((item) => item.status === 'pending').length
+	};
+}
+
+const NEXT_STATUS: Record<string, string> = {
+	start: 'running',
+	pause: 'paused',
+	resume: 'running',
+	stop: 'stopped'
+};
+
+/** Apply one start/pause/resume/stop to every sleeve (or one) and answer like the API. */
+function portfolioAction(state: MockState, id: string, action: string, sleeveId?: string): Json {
+	const portfolio = find(state, id);
+	const outcomes = (portfolio.sleeves as Json[])
+		.filter((item) => sleeveId === undefined || item.sleeve_id === sleeveId)
+		.map((item) => {
+			const key = String(item.sleeve_id);
+			const before = state.bots[key];
+			const target = NEXT_STATUS[action];
+			const unchanged =
+				(action === 'start' && (before === 'running' || before === 'paused')) ||
+				(action !== 'start' && (before === undefined || before === 'stopped' || before === target));
+			if (!unchanged) state.bots[key] = target;
+			return {
+				sleeve_id: key,
+				strategy_id: item.strategy_id,
+				strategy_name: item.strategy_name,
+				outcome: unchanged
+					? action === 'start'
+						? 'attached'
+						: 'unchanged'
+					: { start: 'started', pause: 'paused', resume: 'resumed', stop: 'stopped' }[action],
+				deployment_id: `de${key.slice(2)}`,
+				message: null
+			};
+		});
+	portfolio.deployment_state = deploymentFixture(state, id).state;
+	return { action, outcomes, deployment: deploymentFixture(state, id) };
 }
 
 export function job(status: string, progress: number): Json {
@@ -418,6 +598,50 @@ async function handle(route: Route, state: MockState): Promise<void> {
 		});
 	}
 	const [id, section, child, grandchild] = parts;
+	if (section === 'deployment') return route.fulfill({ json: deploymentFixture(state, id) });
+	if (['start', 'pause', 'resume', 'stop'].includes(section ?? '')) {
+		const portfolio = find(state, id);
+		const live = portfolio.mode === 'live';
+		const acknowledged = (body as Json | null)?.i_understand_live === true;
+		if (live && (section === 'start' || section === 'resume') && !acknowledged) {
+			return route.fulfill({
+				status: 428,
+				json: { detail: 'live_acknowledgement_required: Live trading spends real money.' }
+			});
+		}
+		return route.fulfill({ json: portfolioAction(state, id, section as string) });
+	}
+	if (section === 'sleeves' && grandchild !== undefined && method === 'POST') {
+		return route.fulfill({ json: portfolioAction(state, id, grandchild, child) });
+	}
+	if (section === 'breaker' && child === 'reset') {
+		state.breakerLatched = false;
+		return route.fulfill({ json: deploymentFixture(state, id) });
+	}
+	if (section === 'proposals') {
+		if (child === undefined) {
+			const rows = state.proposals.filter((item) => item.portfolio_id === id);
+			return route.fulfill({
+				json: {
+					proposals: rows,
+					limit: 20,
+					returned: rows.length,
+					total: rows.length,
+					has_more: false,
+					next_cursor: null
+				}
+			});
+		}
+		const proposal = state.proposals.find((item) => item.proposal_id === child);
+		if (proposal === undefined) return route.fulfill({ status: 404, json: { detail: 'none' } });
+		proposal.status = grandchild === 'approve' ? 'applied' : 'declined';
+		proposal.decided_by = 'operator';
+		proposal.decided_at = '2026-10-02T15:30:00Z';
+		const current = find(state, id);
+		return route.fulfill({
+			json: { proposal, portfolio_revision: Number(current.revision) }
+		});
+	}
 	if (section === undefined) {
 		if (method === 'PATCH') return route.fulfill({ json: bump(state, id, body as Json) });
 		return route.fulfill({ json: find(state, id) });

@@ -2,7 +2,9 @@
 
 :class:`PortfolioStore` persists portfolios, sleeves, and the append-only journal;
 :class:`PortfolioBacktestStore` queues portfolio backtest jobs and keeps their canonical
-results. PostgreSQL implements both in one transactional class
+results; :class:`PortfolioRuntimeStore` keeps each deployed portfolio's runtime state
+(breaker latch, equity baselines) and the manager's proposals (ADR 0091). PostgreSQL
+implements all three in one transactional class
 (:mod:`thytrader.persistence.postgres_portfolios`). Every mutation re-reads the aggregate,
 checks the caller's revision, plans the change with :mod:`thytrader.portfolios.rules`, and
 writes the plan and its journal entries together.
@@ -13,9 +15,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.execution.ids import uuid7
+from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestListing,
@@ -33,15 +37,25 @@ from thytrader.portfolios.models import (
     JournalPage,
     MutationContext,
     PortfolioAggregate,
+    PortfolioConflictError,
     PortfolioDeletion,
     PortfolioError,
     PortfolioNotFoundError,
     PortfolioPage,
+    PortfolioProposalNotFoundError,
+    PortfolioRuntimeState,
+    PortfolioRuntimeView,
     PortfolioStorageUnavailableError,
     PortfolioStrategyNotFoundError,
     SleeveStrategy,
     SleeveView,
     sleeve_strategy_from_record,
+)
+from thytrader.portfolios.proposals import (
+    REBALANCE_BUDGET_WINDOW,
+    Proposal,
+    ProposalPage,
+    ProposalSettlement,
 )
 from thytrader.portfolios.rules import (
     MutationPlan,
@@ -58,9 +72,10 @@ from thytrader.research.jobs import ResearchJobStatus
 from thytrader.strategies.library import StrategyLibraryError, StrategyNotFoundError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from uuid import UUID
 
+    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolios.models import (
         Portfolio,
         PortfolioCreateRequest,
@@ -70,10 +85,27 @@ if TYPE_CHECKING:
         SleeveAddRequest,
         SleeveUpdateRequest,
     )
+    from thytrader.portfolios.proposals import ProposalStatus
     from thytrader.strategies.library import StrategyStore
+
+    ProposalBuilder = Callable[
+        [PortfolioAggregate, Decimal, SleeveStrategy | None], ProposalSettlement
+    ]
+    """Plan a new proposal from the locked aggregate, the manager's auto-applied weight
+    moved in the trailing week, and (for add-sleeve) the strategy's facts."""
+    ProposalSettler = Callable[
+        [PortfolioAggregate, Proposal, SleeveStrategy | None], ProposalSettlement
+    ]
+    """Settle one pending proposal against the locked aggregate."""
 
 _UNAVAILABLE = "Portfolio storage is unavailable."
 _ACTIVE_JOB_STATUSES = (ResearchJobStatus.QUEUED, ResearchJobStatus.RUNNING)
+DEPLOYED_MESSAGE = (
+    "This portfolio has running or paused sleeves; stop the portfolio before deleting it."
+)
+SLEEVE_DEPLOYED_MESSAGE = (
+    "This sleeve's bot is running or paused; stop the sleeve before removing it."
+)
 
 
 class PortfolioBacktestNotFoundError(PortfolioError):
@@ -209,8 +241,78 @@ class PortfolioBacktestStore(Protocol):
 
 
 @runtime_checkable
-class PortfolioStorage(PortfolioStore, PortfolioBacktestStore, Protocol):
-    """Both contracts in one object, which is how every implementation ships."""
+class PortfolioRuntimeStore(Protocol):
+    """Deployed-portfolio runtime state, runtime journal events, and manager proposals."""
+
+    async def runtime_state(self, portfolio_id: UUID) -> PortfolioRuntimeState:
+        """Return the portfolio's runtime state (the empty state before its first run)."""
+        ...
+
+    async def runtime_views(
+        self, portfolio_ids: Sequence[UUID]
+    ) -> tuple[PortfolioRuntimeView, ...]:
+        """Return the named portfolios that still exist, each with sleeves and runtime state."""
+        ...
+
+    async def write_runtime(
+        self,
+        state: PortfolioRuntimeState,
+        *,
+        expected_revision: int,
+        journal: Sequence[JournalEntry] = (),
+    ) -> PortfolioRuntimeState | None:
+        """Compare-and-set the runtime row (and append journal); None when it moved on."""
+        ...
+
+    async def append_journal(self, entries: Sequence[JournalEntry]) -> None:
+        """Append runtime journal events (deployment start/pause/resume/stop)."""
+        ...
+
+    async def create_proposal(
+        self,
+        portfolio_id: UUID,
+        *,
+        now: datetime,
+        strategy_id: UUID | None,
+        build: ProposalBuilder,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Lock the portfolio, plan the proposal, and write it (and any applied change)."""
+        ...
+
+    async def settle_proposal(
+        self,
+        portfolio_id: UUID,
+        proposal_id: UUID,
+        *,
+        strategy_id: UUID | None,
+        settle: ProposalSettler,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Lock the portfolio and the proposal, then write its settlement."""
+        ...
+
+    async def get_proposal(self, portfolio_id: UUID, proposal_id: UUID) -> Proposal:
+        """Return one proposal of the portfolio."""
+        ...
+
+    async def list_proposals(
+        self,
+        portfolio_id: UUID,
+        *,
+        status: ProposalStatus | None,
+        limit: int,
+        offset: int,
+    ) -> ProposalPage:
+        """Return proposals newest first, optionally of one status."""
+        ...
+
+    async def expire_proposals(self, now: datetime) -> int:
+        """Mark pending proposals past their expiry as expired."""
+        ...
+
+
+@runtime_checkable
+class PortfolioStorage(PortfolioStore, PortfolioBacktestStore, PortfolioRuntimeStore, Protocol):
+    """Every contract in one object, which is how every implementation ships."""
 
 
 class DisabledPortfolioStore:
@@ -353,6 +455,80 @@ class DisabledPortfolioStore:
         del portfolio_id, result_fingerprint
         raise PortfolioStorageUnavailableError(_UNAVAILABLE)
 
+    async def runtime_state(self, portfolio_id: UUID) -> PortfolioRuntimeState:
+        """Refuse without durable storage."""
+        del portfolio_id
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def runtime_views(
+        self, portfolio_ids: Sequence[UUID]
+    ) -> tuple[PortfolioRuntimeView, ...]:
+        """Refuse so the worker fails closed for any tagged sleeve."""
+        del portfolio_ids
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def write_runtime(
+        self,
+        state: PortfolioRuntimeState,
+        *,
+        expected_revision: int,
+        journal: Sequence[JournalEntry] = (),
+    ) -> PortfolioRuntimeState | None:
+        """Refuse without durable storage."""
+        del state, expected_revision, journal
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def append_journal(self, entries: Sequence[JournalEntry]) -> None:
+        """Refuse without durable storage."""
+        del entries
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def create_proposal(
+        self,
+        portfolio_id: UUID,
+        *,
+        now: datetime,
+        strategy_id: UUID | None,
+        build: ProposalBuilder,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Refuse without durable storage."""
+        del portfolio_id, now, strategy_id, build
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def settle_proposal(
+        self,
+        portfolio_id: UUID,
+        proposal_id: UUID,
+        *,
+        strategy_id: UUID | None,
+        settle: ProposalSettler,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Refuse without durable storage."""
+        del portfolio_id, proposal_id, strategy_id, settle
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def get_proposal(self, portfolio_id: UUID, proposal_id: UUID) -> Proposal:
+        """Refuse without durable storage."""
+        del portfolio_id, proposal_id
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def list_proposals(
+        self,
+        portfolio_id: UUID,
+        *,
+        status: ProposalStatus | None,
+        limit: int,
+        offset: int,
+    ) -> ProposalPage:
+        """Refuse without durable storage."""
+        del portfolio_id, status, limit, offset
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def expire_proposals(self, now: datetime) -> int:
+        """No durable proposals: nothing expires."""
+        del now
+        return 0
+
 
 @dataclass(slots=True)
 class _StoredJob:
@@ -378,15 +554,19 @@ class InMemoryPortfolioStore:
 
     Strategy facts come from the injected strategy store on every read. A sleeve whose
     strategy disappeared reads as an invalid placeholder (PostgreSQL removes such sleeves
-    in the strategy-deletion transaction instead).
+    in the strategy-deletion transaction instead). With an ``execution`` store, deleting a
+    deployed portfolio or removing a deployed sleeve is refused like PostgreSQL does.
     """
 
     strategies: StrategyStore
+    execution: ExecutionStore | None = None
     _portfolios: dict[UUID, Portfolio] = field(default_factory=dict)
     _sleeves: dict[UUID, tuple[Sleeve, ...]] = field(default_factory=dict)
     _journal: dict[UUID, list[JournalEntry]] = field(default_factory=dict)
     _jobs: dict[UUID, _StoredJob] = field(default_factory=dict)
     _results: dict[UUID, list[_StoredResult]] = field(default_factory=dict)
+    _runtime: dict[UUID, PortfolioRuntimeState] = field(default_factory=dict)
+    _proposals: dict[UUID, list[Proposal]] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def create(
@@ -463,7 +643,9 @@ class InMemoryPortfolioStore:
         expected_revision: int,
         context: MutationContext,
     ) -> PortfolioAggregate:
-        """Remove one sleeve under the revision guard."""
+        """Remove one sleeve under the revision guard (refused while its bot is deployed)."""
+        current = await self.get(portfolio_id)
+        await self._require_sleeve_not_deployed(current, sleeve_id)
         return await self._mutate(
             portfolio_id,
             lambda current: plan_remove_sleeve(
@@ -480,7 +662,8 @@ class InMemoryPortfolioStore:
         )
 
     async def delete(self, portfolio_id: UUID, *, expected_revision: int) -> PortfolioDeletion:
-        """Delete one portfolio with its sleeves, journal, and backtests."""
+        """Delete one portfolio with its sleeves, journal, and backtests (not while deployed)."""
+        await self._require_not_deployed(portfolio_id)
         async with self._lock:
             portfolio = self._portfolios.get(portfolio_id)
             if portfolio is None:
@@ -503,6 +686,8 @@ class InMemoryPortfolioStore:
             self._sleeves.pop(portfolio_id, None)
             self._journal.pop(portfolio_id, None)
             self._results.pop(portfolio_id, None)
+            self._runtime.pop(portfolio_id, None)
+            self._proposals.pop(portfolio_id, None)
             for job_id in jobs:
                 del self._jobs[job_id]
         return deletion
@@ -683,6 +868,195 @@ class InMemoryPortfolioStore:
                 return item.result
         raise PortfolioBacktestNotFoundError("Portfolio backtest was not found.")
 
+    async def runtime_state(self, portfolio_id: UUID) -> PortfolioRuntimeState:
+        """Return the portfolio's runtime state (empty before its first run)."""
+        if portfolio_id not in self._portfolios:
+            raise PortfolioNotFoundError("Portfolio was not found.")
+        return self._runtime.get(portfolio_id, PortfolioRuntimeState(portfolio_id=portfolio_id))
+
+    async def runtime_views(
+        self, portfolio_ids: Sequence[UUID]
+    ) -> tuple[PortfolioRuntimeView, ...]:
+        """Return the named portfolios that still exist with sleeves and runtime state."""
+        views: list[PortfolioRuntimeView] = []
+        for portfolio_id in dict.fromkeys(portfolio_ids):
+            portfolio = self._portfolios.get(portfolio_id)
+            if portfolio is None:
+                continue
+            views.append(
+                PortfolioRuntimeView(
+                    aggregate=await self._aggregate(portfolio),
+                    runtime=await self.runtime_state(portfolio_id),
+                )
+            )
+        return tuple(views)
+
+    async def write_runtime(
+        self,
+        state: PortfolioRuntimeState,
+        *,
+        expected_revision: int,
+        journal: Sequence[JournalEntry] = (),
+    ) -> PortfolioRuntimeState | None:
+        """Compare-and-set the runtime state and append journal entries."""
+        async with self._lock:
+            if state.portfolio_id not in self._portfolios:
+                raise PortfolioNotFoundError("Portfolio was not found.")
+            current = self._runtime.get(state.portfolio_id)
+            current_revision = 0 if current is None else current.revision
+            if current_revision != expected_revision:
+                return None
+            written = replace(state, revision=expected_revision + 1)
+            self._runtime[state.portfolio_id] = written
+            self._journal.setdefault(state.portfolio_id, []).extend(journal)
+            return written
+
+    async def append_journal(self, entries: Sequence[JournalEntry]) -> None:
+        """Append runtime journal events."""
+        async with self._lock:
+            for entry in entries:
+                if entry.portfolio_id not in self._portfolios:
+                    raise PortfolioNotFoundError("Portfolio was not found.")
+                self._journal.setdefault(entry.portfolio_id, []).append(entry)
+
+    async def create_proposal(
+        self,
+        portfolio_id: UUID,
+        *,
+        now: datetime,
+        strategy_id: UUID | None,
+        build: ProposalBuilder,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Plan and write one proposal (and any auto-applied change) atomically."""
+        strategy = await self._strategy_facts(strategy_id)
+        async with self._lock:
+            portfolio = self._portfolios.get(portfolio_id)
+            if portfolio is None:
+                raise PortfolioNotFoundError("Portfolio was not found.")
+            current = await self._aggregate(portfolio)
+            moved = _auto_moved_since(self._proposals.get(portfolio_id, []), now)
+            settlement = build(current, moved, strategy)
+            self._settle(settlement)
+        return await self.get(portfolio_id), settlement.proposal
+
+    async def settle_proposal(
+        self,
+        portfolio_id: UUID,
+        proposal_id: UUID,
+        *,
+        strategy_id: UUID | None,
+        settle: ProposalSettler,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Settle one proposal against the current aggregate atomically."""
+        strategy = await self._strategy_facts(strategy_id)
+        async with self._lock:
+            portfolio = self._portfolios.get(portfolio_id)
+            if portfolio is None:
+                raise PortfolioNotFoundError("Portfolio was not found.")
+            proposal = self._find_proposal(portfolio_id, proposal_id)
+            settlement = settle(await self._aggregate(portfolio), proposal, strategy)
+            self._settle(settlement)
+        return await self.get(portfolio_id), settlement.proposal
+
+    async def get_proposal(self, portfolio_id: UUID, proposal_id: UUID) -> Proposal:
+        """Return one proposal of the portfolio."""
+        if portfolio_id not in self._portfolios:
+            raise PortfolioNotFoundError("Portfolio was not found.")
+        return self._find_proposal(portfolio_id, proposal_id)
+
+    async def list_proposals(
+        self,
+        portfolio_id: UUID,
+        *,
+        status: ProposalStatus | None,
+        limit: int,
+        offset: int,
+    ) -> ProposalPage:
+        """Return proposals newest first, optionally of one status."""
+        if portfolio_id not in self._portfolios:
+            raise PortfolioNotFoundError("Portfolio was not found.")
+        rows = sorted(
+            (
+                item
+                for item in self._proposals.get(portfolio_id, [])
+                if status is None or item.status == status
+            ),
+            key=lambda item: (item.created_at, str(item.proposal_id)),
+            reverse=True,
+        )
+        return ProposalPage(proposals=tuple(rows[offset : offset + limit]), total=len(rows))
+
+    async def expire_proposals(self, now: datetime) -> int:
+        """Mark pending proposals past their expiry as expired."""
+        expired = 0
+        async with self._lock:
+            for portfolio_id, rows in self._proposals.items():
+                for index, item in enumerate(rows):
+                    if item.status == "pending" and item.expires_at <= now:
+                        rows[index] = item.model_copy(
+                            update={"status": "expired", "decided_at": now, "decided_by": "system"}
+                        )
+                        expired += 1
+                self._proposals[portfolio_id] = rows
+        return expired
+
+    def _settle(self, settlement: ProposalSettlement) -> None:
+        """Upsert the proposal, append its journal, then apply its plan (PostgreSQL order)."""
+        proposal = settlement.proposal
+        rows = self._proposals.setdefault(proposal.portfolio_id, [])
+        for index, item in enumerate(rows):
+            if item.proposal_id == proposal.proposal_id:
+                rows[index] = proposal
+                break
+        else:
+            rows.append(proposal)
+        self._journal.setdefault(proposal.portfolio_id, []).extend(settlement.journal)
+        if settlement.plan is not None:
+            self._apply(settlement.plan)
+
+    def _find_proposal(self, portfolio_id: UUID, proposal_id: UUID) -> Proposal:
+        """Return one stored proposal or raise not found."""
+        for item in self._proposals.get(portfolio_id, []):
+            if item.proposal_id == proposal_id:
+                return item
+        raise PortfolioProposalNotFoundError("Proposal was not found.")
+
+    async def _strategy_facts(self, strategy_id: UUID | None) -> SleeveStrategy | None:
+        """Read the strategy an add-sleeve proposal names (None when it names none)."""
+        if strategy_id is None:
+            return None
+        try:
+            return sleeve_strategy_from_record(await self.strategies.get(strategy_id))
+        except StrategyNotFoundError as error:
+            raise PortfolioStrategyNotFoundError("Strategy was not found.") from error
+
+    async def _require_not_deployed(self, portfolio_id: UUID) -> None:
+        """Refuse when any of the portfolio's bots is running or paused."""
+        if self.execution is None:
+            return
+        deployments = await self.execution.list_deployments()
+        if any(
+            item.portfolio_id == portfolio_id and occupies_running_slot(item)
+            for item in deployments
+        ):
+            raise PortfolioConflictError("portfolio_deployed", DEPLOYED_MESSAGE)
+
+    async def _require_sleeve_not_deployed(
+        self, current: PortfolioAggregate, sleeve_id: UUID
+    ) -> None:
+        """Refuse removing a sleeve whose bot is running or paused."""
+        if self.execution is None:
+            return
+        strategy_id = current.sleeve(sleeve_id).sleeve.strategy_id
+        deployments = await self.execution.list_deployments()
+        if any(
+            item.portfolio_id == current.portfolio.portfolio_id
+            and item.strategy_id == strategy_id
+            and occupies_running_slot(item)
+            for item in deployments
+        ):
+            raise PortfolioConflictError("portfolio_sleeve_deployed", SLEEVE_DEPLOYED_MESSAGE)
+
     def _require_job(self, job_id: UUID) -> _StoredJob:
         """Return one stored job or raise."""
         job = self._jobs.get(job_id)
@@ -762,6 +1136,24 @@ def _job_update(
             if result_fingerprint is not None
             else record.result_fingerprint,
         }
+    )
+
+
+def _auto_moved_since(rows: Sequence[Proposal], now: datetime) -> Decimal:
+    """Weight moved by auto-applied rebalances in the trailing budget window."""
+    since = now - REBALANCE_BUDGET_WINDOW
+    return sum(
+        (
+            Decimal(item.weight_moved)
+            for item in rows
+            if item.kind == "rebalance"
+            and item.auto_applied
+            and item.status == "applied"
+            and item.weight_moved is not None
+            and item.decided_at is not None
+            and item.decided_at >= since
+        ),
+        Decimal(0),
     )
 
 

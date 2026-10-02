@@ -1,7 +1,8 @@
 <script lang="ts">
 	/**
-	 * Sleeves tab: one row per sleeve (strategy, weight, market, capital, current
-	 * bots, issues), the strategy picker, the weight editor, and the allocation aside.
+	 * Sleeves tab: one row per sleeve (strategy, weight, market, capital, its bot
+	 * and status, issues), per-sleeve Start / Pause / Resume / Stop, the strategy
+	 * picker, the weight editor, and the allocation aside.
 	 *
 	 * Every change is revision-guarded. A 409 reloads the portfolio and says so;
 	 * nothing is merged or retried silently.
@@ -25,31 +26,52 @@
 		pickerOptions,
 		quoteText,
 		remainingWeight,
+		botStatusText,
+		pausedByBreaker,
 		removeSleeve,
 		setWeights,
+		signedQuote,
 		sleeveBots,
 		sleeveIssueText,
 		weightPercent,
 		type Portfolio,
-		type PortfolioSleeve
+		type PortfolioDeployment,
+		type PortfolioDialogAction,
+		type PortfolioSleeve,
+		type SleeveDeployment
 	} from '$lib/portfolios';
 	import type { StrategyLibraryEntry } from '$lib/strategies';
 
 	let {
 		portfolio,
+		deployment = null,
 		strategies,
 		strategiesError,
 		inventory,
 		onchanged,
-		onconflict
+		onconflict,
+		onaction = () => {}
 	}: {
 		portfolio: Portfolio;
+		/** The portfolio's deployment view (sleeve bots), or null before it loads. */
+		deployment?: PortfolioDeployment | null;
 		strategies: StrategyLibraryEntry[] | null;
 		strategiesError: string | null;
 		inventory: Deployment[] | null;
 		onchanged: (portfolio: Portfolio) => void;
 		onconflict: () => Promise<void>;
+		/** Open the confirmation for one sleeve's start, pause, resume, or stop. */
+		onaction?: (action: PortfolioDialogAction, sleeveId: string) => void;
 	} = $props();
+
+	/** The sleeve's portfolio bot (running, paused, or its last stopped one). */
+	function sleeveBot(sleeveId: string): SleeveDeployment | null {
+		return deployment?.sleeves.find((book) => book.sleeve_id === sleeveId)?.deployment ?? null;
+	}
+
+	function occupied(bot: SleeveDeployment | null): boolean {
+		return bot !== null && (bot.status === 'running' || bot.status === 'paused');
+	}
 
 	let notice = $state<string | null>(null);
 
@@ -231,8 +253,7 @@
 							<th scope="col" class="left">Weight</th>
 							<th scope="col" class="left">Market</th>
 							<th scope="col">Capital</th>
-							<th scope="col" class="left">Bots ({portfolio.mode === 'live' ? 'live' : 'paper'})</th
-							>
+							<th scope="col" class="left">Bot ({portfolio.mode === 'live' ? 'live' : 'paper'})</th>
 							<th scope="col" class="left">Status</th>
 							<th scope="col"><span class="sr-only">Actions</span></th>
 						</tr>
@@ -240,6 +261,8 @@
 					<tbody>
 						{#each portfolio.sleeves as sleeve, index (sleeve.sleeve_id)}
 							{@const bots = sleeveBots(inventory, sleeve.strategy_id, portfolio.mode)}
+							{@const bot = sleeveBot(sleeve.sleeve_id)}
+							{@const others = bots.filter((item) => item.id !== bot?.deployment_id)}
 							<tr data-testid="sleeve-row">
 								<td>
 									<a
@@ -281,19 +304,34 @@
 									{/if}
 								</td>
 								<td>{quoteText(sleeve.capital_quote, portfolio.quote_currency)}</td>
-								<td class="left">
-									{#if inventory === null}
-										<span class="faint">—</span>
-									{:else if bots.length === 0}
+								<td class="left" data-testid="sleeve-bot">
+									{#if bot !== null}
+										<a
+											class="bot-link"
+											class:breaker={pausedByBreaker(bot)}
+											href={resolve(`/deployments/${encodeURIComponent(bot.deployment_id)}`)}
+											title={bot.mismatch_detail ?? undefined}>{botStatusText(bot)}</a
+										>
+										{#if occupied(bot)}
+											<div class="faint small">
+												PnL {signedQuote(bot.net_pnl, portfolio.quote_currency)} · {quoteText(
+													bot.allocated_capital ?? sleeve.capital_quote,
+													portfolio.quote_currency
+												)}
+											</div>
+										{/if}
+									{:else if deployment !== null}
+										<span class="faint">Not started</span>
+									{/if}
+									{#each others as other (other.id)}
+										<a
+											class="bot-link other"
+											href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}
+											>{botLabel(other)} (outside this portfolio)</a
+										>
+									{/each}
+									{#if bot === null && deployment === null && inventory !== null && bots.length === 0}
 										<span class="faint">No bot</span>
-									{:else}
-										{#each bots as bot (bot.id)}
-											<a
-												class="bot-link"
-												href={resolve(`/deployments/${encodeURIComponent(bot.id)}`)}
-												>{botLabel(bot)}</a
-											>
-										{/each}
 									{/if}
 								</td>
 								<td class="left">
@@ -305,17 +343,50 @@
 										{/each}
 									{/if}
 								</td>
-								<td>
-									<button
-										type="button"
-										class="btn ghost compact"
-										aria-label="Remove sleeve {sleeve.strategy_name}"
-										disabled={editing}
-										onclick={() => {
-											removeError = null;
-											removeTarget = sleeve;
-										}}>Remove…</button
-									>
+								<td class="row-actions">
+									{#if bot !== null && bot.status === 'running'}
+										<button
+											type="button"
+											class="btn ghost compact"
+											aria-label="Pause sleeve {sleeve.strategy_name}"
+											onclick={() => onaction('pause', sleeve.sleeve_id)}>Pause</button
+										>
+									{:else if bot !== null && bot.status === 'paused'}
+										<button
+											type="button"
+											class="btn ghost compact"
+											aria-label="Resume sleeve {sleeve.strategy_name}"
+											disabled={deployment?.breaker.latched === true}
+											onclick={() => onaction('resume', sleeve.sleeve_id)}>Resume…</button
+										>
+									{:else if deployment !== null && sleeve.issues.length === 0}
+										<button
+											type="button"
+											class="btn ghost compact"
+											aria-label="Start sleeve {sleeve.strategy_name}"
+											disabled={deployment.breaker.latched}
+											onclick={() => onaction('start', sleeve.sleeve_id)}>Start…</button
+										>
+									{/if}
+									{#if occupied(bot)}
+										<button
+											type="button"
+											class="btn ghost compact"
+											aria-label="Stop sleeve {sleeve.strategy_name}"
+											onclick={() => onaction('stop', sleeve.sleeve_id)}>Stop…</button
+										>
+									{:else}
+										<button
+											type="button"
+											class="btn ghost compact"
+											aria-label="Remove sleeve {sleeve.strategy_name}"
+											disabled={editing}
+											onclick={() => {
+												removeError = null;
+												removeTarget = sleeve;
+											}}>Remove…</button
+										>
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -509,6 +580,9 @@
 	td.left {
 		text-align: left;
 	}
+	th {
+		white-space: nowrap;
+	}
 	.name {
 		color: var(--text);
 		font-weight: 500;
@@ -556,6 +630,19 @@
 		display: block;
 		color: var(--accent);
 		text-decoration: none;
+	}
+	.bot-link.breaker {
+		color: var(--neg);
+	}
+	.bot-link.other {
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.row-actions {
+		white-space: nowrap;
+	}
+	.row-actions .btn + .btn {
+		margin-left: 4px;
 	}
 	.issue {
 		color: var(--warn);

@@ -8,17 +8,21 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0055`):
+Current checkout (Alembic `0056`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v50` |
-| `expected_schema_revision` | `0055` |
+| `id` | `thytrader-ops-contract-v51` |
+| `expected_schema_revision` | `0056` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
-| `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)) |
+| `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
 | `portfolio_modes` | `paper`, `live` |
 | `portfolio_backtest_contract` | `thytrader-portfolio-backtest-v1` |
 | `max_concurrent_portfolio_backtests` | `1` |
+| `portfolio_deployment` | `start`, `pause`, `resume`, `stop`, `sleeve_actions`, `breaker_reset` (ADR 0091) |
+| `portfolio_breakers` | `PORTFOLIO_DAILY_LOSS_STOP`, `PORTFOLIO_DRAWDOWN_STOP` (ADR 0091) |
+| `portfolio_proposal_kinds` | `rebalance`, `pause_sleeve`, `resume_sleeve`, `add_sleeve` — no order kind exists (ADR 0091) |
+| `portfolio_briefing_contract` | `thytrader-portfolio-briefing-v1` (ADR 0091) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
 | `max_concurrent_research_jobs` | `2` |
@@ -59,7 +63,7 @@ Current checkout (Alembic `0055`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v50
+    id thytrader-ops-contract-v51
     max_historical_interval_count
     backtest_engine
     paper_timeframes

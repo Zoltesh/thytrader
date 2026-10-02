@@ -1,12 +1,14 @@
 /**
- * Portfolios (ADR 0088): typed API client and pure view helpers.
+ * Portfolios (ADR 0088, ADR 0091): typed API client and pure view helpers.
  *
  * A portfolio is a set of sleeves (one strategy each, with a capital weight)
  * under shared limits, with manager settings and an append-only journal. Every
  * mutation is revision-guarded; a stale revision is a 409 the page answers by
  * reloading. Money and fractions are canonical decimal strings: sums and
  * comparisons stay exact (BigInt), and floats appear only in chart geometry.
- * Nothing here deploys a portfolio or places orders.
+ * Deploying starts one bot per sleeve; strategies place every trade. The
+ * manager agent only proposes (rebalance, pause, resume, add a sleeve); nothing
+ * here places an order.
  */
 import type { Deployment } from './deployments';
 import { formatQuoteAmount } from './deployment-portfolio';
@@ -89,8 +91,170 @@ export type Portfolio = {
 	manager: ManagerSettings;
 	sleeves: PortfolioSleeve[];
 	allocation: PortfolioAllocation;
-	deployable: false;
+	/** At least one sleeve and no sleeve issues, so a start can be planned. */
+	deployable: boolean;
+	deployment_state?: PortfolioDeploymentState;
 };
+
+export type PortfolioDeploymentState =
+	'not_deployed' | 'running' | 'partially_running' | 'paused' | 'stopped';
+
+/** One sleeve's bot as the portfolio sees it (open it at `/deployments/{id}`). */
+export type SleeveDeployment = {
+	deployment_id: string;
+	strategy_id: string | null;
+	strategy_name: string | null;
+	status: 'running' | 'paused' | 'stopped' | string;
+	phase: string;
+	lifecycle_command: string;
+	mismatch_detail: string | null;
+	allocated_capital: string | null;
+	paper_starting_cash: string | null;
+	performance_equity: string | null;
+	net_pnl: string;
+	return_fraction: string | null;
+	drawdown_fraction: string | null;
+	exposure_quote: string;
+	open_books: number;
+	strategy_fingerprint: string | null;
+	running_current_rules: boolean | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type SleeveBook = {
+	sleeve_id: string;
+	strategy_id: string;
+	strategy_name: string;
+	product_id: string | null;
+	timeframe: string | null;
+	weight_fraction: string;
+	target_capital_quote: string;
+	issues: SleeveIssueCode[];
+	deployment: SleeveDeployment | null;
+};
+
+export type PortfolioBreaker = {
+	latched: boolean;
+	reason_code: 'PORTFOLIO_DAILY_LOSS_STOP' | 'PORTFOLIO_DRAWDOWN_STOP' | string | null;
+	detail: string | null;
+	latched_at: string | null;
+	daily_loss_quote: string | null;
+	max_drawdown_fraction: string | null;
+	run_started_at: string | null;
+	equity: string;
+	day_open_equity: string | null;
+	daily_pnl: string | null;
+	high_water_mark_equity: string | null;
+	drawdown_fraction: string | null;
+	evaluated_at: string | null;
+};
+
+export type AssetExposure = {
+	asset: string;
+	exposure_quote: string;
+	fraction_of_capital: string;
+	cap_quote: string;
+};
+
+export type PortfolioExposure = {
+	total_quote: string;
+	fraction_of_capital: string;
+	cap_quote: string;
+	asset_cap_quote: string;
+	assets: AssetExposure[];
+};
+
+export type PortfolioDeployment = {
+	portfolio_id: string;
+	name: string;
+	mode: PortfolioMode;
+	quote_currency: QuoteCurrency;
+	capital_quote: string;
+	revision: number;
+	state: PortfolioDeploymentState;
+	sleeves: SleeveBook[];
+	detached: SleeveDeployment[];
+	breaker: PortfolioBreaker;
+	exposure: PortfolioExposure;
+	pending_proposals: number;
+};
+
+export type SleeveOutcomeKind =
+	'started' | 'attached' | 'paused' | 'resumed' | 'stopped' | 'unchanged' | 'failed';
+
+export type SleeveOutcome = {
+	sleeve_id: string | null;
+	strategy_id: string | null;
+	strategy_name: string;
+	outcome: SleeveOutcomeKind;
+	deployment_id: string | null;
+	message: string | null;
+};
+
+export type PortfolioActionResponse = {
+	action: 'start' | 'pause' | 'resume' | 'stop';
+	outcomes: SleeveOutcome[];
+	deployment: PortfolioDeployment;
+};
+
+export type ProposalKind = 'rebalance' | 'pause_sleeve' | 'resume_sleeve' | 'add_sleeve';
+export type ProposalStatus = 'pending' | 'applied' | 'declined' | 'failed' | 'expired';
+
+export type ProposalChange =
+	| {
+			kind: 'rebalance';
+			weights: { sleeve_id: string; weight_fraction: string }[];
+			cash_reserve_fraction?: string | null;
+	  }
+	| { kind: 'pause_sleeve'; sleeve_id: string }
+	| { kind: 'resume_sleeve'; sleeve_id: string }
+	| { kind: 'add_sleeve'; strategy_id: string; weight_fraction: string; note?: string | null };
+
+export type ProposalEvidence = {
+	kind: 'backtest_result' | 'portfolio_backtest' | 'study' | 'decision' | 'deployment' | string;
+	ref: string;
+	note?: string | null;
+};
+
+export type Proposal = {
+	proposal_id: string;
+	portfolio_id: string;
+	kind: ProposalKind;
+	status: ProposalStatus;
+	summary: string;
+	rationale: string;
+	change: ProposalChange;
+	evidence: ProposalEvidence[];
+	base_revision: number;
+	submitted_by: 'manager' | 'operator';
+	channel: string;
+	approval_reason?: string | null;
+	weight_moved?: string | null;
+	created_at: string;
+	expires_at: string;
+	decided_at?: string | null;
+	decided_by?: 'operator' | 'manager' | 'system' | null;
+	decision_note?: string | null;
+	auto_applied?: boolean;
+	applied_revision?: number | null;
+	failure_code?: string | null;
+	failure_message?: string | null;
+};
+
+export type ProposalListResponse = {
+	proposals: Proposal[];
+	limit: number;
+	returned: number;
+	total: number;
+	has_more: boolean;
+	next_cursor: string | null;
+};
+
+export type ProposalResponse = { proposal: Proposal; portfolio_revision: number };
+
+/** What the portfolio action dialog confirms. */
+export type PortfolioDialogAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset';
 
 export type PortfolioListResponse = {
 	portfolios: Portfolio[];
@@ -110,7 +274,17 @@ export type JournalKind =
 	| 'weights_changed'
 	| 'limits_changed'
 	| 'manager_changed'
-	| 'backtest_run';
+	| 'backtest_run'
+	| 'deployment_started'
+	| 'deployment_paused'
+	| 'deployment_resumed'
+	| 'deployment_stopped'
+	| 'breaker_tripped'
+	| 'breaker_reset'
+	| 'proposal_submitted'
+	| 'proposal_approved'
+	| 'proposal_declined'
+	| 'proposal_failed';
 
 export type JournalChange = { field: string; before: string | null; after: string | null };
 
@@ -118,10 +292,15 @@ export type JournalDetail = {
 	sleeve_id?: string | null;
 	strategy_id?: string | null;
 	strategy_name?: string | null;
-	reason?: 'operator' | 'strategy_deleted' | null;
+	reason?: 'operator' | 'strategy_deleted' | 'manager_proposal' | 'breaker' | null;
 	changes?: JournalChange[];
 	job_id?: string | null;
 	result_fingerprint?: string | null;
+	deployment_ids?: string[];
+	reason_code?: string | null;
+	proposal_id?: string | null;
+	rationale?: string | null;
+	note?: string | null;
 };
 
 export type JournalEntry = {
@@ -385,12 +564,15 @@ export const PORTFOLIO_TABS: readonly { id: PortfolioTab; label: string }[] = [
 	{ id: 'limits', label: 'Limits' }
 ];
 
-export const DEPLOY_ARRIVES_NEXT = 'Deploying a portfolio arrives next';
 export const CONFLICT_RELOADED = 'Changed elsewhere; reloaded — try again.';
 export const LIMITS_NOTE =
-	'Stored with the portfolio. They start binding orders when portfolio deployment arrives; today no order passes through them, and portfolio backtests do not simulate them.';
+	'On a deployed portfolio these limits bind every sleeve: each new entry must fit the total and per-asset exposure caps, and the daily loss and drawdown stops pause every sleeve and stay latched until you reset them. Portfolio backtests do not simulate them.';
+export const LIMITS_ORDER =
+	"Every order from every sleeve passes the sleeve's own risk checks, then these portfolio limits, then the account-wide risk policy. The strictest limit wins.";
 export const MANAGER_NOTE =
-	'The manager agent loop and approving or declining its proposals arrive next. Today these settings are saved and shown here; nothing acts on them.';
+	'The manager agent runs outside ThyTrader (Hermes or Claude through the thytrader-portfolio skill). It reads the briefing and submits proposals with its reasons; inside these permissions a proposal applies on its own, and everything else waits for you below.';
+export const START_NOTE =
+	'Starting runs one bot per sleeve with weight × capital. Strategies place every trade; the portfolio limits and the account risk policy check each one.';
 export const MANAGER_NEVER: readonly string[] = [
 	'Place orders itself: strategies place every trade',
 	'Raise limits or add sleeves directly (it can only propose a sleeve)',
@@ -501,6 +683,82 @@ export async function listPortfolios(): Promise<Portfolio[]> {
 
 export function fetchPortfolio(portfolioId: string): Promise<Portfolio> {
 	return request<Portfolio>(portfolioPath(portfolioId));
+}
+
+/** The portfolio's deployment: state, each sleeve's bot, breakers, and exposure. */
+export function fetchPortfolioDeployment(portfolioId: string): Promise<PortfolioDeployment> {
+	return request<PortfolioDeployment>(portfolioPath(portfolioId, '/deployment'));
+}
+
+function sleeveSegment(sleeveId: string | null | undefined): string {
+	return sleeveId ? `/sleeves/${encodeURIComponent(sleeveId)}` : '';
+}
+
+/** Start every sleeve (or one) at the reviewed revision; live needs the acknowledgement. */
+export function startPortfolio(
+	portfolioId: string,
+	input: { revision: number; liveAcknowledged: boolean; sleeveId?: string | null }
+): Promise<PortfolioActionResponse> {
+	const body: Record<string, unknown> = { revision: input.revision };
+	if (input.liveAcknowledged) body.i_understand_live = true;
+	return request<PortfolioActionResponse>(
+		portfolioPath(portfolioId, `${sleeveSegment(input.sleeveId)}/start`),
+		{ method: 'POST', body: JSON.stringify(body) }
+	);
+}
+
+/** Pause, resume, or stop every sleeve (or one); live resume needs the acknowledgement. */
+export function portfolioAction(
+	portfolioId: string,
+	action: 'pause' | 'resume' | 'stop',
+	input: { sleeveId?: string | null; flatten?: boolean; liveAcknowledged?: boolean } = {}
+): Promise<PortfolioActionResponse> {
+	const query = action === 'stop' && input.flatten ? '?flatten=true' : '';
+	const body =
+		action === 'resume' && input.liveAcknowledged
+			? JSON.stringify({ i_understand_live: true })
+			: undefined;
+	return request<PortfolioActionResponse>(
+		portfolioPath(portfolioId, `${sleeveSegment(input.sleeveId)}/${action}${query}`),
+		{ method: 'POST', body }
+	);
+}
+
+/** Clear a latched portfolio breaker; sleeves stay paused until resumed. */
+export function resetPortfolioBreaker(portfolioId: string): Promise<PortfolioDeployment> {
+	return request<PortfolioDeployment>(portfolioPath(portfolioId, '/breaker/reset'), {
+		method: 'POST'
+	});
+}
+
+/** The manager's proposals, newest first (pending first when filtered). */
+export async function listProposals(
+	portfolioId: string,
+	status: ProposalStatus | null = null,
+	limit = 20
+): Promise<Proposal[]> {
+	const params = new URLSearchParams({ limit: String(limit) });
+	if (status !== null) params.set('status', status);
+	const body = await request<ProposalListResponse>(
+		portfolioPath(portfolioId, `/proposals?${params.toString()}`)
+	);
+	return body.proposals;
+}
+
+/** A person approves or declines one pending proposal. */
+export function decideProposal(
+	portfolioId: string,
+	proposalId: string,
+	decision: 'approve' | 'decline',
+	input: { note?: string; liveAcknowledged?: boolean } = {}
+): Promise<ProposalResponse> {
+	const body: Record<string, unknown> = {};
+	if (input.note) body.note = input.note;
+	if (input.liveAcknowledged) body.i_understand_live = true;
+	return request<ProposalResponse>(
+		portfolioPath(portfolioId, `/proposals/${encodeURIComponent(proposalId)}/${decision}`),
+		{ method: 'POST', body: JSON.stringify(body) }
+	);
 }
 
 export function createPortfolio(input: PortfolioCreateInput): Promise<Portfolio> {
@@ -629,7 +887,10 @@ export function backtestProblems(caught: unknown): BacktestProblem[] {
 	if (!(caught instanceof PortfolioApiError) || caught.code !== 'portfolio_backtest_rejected') {
 		return [];
 	}
-	const raw = caught.detail.problems;
+	return problemList(caught.detail.problems);
+}
+
+function problemList(raw: unknown): BacktestProblem[] {
 	if (!Array.isArray(raw)) return [];
 	return raw.flatMap((item): BacktestProblem[] => {
 		if (typeof item !== 'object' || item === null) return [];
@@ -745,6 +1006,12 @@ export function quoteText(amount: string, currency: string): string {
 	return `${formatQuoteAmount(amount)} ${currency}`;
 }
 
+/** A signed quote amount (`+12.30 USDC`, `-4.80 USDC`, `0.00 USDC`). */
+export function signedQuote(amount: string, currency: string): string {
+	const text = quoteText(amount, currency);
+	return compareDecimalStrings(amount, '0') > 0 ? `+${text}` : text;
+}
+
 /** A signed fraction as a percent with two decimals (`+14.92%`, `-4.80%`). */
 export function signedPercent(fraction: string): string {
 	const text = formatPercent(fraction);
@@ -790,11 +1057,146 @@ export function modeLabel(mode: PortfolioMode): 'LIVE' | 'Paper' {
 	return mode === 'live' ? 'LIVE' : 'Paper';
 }
 
-/** Card subtitle: what the portfolio is, its quote, and who runs it. */
-export function portfolioSubtitle(portfolio: Portfolio): string {
+/**
+ * Card subtitle: what the portfolio is, its quote, its sleeves, and its state. The live
+ * deployment view's state wins over the (possibly older) state on the portfolio itself.
+ */
+export function portfolioSubtitle(
+	portfolio: Portfolio,
+	liveState: PortfolioDeploymentState | null = null
+): string {
 	const venue = portfolio.mode === 'live' ? 'Real Coinbase spot' : 'Simulated';
 	const sleeves = portfolio.sleeves.length;
-	return `${venue} · ${portfolio.quote_currency} · ${sleeves} sleeve${sleeves === 1 ? '' : 's'} · manager settings only`;
+	const state = deploymentStateLabel(liveState ?? portfolio.deployment_state ?? 'not_deployed');
+	return `${venue} · ${portfolio.quote_currency} · ${sleeves} sleeve${sleeves === 1 ? '' : 's'} · ${state}`;
+}
+
+const STATE_LABELS: Record<PortfolioDeploymentState, string> = {
+	not_deployed: 'Not deployed',
+	running: 'Running',
+	partially_running: 'Partly running',
+	paused: 'Paused',
+	stopped: 'Stopped'
+};
+
+export function deploymentStateLabel(state: PortfolioDeploymentState | string): string {
+	return state in STATE_LABELS ? STATE_LABELS[state as PortfolioDeploymentState] : state;
+}
+
+/** True while a portfolio breaker pause (`PORTFOLIO_*_STOP:`) holds a sleeve. */
+export function pausedByBreaker(
+	deployment: Pick<SleeveDeployment, 'status' | 'mismatch_detail'>
+): boolean {
+	return (
+		deployment.status === 'paused' &&
+		(deployment.mismatch_detail ?? '').startsWith('PORTFOLIO_') &&
+		(deployment.mismatch_detail ?? '').includes('_STOP:')
+	);
+}
+
+/** `Running`, `Paused`, `Paused by breaker`, `Stopping (flatten)`, `Stopped`. */
+export function botStatusText(deployment: SleeveDeployment): string {
+	if (pausedByBreaker(deployment)) return 'Paused by breaker';
+	if (deployment.status === 'stopped') {
+		return deployment.lifecycle_command === 'flatten' && deployment.open_books > 0
+			? 'Stopping (flatten)'
+			: 'Stopped';
+	}
+	return `${deployment.status.charAt(0).toUpperCase()}${deployment.status.slice(1)}`;
+}
+
+/** Which portfolio-wide actions make sense now. */
+export function portfolioActions(view: PortfolioDeployment | null): {
+	start: boolean;
+	pause: boolean;
+	resume: boolean;
+	stop: boolean;
+} {
+	if (view === null) return { start: false, pause: false, resume: false, stop: false };
+	const books = [...view.sleeves.map((sleeve) => sleeve.deployment), ...view.detached];
+	const running = books.some((book) => book?.status === 'running');
+	const paused = books.some((book) => book?.status === 'paused');
+	const idle = view.sleeves.some(
+		(sleeve) => sleeve.deployment === null || sleeve.deployment.status === 'stopped'
+	);
+	const latched = view.breaker.latched;
+	return {
+		start: idle && !latched && view.sleeves.length > 0,
+		pause: running,
+		resume: paused && !latched,
+		stop: running || paused
+	};
+}
+
+const BREAKER_LABELS: Record<string, string> = {
+	PORTFOLIO_DAILY_LOSS_STOP: 'Daily loss stop',
+	PORTFOLIO_DRAWDOWN_STOP: 'Max drawdown stop'
+};
+
+export function breakerLabel(code: string | null): string {
+	return code === null ? 'No breaker' : (BREAKER_LABELS[code] ?? code);
+}
+
+const PROPOSAL_KIND_LABELS: Record<ProposalKind, string> = {
+	rebalance: 'Rebalance',
+	pause_sleeve: 'Pause a sleeve',
+	resume_sleeve: 'Resume a sleeve',
+	add_sleeve: 'Add a sleeve'
+};
+
+export function proposalKindLabel(kind: ProposalKind | string): string {
+	return kind in PROPOSAL_KIND_LABELS ? PROPOSAL_KIND_LABELS[kind as ProposalKind] : kind;
+}
+
+/** `Applied automatically`, `Approved`, `Declined`, `Could not apply`, `Expired`, `Waiting`. */
+export function proposalStatusText(proposal: Proposal): string {
+	switch (proposal.status) {
+		case 'pending':
+			return 'Waiting for you';
+		case 'applied':
+			return proposal.auto_applied ? 'Applied automatically' : 'Approved';
+		case 'declined':
+			return 'Declined';
+		case 'failed':
+			return `Could not apply${proposal.failure_message ? `: ${proposal.failure_message}` : ''}`;
+		case 'expired':
+			return 'Expired unanswered';
+	}
+}
+
+/** Approving a resume on a live portfolio re-arms real orders: it needs the checkbox. */
+export function approvalNeedsLiveAck(
+	mode: PortfolioMode,
+	proposal: Pick<Proposal, 'kind'>
+): boolean {
+	return mode === 'live' && proposal.kind === 'resume_sleeve';
+}
+
+/** The agent-panel message behind "Ask why": the proposal as context, then the question. */
+export function askWhyPrompt(
+	portfolio: Pick<Portfolio, 'name' | 'mode'>,
+	proposal: Proposal
+): string {
+	const evidence =
+		proposal.evidence.length === 0
+			? 'none cited'
+			: proposal.evidence.map((item) => `${item.kind} ${item.ref}`).join('; ');
+	return [
+		`Explain this manager proposal for the ${portfolio.mode} portfolio “${portfolio.name}” before I decide.`,
+		`Proposal ${proposal.proposal_id}: ${proposal.summary}`,
+		`Rationale: ${proposal.rationale}`,
+		`Evidence: ${evidence}`,
+		`Why it needs approval: ${proposal.approval_reason ?? 'not stated'}`,
+		'Check the evidence against the portfolio briefing, say what could go wrong, and recommend approve or decline. Do not approve or decline it yourself.'
+	].join('\n');
+}
+
+/** Per-sleeve problems behind a 422 `portfolio_start_rejected`, else an empty list. */
+export function startProblems(caught: unknown): BacktestProblem[] {
+	if (!(caught instanceof PortfolioApiError) || caught.code !== 'portfolio_start_rejected') {
+		return [];
+	}
+	return problemList(caught.detail.problems);
 }
 
 export type AllocationBar = {
@@ -882,7 +1284,17 @@ const JOURNAL_KIND_LABELS: Record<JournalKind, string> = {
 	weights_changed: 'Weights changed',
 	limits_changed: 'Limits changed',
 	manager_changed: 'Manager settings changed',
-	backtest_run: 'Backtest run'
+	backtest_run: 'Backtest run',
+	deployment_started: 'Started',
+	deployment_paused: 'Paused',
+	deployment_resumed: 'Resumed',
+	deployment_stopped: 'Stopped',
+	breaker_tripped: 'Breaker tripped',
+	breaker_reset: 'Breaker reset',
+	proposal_submitted: 'Proposal',
+	proposal_approved: 'Proposal approved',
+	proposal_declined: 'Proposal declined',
+	proposal_failed: 'Proposal failed'
 };
 
 export function journalKindLabel(kind: string): string {

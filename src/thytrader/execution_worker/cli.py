@@ -19,6 +19,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
+from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
@@ -48,6 +49,7 @@ async def run() -> None:
     heartbeats = PostgresWorkerHeartbeatStore(engine)
     audit_store = PostgresAuditEventStore(engine)
     decision_store = PostgresDecisionJournalStore(engine)
+    portfolio_store = PostgresPortfolioStore(engine)
     venue_runtime = ExecutionVenueRuntime(settings)
     credential_runtime = WorkerCredentialRuntime(
         settings_store,
@@ -91,6 +93,7 @@ async def run() -> None:
                 venue_provider=venue_runtime.current,
                 audit_store=audit_store,
                 decision_store=decision_store,
+                portfolio_store=portfolio_store,
             ),
             run_venue_user_order_feed(
                 stop_requested,

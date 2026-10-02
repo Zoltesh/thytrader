@@ -42,6 +42,11 @@ from thytrader.runtime_control.client import (
     show_yaml_settings,
     start_deployment,
 )
+from thytrader.runtime_control.portfolio_commands import (
+    PORTFOLIO_COMMANDS,
+    add_portfolio_parsers,
+    run_portfolio_command,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -83,7 +88,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",
         description=(
-            "Start, pause, resume, or stop paper and live deployments, read their "
+            "Start, pause, resume, or stop paper and live deployments and whole "
+            "portfolios (portfolio-*), read their "
             "per-bar decision timeline (decisions, read-only), place "
             "discretionary orders, publish the risk-policy registry, update YAML "
             "non-secret settings (including YOLO), and set or clear write-only "
@@ -371,6 +377,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Clear Coinbase Advanced Trade secrets and return this API process to demo.",
     )
     clear_creds.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    add_portfolio_parsers(subparsers, trailing, confirm_help=_CONFIRM_HELP, live_help=_LIVE_HELP)
     return parser
 
 
@@ -644,6 +651,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) 
         return _place_order(arguments, base_url, settings)
     if command in {"pause", "resume", "stop", "reset-breaker-latches"}:
         return _runtime_mutation(arguments, base_url, settings)
+    if command in PORTFOLIO_COMMANDS:
+        return run_portfolio_command(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
         return show_risk_policy(base_url)

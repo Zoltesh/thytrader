@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import logging
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
@@ -19,11 +19,15 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, sta
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_dataset_store,
+    get_execution_store,
     get_portfolio_backtest_store,
     get_portfolio_store,
     get_strategy_store,
 )
+from thytrader.api.live_ack import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.api.strategy_http import strategy_http_error
+from thytrader.execution.models import ExecutionStoreError
+from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -36,14 +40,19 @@ from thytrader.portfolios.backtest import (
     PortfolioBacktestRequest,
     downsample_curve,
 )
+from thytrader.portfolios.deployment import members, sleeve_books
 from thytrader.portfolios.models import (
     MutationContext,
+    PortfolioConflictError,
     PortfolioCreateRequest,
     PortfolioError,
+    PortfolioLiveAcknowledgementError,
     PortfolioNotFoundError,
+    PortfolioProposalNotFoundError,
     PortfolioRevisionConflictError,
     PortfolioSleeveExistsError,
     PortfolioSleeveNotFoundError,
+    PortfolioStartRejectedError,
     PortfolioStrategyNotFoundError,
     PortfolioUpdateRequest,
     PortfolioValidationError,
@@ -72,6 +81,11 @@ from thytrader.portfolios.views import (
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.strategies.library import StrategyLibraryError, StrategyStore
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from thytrader.portfolios.models import PortfolioAggregate
+
 router = APIRouter(prefix="/api/v1/portfolios", tags=["portfolios"])
 _logger = logging.getLogger(__name__)
 _FINGERPRINT = r"^sha256:[0-9a-f]{64}$"
@@ -80,6 +94,7 @@ _FINGERPRINT = r"^sha256:[0-9a-f]{64}$"
 @router.get("", response_model=PortfolioListResponse)
 async def list_portfolios(
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
 ) -> PortfolioListResponse:
@@ -91,7 +106,7 @@ async def list_portfolios(
         raise portfolio_http_error(error) from None
     has_more = start + len(page.portfolios) < page.total
     return PortfolioListResponse(
-        portfolios=tuple(portfolio_response(item) for item in page.portfolios),
+        portfolios=await _responses(page.portfolios, execution),
         limit=limit,
         returned=len(page.portfolios),
         total=page.total,
@@ -105,25 +120,28 @@ async def create_portfolio(
     body: PortfolioCreateRequest,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Create one paper or live portfolio. Mode and quote currency are then fixed."""
     try:
         created = await store.create(body, context=mutation_context(request))
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(created)
+    return await _response(created, execution)
 
 
 @router.get("/{portfolio_id}", response_model=PortfolioResponse)
 async def get_portfolio(
     portfolio_id: UUID,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Return one portfolio with sleeves, allocation, limits, and manager settings."""
     try:
-        return portfolio_response(await store.get(portfolio_id))
+        aggregate = await store.get(portfolio_id)
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
+    return await _response(aggregate, execution)
 
 
 @router.patch("/{portfolio_id}", response_model=PortfolioResponse)
@@ -132,13 +150,14 @@ async def update_portfolio(
     body: PortfolioUpdateRequest,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Change name, capital, cash reserve, limits, or manager settings (revision-guarded)."""
     try:
         updated = await store.update(portfolio_id, body, context=mutation_context(request))
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(updated)
+    return await _response(updated, execution)
 
 
 @router.delete("/{portfolio_id}", response_model=PortfolioDeletionResponse)
@@ -181,13 +200,14 @@ async def add_sleeve(
     body: SleeveAddRequest,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Add one strategy as a sleeve (same quote currency; weights + reserve <= 1)."""
     try:
         updated = await store.add_sleeve(portfolio_id, body, context=mutation_context(request))
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(updated)
+    return await _response(updated, execution)
 
 
 @router.patch("/{portfolio_id}/sleeves/{sleeve_id}", response_model=PortfolioResponse)
@@ -197,6 +217,7 @@ async def update_sleeve(
     body: SleeveUpdateRequest,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Change one sleeve's weight and/or note (revision-guarded)."""
     try:
@@ -205,7 +226,7 @@ async def update_sleeve(
         )
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(updated)
+    return await _response(updated, execution)
 
 
 @router.delete("/{portfolio_id}/sleeves/{sleeve_id}", response_model=PortfolioResponse)
@@ -214,6 +235,7 @@ async def remove_sleeve(
     sleeve_id: UUID,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
     revision: Annotated[int, Query(ge=1)],
 ) -> PortfolioResponse:
     """Remove one sleeve (revision-guarded). Its strategy and evidence are untouched."""
@@ -223,7 +245,7 @@ async def remove_sleeve(
         )
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(updated)
+    return await _response(updated, execution)
 
 
 @router.put("/{portfolio_id}/weights", response_model=PortfolioResponse)
@@ -232,13 +254,14 @@ async def set_weights(
     body: SetWeightsRequest,
     request: Request,
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioResponse:
     """Replace every sleeve weight (and optionally the cash reserve) in one revision."""
     try:
         updated = await store.set_weights(portfolio_id, body, context=mutation_context(request))
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
-    return portfolio_response(updated)
+    return await _response(updated, execution)
 
 
 @router.get("/{portfolio_id}/journal", response_model=JournalListResponse)
@@ -393,6 +416,30 @@ async def get_portfolio_backtest(
     )
 
 
+async def _response(aggregate: PortfolioAggregate, execution: ExecutionStore) -> PortfolioResponse:
+    """One portfolio body with its deployment state."""
+    return (await _responses((aggregate,), execution))[0]
+
+
+async def _responses(
+    aggregates: Sequence[PortfolioAggregate], execution: ExecutionStore
+) -> tuple[PortfolioResponse, ...]:
+    """Portfolio bodies with their deployment states (one deployments read)."""
+    try:
+        deployments = await execution.list_deployments()
+    except ExecutionStoreError:
+        deployments = ()
+    return tuple(
+        portfolio_response(
+            aggregate,
+            deployment_state=sleeve_books(
+                aggregate, members(deployments, aggregate.portfolio.portfolio_id)
+            ).state,
+        )
+        for aggregate in aggregates
+    )
+
+
 def mutation_context(request: Request) -> MutationContext:
     """The operator acted now, from a browser (Origin present) or through the API."""
     channel: Literal["browser", "api"] = "browser" if request.headers.get("origin") else "api"
@@ -404,6 +451,7 @@ _NOT_FOUND_CODES: tuple[tuple[type[PortfolioError], str], ...] = (
     (PortfolioSleeveNotFoundError, "portfolio_sleeve_not_found"),
     (PortfolioStrategyNotFoundError, "strategy_not_found"),
     (PortfolioBacktestNotFoundError, "portfolio_backtest_not_found"),
+    (PortfolioProposalNotFoundError, "portfolio_proposal_not_found"),
 )
 
 
@@ -412,6 +460,14 @@ def portfolio_http_error(error: PortfolioError) -> HTTPException:
     for error_type, code in _NOT_FOUND_CODES:
         if isinstance(error, error_type):
             return _error(status.HTTP_404_NOT_FOUND, code, str(error))
+    if isinstance(error, PortfolioLiveAcknowledgementError):
+        return HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED, detail=LIVE_ACK_REQUIRED_DETAIL
+        )
+    if isinstance(error, PortfolioConflictError):
+        return _error(status.HTTP_409_CONFLICT, error.code, str(error))
+    if isinstance(error, PortfolioStartRejectedError):
+        return _start_rejected(error)
     if isinstance(error, PortfolioRevisionConflictError):
         return HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -453,6 +509,24 @@ def _rejected(error: PortfolioBacktestRejectedError) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={"code": "portfolio_backtest_rejected", "message": str(error), "problems": problems},
+    )
+
+
+def _start_rejected(error: PortfolioStartRejectedError) -> HTTPException:
+    """422 with every sleeve problem that blocked starting the portfolio."""
+    problems = [
+        {
+            "code": problem.code,
+            "message": problem.message,
+            "sleeve_id": _optional_text(problem.sleeve_id),
+            "strategy_id": _optional_text(problem.strategy_id),
+            "strategy_name": problem.strategy_name,
+        }
+        for problem in error.problems
+    ]
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={"code": error.code, "message": str(error), "problems": problems},
     )
 
 

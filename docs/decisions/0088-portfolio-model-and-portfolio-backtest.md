@@ -1,6 +1,7 @@
 # 0088: Portfolio model and portfolio backtest (foundation, no deployment)
 
-- Status: Accepted
+- Status: Accepted (extended by [0091](0091-portfolio-deployment-limits-and-manager-proposals.md):
+  portfolio deployment, limits binding orders, and the manager proposals ship there)
 - Date: 2026-10-02
 - Relates to: [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) (strategies are
   the root object), [0083](0083-unified-backtest-model.md) (one backtest model),

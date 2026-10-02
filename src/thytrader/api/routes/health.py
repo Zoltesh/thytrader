@@ -62,6 +62,10 @@ class HealthOpsContract(BaseModel):
     max_concurrent_portfolio_backtests: int
     research_dataset_autobind: list[str]
     study_budgets: dict[str, dict[str, int]]
+    portfolio_deployment: list[str]
+    portfolio_breakers: list[str]
+    portfolio_proposal_kinds: list[str]
+    portfolio_briefing_contract: str
     expected_schema_revision: str
 
 

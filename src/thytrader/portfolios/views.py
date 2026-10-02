@@ -17,6 +17,9 @@ from thytrader.portfolios.backtest import (  # noqa: TC001 - Pydantic field type
     PortfolioBacktestListing,
     PortfolioBacktestResult,
 )
+from thytrader.portfolios.deployment import (
+    PortfolioDeploymentState,  # noqa: TC001 - Pydantic field type.
+)
 from thytrader.portfolios.models import (
     JournalEntry,
     ManagerSettings,
@@ -30,7 +33,11 @@ from thytrader.portfolios.models import (
 )
 from thytrader.portfolios.rules import AllocationSummary, allocation_summary, sleeve_capital
 
-DEPLOYMENT_NOTE = "Deploying a portfolio arrives next; this API has no deployment authority."
+DEPLOYABLE_NOTE = (
+    "True when the portfolio has at least one sleeve and no sleeve has issues, so a start "
+    "can be planned (the risk policy may still refuse a sleeve). Start, pause, resume, and "
+    "stop are thytrader-runtime portfolio-* commands (ADR 0091)."
+)
 
 
 class SleeveResponse(BaseModel):
@@ -93,7 +100,11 @@ class PortfolioResponse(BaseModel):
     manager: ManagerSettings
     sleeves: tuple[SleeveResponse, ...]
     allocation: AllocationResponse
-    deployable: Literal[False] = Field(default=False, description=DEPLOYMENT_NOTE)
+    deployable: bool = Field(description=DEPLOYABLE_NOTE)
+    deployment_state: PortfolioDeploymentState = Field(
+        default="not_deployed",
+        description="not_deployed, running, partially_running, paused, or stopped.",
+    )
 
 
 class PortfolioListResponse(BaseModel):
@@ -175,9 +186,16 @@ class PortfolioBacktestDetailResponse(BaseModel):
     equity_curve_downsampled: bool
 
 
-def portfolio_response(aggregate: PortfolioAggregate) -> PortfolioResponse:
-    """Project one aggregate into its HTTP body."""
+def portfolio_response(
+    aggregate: PortfolioAggregate,
+    *,
+    deployment_state: PortfolioDeploymentState = "not_deployed",
+) -> PortfolioResponse:
+    """Project one aggregate (and its deployment state) into its HTTP body."""
     portfolio = aggregate.portfolio
+    deployable = bool(aggregate.sleeves) and not any(
+        sleeve_issues(view, portfolio.quote_currency) for view in aggregate.sleeves
+    )
     return PortfolioResponse(
         portfolio_id=portfolio.portfolio_id,
         name=portfolio.name,
@@ -192,6 +210,8 @@ def portfolio_response(aggregate: PortfolioAggregate) -> PortfolioResponse:
         manager=portfolio.manager,
         sleeves=tuple(_sleeve_response(aggregate, view) for view in aggregate.sleeves),
         allocation=_allocation_response(allocation_summary(aggregate)),
+        deployable=deployable,
+        deployment_state=deployment_state,
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
@@ -48,12 +49,16 @@ async def create_deployment(
     risk_store: RiskPolicyStore | None = None,
     paper_maker_fee_rate: Decimal | None = None,
     paper_taker_fee_rate: Decimal | None = None,
+    portfolio_sleeve: PortfolioSleeveStart | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
     Callers snapshot the strategy's current (valid) definition first; the book
     records that fingerprint and the strategy name so its rules stay exact even
-    after later edits or deletion (ADR 0082).
+    after later edits or deletion (ADR 0082). ``portfolio_sleeve`` starts the book as
+    a sleeve of a deployed portfolio: it is tagged with the portfolio, its allocated
+    capital is the sleeve's weight times the portfolio's capital, and on live that
+    allocation counts as risk-policy allocation membership (ADR 0091).
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     maker_fee_rate, taker_fee_rate = _paper_fee_schedule(
@@ -70,12 +75,16 @@ async def create_deployment(
         definition=definition,
         paper_starting_cash=paper_starting_cash,
         deployments=existing,
+        portfolio_sleeve=portfolio_sleeve is not None,
     )
     now = utc_now()
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
         cash = Decimal("0")
-    allocated = await _opening_allocation(risk_store, strategy_id=definition.strategy_id)
+    if portfolio_sleeve is not None:
+        allocated: Decimal | None = portfolio_sleeve.allocated_capital
+    else:
+        allocated = await _opening_allocation(risk_store, strategy_id=definition.strategy_id)
     initial = paper_starting_cash if mode is DeploymentMode.PAPER else None
     deployment = Deployment(
         id=uuid7(now),
@@ -99,8 +108,17 @@ async def create_deployment(
         high_water_mark_equity=initial,
         utc_day_open_equity=initial,
         utc_day_open_at=now if initial is not None else None,
+        portfolio_id=None if portfolio_sleeve is None else portfolio_sleeve.portfolio_id,
     )
     return await store.create_deployment(deployment)
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioSleeveStart:
+    """Start a book as one sleeve of a deployed portfolio (ADR 0091)."""
+
+    portfolio_id: UUID
+    allocated_capital: Decimal
 
 
 async def set_deployment_status(
@@ -220,6 +238,7 @@ async def _require_risk_admission(
     definition: StrategyDefinition,
     paper_starting_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
+    portfolio_sleeve: bool = False,
 ) -> None:
     """Fail closed when the active risk policy rejects this deployment."""
     active = await load_effective_policy(risk_store)
@@ -232,6 +251,7 @@ async def _require_risk_admission(
         paper_starting_cash=paper_starting_cash,
         deployments=deployments,
         policy_source=active.source,
+        portfolio_sleeve=portfolio_sleeve and mode is DeploymentMode.LIVE,
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)

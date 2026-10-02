@@ -74,8 +74,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v50" in skill
-    assert "0055" in skill
+    assert "thytrader-ops-contract-v51" in skill
+    assert "0056" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
@@ -323,8 +323,29 @@ def test_portfolio_skill_requires_confirm_and_denies_deployment() -> None:
         "show-backtest",
         "list-backtests",
         "journal",
+        "deployment",
+        "briefing",
+        "propose",
+        "proposals",
+        "show-proposal",
+        "approve",
+        "decline",
     ):
         assert f"thytrader-portfolio {command}" in skill, command
+    for phrase in (
+        "Acting as the manager agent",
+        "Never place orders",
+        "Never decide your own proposals",
+        "Cadence",
+        "Permission semantics",
+        "thytrader-portfolio-briefing-v1",
+        "drawdown_vs_backtest",
+        "portfolio_proposal_not_permitted",
+        "portfolio_proposal_not_pending",
+        "thytrader-runtime portfolio-",
+        "0091-portfolio-deployment-limits-and-manager-proposals",
+    ):
+        assert phrase in skill, phrase
     for code in (
         "portfolio_revision_conflict",
         "portfolio_allocation_exceeded",
@@ -341,3 +362,28 @@ def test_portfolio_skill_requires_confirm_and_denies_deployment() -> None:
     assert (_ROOT / "ops" / ".cursor" / "skills" / "thytrader-portfolio").resolve() == (
         _PORTFOLIO_SKILL.parent.resolve()
     )
+
+
+def test_runtime_skill_deploys_portfolios_with_the_same_gates() -> None:
+    """The runtime lane names every portfolio command, the gates, and the breaker codes."""
+    skill = (_ROOT / "skills" / "thytrader-runtime" / "SKILL.md").read_text(encoding="utf-8")
+    for command in (
+        "portfolio-status",
+        "portfolio-start",
+        "portfolio-pause",
+        "portfolio-resume",
+        "portfolio-stop",
+        "portfolio-reset-breaker",
+    ):
+        assert f"thytrader-runtime {command}" in skill, command
+    for phrase in (
+        "--i-understand-live",
+        "portfolio_start_rejected",
+        "strategy_busy",
+        "allocation membership",
+        "PORTFOLIO_TOTAL_EXPOSURE_LIMIT",
+        "PORTFOLIO_DRAWDOWN_STOP",
+        "PORTFOLIO_BREAKER_LATCHED",
+        "YOLO never",
+    ):
+        assert phrase in skill, phrase

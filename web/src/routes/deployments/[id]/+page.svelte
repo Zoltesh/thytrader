@@ -504,6 +504,15 @@
 			</div>
 		</header>
 
+		{#if current.portfolio_id}
+			<p class="contract-note" data-testid="portfolio-sleeve-note">
+				This bot is a sleeve of a portfolio: its entries also pass the portfolio's exposure caps and
+				loss stops, and the portfolio's weights set its capital.
+				<a href={resolve(`/deployments?portfolio=${encodeURIComponent(current.portfolio_id)}`)}
+					>Open the portfolio</a
+				>
+			</p>
+		{/if}
 		{#if current.strategy_deleted}
 			<p class="contract-note" data-testid="deleted-strategy-note" role="status">
 				Its strategy was deleted. This live bot's orders, fills, positions, trade reasons, and the

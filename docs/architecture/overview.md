@@ -105,9 +105,12 @@ contracts below:
   sweep / WFO studies from that model and persist catalog rows
   ([research studies](research-studies.md));
 - `/api/v1/portfolios` composes portfolios (sleeves with capital weights, cash reserve, shared
-  limits, manager settings, an append-only journal) and runs async portfolio backtests that
-  combine independently simulated sleeves; it has no deployment authority
-  ([portfolios](portfolios.md), [ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md));
+  limits, manager settings, an append-only journal), runs async portfolio backtests that combine
+  independently simulated sleeves, deploys a portfolio as one bot per sleeve (start, pause,
+  resume, stop, breaker reset), and carries the manager loop (proposals and the briefing); the
+  execution worker supervises deployed portfolios each cycle and the entry gate applies their caps
+  and latched breakers ([portfolios](portfolios.md), [ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),
+  [ADR 0091](../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md));
 - `POST /api/v1/deployments` starts a paper or live runtime for one `strategy_id` from a snapshot of its current definition; pause, resume,
   and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy
   registry before persisting a new intent.

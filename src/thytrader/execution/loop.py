@@ -105,6 +105,7 @@ from thytrader.risk.models import (
     compiled_default_risk_policy,
     pauses_risk_increasing,
 )
+from thytrader.risk.portfolio_scope import portfolio_risk_for
 from thytrader.strategies.models import atr_trailing_stop, can_pyramid_add
 
 if TYPE_CHECKING:
@@ -2022,6 +2023,7 @@ def _entry_verdict(
         snapshots=_portfolio_with_current(portfolio, snapshot),
         live_quote_cash=live_cash,
         observation=observation,
+        portfolio=portfolio_risk_for(snapshot.deployment),
     )
     scope = current_trade_reason_scope()
     if scope is not None:

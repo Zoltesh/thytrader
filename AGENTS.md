@@ -215,10 +215,13 @@ source:
   resume, stop, on-demand `place-order`, risk-policy publication, YAML `set-settings`, and write-only
   Coinbase credential show/set/clear, with `--confirm` unless YOLO covers that tier (live start,
   live resume, and live place-order also `--i-understand-live`). `set-settings` and credential set/clear always need
-  `--confirm`; YOLO never covers them.
+  `--confirm`; YOLO never covers them. It also deploys portfolios (`portfolio-start`, `-pause`,
+  `-resume`, `-stop`, `-reset-breaker`; one bot per sleeve; ADR 0091) with the same gates.
 - [`skills/thytrader-portfolio/SKILL.md`](skills/thytrader-portfolio/SKILL.md) — portfolios (sleeves,
-  weights, cash reserve, limits, manager settings), portfolio backtests, and the journal, with
-  `--confirm` on every mutation. No deployment, paper, live, or order authority.
+  weights, cash reserve, limits, manager settings), portfolio backtests, the journal, and the manager
+  loop (read the briefing, submit proposals, record a person's approve/decline), with `--confirm` on
+  every mutation. No deployment or order authority: it never starts or stops a portfolio and never
+  places orders.
 - [`skills/thytrader-playbook/SKILL.md`](skills/thytrader-playbook/SKILL.md) — sequences existing
   lane CLIs for data → research → optional paper. Forwards `--confirm`. Never starts live.
 - [`skills/thytrader-memory/SKILL.md`](skills/thytrader-memory/SKILL.md) — journals, sentiment and

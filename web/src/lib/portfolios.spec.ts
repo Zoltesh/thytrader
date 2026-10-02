@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
 	allocationBars,
+	approvalNeedsLiveAck,
+	askWhyPrompt,
 	backtestProblems,
+	botStatusText,
+	breakerLabel,
+	deploymentStateLabel,
 	checkAllocation,
 	coefficientText,
 	contributionPoints,
@@ -17,18 +22,28 @@ import {
 	pairCoefficient,
 	parseTab,
 	percentInputToFraction,
+	pausedByBreaker,
 	pickerOptions,
+	portfolioActions,
 	portfolioApiError,
+	portfolioSubtitle,
+	proposalKindLabel,
+	proposalStatusText,
 	quoteInput,
 	remainingWeight,
 	roundDecimal,
 	shiftDecimal,
 	signedPercent,
+	signedQuote,
 	sleeveBots,
+	startProblems,
 	weightPercent,
 	windowText,
 	type Portfolio,
-	type PortfolioBacktestJob
+	type PortfolioBacktestJob,
+	type PortfolioDeployment,
+	type Proposal,
+	type SleeveDeployment
 } from './portfolios';
 import type { Deployment } from './deployments';
 import type { StrategyLibraryEntry } from './strategies';
@@ -304,5 +319,203 @@ describe('errors and labels', () => {
 		expect(journalActorText({ actor: 'system', channel: 'system' })).toBe('System');
 		expect(parseTab('limits')).toBe('limits');
 		expect(parseTab('nope')).toBe('sleeves');
+	});
+});
+
+function sleeveBot(overrides: Partial<SleeveDeployment> = {}): SleeveDeployment {
+	return {
+		deployment_id: 'd1',
+		strategy_id: 's1',
+		strategy_name: 'EMA',
+		status: 'running',
+		phase: 'flat',
+		lifecycle_command: 'none',
+		mismatch_detail: null,
+		allocated_capital: '500',
+		paper_starting_cash: '500',
+		performance_equity: '512',
+		net_pnl: '12',
+		return_fraction: '0.024',
+		drawdown_fraction: '0',
+		exposure_quote: '0',
+		open_books: 0,
+		strategy_fingerprint: null,
+		running_current_rules: true,
+		created_at: '2026-10-02T12:00:00Z',
+		updated_at: '2026-10-02T12:00:00Z',
+		...overrides
+	};
+}
+
+function deploymentView(overrides: Partial<PortfolioDeployment> = {}): PortfolioDeployment {
+	return {
+		portfolio_id: 'p1',
+		name: 'Core',
+		mode: 'paper',
+		quote_currency: 'USDC',
+		capital_quote: '1000',
+		revision: 3,
+		state: 'running',
+		sleeves: [
+			{
+				sleeve_id: 'sl1',
+				strategy_id: 's1',
+				strategy_name: 'EMA',
+				product_id: 'BTC-USDC',
+				timeframe: '1h',
+				weight_fraction: '0.5',
+				target_capital_quote: '500',
+				issues: [],
+				deployment: sleeveBot()
+			}
+		],
+		detached: [],
+		breaker: {
+			latched: false,
+			reason_code: null,
+			detail: null,
+			latched_at: null,
+			daily_loss_quote: null,
+			max_drawdown_fraction: null,
+			run_started_at: '2026-10-02T12:00:00Z',
+			equity: '1012',
+			day_open_equity: '1000',
+			daily_pnl: '12',
+			high_water_mark_equity: '1012',
+			drawdown_fraction: '0',
+			evaluated_at: null
+		},
+		exposure: {
+			total_quote: '0',
+			fraction_of_capital: '0',
+			cap_quote: '1000',
+			asset_cap_quote: '1000',
+			assets: []
+		},
+		pending_proposals: 0,
+		...overrides
+	};
+}
+
+function proposal(overrides: Partial<Proposal> = {}): Proposal {
+	return {
+		proposal_id: 'pr1',
+		portfolio_id: 'p1',
+		kind: 'resume_sleeve',
+		status: 'pending',
+		summary: 'Resume sleeve “EMA”.',
+		rationale: 'Drawdown recovered inside its backtest range.',
+		change: { kind: 'resume_sleeve', sleeve_id: 'sl1' },
+		evidence: [{ kind: 'backtest_result', ref: `sha256:${'a'.repeat(64)}` }],
+		base_revision: 3,
+		submitted_by: 'manager',
+		channel: 'api',
+		approval_reason: 'Resuming a sleeve always needs a person’s approval.',
+		created_at: '2026-10-02T12:00:00Z',
+		expires_at: '2026-10-09T12:00:00Z',
+		...overrides
+	};
+}
+
+describe('portfolio deployment (ADR 0091)', () => {
+	it('labels states and bot statuses, including breaker pauses', () => {
+		expect(deploymentStateLabel('partially_running')).toBe('Partly running');
+		expect(deploymentStateLabel('not_deployed')).toBe('Not deployed');
+		const stale = portfolio({ deployment_state: 'not_deployed' });
+		expect(portfolioSubtitle(stale)).toMatch(/· Not deployed$/);
+		expect(portfolioSubtitle(stale, 'running')).toMatch(/· Running$/);
+		const breaker = sleeveBot({
+			status: 'paused',
+			mismatch_detail: 'PORTFOLIO_DRAWDOWN_STOP: Portfolio equity is 25% below its peak.'
+		});
+		expect(pausedByBreaker(breaker)).toBe(true);
+		expect(botStatusText(breaker)).toBe('Paused by breaker');
+		expect(botStatusText(sleeveBot({ status: 'paused' }))).toBe('Paused');
+		expect(
+			botStatusText(sleeveBot({ status: 'stopped', lifecycle_command: 'flatten', open_books: 1 }))
+		).toBe('Stopping (flatten)');
+		expect(breakerLabel('PORTFOLIO_DAILY_LOSS_STOP')).toBe('Daily loss stop');
+	});
+
+	it('offers only the actions that make sense now', () => {
+		expect(portfolioActions(null)).toEqual({
+			start: false,
+			pause: false,
+			resume: false,
+			stop: false
+		});
+		expect(portfolioActions(deploymentView())).toEqual({
+			start: false,
+			pause: true,
+			resume: false,
+			stop: true
+		});
+		const paused = deploymentView({
+			state: 'paused',
+			sleeves: deploymentView().sleeves.map((sleeve) => ({
+				...sleeve,
+				deployment: sleeveBot({ status: 'paused' })
+			}))
+		});
+		expect(portfolioActions(paused).resume).toBe(true);
+		const latched = { ...paused, breaker: { ...paused.breaker, latched: true } };
+		expect(portfolioActions(latched).resume).toBe(false);
+		const idle = deploymentView({
+			state: 'not_deployed',
+			sleeves: deploymentView().sleeves.map((sleeve) => ({ ...sleeve, deployment: null }))
+		});
+		expect(portfolioActions(idle).start).toBe(true);
+		expect(signedQuote('12.3', 'USDC')).toBe('+12.30 USDC');
+		expect(signedQuote('-4.8', 'USDC')).toBe('-4.80 USDC');
+	});
+
+	it('reads start problems from a 422', () => {
+		const error = portfolioApiError(422, {
+			detail: {
+				code: 'portfolio_start_rejected',
+				message: 'The portfolio was not started.',
+				problems: [
+					{
+						code: 'strategy_busy',
+						message: 'EMA already runs as a standalone bot.',
+						sleeve_id: 'sl1',
+						strategy_id: 's1',
+						strategy_name: 'EMA'
+					}
+				]
+			}
+		});
+		expect(startProblems(error).map((item) => item.code)).toEqual(['strategy_busy']);
+		expect(startProblems(new Error('x'))).toEqual([]);
+	});
+});
+
+describe('manager proposals (ADR 0091)', () => {
+	it('labels kinds and outcomes', () => {
+		expect(proposalKindLabel('pause_sleeve')).toBe('Pause a sleeve');
+		expect(proposalStatusText(proposal())).toBe('Waiting for you');
+		expect(proposalStatusText(proposal({ status: 'applied', auto_applied: true }))).toBe(
+			'Applied automatically'
+		);
+		expect(
+			proposalStatusText(proposal({ status: 'failed', failure_message: 'Weights incomplete.' }))
+		).toBe('Could not apply: Weights incomplete.');
+		expect(journalKindLabel('breaker_tripped')).toBe('Breaker tripped');
+		expect(journalKindLabel('proposal_submitted')).toBe('Proposal');
+	});
+
+	it('needs the live acknowledgement only to approve a live resume', () => {
+		expect(approvalNeedsLiveAck('live', proposal())).toBe(true);
+		expect(approvalNeedsLiveAck('paper', proposal())).toBe(false);
+		expect(approvalNeedsLiveAck('live', proposal({ kind: 'pause_sleeve' }))).toBe(false);
+	});
+
+	it('drafts the Ask why question with the proposal as context', () => {
+		const text = askWhyPrompt(portfolio({ name: 'Core', mode: 'live' }), proposal());
+		expect(text).toContain('live portfolio “Core”');
+		expect(text).toContain('Proposal pr1: Resume sleeve “EMA”.');
+		expect(text).toContain('Rationale: Drawdown recovered');
+		expect(text).toContain(`backtest_result sha256:${'a'.repeat(64)}`);
+		expect(text).toContain('Do not approve or decline it yourself.');
 	});
 });

@@ -75,7 +75,7 @@ def get_portfolio_backtest_store(request: Request) -> PortfolioBacktestStore:
 
 
 def get_portfolio_storage(request: Request) -> PortfolioStorage:
-    """Return the store that serves both portfolio and portfolio-backtest contracts."""
+    """Return the store that serves every portfolio contract (incl. runtime and proposals)."""
     store = getattr(request.app.state, "portfolio_store", None)
     if not isinstance(store, PortfolioStorage):
         message = "Portfolio storage is unavailable."

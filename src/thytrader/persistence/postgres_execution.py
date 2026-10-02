@@ -79,6 +79,11 @@ def _text(value: Decimal | None) -> str | None:
     return None if value is None else format(value, "f")
 
 
+def _optional_uuid(value: object) -> UUID | None:
+    """Parse an optional stored identity (``portfolio_id`` is text in PostgreSQL)."""
+    return None if value is None else UUID(str(value))
+
+
 class PostgresExecutionStore:
     """Persist execution records in PostgreSQL using exact decimal strings."""
 
@@ -665,7 +670,12 @@ class PostgresExecutionStore:
         return _intent_from_row(row)
 
 
-_STRATEGY_IDENTITY_COLUMNS = ("strategy_fingerprint", "strategy_id", "strategy_name")
+_STRATEGY_IDENTITY_COLUMNS = (
+    "strategy_fingerprint",
+    "strategy_id",
+    "strategy_name",
+    "portfolio_id",
+)
 
 
 def _mutable_deployment_values(deployment: Deployment) -> dict[str, object]:
@@ -673,7 +683,8 @@ def _mutable_deployment_values(deployment: Deployment) -> dict[str, object]:
 
     ``strategy_id`` only ever changes through ``ON DELETE SET NULL`` when a stopped
     live book's strategy is deleted (ADR 0082); a worker holding an older in-memory
-    copy must not write the deleted id back.
+    copy must not write the deleted id back. ``portfolio_id`` is fixed when a portfolio
+    start creates the book and only clears through ``ON DELETE SET NULL`` (ADR 0091).
     """
     values = _deployment_values(deployment)
     for column in _STRATEGY_IDENTITY_COLUMNS:
@@ -688,6 +699,7 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "strategy_fingerprint": deployment.strategy_fingerprint,
         "strategy_id": None if deployment.strategy_id is None else str(deployment.strategy_id),
         "strategy_name": deployment.strategy_name,
+        "portfolio_id": None if deployment.portfolio_id is None else str(deployment.portfolio_id),
         "product_id": deployment.product_id,
         "mode": deployment.mode.value,
         "status": deployment.status.value,
@@ -762,6 +774,7 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         strategy_fingerprint=row["strategy_fingerprint"],
         strategy_id=None if row["strategy_id"] is None else UUID(str(row["strategy_id"])),
         strategy_name=row.get("strategy_name"),
+        portfolio_id=_optional_uuid(row.get("portfolio_id")),
         product_id=row["product_id"],
         mode=DeploymentMode(row["mode"]),
         status=DeploymentStatus(row["status"]),

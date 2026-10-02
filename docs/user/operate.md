@@ -294,18 +294,27 @@ volatility; they never block saving or running. Command examples live in
 
 ### Portfolio and bot detail
 
-**Portfolios** ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md)) sit at the top of **Portfolio**
+**Portfolios** ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),
+[ADR 0091](../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) sit at the top of **Portfolio**
 (http://127.0.0.1:5175/deployments). A portfolio is a set of sleeves — one strategy each, with a
 capital weight — plus a cash reserve, shared limits, and manager settings. It is **Paper** or
 amber **LIVE**, never both; mode and quote currency are fixed when you create it. The header has
-one button per portfolio (with its mode chip) and **New portfolio…** (name, mode, quote currency,
-capital, cash reserve %). The card shows capital, allocated share, cash reserve, and sleeve count,
-and a disabled **Deploy portfolio** ("Deploying a portfolio arrives next"): nothing here trades.
-Four tabs (kept in the URL as `?portfolio=&tab=`):
+**New portfolio…** (name, mode, quote currency, capital, cash reserve %), and a row below it has
+one button per portfolio (with its mode chip; long names are shortened, the full name is the
+tooltip). The card shows the deployment state (Not deployed, Running, Partly running, Paused,
+Stopped), capital, allocated share, cash reserve, sleeve count, and, once started, the run's equity
+with its profit or loss and the exposure. **Start portfolio…** starts one bot per sleeve (paper:
+weight × capital of paper cash; live: weight × capital of allocated capital) after a confirmation
+that lists each sleeve's capital; a live portfolio also needs the real-orders checkbox. If any
+sleeve is refused (its strategy already runs elsewhere, or the risk policy says no), nothing starts
+and each reason is listed. **Pause all**, **Resume…** (live: checkbox again), and **Stop…** (managed
+stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?portfolio=&tab=`):
 
-- **Sleeves** — each sleeve's strategy, weight, market and clock, capital slice, the strategy's
-  current paper or live bots in this portfolio's mode, and issues (invalid rules or a changed
-  quote currency). **+ Add sleeve from a strategy** opens a searchable picker (other-quote
+- **Sleeves** — each sleeve's strategy, weight, market and clock, capital slice, its bot (status
+  linked to the bot's page, with its profit or loss; "Paused by breaker" when a portfolio breaker
+  holds it), any other bot of the strategy outside this portfolio, and issues (invalid rules or a
+  changed quote currency). Each row has **Start…**, **Pause**, **Resume…**, or **Stop…** for that
+  sleeve alone; a sleeve with a running bot cannot be removed until it is stopped. **+ Add sleeve from a strategy** opens a searchable picker (other-quote
   strategies and existing sleeves are disabled). **Edit weights** edits every weight and the cash
   reserve at once and refuses more than 100%. The aside shows allocation bars, the largest single
   asset against the per-asset limit, and the cash reserve.
@@ -316,15 +325,27 @@ Four tabs (kept in the URL as `?portfolio=&tab=`):
   simulated independently; portfolio caps and cross-sleeve interactions are not simulated), and
   earlier runs. A rejection lists the problem per sleeve (missing datasets, invalid rules, no
   common window).
-- **Manager** — the mandate and permissions (rebalance within a weekly budget, pause a sleeve,
-  propose sleeves; never place orders) and the append-only journal of every change. The manager
-  agent loop and approve/decline proposals are not shipped; the settings are stored and shown.
-- **Limits** — max total exposure, max per asset, optional daily loss and drawdown stops. They are
-  stored now and start binding orders when portfolio deployment arrives.
+- **Manager** — the manager agent's **proposals** (rebalance, pause or resume a sleeve, add a
+  sleeve), each with its reasons, the evidence it cites, and why it waits for you, with
+  **Decline**, **Ask why** (opens the Agent panel with the proposal as context and a drafted
+  question; nothing is sent until you press Send), and **Approve…** (approving a live resume needs
+  the real-orders checkbox). Below: the editable mandate and permissions — rebalance within a
+  weekly budget (applied on its own on paper; on a live portfolio every rebalance waits for you),
+  pause a sleeve (applied on its own when allowed), propose sleeves (each waits for you); it never
+  places orders — and the append-only journal of every change, with who made it. The manager agent
+  runs outside ThyTrader (Hermes or Claude through the portfolio skill).
+- **Limits** — max total exposure, max per asset, optional daily loss and drawdown stops, and the
+  **breakers**: equity this run, today's change against the daily loss stop, drawdown from the
+  run's peak against the drawdown stop, and exposure per asset against the caps. On a deployed
+  portfolio every sleeve's new entries must fit the caps (a refused entry shows the portfolio
+  reason on the bot's decision timeline). A tripped stop pauses every sleeve and stays latched:
+  **Reset breaker…** clears it and re-baselines; sleeves stay paused until you resume them.
 
 Every change is revision-guarded: if someone else changed the portfolio first, the page reloads it
 and says so. Deleting a strategy removes its sleeves (journaled). Agents use
-[`skills/thytrader-portfolio/SKILL.md`](../../skills/thytrader-portfolio/SKILL.md).
+[`skills/thytrader-portfolio/SKILL.md`](../../skills/thytrader-portfolio/SKILL.md) (composition and
+the manager loop) and `thytrader-runtime portfolio-*`
+([`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md)) to start and stop.
 
 **All bots** (below the portfolios) lists every bot: one row per deployment, grouped
 **Needs attention** (any status other than running, paused, or stopped), **Running**, **Paused**,

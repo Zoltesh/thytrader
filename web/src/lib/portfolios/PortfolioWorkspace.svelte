@@ -1,35 +1,50 @@
 <script lang="ts">
 	/**
-	 * Portfolio workspace (ADR 0088): the page header with the portfolio switcher
-	 * and "New portfolio…", the selected portfolio's card, and the Sleeves ·
-	 * Portfolio backtest · Manager · Limits tabs.
+	 * Portfolio workspace (ADR 0088, ADR 0091): the page header with "New
+	 * portfolio…", the portfolio switcher on its own row, the selected portfolio's
+	 * card with its deployment state and Start / Pause / Resume / Stop, and the
+	 * Sleeves · Portfolio backtest · Manager · Limits tabs.
 	 *
-	 * A portfolio is paper or live, never mixed. Nothing here deploys: the
-	 * "Deploy portfolio" action is disabled until portfolio deployment ships.
-	 * The selected portfolio and tab live in the URL (`?portfolio=&tab=`).
+	 * A portfolio is paper or live, never mixed. Starting runs one bot per sleeve
+	 * (weight × capital); live start and live resume need the real-orders
+	 * checkbox. The selected portfolio and tab live in the URL (`?portfolio=&tab=`).
 	 */
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import PageHead from '$lib/PageHead.svelte';
 	import type { Deployment } from '$lib/deployments';
 	import {
-		DEPLOY_ARRIVES_NEXT,
 		PORTFOLIO_TABS,
+		deploymentStateLabel,
 		errorText,
 		fetchPortfolio,
+		fetchPortfolioDeployment,
+		isRevisionConflict,
 		isStorageUnavailable,
 		listPortfolios,
 		modeLabel,
 		parseTab,
+		portfolioAction,
+		portfolioActions,
 		portfolioErrorCode,
 		portfolioSubtitle,
 		quoteText,
+		resetPortfolioBreaker,
+		signedQuote,
+		startPortfolio,
+		startProblems,
 		weightPercent,
+		type BacktestProblem,
 		type Portfolio,
+		type PortfolioActionResponse,
+		type PortfolioDeployment,
+		type PortfolioDialogAction,
 		type PortfolioTab
 	} from '$lib/portfolios';
+	import { subtractDecimalStrings } from '$lib/portfolio';
+	import PortfolioActionDialog from './PortfolioActionDialog.svelte';
 	import { listStrategies, type StrategyLibraryEntry } from '$lib/strategies';
 	import BacktestTab from './BacktestTab.svelte';
 	import LimitsTab from './LimitsTab.svelte';
@@ -48,10 +63,108 @@
 	let newOpen = $state(false);
 	let strategies = $state<StrategyLibraryEntry[] | null>(null);
 	let strategiesError = $state<string | null>(null);
+	let deployment = $state<PortfolioDeployment | null>(null);
+	let deploymentError = $state<string | null>(null);
+	let dialogAction = $state<PortfolioDialogAction | null>(null);
+	let dialogSleeve = $state<string | null>(null);
+	let stopWithFlatten = $state(false);
+	let acting = $state(false);
+	let actionError = $state<string | null>(null);
+	let actionNotice = $state<string | null>(null);
+	let problems = $state<BacktestProblem[]>([]);
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 	const selected = $derived(
 		portfolios?.find((item) => item.portfolio_id === selectedId) ?? portfolios?.[0] ?? null
 	);
+	const view = $derived(
+		deployment !== null && deployment.portfolio_id === selected?.portfolio_id ? deployment : null
+	);
+	const actions = $derived(portfolioActions(view));
+	const pnl = $derived(
+		view === null ? null : subtractDecimalStrings(view.breaker.equity, view.capital_quote)
+	);
+
+	async function loadDeployment(): Promise<void> {
+		const current = selected;
+		if (current === null) return;
+		try {
+			const next = await fetchPortfolioDeployment(current.portfolio_id);
+			if (selected?.portfolio_id === current.portfolio_id) {
+				deployment = next;
+				deploymentError = null;
+			}
+		} catch (caught) {
+			deploymentError = errorText(caught, 'The deployment state is unavailable.');
+		}
+	}
+
+	function openAction(action: PortfolioDialogAction, sleeveId: string | null = null): void {
+		dialogAction = action;
+		dialogSleeve = sleeveId;
+		stopWithFlatten = false;
+		actionError = null;
+		problems = [];
+	}
+
+	function outcomeNotice(result: PortfolioActionResponse): string {
+		const changed = result.outcomes.filter(
+			(item) => item.outcome !== 'unchanged' && item.outcome !== 'failed'
+		);
+		const failed = result.outcomes.filter((item) => item.outcome === 'failed');
+		const verb = { start: 'Started', pause: 'Paused', resume: 'Resumed', stop: 'Stopped' }[
+			result.action
+		];
+		const count = `${changed.length} sleeve${changed.length === 1 ? '' : 's'}`;
+		const failures =
+			failed.length === 0
+				? ''
+				: ` ${failed.length} could not: ${failed.map((item) => `${item.strategy_name} (${item.message ?? 'no reason'})`).join('; ')}.`;
+		return `${verb} ${count}.${failures}`;
+	}
+
+	async function confirmAction({ liveAcknowledged }: { liveAcknowledged: boolean }): Promise<void> {
+		const current = selected;
+		const action = dialogAction;
+		if (current === null || action === null) return;
+		acting = true;
+		actionError = null;
+		problems = [];
+		try {
+			if (action === 'reset') {
+				deployment = await resetPortfolioBreaker(current.portfolio_id);
+				actionNotice = 'Breaker reset. Sleeves stay paused until you resume them.';
+			} else {
+				const result =
+					action === 'start'
+						? await startPortfolio(current.portfolio_id, {
+								revision: current.revision,
+								liveAcknowledged,
+								sleeveId: dialogSleeve
+							})
+						: await portfolioAction(current.portfolio_id, action, {
+								sleeveId: dialogSleeve,
+								flatten: stopWithFlatten,
+								liveAcknowledged
+							});
+				deployment = result.deployment;
+				actionNotice = outcomeNotice(result);
+			}
+			dialogAction = null;
+			await reloadSelected();
+		} catch (caught) {
+			problems = startProblems(caught);
+			if (isRevisionConflict(caught)) {
+				await reloadSelected();
+				actionError =
+					'The portfolio changed since you reviewed it; reloaded — review and try again.';
+			} else {
+				actionError = errorText(caught, 'The portfolio action failed; nothing was changed.');
+			}
+		} finally {
+			acting = false;
+		}
+	}
 
 	async function load(): Promise<void> {
 		loading = true;
@@ -99,7 +212,9 @@
 
 	function select(portfolioId: string): void {
 		selectedId = portfolioId;
+		actionNotice = null;
 		syncQuery();
+		void loadDeployment();
 	}
 
 	function chooseTab(next: PortfolioTab): void {
@@ -131,6 +246,7 @@
 		} catch (caught) {
 			if (portfolioErrorCode(caught) === 'portfolio_not_found') await load();
 		}
+		await loadDeployment();
 	}
 
 	function created(portfolio: Portfolio): void {
@@ -142,8 +258,14 @@
 
 	onMount(() => {
 		tab = parseTab(page.url.searchParams.get('tab'));
-		void load();
+		void load().then(loadDeployment);
 		void loadStrategies();
+		// Breakers trip in the worker; refresh the deployment state while the page is open.
+		refreshTimer = setInterval(() => void loadDeployment(), 20_000);
+	});
+
+	onDestroy(() => {
+		if (refreshTimer !== null) clearInterval(refreshTimer);
 	});
 </script>
 
@@ -151,32 +273,40 @@
 	title="Portfolio"
 	lede="A portfolio is a set of sleeves (one strategy each, with its own capital) under shared limits, run by you or a manager agent."
 >
-	{#if portfolios !== null && portfolios.length > 0}
-		<div class="switcher" role="group" aria-label="Choose a portfolio">
-			{#each portfolios as item (item.portfolio_id)}
-				<button
-					type="button"
-					class="btn"
-					class:on={item.portfolio_id === selected?.portfolio_id}
-					aria-pressed={item.portfolio_id === selected?.portfolio_id}
-					data-testid="portfolio-switch"
-					onclick={() => select(item.portfolio_id)}
-				>
-					<span class="chip" class:live={item.mode === 'live'} class:paper={item.mode === 'paper'}
-						>{modeLabel(item.mode)}</span
-					>
-					{item.name}
-				</button>
-			{/each}
-		</div>
-	{/if}
 	<button
 		type="button"
-		class="btn ghost"
+		class="btn ghost new-portfolio"
+		data-testid="new-portfolio"
 		disabled={unavailable || loading}
 		onclick={() => (newOpen = true)}>New portfolio…</button
 	>
 </PageHead>
+
+{#if portfolios !== null && portfolios.length > 0}
+	<div
+		class="switcher"
+		role="group"
+		aria-label="Choose a portfolio"
+		data-testid="portfolio-switcher"
+	>
+		{#each portfolios as item (item.portfolio_id)}
+			<button
+				type="button"
+				class="btn switch"
+				class:on={item.portfolio_id === selected?.portfolio_id}
+				aria-pressed={item.portfolio_id === selected?.portfolio_id}
+				title={item.name}
+				data-testid="portfolio-switch"
+				onclick={() => select(item.portfolio_id)}
+			>
+				<span class="chip" class:live={item.mode === 'live'} class:paper={item.mode === 'paper'}
+					>{modeLabel(item.mode)}</span
+				>
+				<span class="switch-name">{item.name}</span>
+			</button>
+		{/each}
+	</div>
+{/if}
 
 {#if loading}
 	<section class="loading-card" aria-label="Loading portfolios">
@@ -219,14 +349,22 @@
 	>
 		<div class="identity">
 			<div class="title-row">
-				<span class="pf-name" data-testid="portfolio-name">{selected.name}</span>
+				<span class="pf-name" data-testid="portfolio-name" title={selected.name}
+					>{selected.name}</span
+				>
 				<span
 					class="chip"
 					class:live={selected.mode === 'live'}
 					class:paper={selected.mode === 'paper'}>{modeLabel(selected.mode)}</span
 				>
+				<span class="chip" data-testid="portfolio-state" class:running={view?.state === 'running'}
+					>{deploymentStateLabel(view?.state ?? selected.deployment_state ?? 'not_deployed')}</span
+				>
+				{#if view?.breaker.latched}
+					<span class="chip breaker" data-testid="portfolio-breaker-chip">Breaker latched</span>
+				{/if}
 			</div>
-			<div class="muted">{portfolioSubtitle(selected)}</div>
+			<div class="muted">{portfolioSubtitle(selected, view?.state ?? null)}</div>
 		</div>
 		<div class="metrics">
 			<div class="metric">
@@ -247,13 +385,64 @@
 				<div class="l">Sleeves</div>
 				<div class="v">{selected.sleeves.length}</div>
 			</div>
-			<div class="deploy">
-				<button type="button" class="btn" disabled aria-describedby="deploy-note"
-					>Deploy portfolio</button
-				>
-				<span id="deploy-note" class="faint small">{DEPLOY_ARRIVES_NEXT}</span>
+			{#if view !== null && view.state !== 'not_deployed'}
+				<div class="metric" data-testid="portfolio-equity">
+					<div class="l">Equity (this run)</div>
+					<div class="v">
+						{quoteText(view.breaker.equity, selected.quote_currency)}
+						{#if pnl !== null}<span class="delta small" data-testid="portfolio-pnl"
+								>{signedQuote(pnl, selected.quote_currency)}</span
+							>{/if}
+					</div>
+				</div>
+				<div class="metric">
+					<div class="l">Exposure</div>
+					<div class="v">{weightPercent(view.exposure.fraction_of_capital)}</div>
+				</div>
+			{/if}
+			<div class="deploy" data-testid="portfolio-controls">
+				<div class="deploy-buttons">
+					<button
+						type="button"
+						class={view === null || view.state === 'not_deployed' ? 'btn primary' : 'btn'}
+						data-testid="portfolio-start"
+						disabled={!actions.start || !selected.deployable}
+						onclick={() => openAction('start')}
+						>{view?.state === 'not_deployed' || view === null
+							? 'Start portfolio…'
+							: 'Start stopped sleeves…'}</button
+					>
+					<button
+						type="button"
+						class="btn"
+						data-testid="portfolio-pause"
+						disabled={!actions.pause}
+						onclick={() => openAction('pause')}>Pause all</button
+					>
+					<button
+						type="button"
+						class="btn"
+						data-testid="portfolio-resume"
+						disabled={!actions.resume}
+						onclick={() => openAction('resume')}>Resume…</button
+					>
+					<button
+						type="button"
+						class="btn danger"
+						data-testid="portfolio-stop"
+						disabled={!actions.stop}
+						onclick={() => openAction('stop')}>Stop…</button
+					>
+				</div>
+				{#if !selected.deployable}
+					<span class="faint small">Add sleeves and fix their issues before starting.</span>
+				{:else if view?.breaker.latched}
+					<span class="faint small">A breaker is latched: reset it on the Limits tab first.</span>
+				{/if}
 			</div>
 		</div>
+		{#if actionNotice}<p class="action-notice small" role="status">{actionNotice}</p>{/if}
+		{#if deploymentError}<p class="problem small" role="alert">{deploymentError}</p>{/if}
 		<div class="tabs" role="tablist" aria-label="Portfolio views">
 			{#each PORTFOLIO_TABS as item, index (item.id)}
 				<button
@@ -270,7 +459,10 @@
 				>
 					{item.label}
 					{#if item.id === 'sleeves'}<span class="n">{selected.sleeves.length}</span>{/if}
-					{#if item.id === 'manager'}<span class="chip small-chip">Settings only</span>{/if}
+					{#if item.id === 'manager' && (view?.pending_proposals ?? 0) > 0}<span
+							class="chip small-chip waiting"
+							data-testid="manager-waiting">{view?.pending_proposals} waiting</span
+						>{/if}
 				</button>
 			{/each}
 		</div>
@@ -286,18 +478,31 @@
 			{#if tab === 'sleeves'}
 				<SleevesTab
 					portfolio={selected}
+					deployment={view}
 					{strategies}
 					{strategiesError}
 					{inventory}
 					onchanged={replace}
 					onconflict={reloadSelected}
+					onaction={openAction}
 				/>
 			{:else if tab === 'backtest'}
 				<BacktestTab portfolio={selected} onconflict={reloadSelected} />
 			{:else if tab === 'manager'}
-				<ManagerTab portfolio={selected} onchanged={replace} onconflict={reloadSelected} />
+				<ManagerTab
+					portfolio={selected}
+					onchanged={replace}
+					onconflict={reloadSelected}
+					ondecided={reloadSelected}
+				/>
 			{:else}
-				<LimitsTab portfolio={selected} onchanged={replace} onconflict={reloadSelected} />
+				<LimitsTab
+					portfolio={selected}
+					deployment={view}
+					onchanged={replace}
+					onconflict={reloadSelected}
+					onreset={() => openAction('reset')}
+				/>
 			{/if}
 		{/key}
 	</div>
@@ -305,14 +510,96 @@
 
 <NewPortfolioDialog open={newOpen} oncancel={() => (newOpen = false)} oncreated={created} />
 
+{#if selected !== null}
+	<PortfolioActionDialog
+		portfolio={selected}
+		deployment={view}
+		action={dialogAction}
+		sleeveId={dialogSleeve}
+		bind:stopWithFlatten
+		pending={acting}
+		error={actionError}
+		oncancel={() => (dialogAction = null)}
+		onconfirm={(options) => void confirmAction(options)}
+	/>
+{/if}
+{#if problems.length > 0}
+	<section class="card problems" role="alert" data-testid="portfolio-start-problems">
+		<strong>The portfolio was not started. Nothing changed.</strong>
+		<ul>
+			{#each problems as problem, index (index)}
+				<li>
+					<b>{problem.strategy_name ?? 'Portfolio'}</b>: {problem.message}
+					<span class="faint small">({problem.code})</span>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
+
 <style>
 	.switcher {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 8px;
+		margin: calc(-1 * var(--space-3)) 0 var(--space-4);
+		max-width: 100%;
 	}
-	.switcher .btn {
+	.switch {
 		gap: 8px;
+		max-width: min(320px, 100%);
+		min-width: 0;
+	}
+	.switch-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.new-portfolio {
+		white-space: nowrap;
+	}
+	.chip.running {
+		border-color: var(--pos);
+		color: var(--pos);
+	}
+	.chip.breaker {
+		border-color: var(--neg);
+		color: var(--neg);
+	}
+	.waiting {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.deploy-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	.delta {
+		margin-left: 6px;
+		color: var(--muted);
+		font-weight: 500;
+	}
+	.action-notice {
+		margin: 10px 0 0;
+		color: var(--muted);
+	}
+	.problem {
+		margin: 10px 0 0;
+		color: var(--neg);
+	}
+	.problems {
+		display: grid;
+		gap: 8px;
+		margin-top: 16px;
+		padding: 14px 18px;
+		border-color: var(--neg);
+	}
+	.problems ul {
+		margin: 0;
+		padding-left: 18px;
 	}
 	.notice {
 		display: grid;
@@ -335,10 +622,17 @@
 	}
 	.title-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 10px;
+		min-width: 0;
 	}
 	.pf-name {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: var(--fs-lg);
 		font-weight: 600;
 	}

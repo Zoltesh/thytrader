@@ -157,7 +157,16 @@ class OpsContractPayload(_FrozenModel):
     multi_book_ledger: tuple[Literal["paper", "live"], ...]
     strategy_model: tuple[Literal["mutable_root", "auto_snapshot", "hard_delete"], ...]
     portfolio_model: tuple[
-        Literal["sleeves", "shared_limits", "manager_settings", "journal", "portfolio_backtest"],
+        Literal[
+            "sleeves",
+            "shared_limits",
+            "manager_settings",
+            "journal",
+            "portfolio_backtest",
+            "deployment",
+            "portfolio_limits",
+            "manager_proposals",
+        ],
         ...,
     ]
     portfolio_modes: tuple[Literal["paper", "live"], ...]
@@ -165,6 +174,14 @@ class OpsContractPayload(_FrozenModel):
     max_concurrent_portfolio_backtests: int = Field(ge=1)
     research_dataset_autobind: tuple[Literal["backtest", "study"], ...]
     study_budgets: dict[Literal["sync", "async"], dict[Literal["candidates", "windows"], int]]
+    portfolio_deployment: tuple[
+        Literal["start", "pause", "resume", "stop", "sleeve_actions", "breaker_reset"], ...
+    ]
+    portfolio_breakers: tuple[Literal["PORTFOLIO_DAILY_LOSS_STOP", "PORTFOLIO_DRAWDOWN_STOP"], ...]
+    portfolio_proposal_kinds: tuple[
+        Literal["rebalance", "pause_sleeve", "resume_sleeve", "add_sleeve"], ...
+    ]
+    portfolio_briefing_contract: str = Field(min_length=1, max_length=64)
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -311,7 +328,7 @@ class PortfolioBacktestDigest(_FrozenModel):
 
 
 class PortfolioDigest(_FrozenModel):
-    """One portfolio as operators see it. ``deployable`` is false until deployment ships."""
+    """One portfolio as operators see it, with its deployment and breaker state (ADR 0091)."""
 
     portfolio_id: UUID
     name: str
@@ -328,7 +345,13 @@ class PortfolioDigest(_FrozenModel):
     largest_asset_within_limit: bool | None
     limits: PortfolioLimits
     manager: ManagerSettings
-    deployable: Literal[False] = False
+    deployable: bool = False
+    deployment_state: Literal[
+        "not_deployed", "running", "partially_running", "paused", "stopped"
+    ] = "not_deployed"
+    breaker_latched: bool = False
+    breaker_reason_code: str | None = None
+    pending_proposals: int = Field(default=0, ge=0)
     latest_backtest: PortfolioBacktestDigest | None
     active_backtest_jobs: int = Field(ge=0)
 
