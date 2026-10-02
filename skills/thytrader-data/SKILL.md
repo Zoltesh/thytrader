@@ -14,7 +14,10 @@ Watchlist and complete-only historical ingest only. This skill is not an extensi
 `thytrader-operator` and has no strategy, backtest, paper, live, arming, or cancellation
 authority.
 
-Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`).
+Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
+`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
+port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
+`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
 
 Production installs enforce the application trust boundary
@@ -74,6 +77,14 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 `watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`. Run `watch-add`
 before `ingest` for any product/timeframe that `watchlist-list` does not show; `ingest` and
 `fill-gaps` on an unwatched target exit with the HTTP 409 message and change nothing.
+
+`watch-add` checks the product against the venue's enabled spot catalog before writing. HTTP 400
+`<product> is not an enabled USD or USDC spot product` is definitive (the complete catalog lacks it;
+check `uv run thytrader-operator products`). HTTP 503 `Could not verify the spot product list` means
+the catalog did not load or came back empty or partial (timeout, rate limit, venue error): nothing
+was written, and repeating the same command is safe ([ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)).
+Research backtests and studies bind the newest complete dataset per clock automatically once it is
+ingested; their HTTP 422 `datasets_missing` names the `watch-add` / `ingest` commands to run.
 
 `watch-add` accepts USD, USDC, and USDT spot products. The web Test/Run **Download data** action uses
 the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation,

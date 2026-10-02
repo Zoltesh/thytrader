@@ -21,10 +21,13 @@ portfolio is not shipped (every response carries `deployable: false`). Run bots 
 `thytrader-runtime`; strategies and single backtests stay with `thytrader-research`. Read-only
 composition for diagnosis is `thytrader-operator portfolios`.
 
-HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`); there is
-no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
+HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then
+`THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same
+`.env` Compose reads; the default port is `8200`, but installs may override it, so never hard-code a
+port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
+There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v48`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v49`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.

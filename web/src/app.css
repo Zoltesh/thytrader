@@ -328,12 +328,6 @@ main {
 	gap: 18px;
 	margin-bottom: var(--space-5);
 }
-@media (prefers-reduced-motion: reduce) {
-	.skeleton,
-	.spinning {
-		animation: none;
-	}
-}
 .empty-state {
 	display: grid;
 	justify-items: start;
@@ -778,5 +772,16 @@ th:first-child .sort-header {
 	td {
 		padding-left: 15px;
 		padding-right: 15px;
+	}
+}
+/*
+ * Reduced motion stays last in this file so it follows every animated primitive
+ * (.skeleton shimmer, .spinning spin). !important also stills the component-scoped
+ * copies of those classes, whose scoped selectors would otherwise win on specificity.
+ */
+@media (prefers-reduced-motion: reduce) {
+	.skeleton,
+	.spinning {
+		animation: none !important;
 	}
 }

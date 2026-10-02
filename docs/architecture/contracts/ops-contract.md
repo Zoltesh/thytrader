@@ -12,7 +12,7 @@ Current checkout (Alembic `0054`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v48` |
+| `id` | `thytrader-ops-contract-v49` |
 | `expected_schema_revision` | `0054` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)) |
@@ -49,11 +49,13 @@ Current checkout (Alembic `0054`):
 | `lifecycle_commands` | `none`, `stop_new_entries`, `flatten`, `managed_shutdown` |
 | `deployment_capital_fields` | `allocated_capital`, `venue_available_quote`, `reserved_buying_power`, `inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`, `high_water_mark_equity`, `utc_day_open_equity` |
 | `breaker_latch_reset` | `paper`, `live` |
+| `research_dataset_autobind` | `backtest`, `study` — omitted dataset fingerprints bind the newest complete catalog dataset ([ADR 0089](../../decisions/0089-agent-research-ergonomics.md)) |
+| `study_budgets` | `sync`: 8 candidates / 128 child windows; `async`: 64 candidates / 512 child windows (ADR 0089) |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v48
+    id thytrader-ops-contract-v49
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -90,6 +92,8 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
+    research_dataset_autobind
+    study_budgets
     expected_schema_revision 0054
   }
   class HealthPayload {

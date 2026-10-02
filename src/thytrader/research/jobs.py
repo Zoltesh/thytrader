@@ -19,6 +19,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     BacktestSubmitter,
 )
+from thytrader.research.dataset_binding import BoundDataset  # noqa: TC001 - Pydantic field type.
 from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyRequest,
@@ -84,6 +85,11 @@ class ResearchJobAcceptedResponse(BaseModel):
 
     ``strategy_fingerprint`` is the snapshot the job will run (for a study, its
     primary strategy's snapshot), taken when the request was accepted.
+    ``bound_datasets`` echoes every dataset the job is bound to, including any the
+    server chose from the catalog (ADR 0089). ``evaluation_start`` and
+    ``evaluation_end`` are a study's evaluation window (filled from common dataset
+    coverage when omitted); a backtest leaves them null because its omitted window
+    is filled when the job runs.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -93,6 +99,9 @@ class ResearchJobAcceptedResponse(BaseModel):
     status: ResearchJobStatus
     strategy_id: UUID | None = None
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
+    bound_datasets: tuple[BoundDataset, ...] = ()
+    evaluation_start: datetime | None = None
+    evaluation_end: datetime | None = None
 
 
 class ResearchJobListResponse(BaseModel):

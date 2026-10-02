@@ -463,6 +463,27 @@ bot detail Decisions timeline, and the strategy Why stage. Ops contract
 leaves trading identical and audits `decision_journal_write_failed`; PostgreSQL upserts are
 idempotent and retention is bounded.
 
+## Agent research ergonomics — ✅ Shipped
+
+Agents researching across many markets no longer hand-bind dataset fingerprints or clone one
+strategy per market ([ADR 0089](decisions/0089-agent-research-ergonomics.md)). Backtest and study
+starts may omit any dataset fingerprint: the server binds the newest complete catalog dataset per
+product and clock (decision, HTF, extra indicator clocks, additional instruments) from the
+configured ingestion provider, echoes every binding as `bound_datasets`, and fails closed with 422
+`datasets_missing` naming the `watch-add` / `ingest` commands. Studies may omit both evaluation
+bounds to use the common covered window. Cross-market studies accept one `strategy_id` plus
+`markets[].product_id` and record exact per-market variant snapshots under that strategy. Sweeps and
+WFO allow 64 candidates and 512 child windows as async jobs (planned before queuing) while
+synchronous submits stay at 8 and 128, with data-snooping warnings. The operator `products` report
+carries increments, minimum sizes, status, and alias; `watch-add` answers an unverifiable product
+catalog with a retryable 503; agent CLIs name what failed (HTTP status and API code, timeout,
+unreachable origin, dropped connection, unreadable input) instead of "failed safely"; docs and
+skills resolve the API base URL from settings. Ops contract `thytrader-ops-contract-v49`.
+
+**Exit gate met:** a backtest and an OOS study with no fingerprints or bounds bind and echo the
+newest datasets; a cross-market study from one strategy plans three exact variants; a 9-candidate
+sweep queues async and is refused synchronously; `plan-study` prints a 422's code and message.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`
@@ -533,7 +554,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only; ranged newest-first ingest (350-bar pages, fair per-cycle budgets, 429 backoff) with research lookbacks from 90 days (1m) to 10 years (2h-1d), watched-only ingest, and sub-second catalog listings; ops contract v45 / Alembic 0052 ([ADR 0085](decisions/0085-fast-research-ingest.md)) | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | 53-kind fail-closed catalog through [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md) (trend, momentum, volatility, volume, statistical, and price kinds with series ids; per-declaration `offset` bar lag); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough; operand-level lag |
-| Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)) | Further composed research remaining destination |
+| Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)); auto-bound catalog datasets, omitted study bounds, cross-market variants from one strategy, and 64-candidate async sweeps ([ADR 0089](decisions/0089-agent-research-ergonomics.md)) | Further composed research remaining destination |
 | Deploy | Concurrent paper/live under the shared registry (Phase 10); paper deploy sets documented maker/taker assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); one document may cover multiple Coinbase USD spot products with optional intra-strategy pyramiding ([ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md)) | Extra exchanges stay out |
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); YAML YOLO applies without restart ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043 / 0055). In-app operator chat is a separate destination row |

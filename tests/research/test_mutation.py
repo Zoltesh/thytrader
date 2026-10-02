@@ -96,8 +96,11 @@ def test_start_backtest_snapshots_the_current_definition() -> None:
                 "fixed_slippage_bps": "1",
             }
         )
-        _run, _result, fingerprint = await mutator.start_backtest(start)
+        _run, _result, fingerprint, bound = await mutator.start_backtest(start)
         assert fingerprint == strategy_fingerprint(created.definition)
+        assert [(item.dataset_fingerprint, item.source) for item in bound] == [
+            ("sha256:" + "d" * 64, "request")
+        ]
         broken = dict(created.document)
         broken["indicators"] = []
         await store.save(created.strategy_id, broken, expected_revision=1)

@@ -28,8 +28,10 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     PostgresBacktestSubmitter,
 )
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.data_control.service import ingestion_provider
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, published_execution_timeframe
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
@@ -47,6 +49,7 @@ from thytrader.research.catalog import (
     StudyCatalogNotFoundError,
     StudyCatalogUnavailableError,
 )
+from thytrader.research.dataset_binding import DatasetsMissingError
 from thytrader.research.mutation import ResearchMutationError, ResearchMutator
 from thytrader.research.studies import (
     ResearchStudyError,
@@ -55,7 +58,7 @@ from thytrader.research.studies import (
     summarize_research_study,
     summarize_research_study_plan,
 )
-from thytrader.research.study_start import ResearchStudyStartRequest
+from thytrader.research.study_start import BoundStudyStart, ResearchStudyStartRequest
 from thytrader.strategies.library import (
     BulkDeletionItem,
     BulkDeletionReport,
@@ -98,6 +101,14 @@ _MUTATIONS = frozenset(
         "submit-study",
         "cancel-research-job",
     }
+)
+
+
+_STUDY_FILE_HELP = (
+    "Study start JSON naming strategies by id. Dataset fingerprints and both evaluation bounds "
+    "may be omitted (the newest complete catalog datasets and their common covered window are "
+    "bound and echoed). cross_market takes markets[].strategy_id, or one strategy_id plus "
+    "markets[].product_id to derive per-market variants."
 )
 
 
@@ -281,10 +292,11 @@ def _add_backtest_commands(
         "--file",
         required=True,
         help=(
-            "Path to a backtest start JSON document: strategy_id, dataset fingerprint(s), "
-            "optional evaluation window, initial_quote_balance, maker/taker fee rates, "
-            "fixed_slippage_bps, and optional spread_bps stress. engine_contract_version is "
-            "rejected."
+            "Path to a backtest start JSON document: strategy_id, optional dataset "
+            "fingerprint(s) (omitted ones bind the newest complete catalog dataset per clock and "
+            "are echoed in bound_datasets), optional evaluation window, initial_quote_balance, "
+            "maker/taker fee rates, fixed_slippage_bps, and optional spread_bps stress. "
+            "engine_contract_version is rejected."
         ),
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
@@ -351,13 +363,21 @@ def _add_study_commands(
         parents=[trailing],
         help="Plan OOS, walk-forward, cross-market, sweep, or WFO windows without submitting.",
     )
-    plan.add_argument("--file", required=True, help="Study start JSON (strategies by id).")
+    plan.add_argument("--file", required=True, help=_STUDY_FILE_HELP)
     study = subparsers.add_parser(
         "submit-study", parents=[trailing], help="Submit one composed research study."
     )
-    study.add_argument("--file", required=True, help="Study start JSON (strategies by id).")
+    study.add_argument("--file", required=True, help=_STUDY_FILE_HELP)
     study.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    study.add_argument("--async", action="store_true", help="Queue it (HTTP 202) and poll.")
+    study.add_argument(
+        "--async",
+        action="store_true",
+        help=(
+            "Queue it (HTTP 202) and poll show-research-job. Required above the synchronous "
+            "budget (8 candidates, 128 child windows); async allows 64 candidates and 512 "
+            "child windows."
+        ),
+    )
     find = subparsers.add_parser(
         "find-study-by-request",
         parents=[trailing],
@@ -548,6 +568,7 @@ async def _mutator(settings: Settings) -> tuple[ResearchMutator, AsyncEngine]:
         audit=PostgresAuditEventStore(engine),
         catalog=PostgresResearchStudyCatalog(engine),
         datasets=dataset_store,
+        dataset_provider=ingestion_provider(settings),
     )
     return mutator, engine
 
@@ -623,13 +644,14 @@ async def _local_delete(mutator: ResearchMutator, arguments: argparse.Namespace)
 async def _local_backtest(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
     """Snapshot and run one backtest locally."""
     start = BacktestStartRequest.model_validate(_load_json(arguments.file))
-    run, result, fingerprint = await mutator.start_backtest(start)
+    run, result, fingerprint, bound = await mutator.start_backtest(start)
     return _encode(
         {
             "run_fingerprint": run,
             "result_fingerprint": result,
             "strategy_id": str(start.strategy_id),
             "strategy_fingerprint": fingerprint,
+            "bound_datasets": [item.model_dump(mode="json") for item in bound],
         }
     )
 
@@ -710,15 +732,28 @@ async def _local_plan_study(mutator: ResearchMutator, arguments: argparse.Namesp
         catalog=mutator.catalog,
         datasets=mutator.datasets,
     )
-    plan = await service.plan(await mutator.study_request(start))
-    return _encode(summarize_research_study_plan(plan).model_dump(mode="json"))
+    bound = await mutator.bind_study(start)
+    plan = await service.plan(bound.request)
+    summary = summarize_research_study_plan(plan).model_dump(mode="json")
+    return _encode({**summary, **_study_echo(bound)})
 
 
 async def _local_submit_study(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
     """Submit one composed study and return the derived document."""
     start = ResearchStudyStartRequest.model_validate(_load_json(arguments.file))
-    study = await mutator.submit_study(await mutator.study_request(start))
-    return _encode(study.model_dump(mode="json"))
+    bound = await mutator.bind_study(start)
+    study = await mutator.submit_study(bound.request)
+    return _encode({**study.model_dump(mode="json"), **_study_echo(bound)})
+
+
+def _study_echo(bound: BoundStudyStart) -> dict[str, object]:
+    """Echo every bound dataset and the exact evaluation window, as the HTTP API does."""
+    request = bound.request
+    return {
+        "bound_datasets": [item.model_dump(mode="json") for item in bound.bound_datasets],
+        "evaluation_start": request.evaluation_start.isoformat().replace("+00:00", "Z"),
+        "evaluation_end": request.evaluation_end.isoformat().replace("+00:00", "Z"),
+    }
 
 
 _LOCAL_HANDLERS: dict[str, Callable[[ResearchMutator, argparse.Namespace], Awaitable[str]]] = {
@@ -825,6 +860,7 @@ def _command_output(arguments: argparse.Namespace) -> str:
         ResearchCliError,
         ResearchMutationError,
         BacktestSubmissionRejectedError,
+        DatasetsMissingError,
         StudyPlanningError,
         StudyCatalogNotFoundError,
         StudyCatalogIntegrityError,
@@ -855,7 +891,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         output = _command_output(arguments)
     except Exception as error:
-        message = "Research command failed safely; paper and live state were not changed."
+        message = describe_unexpected_failure(
+            error, lane="Research command", safety="Paper and live state were not changed."
+        )
         raise SystemExit(message) from error
     sys.stdout.write(f"{output}\n")
     raise SystemExit(EXIT_HEALTHY)

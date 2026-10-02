@@ -646,3 +646,116 @@ def test_submit_backtest_timeout_says_the_run_may_still_be_running(tmp_path: Pat
     assert "list-results" in message
     assert "--async" in message
     assert "failed safely" not in message
+
+
+def _study_file(tmp_path: Path) -> Path:
+    """Write a minimal walk-forward-optimization study body to disk."""
+    path = tmp_path / "wfo.json"
+    path.write_text(
+        json.dumps(
+            {
+                "kind": "walk_forward_optimization",
+                "evaluation_start": "2022-01-01T00:00:00Z",
+                "evaluation_end": "2026-10-01T00:00:00Z",
+                "initial_quote_balance": "1000",
+                "maker_fee_rate": "0.004",
+                "taker_fee_rate": "0.006",
+                "fixed_slippage_bps": "5",
+                "strategy_id": _STRATEGY_ID,
+                "in_sample_bars": 2000,
+                "out_of_sample_bars": 500,
+                "step_bars": 500,
+                "parameter_axes": [
+                    {"indicator_id": "fast", "parameter": "period", "values": ["8", "12"]}
+                ],
+            }
+        )
+    )
+    return path
+
+
+def test_plan_study_422_prints_the_api_code_and_message(tmp_path: Path) -> None:
+    """A 4xx plan rejection surfaces detail.code and detail.message, not "failed safely"."""
+    rejection = {
+        "detail": {
+            "code": "study_window_rejected",
+            "message": (
+                "evaluation_start 2022-01-01T00:00:00Z requires warmup coverage before the "
+                "dataset starts. Suggested range: 2022-01-21T00:00:00Z to 2026-10-01T00:00:00Z."
+            ),
+        }
+    }
+
+    def fake_urlopen(request: object, timeout: object = None) -> object:
+        del timeout
+        url = str(getattr(request, "full_url", request))
+        if url.endswith("/health/ready"):
+            return json_urlopen_response(matching_ready_payload())
+        assert url.endswith("/api/v1/research/studies/plan"), url
+        return json_urlopen_response(rejection, status=422)
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["plan-study", "--file", str(_study_file(tmp_path))])
+    message = str(raised.value)
+    assert message.startswith("HTTP 422 study_window_rejected: evaluation_start")
+    assert "Suggested range: 2022-01-21T00:00:00Z to 2026-10-01T00:00:00Z." in message
+    assert "failed safely" not in message
+
+
+def test_plan_study_missing_file_names_the_path(tmp_path: Path) -> None:
+    """An unreadable --file says which path failed instead of a generic safe-failure line."""
+    missing = tmp_path / "nope.json"
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["plan-study", "--file", str(missing)])
+    message = str(raised.value)
+    assert f"could not read {missing}" in message
+    assert "No such file or directory" in message
+    assert "Paper and live state were not changed." in message
+    assert "failed safely" not in message
+
+
+def test_plan_study_invalid_json_names_the_position(tmp_path: Path) -> None:
+    """A malformed JSON document reports the parser position."""
+    path = tmp_path / "broken.json"
+    path.write_text('{"kind": "oos_holdout",')
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["plan-study", "--file", str(path)])
+    message = str(raised.value)
+    assert "input is not valid JSON" in message
+    assert "line 1 column" in message
+
+
+def test_show_backtest_job_dropped_connection_says_retry_the_read() -> None:
+    """Under load the API may drop a read; the CLI says so instead of "failed safely"."""
+
+    def fake_urlopen(request: object, timeout: object = None) -> object:
+        del timeout
+        url = str(getattr(request, "full_url", request))
+        if url.endswith("/health/ready"):
+            return json_urlopen_response(matching_ready_payload())
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["show-backtest-job", "--job-id", "0199aaaa-aaaa-7aaa-aaaa-aaaaaaaaaaab"])
+    message = str(raised.value)
+    assert "closed the connection before answering GET /api/v1/research/jobs/" in message
+    assert "retry the read" in message
+    assert "failed safely" not in message

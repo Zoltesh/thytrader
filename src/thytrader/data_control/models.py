@@ -24,6 +24,14 @@ class DataControlError(RuntimeError):
     """Report a redacted data-control failure without trading authority."""
 
 
+class ProductCatalogUnavailableError(DataControlError):
+    """The spot product list could not be loaded or came back incomplete (HTTP 503).
+
+    This is a retryable availability failure, never evidence that a product is
+    disabled: nothing was written, and repeating the same command is safe.
+    """
+
+
 class UnwatchedTargetError(DataControlError):
     """Refuse ingest for a product/timeframe that has no watchlist row (HTTP 409).
 

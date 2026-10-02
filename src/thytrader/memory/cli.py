@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.memory.client import (
@@ -403,6 +404,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(str(error)) from error
     except AgentHttpError as error:
         raise SystemExit(str(error)) from error
+    except Exception as error:
+        message = describe_unexpected_failure(
+            error,
+            lane="Memory command",
+            safety="Check the matching list command before repeating a memory mutation.",
+        )
+        raise SystemExit(message) from error
 
 
 if __name__ == "__main__":

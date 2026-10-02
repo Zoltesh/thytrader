@@ -12,7 +12,13 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.research.dataset_binding import (
+    BoundDataset,
+    DatasetResolver,
+    bind_backtest_datasets,
+)
 from thytrader.research.studies import ResearchStudy, ResearchStudyRequest, ResearchStudyService
+from thytrader.research.study_start import BoundStudyStart, bind_study_start
 from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
 from thytrader.strategies.library import (
     BulkDeletionReport,
@@ -58,6 +64,7 @@ class ResearchMutator:
     audit: AuditEventStore
     catalog: ResearchStudyCatalog | None = None
     datasets: DatasetStore | None = None
+    dataset_provider: str = "demo"
 
     async def create_strategy(
         self,
@@ -120,19 +127,32 @@ class ResearchMutator:
                 )
         return report
 
-    async def start_backtest(self, start: BacktestStartRequest) -> tuple[str, str, str]:
-        """Snapshot the strategy and run one backtest; return run, result, and snapshot."""
-        snapshot = await self.strategies.snapshot(start.strategy_id)
-        run, result = await self.submit_backtest(start.submission(snapshot.strategy_fingerprint))
-        return run, result, snapshot.strategy_fingerprint
+    async def start_backtest(
+        self, start: BacktestStartRequest
+    ) -> tuple[str, str, str, tuple[BoundDataset, ...]]:
+        """Snapshot the strategy, bind omitted datasets, and run one backtest.
 
-    async def study_request(self, start: ResearchStudyStartRequest) -> ResearchStudyRequest:
-        """Snapshot every named strategy and build the fingerprint-bound study request."""
-        fingerprints = {
-            identity: (await self.strategies.snapshot(identity)).strategy_fingerprint
-            for identity in start.strategy_ids()
-        }
-        return start.to_request(fingerprints)
+        Returns the run, result, and snapshot fingerprints plus every bound dataset.
+        """
+        snapshot = await self.strategies.snapshot(start.strategy_id)
+        resolver = self._resolver()
+        bound = bind_backtest_datasets(start, snapshot.definition, resolver)
+        run, result = await self.submit_backtest(bound.submission(snapshot.strategy_fingerprint))
+        return run, result, snapshot.strategy_fingerprint, resolver.bindings()
+
+    async def bind_study(self, start: ResearchStudyStartRequest) -> BoundStudyStart:
+        """Snapshot strategies, derive market variants, and bind datasets and bounds."""
+        return await bind_study_start(
+            start,
+            strategies=self.strategies,
+            publications=self.publications,
+            resolver=self._resolver(),
+            datasets=self.datasets,
+        )
+
+    def _resolver(self) -> DatasetResolver:
+        """Resolve omitted datasets from the configured ingestion provider's catalog."""
+        return DatasetResolver(store=self.datasets, provider=self.dataset_provider)
 
     async def submit_backtest(self, request: BacktestSubmissionRequest) -> tuple[str, str]:
         """Submit one idempotent historical simulation and return immutable identities."""

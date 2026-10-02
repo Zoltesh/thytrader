@@ -524,6 +524,13 @@ class OperatorDiagnostics:
                         base_currency=item.base_currency,
                         quote_currency=item.quote_currency,
                         trading_enabled=item.trading_enabled,
+                        status=item.status,
+                        alias=item.alias,
+                        price_increment=format(item.price_increment, "f"),
+                        base_increment=format(item.base_increment, "f"),
+                        quote_increment=format(item.quote_increment, "f"),
+                        base_min_size=format(item.base_min_size, "f"),
+                        quote_min_size=format(item.quote_min_size, "f"),
                     )
                     for item in listed
                 ),

@@ -41,12 +41,14 @@ from thytrader.research.models import (
 )
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
+    MAX_SYNC_CANDIDATES,
     ParameterAxis,
     SelectionMetric,
     StitchedOosEquity,
     StitchSourceWindow,
     derive_parameter_candidates,
     metric_value,
+    parameter_axes_candidate_count,
     select_candidate_fingerprint,
     stitch_oos_equity,
     unavailable_stitched_equity,
@@ -67,7 +69,6 @@ STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_FOLDS = 24
 _MAX_MARKETS = 8
-_MAX_STUDY_WINDOWS = 128
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 
 
@@ -99,6 +100,28 @@ class WindowRole(StrEnum):
 
 class StudyPlanningError(ValueError):
     """Reject a study request that cannot form a valid window schedule."""
+
+
+class StudyBudgetError(StudyPlanningError):
+    """Reject a study whose candidates or child windows exceed its execution budget."""
+
+
+@dataclass(frozen=True, slots=True)
+class StudyBudget:
+    """Child-work limits for one way of running a study.
+
+    A synchronous submit (HTTP 201) runs every child inside the request, so it stays
+    small. An async job (HTTP 202) runs in the research worker and may search a larger
+    grid, still bounded by ``max_windows`` child backtests.
+    """
+
+    mode: Literal["sync", "async"]
+    max_candidates: int
+    max_windows: int
+
+
+SYNC_STUDY_BUDGET = StudyBudget(mode="sync", max_candidates=MAX_SYNC_CANDIDATES, max_windows=128)
+ASYNC_STUDY_BUDGET = StudyBudget(mode="async", max_candidates=MAX_CANDIDATES, max_windows=512)
 
 
 class ResearchStudyError(RuntimeError):
@@ -177,8 +200,8 @@ class ResearchStudyRequest(_FrozenStudyModel):
         default=(),
         exclude_if=lambda value: not value,
         description=(
-            "1-4 axes with 2-8 values each. Cartesian product must be at most 8 candidates "
-            "(not 8 per axis)."
+            "1-4 axes with 2-8 values each. The Cartesian product must be at most 64 "
+            "candidates, and at most 8 for a synchronous submit (not 8 per axis)."
         ),
     )
     selection_metric: SelectionMetric = Field(
@@ -487,9 +510,15 @@ def plan_study(
     request: ResearchStudyRequest,
     *,
     publications: dict[str, StrategySnapshot],
+    budget: StudyBudget = ASYNC_STUDY_BUDGET,
 ) -> ResearchStudyPlan:
-    """Build the child window schedule from published strategy metadata."""
+    """Build the child window schedule from published strategy metadata.
+
+    ``budget`` bounds candidates and child windows for the way the study will run.
+    Warnings depend only on the request, so plan and submit agree on them.
+    """
     warnings: list[str] = []
+    _require_candidate_budget(request, budget)
     if request.kind is StudyKind.CROSS_MARKET:
         windows, timeframe = _plan_cross_market(request, publications)
     elif request.kind is StudyKind.PARAMETER_SWEEP:
@@ -500,8 +529,8 @@ def plan_study(
         windows, timeframe = _plan_single_market(request, publications, warnings)
     if not windows:
         raise StudyPlanningError("The evaluation window cannot form any study child windows.")
-    if len(windows) > _MAX_STUDY_WINDOWS:
-        raise StudyPlanningError("A research study may emit at most 128 child windows.")
+    _require_window_budget(len(windows), budget)
+    warnings.extend(_sync_budget_warnings(request, len(windows)))
     plan = ResearchStudyPlan(
         kind=request.kind,
         request_fingerprint=request_fingerprint(request),
@@ -511,6 +540,63 @@ def plan_study(
         warnings=tuple(warnings),
     )
     return plan.model_copy(update={"plan_fingerprint": plan_fingerprint(plan)})
+
+
+def study_candidate_count(request: ResearchStudyRequest) -> int:
+    """Return how many candidate strategies a sweep or WFO searches (0 for other kinds)."""
+    if request.parameter_axes:
+        return parameter_axes_candidate_count(request.parameter_axes)
+    return len(request.candidate_strategy_fingerprints)
+
+
+def _require_candidate_budget(request: ResearchStudyRequest, budget: StudyBudget) -> None:
+    """Refuse a grid larger than this execution mode allows, naming the async escape."""
+    count = study_candidate_count(request)
+    if count <= budget.max_candidates:
+        return
+    if budget.mode == "sync":
+        raise StudyBudgetError(
+            f"This study searches {count} candidates; a synchronous submit allows at most "
+            f"{budget.max_candidates}. Submit it as an async job (submit-study --async, "
+            f"POST /api/v1/research/studies?async=true), which allows up to {MAX_CANDIDATES}."
+        )
+    raise StudyBudgetError(
+        f"This study searches {count} candidates; at most {budget.max_candidates} are allowed."
+    )
+
+
+def _require_window_budget(window_count: int, budget: StudyBudget) -> None:
+    """Refuse a schedule with more child backtests than this execution mode allows."""
+    if window_count <= budget.max_windows:
+        return
+    if budget.mode == "sync":
+        raise StudyBudgetError(
+            f"This study plans {window_count} child windows; a synchronous submit allows at "
+            f"most {budget.max_windows}. Submit it as an async job (submit-study --async), "
+            f"which allows up to {ASYNC_STUDY_BUDGET.max_windows}, or reduce folds or candidates."
+        )
+    raise StudyBudgetError(
+        f"This study plans {window_count} child windows; an async job allows at most "
+        f"{budget.max_windows}. Reduce folds (larger step_bars) or candidates."
+    )
+
+
+def _sync_budget_warnings(request: ResearchStudyRequest, window_count: int) -> tuple[str, ...]:
+    """Explain an async-only study and the overfitting cost of a large search."""
+    warnings: list[str] = []
+    count = study_candidate_count(request)
+    if count > SYNC_STUDY_BUDGET.max_candidates or window_count > SYNC_STUDY_BUDGET.max_windows:
+        warnings.append(
+            f"This study ({count} candidates, {window_count} child windows) exceeds the "
+            "synchronous budget; it runs only as an async job (submit-study --async)."
+        )
+    if count > SYNC_STUDY_BUDGET.max_candidates:
+        warnings.append(
+            f"Searching {count} candidates raises the chance that the best in-sample result is "
+            "luck (data snooping). Judge selected out-of-sample windows, never the best "
+            "candidate's in-sample or sweep mean."
+        )
+    return tuple(warnings)
 
 
 def window_submission_request(
@@ -606,17 +692,21 @@ class ResearchStudyService:
     catalog: ResearchStudyCatalog | None = None
     datasets: DatasetStore | None = None
 
-    async def plan(self, request: ResearchStudyRequest) -> ResearchStudyPlan:
+    async def plan(
+        self, request: ResearchStudyRequest, *, budget: StudyBudget = ASYNC_STUDY_BUDGET
+    ) -> ResearchStudyPlan:
         """Return the window schedule after loading published strategies."""
         published = await self._load_publications(request)
         published = _merge_derived_candidates(request, published)
-        plan = plan_study(request, publications=published)
+        plan = plan_study(request, publications=published, budget=budget)
         self._reject_windows_outside_datasets(plan, published)
         return plan
 
-    async def submit(self, request: ResearchStudyRequest) -> ResearchStudy:
-        """Submit or reuse each child backtest and assemble the derived study."""
-        return await self.submit_with_progress(request)
+    async def submit(
+        self, request: ResearchStudyRequest, *, budget: StudyBudget = SYNC_STUDY_BUDGET
+    ) -> ResearchStudy:
+        """Submit or reuse each child backtest inside this call (small synchronous budget)."""
+        return await self.submit_with_progress(request, budget=budget)
 
     async def submit_with_progress(
         self,
@@ -624,12 +714,16 @@ class ResearchStudyService:
         *,
         on_progress: Callable[[int, int], Awaitable[object]] | None = None,
         cancel_check: Callable[[], Awaitable[bool]] | None = None,
+        budget: StudyBudget = ASYNC_STUDY_BUDGET,
     ) -> ResearchStudy:
-        """Submit or reuse each child backtest and assemble the derived study."""
+        """Submit or reuse each child backtest and assemble the derived study.
+
+        The research worker runs async jobs here with the larger async budget.
+        """
         published = await self._publish_derived_candidates(
             request, await self._load_publications(request)
         )
-        plan = plan_study(request, publications=published)
+        plan = plan_study(request, publications=published, budget=budget)
         self._reject_windows_outside_datasets(plan, published)
         existing = await self._load_existing_plan(plan.plan_fingerprint)
         if existing is not None:
@@ -955,7 +1049,9 @@ def _require_candidate_source(request: ResearchStudyRequest) -> None:
     if has_candidates:
         count = len(request.candidate_strategy_fingerprints)
         if count < 2 or count > MAX_CANDIDATES:
-            raise ValueError("candidate_strategy_fingerprints requires between 2 and 8 values")
+            raise ValueError(
+                f"candidate_strategy_fingerprints requires between 2 and {MAX_CANDIDATES} values"
+            )
         if len(set(request.candidate_strategy_fingerprints)) != count:
             raise ValueError("candidate_strategy_fingerprints must be unique")
         for fingerprint in request.candidate_strategy_fingerprints:

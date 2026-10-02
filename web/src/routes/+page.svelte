@@ -509,14 +509,4 @@
 			margin-left: 0;
 		}
 	}
-	/*
-	 * app.css declares the skeleton shimmer and spinner after its own
-	 * reduced-motion rule, so that rule loses; Home pins both off here.
-	 */
-	@media (prefers-reduced-motion: reduce) {
-		.home :global(.skeleton),
-		.home :global(.spinning) {
-			animation: none;
-		}
-	}
 </style>

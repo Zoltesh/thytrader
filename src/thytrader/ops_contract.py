@@ -33,9 +33,11 @@ spot quote currencies, the market-data provider-history floor (``history_floor_a
 Alembic 0051), ranged backfill, explicit watched-only ingest, and the research
 watch-lookback ceilings (ADR 0085, Alembic 0052), the implemented indicator kinds or the
 operator ``indicators`` report shape, indicator bar-lag (``offset``) evaluation, the
-per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087), or the portfolio model
+per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087), the portfolio model
 (portfolios, sleeves, shared limits, manager settings, the portfolio journal, and the
-portfolio backtest contract; ADR 0088, Alembic 0054) change.
+portfolio backtest contract; ADR 0088, Alembic 0054), research dataset auto-binding,
+cross-market product variants, the sync/async study budgets, or the operator ``products``
+constraint fields (ADR 0089) change.
 """
 
 from __future__ import annotations
@@ -50,12 +52,13 @@ from thytrader.portfolios.models import (
     PORTFOLIO_MODES,
 )
 from thytrader.research.models import BACKTEST_ENGINE
+from thytrader.research.parameter_sweep import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
 from thytrader.strategies.models import IndicatorKind
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v48"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v49"
 EXPECTED_SCHEMA_REVISION = "0054"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -120,6 +123,11 @@ MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
 INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
 LIFECYCLE_COMMANDS: tuple[str, ...] = ("none", "stop_new_entries", "flatten", "managed_shutdown")
 BREAKER_LATCH_RESET: tuple[str, ...] = ("paper", "live")
+RESEARCH_DATASET_AUTOBIND: tuple[str, ...] = ("backtest", "study")
+STUDY_BUDGETS: dict[str, dict[str, int]] = {
+    "sync": {"candidates": MAX_SYNC_CANDIDATES, "windows": 128},
+    "async": {"candidates": MAX_CANDIDATES, "windows": 512},
+}
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -163,6 +171,8 @@ def expected_ops_contract() -> dict[str, object]:
         "portfolio_modes": list(PORTFOLIO_MODES_FIELD),
         "portfolio_backtest_contract": PORTFOLIO_BACKTEST_CONTRACT_ID,
         "max_concurrent_portfolio_backtests": MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
+        "research_dataset_autobind": list(RESEARCH_DATASET_AUTOBIND),
+        "study_budgets": {mode: dict(limits) for mode, limits in STUDY_BUDGETS.items()},
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

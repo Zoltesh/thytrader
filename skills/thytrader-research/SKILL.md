@@ -15,7 +15,19 @@ description: >-
 
 Bounded research mutations only. This skill is not an extension of `thytrader-operator` and has no paper, live, arming, cancellation, or kill-switch authority.
 
-Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to the database if the API is down.
+Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then
+`THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same
+`.env` Compose reads; the default port is `8200`, but installs may override it). Do not hard-code a
+port; for raw `curl`, export `THYTRADER_API_BASE_URL` and use `"$THYTRADER_API_BASE_URL/api/v1/..."`.
+Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to
+the database if the API is down.
+
+Failures name what failed. An API rejection prints `HTTP <status> <detail.code>: <detail.message>`
+(for example `HTTP 422 study_window_rejected: … Suggested range: …`); act on the message instead of
+retrying blindly. Transport failures say which call timed out, that the API is unreachable (and how
+the base URL was resolved), or that the API closed the connection before answering (retry a read;
+check state before repeating a mutation). A 5xx adds what to do next. Unreadable `--file` paths,
+invalid JSON, and schema mismatches are named too.
 
 Production installs enforce the application trust boundary
 ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
@@ -153,8 +165,14 @@ to target `indicator` with any parameter the indicator declares — `period`, `f
 Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
 `max_quote_notional`), `exits` (`initial_stop_multiple`, `take_profit_multiple`,
 `trailing_stop_multiple`, `max_bars_held`), `execution` (`max_entry_wait_bars`), or
-`entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8
-total candidates (≤8 values per axis does not imply ≤8 total).
+`entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). The Cartesian product is
+at most 64 total candidates (≤8 values per axis does not imply a small total). A synchronous
+`submit-study --confirm` allows at most 8 candidates and 128 child windows; a larger grid (9–64
+candidates) or schedule (up to 512 child windows) needs `submit-study --async --confirm`, and a
+synchronous attempt returns HTTP 422 `study_budget_exceeded` naming `--async`. `plan-study` plans
+against the async budget and warns when a study is async-only. Searching more candidates raises the
+chance that the best in-sample result is luck: grids above 8 carry a data-snooping warning, so judge
+selected out-of-sample windows (WFO), never the best candidate's in-sample or sweep mean.
 `show-template` prints one template's `indicator_ids`, shipped `defaults`, warmup, and
 `sweepable_axes` so parameter-axis studies can be authored without reading source or guessing ids.
 Product and timeframe are not sweepable. Selection uses only in-sample `selection_metric`; it does
@@ -178,7 +196,14 @@ returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo
 interpolated. Parameter-sweep aggregates are not an out-of-sample claim: sweep documents carry
 `candidate_window_count` / `mean_candidate_return_fraction` (their `oos_*` fields are zero/absent),
 and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-market studies
-need 2–8 valid single-instrument strategies (`markets[].strategy_id`) on distinct products. See
+need 2–8 distinct products, named one of two ways (never mixed): `markets[].strategy_id` for
+strategies already authored per market, or one top-level `strategy_id` plus
+`markets[].product_id` (for example `{"kind": "cross_market", "strategy_id": "…", "markets":
+[{"product_id": "BTC-USDC"}, {"product_id": "ETH-USDC"}]}`). The second form needs no clones: the
+server re-targets the base strategy at each product and records each variant as an exact snapshot
+that keeps the base `strategy_id` (like sweep variants, tagged `research-market-variant`); the base's
+own product reuses its snapshot. Child windows report each variant's `strategy_fingerprint`.
+Multi-instrument strategies cannot be re-targeted (clone them per market). See
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
 `create-strategy` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
@@ -196,18 +221,18 @@ Optional `--experiential-model-id` (HTTP only; `--local` refuses) loads
 create-strategy JSON. It does not change strategy semantics, place orders, or arm live
 trading. Train models with `skills/thytrader-memory/SKILL.md`.
 Optional `htf_filter` (ADR 0025) is a higher-timeframe closed-bar filter AND-ed with LTF entry.
-`create-strategy` does not add it. `save-strategy` JSON may include the block. `submit-backtest` JSON must
-include `htf_dataset_fingerprint` (distinct from `dataset_fingerprint`) when the strategy
-declares `htf_filter`, and must omit it otherwise. Extra indicator clocks that are not already
-`htf_filter.timeframe` require `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
-ordered by increasing duration, each distinct from LTF and HTF). Ingest those extra clocks with
-`skills/thytrader-data/SKILL.md` before naming fingerprints. Multi-instrument documents
-require `additional_instrument_datasets` on submit-backtest JSON: one `{product_id, dataset_fingerprint,
+`create-strategy` does not add it. `save-strategy` JSON may include the block. A backtest of such a
+strategy runs on an HTF dataset (`htf_dataset_fingerprint`, distinct from `dataset_fingerprint`);
+send it only when the strategy declares `htf_filter`. Extra indicator clocks that are not already
+`htf_filter.timeframe` run on `indicator_dataset_fingerprints` (`[{timeframe, dataset_fingerprint}, …]`
+ordered by increasing duration, each distinct from LTF and HTF). Ingest every clock with
+`skills/thytrader-data/SKILL.md` first. Multi-instrument documents run on
+`additional_instrument_datasets`: one `{product_id, dataset_fingerprint,
 htf_dataset_fingerprint?, indicator_dataset_fingerprints?}` per extra covered product, ordered by
-`product_id`, omitted when the document has no extra products. Each extra product needs a complete
-Coinbase dataset on the decision clock; HTF and extra-TF fingerprints are required iff the document
-declares those clocks. Identities must be unique and distinct from the primary LTF/HTF/extra-TF
-fingerprints. `dataset_fingerprint` remains the primary instrument. Backtests evaluate
+`product_id`. Each extra product needs a complete dataset on the decision clock plus the HTF and
+extra-TF clocks the document declares. Identities must be unique and distinct from the primary
+LTF/HTF/extra-TF fingerprints. `dataset_fingerprint` remains the primary instrument. All of these
+fingerprints are optional: see **Datasets bind automatically** below. Backtests evaluate
 last-completed extra-TF and HTF bars only. Paper and live evaluate the same last-completed bars on
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 
@@ -259,10 +284,34 @@ rebuild with `make run`. A current `/health/ready` ops contract advertises
 
 `submit-backtest` JSON names the strategy with `strategy_id` (not a fingerprint); the server
 snapshots the current definition and returns `strategy_id` plus the snapshot `strategy_fingerprint`
-with `run_fingerprint` / `result_fingerprint` (async 202 returns `job_id` plus the same strategy
-identities). HTTP 404 `strategy_not_found`; HTTP 422 `strategy_invalid` lists `issues`.
-`submit-study` / `plan-study` JSON uses `strategy_id`, `candidate_strategy_ids`, and
-`markets[].strategy_id` the same way; study windows still report each snapshot `strategy_fingerprint`.
+with `run_fingerprint` / `result_fingerprint` and `bound_datasets` (async 202 returns `job_id` plus
+the same strategy identities and `bound_datasets`). HTTP 404 `strategy_not_found`; HTTP 422
+`strategy_invalid` lists `issues`. `submit-study` / `plan-study` JSON uses `strategy_id`,
+`candidate_strategy_ids`, and `markets[].strategy_id` (or `markets[].product_id`) the same way;
+study windows still report each snapshot `strategy_fingerprint`.
+
+**Datasets bind automatically** ([ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)).
+`dataset_fingerprint`, `htf_dataset_fingerprint`, `indicator_dataset_fingerprints`,
+`additional_instrument_datasets` (backtests), and per-market dataset fields (cross-market studies)
+are all optional. For each clock the strategy needs — decision clock, HTF filter, extra indicator
+clocks, and each additional instrument — an omitted fingerprint binds the newest complete dataset
+the catalog lists for that product and timeframe from the configured ingestion provider (`coinbase`
+with credentials, otherwise `demo`; the same rows as `thytrader-operator data-catalog`). Explicit
+fingerprints are used exactly as sent, and you may mix the two (for example send only
+`dataset_fingerprint` and let the HTF clock bind). Every response echoes `bound_datasets`:
+`[{product_id, timeframe, role: decision|filter|indicator, dataset_fingerprint, source:
+request|latest_catalog}]`, and the bound fingerprints are part of the run's identity, so record them
+with the result. A clock with no cataloged dataset fails closed with HTTP 422 `datasets_missing`:
+`detail.missing` lists each `{product_id, timeframe, role}` and the message names the exact
+`uv run thytrader-data watch-add … --confirm` and `ingest … --confirm` commands; nothing runs.
+
+**Study bounds may be omitted.** `plan-study` / `submit-study` may omit both `evaluation_start` and
+`evaluation_end` (never just one). The server then uses the common covered window: the intersection
+of every child backtest's default window (each market of a cross-market study, and every sweep/WFO
+candidate, whose derived warmup may be longer). Plan, submit, and async 202 responses echo
+`evaluation_start` / `evaluation_end` and `bound_datasets`; the request fingerprint covers the filled
+bounds. An async submit is planned before it is queued, so an oversized or infeasible study returns
+422 immediately instead of failing in the worker.
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,

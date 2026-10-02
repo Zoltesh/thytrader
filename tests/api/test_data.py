@@ -8,10 +8,18 @@ import time
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
+import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.market_data.models import DATASET_TIMEFRAMES
+from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
+from thytrader.market_data.models import (
+    DATASET_TIMEFRAMES,
+    CandleInterval,
+    MarketDataPreview,
+    MarketProduct,
+)
+from thytrader.market_data.service import MarketDataProvider, MarketDataService
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore
 from thytrader.market_data.worker_state import InMemoryMarketDataWorkerStateStore
 from thytrader.market_data_worker.service import run_market_data_worker
@@ -608,6 +616,60 @@ def test_unknown_product_watch_is_rejected(tmp_path: Path) -> None:
             json={"product_id": "ZZZ-USD", "timeframe": "1h", "lookback_hours": 24},
         )
     assert response.status_code == 400
+    assert "thytrader-operator products" in response.json()["detail"]
+
+
+class _UnavailableCatalog:
+    """A provider whose product list times out, like a Coinbase call under load."""
+
+    async def get_recent_preview(
+        self, product_id: str, interval: CandleInterval, now: datetime
+    ) -> MarketDataPreview:
+        """Unused by watch-add."""
+        raise AssertionError((product_id, interval, now))
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Fail the way an SDK timeout does."""
+        raise TimeoutError("read timed out")
+
+
+class _IncompleteCatalog(_UnavailableCatalog):
+    """A provider that reports a degraded listing the adapter refuses as incomplete."""
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Fail the way the Coinbase adapter refuses an empty or partial catalog."""
+        raise CoinbaseMarketDataError("Coinbase returned an empty product catalog.")
+
+
+def _catalog_client(tmp_path: Path, provider: MarketDataProvider) -> TestClient:
+    """Build the data API around one market-data provider double."""
+    app = create_app(
+        Settings(_env_file=None, market_data_dataset_root=tmp_path),
+        market_data_watchlist_store=InMemoryMarketDataWatchlistStore(),
+        market_data_state_store=InMemoryMarketDataWorkerStateStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+        market_data_service=MarketDataService(provider),
+    )
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("provider", [_UnavailableCatalog(), _IncompleteCatalog()])
+def test_watch_add_reports_an_unverifiable_catalog_as_retryable_503(
+    tmp_path: Path, provider: MarketDataProvider
+) -> None:
+    """A catalog that times out or comes back incomplete is 503, never "not enabled" 400."""
+    with _catalog_client(tmp_path, provider) as client:
+        response = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "BTC-USDC", "timeframe": "1h", "lookback_hours": 24},
+        )
+        listed = client.get("/api/v1/data/watchlist")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "Could not verify the spot product list" in detail
+    assert "retry the same command" in detail
+    assert "not an enabled" not in detail
+    assert listed.json()["targets"] == []
 
 
 def test_ingest_refuses_an_unwatched_target_without_creating_a_watch(tmp_path: Path) -> None:

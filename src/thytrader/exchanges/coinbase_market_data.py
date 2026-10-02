@@ -259,15 +259,50 @@ def _parse_product(payload: dict[str, Any]) -> MarketProduct:
         trading_enabled=(
             payload.get("is_disabled") is not True and payload.get("trading_disabled") is not True
         ),
+        status=_optional_text(payload, "status"),
+        alias=_optional_text(payload, "alias"),
     )
 
 
+def _optional_text(payload: dict[str, Any], field: str) -> str | None:
+    """Return one optional non-empty text field; Coinbase sends ``""`` for "none"."""
+    value = payload.get(field)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        message = f"Coinbase product field {field} was not text."
+        raise CoinbaseMarketDataError(message)
+    return value.strip() or None
+
+
+def _require_complete_catalog(payload: dict[str, Any], raw_count: int) -> None:
+    """Refuse an empty, paginated, or short product listing instead of trusting it.
+
+    The product list is the source of truth for "is this market enabled", so a
+    degraded answer (Coinbase reports ``num_products`` and ``pagination.has_next``)
+    must fail closed as unavailable rather than make every missing product look
+    disabled.
+    """
+    if raw_count == 0:
+        message = "Coinbase returned an empty product catalog."
+        raise CoinbaseMarketDataError(message)
+    pagination = payload.get("pagination")
+    if isinstance(pagination, dict) and pagination.get("has_next") is True:
+        message = "Coinbase returned one page of a paginated product catalog."
+        raise CoinbaseMarketDataError(message)
+    expected = payload.get("num_products")
+    if isinstance(expected, int) and not isinstance(expected, bool) and expected > raw_count:
+        message = f"Coinbase returned {raw_count} of {expected} catalog products."
+        raise CoinbaseMarketDataError(message)
+
+
 def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
-    """Validate every product in a Coinbase catalog without silently omitting bad rows."""
+    """Validate every product in a complete Coinbase catalog without omitting bad rows."""
     raw_products = payload.get("products")
     if not isinstance(raw_products, list):
         message = "Coinbase product response did not include a product list."
         raise CoinbaseMarketDataError(message)
+    _require_complete_catalog(payload, len(raw_products))
     products: list[MarketProduct] = []
     seen: set[str] = set()
     for raw_product in raw_products:
@@ -320,6 +355,8 @@ def _alias_spot_products(
                 base_min_size=source.base_min_size,
                 quote_min_size=source.quote_min_size,
                 trading_enabled=source.trading_enabled,
+                status=source.status,
+                alias=source.product_id,
             )
         )
     return tuple(expanded)

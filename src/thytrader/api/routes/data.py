@@ -18,6 +18,7 @@ from thytrader.api.dependencies import (
 from thytrader.data_control.models import (
     DataControlError,
     IngestRequest,
+    ProductCatalogUnavailableError,
     UnwatchedTargetError,
     WatchTargetRequest,
     require_interval,
@@ -245,11 +246,14 @@ def _http_error(error: DataControlError) -> HTTPException:
     """Map data-control failures to client, conflict, or availability errors.
 
     An unwatched ingest target is 409, not 404: agent CLIs read a 404 on a data route
-    while ``/health/ready`` is up as the stale-image signal.
+    while ``/health/ready`` is up as the stale-image signal. A product list that could
+    not be verified is a retryable 503, never a "not enabled" 400.
     """
     message = str(error)
     if isinstance(error, UnwatchedTargetError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+    if isinstance(error, ProductCatalogUnavailableError):
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=message)
     code = (
         status.HTTP_503_SERVICE_UNAVAILABLE
         if "unavailable" in message.lower()

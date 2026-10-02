@@ -62,14 +62,16 @@ if TYPE_CHECKING:
 
 
 class BacktestAssumptions(BaseModel):
-    """Datasets, window, capital, and costs for one unified-model simulation (no strategy).
+    """Extra datasets, window, capital, and costs for one unified-model simulation.
 
-    There is no engine selector: every run uses the single ``thytrader-backtest`` model
-    (ADR 0083). ``spread_bps`` is the optional constant spread stress (omitted means 0).
+    The primary ``dataset_fingerprint`` lives on the subclasses: required on the
+    exact internal submission, optional on the agent start (ADR 0089 binds the
+    newest complete catalog dataset when it is omitted). There is no engine
+    selector: every run uses the single ``thytrader-backtest`` model (ADR 0083).
+    ``spread_bps`` is the optional constant spread stress (omitted means 0).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = ()
@@ -98,20 +100,29 @@ class BacktestSubmissionRequest(BacktestAssumptions):
     """Internal submission bound to one exact strategy snapshot fingerprint.
 
     HTTP and CLI callers send :class:`BacktestStartRequest` (a ``strategy_id``);
-    the server snapshots the current definition and builds this request, which
-    is also the durable async-job payload.
+    the server snapshots the current definition, binds every dataset, and builds
+    this request, which is also the durable async-job payload.
     """
 
+    dataset_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     strategy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 class BacktestStartRequest(BacktestAssumptions):
-    """Agent/browser backtest start: the server snapshots ``strategy_id``'s current rules."""
+    """Agent/browser backtest start: the server snapshots ``strategy_id``'s current rules.
 
+    Any omitted dataset (primary, HTF, extra clock, or additional instrument) is bound
+    to the newest complete catalog dataset before :meth:`submission` (ADR 0089).
+    """
+
+    dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     strategy_id: UUID
 
     def submission(self, strategy_fingerprint: str) -> BacktestSubmissionRequest:
-        """Bind these assumptions to the snapshot taken for ``strategy_id``."""
+        """Bind these assumptions to the snapshot taken for ``strategy_id``.
+
+        Every dataset must already be bound; an omitted primary dataset fails validation.
+        """
         payload = self.model_dump(mode="python", exclude={"strategy_id"})
         return BacktestSubmissionRequest.model_validate(
             {**payload, "strategy_fingerprint": strategy_fingerprint}

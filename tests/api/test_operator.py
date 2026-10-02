@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.market_data.models import CandleInterval, MarketDataPreview, MarketProduct
+from thytrader.market_data.service import MarketDataService
 from thytrader.operator.models import SCHEMA_VERSION
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 
@@ -105,3 +108,56 @@ def test_operator_health_does_not_mutate_drafts() -> None:
         response = client.get("/api/v1/operator/health")
     assert response.status_code == 200
     assert drafts.create_calls == 0
+
+
+class _ConstraintCatalog:
+    """A provider listing one shared-book USDC twin with exact venue constraints."""
+
+    async def get_recent_preview(
+        self, product_id: str, interval: CandleInterval, now: datetime
+    ) -> MarketDataPreview:
+        """Unused by the products report."""
+        raise AssertionError((product_id, interval, now))
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """Return one Coinbase-shaped product carrying status and alias."""
+        return (
+            MarketProduct(
+                product_id="BTC-USDC",
+                base_currency="BTC",
+                quote_currency="USDC",
+                price_increment=Decimal("0.01"),
+                base_increment=Decimal("0.00000001"),
+                quote_increment=Decimal("0.01"),
+                base_min_size=Decimal("0.00001"),
+                quote_min_size=Decimal("1"),
+                trading_enabled=True,
+                status="online",
+                alias="BTC-USD",
+            ),
+        )
+
+
+def test_operator_products_report_exposes_order_constraints() -> None:
+    """Agents can check increments, minimum sizes, status, and alias before trading."""
+    app = create_app(
+        Settings(_env_file=None), market_data_service=MarketDataService(_ConstraintCatalog())
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/v1/operator/products")
+    assert response.status_code == 200
+    assert response.json()["payload"]["products"] == [
+        {
+            "product_id": "BTC-USDC",
+            "base_currency": "BTC",
+            "quote_currency": "USDC",
+            "trading_enabled": True,
+            "status": "online",
+            "alias": "BTC-USD",
+            "price_increment": "0.01",
+            "base_increment": "0.00000001",
+            "quote_increment": "0.01",
+            "base_min_size": "0.00001",
+            "quote_min_size": "1",
+        }
+    ]

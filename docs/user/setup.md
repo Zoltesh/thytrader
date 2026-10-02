@@ -28,12 +28,16 @@ than partially rewritten.
 | What | Where |
 |---|---|
 | Dashboard | http://127.0.0.1:5175 |
-| API ready | http://127.0.0.1:8200/health/ready |
+| API ready | http://127.0.0.1:8200/health/ready (default port; see below) |
 | PostgreSQL | `127.0.0.1:5439` (loopback only) |
 
 `THYTRADER_API_PORT` defaults to `8200`. If you override it in ignored `.env`, Compose applies the
 same value to the API listener, loopback host mapping, API readiness probe, and the web container's
-internal proxy target.
+internal proxy target. The `thytrader-*` CLIs read the same settings: they resolve the API base URL
+from `--base-url`, then `THYTRADER_API_BASE_URL`, then `THYTRADER_API_HOST` / `THYTRADER_API_PORT`,
+so they follow an override without extra flags. Raw `curl` does not; export the origin once and use
+it, for example `export THYTRADER_API_BASE_URL=http://127.0.0.1:8000` (your port) and
+`curl -sS "$THYTRADER_API_BASE_URL/health/ready"`.
 
 ## Credentials (names only)
 
@@ -109,7 +113,7 @@ browser dataset selection and backtest verification consume the exact artifacts 
 Inspect ingestion evidence or restart only that failure domain:
 
 ```bash
-curl -sS 'http://127.0.0.1:8200/api/v1/market-data/ingestion?product_id=BTC-USD'
+curl -sS "${THYTRADER_API_BASE_URL:-http://127.0.0.1:8200}/api/v1/market-data/ingestion?product_id=BTC-USD"
 docker compose restart market-data-worker
 docker compose logs --tail=100 market-data-worker
 ```
