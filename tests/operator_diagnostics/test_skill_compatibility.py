@@ -50,6 +50,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/studies",
         "/portfolio",
         "/fees",
+        "/decisions",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
@@ -71,8 +72,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v46" in skill
-    assert "0052" in skill
+    assert "thytrader-ops-contract-v47" in skill
+    assert "0053" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
@@ -89,6 +90,9 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "risk_breakers" in schemas
     assert "experiential_model_engines" in schemas
     assert "trade_reason_journals" in schemas
+    assert "decision_journals" in schemas
+    assert "thytrader-bar-decision-v1" in schemas
+    assert "thytrader-operator decisions" in skill
 
 
 def test_research_skill_requires_confirm_and_forbids_trading() -> None:
@@ -207,6 +211,10 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "set-settings" in skill
     assert "/api/v1/settings" in skill
     assert "0055-yaml-settings-runtime-reloadable-yolo" in skill
+    assert "thytrader-runtime decisions" in skill
+    assert "/api/v1/deployments/{deployment_id}/decisions" in skill
+    assert "/api/v1/strategies/{strategy_id}/decisions" in skill
+    assert "next_cursor" in skill
     assert "THYTRADER_YOLO_TIERS=paper" in skill
     assert "thytrader.yaml" in skill
     assert "show-coinbase-credentials" in skill

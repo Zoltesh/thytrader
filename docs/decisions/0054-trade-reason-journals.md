@@ -85,6 +85,9 @@ The same `TradeReasonRecord` payload is returned by:
 - amended by [ADR 0081](0081-live-chrome-portfolio-bot-detail-trade.md): bot detail
   (`/deployments/{id}`) shows the same payload for that one deployment as a "Why it traded"
   timeline; no contract change
+- amended by [ADR 0087](0087-per-bar-decision-timeline.md): bot detail and the Why stage show a
+  per-bar Decisions timeline (`thytrader-bar-decision-v1`); each trade reason appears inside the bar
+  whose `intent_id` it explains instead of a separate list; the trade-reason contract is unchanged
 
 ### Persistence and ops contract
 

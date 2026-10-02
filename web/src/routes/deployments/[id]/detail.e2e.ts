@@ -1,3 +1,18 @@
+import type { Route } from '@playwright/test';
+import {
+	EARLIER_INTENT,
+	ENTRY_INTENT,
+	EXIT_INTENT,
+	at,
+	barDecision,
+	decisionPageBody,
+	everyOutcome,
+	filterByRequest,
+	mockTradeReasons,
+	requestedOutcomes,
+	tradeReason,
+	type Json
+} from '../../../e2e/decision-fixtures';
 import { expect, test } from '../../../e2e/harness';
 
 const deploymentId = '01a0ad72-0000-0000-0000-000000000000';
@@ -168,10 +183,24 @@ async function mockDetailRoutes(
 		/** Current record of the owning strategy (default: current rules = fingerprintA). */
 		record?: unknown;
 		inventory?: unknown[];
+		/** Decision journal answer (default: an empty page with storage available). */
+		decisions?: (route: Route) => Promise<void> | void;
 	} = {}
 ) {
 	await page.route(`**/api/v1/strategies/${strategyDraft.strategy_id}`, (route) =>
 		route.fulfill({ json: overrides.record ?? strategyRecord() })
+	);
+	await page.route(
+		(url) => url.pathname === `/api/v1/deployments/${deploymentId}/decisions`,
+		(route) =>
+			overrides.decisions
+				? overrides.decisions(route)
+				: route.fulfill({ json: { deployment_id: deploymentId, ...decisionPageBody([]) } })
+	);
+	// No trade reasons unless a test registers its own (later routes win).
+	await page.route(
+		(url) => url.pathname === '/api/v1/memory/trade-reasons',
+		(route) => route.fulfill({ json: { trade_reasons: [] } })
 	);
 	await page.route(`**/api/v1/deployments/${deploymentId}`, (route) =>
 		route.fulfill({ json: overrides.deployment ?? detailDeployment() })
@@ -1045,66 +1074,408 @@ test.describe('deployment detail', () => {
 		await expect(page.getByTestId('reset-breakers-button')).toHaveCount(0);
 	});
 
-	test('why it traded shows this bot trade reasons as a timeline with the history caveat', async ({
-		page
-	}) => {
-		await mockDetailRoutes(page);
-		const requested: string[] = [];
-		await page.route('**/api/v1/memory/trade-reasons**', (route) => {
-			requested.push(new URL(route.request().url()).searchParams.get('deployment_id') ?? '');
-			return route.fulfill({
-				json: {
-					trade_reasons: [
-						{
-							schema_version: 'thytrader-trade-reason-v1',
-							id: 'r-1',
-							created_at: '2026-09-21T20:00:05Z',
-							origin: 'runtime',
-							intent_id: 'i-1',
-							deployment_id: deploymentId,
-							deployment_kind: 'strategy',
-							mode: 'paper',
-							product_id: 'UNI-USDC',
-							purpose: 'entry',
-							side: 'buy',
-							strategy: null,
-							signal: {
-								kind: 'strategy_entry',
-								last_signal: 'matched',
-								candle_starts_at: '2026-09-21T18:00:00Z',
-								timeframe: '2h'
-							},
-							risk: {
-								decision: 'allow',
-								reason_code: 'within_limits',
-								detail: '',
-								policy_fingerprint: `sha256:${'7'.repeat(64)}`,
-								policy_source: 'published'
-							},
-							notes: [],
-							reconcile: {
-								order_id: 'o-1234567890',
-								order_status: 'filled',
-								filled_quantity: '5',
-								reject_reason: null,
-								unknown_timeout: false,
-								ledger_available: true,
-								fills: []
-							}
-						}
-					]
-				}
-			});
+	test('the decisions timeline lists every outcome kind newest first', async ({ page }) => {
+		const searches: string[] = [];
+		await mockDetailRoutes(page, {
+			decisions: (route) => {
+				searches.push(new URL(route.request().url()).search);
+				return route.fulfill({
+					json: { deployment_id: deploymentId, ...decisionPageBody(everyOutcome(deploymentId)) }
+				});
+			}
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		const why = page.getByTestId('why-it-traded');
-		await expect(why.getByTestId('latest-signal')).toContainText(
-			'No trade — conditions did not match'
+
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByRole('heading', { level: 2, name: 'Decisions' })).toBeVisible();
+		const rows = timeline.getByTestId('decision-row');
+		await expect(rows).toHaveCount(7);
+		await expect(timeline.getByTestId('decision-outcome')).toHaveText([
+			'Exit',
+			'Holding',
+			'Entry',
+			'Blocked',
+			'Skipped',
+			'No signal',
+			'Error'
+		]);
+		// Each row: bar close time (UTC), outcome chip, and the server's one-line reason.
+		await expect(rows.first()).toContainText('09-21 20:00');
+		await expect(rows.first().getByTestId('decision-summary')).toHaveText(
+			'Exit: take profit filled at 7.70'
 		);
-		await expect(why.getByTestId('trade-reason')).toContainText('Entry');
-		await expect(why.getByTestId('trade-reason')).toContainText('risk allow (within_limits)');
-		await expect(why.getByTestId('trade-reason')).toContainText('filled · 0 fills');
-		await expect(why).toContainText('Full per-bar decision history is not recorded yet');
-		expect(requested).toContain(deploymentId);
+		await expect(rows.nth(3).getByTestId('decision-summary')).toHaveText(
+			'Entry blocked by risk: portfolio exposure limit'
+		);
+		await expect(rows.nth(6)).toContainText('09-21 08:00');
+		// One product: rows do not repeat it.
+		await expect(timeline.getByTestId('decision-product')).toHaveCount(0);
+		// "All" sends no outcome parameter.
+		expect(searches[0]).toBe('?limit=50');
+		await expect(
+			timeline.getByTestId('decision-filter').getByRole('button', { name: 'All' })
+		).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('decision-retention-note')).toContainText(
+			"each bot's newest 20,000 decisions, up to 180 days"
+		);
+		await expect(page.getByText(/not recorded yet/)).toHaveCount(0);
+	});
+
+	test('decision filters send repeated outcome parameters', async ({ page }) => {
+		const requested: string[][] = [];
+		await mockDetailRoutes(page, {
+			decisions: (route) => {
+				requested.push(requestedOutcomes(route));
+				return route.fulfill({
+					json: {
+						deployment_id: deploymentId,
+						...decisionPageBody(filterByRequest(route, everyOutcome(deploymentId)))
+					}
+				});
+			}
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(7);
+
+		const filters = timeline.getByTestId('decision-filter');
+		await filters.getByRole('button', { name: 'Trades' }).click();
+		await expect(filters.getByRole('button', { name: 'Trades' })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await expect(timeline.getByTestId('decision-outcome')).toHaveText(['Exit', 'Entry']);
+		await filters.getByRole('button', { name: 'Blocked' }).click();
+		await expect(timeline.getByTestId('decision-outcome')).toHaveText(['Blocked']);
+		await filters.getByRole('button', { name: 'No signal' }).click();
+		await expect(timeline.getByTestId('decision-outcome')).toHaveText(['No signal']);
+		await filters.getByRole('button', { name: 'All' }).click();
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(7);
+		expect(requested).toEqual([[], ['entry_signal', 'exit'], ['entry_blocked'], ['no_signal'], []]);
+	});
+
+	test('an empty filter result names the filter, not a missing journal', async ({ page }) => {
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				route.fulfill({
+					json: {
+						deployment_id: deploymentId,
+						...decisionPageBody(
+							requestedOutcomes(route).length === 0 ? [barDecision(deploymentId)] : []
+						)
+					}
+				})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(1);
+		await timeline.getByTestId('decision-filter').getByRole('button', { name: 'Blocked' }).click();
+		await expect(timeline.getByTestId('decision-empty')).toHaveText(
+			'No blocked entries in the journaled decision history.'
+		);
+	});
+
+	test('expanding a row shows its rule chips, risk, orders, and its trade reason once', async ({
+		page
+	}) => {
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				route.fulfill({
+					json: { deployment_id: deploymentId, ...decisionPageBody(everyOutcome(deploymentId)) }
+				})
+		});
+		const reasonRequests = await mockTradeReasons(page, () => [
+			tradeReason(deploymentId, EXIT_INTENT, {
+				id: 'reason-tp',
+				created_at: '2026-09-21T19:41:05Z',
+				purpose: 'take_profit',
+				side: 'sell',
+				signal: {
+					kind: 'take_profit',
+					last_signal: null,
+					candle_starts_at: '2026-09-21T18:00:00Z',
+					timeframe: '2h'
+				},
+				notes: []
+			}),
+			tradeReason(deploymentId, ENTRY_INTENT),
+			tradeReason(deploymentId, EARLIER_INTENT, {
+				id: 'reason-old',
+				created_at: '2026-09-01T10:00:05Z',
+				signal: {
+					kind: 'strategy_entry',
+					last_signal: 'matched',
+					candle_starts_at: '2026-09-01T08:00:00Z',
+					timeframe: '2h'
+				},
+				notes: []
+			})
+		]);
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(7);
+		expect(reasonRequests).toContain(deploymentId);
+
+		// Reasons no row links are listed once, below; the linked ones are not.
+		const earlier = timeline.getByTestId('earlier-trade-reasons');
+		await expect(earlier.getByRole('heading', { name: 'Earlier trade reasons' })).toBeVisible();
+		await expect(earlier.getByTestId('trade-reason')).toHaveCount(1);
+		await expect(earlier.getByTestId('trade-reason')).toHaveAttribute(
+			'data-intent-id',
+			EARLIER_INTENT
+		);
+		await expect(timeline.locator(`[data-intent-id="${ENTRY_INTENT}"]`)).toHaveCount(0);
+
+		// The disclosure is a keyboard-operable button.
+		const entry = timeline.locator('[data-testid="decision-row"][data-outcome="entry_signal"]');
+		const toggle = entry.getByRole('button', { name: /Entry: RSI\(14\) 55\.20/ });
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await expect(entry.getByTestId('decision-detail')).toHaveCount(0);
+		await toggle.focus();
+		await page.keyboard.press('Enter');
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+		const detail = entry.getByTestId('decision-detail');
+		await expect(detail.getByTestId('decision-rule-outcome')).toContainText('Entry rule matched');
+		const group = detail.getByTestId('condition-group').first();
+		await expect(group).toHaveAttribute('data-group', 'all');
+		await expect(group).toContainText('ALL ✓');
+		const chips = detail.getByTestId('condition-chip');
+		await expect(chips).toHaveCount(3);
+		await expect(chips.nth(0)).toContainText('RSI(14) 55.2 ≥ 50 ✓');
+		await expect(chips.nth(0)).toHaveAttribute('data-result', 'true');
+		await expect(chips.nth(1)).toContainText(
+			'EMA(20) 7.051→7.123 crosses above EMA(50) 7.08→7.1 ✓'
+		);
+		await expect(detail.getByTestId('htf-chip')).toHaveText('HTF 4h filter matched ✓');
+		await expect(chips.nth(2)).toContainText('Close 7.12 > EMA(200) 6.9 ✓');
+		await expect(detail.getByTestId('decision-indicators')).toContainText('rsi_14');
+		await expect(detail.getByTestId('decision-indicators')).toContainText('47.21');
+		await expect(detail.getByTestId('decision-indicators')).toContainText('n/a');
+		await expect(detail.getByTestId('decision-risk')).toHaveText('Risk allowed (ALLOWED)');
+		await expect(detail.getByTestId('decision-action')).toContainText(
+			'Order submitted · intent 0199aaaa'
+		);
+		const orderRow = detail.getByTestId('decision-order');
+		await expect(orderRow).toHaveCount(1);
+		await expect(orderRow).toContainText('entry');
+		await expect(orderRow).toContainText('buy');
+		await expect(orderRow).toContainText('7.10');
+		await expect(orderRow).toContainText('filled');
+		await expect(detail.getByTestId('decision-fill')).toContainText('0.0355');
+		await expect(detail.getByTestId('decision-position')).toHaveText(
+			'long 5 @ 7.10 · stop 6.80 · target 7.70'
+		);
+		// The persisted trade reason of this bar's intent, merged in, not duplicated.
+		const merged = detail.getByTestId('decision-trade-reason');
+		await expect(merged).toHaveCount(1);
+		await expect(merged).toContainText('Entry · buy UNI-USDC');
+		await expect(merged).toContainText('Risk allow (within_limits)');
+		await expect(merged).toContainText('Order 0199bbbb · filled · 1 fill');
+		await expect(merged).toContainText('human: Breakout confirmed on volume.');
+		await expect(timeline.locator(`[data-intent-id="${ENTRY_INTENT}"]`)).toHaveCount(1);
+
+		// The exit's take-profit reason is owned by the bar its order filled on.
+		const exit = timeline.locator('[data-testid="decision-row"][data-outcome="exit"]');
+		await exit.getByRole('button', { name: /Exit: take profit/ }).click();
+		await expect(exit.getByTestId('decision-detail')).toContainText('Exit reason');
+		await expect(exit.getByTestId('decision-detail')).toContainText('take profit');
+		await expect(exit.getByTestId('decision-trade-reason')).toContainText('Take profit · sell');
+		await expect(timeline.locator(`[data-intent-id="${EXIT_INTENT}"]`)).toHaveCount(1);
+
+		// Risk denial with its code and detail.
+		const blocked = timeline.locator('[data-testid="decision-row"][data-outcome="entry_blocked"]');
+		await blocked.getByRole('button').first().click();
+		await expect(blocked.getByTestId('decision-risk')).toHaveText(
+			'Risk denied (MAX_PORTFOLIO_EXPOSURE) · Exposure would exceed 10% of equity.'
+		);
+		await expect(blocked.getByTestId('condition-group').first()).toContainText('ANY ✓');
+
+		// A failed comparison and an undefined one are labelled, not just colored.
+		const noSignal = timeline.locator('[data-testid="decision-row"][data-outcome="no_signal"]');
+		await noSignal.getByRole('button').first().click();
+		await expect(noSignal.getByTestId('condition-chip').first()).toContainText(
+			'RSI(14) 47.21 ≥ 50 ✗ (not met)'
+		);
+		const failed = timeline.locator('[data-testid="decision-row"][data-outcome="error"]');
+		await failed.getByRole('button').first().click();
+		await expect(failed.getByTestId('decision-rule-outcome')).toContainText(
+			'Entry rule could not be evaluated'
+		);
+		await expect(failed.getByTestId('condition-group').first()).toContainText('NOT ?');
+		await expect(failed.getByTestId('condition-chip').first()).toContainText(
+			'RSI(14) n/a ≥ 50 ? (unknown)'
+		);
+		const skipped = timeline.locator('[data-testid="decision-row"][data-outcome="skipped"]');
+		await skipped.getByRole('button').first().click();
+		await expect(skipped.getByTestId('decision-detail')).toContainText(
+			'Entry rules were not evaluated on this bar (cooldown after the last trade).'
+		);
+
+		// Collapsing hides the detail again.
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await expect(entry.getByTestId('decision-detail')).toHaveCount(0);
+	});
+
+	test('load more follows next_cursor and moves a reason into its row', async ({ page }) => {
+		const firstPage = everyOutcome(deploymentId).slice(0, 2);
+		const older = barDecision(deploymentId, {
+			...at(14),
+			outcome: 'entry_signal',
+			reason_code: 'SIGNAL_MATCHED',
+			summary: 'Entry: earlier breakout',
+			action: 'intent_created',
+			intent_id: EARLIER_INTENT
+		});
+		const searches: URLSearchParams[] = [];
+		await mockDetailRoutes(page, {
+			decisions: (route) => {
+				const params = new URL(route.request().url()).searchParams;
+				searches.push(params);
+				const body: Json =
+					params.get('cursor') === null
+						? decisionPageBody(firstPage, { next_cursor: 'cursor-2' })
+						: decisionPageBody([older]);
+				return route.fulfill({ json: { deployment_id: deploymentId, ...body } });
+			}
+		});
+		await mockTradeReasons(page, () => [
+			tradeReason(deploymentId, EARLIER_INTENT, { id: 'reason-old', notes: [] })
+		]);
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(2);
+		await expect(timeline.getByTestId('decision-pager')).toContainText(
+			'Showing 2 decisions · older decisions available'
+		);
+		// Until its row loads, the reason is listed once as an earlier trade reason.
+		await expect(
+			timeline.getByTestId('earlier-trade-reasons').getByTestId('trade-reason')
+		).toHaveCount(1);
+
+		await timeline.getByTestId('decision-load-more').click();
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(3);
+		expect(searches.map((params) => params.get('cursor'))).toEqual([null, 'cursor-2']);
+		expect(searches[1]?.get('limit')).toBe('50');
+		await expect(timeline.getByTestId('decision-load-more')).toHaveCount(0);
+		await expect(timeline.getByTestId('decision-pager')).toContainText(
+			'Showing 3 decisions · start of the journaled history'
+		);
+		// The loaded row now owns the reason: listed nowhere else.
+		await expect(timeline.getByTestId('earlier-trade-reasons')).toHaveCount(0);
+		const olderRow = timeline.getByTestId('decision-row').nth(2);
+		await olderRow.getByRole('button', { name: /Entry: earlier breakout/ }).click();
+		await expect(olderRow.getByTestId('decision-trade-reason')).toHaveCount(1);
+		await expect(timeline.locator(`[data-intent-id="${EARLIER_INTENT}"]`)).toHaveCount(1);
+	});
+
+	test('no durable storage is an honest empty state, not an error', async ({ page }) => {
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				route.fulfill({
+					json: {
+						deployment_id: deploymentId,
+						...decisionPageBody([], { storage: 'unavailable' })
+					}
+				})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-storage-unavailable')).toContainText(
+			'Decision history is unavailable: no durable storage'
+		);
+		await expect(timeline.getByRole('alert')).toHaveCount(0);
+		await expect(timeline.getByTestId('decision-row')).toHaveCount(0);
+		await expect(timeline.getByTestId('decision-error')).toHaveCount(0);
+	});
+
+	test('a failed decisions read is an error with retry, distinct from empty', async ({ page }) => {
+		let fail = true;
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				fail
+					? route.fulfill({ status: 503, json: { detail: 'Decision journal store failed.' } })
+					: route.fulfill({ json: { deployment_id: deploymentId, ...decisionPageBody([]) } })
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		const error = timeline.getByTestId('decision-error');
+		await expect(error).toContainText('Decision journal store failed.');
+		await expect(error).toHaveAttribute('role', 'alert');
+		fail = false;
+		await error.getByRole('button', { name: 'Retry' }).click();
+		await expect(timeline.getByTestId('decision-empty')).toHaveText(
+			'No decisions journaled yet. A row is recorded after each completed 2h bar is evaluated.'
+		);
+	});
+
+	test('the latest bar names when the next evaluation is due', async ({ page }) => {
+		await mockDetailRoutes(page);
+		await page.goto(`/deployments/${deploymentId}`);
+		const latest = page.getByTestId('kpi-latest-bar');
+		// The last evaluated 2h bar starts 20:00 (closed 22:00); the next one closes 00:00.
+		await expect(latest.getByTestId('next-evaluation')).toHaveText(
+			'Next evaluation ≈ 2026-09-22 00:00 UTC'
+		);
+
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({ last_evaluated_bar: null, last_signal: null })
+		});
+		await page.reload();
+		await expect(latest.getByTestId('next-evaluation')).toHaveText(
+			'Next evaluation ≈ after the next 2h bar closes'
+		);
+		await expect(latest).toContainText('Not evaluated yet');
+	});
+
+	test('a multi-instrument bot names the product on every decision row', async ({ page }) => {
+		const runtime = (productId: string) => ({
+			product_id: productId,
+			phase: 'flat',
+			last_evaluated_bar: '2026-09-21T20:00:00+00:00',
+			last_signal: 'not_matched',
+			pending_entry_bars: 0,
+			bars_held: 0,
+			cooldown_bars_remaining: 0
+		});
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				instrument_runtimes: [runtime('UNI-USDC'), runtime('ETH-USDC')]
+			}),
+			decisions: (route) =>
+				route.fulfill({
+					json: {
+						deployment_id: deploymentId,
+						...decisionPageBody([
+							barDecision(deploymentId, { product_id: 'ETH-USDC', summary: 'No trade: ETH' }),
+							barDecision(deploymentId)
+						])
+					}
+				})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		await expect(timeline.getByTestId('decision-product')).toHaveText(['ETH-USDC', 'UNI-USDC']);
+	});
+
+	test('mobile 390px keeps an expanded decision row without horizontal overflow', async ({
+		page
+	}) => {
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				route.fulfill({
+					json: { deployment_id: deploymentId, ...decisionPageBody(everyOutcome(deploymentId)) }
+				})
+		});
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`/deployments/${deploymentId}`);
+		const entry = page.locator('[data-testid="decision-row"][data-outcome="entry_signal"]');
+		await entry.getByRole('button').first().click();
+		await expect(entry.getByTestId('decision-detail')).toBeVisible();
+		const overflow = await page.evaluate(
+			() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+		);
+		expect(overflow).toBe(false);
 	});
 });

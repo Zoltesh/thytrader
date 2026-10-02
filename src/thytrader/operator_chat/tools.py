@@ -622,6 +622,41 @@ _TOOLS: tuple[ChatTool, ...] = (
         required=("deployment_id",),
     ),
     ChatTool(
+        name="runtime_decisions",
+        description=(
+            "Read-only per-bar decision timeline for one bot, newest first: outcome "
+            "(entry_signal, no_signal, holding, exit, entry_blocked, skipped, error), "
+            "a one-line reason, rule values versus thresholds, risk verdict, and linked "
+            "orders. Optional outcome filter and next_cursor paging."
+        ),
+        lane=ChatLane.RUNTIME,
+        method="GET",
+        path="/api/v1/deployments/{deployment_id}/decisions",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={
+            "deployment_id": _UUID,
+            "outcome": {
+                "type": "string",
+                "enum": [
+                    "entry_signal",
+                    "no_signal",
+                    "holding",
+                    "exit",
+                    "entry_blocked",
+                    "skipped",
+                    "error",
+                ],
+                "description": "Optional single outcome filter.",
+            },
+            "limit": _integer("Page size 1..200 (default 50)."),
+            "cursor": _opt_string("next_cursor from the previous page."),
+        },
+        required=("deployment_id",),
+    ),
+    ChatTool(
         name="runtime_start",
         description=(
             "Start paper or live from a strategy's current rules (by strategy_id). "

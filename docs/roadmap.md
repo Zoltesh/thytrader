@@ -444,6 +444,25 @@ Alembic `0032`.
 `uv run thytrader-memory list-trade-reasons` and `uv run thytrader-operator trade-reasons`; a later
 `--confirm` note appends without rewriting fills.
 
+## Per-bar decision timeline — ✅ Shipped
+
+Every paper and live strategy bot journals what it decided on each completed bar and why
+([ADR 0087](decisions/0087-per-bar-decision-timeline.md)): one `thytrader-bar-decision-v1` row per
+`(deployment_id, product_id, bar_starts_at)` (upserted, so restart replays never duplicate) with the
+outcome (`entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), the
+action and linked intent/orders/fills, the entry-rule tree with each leaf's values versus thresholds
+and the HTF filter (reusing the research `SignalTraceRecord`), the risk verdict, close price, and
+end-of-bar position. Journaling never blocks or alters trading and makes no exchange call; the
+worker keeps the newest 20,000 decisions per bot (one per bar and covered product) for at most 180 days. Surfaces:
+`GET /api/v1/deployments/{id}/decisions`, `GET /api/v1/strategies/{id}/decisions`, operator report
+kind `decisions`, read-only `thytrader-runtime decisions`, the chat tool `runtime_decisions`, the
+bot detail Decisions timeline, and the strategy Why stage. Ops contract
+`thytrader-ops-contract-v47` / Alembic `0053`.
+
+**Exit gate met:** each outcome is journaled from a real paper cycle; a failing or hung journal
+leaves trading identical and audits `decision_journal_write_failed`; PostgreSQL upserts are
+idempotent and retention is bounded.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`
@@ -519,6 +538,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Automation after deploy | Execution worker on closed bars | Same; no babysitting required |
 | Agent E2E | Six lane-separated skills plus playbook; YOLO `live` may skip `--confirm` on live start/pause/resume/stop ([ADR 0043](decisions/0043-yolo-live-skip-confirm.md)); YAML YOLO applies without restart ([ADR 0055](decisions/0055-yaml-settings-runtime-reloadable-yolo.md)); `--i-understand-live` remains | Primary surface complete for research, build, deploy, monitor, journal, notify (Phases 12–14, ADR 0030 / 0037 / 0043 / 0055). In-app operator chat is a separate destination row |
 | Trade-reason journals | Per-intent `thytrader-trade-reason-v1` with strategy snapshot identity, closed-bar signal, risk verdict, notes, and ledger facts on read ([ADR 0054](decisions/0054-trade-reason-journals.md)). Same payload for UI and operator reports | Richer review layout stays with workstation IA. Extra exchanges stay waiting |
+| Decision timeline | Per-bar `thytrader-bar-decision-v1` journal for every paper/live strategy bot: outcome, reason, rule values versus thresholds, risk verdict, linked orders, position; deployment and strategy HTTP pages, operator `decisions`, `thytrader-runtime decisions`, bot detail and Why timelines; ops contract v47 / Alembic 0053 ([ADR 0087](decisions/0087-per-bar-decision-timeline.md)) | Backtest per-bar explanations and alerts on outcomes are not built |
 | Experiential trainer | V1 fail-closed integer ranker over attributed local journals ([ADR 0049](decisions/0049-experiential-train-v1.md)); advisory research input only | Richer learners. Not a live brain |
 | In-app operator chat | Loopback `/chat` and `/api/v1/operator-chat`; user-pasted LLM key in the API process; closed catalog of gated skill-lane HTTP tools ([ADR 0051](decisions/0051-in-app-operator-chat.md)). Coinbase keys stay off this surface | Not a substitute for `ops/` skills. Extra exchanges stay waiting |
 | Workstation IA | Four-destination rail (Home, Strategies, Portfolio, Trade) plus a System group (Settings, Audit log, Journal, Memory & why-trade), ⌘K command palette, Agent side panel hosting operator chat on every page (`/chat` kept as full page), and light/dark design tokens ([ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md), superseding [ADR 0053](decisions/0053-workstation-ia-write-only-coinbase-credentials.md) in part). Each strategy has one workspace (Build · Test · Run · Why at `/strategies/{id}`, `/test`, `/run`, `/why`) with a library evidence pipeline, and a live preflight from existing endpoints ([ADR 0080](decisions/0080-per-strategy-workspace-build-test-run-why.md)); `/research`, `/deploy`, `/backtests` links redirect or show a chooser. Portfolio groups and filters bots with truthful per-mode capital totals, bot detail and Trade are recomposed, and a route-declared amber live strip and frame mark every live context ([ADR 0081](decisions/0081-live-chrome-portfolio-bot-detail-trade.md)). Home shows independently loading KPI tiles (portfolio value with 24h change, available quote and live-bot reservations, live exposure and protection, bot counts), a 1D/1W/1M/3M chart, Needs attention aggregated from bots, credentials and risk policy, watched datasets, and research jobs, Your bots, compact Holdings, the fee tier, and a Data health disclosure, all from existing endpoints ([ADR 0084](decisions/0084-home-kpis-needs-attention-data-health.md)) | Multi-strategy portfolios (sleeves with shared capital, portfolio backtest, manager agent) are not built. Keep those surfaces uncluttered. Do not weaken safety copy or confirmation. YAML/YOLO stays the ADR 0055 panel beside Coinbase credentials |

@@ -10,6 +10,10 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.backtest.models import BacktestPerformanceMetrics  # noqa: TC001
+from thytrader.execution.decisions import (  # noqa: TC001 - Pydantic field types.
+    BarDecision,
+    DecisionOutcome,
+)
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Pydantic field type.
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
@@ -36,6 +40,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "monitor",
     "studies",
     "trade_reasons",
+    "decisions",
     "support_bundle",
     "portfolio",
     "fees",
@@ -118,6 +123,7 @@ class OpsContractPayload(_FrozenModel):
     order_rate_limits: tuple[Literal["entry", "cancel"], ...]
     reference_price_collars: tuple[Literal["paper", "live"], ...]
     trade_reason_journals: tuple[Literal["paper", "live"], ...]
+    decision_journals: tuple[Literal["paper", "live"], ...]
     multi_instrument_documents: tuple[Literal["research", "paper", "live"], ...]
     intra_strategy_pyramiding: tuple[Literal["research", "paper", "live"], ...]
     lifecycle_commands: tuple[
@@ -556,6 +562,26 @@ class TradeReasonsReport(OperatorEnvelope):
 
     report_kind: Literal["trade_reasons"] = "trade_reasons"
     payload: TradeReasonsPayload
+
+
+class DecisionsPayload(_FrozenModel):
+    """Same per-bar decision records as the deployment/strategy decision HTTP pages."""
+
+    storage: Literal["available", "unavailable"]
+    deployment_id: UUID | None = None
+    strategy_id: UUID | None = None
+    outcomes: tuple[DecisionOutcome, ...] = ()
+    decisions: tuple[BarDecision, ...]
+    next_cursor: str | None = None
+    retention_max_rows_per_deployment: int = Field(ge=1)
+    retention_max_age_days: int = Field(ge=1)
+
+
+class DecisionsReport(OperatorEnvelope):
+    """Read-only per-bar decision timeline: what each bot decided on every bar, and why."""
+
+    report_kind: Literal["decisions"] = "decisions"
+    payload: DecisionsPayload
 
 
 class SupportBundlePayload(_FrozenModel):

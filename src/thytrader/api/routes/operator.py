@@ -13,6 +13,7 @@ from thytrader.api.dependencies import (
     get_backtest_result_store,
     get_database_engine,
     get_dataset_store,
+    get_decision_journal_store,
     get_execution_store,
     get_history_store,
     get_market_data_service,
@@ -28,6 +29,8 @@ from thytrader.api.dependencies import (
     get_user_order_feed_state_store,
     get_worker_heartbeat_store,
 )
+from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC001
+from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
@@ -40,6 +43,7 @@ from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
 from thytrader.operator.models import (
     ConfigurationReport,
     DataCatalogReport,
+    DecisionsReport,
     ExchangeReport,
     FeesReport,
     HealthReport,
@@ -91,6 +95,7 @@ def get_operator_diagnostics(
     user_order_feed: Annotated[UserOrderFeedStateStore, Depends(get_user_order_feed_state_store)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
     research_studies: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    decision_store: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -113,6 +118,7 @@ def get_operator_diagnostics(
         user_order_feed=user_order_feed,
         memory_store=memory_store,
         research_studies=research_studies,
+        decision_store=decision_store,
     )
 
 
@@ -260,6 +266,25 @@ async def get_operator_trade_reasons(
 ) -> TradeReasonsReport:
     """Return composed why-trade journals for human and agent review."""
     return await diagnostics.trade_reasons(intent_id=intent_id, deployment_id=deployment_id)
+
+
+@router.get("/decisions", response_model=DecisionsReport)
+async def get_operator_decisions(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    deployment_id: UUID | None = None,
+    strategy_id: UUID | None = None,
+    outcome: Annotated[list[DecisionOutcome] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=DECISION_PAGE_MAX_LIMIT)] = 50,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> DecisionsReport:
+    """Return per-bar decisions (newest first) for one bot, one strategy, or every bot."""
+    return await diagnostics.decisions(
+        deployment_id=deployment_id,
+        strategy_id=strategy_id,
+        outcomes=tuple(outcome or ()),
+        limit=limit,
+        cursor=cursor,
+    )
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

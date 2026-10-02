@@ -5,12 +5,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
+from functools import partial
 import logging
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import execution_audit_scope, record_execution_audit
 from thytrader.execution.capital import apply_venue_quote
+from thytrader.execution.decision_journal import (
+    PRUNE_INTERVAL,
+    decision_journal_scope,
+    observe_bar,
+    prune_decisions,
+    record_bar_decision,
+    record_gate_skip,
+)
+from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.freshness import signal_still_valid
 from thytrader.execution.geometry import base_currency, entry_bar_bucket
@@ -50,13 +60,14 @@ from thytrader.strategies.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from decimal import Decimal
     from uuid import UUID
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.broker import Broker
+    from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
@@ -120,6 +131,7 @@ async def run_execution_worker(
     settings_store: SettingsStore | None = None,
     venue_provider: Callable[[], ExecutionVenue] | None = None,
     audit_store: AuditEventStore | None = None,
+    decision_store: DecisionJournalStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown.
 
@@ -128,9 +140,12 @@ async def run_execution_worker(
     credential hot-swap takes effect between cycles and never mid-cycle.
     ``audit_store`` is bound for execution audit events (rejected/unconfirmed
     submits, recovery, user-feed pause transitions) for the whole cycle.
+    ``decision_store`` journals one decision per evaluated bar and is pruned on a
+    bounded schedule; journal failures never stop or alter a cycle (ADR 0087).
     """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
+    next_prune_at = datetime.now(UTC)
     try:
         while not stop_requested.is_set():
             if heartbeat_store is not None:
@@ -145,7 +160,7 @@ async def run_execution_worker(
                 cycle_market_data = venue.market_data
                 cycle_live_broker = venue.live_broker
                 cycle_quote_reader = venue.quote_reader
-            with execution_audit_scope(audit_store):
+            with execution_audit_scope(audit_store), decision_journal_scope(decision_store):
                 await _run_cycle(
                     store=store,
                     publication_store=publication_store,
@@ -157,6 +172,7 @@ async def run_execution_worker(
                     user_feed_store=user_feed_store,
                     memory_store=memory_store,
                 )
+                next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
             if wake_requested is not None:
                 wake_requested.clear()
             wait_seconds = (
@@ -170,6 +186,17 @@ async def run_execution_worker(
     finally:
         if on_readiness_changed is not None:
             on_readiness_changed(False)
+
+
+async def _prune_decisions_when_due(
+    decision_store: DecisionJournalStore | None, next_prune_at: datetime
+) -> datetime:
+    """Run one bounded decision-journal retention pass at startup and every 6 hours."""
+    now = datetime.now(UTC)
+    if decision_store is None or now < next_prune_at:
+        return next_prune_at
+    await prune_decisions(decision_store, now=now)
+    return now + PRUNE_INTERVAL
 
 
 async def _await_next_cycle(
@@ -257,13 +284,32 @@ async def _process_stopped(
         product, candles, _expected = await _closed_window(
             market_data, strategy, deploy_anchor=snapshot.deployment.created_at
         )
-        await flatten_stopped_residual(
+        if not candles:
+            await flatten_stopped_residual(
+                snapshot,
+                strategy=strategy,
+                product=product,
+                candles=candles,
+                broker=broker,
+                store=store,
+            )
+            return
+        await _journaled_bar(
             snapshot,
             strategy=strategy,
-            product=product,
-            candles=candles,
-            broker=broker,
-            store=store,
+            product_id=product.product_id,
+            candle=candles[-1],
+            allow_new_entries=False,
+            require_activity=True,
+            advance=partial(
+                flatten_stopped_residual,
+                snapshot,
+                strategy=strategy,
+                product=product,
+                candles=candles,
+                broker=broker,
+                store=store,
+            ),
         )
         return
     await cancel_risk_increasing_orders(snapshot, broker=broker, store=store)
@@ -274,13 +320,21 @@ async def _process_stopped(
         market_data, strategy, deploy_anchor=snapshot.deployment.created_at
     )
     if candles:
-        await maintain_open_inventory(
+        await _journaled_bar(
             snapshot,
             strategy=strategy,
-            product=product,
-            candles=candles,
-            broker=broker,
-            store=store,
+            product_id=product.product_id,
+            candle=candles[-1],
+            allow_new_entries=False,
+            advance=partial(
+                maintain_open_inventory,
+                snapshot,
+                strategy=strategy,
+                product=product,
+                candles=candles,
+                broker=broker,
+                store=store,
+            ),
         )
 
 
@@ -372,6 +426,14 @@ async def _advance_strategy(
         snapshot, timeframe=strategy.timeframe, store=store, user_feed_store=user_feed_store
     )
     if feed_paused:
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=lockstep_product_ids(strategy),
+            bar_starts_at=expected_last,
+            reason=DecisionSkipReason.USER_FEED_GATE,
+            detail=USER_FEED_PAUSE_DETAIL,
+        )
         if candles:
             await _maintain_between_bars(
                 snapshot,
@@ -395,13 +457,22 @@ async def _advance_strategy(
         bar_duration=interval.duration,
     )
     if due is None:
+        detail = "Market-data window is gapped or missing the latest closed bar."
         paused = with_runtime(
             deployment,
             updated_at=utc_now(),
             status=DeploymentStatus.PAUSED,
-            mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
+            mismatch_detail=detail,
         )
         await store.save_deployment(paused)
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=lockstep_product_ids(strategy),
+            bar_starts_at=expected_last,
+            reason=DecisionSkipReason.DATA_GAP,
+            detail=detail,
+        )
         await _maintain_between_bars(
             snapshot,
             strategy=strategy,
@@ -449,15 +520,22 @@ async def _advance_strategy(
         market_data, strategy, deploy_anchor=deployment.created_at
     )
     if htf_candles is None:
+        detail = "HTF market-data window is gapped or missing the latest completed HTF bar."
         paused = with_runtime(
             deployment,
             updated_at=utc_now(),
             status=DeploymentStatus.PAUSED,
-            mismatch_detail=(
-                "HTF market-data window is gapped or missing the latest completed HTF bar."
-            ),
+            mismatch_detail=detail,
         )
         await store.save_deployment(paused)
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=(product.product_id,),
+            bar_starts_at=due[-1].starts_at,
+            reason=DecisionSkipReason.DATA_GAP,
+            detail=detail,
+        )
         await _maintain_between_bars(
             snapshot,
             strategy=strategy,
@@ -516,6 +594,14 @@ async def _advance_multi_instrument(
         primary_candles=primary_candles,
     )
     if windows is None:
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=covered,
+            bar_starts_at=due[-1].starts_at,
+            reason=DecisionSkipReason.DATA_GAP,
+            detail="A covered product's market-data window is gapped.",
+        )
         await _maintain_between_bars(
             snapshot,
             strategy=strategy,
@@ -538,6 +624,14 @@ async def _advance_multi_instrument(
         deploy_anchor=deployment.created_at,
     )
     if overlays is None:
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=covered,
+            bar_starts_at=due[-1].starts_at,
+            reason=DecisionSkipReason.DATA_GAP,
+            detail="A covered product's HTF or indicator-timeframe window is gapped.",
+        )
         await _maintain_multi_between_bars(
             snapshot,
             strategy=strategy,
@@ -754,21 +848,29 @@ async def _evaluate_lockstep_bar(
                 policy=risk_policy,
             )
         ):
-            await process_closed_bar(
+            await _journaled_bar(
                 focused,
                 strategy=strategy,
-                product=product,
-                candles=window,
-                broker=broker,
-                store=scoped,
-                risk_policy=risk_policy,
-                portfolio=portfolio,
-                htf_candles=htf_by_product[product_id],
-                indicator_timeframe_candles=extra_by_product[product_id],
-                live_base_available=live_base_available,
-                marks=marks,
-                fee_profile=fee_profile,
+                product_id=product_id,
+                candle=bar,
                 allow_new_entries=allow_new_entries,
+                advance=partial(
+                    process_closed_bar,
+                    focused,
+                    strategy=strategy,
+                    product=product,
+                    candles=window,
+                    broker=broker,
+                    store=scoped,
+                    risk_policy=risk_policy,
+                    portfolio=portfolio,
+                    htf_candles=htf_by_product[product_id],
+                    indicator_timeframe_candles=extra_by_product[product_id],
+                    live_base_available=live_base_available,
+                    marks=marks,
+                    fee_profile=fee_profile,
+                    allow_new_entries=allow_new_entries,
+                ),
             )
         latest = await store.get_deployment(deployment_id)
         if latest.deployment.status is DeploymentStatus.STOPPED:
@@ -827,6 +929,14 @@ async def _evaluate_strategy_due_bars(
         deploy_anchor=deployment.created_at,
     )
     if extra_candles is None:
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=(product.product_id,),
+            bar_starts_at=due[-1].starts_at,
+            reason=DecisionSkipReason.DATA_GAP,
+            detail="Indicator-timeframe market-data window is gapped.",
+        )
         await _maintain_between_bars(
             snapshot,
             strategy=strategy,
@@ -873,6 +983,11 @@ async def _evaluate_strategy_due_bars(
             current_product_id=product.product_id,
             current_close=candle.close,
         )
+        allow_new_entries = _latest_due_bar_may_enter(
+            candle,
+            timeframe=strategy.timeframe,
+            is_latest=index == last_index,
+        )
         with trade_reason_scope(
             strategy_trade_reason_scope(
                 memory_store,
@@ -881,26 +996,87 @@ async def _evaluate_strategy_due_bars(
                 policy=risk_policy,
             )
         ):
-            await process_closed_bar(
+            await _journaled_bar(
                 current,
                 strategy=strategy,
-                product=product,
-                candles=window,
-                broker=broker,
-                store=store,
-                risk_policy=risk_policy,
-                portfolio=portfolio,
-                htf_candles=htf_candles,
-                indicator_timeframe_candles=extra_candles,
-                live_base_available=live_base_available,
-                marks=marks,
-                fee_profile=fee_profile,
-                allow_new_entries=_latest_due_bar_may_enter(
-                    candle,
-                    timeframe=strategy.timeframe,
-                    is_latest=index == last_index,
+                product_id=product.product_id,
+                candle=candle,
+                allow_new_entries=allow_new_entries,
+                advance=partial(
+                    process_closed_bar,
+                    current,
+                    strategy=strategy,
+                    product=product,
+                    candles=window,
+                    broker=broker,
+                    store=store,
+                    risk_policy=risk_policy,
+                    portfolio=portfolio,
+                    htf_candles=htf_candles,
+                    indicator_timeframe_candles=extra_candles,
+                    live_base_available=live_base_available,
+                    marks=marks,
+                    fee_profile=fee_profile,
+                    allow_new_entries=allow_new_entries,
                 ),
             )
+
+
+async def _journaled_bar(
+    before: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    product_id: str,
+    candle: Candle,
+    allow_new_entries: bool,
+    advance: Callable[[], Awaitable[DeploymentSnapshot]],
+    require_activity: bool = False,
+) -> DeploymentSnapshot:
+    """Run one closed-bar call and journal what it decided (ADR 0087).
+
+    The call runs exactly as without a journal. A bar that was already evaluated
+    (between-bar protection) is not journaled again. ``require_activity`` (flatten
+    passes, priced on the latest closed bar) journals only when the call created
+    intents or fills, even on an already evaluated bar. A raised call is journaled
+    as an error and re-raised unchanged.
+    """
+    if not require_activity and before.deployment.last_evaluated_bar == candle.starts_at:
+        return await advance()
+    with observe_bar() as observations:
+        try:
+            after = await advance()
+        except Exception as error:
+            await record_bar_decision(
+                strategy=strategy,
+                product_id=product_id,
+                candle=candle,
+                before=before,
+                after=None,
+                observations=observations,
+                allow_new_entries=allow_new_entries,
+                error=(
+                    f"closed-bar processing raised {type(error).__name__}; "
+                    "the cycle retries next interval"
+                ),
+            )
+            raise
+    if require_activity and not _bar_had_activity(before, after):
+        return after
+    await record_bar_decision(
+        strategy=strategy,
+        product_id=product_id,
+        candle=candle,
+        before=before,
+        after=after,
+        observations=observations,
+        allow_new_entries=allow_new_entries,
+    )
+    return after
+
+
+def _bar_had_activity(before: DeploymentSnapshot, after: DeploymentSnapshot) -> bool:
+    """Whether a closed-bar call created intents or recorded fills."""
+    return len(after.intents) != len(before.intents) or len(after.fills) != len(before.fills)
 
 
 async def _strategy_definition(
@@ -1097,13 +1273,23 @@ async def _maintain_between_bars(
             return
         snapshot, _fee_profile = prepared
         broker = live_broker
-    await maintain_open_inventory(
+    if not candles:
+        return
+    await _journaled_bar(
         snapshot,
         strategy=strategy,
-        product=product,
-        candles=candles,
-        broker=broker,
-        store=store,
+        product_id=product.product_id,
+        candle=candles[-1],
+        allow_new_entries=False,
+        advance=partial(
+            maintain_open_inventory,
+            snapshot,
+            strategy=strategy,
+            product=product,
+            candles=candles,
+            broker=broker,
+            store=store,
+        ),
     )
 
 
@@ -1141,13 +1327,21 @@ async def _maintain_multi_between_bars(
             continue
         scoped = InstrumentScopedStore(store, product_id)
         focused = await scoped.get_deployment(snapshot.deployment.id)
-        await maintain_open_inventory(
+        await _journaled_bar(
             focused,
             strategy=strategy,
-            product=product,
-            candles=candles,
-            broker=broker,
-            store=scoped,
+            product_id=product_id,
+            candle=candles[-1],
+            allow_new_entries=False,
+            advance=partial(
+                maintain_open_inventory,
+                focused,
+                strategy=strategy,
+                product=product,
+                candles=candles,
+                broker=broker,
+                store=scoped,
+            ),
         )
 
 

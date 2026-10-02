@@ -21,7 +21,7 @@ mutations always require `--confirm`; YOLO never covers that lane.
 
 ## `thytrader-operator`
 
-Read-only diagnostics: health, redacted configuration, exchange permissions, market-data freshness, strategy/runtime status, performance, reconciliation, and a redacted support bundle.
+Read-only diagnostics: health, redacted configuration, exchange permissions, market-data freshness, strategy/runtime status, the per-bar decision timeline (`decisions`), performance, reconciliation, and a redacted support bundle.
 
 - Skill: [`thytrader-operator/SKILL.md`](thytrader-operator/SKILL.md)
 - CLI: `uv run thytrader-operator` (HTTP by default; `--local` is explicit)
@@ -50,7 +50,8 @@ No paper, live, arming, or cancellation authority.
 ## `thytrader-runtime`
 
 Confirmation-gated paper and live deployment control, risk-policy publication, YAML non-secret
-settings (including YOLO), and write-only Coinbase credential show/set/clear. Live start also
+settings (including YOLO), and write-only Coinbase credential show/set/clear. Read-only `list`,
+`show`, and `decisions` (each bot's per-bar decision timeline) need no `--confirm`. Live start also
 requires `--i-understand-live`. YOLO `live` may skip `--confirm` on start/pause/resume/stop. Live
 place-order, publishing a risk policy, `set-settings`, and Coinbase credential set/clear still
 require `--confirm`. YOLO never covers credentials. Setting credentials does not arm live trading.
@@ -58,7 +59,7 @@ Not an extension of operator or research.
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
-- HTTP: `/api/v1/deployments`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`
+- HTTP: `/api/v1/deployments` (incl. `/{id}/decisions`), `/api/v1/strategies/{id}/decisions`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`
 
 ## `thytrader-playbook`
 

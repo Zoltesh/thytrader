@@ -1,7 +1,8 @@
 ---
 name: thytrader-runtime
 description: >-
-  Start, pause, resume, or stop ThyTrader paper and live deployments, publish
+  Start, pause, resume, or stop ThyTrader paper and live deployments, read
+  their per-bar decision timeline (read-only `decisions`), publish
   the risk-policy registry, and show/set/clear write-only Coinbase credentials,
   through the confirmation-gated thytrader-runtime CLI. Use when the user
   explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
@@ -94,6 +95,23 @@ or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an ag
 evidence. Open the `ops/` workspace instead of the git root. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
+## Decision timeline (read-only)
+
+`thytrader-runtime decisions UUID` answers "what did this bot decide on each bar, and why?" without
+logs ([ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)). It reads
+`GET /api/v1/deployments/{deployment_id}/decisions` (or, with `--strategy-id`,
+`GET /api/v1/strategies/{strategy_id}/decisions`, optionally narrowed by `deployment_id`), newest
+bar first. Each row is one completed bar of one covered product: `outcome` (`entry_signal`,
+`no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), a one-line `summary` such as
+`No trade: RSI(14) 47.21 needs ≥ 50`, the evaluated `rule` tree with leaf values versus thresholds
+(a lagged indicator reads `Highest(3, high) (1 bar ago)` with the lagged value), the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
+close price, and the end-of-bar position. Repeat `--outcome` to filter (trades are
+`--outcome entry_signal --outcome exit`; blocked entries are `--outcome entry_blocked`). Pass the
+response's `next_cursor` as `--cursor` for older bars. `storage: "unavailable"` means the API runs
+without a database. The journal keeps the newest 20,000 decisions per bot (at most 180 days); it never
+changes trading, and the same rows appear on the bot detail page and the strategy Why stage. The
+operator lane exposes the same records as `thytrader-operator decisions`.
+
 ## Starting by strategy id
 
 `start --strategy-id UUID` (HTTP `POST /api/v1/deployments` with `strategy_id`) starts from the
@@ -121,6 +139,8 @@ strategy are removed with it.
 |---|---|
 | List deployments | `uv run thytrader-runtime list` |
 | Show one snapshot | `uv run thytrader-runtime show UUID` |
+| Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
+| Decisions across a strategy's bots | `uv run thytrader-runtime decisions --strategy-id UUID [DEPLOYMENT_UUID] [--outcome entry_signal --outcome exit]` |
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
 | Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-id UUID --mode live --confirm --i-understand-live` |
@@ -144,7 +164,7 @@ strategy are removed with it.
 | Set Coinbase credentials | `uv run thytrader-runtime set-coinbase-credentials --api-key-name organizations/…/apiKeys/… --private-key-file ./coinbase.pem --confirm` |
 | Clear Coinbase credentials | `uv run thytrader-runtime clear-coinbase-credentials --confirm` |
 
-`list`, `show`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
+`list`, `show`, `decisions`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-QUOTE` (for example `BTC-USDC`, matching `--quote-currency`; USDC is the
 default quote) and `--allocation STRATEGY_UUID:QUOTE` may be repeated. `STRATEGY_UUID` is the
 strategy's `strategy_id` (not the `sha256:` fingerprint): read it from

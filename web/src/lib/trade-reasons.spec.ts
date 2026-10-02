@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TradeReasonRecord } from './memory';
 import {
+	mergeTradeReasonStates,
 	sortTradeReasons,
 	tradeReasonKindLabel,
 	tradeReasonNotesText,
@@ -88,5 +89,37 @@ describe('trade reason wording', () => {
 			reason({ id: 'new', created_at: '2026-09-29T00:00:00Z' })
 		]);
 		expect(sorted.map((item) => item.id)).toEqual(['new', 'old']);
+	});
+});
+
+describe('combined trade reason loads', () => {
+	it('waits for every part, then merges newest first without duplicates', () => {
+		const older = reason({ id: 'old', created_at: '2026-09-01T00:00:00Z' });
+		const newer = reason({ id: 'new', created_at: '2026-09-29T00:00:00Z' });
+		expect(mergeTradeReasonStates([])).toEqual({ status: 'ready', records: [] });
+		expect(
+			mergeTradeReasonStates([{ status: 'ready', records: [older] }, { status: 'loading' }])
+		).toEqual({ status: 'loading' });
+		expect(mergeTradeReasonStates([{ status: 'ready', records: [older] }, undefined])).toEqual({
+			status: 'loading'
+		});
+		const merged = mergeTradeReasonStates([
+			{ status: 'ready', records: [older] },
+			{ status: 'ready', records: [newer, older] }
+		]);
+		expect(merged.status === 'ready' ? merged.records.map((item) => item.id) : []).toEqual([
+			'new',
+			'old'
+		]);
+	});
+
+	it('names a failed part instead of presenting a partial list as complete', () => {
+		expect(
+			mergeTradeReasonStates([
+				{ status: 'ready', records: [reason()] },
+				{ status: 'error', message: 'Why-trade records are unavailable.' },
+				{ status: 'loading' }
+			])
+		).toEqual({ status: 'error', message: 'Why-trade records are unavailable.' });
 	});
 });

@@ -32,7 +32,8 @@ automatic snapshots, hard delete; ADR 0082), the explicit
 spot quote currencies, the market-data provider-history floor (``history_floor_at``,
 Alembic 0051), ranged backfill, explicit watched-only ingest, and the research
 watch-lookback ceilings (ADR 0085, Alembic 0052), the implemented indicator kinds or the
-operator ``indicators`` report shape, or indicator bar-lag (``offset``) evaluation change.
+operator ``indicators`` report shape, indicator bar-lag (``offset``) evaluation, or the
+per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087) change.
 """
 
 from __future__ import annotations
@@ -47,8 +48,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v46"
-EXPECTED_SCHEMA_REVISION = "0052"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v47"
+EXPECTED_SCHEMA_REVISION = "0053"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
@@ -98,6 +99,7 @@ RISK_BREAKERS: tuple[str, ...] = ("daily_loss", "drawdown")
 ORDER_RATE_LIMITS: tuple[str, ...] = ("entry", "cancel")
 REFERENCE_PRICE_COLLARS: tuple[str, ...] = ("paper", "live")
 TRADE_REASON_JOURNALS: tuple[str, ...] = ("paper", "live")
+DECISION_JOURNALS: tuple[str, ...] = ("paper", "live")
 MULTI_INSTRUMENT_DOCUMENTS: tuple[str, ...] = ("research", "paper", "live")
 INTRA_STRATEGY_PYRAMIDING: tuple[str, ...] = ("research", "paper", "live")
 LIFECYCLE_COMMANDS: tuple[str, ...] = ("none", "stop_new_entries", "flatten", "managed_shutdown")
@@ -125,6 +127,7 @@ def expected_ops_contract() -> dict[str, object]:
         "order_rate_limits": list(ORDER_RATE_LIMITS),
         "reference_price_collars": list(REFERENCE_PRICE_COLLARS),
         "trade_reason_journals": list(TRADE_REASON_JOURNALS),
+        "decision_journals": list(DECISION_JOURNALS),
         "multi_instrument_documents": list(MULTI_INSTRUMENT_DOCUMENTS),
         "intra_strategy_pyramiding": list(INTRA_STRATEGY_PYRAMIDING),
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),

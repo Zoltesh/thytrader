@@ -13,6 +13,7 @@ from thytrader import __version__
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.models import HealthReport
@@ -154,6 +155,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     trade_reasons.add_argument("--deployment-id", default=None)
     trade_reasons.add_argument("--intent-id", default=None)
+    _add_decisions_parser(subparsers, trailing)
     subparsers.add_parser(
         "studies",
         parents=[trailing],
@@ -187,12 +189,50 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_decisions_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Register the read-only per-bar decision timeline report."""
+    decisions = subparsers.add_parser(
+        "decisions",
+        parents=[trailing],
+        help=(
+            "Per-bar decision timeline (newest first): what each paper/live bot decided on "
+            "every completed bar and why. Filter by --deployment-id or --strategy-id."
+        ),
+    )
+    decisions.add_argument("--deployment-id", default=None, help="One bot's decisions.")
+    decisions.add_argument(
+        "--strategy-id", default=None, help="Decisions across one strategy's bots."
+    )
+    decisions.add_argument(
+        "--outcome",
+        action="append",
+        choices=tuple(item.value for item in DecisionOutcome),
+        default=None,
+        help="Repeatable outcome filter, e.g. --outcome entry_signal --outcome exit.",
+    )
+    decisions.add_argument(
+        "--limit", type=int, default=50, help=f"Page size 1..{DECISION_PAGE_MAX_LIMIT}."
+    )
+    decisions.add_argument("--cursor", default=None, help="next_cursor from the previous page.")
+
+
 async def _dispatch(
     diagnostics: OperatorDiagnostics,
     arguments: argparse.Namespace,
 ) -> OperatorEnvelope:
     """Run one read-only report from local stores."""
     command = arguments.command
+    if command == "decisions":
+        return await diagnostics.decisions(
+            deployment_id=_uuid_or_none(arguments.deployment_id),
+            strategy_id=_uuid_or_none(arguments.strategy_id),
+            outcomes=tuple(DecisionOutcome(item) for item in arguments.outcome or ()),
+            limit=arguments.limit,
+            cursor=arguments.cursor,
+        )
     if command == "market-data":
         return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
     if command == "products":
@@ -239,9 +279,11 @@ def _uuid_or_none(value: str | None) -> UUID | None:
     return UUID(value)
 
 
-def _query(arguments: argparse.Namespace) -> dict[str, str]:
+def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     """Collect optional GET query parameters for HTTP mode."""
-    query: dict[str, str] = {}
+    query: dict[str, str | tuple[str, ...]] = {}
+    if arguments.command == "decisions":
+        return _decision_query(arguments)
     product_id = getattr(arguments, "product_id", None)
     if isinstance(product_id, str) and product_id:
         query["product_id"] = product_id
@@ -257,6 +299,18 @@ def _query(arguments: argparse.Namespace) -> dict[str, str]:
     intent_id = getattr(arguments, "intent_id", None)
     if isinstance(intent_id, str) and intent_id:
         query["intent_id"] = intent_id
+    return query
+
+
+def _decision_query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
+    """Map decisions flags onto the operator route's query (repeated ``outcome``)."""
+    query: dict[str, str | tuple[str, ...]] = {"limit": str(arguments.limit)}
+    for key in ("deployment_id", "strategy_id", "cursor"):
+        value = getattr(arguments, key, None)
+        if isinstance(value, str) and value:
+            query[key] = value
+    if arguments.outcome:
+        query["outcome"] = tuple(arguments.outcome)
     return query
 
 

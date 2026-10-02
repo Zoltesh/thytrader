@@ -21,6 +21,7 @@ Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI default
 | GET | `/api/v1/operator/monitor` | `monitor` |
 | GET | `/api/v1/operator/studies` | `studies` |
 | GET | `/api/v1/operator/trade-reasons` | `trade_reasons` |
+| GET | `/api/v1/operator/decisions` | `decisions` |
 | GET | `/api/v1/operator/support-bundle` | `support_bundle` |
 | GET | `/api/v1/operator/portfolio` | `portfolio` |
 | GET | `/api/v1/operator/fees` | `fees` |
@@ -31,6 +32,7 @@ Query parameters:
 - `performance`: optional `result_fingerprint` (`sha256:` + 64 lowercase hex) or `deployment_id` (UUID)
 - `runtime`: optional `deployment_id` (UUID)
 - `trade-reasons`: optional `intent_id` (UUID) and/or `deployment_id` (UUID)
+- `decisions`: optional `deployment_id` (UUID) or `strategy_id` (UUID) (neither pages every bot), repeated `outcome` (`entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), `limit` 1..200 (default 50), and `cursor` (the previous page's `payload.next_cursor`)
 
 HTTP `200` means the diagnostics document was produced. Judge instance health from `overall_status`, not from the HTTP status code.
 

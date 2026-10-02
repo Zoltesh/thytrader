@@ -49,6 +49,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
 | Monitor | `uv run thytrader-operator monitor` | `GET /api/v1/operator/monitor` (deployments, recent journals, notify delivery; omits balances and webhook URLs) |
 | Why-trade review | `uv run thytrader-operator trade-reasons [--intent-id UUID] [--deployment-id UUID]` | `GET /api/v1/operator/trade-reasons` |
+| Decision timeline | `uv run thytrader-operator decisions [--deployment-id UUID \| --strategy-id UUID] [--outcome OUTCOME ...] [--limit N] [--cursor C]` | `GET /api/v1/operator/decisions` (per-bar `thytrader-bar-decision-v1` rows, newest first; repeated `outcome`; `next_cursor` paging) |
 | Performance | `uv run thytrader-operator performance --result-fingerprint sha256:…` or `--deployment-id UUID` | `GET /api/v1/operator/performance` |
 | Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` (registry identity, slot counts, breaker fractions/ints, pause/mismatch; omits balances) |
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` (every paused `mismatch_detail` is a `STATE_MISMATCH` finding whose `detail` is the mismatch text; split pending-entry state adds `FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`; a live order Coinbase reports FILLED with no List Fills rows (`Filled order has no REST fills.`) adds `FILLED_WITHOUT_FILL` next to `STATE_MISMATCH`; `unknown` orders add `UNKNOWN_ORDERS`; recent audit failures add `AUDIT_FAILURES`) |
@@ -89,6 +90,33 @@ For sizes, orders, and fills use `thytrader-runtime show` (`positions`, `instrum
 product-tagged orders/fills, `book_totals`). The singular HTTP `position` field is
 compatibility-only.
 
+## Decision timeline
+
+Every paper and live strategy bot journals one decision per completed bar and covered product
+([ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)). Use it to answer "why did (or
+didn't) this bot trade?" instead of reading logs:
+
+```bash
+uv run thytrader-operator decisions --deployment-id UUID
+uv run thytrader-operator decisions --deployment-id UUID --outcome entry_blocked
+uv run thytrader-operator decisions --strategy-id UUID --outcome entry_signal --outcome exit
+```
+
+Without a filter the report pages every bot newest first. Each row is a `thytrader-bar-decision-v1`
+record (see [report-schemas.md](references/report-schemas.md)): `outcome` is one of
+`entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, or `error`; `summary`
+is a one-line reason such as `No trade: RSI(14) 47.21 needs ≥ 50`; `rule` holds the evaluated
+entry tree (ALL/ANY/NOT plus each leaf's label, operator, both values, and `true`/`false`/`unknown`)
+and the HTF filter (labels mark another clock as `[4h]` and an indicator `offset` as `(1 bar ago)`;
+the value is the lagged one the runtime compared); `risk` is the risk or freshness verdict; `action`, `intent_id`, `orders`, and
+`fills` link what was sent; `skip_reason` (`cooldown`, `max_open_positions`, `warmup`,
+`pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`,
+`entries_disabled`) and `exit_reason` (`stop`, `trail`, `target`, `time`, `flatten`) name the
+cause. Values are exact Decimal strings. Pass `next_cursor` back as `--cursor` for older bars.
+The journal keeps the newest 20,000 decisions per bot for at most 180 days. `storage: unavailable`
+means the API has no database; it is not "no decisions". A bar is journaled only once it closes
+and is processed, so the newest bar lags the clock by up to one execution-worker interval.
+
 ## Portfolio vs deployment inventory
 
 Three read-only surfaces answer different questions. Do not conflate them.
@@ -119,8 +147,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v46`,
-   Alembic revision `0052`, `backtest_engine` `thytrader-backtest` (one unified backtest model;
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v47`,
+   Alembic revision `0053`, `decision_journals` `paper`/`live` (per-bar decision timeline;
+   [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
    [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
    [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
    deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
@@ -138,7 +167,7 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
-4. Gather only the extra report needed (market-data, strategies, runtime, performance, reconciliation, studies).
+4. Gather only the extra report needed (market-data, strategies, runtime, decisions, performance, reconciliation, studies).
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
    current contiguous island. Each row also carries a `watch_status` noun
    (`complete` / `backfilling` / `unknown`) so `worker_status=succeeded` — which describes the

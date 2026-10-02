@@ -430,6 +430,3 @@ export function latestSignalExplanation(deployment: Deployment): SignalExplanati
 			};
 	}
 }
-
-export const DECISION_HISTORY_NOTE =
-	'Only the latest completed-bar signal is kept per deployment. Full per-bar decision history is not recorded yet; trade reasons exist only for bars that persisted an order intent.';

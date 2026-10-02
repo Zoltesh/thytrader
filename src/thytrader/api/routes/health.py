@@ -36,6 +36,7 @@ class HealthOpsContract(BaseModel):
     order_rate_limits: list[str]
     reference_price_collars: list[str]
     trade_reason_journals: list[str]
+    decision_journals: list[str]
     multi_instrument_documents: list[str]
     intra_strategy_pyramiding: list[str]
     lifecycle_commands: list[str]

@@ -15,6 +15,17 @@ from thytrader.execution.attached import (
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError
 from thytrader.execution.capital import live_capital_base, live_sizing_cash, refresh_performance
+from thytrader.execution.decision_scope import (
+    decision_observation_active,
+    note_breaker,
+    note_entry_block,
+    note_entry_gate,
+    note_evaluation,
+    note_evaluation_error,
+    note_freshness,
+    note_risk,
+)
+from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.exit_guards import (
     BRACKET_NOT_RESTED_DETAIL,
     BRACKET_REPLACE_CANCEL_DETAIL,
@@ -66,7 +77,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import import_attached_children, ingest_order_fills
-from thytrader.execution.signals import evaluate_latest_entry, latest_atr, named_atr
+from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr, named_atr
 from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
@@ -102,6 +113,11 @@ if TYPE_CHECKING:
 
 _ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+_STALE_SIGNAL_VERDICT = RiskVerdict(
+    decision=RiskDecision.DENY,
+    reason_code=RiskReasonCode.SIGNAL_STALE,
+    detail="The closed signal bar is older than the maximum signal age; no entry was sent.",
+)
 
 
 async def maintain_open_inventory(
@@ -1560,6 +1576,31 @@ def _entry_attempt_mode(
     return None
 
 
+def _note_entry_gate(snapshot: DeploymentSnapshot) -> None:
+    """Journal why no entry was attempted, only when a decision journal is observing."""
+    if decision_observation_active():
+        note_entry_gate(_entry_skip_reason(snapshot))
+
+
+def _entry_skip_reason(snapshot: DeploymentSnapshot) -> DecisionSkipReason | None:
+    """Name why ``_entry_attempt_mode`` skipped this bar; journal-only, never gates trading.
+
+    Called only after ``_entry_attempt_mode`` returned None, so a FLAT book without
+    cooldown was refused by the document's concurrent-position cap. None means the
+    book is holding with protection working (nothing to name).
+    """
+    deployment = snapshot.deployment
+    if not entries_allowed(deployment):
+        return DecisionSkipReason.ENTRIES_DISABLED
+    if deployment.phase is RuntimePhase.FLAT:
+        if deployment.cooldown_bars_remaining > 0:
+            return DecisionSkipReason.COOLDOWN
+        return DecisionSkipReason.MAX_OPEN_POSITIONS
+    if deployment.phase is RuntimePhase.PENDING_ENTRY or _active_entry(snapshot) is not None:
+        return DecisionSkipReason.PENDING_ENTRY
+    return None
+
+
 async def _maybe_enter(
     snapshot: DeploymentSnapshot,
     *,
@@ -1577,9 +1618,13 @@ async def _maybe_enter(
     marks: Mapping[str, Decimal] | None = None,
     fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
-    """Place a post-only entry when flat, or a same-side add when pyramiding allows it."""
+    """Place a post-only entry when flat, or a same-side add when pyramiding allows it.
+
+    Decision-journal notes only record facts; every branch decides exactly as before.
+    """
     mode = _entry_attempt_mode(snapshot, strategy)
     if mode is None:
+        _note_entry_gate(snapshot)
         return snapshot
     pyramid_add = mode == "pyramid"
     deployment = snapshot.deployment
@@ -1592,9 +1637,14 @@ async def _maybe_enter(
             htf_timeframe=htf_filter.timeframe,
         )
     try:
-        outcome = evaluate_latest_entry(strategy, candles, visible_htf, indicator_timeframe_candles)
+        evaluation = evaluate_latest_entry_evidence(
+            strategy, candles, visible_htf, indicator_timeframe_candles
+        )
     except SignalEvaluationError as error:
+        note_evaluation_error(str(error))
         return await _pause(snapshot, store=store, detail=str(error))
+    note_evaluation(evaluation)
+    outcome = evaluation.outcome
     now = utc_now()
     signaled = with_runtime(
         deployment,
@@ -1615,6 +1665,7 @@ async def _maybe_enter(
         now=evaluated_at,
         current_quote=candle.close,
     ):
+        note_freshness(_STALE_SIGNAL_VERDICT)
         return snapshot
     fresh = entry_prerequisites(
         product=product,
@@ -1627,6 +1678,7 @@ async def _maybe_enter(
         ),
     )
     if fresh.decision is RiskDecision.DENY:
+        note_freshness(fresh)
         return snapshot
     if pyramid_add:
         if position is None:
@@ -1638,6 +1690,7 @@ async def _maybe_enter(
             mark=candle.close,
             add_count=position.add_count,
         ):
+            _note_pyramid_refusal(strategy)
             return snapshot
     return await _submit_sized_entry(
         snapshot,
@@ -1653,6 +1706,17 @@ async def _maybe_enter(
         marks=marks,
         is_pyramid_add=pyramid_add,
         fee_profile=fee_profile,
+    )
+
+
+def _note_pyramid_refusal(strategy: StrategyDefinition) -> None:
+    """Journal why a matched signal did not add to the open book."""
+    if strategy.entry.pyramiding is None:
+        note_entry_block("PYRAMID_DISABLED", "The strategy does not enable pyramiding.")
+        return
+    note_entry_block(
+        "PYRAMID_NOT_ALLOWED",
+        "Pyramiding rules refused this add (add limit reached or price not beyond entry).",
     )
 
 
@@ -1743,6 +1807,7 @@ async def _submit_sized_entry(
     """Size an entry or same-side add and rest a post-only order when policy allows it."""
     atr = latest_atr(strategy, candles)
     if atr is None:
+        note_entry_block("ATR_UNDEFINED", "The initial-stop ATR has no value on this bar.")
         return snapshot
     side = PositionSide(strategy.entry.side)
     open_side = entry_order_side(side)
@@ -1751,6 +1816,7 @@ async def _submit_sized_entry(
             broker, product_id=product.product_id, mark=candle.close, side=open_side
         )
     except BrokerError:
+        note_entry_block("MAKER_PRICE_UNAVAILABLE", "Maker entry price is unavailable.")
         return await _pause(snapshot, store=store, detail="Maker entry price is unavailable.")
     sized = _size_entry_or_add(
         snapshot,
@@ -1763,12 +1829,19 @@ async def _submit_sized_entry(
         fee_profile=fee_profile,
     )
     if sized is None:
+        note_entry_block(
+            "SIZING_UNAVAILABLE",
+            "Sizing produced no order (sizing cash unknown, below venue minimums, or zero).",
+        )
         return snapshot
     if (
         side is PositionSide.SHORT
         and snapshot.deployment.mode is DeploymentMode.LIVE
         and (live_base_available is None or live_base_available < sized.quantity)
     ):
+        note_entry_block(
+            "INSUFFICIENT_BASE_FOR_SPOT_SHORT", "Coinbase spot shorts require available base."
+        )
         return await _pause(
             snapshot,
             store=store,
@@ -1896,6 +1969,7 @@ def _entry_verdict(
     scope = current_trade_reason_scope()
     if scope is not None:
         scope.remember_risk(verdict)
+    note_risk(verdict)
     return verdict
 
 
@@ -2025,6 +2099,7 @@ async def _apply_circuit_breakers(
         return snapshot
     if not pauses_risk_increasing(verdict.reason_code):
         return snapshot
+    note_breaker(verdict)
     return await _pause_for_breaker(snapshot, store=store, portfolio=portfolio, verdict=verdict)
 
 

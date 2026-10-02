@@ -176,6 +176,10 @@ fill matching but blocks new entries; stop cancels resting orders. The worker re
 missed closed bars after downtime and pauses when the latest bar is missing or gapped. Sub-hour live
 pauses unless the authenticated user-order feed is connected. ATR trailing is durable on the
 position; live exits after fill are one Coinbase `trigger_bracket_gtc` OCO.
+Every bar it processes for a strategy bot is journaled as one `thytrader-bar-decision-v1` row
+(`bar_decisions`): outcome, reason, rule values versus thresholds, risk verdict, and linked orders.
+Journaling is bounded in time, never blocks or changes trading, and is pruned by the worker
+([ADR 0087](../decisions/0087-per-bar-decision-timeline.md)).
 
 Market-data ingestion is already split into its own supervised process so its filesystem publication,
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational

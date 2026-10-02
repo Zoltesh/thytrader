@@ -3,9 +3,11 @@
 	 * Bot detail (`/deployments/[id]`): one deployment running one rules
 	 * snapshot of its strategy (ADR 0082). Header (mode chip, rules pill,
 	 * lifecycle controls), an "earlier edit" notice with the guided update path
-	 * when the strategy changed since start, four KPI cards, orders & fills, why
-	 * it traded, then progressively disclosed capital, configuration, and
-	 * evidence. A kept live book of a deleted strategy says "(deleted strategy)".
+	 * when the strategy changed since start, four KPI cards (the latest bar names
+	 * when the next evaluation is due), the per-bar decision timeline with each
+	 * persisted trade reason joined onto its decision by intent, orders & fills,
+	 * then progressively disclosed capital, configuration, and evidence. A kept
+	 * live book of a deleted strategy says "(deleted strategy)".
 	 *
 	 * Lifecycle controls render only for a complete lifecycle contract and a
 	 * fresh snapshot; an unknown outcome or stale refresh disables them until a
@@ -17,9 +19,10 @@
 	import { resolve } from '$app/paths';
 	import { page as pageState } from '$app/state';
 	import EarlierEditNotice from '$lib/workspace/EarlierEditNotice.svelte';
+	import DecisionTimeline from '$lib/DecisionTimeline.svelte';
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
 	import Segmented from '$lib/Segmented.svelte';
-	import TradeReasonTimeline, { type TradeReasonState } from '$lib/TradeReasonTimeline.svelte';
+	import { DECISION_RETENTION_NOTE, nextEvaluationText } from '$lib/decisions';
 	import {
 		botTitle,
 		canOfferFlatten,
@@ -46,12 +49,7 @@
 	import { pnlOf, positionText, protectionText } from '$lib/deployment-portfolio';
 	import { declareLiveContext } from '$lib/live-context.svelte';
 	import { fetchTradeReasons } from '$lib/memory';
-	import {
-		DECISION_HISTORY_NOTE,
-		rulesLabel,
-		rulesState,
-		shortStrategyFingerprint
-	} from '$lib/strategy-workspace';
+	import { rulesLabel, rulesState, shortStrategyFingerprint } from '$lib/strategy-workspace';
 	import {
 		fetchStrategy,
 		toBuilderModel,
@@ -59,8 +57,9 @@
 		type StrategyRecord
 	} from '$lib/strategies';
 	import { formatUtcTimestamp } from '$lib/time';
-	import { sortTradeReasons } from '$lib/trade-reasons';
+	import { sortTradeReasons, type TradeReasonState } from '$lib/trade-reasons';
 	import {
+		canonicalBooks,
 		canonicalPositions,
 		fetchDeployment,
 		fetchDeploymentPerformance,
@@ -152,8 +151,11 @@
 	// Orders & fills share one card; the switch keeps each list's own paging.
 	let ledgerView = $state<'orders' | 'fills'>('orders');
 
-	// "Why it traded": persisted trade reasons for this deployment only.
+	// Persisted trade reasons for this deployment only; the decision timeline
+	// joins each onto its decision row by intent.
 	let reasons = $state<TradeReasonState | undefined>(undefined);
+	/** A multi-instrument bot journals one decision per product per bar. */
+	const multiProduct = $derived(current !== null && canonicalBooks(current).length > 1);
 	let reasonsRequest = 0;
 
 	async function loadReasons(): Promise<void> {
@@ -665,169 +667,174 @@
 				<h2 class="label">Latest bar</h2>
 				<p class="value small">{latestBarHeadline(current)}</p>
 				<p class="delta">{lastEvaluatedText(current)}</p>
+				{#if current.kind !== 'discretionary'}
+					<p class="delta" data-testid="next-evaluation">{nextEvaluationText(current)}</p>
+				{/if}
 			</article>
 		</section>
 
-		<div class="grid2">
-			<section class="card ledger" aria-labelledby="ledger-title">
-				<div class="card-head">
-					<h2 id="ledger-title">Orders &amp; fills</h2>
-					<Segmented
-						label="Show orders or fills"
-						options={[
-							{ id: 'orders', label: 'Orders' },
-							{ id: 'fills', label: 'Fills' }
-						]}
-						value={ledgerView}
-						onchange={(next) => (ledgerView = next)}
-						testId="ledger-switch"
-					/>
-				</div>
-				{#if ledgerView === 'orders'}
-					{#if orderError}
-						<p class="pad problem" role="status" data-testid="orders-error">
-							Order history could not be loaded ({orderError})
-							<button
-								type="button"
-								class="btn"
-								onclick={() => void loadOrdersPage(orderCursors[orderPageIndex], orderPageIndex)}
-							>
-								Retry
-							</button>
-						</p>
-					{:else if orderLoading && orderPage.rows.length === 0}
-						<p class="pad quiet" data-testid="orders-loading">Loading orders…</p>
-					{:else if orderPage.rows.length === 0}
-						<p class="pad quiet" data-testid="orders-empty">
-							No orders recorded for this deployment.
-						</p>
-					{:else}
-						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-						<div class="table-scroll" tabindex="0" role="region" aria-label="Order history">
-							<table>
-								<caption class="sr-only">Order history</caption>
-								<thead>
-									<tr>
-										<th scope="col">Time (UTC)</th>
-										<th scope="col">Product</th>
-										<th scope="col">Side</th>
-										<th scope="col">Type</th>
-										<th scope="col" class="num">Size</th>
-										<th scope="col" class="num">Price</th>
-										<th scope="col">Status</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each orderPage.rows as order (order.id)}
-										<tr>
-											<td class="mono muted">{formatUtcTimestamp(order.created_at).slice(5, 16)}</td
-											>
-											<td>{order.product_id || current.product_id}</td>
-											<td>{order.side}</td>
-											<td class="muted">{order.kind}</td>
-											<td class="num">{order.quantity}</td>
-											<td class="num">{order.price ?? '—'}</td>
-											<td class="muted"
-												>{order.status}{order.reject_reason ? ` · ${order.reject_reason}` : ''}</td
-											>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-						<div class="pager" data-testid="orders-pager">
-							<span>
-								Showing {orderPage.rows.length} order{orderPage.rows.length === 1 ? '' : 's'}
-								{orderPage.nextCursor !== null ? ' · more available' : ''}
-							</span>
-							<button
-								type="button"
-								disabled={orderLoading || orderPageIndex === 0}
-								onclick={() =>
-									void loadOrdersPage(orderCursors[orderPageIndex - 1], orderPageIndex - 1)}
-								>Previous</button
-							>
-							<button
-								type="button"
-								disabled={orderLoading || orderPage.nextCursor === null}
-								onclick={() =>
-									void loadOrdersPage(orderPage.nextCursor ?? undefined, orderPageIndex + 1)}
-							>
-								Next
-							</button>
-						</div>
-					{/if}
-				{:else if fillError}
-					<p class="pad problem" role="status" data-testid="fills-error">
-						Fill history could not be loaded ({fillError})
+		<section class="card why" aria-labelledby="why-title" data-testid="why-it-traded">
+			<div class="card-head"><h2 id="why-title">Decisions</h2></div>
+			<DecisionTimeline
+				source={{ kind: 'deployment', deploymentId: current.id }}
+				{reasons}
+				{multiProduct}
+				timeframe={current.timeframe}
+				discretionary={current.kind === 'discretionary'}
+			/>
+			<p class="history-note" data-testid="decision-retention-note">{DECISION_RETENTION_NOTE}</p>
+		</section>
+
+		<section class="card ledger" aria-labelledby="ledger-title">
+			<div class="card-head">
+				<h2 id="ledger-title">Orders &amp; fills</h2>
+				<Segmented
+					label="Show orders or fills"
+					options={[
+						{ id: 'orders', label: 'Orders' },
+						{ id: 'fills', label: 'Fills' }
+					]}
+					value={ledgerView}
+					onchange={(next) => (ledgerView = next)}
+					testId="ledger-switch"
+				/>
+			</div>
+			{#if ledgerView === 'orders'}
+				{#if orderError}
+					<p class="pad problem" role="status" data-testid="orders-error">
+						Order history could not be loaded ({orderError})
 						<button
 							type="button"
 							class="btn"
-							onclick={() => void loadFillsPage(fillCursors[fillPageIndex], fillPageIndex)}
+							onclick={() => void loadOrdersPage(orderCursors[orderPageIndex], orderPageIndex)}
 						>
 							Retry
 						</button>
 					</p>
-				{:else if fillLoading && fillPage.rows.length === 0}
-					<p class="pad quiet" data-testid="fills-loading">Loading fills…</p>
-				{:else if fillPage.rows.length === 0}
-					<p class="pad quiet" data-testid="fills-empty">No fills recorded for this deployment.</p>
+				{:else if orderLoading && orderPage.rows.length === 0}
+					<p class="pad quiet" data-testid="orders-loading">Loading orders…</p>
+				{:else if orderPage.rows.length === 0}
+					<p class="pad quiet" data-testid="orders-empty">
+						No orders recorded for this deployment.
+					</p>
 				{:else}
 					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div class="table-scroll" tabindex="0" role="region" aria-label="Fill history">
+					<div class="table-scroll" tabindex="0" role="region" aria-label="Order history">
 						<table>
-							<caption class="sr-only">Fill history</caption>
+							<caption class="sr-only">Order history</caption>
 							<thead>
 								<tr>
 									<th scope="col">Time (UTC)</th>
 									<th scope="col">Product</th>
+									<th scope="col">Side</th>
+									<th scope="col">Type</th>
 									<th scope="col" class="num">Size</th>
 									<th scope="col" class="num">Price</th>
-									<th scope="col" class="num">Fee</th>
+									<th scope="col">Status</th>
 								</tr>
 							</thead>
 							<tbody>
-								{#each fillPage.rows as fill (fill.id)}
+								{#each orderPage.rows as order (order.id)}
 									<tr>
-										<td class="mono muted">{formatUtcTimestamp(fill.filled_at).slice(5, 16)}</td>
-										<td>{fill.product_id || current.product_id}</td>
-										<td class="num">{fill.quantity}</td>
-										<td class="num">{fill.price}</td>
-										<td class="num">{fill.fee}</td>
+										<td class="mono muted">{formatUtcTimestamp(order.created_at).slice(5, 16)}</td>
+										<td>{order.product_id || current.product_id}</td>
+										<td>{order.side}</td>
+										<td class="muted">{order.kind}</td>
+										<td class="num">{order.quantity}</td>
+										<td class="num">{order.price ?? '—'}</td>
+										<td class="muted"
+											>{order.status}{order.reject_reason ? ` · ${order.reject_reason}` : ''}</td
+										>
 									</tr>
 								{/each}
 							</tbody>
 						</table>
 					</div>
-					<div class="pager" data-testid="fills-pager">
+					<div class="pager" data-testid="orders-pager">
 						<span>
-							Showing {fillPage.rows.length} fill{fillPage.rows.length === 1 ? '' : 's'}
-							{fillPage.nextCursor !== null ? ' · more available' : ''}
+							Showing {orderPage.rows.length} order{orderPage.rows.length === 1 ? '' : 's'}
+							{orderPage.nextCursor !== null ? ' · more available' : ''}
 						</span>
 						<button
 							type="button"
-							disabled={fillLoading || fillPageIndex === 0}
-							onclick={() => void loadFillsPage(fillCursors[fillPageIndex - 1], fillPageIndex - 1)}
+							disabled={orderLoading || orderPageIndex === 0}
+							onclick={() =>
+								void loadOrdersPage(orderCursors[orderPageIndex - 1], orderPageIndex - 1)}
 							>Previous</button
 						>
 						<button
 							type="button"
-							disabled={fillLoading || fillPage.nextCursor === null}
+							disabled={orderLoading || orderPage.nextCursor === null}
 							onclick={() =>
-								void loadFillsPage(fillPage.nextCursor ?? undefined, fillPageIndex + 1)}
+								void loadOrdersPage(orderPage.nextCursor ?? undefined, orderPageIndex + 1)}
 						>
 							Next
 						</button>
 					</div>
 				{/if}
-			</section>
-
-			<section class="card why" aria-labelledby="why-title" data-testid="why-it-traded">
-				<div class="card-head"><h2 id="why-title">Why it traded</h2></div>
-				<TradeReasonTimeline deployment={current} {reasons} />
-				<p class="history-note">{DECISION_HISTORY_NOTE}</p>
-			</section>
-		</div>
+			{:else if fillError}
+				<p class="pad problem" role="status" data-testid="fills-error">
+					Fill history could not be loaded ({fillError})
+					<button
+						type="button"
+						class="btn"
+						onclick={() => void loadFillsPage(fillCursors[fillPageIndex], fillPageIndex)}
+					>
+						Retry
+					</button>
+				</p>
+			{:else if fillLoading && fillPage.rows.length === 0}
+				<p class="pad quiet" data-testid="fills-loading">Loading fills…</p>
+			{:else if fillPage.rows.length === 0}
+				<p class="pad quiet" data-testid="fills-empty">No fills recorded for this deployment.</p>
+			{:else}
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+				<div class="table-scroll" tabindex="0" role="region" aria-label="Fill history">
+					<table>
+						<caption class="sr-only">Fill history</caption>
+						<thead>
+							<tr>
+								<th scope="col">Time (UTC)</th>
+								<th scope="col">Product</th>
+								<th scope="col" class="num">Size</th>
+								<th scope="col" class="num">Price</th>
+								<th scope="col" class="num">Fee</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each fillPage.rows as fill (fill.id)}
+								<tr>
+									<td class="mono muted">{formatUtcTimestamp(fill.filled_at).slice(5, 16)}</td>
+									<td>{fill.product_id || current.product_id}</td>
+									<td class="num">{fill.quantity}</td>
+									<td class="num">{fill.price}</td>
+									<td class="num">{fill.fee}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				<div class="pager" data-testid="fills-pager">
+					<span>
+						Showing {fillPage.rows.length} fill{fillPage.rows.length === 1 ? '' : 's'}
+						{fillPage.nextCursor !== null ? ' · more available' : ''}
+					</span>
+					<button
+						type="button"
+						disabled={fillLoading || fillPageIndex === 0}
+						onclick={() => void loadFillsPage(fillCursors[fillPageIndex - 1], fillPageIndex - 1)}
+						>Previous</button
+					>
+					<button
+						type="button"
+						disabled={fillLoading || fillPage.nextCursor === null}
+						onclick={() => void loadFillsPage(fillPage.nextCursor ?? undefined, fillPageIndex + 1)}
+					>
+						Next
+					</button>
+				</div>
+			{/if}
+		</section>
 
 		{#if positions.length > 0}
 			<section class="card" aria-labelledby="positions-title">

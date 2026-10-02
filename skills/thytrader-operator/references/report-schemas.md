@@ -3,7 +3,7 @@
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `support_bundle` \| `portfolio` \| `fees`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -71,6 +71,29 @@ The `monitor` payload is `thytrader-monitor-v1`: redacted memory status, deploym
 
 The `trade_reasons` payload is `thytrader-trade-reason-v1` rows: frozen strategy/signal/risk/notes plus ledger facts joined on read. Denied risk with no intent is absent. Notes are attributed; runtime cannot author them.
 
+The `decisions` payload ([ADR 0087](../../../docs/decisions/0087-per-bar-decision-timeline.md)) is
+`storage` (`available` / `unavailable`), the echoed `deployment_id` / `strategy_id` / `outcomes`
+filters, `decisions[]`, `next_cursor`, `retention_max_rows_per_deployment` (20000), and
+`retention_max_age_days` (180). Each row is a `thytrader-bar-decision-v1` record, one per
+`(deployment_id, product_id, bar_starts_at)`, identical to `GET /api/v1/deployments/{id}/decisions`:
+
+| Field | Meaning |
+|---|---|
+| `deployment_id`, `strategy_id`, `strategy_fingerprint`, `product_id`, `timeframe`, `mode` | Which bot, snapshot, product, clock, and `paper`/`live` book |
+| `bar_starts_at`, `bar_closes_at`, `evaluated_at` | The completed bar (UTC) and when the worker journaled it |
+| `outcome` | `entry_signal` (rule matched; see `action`), `no_signal`, `holding`, `exit`, `entry_blocked` (risk/freshness/sizing refused a matched rule), `skipped` (rule not evaluated), `error` |
+| `reason_code`, `summary` | Stable code (`SIGNAL_MATCHED`, `CONDITIONS_NOT_MET`, `HTF_FILTER_NOT_MET`, `HOLDING`, `EXIT_STOP`/`EXIT_TRAIL`/`EXIT_TARGET`/`EXIT_TIME`/`EXIT_FLATTEN`, a risk code such as `PRODUCT_NOT_ALLOWLISTED`, a skip code such as `COOLDOWN`, `EVALUATION_ERROR`, `CYCLE_ERROR`) and one human line |
+| `skip_reason` | `cooldown`, `max_open_positions`, `warmup`, `pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`, `entries_disabled`, or `null` |
+| `exit_reason` | `stop`, `trail`, `target`, `time`, `flatten`, or `null` |
+| `action`, `intent_id`, `order_ids`, `orders[]`, `fills[]` | `none` / `intent_created` / `order_submitted` / `order_canceled` / `repriced`, the primary intent, and orders/fills created, changed, or applied in this bar's window (a venue bracket filled between bars belongs to the next bar) |
+| `rule` | `outcome` (`matched`/`not_matched`/`undefined`), `entry` tree (`node` `all`/`any`/`not` with `children`, or `comparison` with `label`, `operator`, `operator_symbol`, `left`/`right` operands carrying `label`, `value`, `previous_value` for crossovers, and `result` `true`/`false`/`unknown`), optional `htf_filter` (`timeframe`, `outcome`, `condition`), and `signal` (the research `SignalTraceRecord`: `indicator_values[]`). `null` when the rule was not evaluated |
+| `risk` | `decision` `allow`/`deny`, `reason_code`, `detail` (risk gate, freshness, or breaker), or `null` |
+| `close_price`, `position` | Bar close and the end-of-bar book (`side`, `quantity`, `entry_price`, `stop_price`, `target_price`) |
+
+Decimals are exact strings. A paused bar's `skip_reason` names the gate (`data_gap`,
+`user_feed_gate`) when the pause came from one. Journaling never blocks trading: a failed write is
+audited as `decision_journal_write_failed` and that bar is simply absent.
+
 The `studies` payload reports `study_catalog: available|unavailable` plus newest-first catalog rows (`study_fingerprint`, `kind`, product, timeframe, window count, optional selected fingerprint / mean OOS return / stitched flag). It omits child windows and equity curves. Without PostgreSQL, `--local` is `STUDY_CATALOG_UNAVAILABLE` degraded rather than an empty healthy list. Studies do not grant paper or live authority.
 
 The `portfolio` payload matches `GET /api/v1/portfolio`: `as_of`, `demo`, `connection_status`, `permissions`, `total_value.{amount,currency}`, `assets[]`, `unvalued_assets`. It never includes credentials or account identifiers.
@@ -81,7 +104,7 @@ The `data_catalog` payload lists local verified Parquet datasets joined with the
 
 Health `components[]` may include `portfolio_history` (worker snapshot freshness). That component is not account balances and not deployment inventory; use the portfolio HTTP routes and runtime `show` respectively ([portfolio-research ops playbook](../../../docs/agent/portfolio-research-ops-playbook.md)).
 
-Health `payload.ops_contract` names the CLI/API content identity (`id`, `backtest_engine`, paper/live timeframes, `htf_filter_runtimes`, `indicator_timeframe_runtimes`, `indicator_offset_runtimes`, `indicator_kinds`, `position_sides`, `attached_entry_brackets`, `paper_deploy_fee_fields`, `experiential_model_engines`, `risk_breakers`, `order_rate_limits`, `reference_price_collars`, `trade_reason_journals`, `multi_instrument_documents`, `intra_strategy_pyramiding`, `lifecycle_commands`, `strategy_model`, `async_backtest_job_statuses`, `spot_quote_currencies`, `catalog_health`, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
+Health `payload.ops_contract` names the CLI/API content identity (`id`, `backtest_engine`, paper/live timeframes, `htf_filter_runtimes`, `indicator_timeframe_runtimes`, `indicator_offset_runtimes`, `indicator_kinds`, `position_sides`, `attached_entry_brackets`, `paper_deploy_fee_fields`, `experiential_model_engines`, `risk_breakers`, `order_rate_limits`, `reference_price_collars`, `trade_reason_journals`, `decision_journals`, `multi_instrument_documents`, `intra_strategy_pyramiding`, `lifecycle_commands`, `strategy_model`, `async_backtest_job_statuses`, `spot_quote_currencies`, `catalog_health`, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 
 The `products` payload lists enabled USD and USDC spot products. The `indicators` payload lists the 53 implemented kinds only ([ADR 0086](../../../docs/decisions/0086-indicator-catalog-expansion-and-offset.md)), in this order: ema, sma, rsi, atr, volume_sma, highest, lowest, stdev, stdev_sample, roc, williams_r, cci, wma, momentum, mfi, macd, bollinger, stochastic, adx, identity, constant, dema, tema, hma, kama, vwma, supertrend, parabolic_sar, aroon, ichimoku, vortex, linear_regression, trix, stochastic_rsi, ppo, ultimate_oscillator, awesome_oscillator, cmo, tsi, keltner, donchian, bollinger_percent_b, bollinger_bandwidth, natr, choppiness, historical_volatility, obv, cmf, accumulation_distribution, vwap, force_index, zscore, percent_rank. Each row carries `kind`, `label`, `category` (`trend`, `momentum`, `volatility`, `volume`, `statistical`, or `price`), a one-line `summary`, `inputs`, `input_mode` (`configurable`: author picks one of open/high/low/close/volume; `locked`: exactly `inputs` in that order; `none`: omit input), `default_input`, `parameter_kind`, `period_min`/`period_max` (bounds of the required integer parameters), `parameters` (each `name`, `label`, `value_type` `integer`/`decimal`, `minimum`, `maximum`, `exclusive_minimum`, builder `default`, `optional`, and one-line `help`; decimals are strings), `constraints` (ordering rules such as `fast_period < slow_period`), `outputs` (series names for multi-series kinds; empty for single-output), `warmup` (formula in parameter names), `default_warmup_bars`, `supports_timeframe`, and `supports_offset` (false only for `constant`). `parameter_kind` is one of `period`, `none`, `value`, `macd` (MACD and PPO), `bollinger` (Bollinger, %B, bandwidth), `stochastic`, `kama`, `supertrend`, `parabolic_sar`, `ichimoku`, `stochastic_rsi`, `ultimate_oscillator`, `awesome_oscillator`, `tsi`, `keltner`, `historical_volatility`, or `signal` (OBV and A/D). Unlisted kinds are not present. Optional per-indicator `timeframe` and bar-lag `offset` are strategy-document fields, not catalog rows; health `ops_contract.indicator_timeframe_runtimes` and `ops_contract.indicator_offset_runtimes` name research, paper, and live.
 
