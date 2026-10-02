@@ -78,7 +78,7 @@ def evaluate_new_deployment(
         allowlisted = _allowlist_verdict(policy, covered_product)
         if allowlisted.decision is RiskDecision.DENY:
             return allowlisted
-    allocated = _allocation_membership(policy, strategy_id)
+    allocated = _allocation_membership(policy, strategy_id, mode=mode)
     if allocated.decision is RiskDecision.DENY:
         return allocated
     if len(occupied) >= policy.max_concurrent_running_deployments:
@@ -107,7 +107,7 @@ def evaluate_new_entry(
         if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
     risk_bearing = risk_bearing_snapshots(snapshots, mode)
-    membership = _entry_membership(policy, proposed=proposed, occupied=occupied)
+    membership = _entry_membership(policy, mode=mode, proposed=proposed, occupied=occupied)
     if membership.decision is RiskDecision.DENY:
         return membership
     exposure = _exposure_verdict(
@@ -157,6 +157,7 @@ def evaluate_runtime_breakers(
 def _entry_membership(
     policy: RiskPolicyDefinition,
     *,
+    mode: DeploymentMode,
     proposed: ProposedEntry,
     occupied: Sequence[DeploymentSnapshot],
 ) -> RiskVerdict:
@@ -164,7 +165,7 @@ def _entry_membership(
     allowlisted = _allowlist_verdict(policy, proposed.product_id)
     if allowlisted.decision is RiskDecision.DENY:
         return allowlisted
-    allocated = _allocation_membership(policy, proposed.strategy_id)
+    allocated = _allocation_membership(policy, proposed.strategy_id, mode=mode)
     if allocated.decision is RiskDecision.DENY:
         return allocated
     if proposed.is_pyramid_add and not policy.allow_intra_strategy_pyramiding:
@@ -280,7 +281,8 @@ def _exposure_verdict(
             "Capital base is missing or non-positive; new entries are blocked.",
         )
     portfolio_cap = capital * Decimal(policy.max_portfolio_exposure_fraction)
-    if policy.max_portfolio_exposure_quote is not None:
+    # The absolute quote ceiling protects real money; paper is bounded by paper capital.
+    if policy.max_portfolio_exposure_quote is not None and mode is DeploymentMode.LIVE:
         portfolio_cap = min(portfolio_cap, Decimal(policy.max_portfolio_exposure_quote))
     if existing_total + proposed.notional > portfolio_cap:
         return _deny(
@@ -322,9 +324,17 @@ def _allowlist_verdict(policy: RiskPolicyDefinition, product_id: str) -> RiskVer
     )
 
 
-def _allocation_membership(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> RiskVerdict:
-    """When allocations exist, require a listed strategy; deny discretionary books."""
-    if not policy.allocations:
+def _allocation_membership(
+    policy: RiskPolicyDefinition, strategy_id: UUID | None, *, mode: DeploymentMode
+) -> RiskVerdict:
+    """When allocations exist, live requires a listed strategy and denies discretionary books.
+
+    Allocations reserve real capital, so membership gates LIVE only. Paper research is not
+    blocked by them: an unlisted paper strategy or discretionary paper book is allowed and
+    sized by paper capital, while a listed strategy's paper starting cash and exposure stay
+    bounded by its allocation (a rehearsal of the live reservation).
+    """
+    if not policy.allocations or mode is not DeploymentMode.LIVE:
         return _allow()
     if strategy_id is None:
         return _deny(

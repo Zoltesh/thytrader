@@ -201,3 +201,13 @@ policy-module slice and is left as a follow-up alongside the F16 broker work abo
   the audit's own fix text asks for a distinct "cancellation operational budget," and the existing
   cap already only ever gates a new entry, never the cancellation itself, so keeping it preserves a
   useful signal without contradicting the risk-reducing priority.
+
+## Amendment (2026-10-02): live-only allocation membership and absolute quote caps
+
+Allocations reserve real capital, and the absolute `max_daily_loss_quote` /
+`max_portfolio_exposure_quote` ceilings protect real money, so they now bind **live** only.
+In paper, an unlisted strategy or discretionary book is no longer denied when allocations
+exist (it is sized by `paper_capital_quote` and the fractional caps), and the absolute quote
+ceilings do not apply; a listed strategy's paper starting cash and exposure stay bounded by
+its allocation. Live keeps every gate unchanged. Motivation: a tight live allocation set must not
+block paper research across many markets.

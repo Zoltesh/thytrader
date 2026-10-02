@@ -110,10 +110,10 @@ def test_paper_capital_and_allowlist_and_allocation_denials() -> None:
     )
     unlisted = evaluate_new_deployment(
         policy,
-        mode=DeploymentMode.PAPER,
+        mode=DeploymentMode.LIVE,
         product_id="BTC-USD",
         strategy_id=_STRATEGY_B,
-        paper_starting_cash=Decimal("1000"),
+        paper_starting_cash=None,
         deployments=(),
     )
     assert capital.reason_code is RiskReasonCode.PAPER_CAPITAL_EXCEEDED
@@ -121,13 +121,55 @@ def test_paper_capital_and_allowlist_and_allocation_denials() -> None:
     assert unlisted.reason_code is RiskReasonCode.STRATEGY_NOT_ALLOCATED
     discretionary = evaluate_new_deployment(
         policy,
-        mode=DeploymentMode.PAPER,
+        mode=DeploymentMode.LIVE,
         product_id="BTC-USD",
         strategy_id=None,
-        paper_starting_cash=Decimal("1000"),
+        paper_starting_cash=None,
         deployments=(),
     )
     assert discretionary.reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED
+    over_allocation = evaluate_new_deployment(
+        policy,
+        mode=DeploymentMode.PAPER,
+        product_id="BTC-USD",
+        strategy_id=_STRATEGY_A,
+        paper_starting_cash=Decimal("13000"),
+        deployments=(),
+    )
+    assert over_allocation.reason_code is RiskReasonCode.ALLOCATION_EXCEEDED
+
+
+def test_allocations_gate_live_membership_but_not_paper_research() -> None:
+    """Allocations reserve real capital: they gate live membership but never paper research.
+
+    Unlisted paper strategies and paper discretionary books stay allowed (sized by paper
+    capital), while live keeps the strict membership gate.
+    """
+    policy = compiled_default_risk_policy().model_copy(
+        update={
+            "paper_capital_quote": "15000",
+            "allocations": (CapitalAllocation(strategy_id=_STRATEGY_A, allocated_quote="12000"),),
+        }
+    )
+    for strategy_id in (_STRATEGY_B, None):
+        verdict = evaluate_new_deployment(
+            policy,
+            mode=DeploymentMode.PAPER,
+            product_id="BTC-USD",
+            strategy_id=strategy_id,
+            paper_starting_cash=Decimal("1000"),
+            deployments=(),
+        )
+        assert verdict.decision is RiskDecision.ALLOW
+        entry = evaluate_new_entry(
+            policy,
+            mode=DeploymentMode.PAPER,
+            proposed=ProposedEntry(
+                product_id="BTC-USD", strategy_id=strategy_id, notional=Decimal("100")
+            ),
+            snapshots=(),
+        )
+        assert entry.decision is RiskDecision.ALLOW
 
 
 def test_entry_open_slot_and_exposure_caps() -> None:
@@ -270,11 +312,36 @@ def test_per_product_exposure_cap_is_independent_of_portfolio_cap() -> None:
 
 
 def test_absolute_portfolio_exposure_cap_binds_tighter_than_the_fraction() -> None:
-    """An absolute quote ceiling can deny even when the fractional cap has room (F25)."""
+    """An absolute quote ceiling can deny live even when the fractional cap has room (F25)."""
     policy = compiled_default_risk_policy().model_copy(
         update={"max_portfolio_exposure_quote": "500"}
     )
     verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.LIVE,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("600"),
+        ),
+        snapshots=(),
+        live_quote_cash=Decimal("10000"),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
+    allowed = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.LIVE,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("400"),
+        ),
+        snapshots=(),
+        live_quote_cash=Decimal("10000"),
+    )
+    assert allowed.decision is RiskDecision.ALLOW
+    paper = evaluate_new_entry(
         policy,
         mode=DeploymentMode.PAPER,
         proposed=ProposedEntry(
@@ -284,19 +351,7 @@ def test_absolute_portfolio_exposure_cap_binds_tighter_than_the_fraction() -> No
         ),
         snapshots=(),
     )
-    assert verdict.decision is RiskDecision.DENY
-    assert verdict.reason_code is RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED
-    allowed = evaluate_new_entry(
-        policy,
-        mode=DeploymentMode.PAPER,
-        proposed=ProposedEntry(
-            product_id="BTC-USD",
-            strategy_id=_STRATEGY_A,
-            notional=Decimal("400"),
-        ),
-        snapshots=(),
-    )
-    assert allowed.decision is RiskDecision.ALLOW
+    assert paper.decision is RiskDecision.ALLOW
 
 
 def test_live_deployment_requires_a_published_policy_not_the_compiled_default() -> None:

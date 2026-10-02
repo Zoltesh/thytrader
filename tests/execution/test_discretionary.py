@@ -327,8 +327,11 @@ async def test_timeout_reconciles_and_idempotent_retry_does_not_place_again() ->
 
 
 @pytest.mark.anyio
-async def test_allocations_deny_before_intent_persist() -> None:
-    """Nonempty allocations are a strategy allowlist; discretionary is fail-closed."""
+async def test_allocations_do_not_block_paper_discretionary_orders() -> None:
+    """Allocations reserve live capital only; a paper discretionary ticket still places.
+
+    Live discretionary denial under allocations is pinned in tests/risk/test_gate.py.
+    """
     store = InMemoryExecutionStore()
     risk = InMemoryRiskPolicyStore()
     await risk.publish(
@@ -338,17 +341,16 @@ async def test_allocations_deny_before_intent_persist() -> None:
             }
         )
     )
-    with pytest.raises(ExecutionConflictError, match="allocations"):
-        await place_discretionary_order(
-            store=store,
-            broker=PaperBroker(),
-            market_data=MarketDataService(DemoMarketData()),
-            request=_request(),
-            live_allowed=False,
-            risk_store=risk,
-        )
-    assert not store.intents
-    assert not store.deployments
+    snapshot = await place_discretionary_order(
+        store=store,
+        broker=PaperBroker(),
+        market_data=MarketDataService(DemoMarketData()),
+        request=_request(),
+        live_allowed=False,
+        risk_store=risk,
+    )
+    assert snapshot.deployment.id in store.deployments
+    assert store.intents
 
 
 @pytest.mark.anyio

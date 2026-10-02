@@ -56,9 +56,12 @@ It gates paper and live **entries** (not exits) with:
 - concurrent running-deployment and open-position caps per mode (paused occupies a running slot;
   open, pending-entry, and pending-exit occupy an open slot);
 - portfolio and per-product exposure fractions of the mode capital base;
-- paper book `paper_capital_quote` and optional per-strategy `allocations`;
+- paper book `paper_capital_quote` and optional per-strategy `allocations` (allocation
+  membership gates **live** only; a listed strategy's paper starting cash and exposure stay
+  bounded by its allocation, while unlisted paper strategies and paper discretionary books are
+  allowed);
 - UTC-day daily-loss fraction of the mode capital base, plus an optional absolute
-  `max_daily_loss_quote` ceiling enforced at whichever bound is tighter;
+  `max_daily_loss_quote` ceiling (live only) enforced at whichever bound is tighter;
 - per-strategy fill-ledger drawdown fraction;
 - rolling 60-second entry-order and cancellation caps, purpose-aware since ADR 0063: only
   `ENTRY`-purpose orders consume the entry cap, so protective (stop/take-profit/time-exit/bracket)
@@ -66,15 +69,16 @@ It gates paper and live **entries** (not exits) with:
 - an optional combined `max_venue_order_actions_per_minute` budget across entries and cancellations
   together, denying only new entries when the venue's overall recent request volume is high;
 - last-close reference-price collar for priced risk-increasing orders;
-- an optional absolute `max_portfolio_exposure_quote` ceiling alongside the portfolio exposure
-  fraction.
+- an optional absolute `max_portfolio_exposure_quote` ceiling (live only) alongside the portfolio
+  exposure fraction.
 
 Compiled default when no published row is active: eight running slots and eight open positions per
 mode, unit exposure and breaker fractions, 60 orders/cancels per minute, collar `0.5`, empty
 allowlist/allocations, paper book `100000`, and no absolute caps or venue budget set. This default
 is a wide **paper** research envelope; a published policy is required before it can arm live
 (above). Operator `risk` reports `available` and omits account balances (fractions and integers are
-allowed). Discretionary entries use this same registry; nonempty allocations deny them.
+allowed). Discretionary entries use this same registry; nonempty allocations deny live discretionary
+entries (paper discretionary tickets stay allowed).
 
 ### Shipped execution and runtime controls
 
