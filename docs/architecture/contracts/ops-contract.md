@@ -12,7 +12,7 @@ Current checkout (Alembic `0059`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v56` |
+| `id` | `thytrader-ops-contract-v57` |
 | `expected_schema_revision` | `0059` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
@@ -65,11 +65,13 @@ Current checkout (Alembic `0059`):
 | `strategy_library` | `tag_filter`, `bulk_delete_by_tag`, `clone_name` (ADR 0094) |
 | `portfolio_max_sleeves` | `32` (ADR 0094) |
 | `portfolio_sleeve_operations` | `batch_add` — `POST /api/v1/portfolios/{id}/sleeves/batch`, one revision (ADR 0094) |
+| `same_bar_exit_precedence` | `stop`, `take_profit`, `signal_exit`, `time_exit` — paper and the backtest resolve a same-bar exit tie in this order ([ADR 0097](../../decisions/0097-runtime-parity-and-observability.md)) |
+| `runtime_observability` | `position_state`, `exit_in_flight`, `paper_live_fill_comparison` — deployment/operator/sleeve position state beside the raw `phase`, and the operator `portfolios` twin fill comparison (ADR 0097) |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v56
+    id thytrader-ops-contract-v57
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -103,6 +105,8 @@ classDiagram
     strategy_library
     portfolio_max_sleeves
     portfolio_sleeve_operations
+    same_bar_exit_precedence
+    runtime_observability
     strategy_model
     portfolio_model
     portfolio_modes

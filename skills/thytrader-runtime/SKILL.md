@@ -178,7 +178,7 @@ semantics as the backtest. Paper fills the exit at that bar's close with the tak
 cancels the book's protection (the attached bracket, the OCO, or the stop-only `stop_limit`), then
 sends a marketable cover (intent purpose `signal_exit`), on the same race-safe path as time
 exits and flatten. When Coinbase accepts the cancel but has not finished it, the bot waits
-(`phase: pending_exit`, no pause) and the next cycle sells; it never re-rests protection in
+(`phase: pending_exit`, `position_state: exiting`, no pause) and the next cycle sells; it never re-rests protection in
 between. The position shows `signal_exit_bar` (the bar whose rule matched) until it is flat, which
 survives restarts. The protective stop still wins a same-bar tie, and pause or managed shutdown
 keep these risk-reducing exits running. A failed exit-rule evaluation (for example missing
@@ -216,6 +216,37 @@ gate on an alt. References are never traded: orders only go to the traded instru
 - Multi-instrument documents (ADR 0056) apply one reference gate to every covered product on the
   shared bar. Portfolio sleeves need nothing else.
 
+## Position state: open and protected vs exiting
+
+Read `position_state` and `exit_in_flight`, not the raw `phase`, to tell what a book is doing
+([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). The worker sets
+`phase: pending_exit` as soon as any exit order works, including the TP/SL bracket (or the
+stop-only `stop_limit`, or the paper take-profit) resting right after entry, so `pending_exit`
+alone does **not** mean the bot is selling. `list` / `show` return `position_state` and
+`exit_in_flight` on the deployment and on every `positions[]` row; `portfolio-status` sleeve bots
+carry them too:
+
+| `position_state` | Meaning |
+| --- | --- |
+| `flat` | No inventory. |
+| `entering` | An entry rests; no inventory yet. |
+| `open_protected` | Open, protection resting (TP/SL bracket, stop-only protection, or the paper synthetic stop plus any resting TP). |
+| `open_unprotected` | Live inventory with no verified resting protection (see `protection_status`). |
+| `open_unverified` | Live protection is unreconciled (`protection_status: unknown`). |
+| `exiting` | The exit is in flight: a working marketable exit, a matched signal exit (`signal_exit_bar`), or a flatten. |
+
+`exit_in_flight` is true only for `exiting`. A deployment takes its worst book (exiting, then
+unprotected, then unverified, then protected). Open paper books that are not exiting are always
+`open_protected`: the worker enforces the stop on every closed bar.
+
+## Same-bar exits (paper equals the backtest)
+
+When one closed bar makes several exits due, paper takes the same one the backtest does
+(ops contract `same_bar_exit_precedence`): the protective stop (at its pre-trail level), then a
+take-profit the bar touched, then the signal exit, then the time exit. On the fill bar only the
+stop is eligible. A bar that trades through the stop exits as `stop` even when `max_bars_held` is
+also reached on that bar. Live brackets rest on Coinbase and resolve there.
+
 ## Portfolios
 
 A portfolio ([ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md),
@@ -242,7 +273,8 @@ no new entries, exits and protection continue; managed stop by default, flatten 
 is HTTP 409 `portfolio_not_deployed` / `portfolio_sleeve_not_deployed`. `portfolio-status` (read-only)
 returns `state` (`not_deployed`, `running`, `partially_running`, `paused`, `stopped`), one
 `sleeves[]` row per sleeve whose `deployment` field is that sleeve's bot (`deployment_id`, `status`,
-`phase`, `lifecycle_command`, `net_pnl`, `exposure_quote`, `open_books`, …) or `null` before the
+`phase`, `position_state`, `exit_in_flight`, `lifecycle_command`, `net_pnl`, `exposure_quote`,
+`open_books`, …) or `null` before the
 sleeve starts, the breaker, and exposure against the caps.
 
 Portfolio limits bind every sleeve: new entries must fit `max_total_exposure_fraction` and

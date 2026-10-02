@@ -631,6 +631,30 @@ deterministic, and the paper/live fake loop fails closed on stale and missing re
 **Deferred:** cross-instrument orders (pairs, spreads), references in another quote currency,
 reference indicators inside `htf_filter`, and auto-adding the reference watch at deployment start.
 
+## Runtime parity and observability polish — ✅ Shipped
+
+Paper and live twins exposed four gaps ([ADR 0097](decisions/0097-runtime-parity-and-observability.md)).
+Shipped:
+
+- Paper resolves a same-bar exit tie exactly like the backtest: stop, then a touched TP, then the
+  signal exit, then the time exit. A bar that trades through the stop no longer exits as a time
+  exit at its close. A parity test covers every combination.
+- `position_state` (`open_protected` vs `exiting`, plus `flat`, `entering`, `open_unprotected`,
+  `open_unverified`) and `exit_in_flight` sit beside the raw `phase` on deployments, positions,
+  operator rows and books, and portfolio sleeves. The UI reads "Open · protected (TP/SL resting)"
+  instead of `pending_exit`.
+- `submit-study --async` waits 30 s for the API's 202 (`--submit-timeout-seconds` overrides it).
+- The operator `portfolios` report compares paper/live twins' entry fills: entries rested, filled,
+  and expired, fill against the limit, and time to fill.
+
+Ops contract `thytrader-ops-contract-v57`; Alembic stays `0059`.
+
+**Exit gate met:** parity tests prove the backtest and paper take the same exit, on the same bar, at
+the same price for every same-bar combination.
+
+**Deferred:** an explicit paper/live link (twins match by snapshot fingerprint), the fill
+comparison in the Portfolio UI, and moving study planning into the research worker.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

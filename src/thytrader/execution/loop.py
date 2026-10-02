@@ -762,9 +762,14 @@ async def _exit_trail_and_protect(
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
     reference_candles: Mapping[str, Sequence[Candle]] | None,
 ) -> DeploymentSnapshot:
-    """Evaluate the exit rule, apply the paper stop first, then mark or trail, and protect."""
+    """Evaluate the exit rule, apply the paper stop first, then mark or trail, and protect.
+
+    Paper follows the backtest's same-bar precedence (ADR 0083, ADR 0093): the protective
+    stop, then a touched take-profit (matched before this runs), then the signal exit, then
+    the time exit. The stop is checked against the pre-trail level even when the time exit
+    is also due on this bar, so a bar that trades through the stop never exits at its close.
+    """
     live = snapshot.deployment.mode is DeploymentMode.LIVE
-    timed_out = snapshot.deployment.bars_held >= strategy.exits.time_exit.max_bars_held
     snapshot, signal_matched = await _evaluate_signal_exit(
         snapshot,
         strategy=strategy,
@@ -778,7 +783,7 @@ async def _exit_trail_and_protect(
     position = snapshot.position
     if position is None:
         return snapshot
-    if not live and (signal_matched or not timed_out):
+    if not live:
         stopped = await _paper_stop_exit_if_hit(
             snapshot,
             strategy=strategy,

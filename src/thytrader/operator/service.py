@@ -35,7 +35,13 @@ from thytrader.execution.models import (
     snapshot_positions,
     visible_instrument_runtimes,
 )
-from thytrader.execution.protection import book_protection_status
+from thytrader.execution.protection import (
+    PositionState,
+    book_exit_in_flight,
+    book_position_state,
+    book_protection_status,
+    deployment_position_state,
+)
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
 from thytrader.market_data.freshness import (
@@ -2136,8 +2142,10 @@ def _deployment_summary(
 ) -> DeploymentSummary:
     """Project one deployment without cash or quantities."""
     ledger = None
+    state: PositionState | None = None
     if snapshot is not None:
         ledger = ledger_from_snapshot(snapshot)
+        state = deployment_position_state(snapshot)
     return DeploymentSummary(
         deployment_id=deployment.id,
         kind=deployment.kind.value,
@@ -2149,6 +2157,8 @@ def _deployment_summary(
         mode=deployment.mode.value,
         status=deployment.status.value,
         phase=deployment.phase.value,
+        position_state=None if state is None else state.value,
+        exit_in_flight=None if state is None else state is PositionState.EXITING,
         product_id=deployment.product_id,
         last_evaluated_bar=deployment.last_evaluated_bar,
         mismatch_present=bool(deployment.mismatch_detail),
@@ -2218,6 +2228,12 @@ def _book_summaries(
                 protection_status=book_protection_status(
                     snapshot, product_id=runtime.product_id, position=position
                 ).value,
+                position_state=book_position_state(
+                    snapshot, product_id=runtime.product_id, position=position, phase=runtime.phase
+                ).value,
+                exit_in_flight=book_exit_in_flight(
+                    snapshot, product_id=runtime.product_id, position=position
+                ),
             )
         )
     return tuple(rows)

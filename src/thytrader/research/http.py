@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 # A synchronous submit waits server-side for at most ``research_sync_wait_seconds``
 # (default 25 s) and then answers 202 with the job, so the client allows a margin.
 _SYNC_SUBMIT_TIMEOUT_SECONDS = 60.0
+# The API plans the study and auto-binds its datasets before it queues the job, which can
+# take well over 5 s on a large sweep; the study still persists, so a short client timeout
+# only turned a success into an alarming "ambiguous submit" error.
+ASYNC_SUBMIT_TIMEOUT_SECONDS = 30.0
 _MAX_TAG_PAGES = 100
 _BULK_COUNTS = ("deleted", "would_delete", "blocked", "not_found", "failed")
 
@@ -363,8 +367,13 @@ def submit_study(
     request: ResearchStudyStartRequest,
     *,
     async_submission: bool = False,
+    timeout_seconds: float | None = None,
 ) -> str:
-    """POST one composed research study through the research API."""
+    """POST one composed research study through the research API.
+
+    ``timeout_seconds`` overrides the client wait: 30 s for an async submit (the API
+    plans and binds datasets before queueing) and 60 s for a synchronous one.
+    """
     url = f"{base_url}/api/v1/research/studies"
     if async_submission:
         url = f"{url}?async=true"
@@ -374,7 +383,13 @@ def submit_study(
                 method="POST",
                 url=url,
                 payload=request.model_dump(mode="json"),
-                timeout=5.0 if async_submission else _SYNC_SUBMIT_TIMEOUT_SECONDS,
+                timeout=(
+                    timeout_seconds
+                    if timeout_seconds is not None
+                    else ASYNC_SUBMIT_TIMEOUT_SECONDS
+                    if async_submission
+                    else _SYNC_SUBMIT_TIMEOUT_SECONDS
+                ),
             ),
             "submit-study response",
         )

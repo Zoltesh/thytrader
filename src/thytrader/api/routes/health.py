@@ -72,6 +72,8 @@ class HealthOpsContract(BaseModel):
     strategy_library: list[str]
     portfolio_max_sleeves: int
     portfolio_sleeve_operations: list[str]
+    same_bar_exit_precedence: list[str]
+    runtime_observability: list[str]
     expected_schema_revision: str
 
 

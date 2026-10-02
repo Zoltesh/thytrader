@@ -14,6 +14,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 from pydantic import BaseModel, Field
 
 from thytrader.execution.models import DeploymentMode
+from thytrader.execution.protection import PositionState, deployment_position_state
 from thytrader.portfolios.deployment import (
     PortfolioDeploymentState,
     daily_pnl,
@@ -49,7 +50,19 @@ class SleeveDeploymentResponse(BaseModel):
     strategy_id: UUID | None
     strategy_name: str | None
     status: str
-    phase: str
+    phase: str = Field(
+        description="Raw worker phase; pending_exit includes resting TP/SL protection."
+    )
+    position_state: str | None = Field(
+        default=None,
+        description=(
+            "flat, entering, open_protected, open_unprotected, open_unverified, or exiting "
+            "(ADR 0097); null when the sleeve's book was not read."
+        ),
+    )
+    exit_in_flight: bool | None = Field(
+        default=None, description="True only while an exit is being sent (ADR 0097)."
+    )
     lifecycle_command: str
     mismatch_detail: str | None
     allocated_capital: str | None
@@ -298,12 +311,15 @@ def sleeve_deployment(
         else portfolio_exposure(deployment.portfolio_id, (snapshot,)).total
     )
     drawdown = sleeve_drawdown(deployment)
+    state = None if snapshot is None else deployment_position_state(snapshot)
     return SleeveDeploymentResponse(
         deployment_id=deployment.id,
         strategy_id=deployment.strategy_id,
         strategy_name=deployment.strategy_name,
         status=deployment.status.value,
         phase=deployment.phase.value,
+        position_state=None if state is None else state.value,
+        exit_in_flight=None if state is None else state is PositionState.EXITING,
         lifecycle_command=deployment.lifecycle_command.value,
         mismatch_detail=deployment.mismatch_detail,
         allocated_capital=_optional(deployment.allocated_capital),

@@ -258,6 +258,36 @@ describe('portfolio rows', () => {
 		});
 	});
 
+	it('reads a resting TP/SL as open and protected, not as exiting (ADR 0097)', () => {
+		const resting = portfolioRow(
+			deployment({
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [{ ...openLong, position_state: 'open_protected', exit_in_flight: false }]
+			}),
+			index
+		);
+		expect(resting.protection).toBe('Stop 61902 · TP 66432 · Open · protected (TP/SL resting)');
+		const stopOnly = portfolioRow(
+			deployment({
+				positions: [{ ...openLong, target_price: null, position_state: 'open_protected' }]
+			}),
+			index
+		);
+		expect(stopOnly.protection).toBe('Stop 61902 · TP none · Open · protected (stop resting)');
+		const exiting = portfolioRow(
+			deployment({
+				position_state: 'exiting',
+				positions: [
+					{ ...openLong, position_state: 'exiting', exit_in_flight: true },
+					{ ...openLong, product_id: 'ETH-USDC', position_state: 'open_protected' }
+				]
+			}),
+			index
+		);
+		expect(exiting.protection).toBe('Exiting');
+	});
+
 	it('shows — for unknown PnL and flags an incomplete lifecycle contract', () => {
 		const partial = deployment({ product_id: 'UNI-USD' });
 		delete (partial as Partial<Deployment>).revision;

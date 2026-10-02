@@ -561,6 +561,36 @@ test.describe('deployment detail', () => {
 		await expect(table.getByRole('cell', { name: '5' })).toBeVisible();
 	});
 
+	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				exit_in_flight: false,
+				positions: [
+					{
+						product_id: 'UNI-USDC',
+						quantity: '5',
+						entry_price: '10',
+						stop_price: '9',
+						target_price: '12',
+						entered_bar: '2026-09-21T20:00:00+00:00',
+						side: 'long',
+						protection_status: 'covered',
+						position_state: 'open_protected',
+						exit_in_flight: false
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText('Open · protected (TP/SL resting)');
+		await expect(page.getByTestId('kpi-position')).toContainText(
+			'Open · protected (TP/SL resting)'
+		);
+		await expect(page.getByTestId('kpi-position')).not.toContainText('Exiting');
+	});
+
 	test('lifecycle controls disappear when the contract is incomplete', async ({ page }) => {
 		const partial = detailDeployment();
 		delete (partial as Record<string, unknown>).lifecycle_command;

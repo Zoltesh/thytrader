@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v56`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v57`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -230,6 +230,22 @@ the same routes and its Manager tab shows proposals with Approve / Decline / Ask
 
 `thytrader-portfolio deployment` and `thytrader-runtime portfolio-status` return `state` plus one
 `sleeves[]` row per sleeve; each row's `deployment` field is that sleeve's bot
-(`deployment_id`, `status`, `phase`, `lifecycle_command`, `allocated_capital`, `net_pnl`,
-`return_fraction`, `drawdown_fraction`, `exposure_quote`, `open_books`, `strategy_fingerprint`,
-`running_current_rules`) or `null` before the sleeve is started.
+(`deployment_id`, `status`, `phase`, `position_state`, `exit_in_flight`, `lifecycle_command`,
+`allocated_capital`, `net_pnl`, `return_fraction`, `drawdown_fraction`, `exposure_quote`,
+`open_books`, `strategy_fingerprint`, `running_current_rules`) or `null` before the sleeve is
+started. Describe a sleeve's book by `position_state`
+([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)): `open_protected`
+means open with its TP/SL (or stop) resting, even though `phase` reads `pending_exit`; only
+`exiting` (`exit_in_flight: true`) means the bot is selling.
+
+### Paper vs live fills
+
+`thytrader-operator portfolios` (`GET /api/v1/operator/portfolios`) adds
+`paper_live_fill_comparisons[]`. Each row pairs the newest paper book and the newest live book that
+run the same strategy snapshot (equal `strategy_fingerprint`, whether sleeves or standalone bots).
+It reports each side's `entries_rested`, `entries_filled`, `entries_expired`, `entries_rejected`,
+`entries_working`, `average_fill_vs_limit_bps` (positive means worse than the limit), and
+`average_seconds_to_fill` / `median_seconds_to_fill`. Paper fills only when a closed candle trades
+through the limit, so its waits run to the fill bar's close. Live waits end at the Coinbase fill,
+which is often seconds. Use the comparison to explain why a live sleeve entered and its paper twin
+did not (or entered later). Do not treat the gap as a fault. The report is read-only.

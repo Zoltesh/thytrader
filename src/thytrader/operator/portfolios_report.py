@@ -4,19 +4,24 @@ Read-only. Lists every portfolio (bounded) with its sleeves and their issues, th
 allocation and largest single asset against ``max_per_asset_fraction``, the stored limits
 and manager settings, the deployment state (not deployed, running, partially running,
 paused, stopped), a latched portfolio breaker, the pending manager proposals, the newest
-stored portfolio backtest, and queued/running backtest jobs.
+stored portfolio backtest, and queued/running backtest jobs. It also compares the entry
+fills of paper and live books bound to the same strategy snapshot (ADR 0097).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
+from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
 from thytrader.execution.models import ExecutionStoreError
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
+    EntryFillDigest,
+    PaperLiveFillComparison,
     PortfolioBacktestDigest,
     PortfolioDigest,
     PortfolioSleeveDigest,
@@ -33,15 +38,20 @@ from thytrader.portfolios.models import (
     sleeve_issues,
 )
 from thytrader.portfolios.rules import allocation_summary
+from thytrader.research.indicators import canonical_decimal
 from thytrader.research.jobs import ResearchJobStatus
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from thytrader.execution.fill_comparison import EntryFillStats, PaperLiveTwin
     from thytrader.execution.models import Deployment
     from thytrader.execution.store import ExecutionStore
     from thytrader.portfolios.models import PortfolioAggregate
     from thytrader.portfolios.store import PortfolioStorage
 
 REPORT_LIMIT = 100
+TWIN_LIMIT = 10
 _ACTIVE = (ResearchJobStatus.QUEUED, ResearchJobStatus.RUNNING)
 _IDLE = frozenset({"not_deployed", "stopped"})
 
@@ -64,6 +74,7 @@ async def build_portfolios_report(
     )
     if page.total > len(digests):
         warnings.append(f"Showing the first {len(digests)} of {page.total} portfolios.")
+    comparisons = await _fill_comparisons(execution, deployments, warnings)
     blocked = [
         f"{digest.name}: {sleeve.strategy_name}"
         for digest in digests
@@ -84,8 +95,75 @@ async def build_portfolios_report(
             portfolio_backtest_contract=PORTFOLIO_BACKTEST_CONTRACT,
             total=page.total,
             portfolios=digests,
+            paper_live_fill_comparisons=comparisons,
         ),
     )
+
+
+async def _fill_comparisons(
+    execution: ExecutionStore | None,
+    deployments: tuple[Deployment, ...],
+    warnings: list[str],
+) -> tuple[PaperLiveFillComparison, ...]:
+    """Compare entry fills of the newest paper/live twins; unreadable twins are skipped."""
+    if execution is None:
+        return ()
+    by_id = {item.id: item for item in deployments}
+    rows: list[PaperLiveFillComparison] = []
+    for twin in paper_live_twins(deployments, limit=TWIN_LIMIT):
+        try:
+            paper = await execution.get_deployment(twin.paper_deployment_id)
+            live = await execution.get_deployment(twin.live_deployment_id)
+        except ExecutionStoreError:
+            warnings.append(f"Fill comparison for {twin.strategy_fingerprint} is unavailable.")
+            continue
+        rows.append(
+            _comparison(
+                twin,
+                paper=_fill_digest(entry_fill_stats(paper), by_id),
+                live=_fill_digest(entry_fill_stats(live), by_id),
+            )
+        )
+    return tuple(rows)
+
+
+def _comparison(
+    twin: PaperLiveTwin, *, paper: EntryFillDigest, live: EntryFillDigest
+) -> PaperLiveFillComparison:
+    """One twin pair with both sides' entry-fill digests."""
+    return PaperLiveFillComparison(
+        strategy_fingerprint=twin.strategy_fingerprint,
+        strategy_id=twin.strategy_id,
+        strategy_name=twin.strategy_name,
+        product_id=twin.product_id,
+        paper=paper,
+        live=live,
+    )
+
+
+def _fill_digest(stats: EntryFillStats, by_id: dict[UUID, Deployment]) -> EntryFillDigest:
+    """Render one side's stats with canonical decimal strings."""
+    deployment = by_id.get(stats.deployment_id)
+    return EntryFillDigest(
+        deployment_id=stats.deployment_id,
+        portfolio_id=None if deployment is None else deployment.portfolio_id,
+        status=stats.status,
+        entries_rested=stats.entries_rested,
+        entries_filled=stats.entries_filled,
+        entries_expired=stats.entries_expired,
+        entries_rejected=stats.entries_rejected,
+        entries_working=stats.entries_working,
+        average_fill_vs_limit_bps=_rounded(stats.average_fill_vs_limit_bps, "0.01"),
+        average_seconds_to_fill=_rounded(stats.average_seconds_to_fill, "0.1"),
+        median_seconds_to_fill=_rounded(stats.median_seconds_to_fill, "0.1"),
+    )
+
+
+def _rounded(value: Decimal | None, step: str) -> str | None:
+    """Quantize for display and render canonically (no exponent, no trailing zeros)."""
+    if value is None:
+        return None
+    return canonical_decimal(value.quantize(Decimal(step)))
 
 
 def _component(
