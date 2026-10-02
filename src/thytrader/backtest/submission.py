@@ -49,6 +49,7 @@ from thytrader.strategies.models import (
     lockstep_product_ids,
     unbound_indicator_timeframes,
 )
+from thytrader.strategies.snapshots import StrategyDatasetMismatchError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -216,6 +217,8 @@ class PostgresBacktestSubmitter:
             )
         except BacktestSubmissionRejectedError:
             raise
+        except StrategyDatasetMismatchError as error:
+            raise BacktestSubmissionRejectedError(str(error)) from error
         except Exception as error:
             raise BacktestSubmissionError("Backtest submission is unavailable.") from error
         return BacktestSubmissionResult(

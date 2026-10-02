@@ -78,11 +78,13 @@ from thytrader.strategies.library import (
 from thytrader.strategies.models import (
     StrategyDefinition,
     canonical_strategy_bytes,
+    covered_product_ids,
     expanded_data_requirements,
     strategy_fingerprint,
 )
 from thytrader.strategies.snapshots import (
     StrategyDatasetBinding,
+    StrategyDatasetMismatchError,
     StrategySnapshot,
     StrategySnapshotError,
 )
@@ -723,7 +725,12 @@ def _verify_compatible_dataset(
     dataset_fingerprint: str,
     dataset_store: DatasetStore,
 ) -> None:
-    """Verify immutable dataset availability and strategy identity compatibility."""
+    """Verify immutable dataset availability and strategy identity compatibility.
+
+    A multi-instrument document (ADR 0056) runs the same timeframes on every covered
+    product, so a dataset matches when its product is any covered product and its
+    timeframe is one the document reads.
+    """
     try:
         manifest = dataset_store.load_manifest(dataset_fingerprint)
     except (DatasetStoreError, OSError, ValueError) as error:
@@ -731,15 +738,20 @@ def _verify_compatible_dataset(
             "Immutable dataset could not be verified for strategy binding."
         ) from error
     definition = snapshot.definition
+    allowed_products = covered_product_ids(definition)
     allowed_timeframes = {
         requirement.timeframe for requirement in expanded_data_requirements(definition)
     }
     if (
         manifest.provider != "coinbase"
-        or manifest.product_id != definition.instrument.product_id
+        or manifest.product_id not in allowed_products
         or manifest.timeframe not in allowed_timeframes
     ):
-        raise StrategySnapshotError("Verified dataset identity does not match the strategy.")
+        raise StrategyDatasetMismatchError(
+            f"Dataset {manifest.product_id} {manifest.timeframe} ({manifest.provider}) does not "
+            f"match the strategy: it covers {', '.join(allowed_products)} on "
+            f"{', '.join(sorted(allowed_timeframes))} (coinbase)."
+        )
 
 
 def _validate_fingerprint(value: str, *, label: str) -> None:

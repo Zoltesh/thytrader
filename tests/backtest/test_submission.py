@@ -21,6 +21,7 @@ from thytrader.backtest.submission import (
 from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.publication import ResearchRunPublicationError
+from thytrader.strategies.snapshots import StrategyDatasetMismatchError
 
 
 class _NoIoStrategyStore:
@@ -208,6 +209,28 @@ async def test_dataset_integrity_failure_maps_to_caller_rejection(
 
 
 @pytest.mark.anyio
+async def test_dataset_identity_mismatch_maps_to_caller_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dataset the document does not cover is a caller error with its real reason."""
+    submitter = object.__new__(PostgresBacktestSubmitter)
+    message = "Dataset SOL-USD 1h (coinbase) does not match the strategy: it covers BTC-USD."
+    dataset_store = _UnusedDatasetStore()
+    monkeypatch.setattr(
+        submitter, "_strategy_store", _MismatchedBindingStore(message), raising=False
+    )
+    monkeypatch.setattr(
+        submitter, "_run_store", _RejectingRunStore(AssertionError()), raising=False
+    )
+    monkeypatch.setattr(submitter, "_dataset_store", dataset_store, raising=False)
+
+    with pytest.raises(BacktestSubmissionRejectedError, match="SOL-USD 1h"):
+        await submitter.submit(_request())
+
+    assert dataset_store.load_candles_calls == 0
+
+
+@pytest.mark.anyio
 async def test_unexpected_publish_failure_maps_to_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -267,6 +290,18 @@ class _LoadedStrategyStore:
     async def bind_dataset(self, *args: object, **kwargs: object) -> None:
         """Accept the binding without persistence."""
         del args, kwargs
+
+
+class _MismatchedBindingStore(_LoadedStrategyStore):
+    """Refuse every binding the way the Postgres store refuses an uncovered dataset."""
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    async def bind_dataset(self, *args: object, **kwargs: object) -> None:
+        """Raise the store's dataset-identity mismatch."""
+        del args, kwargs
+        raise StrategyDatasetMismatchError(self._message)
 
 
 class _UnusedDatasetStore:

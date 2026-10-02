@@ -21,6 +21,13 @@ class StrategySnapshotError(RuntimeError):
     """Report a redacted snapshot load, storage, or integrity failure."""
 
 
+class StrategyDatasetMismatchError(StrategySnapshotError):
+    """Report a dataset whose provider, product, or timeframe the strategy does not cover.
+
+    A caller-input problem (wrong fingerprint for this document), not a storage failure.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class StrategySnapshot:
     """A verified strategy definition addressed by its canonical content fingerprint."""
