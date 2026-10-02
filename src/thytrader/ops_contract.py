@@ -30,8 +30,9 @@ promotion evidence, the strategy model (mutable root strategies,
 automatic snapshots, hard delete; ADR 0082), the explicit
 `i_understand_live` HTTP acknowledgement on live start/resume/place-order, supported
 spot quote currencies, the market-data provider-history floor (``history_floor_at``,
-Alembic 0051), or ranged backfill, explicit watched-only ingest, and the research
-watch-lookback ceilings (ADR 0085, Alembic 0052) change.
+Alembic 0051), ranged backfill, explicit watched-only ingest, and the research
+watch-lookback ceilings (ADR 0085, Alembic 0052), the implemented indicator kinds or the
+operator ``indicators`` report shape, or indicator bar-lag (``offset``) evaluation change.
 """
 
 from __future__ import annotations
@@ -41,11 +42,12 @@ from typing import TYPE_CHECKING
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.research.models import BACKTEST_ENGINE
+from thytrader.strategies.models import IndicatorKind
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v45"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v46"
 EXPECTED_SCHEMA_REVISION = "0052"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
@@ -87,6 +89,8 @@ PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 LIVE_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES
 HTF_FILTER_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_TIMEFRAME_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
+INDICATOR_OFFSET_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
+INDICATOR_KINDS: tuple[str, ...] = tuple(kind.value for kind in IndicatorKind)
 POSITION_SIDES: tuple[str, ...] = ("long", "short")
 ATTACHED_ENTRY_BRACKETS: tuple[str, ...] = ("paper", "live")
 PAPER_DEPLOY_FEE_FIELDS: tuple[str, ...] = ("maker_fee_rate", "taker_fee_rate")
@@ -111,6 +115,8 @@ def expected_ops_contract() -> dict[str, object]:
         "live_timeframes": list(LIVE_TIMEFRAMES),
         "htf_filter_runtimes": list(HTF_FILTER_RUNTIMES),
         "indicator_timeframe_runtimes": list(INDICATOR_TIMEFRAME_RUNTIMES),
+        "indicator_offset_runtimes": list(INDICATOR_OFFSET_RUNTIMES),
+        "indicator_kinds": list(INDICATOR_KINDS),
         "position_sides": list(POSITION_SIDES),
         "attached_entry_brackets": list(ATTACHED_ENTRY_BRACKETS),
         "paper_deploy_fee_fields": list(PAPER_DEPLOY_FEE_FIELDS),

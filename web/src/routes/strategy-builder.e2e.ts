@@ -417,3 +417,109 @@ test('entry preference offers only maker-only entries, even for a legacy draft',
 	// The backend validation issue explains the retired value; the form never offers it.
 	await expect(page.getByTestId('saved-validation')).toContainText('Input should be maker_only');
 });
+
+test('the kind picker searches the catalog and shows the chosen kind’s parameters', async ({
+	page
+}) => {
+	type SavedIndicators = {
+		document: {
+			indicators: Record<string, unknown>[];
+			entry: { when: { all: { left: Record<string, unknown> }[] } };
+		};
+	};
+	let savedBody = null as SavedIndicators | null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			savedBody = (await route.request().postDataJSON()) as SavedIndicators;
+			await route.fulfill({ json: record(draft, 2) });
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Indicators', exact: true }).click();
+	const row = page.getByTestId('indicator-row').first();
+	const kindButton = row.getByRole('button', { name: /^Kind EMA/ });
+	await expect(kindButton).toHaveAttribute('aria-expanded', 'false');
+	await kindButton.click();
+	const search = page.getByRole('combobox', { name: 'Search indicators' });
+	await expect(search).toBeFocused();
+	const listbox = page.getByRole('listbox', { name: 'Indicator kinds' });
+	await expect(listbox.getByRole('group', { name: 'Momentum' })).toBeVisible();
+	await search.fill('super');
+	await expect(listbox.getByRole('option')).toHaveCount(1);
+	await expect(listbox.getByRole('option', { name: /Supertrend/ })).toBeVisible();
+	await search.press('Enter');
+	await expect(listbox).toHaveCount(0);
+	await expect(row.getByRole('button', { name: /^Kind Supertrend/ })).toBeFocused();
+	// EMA(20) -> Supertrend keeps the same-named, still-valid period; multiplier defaults.
+	await expect(row.getByLabel('ATR period')).toHaveValue('20');
+	await expect(row.getByLabel('Multiplier')).toHaveValue('3');
+	await expect(row.getByText('Wilder ATR period.')).toBeVisible();
+	await expect(row.getByText(/ATR band that trails the trend/)).toBeVisible();
+	await row.getByLabel('Offset (bars ago)').fill('1');
+	await expect(row.getByText('Needs 21 completed bars.')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	const firstLeft = page.getByLabel('Left operand').first();
+	await expect(
+		firstLeft.locator('optgroup[label="Supertrend(20, 3) · 1 bar ago — fast"] option')
+	).toHaveText([
+		'Supertrend(20, 3) · value · 1 bar ago',
+		'Supertrend(20, 3) · direction · 1 bar ago'
+	]);
+	await firstLeft.selectOption('indicator:fast.direction');
+	await expect(firstLeft).toHaveValue('indicator:fast.direction');
+
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => savedBody?.document.indicators[0]?.kind).toBe('supertrend');
+	const saved = savedBody as SavedIndicators;
+	expect(saved.document.indicators[0]).toEqual({
+		id: 'fast',
+		kind: 'supertrend',
+		input: ['high', 'low', 'close'],
+		parameters: { period: 20, multiplier: '3' },
+		offset: 1
+	});
+	expect(saved.document.entry.when.all[0]?.left).toEqual({
+		indicator: 'fast',
+		series: 'direction'
+	});
+});
+
+test('the kind picker closes on Escape and returns focus without changing the kind', async ({
+	page
+}) => {
+	await mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Indicators', exact: true }).click();
+	const row = page.getByTestId('indicator-row').nth(2);
+	const kindButton = row.getByRole('button', { name: /^Kind RSI/ });
+	await kindButton.click();
+	const search = page.getByRole('combobox', { name: 'Search indicators' });
+	await search.press('ArrowDown');
+	await search.press('Escape');
+	await expect(page.getByRole('listbox', { name: 'Indicator kinds' })).toHaveCount(0);
+	await expect(kindButton).toBeFocused();
+	await expect(row.getByLabel('Period')).toHaveValue('14');
+	await expect(page.getByTestId('workspace-save-state')).not.toContainText('unsaved changes');
+});
+
+test('position sizing labels and the summary follow the product quote currency', async ({
+	page
+}) => {
+	await mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Position sizing' }).click();
+	await expect(page.getByLabel('Minimum USD notional')).toHaveValue('10');
+	await expect(page.getByLabel('Maximum USD notional')).toHaveValue('100');
+	await page.getByRole('button', { name: 'Market and data' }).click();
+	await page.getByLabel('Product', { exact: true }).fill('eth-usdc');
+	await page.getByRole('button', { name: 'Position sizing' }).click();
+	await expect(page.getByLabel('Minimum USDC notional')).toHaveValue('10');
+	await expect(page.getByLabel('Maximum USDC notional')).toHaveValue('100');
+	await expect(page.getByText(/USD notional/)).toHaveCount(0);
+	await expect(page.locator('.inspector-block').first()).toContainText(
+		'between 10 USDC and 100 USDC'
+	);
+});

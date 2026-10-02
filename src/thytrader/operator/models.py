@@ -16,6 +16,7 @@ from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic fi
 from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
 from thytrader.research.catalog import StudyCatalogSummary  # noqa: TC001 - Pydantic field type.
+from thytrader.strategies.indicator_catalog import ParameterKind  # noqa: TC001 - Pydantic field.
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"
@@ -107,6 +108,8 @@ class OpsContractPayload(_FrozenModel):
     live_timeframes: tuple[SupportedTimeframe, ...]
     htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_timeframe_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    indicator_offset_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    indicator_kinds: tuple[str, ...]
     position_sides: tuple[Literal["long", "short"], ...]
     attached_entry_brackets: tuple[Literal["paper", "live"], ...]
     paper_deploy_fee_fields: tuple[Literal["maker_fee_rate", "taker_fee_rate"], ...]
@@ -648,15 +651,51 @@ class DataCatalogReport(OperatorEnvelope):
     payload: DataCatalogPayload
 
 
+class IndicatorParameterEntry(_FrozenModel):
+    """One declared indicator parameter: bounds, builder default, and one-line help.
+
+    Integer bounds/defaults are JSON numbers; decimal ones are canonical decimal
+    strings. ``null`` bounds are unbounded. ``exclusive_minimum`` marks decimals that
+    must be strictly greater than ``minimum``. ``optional`` parameters are omitted
+    from documents unless set, and their ``default`` is ``null``.
+    """
+
+    name: str
+    label: str
+    value_type: Literal["integer", "decimal"]
+    minimum: int | str | None
+    maximum: int | str | None
+    exclusive_minimum: bool = False
+    default: int | str | None
+    optional: bool = False
+    help: str
+
+
 class IndicatorCatalogEntry(_FrozenModel):
-    """One implemented indicator kind and its canonical input/parameter shape."""
+    """One implemented indicator kind and its canonical input/parameter shape.
+
+    ``parameter_kind``, ``period_min``/``period_max`` (the integer-parameter bounds),
+    and ``outputs`` keep their historical meaning; ``parameters`` is the complete,
+    authoritative parameter list.
+    """
 
     kind: str
+    label: str
+    category: Literal["trend", "momentum", "volatility", "volume", "statistical", "price"]
+    summary: str
     inputs: tuple[str, ...]
-    parameter_kind: Literal["period", "none", "value", "macd", "bollinger", "stochastic"] = "period"
+    input_mode: Literal["configurable", "locked", "none"]
+    default_input: str | tuple[str, ...] | None
+    parameter_kind: ParameterKind = "period"
     period_min: int | None = None
     period_max: int | None = None
+    parameters: tuple[IndicatorParameterEntry, ...] = ()
+    constraints: tuple[str, ...] = ()
     outputs: tuple[str, ...] = ()
+    warmup: str
+    default_warmup_bars: int = Field(ge=1)
+    supports_timeframe: bool
+    supports_offset: bool
 
 
 class IndicatorsPayload(_FrozenModel):

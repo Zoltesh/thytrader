@@ -716,9 +716,9 @@ def test_highest_lowest_stdev_reject_wrong_sources_unknown_kinds_and_fields() ->
 
     unknown_kind = reference_payload()
     _object_list(unknown_kind["indicators"]).append(
-        {"id": "keltner", "kind": "keltner", "input": "close", "parameters": {"period": 14}}
+        {"id": "frama", "kind": "frama", "input": "close", "parameters": {"period": 14}}
     )
-    with pytest.raises(ValidationError, match="keltner"):
+    with pytest.raises(ValidationError, match="frama"):
         StrategyDefinition.model_validate(unknown_kind)
 
     extra_parameter = reference_payload()

@@ -7,3 +7,6 @@ bun.lockb
 
 # Miscellaneous
 /static/
+
+# Generated from the Python registries by scripts/export_indicator_catalog.py
+/src/lib/generated/

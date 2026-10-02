@@ -18,6 +18,20 @@ export type SweepParameter =
 	| 'd_period'
 	| 'stdev_multiplier'
 	| 'value'
+	| 'multiplier'
+	| 'atr_period'
+	| 'step'
+	| 'max_step'
+	| 'tenkan_period'
+	| 'kijun_period'
+	| 'senkou_b_period'
+	| 'rsi_period'
+	| 'stoch_period'
+	| 'short_period'
+	| 'medium_period'
+	| 'long_period'
+	| 'annualization_periods'
+	| 'offset'
 	| 'risk_fraction'
 	| 'min_quote_notional'
 	| 'max_quote_notional'
@@ -37,7 +51,21 @@ const PARAMETERS_BY_TARGET: Record<SweepAxisTarget, SweepParameter[]> = {
 		'k_period',
 		'd_period',
 		'stdev_multiplier',
-		'value'
+		'value',
+		'multiplier',
+		'atr_period',
+		'step',
+		'max_step',
+		'tenkan_period',
+		'kijun_period',
+		'senkou_b_period',
+		'rsi_period',
+		'stoch_period',
+		'short_period',
+		'medium_period',
+		'long_period',
+		'annualization_periods',
+		'offset'
 	],
 	sizing: ['risk_fraction', 'min_quote_notional', 'max_quote_notional'],
 	exits: [

@@ -63,7 +63,7 @@ parameters depend on the target:
 
 | Target | Locator | Parameters |
 |---|---|---|
-| `indicator` | `indicator_id` | `period`, `fast_period`, `slow_period`, `signal_period`, `k_period`, `d_period`, `stdev_multiplier`, `value` |
+| `indicator` | `indicator_id` | `period`, `fast_period`, `slow_period`, `signal_period`, `k_period`, `d_period`, `atr_period`, `tenkan_period`, `kijun_period`, `senkou_b_period`, `rsi_period`, `stoch_period`, `short_period`, `medium_period`, `long_period`, `annualization_periods`, `stdev_multiplier`, `multiplier`, `step`, `max_step`, `value`, and `offset` (the declaration's bar lag, [ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)) |
 | `sizing` | none | `risk_fraction`, `min_quote_notional`, `max_quote_notional` |
 | `exits` | none | `initial_stop_multiple`, `take_profit_multiple`, `trailing_stop_multiple`, `max_bars_held` |
 | `execution` | none | `max_entry_wait_bars` |

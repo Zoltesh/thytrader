@@ -119,7 +119,7 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v45`,
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v46`,
    Alembic revision `0052`, `backtest_engine` `thytrader-backtest` (one unified backtest model;
    [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
    [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded

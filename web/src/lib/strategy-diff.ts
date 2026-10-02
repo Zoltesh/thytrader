@@ -1,10 +1,12 @@
-import type {
-	BuilderModel,
-	ConditionDraft,
-	IndicatorDraft,
-	IndicatorKindValue
-} from './strategies';
-import { INDICATOR_KIND_OPTIONS } from './strategies';
+import {
+	findCatalogEntry,
+	kindLabel,
+	offsetOf,
+	offsetText,
+	readParameter
+} from './indicator-catalog';
+import type { BuilderModel, ConditionDraft, IndicatorDraft } from './strategies';
+import { quoteLabelFor } from './strategies';
 
 export type FieldChange = {
 	path: string;
@@ -28,10 +30,6 @@ const OPERATOR_LABELS: Record<string, string> = {
 	less_than_or_equal: '≤',
 	equals: '='
 };
-
-const KIND_LABELS: Record<IndicatorKindValue, string> = Object.fromEntries(
-	INDICATOR_KIND_OPTIONS.map((option) => [option.kind, option.label])
-) as Record<IndicatorKindValue, string>;
 
 type ComparisonLike = {
 	left: { indicator?: string; series?: string; literal?: string };
@@ -87,30 +85,42 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 	return `(${conditionToText(child)})`;
 }
 
+function parameterText(value: unknown): string {
+	return value === undefined || value === null || value === '' ? 'undefined' : String(value);
+}
+
+/**
+ * Compact indicator text for diffs, for example `EMA(20,close) as "fast"` or
+ * `MACD(12,26,9) @ 4h as "trend"`. Period kinds and configurable kinds append their
+ * single-field source; a bar lag appends ` · N bars ago`.
+ */
 function indicatorText(indicator: IndicatorDraft): string {
-	const label = KIND_LABELS[indicator.kind] ?? indicator.kind;
+	const label = kindLabel(indicator.kind);
 	const clock =
 		indicator.timeframe !== undefined && indicator.timeframe !== ''
 			? ` @ ${indicator.timeframe}`
 			: '';
+	const lag = offsetText(offsetOf(indicator));
+	const suffix = `${clock}${lag === '' ? '' : ` · ${lag}`} as "${indicator.id}"`;
 	if (indicator.kind === 'identity') {
 		const source = typeof indicator.input === 'string' ? indicator.input : 'close';
-		return `${label}(${source})${clock} as "${indicator.id}"`;
+		return `${label}(${source})${suffix}`;
 	}
 	if (indicator.kind === 'constant') {
 		return `${label}(${indicator.parameters.value ?? '0'}) as "${indicator.id}"`;
 	}
-	if (indicator.kind === 'macd') {
-		return `${label}(${indicator.parameters.fast_period},${indicator.parameters.slow_period},${indicator.parameters.signal_period})${clock} as "${indicator.id}"`;
-	}
-	if (indicator.kind === 'bollinger') {
-		return `${label}(${indicator.parameters.period},${indicator.parameters.stdev_multiplier ?? '2'})${clock} as "${indicator.id}"`;
-	}
-	if (indicator.kind === 'stochastic') {
-		return `${label}(${indicator.parameters.k_period},${indicator.parameters.d_period})${clock} as "${indicator.id}"`;
-	}
-	const source = typeof indicator.input === 'string' ? `,${indicator.input}` : '';
-	return `${label}(${indicator.parameters.period}${source})${clock} as "${indicator.id}"`;
+	const entry = findCatalogEntry(indicator.kind);
+	const values = (entry?.parameters ?? []).flatMap((spec) => {
+		const value = readParameter(indicator.parameters, spec.name);
+		const blank = value === undefined || value === null || value === '';
+		return spec.optional && blank ? [] : [parameterText(value)];
+	});
+	const showsSource =
+		entry !== undefined &&
+		typeof indicator.input === 'string' &&
+		(entry.parameter_kind === 'period' || entry.input_mode === 'configurable');
+	if (showsSource) values.push(String(indicator.input));
+	return `${label}(${values.join(',')})${suffix}`;
 }
 
 function diffIndicators(
@@ -169,8 +179,6 @@ const FIELD_LABELS: Record<string, string> = {
 	cooldown_bars: 'Entry cooldown',
 	side: 'Position side',
 	'sizing.risk_fraction': 'Risk fraction per trade',
-	'sizing.min_quote_notional': 'Minimum USD notional',
-	'sizing.max_quote_notional': 'Maximum USD notional',
 	max_strategy_exposure_fraction: 'Max strategy exposure',
 	'exits.initial_stop.multiple': 'Initial stop (ATR multiple)',
 	'exits.take_profit.multiple': 'Take profit (reward/risk)',
@@ -188,9 +196,15 @@ const FIELD_LABELS: Record<string, string> = {
  */
 export function semanticDiff(before: BuilderModel, after: BuilderModel): SemanticDiff {
 	const changes: FieldChange[] = [];
+	const quote = quoteLabelFor(after.product_id);
+	const labels: Record<string, string> = {
+		...FIELD_LABELS,
+		'sizing.min_quote_notional': `Minimum ${quote} notional`,
+		'sizing.max_quote_notional': `Maximum ${quote} notional`
+	};
 	const changed = (path: string, from: string, to: string): void => {
 		if (from !== to) {
-			changes.push({ path, label: FIELD_LABELS[path] ?? path, from, to, kind: 'changed' });
+			changes.push({ path, label: labels[path] ?? path, from, to, kind: 'changed' });
 		}
 	};
 

@@ -9,10 +9,18 @@
 	 */
 	import { untrack } from 'svelte';
 	import {
+		MAX_INDICATOR_OFFSET,
+		findCatalogEntry,
+		indicatorWarmupBars,
+		readParameter,
+		writeParameter,
+		type IndicatorKindValue,
+		type IndicatorParameterSpec
+	} from '$lib/indicator-catalog';
+	import {
 		defaultHtfFilter,
 		EXECUTION_TIMEFRAMES,
 		validHtfTimeframes,
-		INDICATOR_KIND_OPTIONS,
 		IDENTITY_INPUT_OPTIONS,
 		applyIndicatorKindDefaults,
 		isConfigurableRollingKind,
@@ -20,11 +28,14 @@
 		indicatorOperandKey,
 		parseIndicatorOperandKey,
 		operandChoices,
+		quoteLabelFor,
 		type BuilderModel,
 		type ConditionDraft,
-		type IndicatorDraft
+		type IndicatorDraft,
+		type OperandChoice
 	} from '$lib/strategies';
 	import type { BuildSection } from '$lib/strategy-workspace';
+	import IndicatorKindPicker from './IndicatorKindPicker.svelte';
 
 	let {
 		model = $bindable(),
@@ -192,11 +203,70 @@
 		markDirty();
 	}
 
-	/** Keep each indicator's input and parameters aligned with its kind. */
-	function onIndicatorKindChange(indicator: IndicatorDraft): void {
+	/** Switch kinds and realign the input, parameters, timeframe, and offset with the new kind. */
+	function changeIndicatorKind(indicator: IndicatorDraft, kind: IndicatorKindValue): void {
+		indicator.kind = kind;
 		applyIndicatorKindDefaults(indicator);
 		markDirty();
 	}
+
+	/** Text for one parameter input: the stored number or decimal text, or blank. */
+	function parameterInputValue(indicator: IndicatorDraft, spec: IndicatorParameterSpec): string {
+		const value = readParameter(indicator.parameters, spec.name);
+		return typeof value === 'number' || typeof value === 'string' ? String(value) : '';
+	}
+
+	/** Store one edited parameter: integers as numbers, decimals as exact text, blank as omitted. */
+	function setParameterFromInput(
+		indicator: IndicatorDraft,
+		spec: IndicatorParameterSpec,
+		input: HTMLInputElement
+	): void {
+		if (spec.value_type === 'integer') {
+			const parsed = input.valueAsNumber;
+			writeParameter(indicator.parameters, spec.name, Number.isNaN(parsed) ? undefined : parsed);
+		} else {
+			const text = input.value.trim();
+			writeParameter(indicator.parameters, spec.name, text === '' ? undefined : text);
+		}
+		markDirty();
+	}
+
+	/** Store the bar lag; a blank field means the current bar (offset omitted). */
+	function setOffsetFromInput(indicator: IndicatorDraft, input: HTMLInputElement): void {
+		const parsed = input.valueAsNumber;
+		if (Number.isNaN(parsed)) {
+			delete indicator.offset;
+		} else {
+			indicator.offset = parsed;
+		}
+		markDirty();
+	}
+
+	function parameterBound(value: number | string | null): string | undefined {
+		return value === null ? undefined : String(value);
+	}
+
+	/**
+	 * Operand select blocks: single-output indicators as plain options and each
+	 * multi-series indicator as one `<optgroup>` of its series (keys unchanged).
+	 */
+	function operandOptionBlocks(
+		indicators: IndicatorDraft[]
+	): { key: string; group?: string; choices: OperandChoice[] }[] {
+		const blocks: { key: string; group?: string; choices: OperandChoice[] }[] = [];
+		for (const choice of operandChoices(indicators)) {
+			const last = blocks.at(-1);
+			if (choice.group !== undefined && last !== undefined && last.group === choice.group) {
+				last.choices.push(choice);
+				continue;
+			}
+			blocks.push({ key: choice.key, group: choice.group, choices: [choice] });
+		}
+		return blocks;
+	}
+
+	const quote = $derived(quoteLabelFor(model.product_id));
 
 	function leftOperandKey(comparison: {
 		left: { indicator?: string; series?: string; literal?: string };
@@ -350,8 +420,8 @@
 			<section class="panel">
 				<h2>Indicators</h2>
 				{#each model.indicators as indicator, index (index)}
-					<div class="indicator-row">
-						{@render indicatorFields(indicator, true)}
+					<div class="indicator-row" data-testid="indicator-row">
+						{@render indicatorFields(indicator, true, `ltf-${index}`)}
 						<button class="secondary" type="button" onclick={() => removeIndicator(index)}
 							>Remove</button
 						>
@@ -359,18 +429,12 @@
 				{/each}
 				<button class="secondary" type="button" onclick={addIndicator}>Add indicator</button>
 				<div class="hint">
-					OHLCV identity copies one candle field. Constant is a named level for crossovers (RSI
-					crosses 40). ATR / Williams %R / CCI / stochastic / ADX use high/low/close. MFI uses
-					high/low/close/volume. EMA, SMA, WMA, highest, lowest, stdev, sample stdev, ROC, and
-					momentum select one OHLCV field. RSI, volume SMA, MACD, and Bollinger stay locked. MACD
-					declares fast/slow/signal periods (fast &lt; slow). Stochastic declares %K and %D periods.
-					Bollinger adds a population-stdev multiplier. Conditions reference
-					MACD/Bollinger/stochastic/ADX outputs as series ids. RSI, ATR, Williams %R, CCI, MFI, and
-					ADX periods cap at 100; stochastic %K caps at 100. Momentum and MFI need period + 1 bars.
-					MACD needs slow + signal − 1 bars. Stochastic needs k + d − 1 bars. ADX needs 2×period − 1
-					bars. Optional per-indicator timeframes may use a coarser integer-multiple venue clock;
-					omitting the field keeps the decision clock. Constant omits timeframe. Stop ATR stays on
-					the decision clock. Extra-TF values overlay LTF entry before the HTF filter AND.
+					Pick a kind to see its parameters, defaults, and one-line help. Multi-series kinds (MACD,
+					Bollinger, Supertrend, Ichimoku, …) expose each output as its own operand in conditions.
+					Offset reads the value from that many completed bars earlier on the indicator's own clock
+					(offset 1 on a 20-bar Donchian is the prior 20-bar high) and adds to the warmup. An
+					optional timeframe uses a coarser integer-multiple venue clock; constants take neither.
+					Stop ATRs stay on the decision clock.
 				</div>
 			</section>
 		{:else if activeSection === 'entry'}
@@ -430,8 +494,8 @@
 						>
 					</div>
 					{#each model.htf_filter.indicators as indicator, index (index)}
-						<div class="indicator-row">
-							{@render indicatorFields(indicator, false)}
+						<div class="indicator-row" data-testid="htf-indicator-row">
+							{@render indicatorFields(indicator, false, `htf-${index}`)}
 							<button class="secondary" type="button" onclick={() => removeHtfIndicator(index)}
 								>Remove</button
 							>
@@ -533,7 +597,7 @@
 				>
 				<div class="grid-two">
 					<label
-						>Minimum USD notional
+						>Minimum {quote} notional
 						<input
 							inputmode="decimal"
 							bind:value={model.sizing.min_quote_notional}
@@ -541,13 +605,17 @@
 						/></label
 					>
 					<label
-						>Maximum USD notional
+						>Maximum {quote} notional
 						<input
 							inputmode="decimal"
 							bind:value={model.sizing.max_quote_notional}
 							oninput={markDirty}
 						/></label
 					>
+				</div>
+				<div class="hint">
+					Order notional bounds in the product's quote currency ({quote}), shared by every covered
+					product.
 				</div>
 			</section>
 		{:else if activeSection === 'limits'}
@@ -600,17 +668,19 @@
 	</fieldset>
 </div>
 
-{#snippet indicatorFields(indicator: IndicatorDraft, allowTimeframe: boolean)}
+{#snippet indicatorFields(indicator: IndicatorDraft, allowTimeframe: boolean, key: string)}
+	{@const entry = findCatalogEntry(indicator.kind)}
 	<label>Id<input bind:value={indicator.id} oninput={markDirty} /></label>
-	<label
-		>Kind
-		<select bind:value={indicator.kind} onchange={() => onIndicatorKindChange(indicator)}>
-			{#each INDICATOR_KIND_OPTIONS as option (option.kind)}
-				<option value={option.kind}>{option.label}</option>
-			{/each}
-		</select></label
-	>
-	{#if allowTimeframe && indicator.kind !== 'constant' && model}
+	<div class="field">
+		<span class="field-label" id={`${key}-kind-label`}>Kind</span>
+		<IndicatorKindPicker
+			kind={indicator.kind}
+			labelledby={`${key}-kind-label`}
+			disabled={readonly}
+			onselect={(kind) => changeIndicatorKind(indicator, kind)}
+		/>
+	</div>
+	{#if allowTimeframe && (entry?.supports_timeframe ?? true) && model}
 		<label
 			>Timeframe
 			<select bind:value={indicator.timeframe} onchange={markDirty}>
@@ -631,75 +701,83 @@
 			</select></label
 		>
 	{/if}
-	{#if indicator.kind === 'constant'}
-		<label>Value<input bind:value={indicator.parameters.value} oninput={markDirty} /></label>
-	{:else if indicator.kind === 'macd'}
-		<label
-			>Fast period<input
+	{#each entry?.parameters ?? [] as spec (spec.name)}
+		{@const inputId = `${key}-${spec.name}`}
+		<div class="field">
+			<label class="field-label" for={inputId}
+				>{spec.label}{#if spec.optional}<span class="optional">(optional)</span>{/if}</label
+			>
+			{#if spec.value_type === 'integer'}
+				<input
+					id={inputId}
+					type="number"
+					step="1"
+					min={parameterBound(spec.minimum)}
+					max={parameterBound(spec.maximum)}
+					placeholder={spec.optional ? 'Leave blank to omit' : String(spec.default ?? '')}
+					aria-describedby={`${inputId}-help`}
+					value={parameterInputValue(indicator, spec)}
+					oninput={(event) => setParameterFromInput(indicator, spec, event.currentTarget)}
+				/>
+			{:else}
+				<input
+					id={inputId}
+					inputmode="decimal"
+					spellcheck="false"
+					autocomplete="off"
+					placeholder={spec.optional ? 'Leave blank to omit' : String(spec.default ?? '')}
+					aria-describedby={`${inputId}-help`}
+					value={parameterInputValue(indicator, spec)}
+					oninput={(event) => setParameterFromInput(indicator, spec, event.currentTarget)}
+				/>
+			{/if}
+			<small class="field-help" id={`${inputId}-help`}>{spec.help}</small>
+		</div>
+	{/each}
+	{#if entry?.supports_offset ?? true}
+		<div class="field">
+			<label class="field-label" for={`${key}-offset`}>Offset (bars ago)</label>
+			<input
+				id={`${key}-offset`}
 				type="number"
-				min="2"
-				bind:value={indicator.parameters.fast_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Slow period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.slow_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Signal period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.signal_period}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind === 'bollinger'}
-		<label
-			>Period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>Stdev multiplier<input
-				bind:value={indicator.parameters.stdev_multiplier}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind === 'stochastic'}
-		<label
-			>%K period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.k_period}
-				oninput={markDirty}
-			/></label
-		>
-		<label
-			>%D period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.d_period}
-				oninput={markDirty}
-			/></label
-		>
-	{:else if indicator.kind !== 'identity'}
-		<label
-			>Period<input
-				type="number"
-				min="2"
-				bind:value={indicator.parameters.period}
-				oninput={markDirty}
-			/></label
-		>
+				min="0"
+				max={MAX_INDICATOR_OFFSET}
+				step="1"
+				placeholder="0"
+				aria-describedby={`${key}-offset-help`}
+				value={indicator.offset ?? ''}
+				oninput={(event) => setOffsetFromInput(indicator, event.currentTarget)}
+			/>
+			<small class="field-help" id={`${key}-offset-help`}
+				>Completed bars back on this clock; blank is the current bar.</small
+			>
+		</div>
 	{/if}
+	{#if entry !== undefined}
+		{@const warmup = indicatorWarmupBars(indicator)}
+		<p class="kind-summary">
+			<span>{entry.summary}</span>
+			{#if Number.isFinite(warmup) && warmup > 0}
+				<span class="warmup">Needs {warmup} completed {warmup === 1 ? 'bar' : 'bars'}.</span>
+			{/if}
+		</p>
+	{/if}
+{/snippet}
+
+{#snippet operandOptions(indicators: IndicatorDraft[])}
+	{#each operandOptionBlocks(indicators) as block (block.key)}
+		{#if block.group === undefined}
+			{#each block.choices as choice (choice.key)}
+				<option value={choice.key}>{choice.label}</option>
+			{/each}
+		{:else}
+			<optgroup label={block.group}>
+				{#each block.choices as choice (choice.key)}
+					<option value={choice.key}>{choice.label}</option>
+				{/each}
+			</optgroup>
+		{/if}
+	{/each}
 {/snippet}
 
 {#snippet conditionNode(
@@ -783,9 +861,7 @@
 					onchange={(event) =>
 						setLeftOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
 				>
-					{#each operandChoices(indicators) as choice (choice.key)}
-						<option value={choice.key}>{choice.label}</option>
-					{/each}
+					{@render operandOptions(indicators)}
 				</select>
 				{#if comparison.left.indicator === undefined}
 					<input
@@ -811,9 +887,7 @@
 					onchange={(event) =>
 						setRightOperand(comparison, (event.currentTarget as HTMLSelectElement).value)}
 				>
-					{#each operandChoices(indicators) as choice (choice.key)}
-						<option value={choice.key}>{choice.label}</option>
-					{/each}
+					{@render operandOptions(indicators)}
 				</select>
 				{#if comparison.right.indicator !== undefined}
 					<span class="operand-name">{operandLabel(comparison.right)}</span>
@@ -939,13 +1013,49 @@
 	}
 	.indicator-row {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 		gap: 10px;
-		align-items: end;
+		align-items: start;
 		padding: 10px 12px;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		background: var(--surface-2);
+	}
+	.indicator-row > .secondary {
+		align-self: end;
+		justify-self: start;
+	}
+	.field {
+		display: grid;
+		gap: 6px;
+		align-content: start;
+		min-width: 0;
+	}
+	.field-label {
+		display: block;
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.optional {
+		margin-left: 0.35em;
+		color: var(--faint);
+	}
+	.field-help {
+		color: var(--faint);
+		font-size: var(--fs-xs);
+		line-height: 1.35;
+	}
+	.kind-summary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 12px;
+		grid-column: 1 / -1;
+		margin: 0;
+		color: var(--faint);
+		font-size: var(--fs-sm);
+	}
+	.kind-summary .warmup {
+		color: var(--muted);
 	}
 	.secondary {
 		min-height: 30px;

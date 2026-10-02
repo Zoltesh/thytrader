@@ -7,8 +7,9 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
+from math import isqrt
 import re
-from typing import Annotated, Literal, Self, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Literal, Self, TypeAlias
 from uuid import UUID
 
 from pydantic import (
@@ -27,6 +28,9 @@ from thytrader.market_data.models import (
     parse_candle_interval,
 )
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_CONDITION_DEPTH = 4
@@ -128,7 +132,7 @@ class IndicatorParameters(_FrozenModel):
 
 
 class MacdIndicatorParameters(_FrozenModel):
-    """Close-locked MACD EMA windows: fast line, slow line, and signal smoothing."""
+    """Close-locked EMA windows shared by MACD and PPO: fast, slow, and signal smoothing."""
 
     fast_period: int = Field(ge=2, le=500)
     slow_period: int = Field(ge=2, le=500)
@@ -138,12 +142,21 @@ class MacdIndicatorParameters(_FrozenModel):
     def validate_fast_shorter_than_slow(self) -> Self:
         """Require the fast EMA window to be strictly shorter than the slow window."""
         if self.fast_period >= self.slow_period:
-            raise ValueError("macd fast_period must be less than slow_period")
+            raise ValueError("macd/ppo fast_period must be less than slow_period")
         return self
 
 
+def _require_band_multiplier(value: str, *, name: str) -> None:
+    """Reject non-positive or unbounded band-width multipliers (exclusive 0, inclusive 10)."""
+    parsed = Decimal(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    if parsed > Decimal(10):
+        raise ValueError(f"{name} must be at most 10")
+
+
 class BollingerIndicatorParameters(_FrozenModel):
-    """Close-locked SMA period and population-stdev band multiplier."""
+    """Close-locked SMA period and population-stdev band multiplier (Bollinger, %B, bandwidth)."""
 
     period: int = Field(ge=2, le=500)
     stdev_multiplier: DecimalText
@@ -151,11 +164,7 @@ class BollingerIndicatorParameters(_FrozenModel):
     @model_validator(mode="after")
     def validate_multiplier_bounds(self) -> Self:
         """Reject non-positive or unbounded Bollinger width multipliers."""
-        parsed = Decimal(self.stdev_multiplier)
-        if parsed <= 0:
-            raise ValueError("bollinger stdev_multiplier must be greater than 0")
-        if parsed > Decimal(10):
-            raise ValueError("bollinger stdev_multiplier must be at most 10")
+        _require_band_multiplier(self.stdev_multiplier, name="bollinger stdev_multiplier")
         return self
 
 
@@ -176,6 +185,154 @@ class EmptyIndicatorParameters(_FrozenModel):
     """No rolling or level parameters; used by identity OHLCV kinds."""
 
 
+class KamaIndicatorParameters(_FrozenModel):
+    """Kaufman adaptive MA: efficiency-ratio window plus fast and slow smoothing periods."""
+
+    period: int = Field(ge=2, le=100)
+    fast_period: int = Field(ge=2, le=100)
+    slow_period: int = Field(ge=2, le=500)
+
+    @model_validator(mode="after")
+    def validate_fast_shorter_than_slow(self) -> Self:
+        """Require the fast smoothing period to be strictly shorter than the slow one."""
+        if self.fast_period >= self.slow_period:
+            raise ValueError("kama fast_period must be less than slow_period")
+        return self
+
+
+class SupertrendIndicatorParameters(_FrozenModel):
+    """HLC-locked Supertrend: Wilder ATR period and band multiplier."""
+
+    period: int = Field(ge=2, le=100)
+    multiplier: DecimalText
+
+    @model_validator(mode="after")
+    def validate_multiplier_bounds(self) -> Self:
+        """Reject non-positive or unbounded band multipliers."""
+        _require_band_multiplier(self.multiplier, name="supertrend multiplier")
+        return self
+
+
+class ParabolicSarIndicatorParameters(_FrozenModel):
+    """High/low-locked Parabolic SAR acceleration step and acceleration cap."""
+
+    step: DecimalText
+    max_step: DecimalText
+
+    @model_validator(mode="after")
+    def validate_acceleration_bounds(self) -> Self:
+        """Require 0 < step <= max_step <= 1 so the SAR never overshoots its extreme point."""
+        step = Decimal(self.step)
+        max_step = Decimal(self.max_step)
+        if step <= 0:
+            raise ValueError("parabolic_sar step must be greater than 0")
+        if max_step > 1:
+            raise ValueError("parabolic_sar max_step must be at most 1")
+        if step > max_step:
+            raise ValueError("parabolic_sar step must be at most max_step")
+        return self
+
+
+class IchimokuIndicatorParameters(_FrozenModel):
+    """High/low-locked Ichimoku conversion, base, and leading-span-B windows."""
+
+    tenkan_period: int = Field(ge=2, le=500)
+    kijun_period: int = Field(ge=2, le=500)
+    senkou_b_period: int = Field(ge=2, le=500)
+
+    @model_validator(mode="after")
+    def validate_ordered_windows(self) -> Self:
+        """Require tenkan < kijun < senkou_b, the conventional short-to-long ordering."""
+        if not self.tenkan_period < self.kijun_period < self.senkou_b_period:
+            raise ValueError(
+                "ichimoku periods must satisfy tenkan_period < kijun_period < senkou_b_period"
+            )
+        return self
+
+
+class StochasticRsiIndicatorParameters(_FrozenModel):
+    """Close-locked stochastic RSI: RSI window, stochastic window, and %K / %D smoothing."""
+
+    rsi_period: int = Field(ge=2, le=100)
+    stoch_period: int = Field(ge=2, le=100)
+    k_period: int = Field(ge=1, le=100)
+    d_period: int = Field(ge=1, le=100)
+
+
+class UltimateOscillatorIndicatorParameters(_FrozenModel):
+    """HLC-locked Ultimate Oscillator short, medium, and long buying-pressure windows."""
+
+    short_period: int = Field(ge=2, le=100)
+    medium_period: int = Field(ge=2, le=100)
+    long_period: int = Field(ge=2, le=100)
+
+    @model_validator(mode="after")
+    def validate_ordered_windows(self) -> Self:
+        """Require short < medium < long windows."""
+        if not self.short_period < self.medium_period < self.long_period:
+            raise ValueError(
+                "ultimate_oscillator periods must satisfy short_period < medium_period < "
+                "long_period"
+            )
+        return self
+
+
+class AwesomeOscillatorIndicatorParameters(_FrozenModel):
+    """High/low-locked Awesome Oscillator fast and slow median-price SMA windows."""
+
+    fast_period: int = Field(ge=2, le=500)
+    slow_period: int = Field(ge=2, le=500)
+
+    @model_validator(mode="after")
+    def validate_fast_shorter_than_slow(self) -> Self:
+        """Require the fast SMA window to be strictly shorter than the slow window."""
+        if self.fast_period >= self.slow_period:
+            raise ValueError("awesome_oscillator fast_period must be less than slow_period")
+        return self
+
+
+class TsiIndicatorParameters(_FrozenModel):
+    """Close-locked True Strength Index double-smoothing and signal windows."""
+
+    long_period: int = Field(ge=2, le=500)
+    short_period: int = Field(ge=2, le=500)
+    signal_period: int = Field(ge=2, le=500)
+
+    @model_validator(mode="after")
+    def validate_short_shorter_than_long(self) -> Self:
+        """Require the second (short) smoothing to be strictly shorter than the first."""
+        if self.short_period >= self.long_period:
+            raise ValueError("tsi short_period must be less than long_period")
+        return self
+
+
+class KeltnerIndicatorParameters(_FrozenModel):
+    """HLC-locked Keltner channel: EMA middle period, Wilder ATR period, band multiplier."""
+
+    period: int = Field(ge=2, le=500)
+    atr_period: int = Field(ge=2, le=100)
+    multiplier: DecimalText
+
+    @model_validator(mode="after")
+    def validate_multiplier_bounds(self) -> Self:
+        """Reject non-positive or unbounded band multipliers."""
+        _require_band_multiplier(self.multiplier, name="keltner multiplier")
+        return self
+
+
+class HistoricalVolatilityIndicatorParameters(_FrozenModel):
+    """Close-locked historical volatility window with explicit annualization periods."""
+
+    period: int = Field(ge=2, le=500)
+    annualization_periods: int = Field(ge=1, le=525_600)
+
+
+class SignalLineIndicatorParameters(_FrozenModel):
+    """Signal-line SMA period over a cumulative series (OBV, accumulation/distribution)."""
+
+    signal_period: int = Field(ge=2, le=500)
+
+
 IndicatorParameterBlock = (
     MacdIndicatorParameters
     | BollingerIndicatorParameters
@@ -183,6 +340,17 @@ IndicatorParameterBlock = (
     | IndicatorParameters
     | ConstantIndicatorParameters
     | EmptyIndicatorParameters
+    | KamaIndicatorParameters
+    | SupertrendIndicatorParameters
+    | ParabolicSarIndicatorParameters
+    | IchimokuIndicatorParameters
+    | StochasticRsiIndicatorParameters
+    | UltimateOscillatorIndicatorParameters
+    | AwesomeOscillatorIndicatorParameters
+    | TsiIndicatorParameters
+    | KeltnerIndicatorParameters
+    | HistoricalVolatilityIndicatorParameters
+    | SignalLineIndicatorParameters
 )
 
 
@@ -210,13 +378,65 @@ class IndicatorKind(StrEnum):
     STDEV_SAMPLE = "stdev_sample"
     STOCHASTIC = "stochastic"
     ADX = "adx"
+    DEMA = "dema"
+    TEMA = "tema"
+    HMA = "hma"
+    KAMA = "kama"
+    VWMA = "vwma"
+    SUPERTREND = "supertrend"
+    PARABOLIC_SAR = "parabolic_sar"
+    AROON = "aroon"
+    ICHIMOKU = "ichimoku"
+    VORTEX = "vortex"
+    LINEAR_REGRESSION = "linear_regression"
+    TRIX = "trix"
+    STOCHASTIC_RSI = "stochastic_rsi"
+    PPO = "ppo"
+    ULTIMATE_OSCILLATOR = "ultimate_oscillator"
+    AWESOME_OSCILLATOR = "awesome_oscillator"
+    CMO = "cmo"
+    TSI = "tsi"
+    KELTNER = "keltner"
+    DONCHIAN = "donchian"
+    BOLLINGER_PERCENT_B = "bollinger_percent_b"
+    BOLLINGER_BANDWIDTH = "bollinger_bandwidth"
+    NATR = "natr"
+    CHOPPINESS = "choppiness"
+    HISTORICAL_VOLATILITY = "historical_volatility"
+    OBV = "obv"
+    CMF = "cmf"
+    ACCUMULATION_DISTRIBUTION = "accumulation_distribution"
+    VWAP = "vwap"
+    FORCE_INDEX = "force_index"
+    ZSCORE = "zscore"
+    PERCENT_RANK = "percent_rank"
 
+
+HLC_INPUT: tuple[Literal["high"], Literal["low"], Literal["close"]] = ("high", "low", "close")
+HLCV_INPUT: tuple[Literal["high"], Literal["low"], Literal["close"], Literal["volume"]] = (
+    "high",
+    "low",
+    "close",
+    "volume",
+)
+HL_INPUT: tuple[Literal["high"], Literal["low"]] = ("high", "low")
+CLOSE_VOLUME_INPUT: tuple[Literal["close"], Literal["volume"]] = ("close", "volume")
+MAX_INDICATOR_OFFSET = 500
+"""Largest bar lag one indicator declaration may request."""
 
 _SINGLE_SOURCE_INPUT: dict[IndicatorKind, Literal["high", "low", "close", "volume"]] = {
     IndicatorKind.RSI: "close",
     IndicatorKind.VOLUME_SMA: "volume",
     IndicatorKind.MACD: "close",
     IndicatorKind.BOLLINGER: "close",
+    IndicatorKind.TRIX: "close",
+    IndicatorKind.STOCHASTIC_RSI: "close",
+    IndicatorKind.PPO: "close",
+    IndicatorKind.CMO: "close",
+    IndicatorKind.TSI: "close",
+    IndicatorKind.BOLLINGER_PERCENT_B: "close",
+    IndicatorKind.BOLLINGER_BANDWIDTH: "close",
+    IndicatorKind.HISTORICAL_VOLATILITY: "close",
 }
 _CONFIGURABLE_SINGLE_SOURCE_KINDS = frozenset(
     {
@@ -229,28 +449,63 @@ _CONFIGURABLE_SINGLE_SOURCE_KINDS = frozenset(
         IndicatorKind.ROC,
         IndicatorKind.WMA,
         IndicatorKind.MOMENTUM,
+        IndicatorKind.DEMA,
+        IndicatorKind.TEMA,
+        IndicatorKind.HMA,
+        IndicatorKind.KAMA,
+        IndicatorKind.LINEAR_REGRESSION,
+        IndicatorKind.ZSCORE,
+        IndicatorKind.PERCENT_RANK,
     }
 )
 MACD_OUTPUT_SERIES: tuple[str, ...] = ("macd", "signal", "histogram")
 BOLLINGER_OUTPUT_SERIES: tuple[str, ...] = ("middle", "upper", "lower")
 STOCHASTIC_OUTPUT_SERIES: tuple[str, ...] = ("k", "d")
 ADX_OUTPUT_SERIES: tuple[str, ...] = ("adx", "plus_di", "minus_di")
+CHANNEL_OUTPUT_SERIES: tuple[str, ...] = ("upper", "middle", "lower")
 _INDICATOR_OUTPUT_SERIES: dict[IndicatorKind, tuple[str, ...]] = {
     IndicatorKind.MACD: MACD_OUTPUT_SERIES,
     IndicatorKind.BOLLINGER: BOLLINGER_OUTPUT_SERIES,
     IndicatorKind.STOCHASTIC: STOCHASTIC_OUTPUT_SERIES,
     IndicatorKind.ADX: ADX_OUTPUT_SERIES,
+    IndicatorKind.SUPERTREND: ("value", "direction"),
+    IndicatorKind.AROON: ("up", "down", "oscillator"),
+    IndicatorKind.ICHIMOKU: ("tenkan", "kijun", "senkou_a", "senkou_b"),
+    IndicatorKind.VORTEX: ("plus", "minus"),
+    IndicatorKind.LINEAR_REGRESSION: ("value", "slope"),
+    IndicatorKind.STOCHASTIC_RSI: STOCHASTIC_OUTPUT_SERIES,
+    IndicatorKind.PPO: ("ppo", "signal", "histogram"),
+    IndicatorKind.TSI: ("tsi", "signal"),
+    IndicatorKind.KELTNER: CHANNEL_OUTPUT_SERIES,
+    IndicatorKind.DONCHIAN: CHANNEL_OUTPUT_SERIES,
+    IndicatorKind.OBV: ("obv", "signal"),
+    IndicatorKind.ACCUMULATION_DISTRIBUTION: ("ad", "signal"),
 }
-_HLC_INPUT_KINDS = frozenset(
-    {
-        IndicatorKind.ATR,
-        IndicatorKind.WILLIAMS_R,
-        IndicatorKind.CCI,
-        IndicatorKind.STOCHASTIC,
-        IndicatorKind.ADX,
-    }
-)
-_HLCV_INPUT_KINDS = frozenset({IndicatorKind.MFI})
+_LOCKED_TUPLE_INPUT: dict[IndicatorKind, tuple[str, ...]] = {
+    IndicatorKind.ATR: HLC_INPUT,
+    IndicatorKind.WILLIAMS_R: HLC_INPUT,
+    IndicatorKind.CCI: HLC_INPUT,
+    IndicatorKind.STOCHASTIC: HLC_INPUT,
+    IndicatorKind.ADX: HLC_INPUT,
+    IndicatorKind.MFI: HLCV_INPUT,
+    IndicatorKind.VWMA: CLOSE_VOLUME_INPUT,
+    IndicatorKind.SUPERTREND: HLC_INPUT,
+    IndicatorKind.PARABOLIC_SAR: HL_INPUT,
+    IndicatorKind.AROON: HL_INPUT,
+    IndicatorKind.ICHIMOKU: HL_INPUT,
+    IndicatorKind.VORTEX: HLC_INPUT,
+    IndicatorKind.ULTIMATE_OSCILLATOR: HLC_INPUT,
+    IndicatorKind.AWESOME_OSCILLATOR: HL_INPUT,
+    IndicatorKind.KELTNER: HLC_INPUT,
+    IndicatorKind.DONCHIAN: HL_INPUT,
+    IndicatorKind.NATR: HLC_INPUT,
+    IndicatorKind.CHOPPINESS: HLC_INPUT,
+    IndicatorKind.OBV: CLOSE_VOLUME_INPUT,
+    IndicatorKind.CMF: HLCV_INPUT,
+    IndicatorKind.ACCUMULATION_DISTRIBUTION: HLCV_INPUT,
+    IndicatorKind.VWAP: HLCV_INPUT,
+    IndicatorKind.FORCE_INDEX: CLOSE_VOLUME_INPUT,
+}
 _SHORT_PERIOD_KINDS = frozenset(
     {
         IndicatorKind.RSI,
@@ -259,10 +514,23 @@ _SHORT_PERIOD_KINDS = frozenset(
         IndicatorKind.CCI,
         IndicatorKind.MFI,
         IndicatorKind.ADX,
+        IndicatorKind.CMO,
+        IndicatorKind.NATR,
     }
 )
 _LOOKBACK_WARMUP_KINDS = frozenset(
-    {IndicatorKind.RSI, IndicatorKind.ROC, IndicatorKind.MOMENTUM, IndicatorKind.MFI}
+    {
+        IndicatorKind.RSI,
+        IndicatorKind.ROC,
+        IndicatorKind.MOMENTUM,
+        IndicatorKind.MFI,
+        IndicatorKind.AROON,
+        IndicatorKind.VORTEX,
+        IndicatorKind.CMO,
+        IndicatorKind.FORCE_INDEX,
+        IndicatorKind.PERCENT_RANK,
+        IndicatorKind.HISTORICAL_VOLATILITY,
+    }
 )
 _UNIT_WARMUP_KINDS = frozenset({IndicatorKind.IDENTITY, IndicatorKind.CONSTANT})
 _IDENTITY_INPUTS = frozenset({"open", "high", "low", "close", "volume"})
@@ -286,10 +554,28 @@ class IndicatorDefinition(_FrozenModel):
             Literal["close"],
             Literal["volume"],
         ]
+        | tuple[Literal["high"], Literal["low"]]
+        | tuple[Literal["close"], Literal["volume"]]
         | None
     ) = None
     parameters: IndicatorParameterBlock
     timeframe: DatasetTimeframe | None = Field(default=None, exclude_if=lambda value: value is None)
+    offset: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_INDICATOR_OFFSET,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Bar lag on this indicator's own clock: every value is the one from `offset` "
+            "completed bars earlier. Omitted (or 0) means the current completed bar."
+        ),
+    )
+
+    @field_validator("offset")
+    @classmethod
+    def normalize_zero_offset(cls, value: int | None) -> int | None:
+        """Treat ``offset: 0`` as omitted so it can never change canonical bytes."""
+        return None if value == 0 else value
 
     @model_validator(mode="after")
     def validate_kind_period(self) -> Self:
@@ -300,16 +586,14 @@ class IndicatorDefinition(_FrozenModel):
         if self.kind is IndicatorKind.CONSTANT:
             _require_constant_indicator(self)
             return self
-        if self.kind is IndicatorKind.MACD:
-            _require_macd_indicator(self)
+        shape = _PARAMETER_SHAPES.get(self.kind)
+        if shape is None:
+            _require_period_indicator(self)
             return self
-        if self.kind is IndicatorKind.BOLLINGER:
-            _require_bollinger_indicator(self)
-            return self
-        if self.kind is IndicatorKind.STOCHASTIC:
-            _require_stochastic_indicator(self)
-            return self
-        _require_period_indicator(self)
+        models, message = shape
+        if not isinstance(self.parameters, models):
+            raise ValueError(message)  # noqa: TRY004 - pydantic reports ValueError as invalid.
+        _require_locked_source(self)
         return self
 
 
@@ -451,31 +735,81 @@ def _require_bounded_condition_tree(condition: ConditionGroup) -> None:
         raise ValueError(f"condition tree node count exceeds {_MAX_CONDITION_NODES}")
 
 
-def _require_macd_indicator(indicator: IndicatorDefinition) -> None:
-    """Reject MACD kinds that omit the three EMA periods or unlock close."""
-    if not isinstance(indicator.parameters, MacdIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "macd parameters must declare fast_period, slow_period, and signal_period"
-        )
-    _require_locked_source(indicator)
-
-
-def _require_bollinger_indicator(indicator: IndicatorDefinition) -> None:
-    """Reject Bollinger kinds that omit period and multiplier or unlock close."""
-    if not isinstance(indicator.parameters, BollingerIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "bollinger parameters must declare period and stdev_multiplier"
-        )
-    _require_locked_source(indicator)
-
-
-def _require_stochastic_indicator(indicator: IndicatorDefinition) -> None:
-    """Reject stochastic kinds that omit %K/%D periods or unlock high/low/close."""
-    if not isinstance(indicator.parameters, StochasticIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "stochastic parameters must declare k_period and d_period"
-        )
-    _require_locked_source(indicator)
+_PARAMETER_SHAPES: dict[IndicatorKind, tuple[tuple[type[_FrozenModel], ...], str]] = {
+    IndicatorKind.MACD: (
+        (MacdIndicatorParameters,),
+        "macd parameters must declare fast_period, slow_period, and signal_period",
+    ),
+    IndicatorKind.PPO: (
+        (MacdIndicatorParameters,),
+        "ppo parameters must declare fast_period, slow_period, and signal_period",
+    ),
+    IndicatorKind.BOLLINGER: (
+        (BollingerIndicatorParameters,),
+        "bollinger parameters must declare period and stdev_multiplier",
+    ),
+    IndicatorKind.BOLLINGER_PERCENT_B: (
+        (BollingerIndicatorParameters,),
+        "bollinger_percent_b parameters must declare period and stdev_multiplier",
+    ),
+    IndicatorKind.BOLLINGER_BANDWIDTH: (
+        (BollingerIndicatorParameters,),
+        "bollinger_bandwidth parameters must declare period and stdev_multiplier",
+    ),
+    IndicatorKind.STOCHASTIC: (
+        (StochasticIndicatorParameters,),
+        "stochastic parameters must declare k_period and d_period",
+    ),
+    IndicatorKind.KAMA: (
+        (KamaIndicatorParameters,),
+        "kama parameters must declare period, fast_period, and slow_period",
+    ),
+    IndicatorKind.SUPERTREND: (
+        (SupertrendIndicatorParameters,),
+        "supertrend parameters must declare period and multiplier",
+    ),
+    IndicatorKind.PARABOLIC_SAR: (
+        (ParabolicSarIndicatorParameters,),
+        "parabolic_sar parameters must declare step and max_step",
+    ),
+    IndicatorKind.ICHIMOKU: (
+        (IchimokuIndicatorParameters,),
+        "ichimoku parameters must declare tenkan_period, kijun_period, and senkou_b_period",
+    ),
+    IndicatorKind.STOCHASTIC_RSI: (
+        (StochasticRsiIndicatorParameters,),
+        "stochastic_rsi parameters must declare rsi_period, stoch_period, k_period, and d_period",
+    ),
+    IndicatorKind.ULTIMATE_OSCILLATOR: (
+        (UltimateOscillatorIndicatorParameters,),
+        "ultimate_oscillator parameters must declare short_period, medium_period, and long_period",
+    ),
+    IndicatorKind.AWESOME_OSCILLATOR: (
+        (AwesomeOscillatorIndicatorParameters,),
+        "awesome_oscillator parameters must declare fast_period and slow_period",
+    ),
+    IndicatorKind.TSI: (
+        (TsiIndicatorParameters,),
+        "tsi parameters must declare long_period, short_period, and signal_period",
+    ),
+    IndicatorKind.KELTNER: (
+        (KeltnerIndicatorParameters,),
+        "keltner parameters must declare period, atr_period, and multiplier",
+    ),
+    IndicatorKind.HISTORICAL_VOLATILITY: (
+        (IndicatorParameters, HistoricalVolatilityIndicatorParameters),
+        "historical_volatility parameters must declare period and optional annualization_periods",
+    ),
+    IndicatorKind.OBV: (
+        (SignalLineIndicatorParameters,),
+        "obv parameters must declare signal_period",
+    ),
+    IndicatorKind.ACCUMULATION_DISTRIBUTION: (
+        (SignalLineIndicatorParameters,),
+        "accumulation_distribution parameters must declare signal_period",
+    ),
+}
+"""Kinds whose parameter object is not the plain ``{period}`` block, with the fail message."""
 
 
 def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
@@ -487,13 +821,15 @@ def _require_identity_indicator(indicator: IndicatorDefinition) -> None:
 
 
 def _require_constant_indicator(indicator: IndicatorDefinition) -> None:
-    """Reject constant kinds that declare an OHLCV input, a period, or a timeframe."""
+    """Reject constant kinds that declare an input, a period, a timeframe, or a lag."""
     if not isinstance(indicator.parameters, ConstantIndicatorParameters):
         raise ValueError("constant parameters must declare value")  # noqa: TRY004
     if indicator.input is not None:
         raise ValueError("constant must omit input")
     if indicator.timeframe is not None:
         raise ValueError("constant must omit timeframe")
+    if indicator.offset is not None:
+        raise ValueError("constant must omit offset")
 
 
 def _require_period_indicator(indicator: IndicatorDefinition) -> None:
@@ -508,18 +844,13 @@ def _require_period_indicator(indicator: IndicatorDefinition) -> None:
 
 def _require_locked_source(indicator: IndicatorDefinition) -> None:
     """Reject kinds whose input is not the registry-allowed OHLCV source."""
-    if indicator.kind in _HLC_INPUT_KINDS:
-        if indicator.input != ("high", "low", "close"):
+    locked = _LOCKED_TUPLE_INPUT.get(indicator.kind)
+    if locked is not None:
+        if indicator.input != locked:
             if indicator.kind is IndicatorKind.ATR:
                 raise ValueError("ATR input must be high, low, close in canonical order")
             raise ValueError(
-                f"{indicator.kind.value} input must be high, low, close in canonical order"
-            )
-        return
-    if indicator.kind in _HLCV_INPUT_KINDS:
-        if indicator.input != ("high", "low", "close", "volume"):
-            raise ValueError(
-                f"{indicator.kind.value} input must be high, low, close, volume in canonical order"
+                f"{indicator.kind.value} input must be {', '.join(locked)} in canonical order"
             )
         return
     if indicator.kind in _CONFIGURABLE_SINGLE_SOURCE_KINDS:
@@ -538,61 +869,175 @@ def indicator_min_warmup(indicator: IndicatorDefinition) -> int:
     return _indicator_min_warmup(indicator)
 
 
+def indicator_offset(indicator: IndicatorDefinition) -> int:
+    """Return the declared bar lag, treating an omitted offset as the current bar (0)."""
+    return 0 if indicator.offset is None else indicator.offset
+
+
 def _indicator_min_warmup(indicator: IndicatorDefinition) -> int:
-    """Return the closed-bar count required before one indicator produces a value."""
+    """Return closed bars needed before every output is defined, including the bar lag."""
+    return _base_min_warmup(indicator) + indicator_offset(indicator)
+
+
+def _base_min_warmup(indicator: IndicatorDefinition) -> int:
+    """Return closed bars needed before every output of the unlagged series is defined."""
     if indicator.kind in _UNIT_WARMUP_KINDS:
         return 1
-    if indicator.kind is IndicatorKind.MACD:
-        return _macd_min_warmup(indicator)
-    if indicator.kind is IndicatorKind.BOLLINGER:
-        return _bollinger_min_warmup(indicator)
-    if indicator.kind is IndicatorKind.STOCHASTIC:
-        return _stochastic_min_warmup(indicator)
-    if indicator.kind is IndicatorKind.ADX:
-        return _adx_min_warmup(indicator)
+    rule = _WARMUP_RULES.get(indicator.kind)
+    if rule is not None:
+        return rule(indicator.parameters)
     extra = 1 if indicator.kind in _LOOKBACK_WARMUP_KINDS else 0
-    parameters = indicator.parameters
-    if not isinstance(parameters, IndicatorParameters):
-        raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
-    return parameters.period + extra
+    return _parameters_as(indicator.parameters, IndicatorParameters).period + extra
 
 
-def _macd_min_warmup(indicator: IndicatorDefinition) -> int:
-    """Return bars before MACD signal and histogram are defined."""
-    parameters = indicator.parameters
-    if not isinstance(parameters, MacdIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "macd parameters must declare fast_period, slow_period, and signal_period"
+def _parameters_as[ParametersT: _FrozenModel](
+    parameters: IndicatorParameterBlock,
+    model: type[ParametersT],
+) -> ParametersT:
+    """Narrow one validated parameter block to the shape its kind declares."""
+    if not isinstance(parameters, model):
+        raise ValueError(  # noqa: TRY004 - surfaced as a pydantic validation error.
+            f"indicator parameters must be {model.__name__}"
         )
-    return parameters.slow_period + parameters.signal_period - 1
+    return parameters
 
 
-def _bollinger_min_warmup(indicator: IndicatorDefinition) -> int:
-    """Return bars before Bollinger middle and bands are defined."""
-    parameters = indicator.parameters
-    if not isinstance(parameters, BollingerIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "bollinger parameters must declare period and stdev_multiplier"
-        )
-    return parameters.period
+def _period_of(parameters: IndicatorParameterBlock) -> int:
+    """Return ``period`` from the plain block or the annualized historical-volatility block."""
+    if isinstance(parameters, HistoricalVolatilityIndicatorParameters):
+        return parameters.period
+    return _parameters_as(parameters, IndicatorParameters).period
 
 
-def _stochastic_min_warmup(indicator: IndicatorDefinition) -> int:
-    """Return bars before stochastic %D is defined."""
-    parameters = indicator.parameters
-    if not isinstance(parameters, StochasticIndicatorParameters):
-        raise ValueError(  # noqa: TRY004
-            "stochastic parameters must declare k_period and d_period"
-        )
-    return parameters.k_period + parameters.d_period - 1
+def _macd_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before MACD/PPO signal and histogram are defined."""
+    shaped = _parameters_as(parameters, MacdIndicatorParameters)
+    return shaped.slow_period + shaped.signal_period - 1
 
 
-def _adx_min_warmup(indicator: IndicatorDefinition) -> int:
-    """Return bars before ADX is defined when every DX after DI warmup exists."""
-    parameters = indicator.parameters
-    if not isinstance(parameters, IndicatorParameters):
-        raise ValueError(f"{indicator.kind.value} parameters must declare period")  # noqa: TRY004
-    return 2 * parameters.period - 1
+def _bollinger_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before Bollinger middle, bands, %B, and bandwidth are defined."""
+    return _parameters_as(parameters, BollingerIndicatorParameters).period
+
+
+def _stochastic_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before stochastic %D is defined."""
+    shaped = _parameters_as(parameters, StochasticIndicatorParameters)
+    return shaped.k_period + shaped.d_period - 1
+
+
+def _adx_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before ADX is defined when every DX after DI warmup exists."""
+    return 2 * _period_of(parameters) - 1
+
+
+def _dema_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before EMA(EMA) is seeded: two chained SMA-seeded EMAs."""
+    return 2 * _period_of(parameters) - 1
+
+
+def _tema_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the third chained SMA-seeded EMA is defined."""
+    return 3 * _period_of(parameters) - 2
+
+
+def _trix_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the triple EMA has one previous value to difference against."""
+    return 3 * _period_of(parameters) - 1
+
+
+def _hma_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before WMA(raw, floor(sqrt(period))) is defined over the raw Hull series."""
+    period = _period_of(parameters)
+    return period + isqrt(period) - 1
+
+
+def _kama_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the first efficiency ratio (``period`` changes) updates the seed."""
+    return _parameters_as(parameters, KamaIndicatorParameters).period + 1
+
+
+def _supertrend_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the Wilder ATR seeds the first band."""
+    return _parameters_as(parameters, SupertrendIndicatorParameters).period
+
+
+def _parabolic_sar_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the first SAR: one prior bar decides the initial trend."""
+    _parameters_as(parameters, ParabolicSarIndicatorParameters)
+    return 2
+
+
+def _ichimoku_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the longest midpoint window (leading span B) is complete."""
+    shaped = _parameters_as(parameters, IchimokuIndicatorParameters)
+    return max(shaped.tenkan_period, shaped.kijun_period, shaped.senkou_b_period)
+
+
+def _stochastic_rsi_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before %D: RSI changes, stochastic window, then both SMA smoothings."""
+    shaped = _parameters_as(parameters, StochasticRsiIndicatorParameters)
+    return shaped.rsi_period + shaped.stoch_period + shaped.k_period + shaped.d_period - 2
+
+
+def _ultimate_oscillator_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the long window holds ``long_period`` previous-close comparisons."""
+    return _parameters_as(parameters, UltimateOscillatorIndicatorParameters).long_period + 1
+
+
+def _awesome_oscillator_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the slow median-price SMA is defined."""
+    return _parameters_as(parameters, AwesomeOscillatorIndicatorParameters).slow_period
+
+
+def _tsi_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the TSI signal line: one change, two EMAs, then the signal EMA."""
+    shaped = _parameters_as(parameters, TsiIndicatorParameters)
+    return shaped.long_period + shaped.short_period + shaped.signal_period - 1
+
+
+def _keltner_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before both the EMA middle and the Wilder ATR are defined."""
+    shaped = _parameters_as(parameters, KeltnerIndicatorParameters)
+    return max(shaped.period, shaped.atr_period)
+
+
+def _historical_volatility_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before ``period`` log returns exist."""
+    return _period_of(parameters) + 1
+
+
+def _signal_line_warmup(parameters: IndicatorParameterBlock) -> int:
+    """Bars before the signal SMA of a cumulative series is defined."""
+    return _parameters_as(parameters, SignalLineIndicatorParameters).signal_period
+
+
+_WARMUP_RULES: dict[IndicatorKind, Callable[[IndicatorParameterBlock], int]] = {
+    IndicatorKind.MACD: _macd_warmup,
+    IndicatorKind.PPO: _macd_warmup,
+    IndicatorKind.BOLLINGER: _bollinger_warmup,
+    IndicatorKind.BOLLINGER_PERCENT_B: _bollinger_warmup,
+    IndicatorKind.BOLLINGER_BANDWIDTH: _bollinger_warmup,
+    IndicatorKind.STOCHASTIC: _stochastic_warmup,
+    IndicatorKind.ADX: _adx_warmup,
+    IndicatorKind.DEMA: _dema_warmup,
+    IndicatorKind.TEMA: _tema_warmup,
+    IndicatorKind.TRIX: _trix_warmup,
+    IndicatorKind.HMA: _hma_warmup,
+    IndicatorKind.KAMA: _kama_warmup,
+    IndicatorKind.SUPERTREND: _supertrend_warmup,
+    IndicatorKind.PARABOLIC_SAR: _parabolic_sar_warmup,
+    IndicatorKind.ICHIMOKU: _ichimoku_warmup,
+    IndicatorKind.STOCHASTIC_RSI: _stochastic_rsi_warmup,
+    IndicatorKind.ULTIMATE_OSCILLATOR: _ultimate_oscillator_warmup,
+    IndicatorKind.AWESOME_OSCILLATOR: _awesome_oscillator_warmup,
+    IndicatorKind.TSI: _tsi_warmup,
+    IndicatorKind.KELTNER: _keltner_warmup,
+    IndicatorKind.HISTORICAL_VOLATILITY: _historical_volatility_warmup,
+    IndicatorKind.OBV: _signal_line_warmup,
+    IndicatorKind.ACCUMULATION_DISTRIBUTION: _signal_line_warmup,
+}
+"""Warmup formulas for kinds that are not ``period`` (plus one for lookback kinds)."""
 
 
 def _indicator_input_fields(
@@ -608,7 +1053,7 @@ def _indicator_input_fields(
 
 
 def _omit_absent_indicator_inputs(indicators: object) -> None:
-    """Drop null inputs and timeframes so omitted fields keep historical fingerprints."""
+    """Drop null inputs, timeframes, and offsets so omitted fields keep historical fingerprints."""
     if not isinstance(indicators, list):
         return
     for item in indicators:
@@ -618,6 +1063,8 @@ def _omit_absent_indicator_inputs(indicators: object) -> None:
             item.pop("input", None)
         if item.get("timeframe") is None:
             item.pop("timeframe", None)
+        if not item.get("offset"):
+            item.pop("offset", None)
 
 
 def _omit_absent_operand_series(node: object) -> None:

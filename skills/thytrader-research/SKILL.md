@@ -145,8 +145,12 @@ unified-model backtests. In-sample-only studies expose `oos_window_count=0` and 
 `mean_is_return_fraction` as out-of-sample evidence. `walk_forward` validation freezes one snapshot of the strategy. `parameter_sweep` and
 `walk_forward_optimization` select among `candidate_strategy_ids` (each snapshotted at submit) or
 `parameter_axes` (derived variants keep the base `strategy_id`, so they belong to that strategy). Axes default
-to indicator `period` / `fast_period` / `slow_period` / `signal_period` / `k_period` / `d_period` /
-`stdev_multiplier` / `value`. Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
+to target `indicator` with any parameter the indicator declares — `period`, `fast_period`, `slow_period`,
+`signal_period`, `k_period`, `d_period`, `atr_period`, `tenkan_period`, `kijun_period`, `senkou_b_period`,
+`rsi_period`, `stoch_period`, `short_period`, `medium_period`, `long_period`, `annualization_periods`,
+`stdev_multiplier`, `multiplier`, `step`, `max_step`, `value` — or `offset` (the declaration's bar lag;
+`0` means the current bar; `constant` rejects it). Derived variants re-derive warmup, including offsets.
+Optional `target` may be `sizing` (`risk_fraction`, `min_quote_notional`,
 `max_quote_notional`), `exits` (`initial_stop_multiple`, `take_profit_multiple`,
 `trailing_stop_multiple`, `max_bars_held`), `execution` (`max_entry_wait_bars`), or
 `entry_literal` / `htf_literal` (`literal`, optional `condition_operator`). Cartesian product ≤ 8
@@ -178,7 +182,8 @@ need 2–8 valid single-instrument strategies (`markets[].strategy_id`) on disti
 [`docs/architecture/research-studies.md`](../../docs/architecture/research-studies.md).
 
 `create-strategy` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
-(`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`), `--product-id`, and
+(`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`, `donchian-breakout`,
+`supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion`), `--product-id`, and
 `--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live start by `strategy_id` through `thytrader-runtime`; the server snapshots the current definition.
 `show-result` (HTTP and `--local`) and operator `performance` copy the snapshot's
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
@@ -207,17 +212,35 @@ last-completed extra-TF and HTF bars only. Paper and live evaluate the same last
 live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints.
 
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
-Shipped kinds: `ema`, `sma`, `rsi`, `atr`, `volume_sma`, `highest`, `lowest`, `stdev` (population),
-`stdev_sample` (sample / `N-1`), `roc`, `williams_r` (high/low/close), `cci` (high/low/close), `wma`,
-`momentum`, `mfi` (high/low/close/volume), `macd` (close; `fast_period`/`slow_period`/`signal_period`,
-fast < slow; series `macd`/`signal`/`histogram`), `bollinger` (close; `period` plus
-`stdev_multiplier`; series `middle`/`upper`/`lower`), `stochastic` (high/low/close; `k_period` 2–100
-and `d_period` 2–500; series `k`/`d`), `adx` (high/low/close; `period` 2–100; series
-`adx`/`plus_di`/`minus_di`; warmup `2 * period - 1`), `identity` (one of open/high/low/close/volume,
-empty parameters), `constant` (`parameters.value`, no input). Rolling `ema`/`sma`/`wma`/`highest`/
-`lowest`/`stdev`/`stdev_sample`/`roc`/`momentum` accept one of open/high/low/close/volume. RSI,
-volume SMA, MACD, and Bollinger stay locked. Single-output operands omit `series`. Multi-series
-operands must name one declared series. Do not invent unlisted kinds or pass through a TA library.
+It lists all 53 kinds with `category`, `inputs` / `input_mode`, every parameter's bounds, builder
+`default`, and `help`, ordering `constraints`, output series, the `warmup` formula, and
+`default_warmup_bars` ([ADR 0086](../../docs/decisions/0086-indicator-catalog-expansion-and-offset.md)).
+Shipped kinds:
+- Trend: `ema`, `sma`, `wma`, `dema`, `tema`, `hma`, `kama`, `vwma` (close/volume), `supertrend`
+  (high/low/close; series `value`/`direction`, 1 up / −1 down), `parabolic_sar` (high/low; `step`,
+  `max_step`), `aroon` (high/low; `up`/`down`/`oscillator`), `ichimoku` (high/low;
+  `tenkan`/`kijun`/`senkou_a`/`senkou_b`, no forward displacement, no chikou), `vortex`
+  (`plus`/`minus`), `linear_regression` (`value`/`slope`), `trix` (close), `adx`
+  (`adx`/`plus_di`/`minus_di`; warmup `2 * period - 1`).
+- Momentum: `rsi`, `roc`, `momentum`, `stochastic` (`k`/`d`), `williams_r`, `cci`, `macd`
+  (`macd`/`signal`/`histogram`, fast < slow), `ppo` (`ppo`/`signal`/`histogram`), `stochastic_rsi`
+  (`k`/`d`), `ultimate_oscillator`, `awesome_oscillator` (high/low), `cmo`, `tsi` (`tsi`/`signal`).
+- Volatility: `atr`, `natr`, `stdev` (population), `stdev_sample` (`N-1`), `bollinger`
+  (`middle`/`upper`/`lower`), `bollinger_percent_b`, `bollinger_bandwidth`, `keltner` and `donchian`
+  (`upper`/`middle`/`lower`), `choppiness`, `historical_volatility` (percent; optional
+  `annualization_periods`).
+- Volume: `volume_sma`, `mfi`, `obv` (`obv`/`signal`), `accumulation_distribution` (`ad`/`signal`),
+  `cmf`, `vwap` (rolling window), `force_index`.
+- Statistical: `zscore`, `percent_rank`. Price: `identity` (one of open/high/low/close/volume, empty
+  parameters), `constant` (`parameters.value`, no input), `highest`, `lowest`.
+Configurable kinds accept one of open/high/low/close/volume; locked kinds take exactly the listed
+`inputs` array. OBV and A/D levels depend on where the series starts; compare them with their
+`signal` series. Single-output operands omit `series`. Multi-series operands must name one declared
+series. Any declaration except `constant` may add `offset` (0–500): it reads the value from that
+many completed bars earlier on the indicator's own clock and adds `offset` to warmup — for example
+`{"kind": "donchian", "input": ["high", "low"], "parameters": {"period": 20}, "offset": 1}` is the
+previous bar's channel for a breakout. To compare an indicator with its own earlier value, declare it
+twice (once with `offset`). Do not invent unlisted kinds or pass through a TA library.
 Optional per-indicator `timeframe` on LTF-list indicators must be a coarser integer-multiple venue
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a

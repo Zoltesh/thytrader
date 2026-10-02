@@ -27,6 +27,7 @@
 		fetchStrategyPage,
 		formatUtcInputValue,
 		importStrategy,
+		STRATEGY_TEMPLATE_OPTIONS,
 		strategyErrorCode,
 		StrategyApiError,
 		type BulkDeleteItem,
@@ -349,10 +350,9 @@
 			<label class="template-picker"
 				>Template
 				<select bind:value={draftTemplate} disabled={pendingAction !== null}>
-					<option value="ema-trend">EMA trend</option>
-					<option value="rsi-mean-reversion">RSI mean reversion</option>
-					<option value="macd-trend">MACD trend</option>
-					<option value="bollinger-mean-reversion">Bollinger mean reversion</option>
+					{#each STRATEGY_TEMPLATE_OPTIONS as template (template.id)}
+						<option value={template.id} title={template.description}>{template.name}</option>
+					{/each}
 				</select></label
 			>
 			<label class="template-picker"

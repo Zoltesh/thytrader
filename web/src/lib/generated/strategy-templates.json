@@ -1,0 +1,45 @@
+{
+  "schema": "thytrader-indicator-catalog-v1",
+  "templates": [
+    {
+      "id": "ema-trend",
+      "name": "EMA trend",
+      "description": "Fast EMA crosses above slow EMA with RSI filter (conservative reference)."
+    },
+    {
+      "id": "rsi-mean-reversion",
+      "name": "RSI mean reversion",
+      "description": "Long when RSI is at or below 30; ATR stop and reward/risk target."
+    },
+    {
+      "id": "macd-trend",
+      "name": "MACD trend",
+      "description": "MACD line crosses above signal; ATR stop and reward/risk target."
+    },
+    {
+      "id": "bollinger-mean-reversion",
+      "name": "Bollinger mean reversion",
+      "description": "Long when close is at or below the lower band; ATR stop and target."
+    },
+    {
+      "id": "donchian-breakout",
+      "name": "Donchian breakout",
+      "description": "Long when close crosses above the prior 20-bar Donchian high (offset 1); ATR stop and reward/risk target."
+    },
+    {
+      "id": "supertrend-trend",
+      "name": "Supertrend trend",
+      "description": "Long when Supertrend(10, 3) flips to an uptrend and ADX(14) is at least 20; ATR stop and reward/risk target."
+    },
+    {
+      "id": "squeeze-breakout",
+      "name": "Squeeze breakout",
+      "description": "Long when close crosses above the upper Bollinger band right after the bands sat inside the Keltner channel (prior-bar squeeze); ATR stop and target."
+    },
+    {
+      "id": "zscore-mean-reversion",
+      "name": "Z-score mean reversion",
+      "description": "Long when the 20-bar close z-score is at or below -2 in a ranging regime (ADX below 20 or Choppiness above 61.8); ATR stop and target."
+    }
+  ]
+}

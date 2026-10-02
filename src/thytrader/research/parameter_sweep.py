@@ -42,7 +42,7 @@ _MAX_VALUES_PER_AXIS = 8
 MAX_CANDIDATES = 8
 MAX_STITCHED_POINTS = 4096
 _INDICATOR_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_INTEGER_PARAMETERS = frozenset(
+_INTEGER_INDICATOR_PARAMETERS = frozenset(
     {
         "period",
         "fast_period",
@@ -50,21 +50,30 @@ _INTEGER_PARAMETERS = frozenset(
         "signal_period",
         "k_period",
         "d_period",
-        "max_bars_held",
-        "max_entry_wait_bars",
+        "atr_period",
+        "tenkan_period",
+        "kijun_period",
+        "senkou_b_period",
+        "rsi_period",
+        "stoch_period",
+        "short_period",
+        "medium_period",
+        "long_period",
+        "annualization_periods",
     }
 )
-_INDICATOR_PARAMETERS = frozenset(
-    {
-        "period",
-        "fast_period",
-        "slow_period",
-        "signal_period",
-        "k_period",
-        "d_period",
-        "stdev_multiplier",
-        "value",
-    }
+_INTEGER_PARAMETERS = _INTEGER_INDICATOR_PARAMETERS | {
+    "offset",
+    "max_bars_held",
+    "max_entry_wait_bars",
+}
+_DECIMAL_INDICATOR_PARAMETERS = frozenset(
+    {"stdev_multiplier", "multiplier", "step", "max_step", "value"}
+)
+_OFFSET_PARAMETER = "offset"
+"""Indicator-level bar lag: written to the declaration, not to ``parameters``."""
+_INDICATOR_PARAMETERS = (
+    _INTEGER_INDICATOR_PARAMETERS | _DECIMAL_INDICATOR_PARAMETERS | {_OFFSET_PARAMETER}
 )
 _SIZING_PARAMETERS = frozenset({"risk_fraction", "min_quote_notional", "max_quote_notional"})
 _EXITS_PARAMETERS = frozenset(
@@ -526,6 +535,13 @@ def _assign_in_indicators(
     parsed = _parse_parameter_value(parameter, raw_value)
     for item in indicators:
         if not isinstance(item, dict) or item.get("id") != indicator_id:
+            continue
+        if parameter == _OFFSET_PARAMETER:
+            # The bar lag lives on the declaration (optional, so it may be absent).
+            # StrategyDefinition re-validates after the write; constants reject it.
+            declaration = cast("dict[str, object]", item)
+            declaration[_OFFSET_PARAMETER] = parsed
+            found = True
             continue
         parameters = item.get("parameters")
         if not isinstance(parameters, dict) or parameter not in parameters:

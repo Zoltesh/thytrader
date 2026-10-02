@@ -148,6 +148,17 @@ until the saved definition is valid. Saves carry a revision and reject a stale b
 than overwriting newer edits (reload to see the newer version); leaving Build with unsaved edits
 asks first. Saving never changes an existing backtest or a running bot.
 
+**Indicators.** The **Kind** picker groups the 53 indicators by Trend, Momentum, Volatility, Volume,
+Statistical, and Price; type to search (for example `hull`, `sar`, or `z-score`). Choosing a kind
+fills its parameters with defaults, and each field shows its allowed range and a one-line hint.
+**Offset (bars ago)** reads the indicator's value from that many completed bars earlier, so a
+breakout can compare the close with the *previous* bar's 20-bar high; leave it empty for the current
+bar ([ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)). Conditions list each
+multi-series indicator's outputs under its name, for example `Supertrend(10, 3) · direction`.
+**Position sizing** labels use the product's quote currency (`Minimum USDC notional` for a USDC
+market). New templates in the library — **Donchian breakout**, **Supertrend trend**, **Squeeze
+breakout**, and **Z-score mean reversion** — start from these kinds.
+
 **Snapshots.** Starting a backtest, study, or bot takes an automatic snapshot of the saved rules
 (a `sha256:` fingerprint). Every result and bot row shows **Current rules** when it used the rules
 you have now, or **Earlier edit** when the strategy changed since; **What changed** shows a

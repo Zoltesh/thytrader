@@ -15,6 +15,24 @@ describe('parseParameterAxisValues', () => {
 describe('parametersForTarget', () => {
 	it('keeps indicator periods and exposes sizing fields', () => {
 		expect(parametersForTarget('indicator')).toContain('period');
+		expect(parametersForTarget('indicator')).toEqual(
+			expect.arrayContaining([
+				'multiplier',
+				'atr_period',
+				'step',
+				'max_step',
+				'tenkan_period',
+				'kijun_period',
+				'senkou_b_period',
+				'rsi_period',
+				'stoch_period',
+				'short_period',
+				'medium_period',
+				'long_period',
+				'annualization_periods',
+				'offset'
+			])
+		);
 		expect(parametersForTarget('sizing')).toEqual([
 			'risk_fraction',
 			'min_quote_notional',

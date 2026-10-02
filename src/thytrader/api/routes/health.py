@@ -26,6 +26,8 @@ class HealthOpsContract(BaseModel):
     live_timeframes: list[str]
     htf_filter_runtimes: list[str]
     indicator_timeframe_runtimes: list[str]
+    indicator_offset_runtimes: list[str]
+    indicator_kinds: list[str]
     position_sides: list[str]
     attached_entry_brackets: list[str]
     paper_deploy_fee_fields: list[str]

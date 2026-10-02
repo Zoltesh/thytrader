@@ -10,10 +10,10 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0002](0002-modular-monolith.md) | Start as a modular monolith with separate API and worker processes | Accepted |
 | [0003](0003-polyglot-storage.md) | Use PostgreSQL operationally and Parquet/Polars/DuckDB analytically | Accepted |
 | [0004](0004-safe-execution-and-access.md) | Use maker-first execution, risk-first exits, loopback-safe deployment, and restrictive credential permissions | Superseded in part by 0006 |
-| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted — extended by 0025, 0026, 0027, 0028, 0029, 0032, 0042, and 0047 — superseded in part by 0082 |
+| [0005](0005-canonical-strategy-schema.md) | Use one versioned declarative strategy schema across runtimes | Accepted — extended by 0025, 0026, 0027, 0028, 0029, 0032, 0042, 0047, and 0086 — superseded in part by 0082 |
 | [0006](0006-credential-permission-acceptance.md) | Accept operator-selected Coinbase keys with additional permissions | Accepted |
 | [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted — superseded in part by 0082 and 0083 |
-| [0008](0008-deterministic-signal-evaluation.md) | Version deterministic signal evaluation separately from request-only runs | Accepted — extended by 0026, 0027, 0028, 0029, 0032, 0042, and 0047 — superseded in part by 0083 |
+| [0008](0008-deterministic-signal-evaluation.md) | Version deterministic signal evaluation separately from request-only runs | Accepted — extended by 0026, 0027, 0028, 0029, 0032, 0042, 0047, and 0086 — superseded in part by 0083 |
 | [0009](0009-deterministic-bar-level-backtest-engine.md) | Version bar-level backtest simulation separately from signal evaluation | Accepted — superseded in part by 0083 |
 | [0010](0010-constant-spread-backtest-provenance.md) | Version constant-spread stress assumptions as immutable backtest evidence | Accepted — superseded in part by 0083 |
 | [0011](0011-derived-buy-and-hold-benchmark.md) | Keep buy-and-hold comparison as a derived backtest report | Accepted |
@@ -52,7 +52,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted — superseded in part by 0082 |
 | [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted |
 | [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted |
-| [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted |
+| [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted — extended by 0086 |
 | [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted |
 | [0049](0049-experiential-train-v1.md) | Bounded journal-evidence experiential training V1; advisory research input only | Accepted |
 | [0050](0050-daily-loss-drawdown-rate-collars.md) | Daily-loss / drawdown breakers, order-rate limits, and reference-price collars on the Phase 10 registry | Accepted |
@@ -90,6 +90,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0083](0083-unified-backtest-model.md) | One unified backtest model (`engine: "thytrader-backtest"`, corrected maker-limit semantics) replaces the versioned bar-backtest engines; optional `spread_bps` stress on taker legs; no engine selector; `backtest-model` replaces engine-support; ops contract v42 / Alembic 0049 | Accepted |
 | [0084](0084-home-kpis-needs-attention-data-health.md) | Home recomposed from existing endpoints: independently loading KPI tiles, Needs attention aggregated from bots, setup, watched datasets, and research jobs, 1D/1W/1M/3M chart with honest gaps on thinned ranges, compact Holdings, fee tier line, and a Data health disclosure | Accepted |
 | [0085](0085-fast-research-ingest.md) | Ranged newest-first ingest (350-bar pages, fair per-cycle request budgets, paced with 429 backoff), research lookback ceilings (1m 90 d to 2h-1d 10 y), ingest refuses unwatched targets (409), catalog-grade latest listings and a byte-identical verified-dataset cache; ops contract v45 / Alembic 0052 | Accepted |
+| [0086](0086-indicator-catalog-expansion-and-offset.md) | 32 more fail-closed indicator kinds (trend, momentum, volatility, volume, statistical), an optional per-declaration `offset` bar lag, one registry rendered into the operator `indicators` report and the builder catalog, four catalog templates, and quote-aware builder copy; ops contract v45 | Accepted |
 
 ## Status values
 
