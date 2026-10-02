@@ -1,8 +1,10 @@
-"""Loopback HTTP client for the ``thytrader-portfolio`` CLI (ADR 0088).
+"""Loopback HTTP client for the ``thytrader-portfolio`` CLI (ADR 0088, ADR 0091).
 
 Reads use plain JSON GETs; mutations go through ``request_mutation_json`` so the
-installation credential is attached when the trust boundary is enabled. Nothing here can
-deploy a portfolio or place orders: the portfolio API has no such route.
+installation credential is attached when the trust boundary is enabled. This lane reads
+the deployment and the manager briefing and submits or decides proposals; it never
+starts, stops, or places orders (portfolio start/pause/resume/stop are
+``thytrader-runtime`` commands, and no route places an order).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
         SetWeightsRequest,
         SleeveAddRequest,
     )
+    from thytrader.portfolios.proposals import ProposalDecisionRequest, ProposalSubmitRequest
 
 JsonObject = dict[str, object]
 """One decoded JSON object from the API (validated by the API's response models)."""
@@ -139,6 +142,72 @@ def list_journal(
     if cursor is not None:
         query["cursor"] = cursor
     return _get(f"{base_url}{_PREFIX}/{portfolio_id}/journal?{urlencode(query)}", "journal")
+
+
+def show_deployment(base_url: str, portfolio_id: UUID) -> JsonObject:
+    """GET the portfolio's deployment: state, sleeve bots, breakers, exposure."""
+    return _get(f"{base_url}{_PREFIX}/{portfolio_id}/deployment", "portfolio deployment")
+
+
+def show_briefing(
+    base_url: str, portfolio_id: UUID, *, decisions_per_sleeve: int, journal_limit: int
+) -> JsonObject:
+    """GET the one-call manager briefing."""
+    query = urlencode(
+        {"decisions_per_sleeve": str(decisions_per_sleeve), "journal_limit": str(journal_limit)}
+    )
+    return _get(f"{base_url}{_PREFIX}/{portfolio_id}/briefing?{query}", "manager briefing")
+
+
+def submit_proposal(
+    base_url: str, portfolio_id: UUID, request: ProposalSubmitRequest
+) -> JsonObject:
+    """POST one manager proposal."""
+    return _mutate(
+        "POST",
+        f"{base_url}{_PREFIX}/{portfolio_id}/proposals",
+        request.model_dump(mode="json", exclude_none=True),
+        "proposal",
+    )
+
+
+def list_proposals(
+    base_url: str,
+    portfolio_id: UUID,
+    *,
+    status: str | None,
+    limit: int,
+    cursor: str | None,
+) -> JsonObject:
+    """GET proposals newest first."""
+    query = {"limit": str(limit)}
+    if status is not None:
+        query["status"] = status
+    if cursor is not None:
+        query["cursor"] = cursor
+    return _get(f"{base_url}{_PREFIX}/{portfolio_id}/proposals?{urlencode(query)}", "proposals")
+
+
+def show_proposal(base_url: str, portfolio_id: UUID, proposal_id: UUID) -> JsonObject:
+    """GET one proposal."""
+    return _get(f"{base_url}{_PREFIX}/{portfolio_id}/proposals/{proposal_id}", "proposal")
+
+
+def decide_proposal(
+    base_url: str,
+    portfolio_id: UUID,
+    proposal_id: UUID,
+    *,
+    decision: str,
+    request: ProposalDecisionRequest,
+) -> JsonObject:
+    """POST approve or decline for one pending proposal."""
+    return _mutate(
+        "POST",
+        f"{base_url}{_PREFIX}/{portfolio_id}/proposals/{proposal_id}/{decision}",
+        request.model_dump(mode="json", exclude_none=True),
+        "proposal",
+    )
 
 
 def _get(url: str, what: str) -> JsonObject:

@@ -116,8 +116,8 @@
 	</div>
 	{#if mode === 'live'}
 		<p class="live-note" data-testid="new-portfolio-live-note">
-			A live portfolio is for real Coinbase capital, but nothing trades yet: deploying a portfolio
-			arrives next. Creating it places no orders.
+			A live portfolio is for real Coinbase capital. Creating it places no orders: nothing trades
+			until you start it and tick the real-orders acknowledgement.
 		</p>
 	{/if}
 	<div class="row-fields">

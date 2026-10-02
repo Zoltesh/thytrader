@@ -2,11 +2,13 @@ import { expect, test } from '../e2e/harness';
 import {
 	CORE,
 	LAB,
+	PROPOSAL,
 	SOL,
 	labFixture,
 	mockPortfolioApi,
 	newPortfolioState,
 	portfolioFixture,
+	proposalFixture,
 	type MockState
 } from '../e2e/portfolio-fixtures';
 
@@ -44,17 +46,16 @@ test('empty state creates a portfolio from the dialog', async ({ page }) => {
 	await expect(page.getByTestId('portfolio-name')).toHaveText('Swing');
 });
 
-test('switches portfolios, keeps deploy disabled, and leaves All bots in place', async ({
-	page
-}) => {
+test('switches portfolios, offers Start, and leaves All bots in place', async ({ page }) => {
 	await mockPortfolioApi(page, newPortfolioState([portfolioFixture(), labFixture()]));
 	await page.goto('/deployments');
 	await expect(page.getByRole('heading', { level: 1, name: 'Portfolio' })).toBeVisible();
 	const card = page.getByTestId('portfolio-card');
 	await expect(card).toContainText('Core');
 	await expect(card.locator('.chip.live')).toHaveText('LIVE');
-	await expect(card.getByRole('button', { name: 'Deploy portfolio' })).toBeDisabled();
-	await expect(card).toContainText('Deploying a portfolio arrives next');
+	await expect(card.getByTestId('portfolio-state')).toHaveText('Not deployed');
+	await expect(card.getByTestId('portfolio-start')).toBeEnabled();
+	await expect(card.getByTestId('portfolio-pause')).toBeDisabled();
 	await expect(page.getByTestId('live-strip')).toHaveCount(0);
 	await page.getByTestId('portfolio-switch').filter({ hasText: 'Lab' }).click();
 	await expect(page.getByTestId('portfolio-name')).toHaveText('Lab');
@@ -168,7 +169,7 @@ test('edits limits and manager settings and shows the journal', async ({ page })
 	await mockPortfolioApi(page, state);
 	await page.goto(`/deployments?portfolio=${CORE}&tab=limits`);
 	await expect(page.getByTestId('limit-per-asset')).toContainText('60% of capital');
-	await expect(page.getByTestId('limits-note')).toContainText('today no order passes through them');
+	await expect(page.getByTestId('limits-note')).toContainText('stay latched until you reset them');
 	await page.getByRole('button', { name: 'Edit limits' }).click();
 	await page.getByLabel('Max per asset (% of capital)').fill('50');
 	await page.getByLabel(/Daily loss stop/).fill('');
@@ -188,7 +189,7 @@ test('edits limits and manager settings and shows the journal', async ({ page })
 		]);
 
 	await page.getByRole('tab', { name: /Manager/ }).click();
-	await expect(page.getByTestId('manager-note')).toContainText('proposals arrive next');
+	await expect(page.getByTestId('manager-note')).toContainText('submits proposals');
 	await expect(page.getByTestId('manager-never')).toContainText('Place orders itself');
 	await expect(page.getByTestId('portfolio-journal')).toContainText(
 		'Changed weights: EMA Trend Pullback 40% → 50%.'
@@ -222,4 +223,148 @@ test('portfolio storage outage keeps the bot list working', async ({ page }) => 
 	);
 	await expect(page.getByRole('button', { name: 'New portfolio…' })).toBeDisabled();
 	await expect(page.getByText('No bots yet')).toBeVisible();
+});
+
+test('starts a live portfolio only after the real-orders checkbox, then pauses and stops it', async ({
+	page
+}) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	await mockPortfolioApi(page, state);
+	await page.goto('/deployments');
+	await page.getByTestId('portfolio-start').click();
+	const dialog = page.getByTestId('portfolio-action-dialog');
+	await expect(dialog).toContainText('Start portfolio “Core”?');
+	await expect(dialog.getByTestId('start-lines')).toContainText('EMA Trend Pullback');
+	await expect(dialog.getByTestId('start-lines')).toContainText('allocated');
+	const confirm = dialog.getByRole('button', { name: 'Start live' });
+	await expect(confirm).toBeDisabled();
+	await dialog.getByTestId('portfolio-live-ack').check();
+	await confirm.click();
+	await expect
+		.poll(() => calls(state, 'POST', `${CORE}/start`))
+		.toEqual([{ revision: 3, i_understand_live: true }]);
+	const card = page.getByTestId('portfolio-card');
+	await expect(card.getByTestId('portfolio-state')).toHaveText('Running');
+	await expect(card).toContainText('2 sleeves · Running');
+	await expect(card.getByTestId('portfolio-start')).toBeDisabled();
+	await expect(card.getByTestId('portfolio-start')).not.toHaveClass(/primary/);
+	const bots = page.getByTestId('sleeve-bot');
+	await expect(bots.first().getByRole('link', { name: 'Running' })).toHaveAttribute(
+		'href',
+		/\/deployments\/de/
+	);
+
+	await page.getByRole('button', { name: 'Pause sleeve RSI Reversion' }).click();
+	await page.getByTestId('portfolio-action-dialog').getByRole('button', { name: 'Pause' }).click();
+	await expect.poll(() => state.calls.some((call) => call.path.endsWith('/pause'))).toBe(true);
+	await expect(card.getByTestId('portfolio-state')).toHaveText('Partly running');
+
+	await card.getByTestId('portfolio-stop').click();
+	const stop = page.getByTestId('portfolio-action-dialog');
+	await stop.getByLabel(/Stop and flatten/).check();
+	await stop.getByRole('button', { name: 'Stop and flatten' }).click();
+	await expect
+		.poll(() => state.calls.filter((call) => call.path.endsWith(`${CORE}/stop`)).length)
+		.toBe(1);
+	await expect(card.getByTestId('portfolio-state')).toHaveText('Stopped');
+});
+
+test('manager proposals: approve, decline, and Ask why opens the agent panel', async ({ page }) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	state.proposals = [
+		proposalFixture(),
+		proposalFixture({
+			proposal_id: '0d000000-0000-7000-8000-000000000002',
+			kind: 'pause_sleeve',
+			summary: 'Pause sleeve “RSI Reversion”.',
+			change: { kind: 'pause_sleeve', sleeve_id: '5eee0000-0000-7000-8000-000000000002' },
+			approval_reason: 'Pausing a sleeve needs approval: may_pause_sleeves is off.'
+		})
+	];
+	await mockPortfolioApi(page, state);
+	await page.goto(`/deployments?portfolio=${CORE}&tab=manager`);
+	const cards = page.getByTestId('proposal-card');
+	await expect(cards).toHaveCount(2);
+	await expect(cards.first()).toContainText('EMA Trend Pullback 50% → 60%');
+	await expect(cards.first()).toContainText('below its walk-forward range');
+	await expect(cards.first()).toContainText('a rebalance moves real capital');
+
+	await cards.first().getByRole('button', { name: 'Ask why' }).click();
+	const panel = page.getByRole('complementary', { name: 'Agent' });
+	await expect(panel).toBeVisible();
+	await expect(panel.getByTestId('agent-context')).toContainText('Proposal: Rebalance');
+	await expect(panel.getByTestId('chat-draft')).toHaveValue(new RegExp(`Proposal ${PROPOSAL}`));
+	await page.getByRole('button', { name: 'Close agent' }).click();
+
+	await cards.first().getByRole('button', { name: 'Approve…' }).click();
+	const approve = page.getByTestId('approve-dialog');
+	await approve.getByLabel(/Note/).fill('Agreed after the study.');
+	await approve.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect
+		.poll(() => calls(state, 'POST', `${PROPOSAL}/approve`))
+		.toEqual([{ note: 'Agreed after the study.' }]);
+	await expect(page.getByTestId('proposal-card')).toHaveCount(1);
+	await expect(page.getByTestId('decided-proposals')).toContainText('Approved');
+
+	await page.getByTestId('proposal-card').getByRole('button', { name: 'Decline' }).click();
+	await expect(page.getByTestId('proposal-card')).toHaveCount(0);
+	await expect(page.getByTestId('no-proposals')).toBeVisible();
+	await expect(page.getByTestId('decided-proposals')).toContainText('Declined');
+});
+
+test('a latched breaker blocks resume until it is reset on the Limits tab', async ({ page }) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	state.bots = {
+		'5eee0000-0000-7000-8000-000000000001': 'paused',
+		'5eee0000-0000-7000-8000-000000000002': 'paused'
+	};
+	state.breakerLatched = true;
+	await mockPortfolioApi(page, state);
+	await page.goto(`/deployments?portfolio=${CORE}&tab=limits`);
+	const card = page.getByTestId('portfolio-card');
+	await expect(card.getByTestId('portfolio-breaker-chip')).toBeVisible();
+	await expect(card.getByTestId('portfolio-resume')).toBeDisabled();
+	const breaker = page.getByTestId('breaker-card');
+	await expect(breaker.getByTestId('breaker-latched')).toHaveText('Max drawdown stop latched');
+	await expect(breaker).toContainText('21% below its peak');
+	await breaker.getByTestId('breaker-reset').click();
+	await page
+		.getByTestId('portfolio-action-dialog')
+		.getByRole('button', { name: 'Reset breaker' })
+		.click();
+	await expect.poll(() => calls(state, 'POST', '/breaker/reset').length).toBe(1);
+	await expect(breaker.getByTestId('breaker-clear')).toBeVisible();
+	await expect(card.getByTestId('portfolio-resume')).toBeEnabled();
+});
+
+test('long portfolio names keep the header usable at 1440 px', async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	const names = [
+		'Trend core - daily EMA20/100 (11 majors)',
+		'Trend core - daily EMA20/100 risk r0.05 (11 majors)',
+		'Trend core - daily EMA20/100 risk r0.08 (11 majors)'
+	];
+	const rows = names.map((name, index) =>
+		portfolioFixture({
+			portfolio_id: `01a0f000-0000-7000-8000-00000000a${String(index).padStart(3, '0')}`,
+			name,
+			mode: 'paper'
+		})
+	);
+	await mockPortfolioApi(page, newPortfolioState(rows));
+	await page.goto('/deployments');
+	await expect(page.getByTestId('portfolio-switch')).toHaveCount(3);
+	const newButton = page.getByTestId('new-portfolio');
+	await expect(newButton).toBeVisible();
+	await expect(newButton).toHaveText('New portfolio…');
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth - document.documentElement.clientWidth
+	);
+	expect(overflow).toBeLessThanOrEqual(0);
+	const button = await newButton.boundingBox();
+	expect(button).not.toBeNull();
+	expect((button?.x ?? 0) + (button?.width ?? 0)).toBeLessThanOrEqual(1440);
+	const lede = await page.locator('.page-head .lede').boundingBox();
+	expect(lede?.height ?? 0).toBeLessThan(80);
+	await expect(page.getByTestId('portfolio-switch').first()).toHaveAttribute('title', names[0]);
 });

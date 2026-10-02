@@ -48,10 +48,12 @@ from thytrader.execution.trade_reason_scope import (
     trade_reason_scope,
 )
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
+from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.risk.exposure import risk_bearing_snapshots
+from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
@@ -77,6 +79,7 @@ if TYPE_CHECKING:
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
+    from thytrader.portfolios.store import PortfolioRuntimeStore
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.settings_yaml import SettingsStore
@@ -132,6 +135,7 @@ async def run_execution_worker(
     venue_provider: Callable[[], ExecutionVenue] | None = None,
     audit_store: AuditEventStore | None = None,
     decision_store: DecisionJournalStore | None = None,
+    portfolio_store: PortfolioRuntimeStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown.
 
@@ -171,6 +175,7 @@ async def run_execution_worker(
                     risk_store=risk_store,
                     user_feed_store=user_feed_store,
                     memory_store=memory_store,
+                    portfolio_store=portfolio_store,
                 )
                 next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
             if wake_requested is not None:
@@ -230,10 +235,18 @@ async def _run_cycle(
     risk_store: RiskPolicyStore | None,
     user_feed_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
+    portfolio_store: PortfolioRuntimeStore | None = None,
 ) -> None:
-    """Process occupied deployments once, refreshing occupancy after each for the entry gate."""
+    """Process occupied deployments once, refreshing occupancy after each for the entry gate.
+
+    Deployed portfolios are supervised first (capital sync, equity, breakers; ADR 0091),
+    and each sleeve book is processed with its portfolio's limits bound for the gate.
+    """
     policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
+    books = await supervise_portfolios(
+        store=store, portfolios=portfolio_store, deployments=deployments, now=utc_now()
+    )
     portfolio = await _risk_snapshots(store, deployments)
     for deployment in deployments:
         if deployment.status not in {
@@ -242,20 +255,22 @@ async def _run_cycle(
             DeploymentStatus.STOPPED,
         }:
             continue
+        book = None if deployment.portfolio_id is None else books.get(deployment.portfolio_id)
         try:
-            await _process_one(
-                deployment_id=deployment.id,
-                store=store,
-                publication_store=publication_store,
-                market_data=market_data,
-                paper_broker=paper_broker,
-                live_broker=live_broker,
-                quote_reader=quote_reader,
-                risk_policy=policy,
-                portfolio=portfolio,
-                user_feed_store=user_feed_store,
-                memory_store=memory_store,
-            )
+            with portfolio_risk_scope(book):
+                await _process_one(
+                    deployment_id=deployment.id,
+                    store=store,
+                    publication_store=publication_store,
+                    market_data=market_data,
+                    paper_broker=paper_broker,
+                    live_broker=live_broker,
+                    quote_reader=quote_reader,
+                    risk_policy=policy,
+                    portfolio=portfolio,
+                    user_feed_store=user_feed_store,
+                    memory_store=memory_store,
+                )
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
         portfolio = await _risk_snapshots(store, deployments)

@@ -87,6 +87,8 @@ export type Deployment = {
 	strategy_name?: string | null;
 	/** True for a kept live book whose strategy was deleted. */
 	strategy_deleted?: boolean;
+	/** The portfolio this bot is a sleeve of (ADR 0091); null for a standalone bot. */
+	portfolio_id?: string | null;
 	kind: 'strategy' | 'discretionary' | string;
 	timeframe: string | null;
 	product_id: string;

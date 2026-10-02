@@ -23,11 +23,17 @@
 
 	let {
 		variant = 'page',
-		loading = $bindable()
+		loading = $bindable(),
+		prefill = null,
+		prefillSequence = 0
 	}: {
 		/** `page` is the full `/chat` view; `panel` is the compact shell side panel. */
 		variant?: 'page' | 'panel';
 		loading?: boolean;
+		/** A drafted question from the page (for example "Ask why"); never auto-sent. */
+		prefill?: string | null;
+		/** Changes with every new prefill so a repeated question is drafted again. */
+		prefillSequence?: number;
 	} = $props();
 
 	const uid = $props.id();
@@ -42,6 +48,13 @@
 	let model = $state('gpt-4o-mini');
 	let baseUrl = $state('');
 	let understandLive = $state<Record<string, boolean>>({});
+
+	let draftedSequence = -1;
+	$effect(() => {
+		if (prefill === null || prefillSequence === draftedSequence) return;
+		draftedSequence = prefillSequence;
+		draft = prefill;
+	});
 
 	const visible = $derived(transcript ? visibleChatMessages(transcript.messages) : []);
 	const configured = $derived(transcript?.status.llm_configured === true);

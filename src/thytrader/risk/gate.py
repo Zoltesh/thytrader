@@ -15,6 +15,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.market_data.products import base_currency, is_spot_product_id
 from thytrader.risk.breakers import (
     EntryObservation,
     evaluate_circuit_breakers,
@@ -34,7 +35,7 @@ from thytrader.risk.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from uuid import UUID
 
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
@@ -50,6 +51,39 @@ class ProposedEntry:
     is_pyramid_add: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class PortfolioRiskBook:
+    """One deployed portfolio's shared limits as the entry gate applies them (ADR 0091).
+
+    Bound by the execution worker for every deployment tagged with a ``portfolio_id``.
+    Exposure caps are fractions of the portfolio's ``capital`` (its configured
+    ``capital_quote``) and count every risk-bearing deployment of the same portfolio.
+    ``breaker_reason`` names a latched portfolio breaker (entries stay blocked until an
+    operator reset). ``available=False`` means the worker could not load the portfolio's
+    limits, so its sleeves fail closed. ``live`` marks a live portfolio, whose sleeve
+    allocations count as risk-policy allocation membership for its own deployments.
+    """
+
+    portfolio_id: UUID
+    capital: Decimal
+    max_total_exposure_fraction: Decimal
+    max_per_asset_fraction: Decimal
+    live: bool = False
+    breaker_reason: RiskReasonCode | None = None
+    available: bool = True
+
+    @classmethod
+    def unavailable(cls, portfolio_id: UUID) -> PortfolioRiskBook:
+        """A fail-closed book for a sleeve whose portfolio limits could not be read."""
+        return cls(
+            portfolio_id=portfolio_id,
+            capital=Decimal("0"),
+            max_total_exposure_fraction=Decimal("0"),
+            max_per_asset_fraction=Decimal("0"),
+            available=False,
+        )
+
+
 def evaluate_new_deployment(
     policy: RiskPolicyDefinition,
     *,
@@ -60,11 +94,14 @@ def evaluate_new_deployment(
     deployments: Sequence[Deployment],
     product_ids: Sequence[str] | None = None,
     policy_source: RiskPolicySource = RiskPolicySource.PUBLISHED,
+    portfolio_sleeve: bool = False,
 ) -> RiskVerdict:
     """Allow a new running deployment only when slots, allowlist, and paper capital permit it.
 
     Live deployments additionally require an operator-published policy: a fresh
     install's compiled fallback must not become silent live authority (audit F25).
+    ``portfolio_sleeve`` marks a sleeve of a live portfolio: its sleeve allocation
+    counts as allocation membership (ADR 0091); every other rule still applies.
     """
     if mode is DeploymentMode.LIVE and policy_source is RiskPolicySource.COMPILED_DEFAULT:
         return _deny(
@@ -78,7 +115,9 @@ def evaluate_new_deployment(
         allowlisted = _allowlist_verdict(policy, covered_product)
         if allowlisted.decision is RiskDecision.DENY:
             return allowlisted
-    allocated = _allocation_membership(policy, strategy_id, mode=mode)
+    allocated = _allocation_membership(
+        policy, strategy_id, mode=mode, portfolio_member=portfolio_sleeve
+    )
     if allocated.decision is RiskDecision.DENY:
         return allocated
     if len(occupied) >= policy.max_concurrent_running_deployments:
@@ -99,17 +138,33 @@ def evaluate_new_entry(
     snapshots: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None = None,
     observation: EntryObservation | None = None,
+    portfolio: PortfolioRiskBook | None = None,
 ) -> RiskVerdict:
-    """Allow a risk-increasing entry only when slots, exposure, and breakers permit it."""
+    """Allow a risk-increasing entry only when slots, exposure, and breakers permit it.
+
+    A sleeve of a deployed portfolio passes its portfolio's limits (``portfolio``) after
+    the policy's membership checks and before the account-wide exposure and breaker
+    checks; every check must pass, so the strictest limit wins (ADR 0091).
+    """
     occupied = tuple(
         item
         for item in snapshots
         if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
     risk_bearing = risk_bearing_snapshots(snapshots, mode)
-    membership = _entry_membership(policy, mode=mode, proposed=proposed, occupied=occupied)
+    membership = _entry_membership(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=occupied,
+        portfolio_member=portfolio is not None and portfolio.live,
+    )
     if membership.decision is RiskDecision.DENY:
         return membership
+    if portfolio is not None:
+        limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=risk_bearing)
+        if limited.decision is RiskDecision.DENY:
+            return limited
     exposure = _exposure_verdict(
         policy,
         mode=mode,
@@ -154,18 +209,124 @@ def evaluate_runtime_breakers(
     return tripped
 
 
+def evaluate_portfolio_entry(
+    book: PortfolioRiskBook,
+    *,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+) -> RiskVerdict:
+    """Apply one portfolio's latched breaker and exposure caps to a sleeve's entry.
+
+    ``snapshots`` are the mode's risk-bearing books; only deployments tagged with this
+    portfolio count. Total exposure is every sleeve's position value at entry price plus
+    working entry remainders; per-asset exposure sums every product of the proposed
+    base asset.
+    """
+    if not book.available:
+        return _deny(
+            RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
+            "Portfolio limits could not be loaded; new entries for its sleeves are blocked.",
+        )
+    if book.breaker_reason is not None:
+        return _deny(
+            RiskReasonCode.PORTFOLIO_BREAKER_LATCHED,
+            f"Portfolio breaker {book.breaker_reason.value} is latched until an operator "
+            "resets it.",
+        )
+    exposure = portfolio_exposure(book.portfolio_id, snapshots)
+    total_cap = book.capital * book.max_total_exposure_fraction
+    if exposure.total + proposed.notional > total_cap:
+        return _deny(
+            RiskReasonCode.PORTFOLIO_TOTAL_EXPOSURE_LIMIT,
+            f"Entry of {_quote(proposed.notional)} would take the portfolio's exposure from "
+            f"{_quote(exposure.total)} above its cap of {_quote(total_cap)} "
+            "(max_total_exposure_fraction times capital).",
+        )
+    asset = asset_of(proposed.product_id)
+    held = exposure.assets.get(asset, Decimal("0"))
+    asset_cap = book.capital * book.max_per_asset_fraction
+    if held + proposed.notional > asset_cap:
+        return _deny(
+            RiskReasonCode.PORTFOLIO_ASSET_EXPOSURE_LIMIT,
+            f"Entry of {_quote(proposed.notional)} would take the portfolio's {asset} "
+            f"exposure from {_quote(held)} above its cap of {_quote(asset_cap)} "
+            "(max_per_asset_fraction times capital).",
+        )
+    return _allow()
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioExposure:
+    """One portfolio's exposure as the entry gate counts it: total and per base asset."""
+
+    total: Decimal
+    assets: Mapping[str, Decimal]
+
+
+def portfolio_exposure(
+    portfolio_id: UUID, snapshots: Sequence[DeploymentSnapshot]
+) -> PortfolioExposure:
+    """Position cost plus working entries of every book tagged with this portfolio."""
+    members = tuple(item for item in snapshots if item.deployment.portfolio_id == portfolio_id)
+    total = sum((_marked_exposure(item) for item in members), Decimal("0"))
+    assets: dict[str, Decimal] = {}
+    for item in members:
+        for asset in sorted({asset_of(product) for product in _book_products(item)}):
+            assets[asset] = assets.get(asset, Decimal("0")) + _asset_exposure(item, asset)
+    return PortfolioExposure(total=total, assets=assets)
+
+
+def asset_of(product_id: str) -> str:
+    """Base asset of one spot product (the whole id when it is not a spot pair)."""
+    return base_currency(product_id) if is_spot_product_id(product_id) else product_id
+
+
+def _book_products(snapshot: DeploymentSnapshot) -> set[str]:
+    """Every product a book holds, works, or runs (its primary product included)."""
+    products = {snapshot.deployment.product_id}
+    products.update(
+        resolved_product_id(position.product_id, snapshot.deployment)
+        for position in snapshot_positions(snapshot)
+    )
+    products.update(runtime.product_id for runtime in snapshot.instrument_runtimes)
+    products.update(
+        resolved_product_id(order.product_id, snapshot.deployment) for order in snapshot.orders
+    )
+    return {product for product in products if product}
+
+
+def _asset_exposure(snapshot: DeploymentSnapshot, asset: str) -> Decimal:
+    """Position cost plus working entry remainders on every product of one base asset."""
+    return sum(
+        (
+            product_exposure(snapshot, product)
+            for product in sorted(_book_products(snapshot))
+            if asset_of(product) == asset
+        ),
+        Decimal("0"),
+    )
+
+
+def _quote(amount: Decimal) -> str:
+    """Render a quote amount for a verdict detail (two decimals, no exponent)."""
+    return f"{amount.quantize(Decimal('0.01')):f}"
+
+
 def _entry_membership(
     policy: RiskPolicyDefinition,
     *,
     mode: DeploymentMode,
     proposed: ProposedEntry,
     occupied: Sequence[DeploymentSnapshot],
+    portfolio_member: bool = False,
 ) -> RiskVerdict:
     """Apply allowlist, allocation membership, and open-position slot caps."""
     allowlisted = _allowlist_verdict(policy, proposed.product_id)
     if allowlisted.decision is RiskDecision.DENY:
         return allowlisted
-    allocated = _allocation_membership(policy, proposed.strategy_id, mode=mode)
+    allocated = _allocation_membership(
+        policy, proposed.strategy_id, mode=mode, portfolio_member=portfolio_member
+    )
     if allocated.decision is RiskDecision.DENY:
         return allocated
     if proposed.is_pyramid_add and not policy.allow_intra_strategy_pyramiding:
@@ -325,16 +486,24 @@ def _allowlist_verdict(policy: RiskPolicyDefinition, product_id: str) -> RiskVer
 
 
 def _allocation_membership(
-    policy: RiskPolicyDefinition, strategy_id: UUID | None, *, mode: DeploymentMode
+    policy: RiskPolicyDefinition,
+    strategy_id: UUID | None,
+    *,
+    mode: DeploymentMode,
+    portfolio_member: bool = False,
 ) -> RiskVerdict:
     """When allocations exist, live requires a listed strategy and denies discretionary books.
 
     Allocations reserve real capital, so membership gates LIVE only. Paper research is not
     blocked by them: an unlisted paper strategy or discretionary paper book is allowed and
     sized by paper capital, while a listed strategy's paper starting cash and exposure stay
-    bounded by its allocation (a rehearsal of the live reservation).
+    bounded by its allocation (a rehearsal of the live reservation). A sleeve of a live
+    portfolio is a member through its portfolio: the sleeve's weight times the portfolio's
+    capital is its reservation (ADR 0091). Standalone books keep these semantics.
     """
     if not policy.allocations or mode is not DeploymentMode.LIVE:
+        return _allow()
+    if portfolio_member and strategy_id is not None:
         return _allow()
     if strategy_id is None:
         return _deny(

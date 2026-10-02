@@ -46,18 +46,30 @@ def live_sizing_cash(deployment: Deployment) -> Decimal | None:
     """Quote available to size a live entry: allocated capital, else observed venue quote.
 
     Ledger ``cash`` is fill accounting and must not be replaced by venue available.
-    ``None`` means the venue balance is unknown and entries must be denied.
+    ``None`` means the venue balance is unknown and entries must be denied. A paper
+    sleeve of a deployed portfolio sizes from the smaller of its ledger cash and what is
+    left of its allocated capital (weight times portfolio capital), so a rebalance binds
+    paper sleeves the way it binds live ones; a paper sleeve never borrows cash it does
+    not hold (ADR 0091).
     """
     if deployment.mode is DeploymentMode.PAPER:
+        if deployment.portfolio_id is not None and deployment.allocated_capital is not None:
+            return min(deployment.cash, _allocation_remaining(deployment))
         return deployment.cash
     if deployment.allocated_capital is not None:
-        reserved = deployment.reserved_buying_power or _ZERO
-        inventory = deployment.inventory_cost or _ZERO
-        remaining = deployment.allocated_capital - reserved - inventory
-        return remaining if remaining > 0 else _ZERO
+        return _allocation_remaining(deployment)
     if deployment.venue_available_quote is None:
         return None
     return deployment.venue_available_quote
+
+
+def _allocation_remaining(deployment: Deployment) -> Decimal:
+    """Allocated capital minus working entries and open inventory cost (never negative)."""
+    allocated = deployment.allocated_capital or _ZERO
+    reserved = deployment.reserved_buying_power or _ZERO
+    inventory = deployment.inventory_cost or _ZERO
+    remaining = allocated - reserved - inventory
+    return remaining if remaining > 0 else _ZERO
 
 
 def live_capital_base(deployment: Deployment) -> Decimal | None:

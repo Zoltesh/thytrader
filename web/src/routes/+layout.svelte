@@ -9,6 +9,7 @@
 	import '@fontsource-variable/geist-mono';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { agentRequests } from '$lib/agent-request.svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import CommandPalette from '$lib/CommandPalette.svelte';
 	import { liveStripText } from '$lib/live-context';
@@ -98,8 +99,18 @@
 
 	function closeAgent(): void {
 		setAgent(false);
+		agentRequests.clear();
 		agentToggle?.focus();
 	}
+
+	// A page asked the agent something ("Ask why" on a proposal): open the panel.
+	let answeredSequence = 0;
+	$effect(() => {
+		const request = agentRequests.current;
+		if (request.sequence === answeredSequence) return;
+		answeredSequence = request.sequence;
+		if (request.draft !== null) void openAgent();
+	});
 
 	function toggleSystem(): void {
 		systemStored = !systemOpen;
@@ -360,10 +371,14 @@
 				>
 			</div>
 			<p class="agent-context" data-testid="agent-context">
-				Looking at: <b>{agentContextLabel(routeId)}</b>
+				Looking at: <b>{agentRequests.current.context ?? agentContextLabel(routeId)}</b>
 			</p>
 			<div class="agent-body">
-				<OperatorChatPanel variant="panel" />
+				<OperatorChatPanel
+					variant="panel"
+					prefill={agentRequests.current.draft}
+					prefillSequence={agentRequests.current.sequence}
+				/>
 			</div>
 		</aside>
 	{/if}

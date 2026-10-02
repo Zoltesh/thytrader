@@ -1,8 +1,10 @@
 ---
 name: thytrader-runtime
 description: >-
-  Start, pause, resume, or stop ThyTrader paper and live deployments, read
-  their per-bar decision timeline (read-only `decisions`), publish
+  Start, pause, resume, or stop ThyTrader paper and live deployments and
+  whole portfolios (portfolio-start/pause/resume/stop, one bot per sleeve, and
+  portfolio-reset-breaker), read their per-bar decision timeline (read-only
+  `decisions`), publish
   the risk-policy registry, and show/set/clear write-only Coinbase credentials,
   through the confirmation-gated thytrader-runtime CLI. Use when the user
   explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
@@ -141,10 +143,58 @@ is this lane's job and needs the user's request. After deletion, stopped live bo
 `strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; paper books of the
 strategy are removed with it.
 
+## Portfolios
+
+A portfolio ([ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md),
+[ADR 0091](../../docs/decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) is
+composed with `skills/thytrader-portfolio/SKILL.md`; this lane deploys it. `portfolio-start
+--portfolio-id ID --revision N` (the revision you reviewed with `thytrader-portfolio show`; stale is
+HTTP 409 `portfolio_revision_conflict`) starts **one bot per sleeve**, tagged with the portfolio's
+id: a paper sleeve starts with `weight × capital_quote` of paper cash, a live sleeve's
+`allocated_capital` is `weight × capital_quote`. Sleeves already running or paused for this
+portfolio are `attached`, not duplicated. Every sleeve is planned before anything starts, so one
+refusal starts nothing: HTTP 422 `portfolio_start_rejected` lists `problems[]` (`sleeve_issue`,
+`strategy_busy` when the strategy already runs standalone or in another portfolio — stop that bot
+first, `strategy_invalid`, `timeframe_not_executable`, `risk_policy_refused` with the policy's
+reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
+credentials (`live_credentials_missing`), and a published risk policy; **a live portfolio's sleeve
+allocations count as risk-policy allocation membership for its own bots**, so an allocations
+allowlist does not need to list sleeve strategies (standalone bots keep the allowlist; every other
+policy rule — allowlist, slots, paper book, account exposure, breakers — still applies).
+
+`portfolio-pause`, `portfolio-resume`, and `portfolio-stop [--flatten]` act on every sleeve, or on
+one with `--sleeve-id` (sleeve id or strategy id), with the same semantics as single bots (pause =
+no new entries, exits and protection continue; managed stop by default, flatten exits at market).
+`portfolio-start --sleeve-id` starts one sleeve (for example a newly added one). Nothing to act on
+is HTTP 409 `portfolio_not_deployed` / `portfolio_sleeve_not_deployed`. `portfolio-status` (read-only)
+returns `state` (`not_deployed`, `running`, `partially_running`, `paused`, `stopped`), each sleeve's
+bot, the breaker, and exposure against the caps.
+
+Portfolio limits bind every sleeve: new entries must fit `max_total_exposure_fraction` and
+`max_per_asset_fraction` of the portfolio's capital across its bots (decision reason codes
+`PORTFOLIO_TOTAL_EXPOSURE_LIMIT`, `PORTFOLIO_ASSET_EXPOSURE_LIMIT`; `PORTFOLIO_LIMITS_UNAVAILABLE` fails
+closed when the worker cannot read them). The optional `daily_loss_quote` and `max_drawdown_fraction`
+stops are evaluated every worker cycle on the run's equity (capital plus each sleeve bot's net PnL);
+a trip pauses every sleeve with `mismatch_detail` `PORTFOLIO_DAILY_LOSS_STOP:` /
+`PORTFOLIO_DRAWDOWN_STOP:`, journals `breaker_tripped`, and **latches**: entries answer
+`PORTFOLIO_BREAKER_LATCHED`, start and resume are refused (`portfolio_breaker_latched`), and a sleeve
+resumed from its bot page is paused again. Only `portfolio-reset-breaker --confirm` (YOLO never)
+clears it, re-baselining the day open and the peak at current equity; sleeves stay paused until
+`portfolio-resume`. YOLO covers `portfolio-start/pause/resume/stop` by the portfolio's mode tier, like
+single bots; `--i-understand-live` is never skipped.
+
 ## Commands
 
 | Need | Command |
 |---|---|
+| Portfolio deployment state (read-only) | `uv run thytrader-runtime portfolio-status --portfolio-id ID` |
+| Start a paper portfolio (one bot per sleeve) | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N [--maker-fee-rate 0.001 --taker-fee-rate 0.002] --confirm` |
+| Start a live portfolio | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N --confirm --i-understand-live` |
+| Start one sleeve | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N --sleeve-id ID --confirm [--i-understand-live]` |
+| Pause a portfolio (or one sleeve) | `uv run thytrader-runtime portfolio-pause --portfolio-id ID [--sleeve-id ID] --confirm` |
+| Resume a portfolio (or one sleeve) | `uv run thytrader-runtime portfolio-resume --portfolio-id ID [--sleeve-id ID] --confirm [--i-understand-live]` |
+| Stop a portfolio (managed, or flatten) | `uv run thytrader-runtime portfolio-stop --portfolio-id ID [--sleeve-id ID] [--flatten] --confirm` |
+| Reset a latched portfolio breaker | `uv run thytrader-runtime portfolio-reset-breaker --portfolio-id ID --confirm` |
 | List deployments | `uv run thytrader-runtime list` |
 | Show one snapshot | `uv run thytrader-runtime show UUID` |
 | Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
@@ -172,7 +222,7 @@ strategy are removed with it.
 | Set Coinbase credentials | `uv run thytrader-runtime set-coinbase-credentials --api-key-name organizations/…/apiKeys/… --private-key-file ./coinbase.pem --confirm` |
 | Clear Coinbase credentials | `uv run thytrader-runtime clear-coinbase-credentials --confirm` |
 
-`list`, `show`, `decisions`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
+`list`, `show`, `decisions`, `portfolio-status`, `show-risk-policy`, `show-settings`, and `show-coinbase-credentials` are read-only and do not use `--confirm`. Optional
 `--product-allowlist BASE-QUOTE` (for example `BTC-USDC`, matching `--quote-currency`; USDC is the
 default quote) and `--allocation STRATEGY_UUID:QUOTE` may be repeated. `STRATEGY_UUID` is the
 strategy's `strategy_id` (not the `sha256:` fingerprint): read it from

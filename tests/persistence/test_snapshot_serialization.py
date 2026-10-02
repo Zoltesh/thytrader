@@ -677,3 +677,29 @@ def test_portfolios_migration_follows_the_bar_decision_journal() -> None:
         "portfolios.portfolio_id": "CASCADE",
         "strategies.strategy_id": "CASCADE",
     }
+
+
+def test_portfolio_deployment_migration_follows_the_portfolio_foundation() -> None:
+    """The fifty-sixth migration tags deployments and adds runtime state (ADR 0091)."""
+    content = Path("alembic/versions/0056_portfolio_deployment_manager.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'revision = "0056"' in content
+    assert 'down_revision = "0055"' in content
+    assert "ADR 0091" in content
+    for table in ("portfolio_runtime", "portfolio_proposals"):
+        assert f'"{table}"' in content
+        assert table in metadata.tables
+    deployment_keys = {
+        key.target_fullname: key.ondelete for key in metadata.tables["deployments"].foreign_keys
+    }
+    assert deployment_keys["portfolios.portfolio_id"] == "SET NULL"
+    assert "portfolio_id" in metadata.tables["deployments"].columns
+    journal = next(
+        constraint
+        for constraint in metadata.tables["portfolio_journal_entries"].constraints
+        if constraint.name == "ck_portfolio_journal_kind"
+    )
+    for kind in ("deployment_started", "breaker_tripped", "proposal_approved"):
+        assert kind in str(getattr(journal, "sqltext", ""))
+        assert kind in content

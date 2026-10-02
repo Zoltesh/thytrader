@@ -84,6 +84,15 @@ class RiskReasonCode(StrEnum):
     VENUE_BALANCE_UNKNOWN = "VENUE_BALANCE_UNKNOWN"
     SIGNAL_STALE = "SIGNAL_STALE"
     ENTRIES_DISABLED = "ENTRIES_DISABLED"
+    # Portfolio limits (ADR 0091) bind the sleeves of one deployed portfolio, measured
+    # against that portfolio's capital. They are distinct from the account-wide
+    # ``PORTFOLIO_EXPOSURE_EXCEEDED`` above, which is the risk policy's cap on every book.
+    PORTFOLIO_TOTAL_EXPOSURE_LIMIT = "PORTFOLIO_TOTAL_EXPOSURE_LIMIT"
+    PORTFOLIO_ASSET_EXPOSURE_LIMIT = "PORTFOLIO_ASSET_EXPOSURE_LIMIT"
+    PORTFOLIO_BREAKER_LATCHED = "PORTFOLIO_BREAKER_LATCHED"
+    PORTFOLIO_DAILY_LOSS_STOP = "PORTFOLIO_DAILY_LOSS_STOP"
+    PORTFOLIO_DRAWDOWN_STOP = "PORTFOLIO_DRAWDOWN_STOP"
+    PORTFOLIO_LIMITS_UNAVAILABLE = "PORTFOLIO_LIMITS_UNAVAILABLE"
 
 
 class _FrozenModel(BaseModel):

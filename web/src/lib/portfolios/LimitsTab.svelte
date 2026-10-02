@@ -1,15 +1,22 @@
 <script lang="ts">
 	/**
-	 * Limits tab: the portfolio's shared limits, viewed and edited.
+	 * Limits tab (ADR 0091): the portfolio's shared limits (viewed and edited),
+	 * the breaker state with an operator reset, and exposure against the caps.
 	 *
-	 * They are stored now and bind orders only once portfolio deployment
-	 * arrives; the copy says so rather than implying enforcement.
+	 * On a deployed portfolio the exposure caps bind every sleeve's new entries
+	 * in the risk gate, and the daily loss and drawdown stops pause every sleeve
+	 * and latch until the operator resets them here.
 	 */
 	import { compareDecimalStrings } from '$lib/portfolio';
 	import {
 		CONFLICT_RELOADED,
 		LIMITS_NOTE,
+		LIMITS_ORDER,
+		breakerLabel,
+		drawdownPercent,
 		errorText,
+		signedQuote,
+		utcMinute,
 		fractionToPercentInput,
 		isRevisionConflict,
 		multiplyDecimals,
@@ -19,18 +26,28 @@
 		updatePortfolio,
 		weightPercent,
 		type Portfolio,
+		type PortfolioDeployment,
 		type PortfolioLimits
 	} from '$lib/portfolios';
 
 	let {
 		portfolio,
+		deployment = null,
 		onchanged,
-		onconflict
+		onconflict,
+		onreset = () => {}
 	}: {
 		portfolio: Portfolio;
+		/** The deployment view (breaker and exposure), or null before it loads. */
+		deployment?: PortfolioDeployment | null;
 		onchanged: (portfolio: Portfolio) => void;
 		onconflict: () => Promise<void>;
+		/** Open the breaker reset confirmation. */
+		onreset?: () => void;
 	} = $props();
+
+	const breaker = $derived(deployment?.breaker ?? null);
+	const exposureView = $derived(deployment?.exposure ?? null);
 
 	let editing = $state(false);
 	let exposure = $state('');
@@ -191,13 +208,79 @@
 		{#if error}<p class="problem small" role="alert">{error}</p>{/if}
 		{#if notice}<p class="muted small" role="status">{notice}</p>{/if}
 	</section>
-	<section class="card body" aria-label="Where limits apply">
-		<h2>Where limits apply</h2>
+	<section class="card body" aria-label="Breakers and exposure" data-testid="breaker-card">
+		<div class="head">
+			<h2>Breakers</h2>
+			{#if breaker?.latched}
+				<span class="chip latched" data-testid="breaker-latched"
+					>{breakerLabel(breaker.reason_code)} latched</span
+				>
+				<button
+					type="button"
+					class="btn danger compact"
+					data-testid="breaker-reset"
+					onclick={onreset}>Reset breaker…</button
+				>
+			{:else}
+				<span class="chip" data-testid="breaker-clear">Clear</span>
+			{/if}
+		</div>
+		{#if breaker === null || deployment?.state === 'not_deployed'}
+			<p class="muted">
+				The breakers watch this portfolio's equity once it is started: capital plus every sleeve
+				bot's profit and loss in the current run.
+			</p>
+		{:else}
+			{#if breaker.latched}
+				<p class="latched-detail" role="status">
+					{breaker.detail ?? 'A portfolio breaker is latched.'}
+					{#if breaker.latched_at}<span class="faint small">
+							Since {utcMinute(breaker.latched_at)}.</span
+						>{/if}
+				</p>
+			{/if}
+			<div class="check">
+				<span class="muted">Equity (this run)</span>
+				{quoteText(breaker.equity, portfolio.quote_currency)}
+			</div>
+			<div class="check" data-testid="breaker-daily">
+				<span class="muted">Today since the UTC open</span>
+				{breaker.daily_pnl === null
+					? '—'
+					: signedQuote(breaker.daily_pnl, portfolio.quote_currency)}
+				{#if limits.daily_loss_quote !== null}<span class="faint small"
+						>stop at −{quoteText(limits.daily_loss_quote, portfolio.quote_currency)}</span
+					>{/if}
+			</div>
+			<div class="check" data-testid="breaker-drawdown">
+				<span class="muted">Drawdown from the run's peak</span>
+				{breaker.drawdown_fraction === null ? '—' : drawdownPercent(breaker.drawdown_fraction)}
+				{#if limits.max_drawdown_fraction !== null}<span class="faint small"
+						>stop at {weightPercent(limits.max_drawdown_fraction)}</span
+					>{/if}
+			</div>
+			{#if exposureView !== null}
+				<div class="check" data-testid="exposure-total">
+					<span class="muted">Exposure</span>
+					{quoteText(exposureView.total_quote, portfolio.quote_currency)}
+					<span class="faint small"
+						>cap {quoteText(exposureView.cap_quote, portfolio.quote_currency)}</span
+					>
+				</div>
+				{#each exposureView.assets as asset (asset.asset)}
+					<div class="check">
+						<span class="muted">{asset.asset}</span>
+						{quoteText(asset.exposure_quote, portfolio.quote_currency)}
+						<span class="faint small"
+							>cap {quoteText(asset.cap_quote, portfolio.quote_currency)}</span
+						>
+					</div>
+				{/each}
+			{/if}
+		{/if}
+		<h2 class="where">Where limits apply</h2>
 		<p class="muted" data-testid="limits-note">{LIMITS_NOTE}</p>
-		<p class="muted">
-			Once deployment arrives, every order from every sleeve will pass the sleeve's own risk checks,
-			then these portfolio limits, then the account-wide risk policy. The strictest limit wins.
-		</p>
+		<p class="muted">{LIMITS_ORDER}</p>
 	</section>
 </div>
 
@@ -232,6 +315,24 @@
 	}
 	.check > span:first-child {
 		flex: 1;
+	}
+	.check > .faint {
+		margin-left: 8px;
+	}
+	.latched {
+		border-color: var(--neg);
+		color: var(--neg);
+	}
+	.latched-detail {
+		padding: 10px 12px;
+		border-radius: var(--radius-md);
+		background: var(--surface-2);
+	}
+	.where {
+		margin-top: 16px;
+	}
+	.faint {
+		color: var(--faint);
 	}
 	.form {
 		display: grid;

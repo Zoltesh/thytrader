@@ -7,8 +7,8 @@ Use only the shipped skills:
 - `thytrader-operator` — read-only diagnostics
 - `thytrader-data` — watchlist, ingest, gap-fill (`--confirm`)
 - `thytrader-research` — strategy create/save/import/clone/delete, backtests, studies (`--confirm`)
-- `thytrader-runtime` — paper/live start/pause/resume/stop, on-demand `place-order`, and risk-policy publication (`--confirm`; live start, live resume, and live place-order also `--i-understand-live`)
-- `thytrader-portfolio` — portfolios, sleeves, weights, limits, manager settings, portfolio backtests, journal (`--confirm`; no deployment authority)
+- `thytrader-runtime` — paper/live start/pause/resume/stop (single bots and `portfolio-*` for whole portfolios), on-demand `place-order`, and risk-policy publication (`--confirm`; live start, live resume, and live place-order also `--i-understand-live`)
+- `thytrader-portfolio` — portfolios, sleeves, weights, limits, manager settings, portfolio backtests, journal, and the manager loop (briefing, proposals, a person's approve/decline) (`--confirm`; no deployment or order authority)
 - `thytrader-playbook` — data → research → optional paper via existing CLIs (`--confirm` forwarded; never live)
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify, train/list-models/show-model (`--confirm`; YOLO never covers this lane)
 

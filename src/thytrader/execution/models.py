@@ -260,6 +260,8 @@ class Deployment:
     last_signal_event_at: datetime | None = None
     last_signal_processed_at: datetime | None = None
     strategy_name: str | None = None
+    portfolio_id: UUID | None = None
+    """The deployed portfolio this book is a sleeve of (ADR 0091); set once at creation."""
 
     @property
     def strategy_deleted(self) -> bool:

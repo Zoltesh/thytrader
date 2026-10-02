@@ -443,8 +443,8 @@ class OperatorDiagnostics:
         )
 
     async def portfolios_report(self) -> PortfoliosReport:
-        """List portfolios with sleeves, allocation, limits, and the newest backtest."""
-        return await build_portfolios_report(self.portfolios)
+        """List portfolios with sleeves, deployment and breaker state, and the newest backtest."""
+        return await build_portfolios_report(self.portfolios, self.execution)
 
     async def market_data_report(
         self,

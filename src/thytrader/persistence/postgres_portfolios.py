@@ -27,9 +27,20 @@ from thytrader.persistence.postgres_portfolio_rows import (
     journal_from_row,
     load_aggregate,
 )
+from thytrader.persistence.postgres_portfolio_runtime import (
+    auto_moved_since,
+    compare_and_set_runtime,
+    insert_proposal,
+    locked_proposal,
+    occupied_deployment_count,
+    proposal_from_row,
+    runtime_rows,
+    update_proposal,
+)
 from thytrader.persistence.schema import (
     portfolio_backtest_jobs,
     portfolio_journal_entries,
+    portfolio_proposals,
     portfolios,
     published_portfolio_backtests,
     strategies,
@@ -48,18 +59,24 @@ from thytrader.portfolios.models import (
     MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
     JournalActor,
     JournalChannel,
+    JournalEntry,
     JournalPage,
     MutationContext,
     PortfolioAggregate,
+    PortfolioConflictError,
     PortfolioDeletion,
     PortfolioError,
     PortfolioNotFoundError,
     PortfolioPage,
+    PortfolioProposalNotFoundError,
+    PortfolioRuntimeState,
+    PortfolioRuntimeView,
     PortfolioStorageUnavailableError,
     PortfolioStrategyNotFoundError,
     SleeveStrategy,
     utc_millisecond,
 )
+from thytrader.portfolios.proposals import Proposal, ProposalPage
 from thytrader.portfolios.rules import (
     MutationPlan,
     plan_add_sleeve,
@@ -70,11 +87,16 @@ from thytrader.portfolios.rules import (
     plan_update_sleeve,
     require_revision,
 )
-from thytrader.portfolios.store import PortfolioBacktestNotFoundError, backtest_journal_entry
+from thytrader.portfolios.store import (
+    DEPLOYED_MESSAGE,
+    SLEEVE_DEPLOYED_MESSAGE,
+    PortfolioBacktestNotFoundError,
+    backtest_journal_entry,
+)
 from thytrader.research.jobs import ResearchJobStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -86,6 +108,8 @@ if TYPE_CHECKING:
         SleeveAddRequest,
         SleeveUpdateRequest,
     )
+    from thytrader.portfolios.proposals import ProposalSettlement, ProposalStatus
+    from thytrader.portfolios.store import ProposalBuilder, ProposalSettler
 
 _UNAVAILABLE = "Portfolio storage is unavailable."
 _ACTIVE = (ResearchJobStatus.QUEUED.value, ResearchJobStatus.RUNNING.value)
@@ -190,14 +214,25 @@ class PostgresPortfolioStore:
         expected_revision: int,
         context: MutationContext,
     ) -> PortfolioAggregate:
-        """Remove one sleeve under the revision guard."""
+        """Remove one sleeve under the revision guard (refused while its bot is deployed)."""
         context = _millisecond_context(context)
-        return await self._mutate(
-            portfolio_id,
-            lambda current: plan_remove_sleeve(
-                current, sleeve_id, expected_revision=expected_revision, context=context
-            ),
-        )
+        key = str(portfolio_id)
+        try:
+            async with self._engine.begin() as connection:
+                current = await load_aggregate(connection, portfolio_id, lock=True)
+                require_revision(current.portfolio, expected_revision)
+                strategy_id = str(current.sleeve(sleeve_id).sleeve.strategy_id)
+                if await occupied_deployment_count(connection, key, strategy_id=strategy_id):
+                    raise PortfolioConflictError(
+                        "portfolio_sleeve_deployed", SLEEVE_DEPLOYED_MESSAGE
+                    )
+                plan = plan_remove_sleeve(
+                    current, sleeve_id, expected_revision=expected_revision, context=context
+                )
+                await apply_plan(connection, plan, previous=current)
+                return await load_aggregate(connection, portfolio_id, lock=False)
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
 
     async def set_weights(
         self, portfolio_id: UUID, request: SetWeightsRequest, *, context: MutationContext
@@ -209,12 +244,18 @@ class PostgresPortfolioStore:
         )
 
     async def delete(self, portfolio_id: UUID, *, expected_revision: int) -> PortfolioDeletion:
-        """Delete one portfolio; sleeves, journal, jobs, and results cascade with it."""
+        """Delete one portfolio; sleeves, journal, jobs, and results cascade with it.
+
+        Refused while any of its bots is running or paused; stopped bots keep their
+        history and lose the portfolio tag (``ON DELETE SET NULL``).
+        """
         key = str(portfolio_id)
         try:
             async with self._engine.begin() as connection:
                 current = await load_aggregate(connection, portfolio_id, lock=True)
                 require_revision(current.portfolio, expected_revision)
+                if await occupied_deployment_count(connection, key):
+                    raise PortfolioConflictError("portfolio_deployed", DEPLOYED_MESSAGE)
                 deletion = PortfolioDeletion(
                     portfolio_id=portfolio_id,
                     name=current.portfolio.name,
@@ -494,6 +535,197 @@ class PostgresPortfolioStore:
             )
         return result
 
+    async def runtime_state(self, portfolio_id: UUID) -> PortfolioRuntimeState:
+        """Return the portfolio's runtime state (empty before its first run)."""
+        key = str(portfolio_id)
+        try:
+            async with self._engine.connect() as connection:
+                await _require_portfolio(connection, key)
+                states = await runtime_rows(connection, (key,))
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+        return states.get(portfolio_id, PortfolioRuntimeState(portfolio_id=portfolio_id))
+
+    async def runtime_views(
+        self, portfolio_ids: Sequence[UUID]
+    ) -> tuple[PortfolioRuntimeView, ...]:
+        """Return the named portfolios that still exist with sleeves and runtime state."""
+        keys = [str(item) for item in dict.fromkeys(portfolio_ids)]
+        if not keys:
+            return ()
+        statement = (
+            select(portfolios)
+            .where(portfolios.c.portfolio_id.in_(keys))
+            .order_by(portfolios.c.portfolio_id)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+                aggregates = await aggregates_for(connection, rows)
+                states = await runtime_rows(connection, keys)
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+        return tuple(
+            PortfolioRuntimeView(
+                aggregate=aggregate,
+                runtime=states.get(
+                    aggregate.portfolio.portfolio_id,
+                    PortfolioRuntimeState(portfolio_id=aggregate.portfolio.portfolio_id),
+                ),
+            )
+            for aggregate in aggregates
+        )
+
+    async def write_runtime(
+        self,
+        state: PortfolioRuntimeState,
+        *,
+        expected_revision: int,
+        journal: Sequence[JournalEntry] = (),
+    ) -> PortfolioRuntimeState | None:
+        """Compare-and-set the runtime row and append journal entries in one transaction."""
+        now = utc_millisecond(datetime.now(UTC))
+        try:
+            async with self._engine.begin() as connection:
+                await _require_portfolio(connection, str(state.portfolio_id), lock=True)
+                written = await compare_and_set_runtime(
+                    connection, state, expected_revision=expected_revision, now=now
+                )
+                if written is None:
+                    return None
+                await insert_journal(connection, journal)
+                return written
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+
+    async def append_journal(self, entries: Sequence[JournalEntry]) -> None:
+        """Append runtime journal events."""
+        if not entries:
+            return
+        try:
+            async with self._engine.begin() as connection:
+                for key in sorted({str(entry.portfolio_id) for entry in entries}):
+                    await _require_portfolio(connection, key, lock=True)
+                await insert_journal(connection, entries)
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+
+    async def create_proposal(
+        self,
+        portfolio_id: UUID,
+        *,
+        now: datetime,
+        strategy_id: UUID | None,
+        build: ProposalBuilder,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Lock (strategy, then portfolio), plan, and write the proposal and any change."""
+        key = str(portfolio_id)
+        try:
+            async with self._engine.begin() as connection:
+                strategy = (
+                    None if strategy_id is None else await _shared_strategy(connection, strategy_id)
+                )
+                current = await load_aggregate(connection, portfolio_id, lock=True)
+                moved = await auto_moved_since(connection, key, now=now)
+                settlement = build(current, moved, strategy)
+                await insert_proposal(connection, settlement.proposal)
+                await _write_settlement(connection, current, settlement)
+                return (
+                    await load_aggregate(connection, portfolio_id, lock=False),
+                    settlement.proposal,
+                )
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+
+    async def settle_proposal(
+        self,
+        portfolio_id: UUID,
+        proposal_id: UUID,
+        *,
+        strategy_id: UUID | None,
+        settle: ProposalSettler,
+    ) -> tuple[PortfolioAggregate, Proposal]:
+        """Lock (strategy, portfolio, proposal) and write the proposal's settlement."""
+        key = str(portfolio_id)
+        try:
+            async with self._engine.begin() as connection:
+                strategy = (
+                    None if strategy_id is None else await _shared_strategy(connection, strategy_id)
+                )
+                current = await load_aggregate(connection, portfolio_id, lock=True)
+                proposal = await locked_proposal(connection, key, proposal_id)
+                if proposal is None:
+                    raise PortfolioProposalNotFoundError("Proposal was not found.")
+                settlement = settle(current, proposal, strategy)
+                await update_proposal(connection, settlement.proposal)
+                await _write_settlement(connection, current, settlement)
+                return (
+                    await load_aggregate(connection, portfolio_id, lock=False),
+                    settlement.proposal,
+                )
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+
+    async def get_proposal(self, portfolio_id: UUID, proposal_id: UUID) -> Proposal:
+        """Return one proposal of the portfolio."""
+        statement = select(portfolio_proposals).where(
+            portfolio_proposals.c.proposal_id == proposal_id,
+            portfolio_proposals.c.portfolio_id == str(portfolio_id),
+        )
+        try:
+            async with self._engine.connect() as connection:
+                await _require_portfolio(connection, str(portfolio_id))
+                row = (await connection.execute(statement)).mappings().one_or_none()
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+        if row is None:
+            raise PortfolioProposalNotFoundError("Proposal was not found.")
+        return proposal_from_row(row)
+
+    async def list_proposals(
+        self,
+        portfolio_id: UUID,
+        *,
+        status: ProposalStatus | None,
+        limit: int,
+        offset: int,
+    ) -> ProposalPage:
+        """Return proposals newest first, optionally of one status."""
+        key = str(portfolio_id)
+        conditions = [portfolio_proposals.c.portfolio_id == key]
+        if status is not None:
+            conditions.append(portfolio_proposals.c.status == status)
+        statement = (
+            select(portfolio_proposals)
+            .where(*conditions)
+            .order_by(
+                portfolio_proposals.c.created_at.desc(), portfolio_proposals.c.proposal_id.desc()
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        count = select(func.count()).select_from(portfolio_proposals).where(*conditions)
+        try:
+            async with self._engine.connect() as connection:
+                await _require_portfolio(connection, key)
+                rows = (await connection.execute(statement)).mappings().all()
+                total = int((await connection.execute(count)).scalar_one())
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+        return ProposalPage(proposals=tuple(proposal_from_row(row) for row in rows), total=total)
+
+    async def expire_proposals(self, now: datetime) -> int:
+        """Mark pending proposals past their expiry as expired."""
+        statement = (
+            update(portfolio_proposals)
+            .where(
+                portfolio_proposals.c.status == "pending",
+                portfolio_proposals.c.expires_at <= now,
+            )
+            .values(status="expired", decided_at=now, decided_by="system")
+        )
+        return await self._bulk(statement)
+
     async def _mutate(
         self,
         portfolio_id: UUID,
@@ -528,6 +760,18 @@ class PostgresPortfolioStore:
         except SQLAlchemyError as error:
             raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
         return int(result.rowcount or 0)
+
+
+async def _write_settlement(
+    connection: AsyncConnection, current: PortfolioAggregate, settlement: ProposalSettlement
+) -> None:
+    """Append the proposal's journal entries, then apply its portfolio plan (if any).
+
+    The proposal event (submitted / approved) therefore precedes the change it made.
+    """
+    await insert_journal(connection, settlement.journal)
+    if settlement.plan is not None:
+        await apply_plan(connection, settlement.plan, previous=current)
 
 
 def _millisecond_context(context: MutationContext) -> MutationContext:

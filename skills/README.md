@@ -59,19 +59,22 @@ Not an extension of operator or research.
 
 - Skill: [`thytrader-runtime/SKILL.md`](thytrader-runtime/SKILL.md)
 - CLI: `uv run thytrader-runtime`
-- HTTP: `/api/v1/deployments` (incl. `/{id}/decisions`), `/api/v1/strategies/{id}/decisions`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`
+- HTTP: `/api/v1/deployments` (incl. `/{id}/decisions`), `/api/v1/strategies/{id}/decisions`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`, and portfolio deployment `/api/v1/portfolios/{id}/start|pause|resume|stop|breaker/reset` (also per sleeve)
 
 ## `thytrader-portfolio`
 
 Confirmation-gated portfolios: sleeves (one strategy each, with a capital weight), cash reserve,
 shared limits, manager settings, portfolio backtests, and the append-only journal
-([ADR 0088](../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)). Every mutation
-needs `--confirm` and the current `revision`; YOLO never covers this lane. No deployment, paper,
-live, or order authority.
+([ADR 0088](../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)), plus the manager
+loop: the read-only `deployment` and `briefing`, `propose` (rebalance, pause or resume a sleeve,
+add a sleeve, with rationale and evidence), and a person's `approve` / `decline`
+([ADR 0091](../docs/decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)). Every
+mutation needs `--confirm` and the current `revision`; YOLO never covers this lane. No deployment
+or order authority: starting and stopping a portfolio are `thytrader-runtime portfolio-*`.
 
 - Skill: [`thytrader-portfolio/SKILL.md`](thytrader-portfolio/SKILL.md)
 - CLI: `uv run thytrader-portfolio … --confirm`
-- HTTP: `/api/v1/portfolios`
+- HTTP: `/api/v1/portfolios` (incl. `/{id}/deployment`, `/{id}/briefing`, `/{id}/proposals`)
 
 ## `thytrader-playbook`
 

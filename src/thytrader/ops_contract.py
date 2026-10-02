@@ -39,7 +39,9 @@ portfolio backtest contract; ADR 0088, Alembic 0054), research dataset auto-bind
 cross-market product variants, the sync/async study budgets, the operator ``products``
 constraint fields (ADR 0089), optional take-profit (``take_profit.kind: none``), live
 stop-only protection (``stop_limit``), backtest diagnostics, account-rate fee
-suggestions, or the HTTP signal-trace route (Alembic 0055, ADR 0090) change.
+suggestions, the HTTP signal-trace route (Alembic 0055, ADR 0090), or portfolio deployment
+(sleeve bots tagged with ``portfolio_id``, portfolio limits in the risk gate, portfolio
+breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056) change.
 """
 
 from __future__ import annotations
@@ -50,10 +52,13 @@ from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.models import (
+    BREAKER_REASONS,
     MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
     PORTFOLIO_BACKTEST_CONTRACT,
+    PORTFOLIO_BRIEFING_CONTRACT,
     PORTFOLIO_MODES,
 )
+from thytrader.portfolios.proposals import PROPOSAL_KINDS
 from thytrader.research.models import BACKTEST_ENGINE
 from thytrader.research.parameter_sweep import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
 from thytrader.strategies.models import IndicatorKind
@@ -61,8 +66,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v50"
-EXPECTED_SCHEMA_REVISION = "0055"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v51"
+EXPECTED_SCHEMA_REVISION = "0056"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -70,9 +75,23 @@ PORTFOLIO_MODEL: tuple[str, ...] = (
     "manager_settings",
     "journal",
     "portfolio_backtest",
+    "deployment",
+    "portfolio_limits",
+    "manager_proposals",
 )
 PORTFOLIO_MODES_FIELD: tuple[str, ...] = PORTFOLIO_MODES
 PORTFOLIO_BACKTEST_CONTRACT_ID: str = PORTFOLIO_BACKTEST_CONTRACT
+PORTFOLIO_DEPLOYMENT_ACTIONS: tuple[str, ...] = (
+    "start",
+    "pause",
+    "resume",
+    "stop",
+    "sleeve_actions",
+    "breaker_reset",
+)
+PORTFOLIO_BREAKERS_FIELD: tuple[str, ...] = BREAKER_REASONS
+PORTFOLIO_PROPOSAL_KINDS: tuple[str, ...] = PROPOSAL_KINDS
+PORTFOLIO_BRIEFING_CONTRACT_ID: str = PORTFOLIO_BRIEFING_CONTRACT
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
 MULTI_BOOK_LEDGER: tuple[str, ...] = ("paper", "live")
@@ -184,6 +203,10 @@ def expected_ops_contract() -> dict[str, object]:
         "max_concurrent_portfolio_backtests": MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
         "research_dataset_autobind": list(RESEARCH_DATASET_AUTOBIND),
         "study_budgets": {mode: dict(limits) for mode, limits in STUDY_BUDGETS.items()},
+        "portfolio_deployment": list(PORTFOLIO_DEPLOYMENT_ACTIONS),
+        "portfolio_breakers": list(PORTFOLIO_BREAKERS_FIELD),
+        "portfolio_proposal_kinds": list(PORTFOLIO_PROPOSAL_KINDS),
+        "portfolio_briefing_contract": PORTFOLIO_BRIEFING_CONTRACT_ID,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

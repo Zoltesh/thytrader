@@ -1,9 +1,11 @@
-"""Confirmation-gated ``thytrader-portfolio`` CLI over the loopback HTTP API (ADR 0088).
+"""Confirmation-gated ``thytrader-portfolio`` CLI over the loopback HTTP API.
 
 Lists, shows, creates, and edits portfolios (sleeves, weights, limits, manager settings),
-runs portfolio backtests, and reads the portfolio journal. Every mutation requires
-``--confirm``; YOLO never skips it on this lane. This CLI has no deployment, paper, live,
-or order authority: deploying a portfolio is not shipped.
+runs portfolio backtests, and reads the portfolio journal (ADR 0088). For the manager loop
+(ADR 0091) it reads the deployment and the one-call briefing, submits proposals, and
+records a person's approve/decline. Every mutation requires ``--confirm``; YOLO never
+skips it on this lane. It never starts or stops a portfolio (``thytrader-runtime
+portfolio-*`` does) and never places orders: strategies place every trade.
 """
 
 from __future__ import annotations
@@ -27,6 +29,12 @@ from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.portfolios import client
 from thytrader.portfolios.backtest import PortfolioBacktestJob, PortfolioBacktestRequest
+from thytrader.portfolios.manager_cli import (
+    MANAGER_HANDLERS,
+    MANAGER_MUTATIONS,
+    ManagerCliError,
+    add_manager_commands,
+)
 from thytrader.portfolios.models import (
     ManagerPermissions,
     ManagerSettings,
@@ -44,15 +52,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 _CONFIRM_HELP = (
-    "Required for every mutation. YOLO never skips it on this lane. This CLI cannot deploy "
-    "a portfolio, start paper or live trading, or place orders."
+    "Required for every mutation. YOLO never skips it on this lane. This CLI cannot start or "
+    "stop a portfolio (thytrader-runtime portfolio-* does) or place orders."
 )
 _CONFIRM_MESSAGE = (
-    "Pass --confirm to change portfolios or start a portfolio backtest. This command cannot "
-    "deploy, paper-trade, or live-trade."
+    "Pass --confirm to change portfolios, submit or decide a proposal, or start a portfolio "
+    "backtest. This command never places orders."
 )
 _MUTATIONS = frozenset(
     {"create", "update", "add-sleeve", "remove-sleeve", "set-weights", "backtest"}
+    | MANAGER_MUTATIONS
 )
 _TERMINAL = frozenset(
     {
@@ -90,8 +99,10 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Manage portfolios: sleeves (one strategy each, with a capital weight), the cash "
             "reserve, shared limits, and manager settings; run portfolio backtests; read the "
-            "portfolio journal. Mutations require --confirm. Default transport is the loopback "
-            "HTTP API. This command has no deployment, paper, live, or order authority."
+            "portfolio journal; act as the manager agent (deployment, briefing, propose, "
+            "proposals) and record a person's approve/decline. Mutations require --confirm. "
+            "Default transport is the loopback HTTP API. Start, pause, resume, and stop are "
+            "thytrader-runtime portfolio-* commands; nothing here places orders."
         ),
         parents=[shared],
     )
@@ -100,6 +111,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_create_update(commands, trailing)
     _add_sleeve_commands(commands, trailing)
     _add_backtest_commands(commands, trailing)
+    add_manager_commands(commands, trailing, confirm_help=_CONFIRM_HELP)
     return parser
 
 
@@ -500,6 +512,7 @@ _HANDLERS: dict[str, Callable[[str, argparse.Namespace], object]] = {
     "list-backtests": lambda url, args: client.list_backtests(
         url, _uuid(args.portfolio_id, "--portfolio-id"), limit=args.limit
     ),
+    **MANAGER_HANDLERS,
 }
 
 
@@ -539,7 +552,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(int(error.code) if isinstance(error.code, int) else EXIT_USAGE) from error
     try:
         payload = _dispatch(args)
-    except (PortfolioCliError, AgentHttpError) as error:
+    except (PortfolioCliError, ManagerCliError, AgentHttpError) as error:
         raise SystemExit(str(error)) from error
     except ValidationError as error:
         raise SystemExit(_first_validation_message(error)) from error

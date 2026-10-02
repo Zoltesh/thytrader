@@ -32,14 +32,14 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v50"
+    assert expected["id"] == "thytrader-ops-contract-v51"
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]
     assert isinstance(kinds, list)
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0055"
+    assert expected["expected_schema_revision"] == "0056"
     assert expected["take_profit_kinds"] == ["reward_risk", "none"]
     assert expected["live_protection_kinds"] == ["trigger_bracket", "stop_limit"]
     assert expected["backtest_diagnostics"] == ["thytrader-backtest-diagnostics-v1"]
@@ -53,6 +53,9 @@ def test_ops_contract_matches_requires_payload() -> None:
         "manager_settings",
         "journal",
         "portfolio_backtest",
+        "deployment",
+        "portfolio_limits",
+        "manager_proposals",
     ]
     assert expected["portfolio_modes"] == ["paper", "live"]
     assert expected["portfolio_backtest_contract"] == "thytrader-portfolio-backtest-v1"
@@ -62,6 +65,25 @@ def test_ops_contract_matches_requires_payload() -> None:
         "sync": {"candidates": 8, "windows": 128},
         "async": {"candidates": 64, "windows": 512},
     }
+    assert expected["portfolio_deployment"] == [
+        "start",
+        "pause",
+        "resume",
+        "stop",
+        "sleeve_actions",
+        "breaker_reset",
+    ]
+    assert expected["portfolio_breakers"] == [
+        "PORTFOLIO_DAILY_LOSS_STOP",
+        "PORTFOLIO_DRAWDOWN_STOP",
+    ]
+    assert expected["portfolio_proposal_kinds"] == [
+        "rebalance",
+        "pause_sleeve",
+        "resume_sleeve",
+        "add_sleeve",
+    ]
+    assert expected["portfolio_briefing_contract"] == "thytrader-portfolio-briefing-v1"
     assert expected["spot_quote_currencies"] == ["USD", "USDC", "USDT"]
     assert expected["catalog_health"] == [
         "bounded_gap_inspection",

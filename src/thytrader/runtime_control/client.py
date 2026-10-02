@@ -19,6 +19,7 @@ _STRATEGIES_PREFIX = "/api/v1/strategies"
 _RISK_POLICY_PREFIX = "/api/v1/risk-policy"
 _SETTINGS_PREFIX = "/api/v1/settings"
 _CREDENTIALS_PREFIX = "/api/v1/credentials/coinbase"
+_PORTFOLIOS_PREFIX = "/api/v1/portfolios"
 
 
 class RuntimeControlError(RuntimeError):
@@ -204,6 +205,91 @@ def reset_breaker_latches(
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/reset-breaker-latches",
         settings=settings,
     )
+
+
+def show_portfolio(base_url: str, portfolio_id: str) -> object:
+    """Return one portfolio (mode, revision, sleeves) before a portfolio action."""
+    return request_json(
+        method="GET", url=f"{base_url}{_PORTFOLIOS_PREFIX}/{quote(portfolio_id, safe='')}"
+    )
+
+
+def show_portfolio_deployment(base_url: str, portfolio_id: str) -> object:
+    """Return one portfolio's deployment: state, sleeve bots, breakers, exposure."""
+    return request_json(
+        method="GET",
+        url=f"{base_url}{_PORTFOLIOS_PREFIX}/{quote(portfolio_id, safe='')}/deployment",
+    )
+
+
+def start_portfolio(
+    base_url: str,
+    portfolio_id: str,
+    *,
+    revision: int,
+    sleeve_id: str | None = None,
+    maker_fee_rate: str | None = None,
+    taker_fee_rate: str | None = None,
+    i_understand_live: bool = False,
+    settings: Settings | None = None,
+) -> object:
+    """Start (or attach) one bot per sleeve, or one sleeve's bot (ADR 0091)."""
+    payload: dict[str, object] = {"revision": revision}
+    if maker_fee_rate is not None:
+        payload["maker_fee_rate"] = maker_fee_rate
+    if taker_fee_rate is not None:
+        payload["taker_fee_rate"] = taker_fee_rate
+    if i_understand_live:
+        payload["i_understand_live"] = True
+    return request_mutation_json(
+        method="POST",
+        url=_portfolio_action_url(base_url, portfolio_id, "start", sleeve_id=sleeve_id),
+        payload=payload,
+        settings=settings,
+    )
+
+
+def portfolio_action(
+    base_url: str,
+    portfolio_id: str,
+    action: str,
+    *,
+    sleeve_id: str | None = None,
+    flatten: bool = False,
+    i_understand_live: bool = False,
+    settings: Settings | None = None,
+) -> object:
+    """Pause, resume, or stop a portfolio's sleeves (or one sleeve)."""
+    if action not in {"pause", "resume", "stop"}:
+        raise RuntimeControlError(f"unsupported portfolio action: {action}")
+    url = _portfolio_action_url(base_url, portfolio_id, action, sleeve_id=sleeve_id)
+    if action == "stop" and flatten:
+        url = f"{url}?flatten=true"
+    payload: dict[str, object] | None = None
+    if action == "resume" and i_understand_live:
+        payload = {"i_understand_live": True}
+    return request_mutation_json(method="POST", url=url, payload=payload, settings=settings)
+
+
+def reset_portfolio_breaker(
+    base_url: str, portfolio_id: str, *, settings: Settings | None = None
+) -> object:
+    """Clear a latched portfolio breaker (sleeves stay paused until resumed)."""
+    return request_mutation_json(
+        method="POST",
+        url=f"{base_url}{_PORTFOLIOS_PREFIX}/{quote(portfolio_id, safe='')}/breaker/reset",
+        settings=settings,
+    )
+
+
+def _portfolio_action_url(
+    base_url: str, portfolio_id: str, action: str, *, sleeve_id: str | None
+) -> str:
+    """The portfolio-wide or one-sleeve route for an action."""
+    root = f"{base_url}{_PORTFOLIOS_PREFIX}/{quote(portfolio_id, safe='')}"
+    if sleeve_id is None:
+        return f"{root}/{action}"
+    return f"{root}/sleeves/{quote(sleeve_id, safe='')}/{action}"
 
 
 def show_risk_policy(base_url: str) -> object:

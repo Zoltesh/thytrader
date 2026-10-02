@@ -35,6 +35,7 @@ from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.operator_chat import router as operator_chat_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
+from thytrader.api.routes.portfolio_runtime import router as portfolio_runtime_router
 from thytrader.api.routes.portfolios import router as portfolios_router
 from thytrader.api.routes.research_studies import router as research_studies_router
 from thytrader.api.routes.risk_policy import router as risk_policy_router
@@ -422,6 +423,7 @@ def create_app(
     app.include_router(discretionary_orders_router)
     app.include_router(risk_policy_router)
     app.include_router(portfolios_router)
+    app.include_router(portfolio_runtime_router)
     app.include_router(research_studies_router)
     app.include_router(memory_router)
     app.include_router(backtests_router)

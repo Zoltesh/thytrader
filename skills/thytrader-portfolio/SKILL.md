@@ -3,23 +3,28 @@ name: thytrader-portfolio
 description: >-
   Create and edit ThyTrader portfolios (sleeves of strategies with capital
   weights, a cash reserve, shared limits, and manager settings), run portfolio
-  backtests, and read the portfolio journal through the confirmation-gated
-  thytrader-portfolio CLI. Use when the user asks to build, change, compare,
-  or backtest a portfolio. Requires --confirm on every mutation; YOLO never
-  skips it. Cannot deploy a portfolio, paper-trade, live-trade, or place orders.
+  backtests, read the journal, and act as the portfolio's manager agent: read
+  the one-call briefing, then submit proposals (rebalance, pause or resume a
+  sleeve, add a sleeve) with a rationale and cited evidence, through the
+  confirmation-gated thytrader-portfolio CLI. Also records a person's
+  approve/decline when the user explicitly decides. Requires --confirm on every
+  mutation; YOLO never skips it. Cannot deploy (start/pause/resume/stop are
+  thytrader-runtime portfolio-* commands) and never places orders.
 ---
 
 # ThyTrader portfolios
 
 A **portfolio** is a set of **sleeves** (one strategy each, with a capital weight) under shared
-limits, optionally run later by a **manager agent** that moves capital and pauses sleeves while the
-strategies place every trade ([ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)).
+limits, run by you or by a **manager agent** that moves capital and pauses sleeves while the
+strategies place every trade ([ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md),
+[ADR 0091](../../docs/decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)).
 A portfolio is `paper` or `live`, never mixed; mode and quote currency are fixed at creation.
 
-This lane **cannot deploy** a portfolio, start paper or live trading, or place orders: deploying a
-portfolio is not shipped (every response carries `deployable: false`). Run bots with
-`thytrader-runtime`; strategies and single backtests stay with `thytrader-research`. Read-only
-composition for diagnosis is `thytrader-operator portfolios`.
+This lane **cannot deploy** a portfolio and never places orders. Starting, pausing, resuming, and
+stopping a portfolio (one bot per sleeve) and resetting its breaker are
+`thytrader-runtime portfolio-*` commands ([runtime skill](../thytrader-runtime/SKILL.md)); single
+bots stay with `thytrader-runtime`, strategies and single backtests with `thytrader-research`.
+Read-only composition and deployment state for diagnosis is `thytrader-operator portfolios`.
 
 HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then
 `THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same
@@ -27,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v50`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v51`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -40,7 +45,7 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 | Task | Command |
 |---|---|
 | List portfolios | `uv run thytrader-portfolio list [--limit 50] [--cursor C]` |
-| Show one (sleeves, issues, allocation, limits, manager, revision) | `uv run thytrader-portfolio show --portfolio-id ID` |
+| Show one (sleeves, issues, allocation, limits, manager, revision, `deployment_state`) | `uv run thytrader-portfolio show --portfolio-id ID` |
 | Create | `uv run thytrader-portfolio create --name Core --mode paper\|live --capital-quote 1000 [--quote-currency USDC] [--cash-reserve-fraction 0.1] --confirm` |
 | Change settings, limits, manager | `uv run thytrader-portfolio update --portfolio-id ID --revision N [--name] [--capital-quote] [--cash-reserve-fraction] [--max-total-exposure-fraction] [--max-per-asset-fraction] [--daily-loss-quote Q \| --clear-daily-loss] [--max-drawdown-fraction F \| --clear-max-drawdown] [--mandate TEXT \| --mandate-file PATH] [--may-rebalance yes\|no] [--max-weight-change-per-week 0.1] [--may-pause-sleeves yes\|no] [--may-propose-sleeves yes\|no] --confirm` |
 | Add a sleeve | `uv run thytrader-portfolio add-sleeve --portfolio-id ID --revision N --strategy-id SID --weight-fraction 0.25 [--note TEXT] --confirm` |
@@ -50,10 +55,84 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 | Poll a job or show a result | `uv run thytrader-portfolio show-backtest --portfolio-id ID (--job-id J \| --result-fingerprint F) [--full-curve]` |
 | List stored results and recent jobs | `uv run thytrader-portfolio list-backtests --portfolio-id ID [--limit 10]` |
 | Read the journal | `uv run thytrader-portfolio journal --portfolio-id ID [--limit 50] [--cursor C]` |
+| Deployment state (read-only) | `uv run thytrader-portfolio deployment --portfolio-id ID` |
+| Manager briefing (read-only) | `uv run thytrader-portfolio briefing --portfolio-id ID [--decisions-per-sleeve 5] [--journal-limit 20]` |
+| Propose a rebalance | `uv run thytrader-portfolio propose --portfolio-id ID --revision N --kind rebalance --weight ID=0.45 --weight ID=0.35 [--cash-reserve-fraction 0.2] (--rationale TEXT \| --rationale-file PATH) [--evidence KIND=REF ...] --confirm` |
+| Propose pausing or resuming a sleeve | `uv run thytrader-portfolio propose --portfolio-id ID --revision N --kind pause_sleeve\|resume_sleeve --sleeve-id ID --rationale TEXT [--evidence KIND=REF ...] --confirm` |
+| Propose a new sleeve | `uv run thytrader-portfolio propose --portfolio-id ID --revision N --kind add_sleeve --strategy-id SID --weight-fraction 0.1 [--note TEXT] --rationale TEXT [--evidence KIND=REF ...] --confirm` |
+| List proposals | `uv run thytrader-portfolio proposals --portfolio-id ID [--status pending\|applied\|declined\|failed\|expired] [--limit 20] [--cursor C]` |
+| Show one proposal | `uv run thytrader-portfolio show-proposal --portfolio-id ID --proposal-id P` |
+| Record a person's approval | `uv run thytrader-portfolio approve --portfolio-id ID --proposal-id P [--note TEXT] [--i-understand-live] --confirm` |
+| Record a person's decline | `uv run thytrader-portfolio decline --portfolio-id ID --proposal-id P [--note TEXT] --confirm` |
 
-Every mutation needs the current `revision` from `show`. A stale one fails with
-`portfolio_revision_conflict` (HTTP 409, `current_revision` in the detail): run `show` again and
-re-decide; never retry blindly.
+Every mutation needs the current `revision` from `show` (or the briefing). A stale one fails with
+`portfolio_revision_conflict` (HTTP 409, `current_revision` in the detail): read again and
+re-decide; never retry blindly. `--evidence` takes `KIND=REF`: `backtest_result`,
+`portfolio_backtest`, or `study` with a `sha256:…` fingerprint; `decision` with a decision `ref`
+exactly as the briefing prints it (`<deployment_id>/<product_id>@<bar_starts_at>`); or
+`deployment` with a bot id. ThyTrader records what you cite; it does not re-run it.
+
+## Acting as the manager agent
+
+The manager loop runs **outside** ThyTrader: you (Hermes or Claude through this skill) are the
+manager. Strategies place every trade; the manager only moves capital and pauses or resumes
+sleeves, and every change goes through a proposal. Each cycle:
+
+1. **Read** `briefing --portfolio-id ID`. It returns, in one call: the mandate and permissions with
+   the rolling weekly budget (`permissions.weight_moved_this_week`, `weight_budget_remaining`,
+   `rebalance_auto_applies`), the deployment `state`, run `performance` (equity, net PnL, daily
+   PnL, drawdown), `breaker` and `exposure` against the caps, every sleeve with its bot (status,
+   net PnL, return, drawdown, exposure, whether it runs the strategy's current rules), its newest
+   portfolio-backtest evidence and `drawdown_vs_backtest` (1.5 = live drawdown 1.5 times the
+   backtest's), and its recent per-bar decisions with citable `ref`s, the pending and recent
+   proposals, the journal, and the disclosures.
+2. **Decide** against the mandate. Holding is the default: propose only when the evidence moved.
+   Typical triggers: a sleeve drawing down well past its backtest (`drawdown_vs_backtest` ≥ 1.5)
+   or blocked entry after entry (`entry_blocked` decisions) → pause it; a paused sleeve whose
+   evidence recovered → resume it; a sleeve beating its evidence while another lags → rebalance
+   inside the budget; a validated strategy with backtest or study evidence and room in the
+   allocation → add it (only with `may_propose_sleeves`).
+3. **Propose** with `propose … --confirm`, naming the briefing's `revision`, a plain rationale
+   (what you saw, why it matters, what you expect), and the evidence refs you used. Read the
+   response: `status: applied` means it auto-applied inside the permissions; `pending` means it
+   waits for a person and `approval_reason` says why.
+4. **Never place orders.** There is no order proposal (any other kind is refused with "the manager
+   never places orders"). Do not run `thytrader-runtime` start/resume, `place-order`, or
+   `set-risk-policy`, and do not change limits, permissions, or the mandate on your own.
+5. **Never decide your own proposals.** `approve` / `decline` record a person's decision: run them
+   only when the user explicitly told you to, quoting their decision in `--note`. Approving a
+   resume on a live portfolio also needs `--i-understand-live`, which you pass only when the user
+   explicitly acknowledged live trading.
+6. **Report** to the user what you proposed, whether it applied or waits, and what you cited.
+   Do not re-propose a declined change without new evidence.
+
+**Cadence.** Run a cycle once per bar of the slowest sleeve clock, but not more often than every
+hour (for example every 4 hours for 1h and 4h sleeves, daily for 1d sleeves), right after any
+`breaker_tripped` journal entry, and when the user asks. One proposal per sleeve per cycle; while
+a proposal for a sleeve is pending, wait for it. Pending proposals expire after 7 days; at most 20
+wait at once (`portfolio_proposal_limit`).
+
+### Permission semantics
+
+| Permission | Without approval | Otherwise |
+|---|---|---|
+| `may_rebalance` with `max_weight_change_per_week` | A **paper** rebalance applies at once when the weight it moves (the larger of total increases and total decreases) fits what is left of the rolling 7-day budget of auto-applied rebalances | Live rebalances always wait (they move real capital); over-budget or `may_rebalance` off → waits |
+| `may_pause_sleeves` | Pausing a **running** sleeve applies at once (no new entries; exits and protection continue) | Off → waits |
+| `may_propose_sleeves` | — (an added sleeve always waits; approving adds it but does not start it) | Off → `add_sleeve` is refused (`portfolio_proposal_not_permitted`) |
+| — | — | Resuming a sleeve always waits for a person (live approval also needs `i_understand_live`) |
+
+There is no "may place orders" permission and none can be added.
+
+**Proposal states.** `pending` → `applied` (a person approved and the change was made) /
+`declined` / `failed` (approved, but it no longer fits the portfolio; `failure_code` says why) /
+`expired` (7 days unanswered); a proposal inside the permissions is `applied` at once with
+`auto_applied: true`. Only `pending` proposals can be decided (`portfolio_proposal_not_pending`,
+409). Submission refusals: `portfolio_sleeve_not_running` (pause), `portfolio_sleeve_not_paused`
+(resume), `portfolio_breaker_latched` (resume while a breaker is latched — only a person resets
+it), `portfolio_proposal_no_change`, `portfolio_weights_incomplete` (name every sleeve), plus the
+composition rules below. Every step is journaled (`proposal_submitted`, `proposal_approved`,
+`proposal_declined`, `proposal_failed`, and the change itself) with the actor (`manager` for you
+and your auto-applied changes, `operator` for a person) and your rationale.
 
 ## Rules the API enforces
 
@@ -62,10 +141,12 @@ re-decide; never retry blindly.
 - A sleeve's strategy must trade in the portfolio's quote currency (`portfolio_sleeve_quote_mismatch`)
   and have a readable market (`portfolio_sleeve_product_unknown`).
 - `set-weights` must name every sleeve exactly once (`portfolio_weights_incomplete`).
+- A deployed portfolio cannot be deleted (`portfolio_deployed`, 409) and a sleeve whose bot is
+  running or paused cannot be removed (`portfolio_sleeve_deployed`, 409): stop it first.
 - Mode and quote currency cannot change; the manager permissions have no order authority
   (an unknown `may_*` permission is refused).
-- Unknown ids: `portfolio_not_found`, `portfolio_sleeve_not_found`, `strategy_not_found`; no
-  database: `portfolio_storage_unavailable` (503).
+- Unknown ids: `portfolio_not_found`, `portfolio_sleeve_not_found`, `portfolio_proposal_not_found`,
+  `strategy_not_found`; no database: `portfolio_storage_unavailable` (503).
 
 `show` flags drifted sleeves in `issues` (`strategy_invalid`, `quote_currency_mismatch`,
 `product_unknown`): strategies stay editable after they join a portfolio. Fix the strategy with
@@ -75,8 +156,15 @@ is journaled (`sleeve_removed`, actor `system`, reason `strategy_deleted`) and
 
 `allocation` reports allocated, reserve, and unallocated capital and the **largest single asset**
 against `limits.max_per_asset_fraction` (a multi-product sleeve counts toward each of its assets).
-Limits are stored now and start binding orders only when portfolio deployment ships. Manager
-settings are stored and shown; no manager agent acts on them yet.
+On a deployed portfolio the limits bind: every sleeve entry must fit
+`max_total_exposure_fraction × capital_quote` and `max_per_asset_fraction × capital_quote` across
+the portfolio's bots (blocked entries show `PORTFOLIO_TOTAL_EXPOSURE_LIMIT` /
+`PORTFOLIO_ASSET_EXPOSURE_LIMIT` in the decision timeline), and the optional `daily_loss_quote` and
+`max_drawdown_fraction` stops pause every sleeve and latch (`PORTFOLIO_DAILY_LOSS_STOP` /
+`PORTFOLIO_DRAWDOWN_STOP`) until an operator runs `thytrader-runtime portfolio-reset-breaker`.
+Weights decide each sleeve's capital: a weight change on a deployed portfolio moves each sleeve
+bot's allocated capital on the worker's next cycle (live and paper; a paper sleeve never sizes
+beyond its own paper cash).
 
 ## Portfolio backtests
 
@@ -116,6 +204,12 @@ and cross-sleeve interactions are **not simulated**. Fills are simulated from ca
 `POST /api/v1/portfolios/{id}/sleeves`, `PATCH/DELETE /api/v1/portfolios/{id}/sleeves/{sleeve_id}`,
 `PUT /api/v1/portfolios/{id}/weights`, `GET /api/v1/portfolios/{id}/journal`,
 `POST/GET /api/v1/portfolios/{id}/backtests`, `GET /api/v1/portfolios/{id}/backtests/jobs[/{job_id}]`,
-`GET /api/v1/portfolios/{id}/backtests/{result_fingerprint}?max_points=`. Browser mutations also
-need CSRF; the Portfolio page (`/deployments`) uses the same routes. Deleting a portfolio has no
-CLI command on purpose; it needs the browser or an explicit HTTP call with the current revision.
+`GET /api/v1/portfolios/{id}/backtests/{result_fingerprint}?max_points=`,
+`GET /api/v1/portfolios/{id}/deployment`, `GET /api/v1/portfolios/{id}/briefing`
+(contract `thytrader-portfolio-briefing-v1`), `GET/POST /api/v1/portfolios/{id}/proposals`,
+`GET /api/v1/portfolios/{id}/proposals/{proposal_id}`, and
+`POST /api/v1/portfolios/{id}/proposals/{proposal_id}/approve|decline` (body `{note?,
+i_understand_live?}`). Browser mutations also need CSRF; the Portfolio page (`/deployments`) uses
+the same routes and its Manager tab shows proposals with Approve / Decline / Ask why. Deleting a
+portfolio has no CLI command on purpose; it needs the browser or an explicit HTTP call with the
+current revision.

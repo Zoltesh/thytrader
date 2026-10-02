@@ -214,6 +214,10 @@ class DeploymentResponse(BaseModel):
         default=False,
         description="True for a kept (stopped live) book whose strategy was deleted.",
     )
+    portfolio_id: UUID | None = Field(
+        default=None,
+        description="The portfolio this bot is a sleeve of (ADR 0091); null for a standalone bot.",
+    )
     kind: str
     timeframe: str | None
     product_id: str
@@ -712,6 +716,7 @@ def _deployment_response(
         strategy_id=deployment.strategy_id,
         strategy_name=deployment.strategy_name,
         strategy_deleted=deployment.strategy_deleted,
+        portfolio_id=deployment.portfolio_id,
         kind=deployment.kind.value,
         timeframe=timeframe,
         product_id=deployment.product_id,
