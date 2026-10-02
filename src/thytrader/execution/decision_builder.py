@@ -96,6 +96,8 @@ class BarContext:
     the snapshot it returned (None when the call raised). ``previous_evaluated_at`` is
     when the previous bar's decision was written, so fills applied between bars (for
     example a venue bracket) are attributed to this bar's window exactly once.
+    ``no_trade_bar`` marks a flat zero-volume bar for an interval without trades
+    (ADR 0095); it is evaluated like any bar and the record names it.
     """
 
     strategy: StrategyDefinition
@@ -109,6 +111,7 @@ class BarContext:
     observations: DecisionObservations | None
     previous_evaluated_at: datetime | None = None
     error: str | None = None
+    no_trade_bar: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +161,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         evaluated_at=context.evaluated_at,
         outcome=classified.outcome,
         reason_code=classified.reason_code,
-        summary=_summary(context, window, rule, classified, exit_rule)[:_SUMMARY_LIMIT],
+        summary=_bar_summary(_summary(context, window, rule, classified, exit_rule), context),
         skip_reason=classified.skip_reason,
         exit_reason=classified.exit_reason,
         action=classified.action,
@@ -171,7 +174,18 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         exit_rule=exit_rule,
         risk=classified.risk,
         position=_position(after.position),
+        no_trade_bar=context.no_trade_bar,
     )
+
+
+_NO_TRADE_SUFFIX = " (no-trade bar: no trades, flat at the prior close)"
+
+
+def _bar_summary(summary: str, context: BarContext) -> str:
+    """Bound the summary and name a no-trade bar so a flat close is never misread."""
+    if not context.no_trade_bar:
+        return summary[:_SUMMARY_LIMIT]
+    return summary[: _SUMMARY_LIMIT - len(_NO_TRADE_SUFFIX)] + _NO_TRADE_SUFFIX
 
 
 def build_gate_skip_decision(

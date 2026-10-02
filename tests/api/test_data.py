@@ -135,15 +135,20 @@ def test_watch_add_and_ingest_five_minute_demo_range(tmp_path: Path) -> None:
             for row in catalog_after.json()["payload"]["datasets"]
             if row["product_id"] == "ETH-USD" and row["timeframe"] == "5m"
         )
-        assert longer["complete"] is True
+        # ADR 0095: a short island is not complete for a longer watch.
+        assert longer["complete"] is False
+        assert longer["island_complete"] is True
         assert longer["watch_complete"] is False
         assert longer["sparsity"] == "none"
         assert longer["watch_sparsity"] == "gapped"
         assert longer["watch_expected_candle_count"] > longer["expected_candle_count"]
+        assert longer["watch_covered_candle_count"] == longer["expected_candle_count"]
+        assert 0 < longer["watch_coverage_ratio"] < 1
         gap_report = client.get("/api/v1/data/gaps?product_id=ETH-USD&timeframe=5m")
         assert gap_report.status_code == 200, gap_report.text
         gaps = gap_report.json()
-        assert gaps["complete"] is True
+        assert gaps["complete"] is False
+        assert gaps["island_complete"] is True
         assert gaps["watch_complete"] is False
         assert gaps["lookback_hours"] == 2_160
         assert gaps["gap_count"] > 0

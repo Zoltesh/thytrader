@@ -57,7 +57,8 @@ permission to trade. Research is not permission to deploy. See [Operate](operate
   Live Coinbase fill pages that are truncated, quote-mislabeled, or unparseable must fail closed
   rather than look complete ([ADR 0059](../decisions/0059-coinbase-list-fills-cursor-pagination.md)).
 - Block new risk-increasing orders on stale data or unhealthy required connections.
-- Missing candles are never interpolated.
+- Missing candles are never interpolated. An interval without trades is published as a flat
+  zero-volume bar at the previous close, counted and disclosed in research results.
 
 The full baseline (risk-policy registry, execution policy, audit) is
 [security and trading-risk](../security-and-risk.md).

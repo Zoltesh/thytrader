@@ -113,7 +113,7 @@ page; [ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-token
 is not Coinbase. `thytrader-operator chat-status` is HTTP-only and never prints the key. Chat is
 not a seventh skill lane.
 
-Judge configured market-data coverage by `watch_complete`, not island `complete`. Catalog `sparsity` is `gapped` when the watch is incomplete. `inspect-gaps` may return `truncated=true` with a partial `gap_summary` when a server-side budget stops the scan ([ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only. `/datasets/latest` and operator `data-catalog` are catalog-grade (structural checks, stat-identity cache, under a second warm); binding a dataset to a backtest, study, or deployment re-verifies its exact content fingerprint ([ADR 0085](decisions/0085-fast-research-ingest.md)). A CLI that prints `Timed out after N s waiting for the ThyTrader API` gave up waiting on a busy API; for a mutation, read state back before retrying.
+Judge configured market-data coverage by `watch_complete`. For a watched target, catalog, ingest, and gap payloads make `complete` watch-relative and keep `island_complete`; coverage is `watch_covered_candle_count` of `watch_expected_candle_count`. Catalog `watch_sparsity` is `gapped` when the watch is incomplete. Thin markets carry flat no-trade bars (`synthetic_no_trade_intervals`), and `history_floor_at` marks only a proven listing ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). `inspect-gaps` may return `truncated=true` with a partial `gap_summary` when a server-side budget stops the scan ([ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only. `/datasets/latest` and operator `data-catalog` are catalog-grade (structural checks, stat-identity cache, under a second warm); binding a dataset to a backtest, study, or deployment re-verifies its exact content fingerprint ([ADR 0085](decisions/0085-fast-research-ingest.md)). A CLI that prints `Timed out after N s waiting for the ThyTrader API` gave up waiting on a busy API; for a mutation, read state back before retrying.
 
 Every HTTP command preflights `/health/ready` and fails closed on a missing or unequal ops contract. Matching package version `0.1.0` is not current-image evidence.
 
@@ -258,7 +258,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v54` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v55` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -269,15 +269,19 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md),
 [ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md),
 [ADR 0092](decisions/0092-research-worker-pool.md),
-[ADR 0093](decisions/0093-signal-based-exits.md); `backtest_engine:
+[ADR 0093](decisions/0093-signal-based-exits.md),
+[ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md),
+[ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md); `backtest_engine:
 "thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, and `signal_exit_runtimes`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
 `study_budgets`; `take_profit_kinds`, `live_protection_kinds`,
 `backtest_diagnostics`, `fee_suggestion_source`; `portfolio_deployment`, `portfolio_breakers`,
 `portfolio_proposal_kinds`, `portfolio_briefing_contract`; `research_worker_pool`;
 `research_honesty`, `strategy_library`, `portfolio_max_sleeves`, `portfolio_sleeve_operations`
-([ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md)); expected Alembic revision
-`0058`).
+([ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md)); the `catalog_health` tokens
+`no_trade_bars`, `listing_history_floor`, and `watch_relative_complete`
+([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)); expected Alembic
+revision `0059`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
 `exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase
@@ -312,6 +316,15 @@ fingerprints. Decision operands carry 12 significant digits. `GET /api/v1/strate
 `thytrader-portfolio delete`, `create` with limits and manager settings, and `add-sleeves --file`
 (`POST /api/v1/portfolios/{id}/sleeves/batch`, one revision, at most 32 sleeves) remove most bulk
 chores.
+Sparse markets ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)): Coinbase returns no candle for an interval without
+trades. The worker publishes each confirmed one as a flat zero-volume bar. Dataset manifests count
+them (`synthetic_no_trade_intervals`), and backtests whose window holds one disclose
+`synthetic_no_trade_bars`. Paper and live fill a bar missing between two traded bars the same way
+and mark the decision row `no_trade_bar: true`; a missing newest bar still pauses the book
+(`data_gap`). `history_floor_at` marks only a proven listing. Catalog, ingest, and gap payloads make
+`complete` watch-relative (`island_complete` keeps the dataset fact) and report coverage as
+`watch_covered_candle_count` of `watch_expected_candle_count`. Alembic `0059` cleared every
+pre-existing floor.
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

@@ -46,12 +46,14 @@ research worker pool (leased claims, crash re-queue, process recycling, the sync
 long-poll with its 202 fallback, research-job error codes, and health queue depth; Alembic
 0057, ADR 0092), signal-based exits (``exits.signal_exit`` across research, paper, and
 live; the ``signal`` exit reason, the ``signal_exit`` intent purpose, and the durable
-position exit marker; ADR 0093, Alembic 0058), or research honesty and agent ergonomics
+position exit marker; ADR 0093, Alembic 0058), research honesty and agent ergonomics
 (result windows, study axis values and per-candidate aggregates, thinned stitched points,
 document issue paths, JSON-number decimals, the library tag filter, bulk delete by tag,
-clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094) change. Concurrency is the
-deployment's ``research_worker_count`` and is reported by operator health, not compiled into
-this contract.
+clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094), or sparse-market ingest
+(confirmed no-trade bars, listing-only history floors, and watch-relative catalog
+completeness; ADR 0095, Alembic 0059) change. Concurrency is the deployment's
+``research_worker_count`` and is reported by operator health, not compiled into this
+contract.
 """
 
 from __future__ import annotations
@@ -76,8 +78,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v54"
-EXPECTED_SCHEMA_REVISION = "0058"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v55"
+EXPECTED_SCHEMA_REVISION = "0059"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -142,6 +144,9 @@ CATALOG_HEALTH: tuple[str, ...] = (
     "ranged_backfill",
     "explicit_watch_ingest",
     "research_lookback_ceilings",
+    "no_trade_bars",
+    "listing_history_floor",
+    "watch_relative_complete",
 )
 EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES

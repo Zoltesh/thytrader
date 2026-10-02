@@ -109,7 +109,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "data-catalog",
         parents=[trailing],
-        help="Local datasets, watchlist, and coverage.",
+        help=(
+            "Local datasets, watchlist, and watch coverage (X of Y bars, no-trade bars, "
+            "listing floors)."
+        ),
     )
     subparsers.add_parser(
         "indicators",

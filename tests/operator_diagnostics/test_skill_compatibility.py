@@ -74,8 +74,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v54" in skill
-    assert "0058" in skill
+    assert "thytrader-ops-contract-v55" in skill
+    assert "0059" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
@@ -412,3 +412,25 @@ def test_skills_teach_signal_exits_end_to_end() -> None:
     assert "EXIT_SIGNAL" in schemas
     assert "exit_rule" in schemas
     assert "signal_exit_runtimes" in schemas
+
+
+def test_skills_document_sparse_market_coverage() -> None:
+    """Operators can judge a thin market's series from skills alone (ADR 0095)."""
+    data = _DATA_SKILL.read_text(encoding="utf-8")
+    operator = _OPERATOR_SKILL.read_text(encoding="utf-8")
+    schemas = _SCHEMAS.read_text(encoding="utf-8")
+    research = _RESEARCH_SKILL.read_text(encoding="utf-8")
+    runtime = _RUNTIME_SKILL.read_text(encoding="utf-8")
+    assert "0095-sparse-markets-no-trade-bars-listing-floors" in data
+    assert "Check that a series is healthy" in data
+    for field in ("watch_covered_candle_count", "island_complete", "synthetic_no_trade_intervals"):
+        assert field in data
+        assert field in schemas
+    assert "listing search" in data
+    assert "0059" in data
+    assert "watch_relative_complete" in operator
+    assert "watch_coverage_ratio" in schemas
+    assert "no_trade_bar" in schemas
+    assert "synthetic_no_trade_bars" in research
+    assert "no_trade_bar" in runtime
+    assert "data_gap" in runtime

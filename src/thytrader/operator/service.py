@@ -55,7 +55,11 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
 )
-from thytrader.market_data_worker.service import island_covers_watch, watch_expected_candle_count
+from thytrader.market_data_worker.service import (
+    island_covers_watch,
+    watch_covered_candle_count,
+    watch_expected_candle_count,
+)
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
@@ -2449,7 +2453,7 @@ def _coverage_row(
         now=now,
         interval=interval,
     )
-    complete = _coverage_complete(state, manifest)
+    island_complete = _coverage_complete(state, manifest)
     gap_count = state.gap_count if state is not None else _manifest_int(manifest, "gap_count")
     if state is not None:
         missing = state.missing_intervals
@@ -2468,7 +2472,7 @@ def _coverage_row(
         island_covers_watch(
             covered_starts_at=covered_start,
             covered_ends_at=newest,
-            island_complete=complete is True,
+            island_complete=island_complete is True,
             lookback_hours=lookback_hours,
             interval=interval,
             closed_end=closed_end,
@@ -2479,9 +2483,14 @@ def _coverage_row(
         if lookback_hours is not None
         else None
     )
-    island_sparsity = _coverage_sparsity(complete, gap_count, missing)
+    island_sparsity = _coverage_sparsity(island_complete, gap_count, missing)
     watch_sparsity = (
         _watch_sparsity(watch_complete, island_sparsity) if lookback_hours is not None else None
+    )
+    watch_covered = (
+        watch_covered_candle_count(covered_start, newest, lookback_hours, interval, closed_end)
+        if lookback_hours is not None
+        else None
     )
     return DatasetCoverageRow(
         provider=provider,
@@ -2493,7 +2502,8 @@ def _coverage_row(
         failure_code=state.failure_code if state is not None else None,
         failure_message=state.failure_message if state is not None else None,
         watch_complete=watch_complete,
-        complete=complete,
+        complete=_watch_relative_complete(island_complete, watch_complete),
+        island_complete=island_complete,
         freshness_status=freshness.status.value,
         covered_starts_at=covered_start,
         covered_ends_at=newest,
@@ -2505,9 +2515,32 @@ def _coverage_row(
         sparsity=island_sparsity,
         watch_sparsity=watch_sparsity,
         watch_expected_candle_count=watch_expected,
+        watch_covered_candle_count=watch_covered,
+        watch_coverage_ratio=_coverage_ratio(watch_covered, watch_expected),
+        synthetic_no_trade_intervals=_manifest_int(manifest, "synthetic_no_trade_intervals"),
         watch_status=_watch_status(watch_complete),
         history_floor_at=history_floor_at,
     )
+
+
+def _watch_relative_complete(
+    island_complete: bool | None, watch_complete: bool | None
+) -> bool | None:
+    """Return catalog completeness: a watched target is complete only across its lookback.
+
+    A two-minute island for a 90-day watch is not complete (ADR 0095). Unwatched rows
+    keep island completeness.
+    """
+    if watch_complete is None:
+        return island_complete
+    return island_complete is True and watch_complete
+
+
+def _coverage_ratio(covered: int | None, expected: int | None) -> float | None:
+    """Return covered over expected watch bars, rounded to four places, when both are known."""
+    if covered is None or not expected:
+        return None
+    return round(covered / expected, 4)
 
 
 def _watch_status(watch_complete: bool | None) -> Literal["complete", "backfilling", "unknown"]:

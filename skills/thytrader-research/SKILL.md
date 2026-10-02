@@ -156,7 +156,11 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   Every summary lists `validity_limits` (`maker_touch_full_fill`, `stop_before_tp_same_bar`,
   `spot_short_synthetic` for shorts, and `signal_exit_at_close` when the strategy declares
   `exits.signal_exit`: the backtest prices the exit at the signal bar's own close, which paper and
-  live can only approach by selling right after it); read them before any deployment claim.
+  live can only approach by selling right after it, and `synthetic_no_trade_bars` when the
+  evaluation window holds flat zero-volume bars for intervals without trades: thin markets'
+  quiet bars, which volume indicators read as undefined;
+  [ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)); read them
+  before any deployment claim.
   Trade exit reasons are `stop_loss`, `take_profit`, `time_exit`, `signal`, and `evaluation_end`. Backtests are
   simulated research evidence, never paper or live fills.
 

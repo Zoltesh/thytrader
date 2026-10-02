@@ -10,9 +10,10 @@
  * - `POST /api/v1/data/ingest` (202, no wait), and
  * - `GET  /api/v1/data/ingest?product_id=&timeframe=` to poll progress.
  *
- * Ingest is complete-only: the worker never interpolates, so a dataset can stay
- * shorter than the watch window when Coinbase itself has no complete history
- * (reported as `history_floor_at`).
+ * Coinbase returns no candle for an interval without trades; the worker publishes a
+ * flat zero-volume bar for each confirmed one (ADR 0095). A dataset stays shorter than
+ * the watch window only when Coinbase has no trades at all before it (the listing,
+ * reported as `history_floor_at`).
  */
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 import { extraIndicatorTimeframes, type BuilderModel, type Dataset } from '$lib/strategies';
@@ -46,7 +47,9 @@ export type IngestWorkerState = {
 	covered_ends_at?: string | null;
 	expected_candle_count?: number | null;
 	received_candle_count?: number | null;
-	/** Coverage legitimately starts here: the provider has no complete history before it. */
+	/** Bars of the watch lookback the verified series covers (ADR 0095). */
+	watch_covered_candle_count?: number | null;
+	/** Coverage legitimately starts here: Coinbase has no trades before it (the listing). */
 	history_floor_at?: string | null;
 };
 
@@ -69,8 +72,8 @@ const HOURS_PER_YEAR = 365 * HOURS_PER_DAY;
 
 /**
  * Per-timeframe watch lookback ceilings the data API enforces (ADR 0085): 1m 90 days,
- * 5m 1 year, 15m 2 years, 30m 3 years, 1h 5 years, 2h-1d 10 years. Coinbase may hold
- * less history; the worker then reports `history_floor_at` instead of interpolating.
+ * 5m 1 year, 15m 2 years, 30m 3 years, 1h 5 years, 2h-1d 10 years. A market listed
+ * later has less history; the worker then reports its listing as `history_floor_at`.
  */
 export const WATCH_LOOKBACK_CEILING_HOURS: Readonly<Record<string, number>> = {
 	'1m': 90 * HOURS_PER_DAY,
@@ -255,14 +258,14 @@ export type DownloadProgress = {
 	expected: number | null;
 	watchStatus: 'complete' | 'backfilling' | 'waiting';
 	text: string;
-	/** Present when Coinbase has no complete history before coverage starts. */
+	/** Present when Coinbase has no trades before coverage starts (the listing). */
 	floorNote: string | null;
 };
 
 /** Summarize one ingest state for the progress line. */
 export function downloadProgress(status: IngestStatus): DownloadProgress {
 	const state = status.state;
-	const received = state.received_candle_count ?? null;
+	const received = state.watch_covered_candle_count ?? state.received_candle_count ?? null;
 	const expected = state.watch_expected_candle_count ?? state.expected_candle_count ?? null;
 	const done = state.watch_complete === true;
 	const failed = !done && typeof state.failure_code === 'string' && state.failure_code !== '';
@@ -289,7 +292,7 @@ export function downloadProgress(status: IngestStatus): DownloadProgress {
 		floorNote:
 			floor === null
 				? null
-				: `Coinbase has no complete history before ${formatUtc(floor)}; coverage starts there.`
+				: `Coinbase has no trades before ${formatUtc(floor)} (the listing); coverage starts there.`
 	};
 }
 

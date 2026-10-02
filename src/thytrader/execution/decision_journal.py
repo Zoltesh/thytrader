@@ -28,6 +28,7 @@ from thytrader.execution.decisions import (
     DECISION_RETENTION_MAX_ROWS_PER_DEPLOYMENT,
 )
 from thytrader.execution.ids import utc_now
+from thytrader.market_data.no_trade import is_no_trade_bar
 from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
@@ -106,6 +107,7 @@ async def record_bar_decision(
                     observations=observations,
                     previous_evaluated_at=None if previous is None else previous.evaluated_at,
                     error=error,
+                    no_trade_bar=is_no_trade_bar(candle),
                 )
             )
             await store.upsert(decision)

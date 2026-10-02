@@ -718,3 +718,15 @@ def test_signal_exit_migration_follows_the_research_worker_pool() -> None:
     for name in ("ck_trade_reason_purpose", "ck_trade_reason_signal_kind"):
         constraint = next(item for item in reasons.constraints if item.name == name)
         assert "'signal_exit'" in str(getattr(constraint, "sqltext", ""))
+
+
+def test_floor_repair_migration_follows_signal_exits() -> None:
+    """The fifty-ninth migration clears pre-ADR 0095 history floors after 0058."""
+    content = Path("alembic/versions/0059_market_data_floor_repair.py").read_text(encoding="utf-8")
+    assert 'revision = "0059"' in content
+    assert 'down_revision = "0058"' in content
+    assert "ADR 0095" in content
+    assert "SET history_floor_at = NULL" in content
+    column = metadata.tables["market_data_worker_state"].c.history_floor_at
+    assert column.nullable is True
+    assert "ADR 0095" in str(column.comment)

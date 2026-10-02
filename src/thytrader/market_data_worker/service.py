@@ -3,17 +3,22 @@
 Ingest walks fetch interval-aligned provider pages of at most
 ``HISTORICAL_REQUEST_MAX_CANDLES`` bars and publish one cumulative revision per walk
 (ADR 0085). Initial backfill starts at the newest closed bar and walks back toward the
-lookback start, so coverage is fresh after the first request. A confirmed provider hole
-directly before the island becomes ``history_floor_at`` and ends the walk. Incremental
-maintenance walks forward from a one-bar overlap. A missing bar always ends a run;
-nothing is interpolated.
+lookback start, so coverage is fresh after the first request. Incremental maintenance
+walks forward from a one-bar overlap.
+
+Coinbase returns no candle for an interval without trades. A settled missing bar that a
+confirmation re-fetch still omits is a confirmed no-trade interval: it becomes a flat
+zero-volume bar at the previous close, so a quiet minute never shrinks a series to its
+newest island (ADR 0095). A missing bar inside the settle window is waited for. Only a
+backward walk records ``history_floor_at``, and only when its listing search finds no
+provider candle at all before the segment, back past the timeframe's lookback ceiling.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum, StrEnum
 import logging
@@ -21,6 +26,7 @@ import random
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
+from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -28,6 +34,7 @@ from thytrader.market_data.models import (
     CandleRangeReport,
     MarketDataRateLimitedError,
 )
+from thytrader.market_data.no_trade import count_no_trade_bars, fill_no_trade_gaps, no_trade_bar
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
@@ -45,7 +52,13 @@ from thytrader.market_data.worker_state import (
     validate_market_data_worker_state,
 )
 from thytrader.market_data_worker.pacing import PROVIDER_REQUEST_PAUSE_SECONDS, ProviderPacer
-from thytrader.market_data_worker.pages import CandlePage, run_end, settle_cutoff, split_page
+from thytrader.market_data_worker.pages import (
+    CandlePage,
+    merge_confirmed_pages,
+    run_end,
+    settle_cutoff,
+    split_page,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -54,13 +67,21 @@ _logger = logging.getLogger(__name__)
 # each cycle, so a long backfill never starves maintenance of the others.
 INGEST_REQUESTS_PER_TARGET_CYCLE = 8
 INGEST_REQUESTS_PER_REQUESTED_TARGET_CYCLE = 24
+# Requests one walk may spend beyond its budget while it searches below the segment for
+# the next provider candle. Such a search publishes nothing until it finds one, so a
+# budget stop would repeat it every cycle. Its cost is bounded: pages to the UTC day
+# boundary, then confirmed daily-granularity probes back to the listing horizon (at most
+# eleven 350-day pages for a ten-year ceiling).
+LISTING_SEARCH_REQUEST_ALLOWANCE = 48
+# How far past the lookback ceiling a listing search looks: one page of daily candles.
+_LISTING_SEARCH_MARGIN = timedelta(days=HISTORICAL_REQUEST_MAX_CANDLES)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from decimal import Decimal
 
     from thytrader.market_data.datasets import DatasetManifest, DatasetStore
     from thytrader.market_data.models import Candle
-    from thytrader.market_data_worker.pages import CandleRun
     from thytrader.market_data_worker.retention import DatasetRetentionRunner
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.settings_yaml import SettingsStore
@@ -99,16 +120,30 @@ type HistoricalRangeService = IntervalRangeService | HourlyRangeService
 
 
 class IngestStop(StrEnum):
-    """Why one ``ingest_once`` call ended; the cycle scheduler reads it."""
+    """Why one ``ingest_once`` call ended; the cycle scheduler reads it.
+
+    ``UNSETTLED`` waits for a missing bar inside the settle window (Coinbase may still
+    publish it). ``LISTING_FLOOR`` ends a backward walk whose listing search found no
+    provider candle before the segment: the market had not traded yet (ADR 0095).
+    ``INCONSISTENT`` stops on a confirmed page whose bounds, grid, or ordering disagree
+    with its request; nothing is concluded from it.
+    """
 
     CURRENT = "current"
     SKIPPED = "skipped"
     COMPLETE = "complete"
     BUDGET = "budget"
-    HOLE = "hole"
+    UNSETTLED = "unsettled"
+    LISTING_FLOOR = "listing_floor"
+    INCONSISTENT = "inconsistent"
     RATE_LIMITED = "rate_limited"
     FAILED = "failed"
     STOPPED = "stopped"
+
+
+# Stops after which a re-proven provider-history floor is settled for this process: the
+# walk either reconciled, anchored the lookback, or re-ran the listing search.
+_FLOOR_PROVEN_STOPS = frozenset({IngestStop.CURRENT, IngestStop.COMPLETE, IngestStop.LISTING_FLOOR})
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +170,20 @@ async def _load_validated_state(
     return validate_market_data_worker_state(state) if state is not None else None
 
 
+def _planning_state(
+    state: MarketDataWorkerState | None, *, reprove_history_floor: bool
+) -> MarketDataWorkerState | None:
+    """Return the state a walk plans from, without a floor that must be proven again.
+
+    The durable row keeps its floor until a walk records a new outcome: the listing
+    search re-records it, and a walk that finds older history moves the island start,
+    which clears it.
+    """
+    if state is None or not reprove_history_floor or state.history_floor_at is None:
+        return state
+    return replace(state, history_floor_at=None)
+
+
 async def ingest_once(
     *,
     service: HistoricalRangeService,
@@ -154,6 +203,7 @@ async def ingest_once(
     max_requests: int | None = None,
     max_candles_per_request: int = HISTORICAL_REQUEST_MAX_CANDLES,
     pacer: ProviderPacer | None = None,
+    reprove_history_floor: bool = False,
 ) -> IngestOutcome:
     """Retrieve, verify, and publish complete coverage in provider-sized pages.
 
@@ -161,11 +211,17 @@ async def ingest_once(
     ``None`` walks until the plan is done. ``max_candles_per_request`` defaults to the
     provider page limit; tests lower it to exercise multi-page walks on small fixtures.
     ``pacer`` spaces requests across targets; ``None`` uses an unpaced one.
+    ``reprove_history_floor`` plans as if no floor were recorded, so the backward walk's
+    listing search confirms it again (or replaces it with real history). The worker loop
+    sets it on each target's first visit per process.
     """
     if max_candles_per_request < 2:
         raise ValueError("A provider page must hold an overlap bar plus one new bar.")
     ends_at = timeframe.align_closed_end(now)
-    prior = await _load_validated_state(state_store, provider, product_id, timeframe)
+    prior = _planning_state(
+        await _load_validated_state(state_store, provider, product_id, timeframe),
+        reprove_history_floor=reprove_history_floor,
+    )
     watch_complete = island_covers_watch(
         covered_starts_at=None if prior is None else prior.covered_starts_at,
         covered_ends_at=None if prior is None else prior.covered_ends_at,
@@ -282,6 +338,7 @@ async def run_market_data_worker(
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     verified_targets: set[tuple[str, CandleInterval]] = set()
+    proven_floors: set[tuple[str, CandleInterval]] = set()
     pacer = ProviderPacer(pause_seconds=request_pause_seconds, stop_requested=stop_requested)
     try:
         while not stop_requested.is_set():
@@ -315,6 +372,7 @@ async def run_market_data_worker(
                 heartbeat_store=heartbeat_store,
                 now_factory=now_factory,
                 pacer=pacer,
+                proven_floors=proven_floors,
             )
             if retention is not None and not stop_requested.is_set():
                 await retention.maybe_run(now_factory())
@@ -420,6 +478,27 @@ def watch_expected_candle_count(
     return int((ends_at - start) / interval.duration)
 
 
+def watch_covered_candle_count(
+    covered_starts_at: datetime | None,
+    covered_ends_at: datetime | None,
+    lookback_hours: int,
+    interval: CandleInterval,
+    ends_at: datetime,
+) -> int:
+    """Count the watch lookback window's bars that verified coverage spans (the X of X of Y).
+
+    No-trade bars count as covered; bars before a listing floor do not, so a young
+    market reports its real share of the lookback.
+    """
+    if covered_starts_at is None or covered_ends_at is None:
+        return 0
+    start = max(covered_starts_at, bounded_lookback_start(ends_at, lookback_hours, interval))
+    end = min(covered_ends_at, ends_at)
+    if end <= start:
+        return 0
+    return int((end - start) / interval.duration)
+
+
 def island_covers_watch(
     *,
     covered_starts_at: datetime | None,
@@ -436,12 +515,14 @@ def island_covers_watch(
 
     When candle freshness is still ``fresh`` and coverage is only one closed bar
     behind ``closed_end``, treat the watch as complete so large grids do not flip
-    on every boundary while the single worker is elsewhere.
+    on every boundary while the single worker is elsewhere. Coverage that reaches
+    the settle cutoff also spans the watch: a missing bar inside the settle window
+    may still be published, so a sparse market's quiet head waits there without
+    being history the watch lacks (ADR 0095).
 
-    A ``history_floor_at`` equal to the island start means the provider has a
-    confirmed hole directly before the island, so the island satisfies the
-    lookback from that floor. Earlier bars cannot be published without
-    interpolation.
+    A ``history_floor_at`` equal to the island start means the listing search found
+    no provider candle before the island (the market had not traded yet), so the
+    island satisfies the lookback from that floor.
     """
     if not island_complete or covered_starts_at is None or covered_ends_at is None:
         return False
@@ -450,7 +531,7 @@ def island_covers_watch(
     )
     if covered_starts_at > lookback_start:
         return False
-    if covered_ends_at >= closed_end:
+    if covered_ends_at >= closed_end or covered_ends_at >= settle_cutoff(closed_end, interval):
         return True
     if now is not None and product_id:
         freshness = evaluate_freshness(
@@ -656,9 +737,9 @@ class _RequestBudget:
     limit: int | None
     spent: int = 0
 
-    def exhausted(self) -> bool:
-        """True when no request may start a new page."""
-        return self.limit is not None and self.spent >= self.limit
+    def exhausted(self, *, allowance: int = 0) -> bool:
+        """True when no request may start a new page, counting ``allowance`` extra requests."""
+        return self.limit is not None and self.spent >= self.limit + allowance
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,8 +762,13 @@ class _WalkContext:
     now_factory: Callable[[], datetime] | None
 
     @property
+    def bar(self) -> timedelta:
+        """Return the duration of one bar of the walked timeframe."""
+        return self.timeframe.duration
+
+    @property
     def cutoff(self) -> datetime:
-        """Return the instant from which missing bars are not yet confirmed holes."""
+        """Return the instant from which missing bars are not yet confirmed no-trade bars."""
         return settle_cutoff(self.closed_end, self.timeframe)
 
     @property
@@ -690,9 +776,37 @@ class _WalkContext:
         """Return the duration one provider page covers."""
         return self.timeframe.duration * self.page_candles
 
+    @property
+    def can_probe_days(self) -> bool:
+        """True when the listing search may skip whole UTC days with daily-candle probes.
+
+        A daily timeframe already pages by day, and a 1h-only provider stub cannot serve
+        daily candles; both search with ordinary pages instead.
+        """
+        return self.timeframe is not CandleInterval.ONE_DAY and callable(
+            getattr(self.service, "get_range", None)
+        )
+
     def outcome(self, stop: IngestStop) -> IngestOutcome:
         """Return the call outcome with the requests this walk spent."""
         return IngestOutcome(stop, self.budget.spent)
+
+
+def listing_horizon_start(closed_end: datetime, interval: CandleInterval) -> datetime:
+    """Return the oldest instant a listing search covers: one daily page past the ceiling.
+
+    The ceiling is the longest lookback a watch on the timeframe may request (ADR 0085), so
+    a floor proven back to here holds for every lookback and raising one never needs it
+    proven again. The extra 350 days let a search below a quiet lookback start find the
+    trade that prices it, so a quiet first bar is never mistaken for a listing.
+    """
+    ceiling = bounded_lookback_start(closed_end, max_watch_lookback_hours(interval), interval)
+    return _utc_day_floor(ceiling) - _LISTING_SEARCH_MARGIN
+
+
+def _utc_day_floor(value: datetime) -> datetime:
+    """Return the UTC midnight at or before one aware UTC instant."""
+    return value.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 async def _walk(
@@ -733,20 +847,44 @@ async def _island_verifies(context: _WalkContext, island: _Island) -> bool:
     try:
         context.dataset_store.load_manifest(island.fingerprint)
     except Exception:  # noqa: BLE001 - an unreadable island must fail closed before fetching.
-        await _record_failure(
-            context.state_store,
-            context.attempt,
-            code="dataset_verification_failed",
-            message="The current market-data dataset could not be verified.",
-            next_retry_at=context.retry_at,
-        )
-        _logger.warning("market_data_ingestion_failed code=dataset_verification_failed")
+        await _record_dataset_unverifiable(context)
         return False
     return True
 
 
+async def _island_edge(context: _WalkContext, island: _Island, *, newest: bool) -> Candle | None:
+    """Load the island's stored first or last bar; record a failure when it is unreadable.
+
+    A walk needs it when the provider omits the overlap bar because that bar is itself a
+    no-trade bar: the extension then starts from the stored bar instead of inventing one.
+    """
+    try:
+        return context.dataset_store.load_edge_candle(island.fingerprint, newest=newest)
+    except Exception:  # noqa: BLE001 - an unreadable island must fail closed before publishing.
+        await _record_dataset_unverifiable(context)
+        return None
+
+
+async def _record_dataset_unverifiable(context: _WalkContext) -> None:
+    """Record the redacted failure for an island that could not be verified or read."""
+    await _record_failure(
+        context.state_store,
+        context.attempt,
+        code="dataset_verification_failed",
+        message="The current market-data dataset could not be verified.",
+        next_retry_at=context.retry_at,
+    )
+    _logger.warning("market_data_ingestion_failed code=dataset_verification_failed")
+
+
+type _Direction = Literal["forward", "prefix", "initial", "listing_probe"]
+
+
 async def _request(
-    context: _WalkContext, starts_at: datetime, ends_at: datetime
+    context: _WalkContext,
+    starts_at: datetime,
+    ends_at: datetime,
+    timeframe: CandleInterval,
 ) -> CandleRangeReport | IngestStop:
     """Spend one paced provider request; map throttles and failures to a walk stop."""
     if not await context.pacer.acquire():
@@ -757,7 +895,7 @@ async def _request(
         report = await fetch_historical_range(
             context.service,
             context.product_id,
-            context.timeframe,
+            timeframe,
             starts_at,
             ends_at,
             context.closed_end,
@@ -767,13 +905,13 @@ async def _request(
         _logger.warning(
             "market_data_ingestion_rate_limited product_id=%s timeframe=%s cooldown_seconds=%.1f",
             context.product_id,
-            context.timeframe.value,
+            timeframe.value,
             cooldown,
         )
         return IngestStop.RATE_LIMITED
     except Exception as error:  # noqa: BLE001 - provider boundary is intentionally fail-closed.
         context.pacer.completed()
-        _log_provider_unavailable(context.product_id, context.timeframe, starts_at, ends_at, error)
+        _log_provider_unavailable(context.product_id, timeframe, starts_at, ends_at, error)
         return IngestStop.FAILED
     context.pacer.completed()
     return report
@@ -783,38 +921,50 @@ async def _fetch_page(
     context: _WalkContext,
     starts_at: datetime,
     ends_at: datetime,
-    direction: Literal["forward", "prefix", "initial"],
+    direction: _Direction,
+    *,
+    timeframe: CandleInterval | None = None,
+    cutoff: datetime | None = None,
 ) -> CandlePage | IngestStop:
-    """Fetch one page, re-fetching once before acting on a settled or inconsistent hole.
+    """Fetch one page, re-fetching once before acting on a settled or inconsistent gap.
 
-    The confirmation keeps a transient short page from becoming a provider hole. A
-    missing bar inside the settle window is not confirmed: the walk waits for it.
+    A bar counts as missing only when both responses omit it, so a transient short page
+    never becomes a no-trade bar or a listing floor. A missing bar at or after ``cutoff``
+    (default: the walk's settle window) is not confirmed; the walk waits for it.
+    ``timeframe`` lets the listing search request daily candles.
     """
-    report = await _request(context, starts_at, ends_at)
+    interval = context.timeframe if timeframe is None else timeframe
+    settle = context.cutoff if cutoff is None else cutoff
+    report = await _request(context, starts_at, ends_at, interval)
     if isinstance(report, IngestStop):
         return report
-    page = split_page(report, starts_at, ends_at, context.timeframe)
-    if not page.needs_confirmation(context.cutoff):
+    page = split_page(report, starts_at, ends_at, interval)
+    if not page.needs_confirmation(settle):
         return page
-    confirmed = await _request(context, starts_at, ends_at)
+    confirmed = await _request(context, starts_at, ends_at, interval)
     if isinstance(confirmed, IngestStop):
         return confirmed
-    page = split_page(confirmed, starts_at, ends_at, context.timeframe)
-    if not page.complete:
+    merged = merge_confirmed_pages(page, split_page(confirmed, starts_at, ends_at, interval))
+    if not merged.complete:
         _log_chunk_incomplete(
-            context.product_id, context.timeframe, starts_at, ends_at, confirmed, direction
+            context.product_id, interval, starts_at, ends_at, confirmed, direction
         )
-    return page
+    return merged
 
 
 class _BackwardWalk:
-    """Newest-first page walk that grows one gap-free segment toward the lookback start.
+    """Newest-first page walk that assembles one gap-filled segment toward the lookback start.
 
-    Initial backfill (no island) seeds the segment from the first page's newest usable
-    run, so coverage reaches the newest closed bar after one request. Prefix backfill
-    starts one bar past the island start, so the segment overlaps the island. Each older
-    page must end exactly where the segment starts. A settled missing bar directly
-    before the segment ends the walk and becomes the provider-history floor.
+    Confirmed no-trade intervals between real candles (and, for initial backfill, after
+    the newest real candle up to the first unsettled bar) become flat bars (ADR 0095).
+    The walk is anchored when a real candle at or before the lookback start begins the
+    segment; when the lookback start itself had no trades, the newest candle below it
+    prices flat bars from the lookback start instead. A confirmed page with no candle at
+    all starts a listing search: pages to the UTC day boundary, then daily-candle probes
+    that skip whole days without trades. Only a search that reaches the listing horizon
+    without any candle records ``history_floor_at``: the market had not traded yet.
+    Prefix backfill starts one overlap bar past the island start; when the provider omits
+    that bar (a stored no-trade bar), the segment ends at the stored island head instead.
     """
 
     def __init__(
@@ -822,102 +972,208 @@ class _BackwardWalk:
     ) -> None:
         """Start at the newest closed bar, or one overlap bar past the island start."""
         self._context = context
-        self._lookback_start = lookback_start
+        self._target = lookback_start
+        self._horizon = listing_horizon_start(context.closed_end, context.timeframe)
         self._island = island
-        self._runs: list[CandleRun] = []
-        self.floor: datetime | None = None
-        self._cursor_end = (
+        self._pages: list[tuple[Candle, ...]] = []
+        self._cursor = (
             context.closed_end
             if island is None
             else _safe_shift(
                 island.starts_at,
-                context.timeframe.duration,
+                context.bar,
                 "Market-data worker cannot represent a prefix overlap end.",
             )
         )
+        self._segment_end: datetime | None = None if island is None else self._cursor
+        self._anchor_close: Decimal | None = None
+        self._searching = False
+        self._probed_at: datetime | None = None
+        self.floor: datetime | None = None
+        self.needs_head = False
 
     async def run(self) -> IngestStop:
-        """Fetch pages until the lookback start, a hole, the budget, or a provider stop."""
-        direction: Literal["prefix", "initial"] = "initial" if self._island is None else "prefix"
-        while self._cursor_end > self._lookback_start:
-            if self._context.budget.exhausted():
+        """Fetch pages until the segment is anchored, the listing floor, the budget, or a stop."""
+        while not self._anchored():
+            if self._cursor <= self._horizon:
+                return self._listing_floor()
+            if self._cursor <= self._target and self._oldest_start() is None:
+                # No trade anywhere in the lookback: nothing to anchor or publish.
+                return IngestStop.COMPLETE
+            if self._out_of_budget():
                 return IngestStop.BUDGET
-            earliest = _safe_shift(
-                self._cursor_end,
-                -self._context.page_span,
-                "Market-data worker cannot represent a page start.",
-            )
-            page_start = max(self._lookback_start, earliest)
-            page = await _fetch_page(self._context, page_start, self._cursor_end, direction)
-            if isinstance(page, IngestStop):
-                return page
-            stop = self._absorb(page)
+            if self._should_probe_days():
+                stop = await self._skip_days_without_trades()
+            else:
+                stop = await self._fetch_and_absorb()
             if stop is not None:
                 return stop
         return IngestStop.COMPLETE
 
-    def candles(self) -> tuple[Candle, ...]:
-        """Return the assembled segment, oldest first."""
-        return tuple(candle for run in reversed(self._runs) for candle in run)
+    def segment(self, head: Candle | None) -> tuple[Candle, ...]:
+        """Return the gap-filled segment, oldest first; empty when nothing real was found."""
+        real = [candle for page in reversed(self._pages) for candle in page]
+        if head is not None:
+            real.append(head)
+        filled = fill_no_trade_gaps(real, self._context.timeframe, through=self._segment_end)
+        if not filled or self._anchor_close is None or filled[0].starts_at <= self._target:
+            return filled
+        leading: list[Candle] = []
+        cursor = self._target
+        while cursor < filled[0].starts_at:
+            leading.append(no_trade_bar(cursor, self._anchor_close))
+            cursor = cursor + self._context.bar
+        return (*leading, *filled)
 
-    def _absorb(self, page: CandlePage) -> IngestStop | None:
-        """Prepend the page's attachable run; return a stop when the segment cannot grow."""
-        run = self._attachable_run(page)
-        if run is None:
-            return self._hole_before(page.ends_at)
-        self._runs.append(run)
-        if run[0].starts_at > page.starts_at:
-            return self._hole_before(run[0].starts_at)
-        self._cursor_end = page.starts_at
-        return None
-
-    def _attachable_run(self, page: CandlePage) -> CandleRun | None:
-        """Pick the newest usable run for initial backfill, otherwise the page's tail run."""
-        if self._island is None and not self._runs:
-            boundary = page.first_unsettled_missing(self._context.cutoff) or page.ends_at
-            return page.newest_run_ending_by(boundary)
-        return page.tail_run()
-
-    def _hole_before(self, boundary: datetime) -> IngestStop:
-        """End the walk at a hole; a settled hole directly before the segment is its floor."""
-        missing_bar = boundary - self._context.timeframe.duration
-        segment_start = self._segment_start()
-        if segment_start is not None and missing_bar < self._context.cutoff:
-            self.floor = segment_start
-        return IngestStop.HOLE
-
-    def _segment_start(self) -> datetime | None:
-        """Return the oldest bar the segment (or its island) currently covers."""
-        if self._runs:
-            return self._runs[-1][0].starts_at
+    def _oldest_start(self) -> datetime | None:
+        """Return the oldest real bar the segment or its island covers."""
+        if self._pages:
+            return self._pages[-1][0].starts_at
         if self._island is not None:
             return self._island.starts_at
         return None
 
+    def _anchored(self) -> bool:
+        """True once the segment reaches back to the lookback start through real prices."""
+        if self._anchor_close is not None:
+            return True
+        oldest = self._oldest_start()
+        return oldest is not None and oldest <= self._target
+
+    def _listing_floor(self) -> IngestStop:
+        """End a listing search that found no provider candle before the segment."""
+        self.floor = self._oldest_start()
+        return IngestStop.LISTING_FLOOR
+
+    def _out_of_budget(self) -> bool:
+        """True when the walk must stop; a listing search may use a bounded allowance."""
+        if self._searching:
+            return self._context.budget.exhausted(allowance=LISTING_SEARCH_REQUEST_ALLOWANCE)
+        return self._context.budget.exhausted()
+
+    def _should_probe_days(self) -> bool:
+        """True when a listing search sits on a UTC day boundary it has not probed yet."""
+        return (
+            self._searching
+            and self._context.can_probe_days
+            and self._cursor == _utc_day_floor(self._cursor)
+            and self._probed_at != self._cursor
+        )
+
+    def _page_start(self) -> datetime:
+        """Return the next page start: clipped at the lookback start, then the horizon.
+
+        A listing search does not page across a UTC day boundary, so it reaches one and
+        can probe the whole days below it with daily candles.
+        """
+        bound = self._target if self._cursor > self._target else self._horizon
+        earliest = _safe_shift(
+            self._cursor,
+            -self._context.page_span,
+            "Market-data worker cannot represent a page start.",
+        )
+        start = max(bound, earliest)
+        if self._searching and self._context.can_probe_days:
+            start = max(start, _utc_day_floor(self._cursor - self._context.bar))
+        return start
+
+    async def _fetch_and_absorb(self) -> IngestStop | None:
+        """Fetch the next older page and fold its confirmed candles into the segment."""
+        direction: _Direction = "initial" if self._island is None else "prefix"
+        page = await _fetch_page(self._context, self._page_start(), self._cursor, direction)
+        if isinstance(page, IngestStop):
+            return page
+        return self._absorb(page)
+
+    def _absorb(self, page: CandlePage) -> IngestStop | None:
+        """Keep the page's usable candles; return a stop when the segment cannot grow."""
+        if not page.consistent:
+            return IngestStop.INCONSISTENT
+        unsettled = page.first_unsettled_missing(self._context.cutoff)
+        if self._segment_end is None:
+            # Initial backfill: the segment ends before the first bar still settling.
+            self._segment_end = page.ends_at if unsettled is None else unsettled
+        elif unsettled is not None:
+            return IngestStop.UNSETTLED
+        usable = tuple(candle for candle in page.candles() if candle.starts_at < self._segment_end)
+        if self._island is not None and page.ends_at == self._segment_end:
+            self.needs_head = not usable or usable[-1].starts_at != self._island.starts_at
+        previous_oldest = self._oldest_start()
+        # A page that adds no candle older than the segment (only the overlap bar, or
+        # nothing) leaves a confirmed-empty span below it: the listing search continues.
+        self._searching = not usable or (
+            previous_oldest is not None and usable[0].starts_at >= previous_oldest
+        )
+        self._cursor = page.starts_at
+        if not usable:
+            return None
+        if page.ends_at <= self._target:
+            # Below the lookback start: the newest trade prices the bars from that start.
+            self._anchor_close = usable[-1].close
+            return None
+        self._pages.append(usable)
+        return None
+
+    async def _skip_days_without_trades(self) -> IngestStop | None:
+        """Move the search cursor past whole UTC days that have no daily candle.
+
+        Probes newest first with confirmed daily-granularity pages. The cursor lands at the
+        end of the newest day that traded, or at the horizon when no day before it did.
+        """
+        self._probed_at = self._cursor
+        lower = _utc_day_floor(self._horizon)
+        span = CandleInterval.ONE_DAY.duration * self._context.page_candles
+        day_end = self._cursor
+        while day_end > lower:
+            start = max(lower, day_end - span)
+            page = await _fetch_page(
+                self._context,
+                start,
+                day_end,
+                "listing_probe",
+                timeframe=CandleInterval.ONE_DAY,
+                cutoff=day_end,
+            )
+            if isinstance(page, IngestStop):
+                return page
+            if not page.consistent:
+                return IngestStop.INCONSISTENT
+            traded = page.candles()
+            if traded:
+                self._cursor = traded[-1].starts_at + CandleInterval.ONE_DAY.duration
+                self._probed_at = self._cursor
+                return None
+            day_end = start
+        self._cursor = self._horizon
+        return None
+
 
 class _ForwardWalk:
-    """Oldest-first page walk from the island's overlap bar to the newest closed bar.
+    """Oldest-first page walk from the island's overlap bar toward the newest closed bar.
 
-    Runs that continue the island extend it. A settled hole closes the chain; the next
-    run starts a newer detached island whose floor is that hole (the newest contiguous
-    island wins). An unsettled hole near the newest bar stops the walk until a later
-    cycle, so a late candle never discards a long island.
+    Every page extends the island: the walk never starts a detached island and never
+    records or moves ``history_floor_at``. Confirmed no-trade intervals become flat bars at
+    the previous close (ADR 0095). A missing bar inside the settle window ends the walk
+    until a later cycle, so nothing after it is published yet and a late candle is never
+    replaced. When the provider omits the overlap bar (a stored no-trade bar), the
+    extension starts from the stored island tail.
     """
 
     def __init__(self, context: _WalkContext, island: _Island) -> None:
         """Start at the island's last bar so the first page overlaps it."""
         self._context = context
-        self._cursor = _safe_shift(
+        self._island = island
+        self._overlap = _safe_shift(
             island.ends_at,
             -context.timeframe.duration,
             "Market-data worker cannot represent its incremental range start.",
         )
-        self._attached: list[Candle] = []
-        self._detached: list[Candle] = []
-        self._chain: Literal["attached", "detached", "closed"] = "attached"
+        self._cursor = self._overlap
+        self._real: list[Candle] = []
+        self._end = island.ends_at
 
     async def run(self) -> IngestStop:
-        """Fetch pages until the newest closed bar, a hole, the budget, or a provider stop."""
+        """Fetch pages until the newest closed bar, an unsettled bar, the budget, or a stop."""
         while self._cursor < self._context.closed_end:
             if self._context.budget.exhausted():
                 return IngestStop.BUDGET
@@ -930,48 +1186,32 @@ class _ForwardWalk:
             page = await _fetch_page(self._context, self._cursor, page_end, "forward")
             if isinstance(page, IngestStop):
                 return page
-            stop = self._absorb(page)
-            if stop is not None:
-                return stop
+            if not page.consistent:
+                return IngestStop.INCONSISTENT
+            unsettled = page.first_unsettled_missing(self._context.cutoff)
+            boundary = page.ends_at if unsettled is None else unsettled
+            self._real.extend(candle for candle in page.candles() if candle.starts_at < boundary)
+            self._end = max(self._end, boundary)
+            if unsettled is not None:
+                return IngestStop.UNSETTLED
             self._cursor = page_end
         return IngestStop.COMPLETE
 
-    def attached_candles(self) -> tuple[Candle, ...]:
-        """Return the island extension, starting with the overlap bar."""
-        return tuple(self._attached)
+    @property
+    def needs_tail(self) -> bool:
+        """True when the extension must start from the stored island tail bar."""
+        return self._end > self._island.ends_at and (
+            not self._real or self._real[0].starts_at != self._overlap
+        )
 
-    def detached_candles(self) -> tuple[Candle, ...]:
-        """Return the newest island begun after a settled hole, if any."""
-        return tuple(self._detached)
-
-    def _absorb(self, page: CandlePage) -> IngestStop | None:
-        """Append the page's runs, closing the chain at settled holes."""
-        expected = page.starts_at
-        for run in page.runs:
-            if run[0].starts_at > expected and self._close_at(expected) is not None:
-                return IngestStop.HOLE
-            self._append(run)
-            expected = run_end(run, self._context.timeframe)
-        if expected < page.ends_at and self._close_at(expected) is not None:
-            return IngestStop.HOLE
-        return None
-
-    def _close_at(self, missing_bar: datetime) -> IngestStop | None:
-        """Close the chain at a settled hole; return a stop for an unsettled one."""
-        if missing_bar >= self._context.cutoff:
-            return IngestStop.HOLE
-        self._chain = "closed"
-        return None
-
-    def _append(self, run: CandleRun) -> None:
-        """Extend the open chain, or start a newer detached island after a hole."""
-        if self._chain == "attached":
-            self._attached.extend(run)
-        elif self._chain == "detached":
-            self._detached.extend(run)
-        else:
-            self._detached = list(run)
-            self._chain = "detached"
+    def extension(self, tail: Candle | None) -> tuple[Candle, ...]:
+        """Return the overlap bar onward, gap-filled through the publishable end."""
+        if self._end <= self._island.ends_at:
+            return ()
+        real = list(self._real)
+        if tail is not None and (not real or real[0].starts_at != self._overlap):
+            real.insert(0, tail)
+        return fill_no_trade_gaps(real, self._context.timeframe, through=self._end)
 
 
 async def _finish_backward(
@@ -981,7 +1221,12 @@ async def _finish_backward(
     stop: IngestStop,
 ) -> IngestOutcome:
     """Publish the walked segment as a new island or a prefix revision, then record state."""
-    candles = walk.candles()
+    head: Candle | None = None
+    if walk.needs_head and island is not None:
+        head = await _island_edge(context, island, newest=False)
+        if head is None:
+            return context.outcome(IngestStop.FAILED)
+    candles = walk.segment(head)
     if candles and (island is None or candles[0].starts_at < island.starts_at):
         return await _publish_and_record(
             context,
@@ -999,21 +1244,17 @@ async def _finish_forward(
     island: _Island,
     stop: IngestStop,
 ) -> IngestOutcome:
-    """Publish a newer detached island or the island's forward extension, then record state."""
-    detached = walk.detached_candles()
-    if detached:
+    """Publish the island's forward extension, then record state; floors never move here."""
+    tail: Candle | None = None
+    if walk.needs_tail:
+        tail = await _island_edge(context, island, newest=True)
+        if tail is None:
+            return context.outcome(IngestStop.FAILED)
+    extension = walk.extension(tail)
+    if extension and run_end(extension, context.timeframe) > island.ends_at:
         return await _publish_and_record(
             context,
-            detached,
-            extend_fingerprint=None,
-            history_floor_at=detached[0].starts_at,
-            stop=stop,
-        )
-    attached = walk.attached_candles()
-    if attached and run_end(attached, context.timeframe) > island.ends_at:
-        return await _publish_and_record(
-            context,
-            attached,
+            extension,
             extend_fingerprint=island.fingerprint,
             history_floor_at=None,
             stop=stop,
@@ -1057,6 +1298,16 @@ async def _publish_and_record(
         and history_floor_at == _parse_manifest_instant(verified.starts_at)
         else None
     )
+    synthetic = count_no_trade_bars(candles)
+    if synthetic:
+        _logger.info(
+            "market_data_no_trade_bars_published product_id=%s timeframe=%s "
+            "no_trade_bars=%d segment_bars=%d",
+            context.product_id,
+            context.timeframe.value,
+            synthetic,
+            len(candles),
+        )
     await _record_island_success(
         context.state_store, context.attempt, verified, history_floor_at=floor
     )
@@ -1114,7 +1365,7 @@ def _failure_for(stop: IngestStop, island: _Island | None) -> _FailureSpec | Non
         )
     if stop is IngestStop.FAILED:
         return ("provider_unavailable", "Historical market-data retrieval failed.", None)
-    if island is None:
+    if stop is IngestStop.INCONSISTENT or island is None:
         _logger.warning("market_data_ingestion_failed code=incomplete_range")
         return (
             "incomplete_range",
@@ -1218,7 +1469,7 @@ def _log_chunk_incomplete(
     starts_at: datetime,
     ends_at: datetime,
     report: CandleRangeReport,
-    direction: Literal["forward", "prefix", "initial"],
+    direction: _Direction,
 ) -> None:
     """Warn with the target and exact page bounds; candle values and secrets stay out."""
     _logger.warning(
@@ -1381,14 +1632,17 @@ async def _ingest_due_targets(
     heartbeat_store: WorkerHeartbeatStore | None = None,
     now_factory: Callable[[], datetime] | None = None,
     pacer: ProviderPacer | None = None,
+    proven_floors: set[tuple[str, CandleInterval]] | None = None,
 ) -> int | None:
     """Ingest due targets in priority order. None asks the caller to start the next cycle now.
 
     Every due target spends at most its request budget, so one long backfill cannot
     starve the others. When any target ran out of budget with work left, the worker
-    skips its idle wait and starts the next cycle immediately.
+    skips its idle wait and starts the next cycle immediately. ``proven_floors`` holds
+    the targets whose recorded history floor was proven again in this process.
     """
     shared_pacer = pacer if pacer is not None else ProviderPacer(stop_requested=stop_requested)
+    floors_proven = proven_floors if proven_floors is not None else set()
     more_work = False
     for plan in await _plan_targets(targets, state_store, cycle_now):
         if stop_requested.is_set():
@@ -1404,6 +1658,7 @@ async def _ingest_due_targets(
             interval_seconds=interval_seconds,
             cycle_now=cycle_now,
             verified_targets=verified_targets,
+            proven_floors=floors_proven,
             watchlist=watchlist,
             heartbeat_store=heartbeat_store,
             now_factory=now_factory,
@@ -1424,16 +1679,21 @@ async def _ingest_planned_target(
     interval_seconds: int,
     cycle_now: datetime,
     verified_targets: set[tuple[str, CandleInterval]],
+    proven_floors: set[tuple[str, CandleInterval]],
     watchlist: MarketDataWatchlistStore | None,
     heartbeat_store: WorkerHeartbeatStore | None,
     now_factory: Callable[[], datetime] | None,
     pacer: ProviderPacer,
 ) -> IngestOutcome:
-    """Run one budgeted ``ingest_once`` and clear a satisfied ingest request."""
+    """Run one budgeted ``ingest_once`` and clear a satisfied ingest request.
+
+    A target's recorded history floor is proven again on its first visit per process, so
+    a floor written by an older worker (or during a deploy) never pins a series short.
+    """
     target = plan.target
     key = (target.product_id, target.timeframe)
     try:
-        return await ingest_once(
+        outcome = await ingest_once(
             service=service,
             dataset_store=dataset_store,
             state_store=state_store,
@@ -1449,11 +1709,15 @@ async def _ingest_planned_target(
             now_factory=now_factory,
             max_requests=plan.request_budget,
             pacer=pacer,
+            reprove_history_floor=key not in proven_floors,
         )
     finally:
         if plan.requested and watchlist is not None:
             await _clear_satisfied_request(plan, state_store, watchlist, cycle_now)
         verified_targets.add(key)
+    if outcome.stop in _FLOOR_PROVEN_STOPS:
+        proven_floors.add(key)
+    return outcome
 
 
 async def _clear_satisfied_request(

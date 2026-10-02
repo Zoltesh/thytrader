@@ -165,7 +165,7 @@ test('Test stage names the missing HTF dataset and downloads it behind a confirm
 		page.getByRole('status').filter({ hasText: 'Complete · 1574 of 4380 candles' })
 	).toBeVisible();
 	await expect(
-		page.getByText('Coinbase has no complete history before 2026-05-09 00:00 UTC')
+		page.getByText('Coinbase has no trades before 2026-05-09 00:00 UTC (the listing)')
 	).toBeVisible();
 	expect(calls.watchBodies).toEqual([
 		{ product_id: 'BTC-USDC', timeframe: '2h', lookback_hours: 87600, enabled: true }

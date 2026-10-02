@@ -16,7 +16,13 @@
 		MarketDataRange,
 		MarketProduct
 	} from '$lib/portfolio';
-	import { datasetKey, type DataCatalogReport, type DatasetCoverageRow } from './home-data';
+	import {
+		datasetCoverageText,
+		datasetKey,
+		datasetWatchText,
+		type DataCatalogReport,
+		type DatasetCoverageRow
+	} from './home-data';
 	import { formatShortUtc } from './home-format';
 	import type { Load } from './load';
 
@@ -81,22 +87,6 @@
 	/** The worst problem on a watched row, exactly as Needs attention reports it. */
 	function rowProblem(row: DatasetCoverageRow): string | null {
 		return problems[datasetKey(row.product_id, row.timeframe)] ?? null;
-	}
-
-	function coverageText(row: DatasetCoverageRow): string {
-		const received = row.received_candle_count;
-		const expected = row.watch_expected_candle_count ?? row.expected_candle_count;
-		if (received === null) return '—';
-		return expected === null || expected === undefined
-			? `${received} candles`
-			: `${received} / ${expected}`;
-	}
-
-	function watchText(row: DatasetCoverageRow): string {
-		if (row.watch_status === 'complete')
-			return row.history_floor_at ? 'Complete from floor' : 'Complete';
-		if (row.watch_status === 'backfilling') return 'Backfilling';
-		return 'Unknown';
 	}
 
 	function availabilityOf(result: PromiseSettledResult<Response>): Availability {
@@ -224,9 +214,9 @@
 									{@const problem = rowProblem(row)}
 									<tr data-testid="watched-dataset">
 										<td>{row.product_id} <span class="faint">· {row.timeframe}</span></td>
-										<td class="num">{coverageText(row)}</td>
+										<td class="num">{datasetCoverageText(row)}</td>
 										<td>{row.covered_ends_at ? formatShortUtc(row.covered_ends_at) : '—'}</td>
-										<td>{watchText(row)}</td>
+										<td>{datasetWatchText(row)}</td>
 										<td>{row.worker_status ?? 'never run'}</td>
 										<td class:warn={problem !== null}>
 											{#if problem !== null}<span class="mark" aria-hidden="true">!</span

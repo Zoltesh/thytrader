@@ -370,16 +370,20 @@ def test_inspect_gaps_four_hour_thirty_day_lookback_is_not_clipped(tmp_path: Pat
     asyncio.run(exercise())
 
 
-def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
+def test_inspect_gaps_reports_a_no_trade_bar_as_published_not_as_a_gap(
     tmp_path: Path,
 ) -> None:
-    """The newest island starts after the hole; earlier bars are classified, never filled."""
+    """A confirmed interval without trades is a flat published bar (ADR 0095), not a gap.
+
+    Before ADR 0095 the newest island started after the missing bar and the older bars of the
+    watch were reported as gaps behind a floor.
+    """
 
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 31, tzinfo=UTC)
         hole = datetime(2026, 7, 29, 12, tzinfo=UTC)
         ingest_service = _CompleteWindowService(missing=frozenset({hole}))
-        probe_service = _CompleteWindowService()
+        probe_service = _CompleteWindowService(missing=frozenset({hole}))
         dataset_store = DatasetStore(tmp_path)
         state_store = InMemoryMarketDataWorkerStateStore()
         watchlist = InMemoryMarketDataWatchlistStore()
@@ -406,7 +410,8 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
         latest = dataset_store.list_latest_verified()
         assert len(latest) == 1
         assert latest[0].complete is True
-        assert latest[0].starts_at == "2026-07-29T13:00:00Z"
+        assert latest[0].starts_at == "2026-07-28T00:00:00Z"
+        assert latest[0].synthetic_no_trade_intervals == 1
 
         inspection = await inspect_gaps(
             service=probe_service,
@@ -418,16 +423,12 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
             timeframe="1h",
             now=now,
         )
-        gap_starts = {gap.starts_at for gap in inspection.gaps}
-        assert hole in gap_starts
-        assert datetime(2026, 7, 28, tzinfo=UTC) in gap_starts, "older than the floor"
-        assert hole + timedelta(hours=1) not in gap_starts
-        assert datetime(2026, 7, 30, tzinfo=UTC) not in gap_starts
+        assert inspection.gaps == ()
+        assert inspection.watch_complete is True
+        assert inspection.complete is True
+        assert inspection.island_complete is True
         assert inspection.starts_at == datetime(2026, 7, 28, tzinfo=UTC)
         assert inspection.ends_at == ends_at
-        assert all(
-            gap.cause is GapCause.NOT_FETCHED for gap in inspection.gaps if gap.starts_at == hole
-        )
 
     asyncio.run(exercise())
 

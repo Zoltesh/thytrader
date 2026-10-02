@@ -827,13 +827,19 @@ class ProductsReport(OperatorEnvelope):
 class DatasetCoverageRow(_FrozenModel):
     """Local verified coverage plus watchlist and worker facts for one target.
 
-    ``sparsity`` is ``gapped`` when ``watch_complete`` is false, even if the
-    published island itself has zero gaps. ``watch_status`` restates
-    ``watch_complete`` as an operator noun so ``worker_status=succeeded``
+    For a watched target, ``complete`` means the verified series spans the watch
+    lookback (``watch_complete``); ``island_complete`` keeps the dataset-level fact. A
+    two-minute dataset for a 90-day watch is not complete. Coverage is reported as
+    ``watch_covered_candle_count`` of ``watch_expected_candle_count`` bars (with
+    ``watch_coverage_ratio``). ``watch_sparsity`` is ``gapped`` when ``watch_complete``
+    is false, even if the published island itself has zero gaps. ``watch_status``
+    restates ``watch_complete`` as an operator noun so ``worker_status=succeeded``
     (latest chunk only) cannot be misread as a finished backfill.
-    ``history_floor_at`` is set when the provider has a confirmed hole directly
-    before the island: coverage legitimately starts there and the watch counts
-    as complete from that floor (missing bars are never interpolated).
+    ``history_floor_at`` is set only when the listing search found no provider candle
+    before the island (the market had not traded yet): coverage legitimately starts
+    there and the watch counts as complete from that floor.
+    ``synthetic_no_trade_intervals`` counts the flat zero-volume bars published for
+    confirmed no-trade intervals (ADR 0095).
     """
 
     provider: str | None
@@ -859,6 +865,10 @@ class DatasetCoverageRow(_FrozenModel):
     watch_expected_candle_count: int | None = None
     watch_status: Literal["complete", "backfilling", "unknown"] | None = None
     history_floor_at: datetime | None = None
+    island_complete: bool | None = None
+    watch_covered_candle_count: int | None = None
+    watch_coverage_ratio: float | None = None
+    synthetic_no_trade_intervals: int | None = None
 
 
 class DataCatalogPayload(_FrozenModel):

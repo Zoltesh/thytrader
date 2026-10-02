@@ -525,11 +525,18 @@ uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --c
 | `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
 | `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
 
-Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Missing candles are
-never interpolated. One ingest queue keeps walking until `watch_complete` or a durable failure.
-If Coinbase itself has no complete history before some date (a real exchange-side hole), the
-worker records `history_floor_at`, keeps extending to the latest bar, and reports the watch as
-complete from that floor. Backtests can use the covered range; earlier bars are never invented.
+Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Prices are never
+interpolated. Coinbase returns no candle for an interval without trades, so a thin market's quiet
+bars are published as flat no-trade bars at the previous close with zero volume
+([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). One ingest queue keeps walking until `watch_complete` or a
+durable failure. If the market listed after the lookback start, the worker proves the listing and
+records it as `history_floor_at`, and reports the watch as complete from that floor. Backtests can
+use the covered range. Earlier bars are never invented, and results over quiet bars disclose
+`synthetic_no_trade_bars`. To check that a series is healthy, read its `data-catalog` row:
+`watch_complete: true` and `watch_covered_candle_count` equal to `watch_expected_candle_count`
+(unless a listing floor is set). The Home data-health table shows the same coverage as "X / Y",
+adds "· N no-trade" when no-trade bars exist, and shows "Complete from listing" when a floor is
+set.
 `inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
 stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 

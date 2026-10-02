@@ -26,6 +26,7 @@ from thytrader.market_data.worker_state import (
 from thytrader.market_data_worker.service import (
     IngestStop,
     _next_retry_at,
+    bounded_lookback_start,
     ingest_once,
     island_covers_watch,
     run_market_data_worker,
@@ -63,11 +64,21 @@ class _StubRangeService:
 
 
 class _CompleteWindowService:
-    """Provider stub that returns complete candles for whatever window is requested."""
+    """Provider stub that returns complete candles for whatever window is requested.
 
-    def __init__(self, *, missing: frozenset[datetime] = frozenset()) -> None:
+    ``listed_at`` makes it serve nothing before that instant, like a product that had
+    not traded yet; ``missing`` omits individual bars, like intervals without trades.
+    """
+
+    def __init__(
+        self,
+        *,
+        missing: frozenset[datetime] = frozenset(),
+        listed_at: datetime | None = None,
+    ) -> None:
         self.requests: list[tuple[str, CandleInterval, datetime, datetime]] = []
         self._missing = missing
+        self._listed_at = listed_at
 
     async def get_range(
         self,
@@ -92,6 +103,9 @@ class _CompleteWindowService:
             )
             for index in range(count)
             if starts_at + timeframe.duration * index not in self._missing
+            and (
+                self._listed_at is None or starts_at + timeframe.duration * index >= self._listed_at
+            )
         )
         return analyze_range(candles, timeframe, starts_at, ends_at, now=ends_at)
 
@@ -1665,208 +1679,70 @@ def test_initial_backfill_walks_newest_page_first_and_publishes_once(tmp_path: P
     asyncio.run(exercise())
 
 
-def test_initial_backfill_keeps_the_newest_run_after_a_hole_and_records_its_floor(
+@pytest.mark.parametrize(
+    ("timeframe", "hole", "requests"),
+    [
+        (CandleInterval.ONE_HOUR, datetime(2026, 8, 1, 12, tzinfo=UTC), 2),
+        # 576 five-minute bars take two pages; only the gapped one is re-fetched.
+        (CandleInterval.FIVE_MINUTES, datetime(2026, 8, 1, 12, tzinfo=UTC), 3),
+        (CandleInterval.FIFTEEN_MINUTES, datetime(2026, 8, 1, 12, tzinfo=UTC), 2),
+        (CandleInterval.THIRTY_MINUTES, datetime(2026, 8, 1, 12, tzinfo=UTC), 2),
+        (CandleInterval.SIX_HOURS, datetime(2026, 8, 1, 12, tzinfo=UTC), 2),
+        # The lookback's first bar is the gap: one page below the start prices it.
+        (CandleInterval.ONE_DAY, datetime(2026, 8, 1, tzinfo=UTC), 3),
+    ],
+)
+def test_backfill_fills_a_confirmed_no_trade_bar_and_keeps_the_lookback(
     tmp_path: Path,
+    timeframe: CandleInterval,
+    hole: datetime,
+    requests: int,
 ) -> None:
-    """A confirmed hole ends the newest island one bar after it; nothing is interpolated."""
+    """A confirmed missing bar is a flat no-trade bar; the series is never cut at it.
+
+    ADR 0095: Coinbase omits candles for intervals without trades. The bar is published
+    flat at the previous close with zero volume, counted in the manifest, and no history
+    floor is recorded, so the dataset spans the whole lookback.
+    """
 
     async def exercise() -> None:
-        ends_at = datetime(2026, 7, 31, tzinfo=UTC)
-        hole = datetime(2026, 7, 29, 12, tzinfo=UTC)
+        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
         service = _CompleteWindowService(missing=frozenset({hole}))
         state_store = InMemoryMarketDataWorkerStateStore()
         dataset_store = DatasetStore(tmp_path)
 
-        await ingest_once(
+        outcome = await ingest_once(
             service=service,
             dataset_store=dataset_store,
             state_store=state_store,
             provider="coinbase",
             product_id="ETH-USD",
-            lookback_hours=72,
-            now=ends_at + timedelta(minutes=5),
+            lookback_hours=48,
+            now=ends_at + timedelta(minutes=1),
+            timeframe=timeframe,
         )
 
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
+        assert outcome.stop is IngestStop.COMPLETE
+        state = await state_store.get("coinbase", "ETH-USD", timeframe)
         assert state is not None
         assert state.status is MarketDataWorkerStatus.SUCCEEDED
-        assert state.covered_starts_at == hole + timedelta(hours=1)
+        assert state.covered_starts_at == ends_at - timedelta(hours=48)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 35
-        assert state.history_floor_at == hole + timedelta(hours=1)
-        assert len(service.requests) == 2, "one page plus one confirmation re-fetch"
+        assert state.expected_candle_count == timedelta(hours=48) // timeframe.duration
+        assert state.history_floor_at is None
+        assert len(service.requests) == requests
         verified = dataset_store.load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-        assert verified[0].starts_at == hole + timedelta(hours=1)
-
-    asyncio.run(exercise())
-
-
-def test_five_minute_backfill_stops_at_a_hole_without_interpolation(
-    tmp_path: Path,
-) -> None:
-    """A missing 5m bar must not be synthesized; the newer complete run still publishes."""
-
-    async def exercise() -> None:
-        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
-        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
-        service = _CompleteWindowService(missing=frozenset({hole}))
-        state_store = InMemoryMarketDataWorkerStateStore()
-
-        await ingest_once(
-            service=service,
-            dataset_store=DatasetStore(tmp_path),
-            state_store=state_store,
-            provider="coinbase",
-            product_id="ETH-USD",
-            lookback_hours=48,
-            now=ends_at + timedelta(minutes=1),
-            timeframe=CandleInterval.FIVE_MINUTES,
+        flat = next(candle for candle in verified if candle.starts_at == hole)
+        assert (flat.open, flat.high, flat.low, flat.close, flat.volume) == (
+            Decimal("105"),
+            Decimal("105"),
+            Decimal("105"),
+            Decimal("105"),
+            Decimal(0),
         )
-
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FIVE_MINUTES)
-        assert state is not None
-        assert state.covered_starts_at == hole + timedelta(minutes=5)
-        assert state.history_floor_at == hole + timedelta(minutes=5)
-        assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 431
-        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-
-    asyncio.run(exercise())
-
-
-def test_fifteen_minute_backfill_stops_at_a_hole_without_interpolation(
-    tmp_path: Path,
-) -> None:
-    """A missing 15m bar must not be synthesized; the newer complete run still publishes."""
-
-    async def exercise() -> None:
-        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
-        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
-        service = _CompleteWindowService(missing=frozenset({hole}))
-        state_store = InMemoryMarketDataWorkerStateStore()
-
-        await ingest_once(
-            service=service,
-            dataset_store=DatasetStore(tmp_path),
-            state_store=state_store,
-            provider="coinbase",
-            product_id="ETH-USD",
-            lookback_hours=48,
-            now=ends_at + timedelta(minutes=1),
-            timeframe=CandleInterval.FIFTEEN_MINUTES,
-        )
-
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FIFTEEN_MINUTES)
-        assert state is not None
-        assert state.covered_starts_at == hole + timedelta(minutes=15)
-        assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 143
-        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-
-    asyncio.run(exercise())
-
-
-def test_thirty_minute_backfill_stops_at_a_hole_without_interpolation(
-    tmp_path: Path,
-) -> None:
-    """A missing 30m bar must not be synthesized; the newer complete run still publishes."""
-
-    async def exercise() -> None:
-        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
-        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
-        service = _CompleteWindowService(missing=frozenset({hole}))
-        state_store = InMemoryMarketDataWorkerStateStore()
-
-        await ingest_once(
-            service=service,
-            dataset_store=DatasetStore(tmp_path),
-            state_store=state_store,
-            provider="coinbase",
-            product_id="ETH-USD",
-            lookback_hours=48,
-            now=ends_at + timedelta(minutes=1),
-            timeframe=CandleInterval.THIRTY_MINUTES,
-        )
-
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.THIRTY_MINUTES)
-        assert state is not None
-        assert state.covered_starts_at == hole + timedelta(minutes=30)
-        assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 71
-        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-
-    asyncio.run(exercise())
-
-
-def test_six_hour_backfill_stops_at_a_hole_without_interpolation(
-    tmp_path: Path,
-) -> None:
-    """A missing 6h bar must not be synthesized; the newer complete run still publishes."""
-
-    async def exercise() -> None:
-        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
-        hole = datetime(2026, 8, 1, 12, tzinfo=UTC)
-        service = _CompleteWindowService(missing=frozenset({hole}))
-        state_store = InMemoryMarketDataWorkerStateStore()
-
-        await ingest_once(
-            service=service,
-            dataset_store=DatasetStore(tmp_path),
-            state_store=state_store,
-            provider="coinbase",
-            product_id="ETH-USD",
-            lookback_hours=48,
-            now=ends_at + timedelta(minutes=1),
-            timeframe=CandleInterval.SIX_HOURS,
-        )
-
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.SIX_HOURS)
-        assert state is not None
-        assert state.covered_starts_at == hole + timedelta(hours=6)
-        assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 5
-        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-        assert len(verified) == 5
-
-    asyncio.run(exercise())
-
-
-def test_one_day_backfill_stops_at_a_hole_without_interpolation(
-    tmp_path: Path,
-) -> None:
-    """A missing 1d bar must not be synthesized; the newer complete run still publishes."""
-
-    async def exercise() -> None:
-        ends_at = datetime(2026, 8, 3, tzinfo=UTC)
-        hole = datetime(2026, 8, 1, tzinfo=UTC)
-        service = _CompleteWindowService(missing=frozenset({hole}))
-        state_store = InMemoryMarketDataWorkerStateStore()
-
-        await ingest_once(
-            service=service,
-            dataset_store=DatasetStore(tmp_path),
-            state_store=state_store,
-            provider="coinbase",
-            product_id="ETH-USD",
-            lookback_hours=48,
-            now=ends_at + timedelta(minutes=1),
-            timeframe=CandleInterval.ONE_DAY,
-        )
-
-        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_DAY)
-        assert state is not None
-        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
-        assert state.history_floor_at == datetime(2026, 8, 2, tzinfo=UTC)
-        assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 1
-        verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in verified)
-        assert len(verified) == 1
+        assert sum(1 for candle in verified if candle.volume == 0) == 1
+        manifest = dataset_store.load_manifest(state.content_fingerprint or "")
+        assert manifest.synthetic_no_trade_intervals == 1
 
     asyncio.run(exercise())
 
@@ -2044,20 +1920,19 @@ async def _drive_worker_cycles(
         )
 
 
-def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
+def test_prefix_gap_is_a_no_trade_bar_and_resumes_forward_extension(
     tmp_path: Path,
 ) -> None:
-    """A provider hole before the island start must not freeze the 4h island.
+    """A provider gap before the island start must not freeze the 4h island.
 
-    Reproduces the stuck 2h/4h watches: prefix backfill prepends the complete bars after
-    the hole, records the history floor at the new island start, and extends forward to
-    the latest closed bar without interpolating.
+    Reproduces the stuck 2h/4h watches: prefix backfill fills the confirmed no-trade bar
+    (ADR 0095), reaches the new lookback start without recording a floor, and the island
+    extends forward to the latest closed bar.
     """
 
     async def exercise() -> None:
         interval = CandleInterval.FOUR_HOURS
         hole = datetime(2025, 10, 25, 8, tzinfo=UTC)
-        floor = hole + interval.duration
         island_start = datetime(2025, 10, 26, tzinfo=UTC)
         frozen_end = datetime(2025, 11, 5, 4, tzinfo=UTC)
         service = _CompleteWindowService(missing=frozenset({hole}))
@@ -2095,12 +1970,12 @@ def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
         state = await state_store.get("coinbase", "BTC-USD", interval)
         assert state is not None
         assert state.complete is True
-        assert state.covered_starts_at == floor
-        assert state.history_floor_at == floor
+        assert state.covered_starts_at == bounded_lookback_start(closed_end, 8760, interval)
+        assert state.history_floor_at is None
         assert state.covered_ends_at == closed_end
         assert state.maintenance_kind == "incremental"
         hole_probes = [request for request in service.requests if request[2] <= hole < request[3]]
-        assert len(hole_probes) == 2, "one hole probe plus one confirmation, never a loop"
+        assert len(hole_probes) == 2, "one page plus one confirmation, never a loop"
         assert (
             island_covers_watch(
                 covered_starts_at=state.covered_starts_at,
@@ -2114,17 +1989,18 @@ def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
             is True
         )
         verified = dataset_store.load_candles(state.content_fingerprint or "")
-        assert verified[0].starts_at == floor
-        assert all(candle.starts_at != hole for candle in verified)
+        flat = next(candle for candle in verified if candle.starts_at == hole)
+        assert flat.volume == 0
+        assert flat.close == verified[0].close
 
     asyncio.run(exercise())
 
 
-def test_new_watch_with_mid_lookback_hole_reaches_latest_bar(tmp_path: Path) -> None:
-    """A new watch whose lookback crosses a provider hole still reaches the latest bar.
+def test_new_watch_with_mid_lookback_gap_keeps_the_whole_lookback(tmp_path: Path) -> None:
+    """A new watch whose lookback crosses a provider gap spans the lookback and the latest bar.
 
-    Reproduces the BTC-USDC 4h reset: the newest island after the hole is kept and
-    extended rather than pinned in prefix backfill.
+    Reproduces the BTC-USDC 4h reset, where the newest island after the gap used to
+    become the dataset and its start a floor. The gap is now one no-trade bar.
     """
 
     async def exercise() -> None:
@@ -2147,9 +2023,9 @@ def test_new_watch_with_mid_lookback_hole_reaches_latest_bar(tmp_path: Path) -> 
         )
         state = await state_store.get("coinbase", "BTC-USDC", interval)
         assert state is not None
-        assert state.covered_starts_at == hole + interval.duration
+        assert state.covered_starts_at == closed_end - timedelta(days=40)
         assert state.covered_ends_at == closed_end
-        assert state.history_floor_at == hole + interval.duration
+        assert state.history_floor_at is None
         assert len(service.requests) == 2, "the newest page plus one confirmation"
 
     asyncio.run(exercise())
@@ -2234,16 +2110,14 @@ def test_worker_state_rejects_history_floor_away_from_island_start() -> None:
 
 
 def test_worker_state_payload_reports_history_floor(tmp_path: Path) -> None:
-    """Data-lane status payloads expose the floor and count the watch complete from it."""
+    """Data-lane status payloads expose a listing floor and count the watch complete from it."""
 
     async def exercise() -> None:
         interval = CandleInterval.FOUR_HOURS
         now = datetime(2025, 11, 10, 16, 1, tzinfo=UTC)
         state_store = InMemoryMarketDataWorkerStateStore()
         await _drive_worker_cycles(
-            service=_CompleteWindowService(
-                missing=frozenset({datetime(2025, 10, 25, 8, tzinfo=UTC)})
-            ),
+            service=_CompleteWindowService(listed_at=datetime(2025, 10, 25, 12, tzinfo=UTC)),
             dataset_store=DatasetStore(tmp_path),
             state_store=state_store,
             product_id="BTC-USD",
@@ -2256,5 +2130,9 @@ def test_worker_state_payload_reports_history_floor(tmp_path: Path) -> None:
         payload = worker_state_payload(state, lookback_hours=24 * 40, interval=interval, now=now)
         assert payload["history_floor_at"] == "2025-10-25T12:00:00+00:00"
         assert payload["watch_complete"] is True
+        assert payload["complete"] is True
+        assert payload["island_complete"] is True
+        assert payload["watch_expected_candle_count"] == 240
+        assert payload["watch_covered_candle_count"] == 97, "listing to the newest bar"
 
     asyncio.run(exercise())

@@ -5,7 +5,7 @@ description: >-
   confirmation-gated thytrader-data CLI. Use when the user asks what data exists,
   to add a product or timeframe, inspect gaps, or fill gaps. Requires --confirm
   on every mutation. Never deploys, paper-trades, live-trades, arms, or cancels
-  orders. Never interpolates missing candles.
+  orders. Never interpolates prices; intervals without trades are flat no-trade bars.
 ---
 
 # ThyTrader data
@@ -37,8 +37,12 @@ contract. Any coarser integer-multiple venue clock may be bound as an `htf_filte
 dataset (ADR 0025, ADR 0040) or as an optional per-indicator `timeframe` (ADR 0042). Paper and live
 evaluate those strategies on last-completed complete-only extra-TF and HTF bars (ADR 0041, ADR 0042).
 
-Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
-and classified, never interpolated.
+Historical candles are published only as complete Parquet ranges with manifests. Coinbase returns
+no candle for an interval without trades; the worker publishes each **confirmed** one (older than the
+settle window and still missing on one re-fetch) as a flat **no-trade bar**: `open = high = low =
+close` = the previous close, `volume = 0`. The manifest counts them as `synthetic_no_trade_intervals`
+([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). Prices are
+never interpolated, and no bar is invented before a market's first trade.
 
 Ingest is a **job** for an **existing watch**. `POST /api/v1/data/ingest` returns **202** and sets
 a watchlist flag. It never creates a watch or picks a lookback: an unwatched product/timeframe is
@@ -101,8 +105,8 @@ and watches at the timeframe's ceiling. Optional `--lookback-hours` on `watch-ad
 | `2h`, `4h`, `6h`, `1d` | 87600 | 10 years | 43,800 / 21,900 / 14,600 / 3,650 |
 
 A larger value is rejected (HTTP 422) with the ceiling and its span. Coinbase often holds less
-history than a ceiling allows, especially for USDC markets listed recently; ingest then stops at
-the first hole and reports `history_floor_at` instead of interpolating.
+history than a ceiling allows, especially for USDC markets listed recently. The worker then proves
+the listing (no candle at all back past the timeframe's ceiling) and reports it as `history_floor_at`.
 
 How the worker walks a watch ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)):
 
@@ -114,16 +118,18 @@ How the worker walks a watch ([ADR 0085](../../docs/decisions/0085-fast-research
   one-bar overlap.
 - Each walk publishes one cumulative, fingerprint-addressed revision. UTC-day Parquet partitions and
   complete-only validation are unchanged.
-- A missing bar ends a run. When Coinbase confirms a hole (still missing on one re-fetch) directly
-  before the island, the worker records `history_floor_at` (the bar after the hole), stops
-  prepending, and keeps extending forward; `watch_complete` is then true from that floor. A confirmed
-  hole in the forward direction starts a newer island after it, because the newest contiguous island
-  wins. A missing bar newer than the settle window (one bar, at least 15 minutes) is waited for,
-  never recorded.
-- Status payloads (`ingest`, `fill-gaps`, catalog rows, `GET /api/v1/market-data/ingestion`) report
-  `history_floor_at`. When it is set, coverage legitimately starts there and earlier bars cannot be
-  published without interpolation. No command is needed to clear it: it resets itself when the
-  island start changes.
+- A quiet interval never shortens a series ([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)).
+  A confirmed missing bar becomes a no-trade bar in both directions, and the forward walk always
+  extends the same island. When the lookback start itself had no trades, the last trade before it
+  prices the flat bars from the start. A missing bar newer than the settle window (one bar, at least
+  15 minutes) is waited for, never filled, so a sparse `1m` head can trail closed time by up to 15
+  minutes.
+- `history_floor_at` is set only by a backward walk whose **listing search** found no candle at all
+  before the series: pages to the UTC day boundary, then daily-candle probes back to 350 days past
+  the timeframe's ceiling. Forward and incremental walks never set or move it, and an interior gap never becomes one.
+  The worker re-proves a recorded floor once after each worker start. Status payloads (`ingest`,
+  `fill-gaps`, catalog rows, `GET /api/v1/market-data/ingestion`) report it; when it is set, coverage
+  legitimately starts at the listing.
 
 Superseded dataset revisions are garbage-collected by the worker (bounded, audited, every 6 h). It
 never deletes a fingerprint that any stored record references, or the newest revision. Operators can
@@ -132,11 +138,32 @@ run a one-shot pass with `docker compose exec market-data-worker /app/.venv/bin/
 mutation; agents should report backlog rather than run it. `inspect-gaps` classifies holes across
 the **watch** window, not only the current island, and never interpolates.
 
-`complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that
-island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 8760` is
-not done. Catalog `watch_sparsity` is `gapped` in that case while island `sparsity` may still be
-`none`. `GET /api/v1/market-data/datasets` lists island fingerprints; it is not the
-watch-completeness surface.
+For a watched target, `complete` on catalog rows and on `ingest` / `fill-gaps` / `inspect-gaps`
+payloads is **watch-relative**: the verified series spans the configured lookback (the same as
+`watch_complete`), or starts at a proven listing floor. `island_complete` keeps the dataset-level
+fact. A two-minute 1m island for a 90-day watch is not complete, and neither is a 14-day 5m island
+with `lookback_hours: 8760`. Coverage is reported as `watch_covered_candle_count` of
+`watch_expected_candle_count` bars (catalog rows add `watch_coverage_ratio` and
+`synthetic_no_trade_intervals`). Catalog `watch_sparsity` is `gapped` while the watch is short, even
+when island `sparsity` is `none`. `GET /api/v1/market-data/datasets` lists island fingerprints; it is
+not the watch-completeness surface.
+
+### Check that a series is healthy
+
+1. `uv run thytrader-operator data-catalog` and find the row (`product_id`, `timeframe`).
+2. Healthy means `watched: true`, `watch_complete: true` (`complete: true`), `worker_status:
+   succeeded`, no `failure_code`, and `watch_covered_candle_count` equal to
+   `watch_expected_candle_count`, unless `history_floor_at` is set. A floor is the market's listing:
+   coverage then counts from it, and the data-health view shows "Complete from listing".
+3. `synthetic_no_trade_intervals` above zero is normal for thin markets: those bars had no trades.
+   Backtests over them disclose `synthetic_no_trade_bars`.
+4. A short series with `watch_status: backfilling` is still being walked. Re-check later with
+   `thytrader-data ingest --product-id ... --timeframe ... --no-wait` or `data-catalog`; do not
+   re-queue to poll.
+5. A short series with a `history_floor_at` well after the listing (for example a recent minute on a
+   long-listed market) came from an older worker. Alembic `0059` cleared every such floor once, and
+   the worker re-proves floors after each start, so it repairs itself. Report it if it persists after
+   a worker restart.
 
 `GET /api/v1/market-data/datasets/latest` and `thytrader-operator data-catalog` are catalog
 listings. Each newest revision passes structural checks (manifest facts, content address, file
@@ -184,15 +211,16 @@ re-queue continuation after a durable hole or failure.
 ## Workflow
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC spot ids.
-   Judge `watch_complete`, not only `complete`.
+   Judge `watch_complete` and `watch_covered_candle_count` of `watch_expected_candle_count`.
 2. `watch-add` (choose `--lookback-hours` up to the timeframe's ceiling) then `ingest` for a new
    product and any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or
    `1d`). `ingest` refuses an unwatched target with HTTP 409. Wait for the CLI poll or pass
    `--no-wait`; do not treat 202 as published Parquet. When a strategy uses `htf_filter` or a
    per-indicator `timeframe`, watch and ingest those extra clocks the same way before research or
    deploy. Paper and live pause on extra-TF or HTF gaps.
-3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate. If `truncated` is
-   true, report the partial `gap_summary` and do not claim the full watch was scanned.
+3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate. No-trade bars are
+   published bars, not gaps. If `truncated` is true, report the partial `gap_summary` and do not
+   claim the full watch was scanned.
 4. Wait for the worker to self-complete the lookback. `fill-gaps --confirm` only if the user asked
    to re-queue after a durable hole or failure.
 5. `uv run thytrader-operator indicators` before designing a study.
@@ -207,4 +235,5 @@ re-queue continuation after a durable hole or failure.
 - Making the API dataset volume writable so the API process can publish Parquet
 - Treating preview `GET /api/v1/market-data/preview` as a dataset
 - Inventing indicators that are not in `thytrader-operator indicators`
-- Interpolating missing candles
+- Interpolating missing candles or writing prices by hand (the worker's flat no-trade bars are the
+  only synthetic bars, and only for confirmed intervals without trades)

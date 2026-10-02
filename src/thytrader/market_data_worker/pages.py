@@ -1,8 +1,9 @@
-"""Split provider candle pages into gap-free runs without interpolating missing bars.
+"""Split provider candle pages into gap-free runs and confirm their missing bars.
 
 A page is one provider request of at most ``HISTORICAL_REQUEST_MAX_CANDLES`` bars on the
-interval grid. The worker publishes only gap-free runs taken from pages, so a missing
-bar always ends a run; nothing here fabricates or repairs a candle.
+interval grid. Nothing here fabricates a candle: the worker decides which confirmed
+missing bars are no-trade intervals (ADR 0095). A page and its confirmation re-fetch are
+merged so that a bar counts as missing only when both responses omit it.
 """
 
 from __future__ import annotations
@@ -81,18 +82,9 @@ class CandlePage:
                 return candidate
         return None
 
-    def tail_run(self) -> CandleRun | None:
-        """Return the run ending exactly at the page end, when the newest bar is present."""
-        if self.runs and run_end(self.runs[-1], self.interval) == self.ends_at:
-            return self.runs[-1]
-        return None
-
-    def newest_run_ending_by(self, boundary: datetime) -> CandleRun | None:
-        """Return the newest run that ends at or before ``boundary``."""
-        for run in reversed(self.runs):
-            if run_end(run, self.interval) <= boundary:
-                return run
-        return None
+    def candles(self) -> tuple[Candle, ...]:
+        """Return every candle on the page, oldest first."""
+        return tuple(candle for run in self.runs for candle in run)
 
 
 def split_page(
@@ -120,6 +112,29 @@ def split_page(
     )
     runs = _gap_free_runs(candles, interval) if consistent else ()
     return CandlePage(starts_at, ends_at, interval, runs, complete=False, consistent=consistent)
+
+
+def merge_confirmed_pages(first: CandlePage, confirmation: CandlePage) -> CandlePage:
+    """Combine a page with its re-fetch: a bar is missing only when both responses omit it.
+
+    The confirmation's candle wins where both carry a bar. An inconsistent confirmation
+    yields an inconsistent page (fail closed); an inconsistent first response contributes
+    nothing.
+    """
+    if not confirmation.consistent or not first.consistent:
+        return confirmation
+    by_start = {candle.starts_at: candle for candle in first.candles()}
+    by_start.update({candle.starts_at: candle for candle in confirmation.candles()})
+    candles = tuple(by_start[start] for start in sorted(by_start))
+    requested = (confirmation.ends_at - confirmation.starts_at) // confirmation.interval.duration
+    return CandlePage(
+        confirmation.starts_at,
+        confirmation.ends_at,
+        confirmation.interval,
+        _gap_free_runs(candles, confirmation.interval),
+        complete=len(candles) == requested,
+        consistent=True,
+    )
 
 
 def _is_complete_match(report: CandleRangeReport, starts_at: datetime, ends_at: datetime) -> bool:

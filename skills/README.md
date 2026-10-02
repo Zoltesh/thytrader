@@ -31,7 +31,7 @@ Read-only diagnostics: health, redacted configuration, exchange permissions, mar
 
 ## `thytrader-data`
 
-Confirmation-gated watchlist, complete-only ingest jobs, and gap inspection. No paper, live, strategy, or backtest authority. Does not interpolate missing candles. `POST /api/v1/data/ingest` returns 202; the market-data worker writes Parquet.
+Confirmation-gated watchlist, complete-only ingest jobs, and gap inspection. No paper, live, strategy, or backtest authority. Does not interpolate prices; intervals without trades are published as flat no-trade bars (ADR 0095). `POST /api/v1/data/ingest` returns 202; the market-data worker writes Parquet.
 
 - Skill: [`thytrader-data/SKILL.md`](thytrader-data/SKILL.md)
 - CLI: `uv run thytrader-data … --confirm`

@@ -210,8 +210,12 @@ gross profit/loss, win rate, profit factor when losses exist, average win/loss w
 absolute and fractional maximum drawdown, exposure and evaluation bars, `total_spread_cost` when
 spread stress is active, and `validity_limits` — always `maker_touch_full_fill` (candles do not
 show queue position, so a touched limit is assumed to fill completely) and
-`stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies and
-`signal_exit_at_close` for strategies that declare `exits.signal_exit`. It does not invent
+`stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies,
+`signal_exit_at_close` for strategies that declare `exits.signal_exit`, and
+`synthetic_no_trade_bars` when the evaluation window holds flat zero-volume bars for intervals
+without trades ([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). Those bars are evaluated like any other: the price
+stays at the previous close, so no stop or target can trigger on them, and volume indicators read
+them as undefined. It does not invent
 annualization or Sharpe-like statistics inside canonical bytes; those live on the derived
 `thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)),
 and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.

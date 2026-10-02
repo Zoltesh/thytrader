@@ -256,7 +256,10 @@ class BarDecision(_FrozenDecisionModel):
     """What one paper/live strategy bot decided on one completed bar, and why.
 
     Identity is ``(deployment_id, product_id, bar_starts_at)``; writes are upserts, so
-    a restart replay rewrites the same row instead of duplicating it.
+    a restart replay rewrites the same row instead of duplicating it. ``no_trade_bar``
+    is true when the bar was a flat zero-volume bar for an interval without trades
+    (ADR 0095): it was evaluated like any bar, and records written before that ADR
+    read as false.
     """
 
     schema_version: Literal["thytrader-bar-decision-v1"] = DECISION_SCHEMA_VERSION
@@ -284,6 +287,7 @@ class BarDecision(_FrozenDecisionModel):
     exit_rule: ExitRuleTrace | None = None
     risk: DecisionRisk | None = None
     position: DecisionPosition | None = None
+    no_trade_bar: bool = False
 
     @field_validator("bar_starts_at", "bar_closes_at", "evaluated_at")
     @classmethod

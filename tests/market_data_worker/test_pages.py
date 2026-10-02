@@ -1,4 +1,4 @@
-"""Provider pages split into gap-free runs; missing bars are never repaired."""
+"""Provider pages split into gap-free runs; a confirmation merges two responses."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
-from thytrader.market_data_worker.pages import settle_cutoff, split_page
+from thytrader.market_data_worker.pages import merge_confirmed_pages, settle_cutoff, split_page
 
 _HOUR = CandleInterval.ONE_HOUR
 _START = datetime(2026, 7, 1, tzinfo=UTC)
@@ -47,7 +47,7 @@ def test_complete_page_is_one_run_that_needs_no_confirmation() -> None:
     assert len(page.runs) == 1
     assert len(page.runs[0]) == 10
     assert page.gaps() == ()
-    assert page.tail_run() == page.runs[0]
+    assert page.candles() == page.runs[0]
     assert page.needs_confirmation(settle_cutoff(_END, _HOUR)) is False
 
 
@@ -63,7 +63,7 @@ def test_page_splits_at_every_missing_bar() -> None:
         (_START + timedelta(hours=5), 5),
     ]
     assert page.gaps() == ((_START + timedelta(hours=3), _START + timedelta(hours=5)),)
-    assert page.tail_run() == page.runs[1]
+    assert len(page.candles()) == 8
     assert page.has_settled_hole(settle_cutoff(_END, _HOUR)) is True
 
 
@@ -74,13 +74,10 @@ def test_newest_bar_missing_is_an_unsettled_gap() -> None:
     cutoff = settle_cutoff(_END, _HOUR)
 
     assert cutoff == newest
-    assert page.tail_run() is None
     assert page.has_settled_hole(cutoff) is False
     assert page.needs_confirmation(cutoff) is False
     assert page.first_unsettled_missing(cutoff) == newest
-    run = page.newest_run_ending_by(newest)
-    assert run is not None
-    assert run[-1].starts_at == newest - timedelta(hours=1)
+    assert page.candles()[-1].starts_at == newest - timedelta(hours=1)
 
 
 def test_one_minute_settle_window_spans_fifteen_bars() -> None:
@@ -130,3 +127,40 @@ def test_off_grid_candles_yield_no_runs() -> None:
 
     assert page.consistent is False
     assert page.runs == ()
+
+
+def test_confirmation_counts_a_bar_missing_only_when_both_responses_omit_it() -> None:
+    """A transient short response never turns a traded bar into a confirmed gap."""
+    first_missing = frozenset({_START + timedelta(hours=2), _START + timedelta(hours=6)})
+    second_missing = frozenset({_START + timedelta(hours=6), _START + timedelta(hours=7)})
+    first = split_page(_report(_START, _END, missing=first_missing), _START, _END, _HOUR)
+    second = split_page(_report(_START, _END, missing=second_missing), _START, _END, _HOUR)
+
+    merged = merge_confirmed_pages(first, second)
+
+    assert merged.consistent is True
+    assert merged.complete is False
+    assert merged.gaps() == ((_START + timedelta(hours=6), _START + timedelta(hours=7)),)
+    assert len(merged.candles()) == 9
+
+
+def test_confirmation_that_fills_every_bar_is_complete() -> None:
+    """Two responses that together carry every bar form one complete run."""
+    first = split_page(
+        _report(_START, _END, missing=frozenset({_START + timedelta(hours=4)})), _START, _END, _HOUR
+    )
+    second = split_page(_report(_START, _END), _START, _END, _HOUR)
+
+    merged = merge_confirmed_pages(first, second)
+
+    assert merged.complete is True
+    assert len(merged.runs) == 1
+
+
+def test_inconsistent_confirmation_fails_closed() -> None:
+    """An inconsistent re-fetch yields an inconsistent page; nothing is concluded from it."""
+    first = split_page(_report(_START, _END), _START, _END, _HOUR)
+    forged = split_page(replace(_report(_START, _END), complete=False), _START, _END, _HOUR)
+
+    assert merge_confirmed_pages(first, forged).consistent is False
+    assert merge_confirmed_pages(forged, first).complete is True

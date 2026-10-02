@@ -28,6 +28,7 @@ BacktestAssumptionKey = Literal[
     "multi_instrument",
     "pyramiding",
     "queue_position",
+    "no_trade_bars",
 ]
 
 
@@ -173,6 +174,17 @@ def backtest_model_description() -> BacktestModelDescription:
                 detail=(
                     "A touched limit is assumed to fill completely. Real resting orders can "
                     "miss or partially fill when the price only touches them."
+                ),
+            ),
+            BacktestModelAssumption(
+                key="no_trade_bars",
+                label="No-trade bars are flat",
+                detail=(
+                    "Coinbase reports no candle for an interval without trades. Datasets "
+                    "fill each confirmed no-trade interval with a flat zero-volume bar at "
+                    "the previous close (ADR 0095), and signals, fills, and stops evaluate it "
+                    "like any bar, as paper and live do. Results whose window contains such "
+                    "bars disclose synthetic_no_trade_bars."
                 ),
             ),
         ),
