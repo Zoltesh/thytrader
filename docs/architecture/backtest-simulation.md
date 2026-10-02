@@ -121,7 +121,9 @@ Entries are sized at the limit price from the signal bar's ATR: stop distance
 `limit + distance * take_profit.multiple` (`-` for shorts), or no target when
 `take_profit` is `{"kind": "none"}`. Risk quantity
 `cash * risk_fraction / distance` is bounded by `max_quote_notional`, portfolio exposure
-fraction, available quote cash including the maker fee, and `min_quote_notional`. A
+fraction, available quote cash including the maker fee (less a one-part-per-trillion headroom so a
+cash-capped entry always funds at fill; [ADR 0083 amendment 2026-10-02](../decisions/0083-unified-backtest-model.md)),
+and `min_quote_notional`. A
 non-positive stop distance, a non-positive stop or target, or an unavailable minimum notional
 skips the entry **with a named reason** (`stop_distance_not_positive`, `stop_not_positive`,
 `target_not_positive`, `notional_below_minimum`, `insufficient_cash`) from the same

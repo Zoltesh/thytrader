@@ -108,6 +108,9 @@ _SIMULATION_CONTEXT = Context(
     traps=[InvalidOperation, DivisionByZero, Overflow],
 )
 
+_CASH_CAP_HEADROOM = Decimal("1e-12")
+"""Fraction of fee-adjusted cash a cash-capped entry leaves unspent, so it always funds."""
+
 ExitReason = Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"]
 PositionSide = Literal["long", "short"]
 
@@ -800,12 +803,19 @@ def _bounded_notional(
     limit_price: Decimal,
     maker_fee_rate: Decimal,
 ) -> _SizedNotional | EntrySkipReason:
-    """Return ATR-risk notional bounded by strategy, exposure, and cash limits, if tradable."""
+    """Return ATR-risk notional bounded by strategy, exposure, and cash limits, if tradable.
+
+    The cash bound keeps ``_CASH_CAP_HEADROOM`` back from ``cash / (1 + maker fee)``. The
+    fill re-derives notional from ``quantity = notional / price``, so sizing to exactly
+    that bound left funding to last-digit rounding, and about a third of cash-capped
+    entries were refused at fill. Live sizing rounds down to venue increments for the same
+    reason.
+    """
     risk_quantity = cash * Decimal(strategy.sizing.risk_fraction) / stop_distance
     maximum_notional = min(
         Decimal(strategy.sizing.max_quote_notional),
         cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
-        cash / (Decimal("1") + maker_fee_rate),
+        cash / (Decimal("1") + maker_fee_rate) * (Decimal("1") - _CASH_CAP_HEADROOM),
     )
     requested = risk_quantity * limit_price
     notional = min(requested, maximum_notional)

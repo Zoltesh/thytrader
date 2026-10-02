@@ -130,3 +130,27 @@ Migration `0050` deletes every research row computed under the retired take-prof
 Those rows carried the retired validity code and failed reverification, which made the bounded
 backtest list answer 503. The ops contract moves to `thytrader-ops-contract-v43` (expected schema
 revision `0050`).
+
+## Amendment (2026-10-02): cash-capped entries always fund at fill
+
+An entry whose ATR-risk size exceeds the available quote cash is clamped to
+`cash / (1 + maker_fee_rate)`. The fill then re-derives notional from
+`quantity = notional / limit_price`, and refuses a fill that `notional + fee` would overdraw.
+At exactly that bound, the last digit of the Decimal division decided the outcome. About a third
+of cash-capped entries were refused at fill and silently never traded, against the documented
+meaning of `entries_refused_at_fill` (shared cash spent by another book).
+
+Small capital and high `risk_fraction` were hit hardest. A $16.50 portfolio sleeve on BTC-USDC
+6h refused 13 of 16 entries; the same strategy at $1,000 refused none.
+
+The cash bound now keeps a headroom of one part per trillion (`_CASH_CAP_HEADROOM`), so a
+cash-capped entry always funds. Live already rounds quantities down to venue increments. Results
+that never reach the cash cap are byte-identical: the pinned golden fingerprints are unchanged.
+
+Instead of deleting research rows (as `0050` did), the submission dedupe key gains
+`simulation_semantics` (`SIMULATION_SEMANTICS = "2026-10-02"`). A request made after this
+amendment re-simulates as a new run; it doesn't reuse a result computed under the old bound.
+Published run, trace, and result bytes are untouched and keep their meaning. There is still one
+engine, `thytrader-backtest`, and nothing user-facing shows the semantics date. Bump it with each
+future fill-rule amendment.
+

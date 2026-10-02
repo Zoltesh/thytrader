@@ -39,6 +39,15 @@ ADR 0083 defines its semantics. A future semantic change needs a superseding ADR
 identity string so earlier fingerprints never acquire new meaning.
 """
 
+SIMULATION_SEMANTICS: Final = "2026-10-02"
+"""Date of the latest amendment to the unified model's simulated fills (ADR 0083).
+
+Part of the submission dedupe key only, so a request made after an amendment re-simulates
+instead of reusing a result computed under the earlier rule. Published run, trace, and
+result bytes are untouched, so earlier fingerprints keep their meaning. This is not an
+engine version: there is one engine, and nothing user-facing shows this value.
+"""
+
 BacktestEngine = Literal["thytrader-backtest"]
 
 
